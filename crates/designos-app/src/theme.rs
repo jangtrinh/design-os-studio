@@ -18,78 +18,223 @@ pub const fn rgba(c: u32, a: u8) -> Color32 {
     Color32::from_rgba_premultiplied(r as u8, g as u8, b as u8, a)
 }
 
-// ---------------------------------------------------------------- colors (EaseUI BrainWave 2.0 Dark + DESIGN:OS)
-pub const BG: Color32 = rgb(0x121215);
-pub const BG_PRIMARY: Color32 = rgb(0x18181B);
-pub const BG_SECONDARY: Color32 = rgb(0x1E1E22);
-pub const BG_TERTIARY: Color32 = rgb(0x27272A);
-pub const BG_HOVER: Color32 = rgb(0x232329);
-pub const BG_PRESSED: Color32 = rgb(0x2E2E36);
-pub const BG_MENU: Color32 = rgb(0x18181B);
+// ---------------------------------------------------------------- colors (Studio dark chrome)
+pub const BG: Color32 = rgb(0x0A0A0A);
+pub const BG_PRIMARY: Color32 = rgb(0x0A0A0A);
+pub const BG_SECONDARY: Color32 = rgb(0x171717);
+pub const BG_TERTIARY: Color32 = rgb(0x262626);
+pub const BG_HOVER: Color32 = rgb(0x171717);
+pub const BG_PRESSED: Color32 = rgb(0x404040);
+pub const BG_MENU: Color32 = rgb(0x0A0A0A);
 // Selection is a neutral fill (P2): the selected tool, tab and row. Accent colour is for the
 // one primary action and for live state; canvas selection stays blue.
-pub const BG_SELECTED: Color32 = BG_PRESSED;
-pub const BG_SELECTED_HOVER: Color32 = rgb(0x383840);
-pub const BG_SELECTED_SECONDARY: Color32 = rgb(0x24242A);
+pub const BG_SELECTED: Color32 = rgb(0x262626);
+pub const BG_SELECTED_HOVER: Color32 = rgb(0x262626);
+pub const BG_SELECTED_SECONDARY: Color32 = rgb(0x171717);
 /// Highlight of selected text inside a text field (egui `selection.bg_fill`).
-pub const BG_TEXT_SELECTION: Color32 = rgb(0x2B1D16);
+pub const BG_TEXT_SELECTION: Color32 = rgb(0x431407);
 pub const BG_BRAND: Color32 = rgb(0xE36323);
-pub const BG_BRAND_HOVER: Color32 = rgb(0xF06D2B);
-pub const BG_BRAND_PRESSED: Color32 = rgb(0xC85217);
-pub const BG_TOOLBAR: Color32 = rgb(0x18181B);
-pub const BG_TOOLBAR_HOVER: Color32 = rgb(0x27272A);
+pub const BG_BRAND_HOVER: Color32 = rgb(0xF97316);
+pub const BG_BRAND_PRESSED: Color32 = rgb(0xEA580C);
+pub const BG_TOOLBAR: Color32 = rgb(0x0A0A0A);
+pub const BG_TOOLBAR_HOVER: Color32 = rgb(0x171717);
 pub const BG_TOOLBAR_SELECTED: Color32 = BG_SELECTED;
-pub const BG_TOOLBAR_MODE_SWITCHER: Color32 = rgb(0x27272A);
+pub const BG_TOOLBAR_MODE_SWITCHER: Color32 = rgb(0x171717);
 pub const BG_SELECTED_AREA: Color32 = rgba(0x3582FF, 0x33);
-pub const BORDER: Color32 = rgb(0x27272A);
+pub const BORDER: Color32 = rgb(0x262626);
 #[allow(dead_code)]
-pub const BORDER_SUBTLE: Color32 = rgb(0x222226);
-pub const BORDER_MENU: Color32 = rgb(0x2E2E34);
-pub const BORDER_SELECTED: Color32 = rgb(0xE36323);
-pub const BORDER_TRANSLUCENT: Color32 = rgba(0xFFFFFF, 0x16);
-pub const TEXT: Color32 = rgb(0xF4F4F5);
-pub const TEXT_SECONDARY: Color32 = rgba(0xF4F4F5, 0xB2);
-pub const TEXT_TERTIARY: Color32 = rgba(0xF4F4F5, 0x66);
-pub const TEXT_DISABLED: Color32 = rgba(0xF4F4F5, 0x55);
-pub const TEXT_BRAND: Color32 = rgb(0xFF9E66);
+pub const BORDER_SUBTLE: Color32 = rgb(0x262626);
+pub const BORDER_MENU: Color32 = rgb(0x262626);
+pub const BORDER_SELECTED: Color32 = rgb(0xFB923C);
+pub const BORDER_TRANSLUCENT: Color32 = rgba(0xFFFFFF, 0x1A);
+pub const TEXT: Color32 = rgb(0xFAFAFA);
+pub const TEXT_SECONDARY: Color32 = rgb(0xD4D4D4);
+pub const TEXT_TERTIARY: Color32 = rgb(0xA3A3A3);
+pub const TEXT_DISABLED: Color32 = rgba(0xD4D4D4, 0x80);
+pub const TEXT_BRAND: Color32 = rgb(0xF97316);
 pub const TEXT_COMPONENT: Color32 = rgb(0x22D3EE);
-pub const ICON: Color32 = rgb(0xF4F4F5);
-pub const ICON_SECONDARY: Color32 = rgba(0xF4F4F5, 0xB2);
-pub const ICON_TERTIARY: Color32 = rgba(0xF4F4F5, 0x66);
+pub const ICON: Color32 = rgb(0xFFFFFF);
+pub const ICON_SECONDARY: Color32 = rgb(0xD4D4D4);
+pub const ICON_TERTIARY: Color32 = rgb(0xA3A3A3);
 pub const ICON_SELECTED: Color32 = ICON;
-pub const DANGER: Color32 = rgb(0xFE5938);
+pub const DANGER: Color32 = rgb(0xEF4444);
 pub const INFO: Color32 = rgb(0x0D99FF);
-pub const SUCCESS: Color32 = rgb(0x14AE5C);
-pub const WARNING: Color32 = rgb(0xF59E0B);
+pub const SUCCESS: Color32 = rgb(0x22C55E);
+pub const WARNING: Color32 = rgb(0xEAB308);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BG_ELEVATED: Color32 = rgb(0x18181B);
+pub const BG_MENU_HOVER: Color32 = rgb(0x171717);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BG_MENU_HOVER: Color32 = rgb(0x27272A);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BG_DISABLED: Color32 = rgb(0x71717A);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BG_TRANSPARENT_HOVER: Color32 = rgba(0xFFFFFF, 0x0D);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const BORDER_STRONG: Color32 = rgb(0x3F3F46);
+pub const BG_TRANSPARENT_HOVER: Color32 = rgba(0xFFFFFF, 0x1A);
+pub const BORDER_STRONG: Color32 = rgb(0x404040);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
 pub const COMPONENT: Color32 = rgb(0x06B6D4);
 #[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const TEXT_ON_LIGHT_CANVAS: Color32 = rgba(0x000000, 0xE5);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const TEXT_ON_LIGHT_CANVAS_SECONDARY: Color32 = rgba(0x000000, 0x4D);
-#[allow(dead_code)] // spec colour, kept for parity with ui-spec.json
-pub const TEXT_ON_DARK_CANVAS: Color32 = rgba(0xFFFFFF, 0xE5);
-pub const SHADOW_COLOR: Color32 = rgba(0x000000, 0x66);
-pub const SHADOW_COLOR_STRONG: Color32 = rgba(0x000000, 0x8C);
+pub const TEXT_ON_LIGHT_CANVAS: Color32 = rgb(0x0A0A0A);
+pub const SHADOW_COLOR: Color32 = rgba(0x000000, 0x00);
+pub const SHADOW_COLOR_STRONG: Color32 = rgba(0x000000, 0x00);
 /// Elevation 400: drop shadow colour, 0.5px inset ring (#ffffff59 at half coverage) and top edge.
-pub const ELEVATION_400_SHADOW: Color32 = rgba(0x000000, 0x66);
-pub const ELEVATION_400_RING: Color32 = rgba(0xFFFFFF, 0x16);
-pub const ELEVATION_400_TOP: Color32 = rgba(0xFFFFFF, 0x0C);
-pub const INNER_HIGHLIGHT: Color32 = rgba(0xFFFFFF, 0x16);
-#[allow(dead_code)]
-pub const LOGO_GRADIENT_A: Color32 = rgb(0xE36323);
+pub const ELEVATION_400_SHADOW: Color32 = rgba(0x000000, 0x00);
+pub const ELEVATION_400_RING: Color32 = rgb(0x262626);
+pub const ELEVATION_400_TOP: Color32 = rgba(0xFFFFFF, 0x00);
+pub const INNER_HIGHLIGHT: Color32 = rgb(0x262626);
 pub const CHECKER_A: Color32 = rgb(0xFFFFFF);
 pub const CHECKER_B: Color32 = rgb(0xCCCCCC);
+
+// Studio dark colour roles beyond the legacy set. Constants no call site reads yet carry `#[allow(dead_code)]`;
+// the surface that first uses one removes the attribute.
+pub const BG_SECONDARY_HOVER: Color32 = rgb(0x262626);
+#[allow(dead_code)]
+pub const TEXT_SECONDARY_HOVER: Color32 = rgb(0xE5E5E5);
+#[allow(dead_code)]
+pub const TEXT_TERTIARY_HOVER: Color32 = rgb(0xD4D4D4);
+#[allow(dead_code)]
+pub const TEXT_QUATERNARY: Color32 = rgb(0xA3A3A3);
+#[allow(dead_code)]
+pub const TEXT_PLACEHOLDER: Color32 = rgb(0x737373);
+#[allow(dead_code)]
+pub const ICON_QUATERNARY: Color32 = rgb(0x737373);
+#[allow(dead_code)]
+pub const TEXT_ERROR: Color32 = rgb(0xF87171);
+#[allow(dead_code)]
+pub const TEXT_WARNING: Color32 = rgb(0xFACC15);
+#[allow(dead_code)]
+pub const TEXT_SUCCESS: Color32 = rgb(0x4ADE80);
+#[allow(dead_code)]
+pub const TEXT_ON_BRAND: Color32 = rgb(0x0A0A0A);
+#[allow(dead_code)]
+pub const FOCUS_RING: Color32 = rgb(0xF97316);
+#[allow(dead_code)]
+pub const BG_ERROR_SOLID: Color32 = rgb(0xDC2626);
+#[allow(dead_code)]
+pub const TEXT_WHITE: Color32 = rgb(0xFFFFFF);
+#[allow(dead_code)]
+pub const ICON_BRAND_PRIMARY: Color32 = rgb(0xF97316);
+#[allow(dead_code)]
+pub const ICON_SECONDARY_HOVER: Color32 = rgb(0xE5E5E5);
+#[allow(dead_code)]
+pub const ICON_QUATERNARY_HOVER: Color32 = rgb(0xA3A3A3);
+#[allow(dead_code)]
+pub const ICON_WHITE: Color32 = rgb(0xFFFFFF);
+#[allow(dead_code)]
+pub const BG_PRIMARY_ALT: Color32 = rgb(0x171717);
+#[allow(dead_code)]
+pub const BG_PRIMARY_SOLID: Color32 = rgb(0x262626);
+#[allow(dead_code)]
+pub const BG_ERROR_SOLID_HOVER: Color32 = rgb(0xB91C1C);
+#[allow(dead_code)]
+pub const UTILITY_NEUTRAL_50: Color32 = rgb(0x171717);
+#[allow(dead_code)]
+pub const UTILITY_NEUTRAL_200: Color32 = rgb(0x404040);
+#[allow(dead_code)]
+pub const UTILITY_NEUTRAL_700: Color32 = rgb(0xD4D4D4);
+#[allow(dead_code)]
+pub const BG_SUCCESS_PRIMARY: Color32 = rgb(0x052E16);
+#[allow(dead_code)]
+pub const BG_WARNING_PRIMARY: Color32 = rgb(0x422006);
+#[allow(dead_code)]
+pub const BG_ERROR_PRIMARY: Color32 = rgb(0x450A0A);
+#[allow(dead_code)]
+pub const UTILITY_GREEN_200: Color32 = rgb(0x166534);
+#[allow(dead_code)]
+pub const UTILITY_YELLOW_200: Color32 = rgb(0x854D0E);
+#[allow(dead_code)]
+pub const UTILITY_RED_200: Color32 = rgb(0x991B1B);
+#[allow(dead_code)]
+pub const UTILITY_GREEN_700: Color32 = rgb(0x86EFAC);
+#[allow(dead_code)]
+pub const UTILITY_YELLOW_700: Color32 = rgb(0xFDE047);
+#[allow(dead_code)]
+pub const UTILITY_RED_700: Color32 = rgb(0xFCA5A5);
+#[allow(dead_code)]
+pub const BG_OVERLAY: Color32 = rgba(0x262626, 0xB3);
+#[allow(dead_code)]
+pub const PROVIDER_CLAUDE: Color32 = rgb(0xD97757);
+#[allow(dead_code)]
+pub const PROVIDER_CODEX: Color32 = rgb(0xFAFAFA);
+#[allow(dead_code)]
+pub const PROVIDER_GROK: Color32 = rgb(0xE5E5E5);
+#[allow(dead_code)]
+pub const PROVIDER_GEMINI: Color32 = rgb(0x60A5FA);
+#[allow(dead_code)]
+pub const BG_ERROR_SOLID_PRESSED: Color32 = rgb(0x991B1B);
+#[allow(dead_code)]
+pub const UTILITY_BLUE_50: Color32 = rgb(0x172554);
+#[allow(dead_code)]
+pub const UTILITY_BLUE_600: Color32 = rgb(0x60A5FA);
+#[allow(dead_code)]
+pub const UTILITY_AMBER_50: Color32 = rgb(0x451A03);
+#[allow(dead_code)]
+pub const UTILITY_AMBER_600: Color32 = rgb(0xFBBF24);
+#[allow(dead_code)]
+pub const UTILITY_GREEN_50: Color32 = rgb(0x052E16);
+#[allow(dead_code)]
+pub const UTILITY_GREEN_600: Color32 = rgb(0x4ADE80);
+#[allow(dead_code)]
+pub const UTILITY_ORANGE_50: Color32 = rgb(0x431407);
+#[allow(dead_code)]
+pub const UTILITY_ORANGE_600: Color32 = rgb(0xFB923C);
+#[allow(dead_code)]
+pub const DEV_READY_HOVER: Color32 = rgb(0x30B870);
+#[allow(dead_code)]
+pub const HUD_POINTER_FILL: Color32 = rgb(0x111216);
+#[allow(dead_code)]
+pub const PLAYGROUND_GRID_DOT: Color32 = rgba(0xFAFAFA, 0x12);
+#[allow(dead_code)]
+pub const SWATCH_PLACEHOLDER: Color32 = rgb(0x404040);
+#[allow(dead_code)]
+pub const TYPE_PREVIEW_BASELINE: Color32 = rgba(0x0D99FF, 0x6E);
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_FILL: Color32 = CANVAS_HANDLE_FILL;
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_RING: Color32 = rgba(0x000000, 0x4D);
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_CASING: Color32 = rgba(0x000000, 0x66);
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_AXIS: Color32 = rgba(0xFFFFFF, 0xB2);
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_STOP_IDLE: Color32 = rgba(0xFFFFFF, 0xCC);
+#[allow(dead_code)]
+pub const CONTENT_MARK_SHADOW: Color32 = rgba(0x000000, 0x6E);
+#[allow(dead_code)]
+pub const CONTENT_MARK_LIGHT: Color32 = rgba(0xFFFFFF, 0xDC);
+#[allow(dead_code)]
+pub const READER_LIGHT_BG_PAGE: Color32 = rgb(0xFAFAFA);
+#[allow(dead_code)]
+pub const READER_LIGHT_DOC_SHEET: Color32 = rgb(0xFFFFFF);
+#[allow(dead_code)]
+pub const READER_LIGHT_SURFACE: Color32 = rgb(0xFFFFFF);
+#[allow(dead_code)]
+pub const READER_LIGHT_SURFACE_2: Color32 = rgb(0xF5F5F5);
+#[allow(dead_code)]
+pub const READER_LIGHT_SURFACE_3: Color32 = rgb(0xFAFAFA);
+#[allow(dead_code)]
+pub const READER_LIGHT_CODE_BG: Color32 = rgb(0xFAFAFA);
+#[allow(dead_code)]
+pub const READER_LIGHT_BORDER: Color32 = rgb(0xE5E5E5);
+#[allow(dead_code)]
+pub const READER_LIGHT_HAIRLINE: Color32 = rgb(0xF5F5F5);
+#[allow(dead_code)]
+pub const READER_LIGHT_TEXT: Color32 = rgb(0x171717);
+#[allow(dead_code)]
+pub const READER_LIGHT_TEXT_MUTED: Color32 = rgb(0x404040);
+#[allow(dead_code)]
+pub const READER_LIGHT_TEXT_SUBTLE: Color32 = rgb(0x525252);
+#[allow(dead_code)]
+pub const READER_LIGHT_DOT_OK: Color32 = rgb(0x16A34A);
+#[allow(dead_code)]
+pub const READER_LIGHT_DOT_WARN: Color32 = rgb(0xCA8A04);
+#[allow(dead_code)]
+pub const READER_LIGHT_DOT_NEUTRAL: Color32 = rgb(0xA3A3A3);
+#[allow(dead_code)]
+pub const READER_LIGHT_HIGHLIGHT: Color32 = rgb(0xFEFCE8);
+#[allow(dead_code)]
+pub const FOCUS_RING_ERROR: Color32 = rgb(0xEF4444);
+#[allow(dead_code)]
+pub const BORDER_ERROR_SUBTLE: Color32 = rgb(0xEF4444);
+#[allow(dead_code)]
+pub const BORDER_ERROR: Color32 = rgb(0xF87171);
+#[allow(dead_code)]
+pub const TEXT_ERROR_HOVER: Color32 = rgb(0xFCA5A5);
 
 // canvas overlays (EaseUI BrainWave Primary Blue #3582FF & Cyan #06B6D4)
 pub const CANVAS_SELECTION: Color32 = rgb(0x3582FF);
@@ -109,7 +254,7 @@ pub const AGENT_2: Color32 = rgb(0x14AE5C);
 pub const AGENT_3: Color32 = rgb(0xEE46BC);
 pub const AGENT_4: Color32 = rgb(0x38BDF8);
 pub const AGENT_COLORS: [Color32; 4] = [AGENT_1, AGENT_2, AGENT_3, AGENT_4];
-pub const AGENT_LABEL_TEXT: Color32 = rgb(0x09090B);
+pub const AGENT_LABEL_TEXT: Color32 = rgb(0x0A0A0A);
 pub const LIGHT_BG_THRESHOLD: f32 = 0.5;
 
 // ---------------------------------------------------------------- fonts
@@ -445,7 +590,7 @@ pub const MENU_CHEVRON_PAD: f32 = 8.0;
 pub const MENU_SEP_MARGIN: f32 = 8.0;
 /// Space kept between the label and a right-aligned shortcut / chevron.
 pub const MENU_LABEL_GAP: f32 = 16.0;
-pub const MENU_SHORTCUT_HIGHLIGHT: Color32 = rgba(0xFFFFFF, 0xCC);
+pub const MENU_SHORTCUT_HIGHLIGHT: Color32 = rgb(0xE5E5E5);
 pub const MENU_ICON_SIZE: f32 = 16.0;
 pub const MENU_CHEVRON_SIZE: f32 = 12.0;
 /// Submenus overlap their parent by this much horizontally.
@@ -560,14 +705,14 @@ pub const NUDGE_BIG: f32 = 10.0;
 // ---------------------------------------------------------------- dev mode
 /// Syntax colours of the Inspect code blocks.
 pub const SYNTAX_PLAIN: Color32 = TEXT;
-pub const SYNTAX_PROPERTY: Color32 = rgb(0x7CC4F8);
-pub const SYNTAX_KEYWORD: Color32 = rgb(0xC792EA);
-pub const SYNTAX_STRING: Color32 = rgb(0x9CD67D);
-pub const SYNTAX_NUMBER: Color32 = rgb(0xF2A365);
-pub const SYNTAX_TYPE: Color32 = rgb(0xFFCB6B);
-pub const SYNTAX_FUNCTION: Color32 = rgb(0x82AAFF);
-pub const SYNTAX_COMMENT: Color32 = rgb(0x8A8A8A);
-pub const SYNTAX_PUNCT: Color32 = rgb(0xB3B3B3);
+pub const SYNTAX_PROPERTY: Color32 = rgb(0x7DD3FC);
+pub const SYNTAX_KEYWORD: Color32 = rgb(0xF472B6);
+pub const SYNTAX_STRING: Color32 = rgb(0x4ADE80);
+pub const SYNTAX_NUMBER: Color32 = rgb(0xFB923C);
+pub const SYNTAX_TYPE: Color32 = rgb(0xFACC15);
+pub const SYNTAX_FUNCTION: Color32 = rgb(0x60A5FA);
+pub const SYNTAX_COMMENT: Color32 = rgb(0xA3A3A3);
+pub const SYNTAX_PUNCT: Color32 = rgb(0xD4D4D4);
 /// Dev status pills: Ready for dev, Completed, Changed.
 pub const DEV_READY: Color32 = rgb(0x14AE5C);
 pub const DEV_COMPLETED: Color32 = rgb(0x06B6D4);
@@ -600,7 +745,7 @@ pub const PROTO_FLAG_HEIGHT: f32 = 20.0;
 pub const PROTO_FLAG_GAP: f32 = 4.0;
 pub const PROTO_ROW_HEIGHT: f32 = 44.0;
 pub const PROTO_POPOVER_WIDTH: f32 = 240.0;
-pub const PRESENT_BG: Color32 = rgb(0x09090B);
+pub const PRESENT_BG: Color32 = rgb(0x0A0A0A);
 pub const PRESENT_BAR_HEIGHT: f32 = 48.0;
 pub const PRESENT_PADDING: f32 = 32.0;
 /// Thickness of the plain device bezel drawn around the device screen when presenting.
@@ -629,9 +774,11 @@ pub fn apply(ctx: &egui::Context) {
     *v = egui::Visuals::dark();
     v.panel_fill = BG;
     v.window_fill = BG_MENU;
-    v.extreme_bg_color = BG_SECONDARY;
+    v.extreme_bg_color = BG;
     v.faint_bg_color = BG_SECONDARY;
     v.override_text_color = None;
+    v.window_shadow = egui::Shadow::NONE;
+    v.popup_shadow = egui::Shadow::NONE;
     v.window_stroke = egui::Stroke::new(1.0, BORDER_MENU);
     v.window_corner_radius = cr(RADIUS_CONTROL);
     v.menu_corner_radius = cr(RADIUS_CONTROL);
@@ -647,8 +794,9 @@ pub fn apply(ctx: &egui::Context) {
     }
     v.widgets.inactive.bg_fill = BG_SECONDARY;
     v.widgets.inactive.weak_bg_fill = BG_SECONDARY;
-    v.widgets.hovered.bg_fill = BG_HOVER;
-    v.widgets.hovered.weak_bg_fill = BG_HOVER;
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, BORDER_STRONG);
+    v.widgets.hovered.bg_fill = BG_SECONDARY_HOVER;
+    v.widgets.hovered.weak_bg_fill = BG_SECONDARY_HOVER;
     v.widgets.active.bg_fill = BG_PRESSED;
     v.widgets.active.weak_bg_fill = BG_PRESSED;
     style.spacing.item_spacing = egui::vec2(0.0, 0.0);
@@ -706,7 +854,7 @@ pub const HOME_CARD_H: f32 = HOME_THUMB_H + 58.0;
 pub const HOME_CARD_GAP: f32 = 24.0;
 pub const HOME_FOLDER_H: f32 = 48.0;
 pub const HOME_LIST_ROW_H: f32 = 44.0;
-pub const HOME_THUMB_BG: Color32 = rgb(0x3A3A3A);
+pub const HOME_THUMB_BG: Color32 = rgb(0x262626);
 // ---------------------------------------------------------------- variables view
 // Measured on the Figma UI3 local-variables captures (800x600, dpr 1).
 /// Sidebar content width; the 1px border follows it in the full view.
@@ -728,7 +876,7 @@ pub const VAR_MODE_MAX: f32 = 280.0;
 pub const VAR_ADD_COL: f32 = 39.0;
 pub const VAR_BOTTOM_H: f32 = 41.0;
 pub const VAR_SCROLL_H: f32 = 11.0;
-pub const VAR_SCROLL_THUMB: Color32 = rgb(0x707070);
+pub const VAR_SCROLL_THUMB: Color32 = rgb(0x737373);
 pub const VAR_SEARCH_W: f32 = 174.0;
 pub const VAR_FILTER_W: f32 = 25.0;
 pub const VAR_SIDE_ROW: f32 = CONTROL_TOOL;
@@ -916,5 +1064,278 @@ mod tests {
     fn the_monospace_role_is_the_bundled_roboto_mono() {
         assert_eq!(UI_MONO_FAMILY, "Roboto Mono");
         assert!(designos_fonts::bundled().iter().any(|a| a.family == UI_MONO_FAMILY && !a.italic));
+    }
+
+    fn srgb_channel_lum(c: u8) -> f64 {
+        let x = c as f64 / 255.0;
+        if x <= 0.04045 {
+            x / 12.92
+        } else {
+            ((x + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn relative_luminance(c: Color32) -> f64 {
+        let [r, g, b, _] = c.to_srgba_unmultiplied();
+        0.2126 * srgb_channel_lum(r) + 0.7152 * srgb_channel_lum(g) + 0.0722 * srgb_channel_lum(b)
+    }
+
+    fn composite_over(fg: Color32, bg: Color32) -> Color32 {
+        let [fr, fg_c, fb, fa] = fg.to_srgba_unmultiplied();
+        if fa == 255 {
+            return fg;
+        }
+        let [br, bg_c, bb, _] = bg.to_srgba_unmultiplied();
+        let a = fa as f64 / 255.0;
+        let blend = |f: u8, b: u8| -> u8 { (f as f64 * a + b as f64 * (1.0 - a)).round() as u8 };
+        Color32::from_rgb(blend(fr, br), blend(fg_c, bg_c), blend(fb, bb))
+    }
+
+    fn wcag_contrast(fg: Color32, bg: Color32) -> f64 {
+        let eff_bg = composite_over(bg, BG);
+        let eff_fg = composite_over(fg, eff_bg);
+        let l1 = relative_luminance(eff_fg);
+        let l2 = relative_luminance(eff_bg);
+        let (hi, lo) = if l1 >= l2 { (l1, l2) } else { (l2, l1) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// Hue in degrees and HSL saturation of a colour.
+    fn rgb_hue_sat(c: Color32) -> (f64, f64) {
+        let [r, g, b, a] = c.to_srgba_unmultiplied();
+        if a == 0 {
+            return (0.0, 0.0);
+        }
+        let (rf, gf, bf) = (r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0);
+        let max = rf.max(gf).max(bf);
+        let min = rf.min(gf).min(bf);
+        let d = max - min;
+        if d <= 1e-6 || max <= 1e-6 {
+            return (0.0, 0.0);
+        }
+        // HSL saturation (contract: HSL, not HSV; pale purples such as #E9D5FF are S 1.00 in HSL, 0.16 in HSV).
+        let sat = d / (1.0 - (max + min - 1.0).abs());
+        let mut hue = if (max - rf).abs() < 1e-6 {
+            60.0 * (((gf - bf) / d) % 6.0)
+        } else if (max - gf).abs() < 1e-6 {
+            60.0 * (((bf - rf) / d) + 2.0)
+        } else {
+            60.0 * (((rf - gf) / d) + 4.0)
+        };
+        if hue < 0.0 {
+            hue += 360.0;
+        }
+        (hue, sat)
+    }
+
+    /// Colours written as literals in one `pub const NAME: Color32 = …;` / `[Color32; N]` line of `src`
+    /// (`rgb(0x…)`, `rgba(0x…, …)`, `from_rgba_premultiplied(r, g, b, a)`). An alias carries none: its target is listed itself.
+    fn declared_colour_literals(src: &str) -> Vec<(String, Vec<Color32>)> {
+        let mut out = Vec::new();
+        for line in src.lines() {
+            let Some(rest) = line.strip_prefix("pub const ") else { continue };
+            let Some((name, rhs)) = rest.split_once(": ") else { continue };
+            let Some((ty, expr)) = rhs.split_once(" = ") else { continue };
+            if ty != "Color32" && !ty.starts_with("[Color32;") {
+                continue;
+            }
+            let mut colours = Vec::new();
+            let mut tail = expr;
+            while let Some(i) = tail.find("(0x") {
+                let digits = &tail[i + 3..];
+                if let Some(hex) = digits.get(..6).and_then(|h| u32::from_str_radix(h, 16).ok()) {
+                    colours.push(Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8));
+                }
+                tail = digits;
+            }
+            if let Some(i) = expr.find("from_rgba_premultiplied(") {
+                let args = &expr[i + "from_rgba_premultiplied(".len()..];
+                let nums: Vec<u8> = args.split(')').next().unwrap_or("").split(',').filter_map(|n| n.trim().parse().ok()).collect();
+                if let [r, g, b, a] = nums[..] {
+                    colours.push(Color32::from_rgba_premultiplied(r, g, b, a));
+                }
+            }
+            out.push((name.to_string(), colours));
+        }
+        out
+    }
+
+    /// Chrome colour constants of `src` inside the Purple Ban band (hue 255-300 deg, HSL saturation above 0.25).
+    /// `BOARD_*` is board content and exempt.
+    fn purple_constants(src: &str) -> Vec<String> {
+        let mut hits = Vec::new();
+        for (name, colours) in declared_colour_literals(src) {
+            if name.starts_with("BOARD_") {
+                continue;
+            }
+            for col in colours {
+                let (hue, sat) = rgb_hue_sat(col);
+                if (255.0..=300.0).contains(&hue) && sat > 0.25 {
+                    hits.push(format!("{name} ({col:?}) hue={hue:.1} sat={sat:.2}"));
+                }
+            }
+        }
+        hits
+    }
+
+    #[test]
+    fn no_chrome_colour_is_purple() {
+        // The list is read from this file's own source above the test module, so a new constant cannot escape the scan.
+        let src = include_str!("theme.rs");
+        let decls = &src[..src.find("#[cfg(test)]").expect("test module marker")];
+        let declared = declared_colour_literals(decls);
+        let names: Vec<&str> = declared.iter().map(|(n, _)| n.as_str()).collect();
+        for sentinel in ["BG", "SYNTAX_KEYWORD", "AVATAR_COLORS", "TEXT_SELECTION", "READER_LIGHT_HIGHLIGHT"] {
+            assert!(names.contains(&sentinel), "scan did not reach {sentinel}");
+        }
+        assert!(declared.len() > 150, "scan found only {} colour constants", declared.len());
+        let hits = purple_constants(decls);
+        assert!(hits.is_empty(), "Purple Ban: {hits:?}");
+    }
+
+    #[test]
+    fn purple_constants_flags_a_scalar_an_array_and_a_pale_purple_but_not_board_content() {
+        // Declarations are assembled from parts so the Python parity gate, which reads this file, never sees them.
+        let decl = |name: &str, ty: &str, expr: &str| format!("pub const {name}: {ty} = {expr};\n");
+        let fixture = [
+            decl("OK", "Color32", "rgb(0x0A0A0A)"),
+            decl("SCALAR", "Color32", "rgb(0xC792EA)"),
+            decl("PALE", "Color32", "rgba(0xE9D5FF, 0x80)"),
+            decl("WITH_ARRAY", "[Color32; 2]", "[rgb(0x0A0A0A), rgb(0x8B5CF6)]"),
+            decl("BOARD_DOT", "Color32", "rgb(0xD5C3FF)"),
+            decl("ALIAS", "Color32", "SCALAR"),
+        ]
+        .concat();
+        let hits = purple_constants(&fixture);
+        let hit_names: Vec<&str> = hits.iter().map(|h| h.split(' ').next().unwrap_or("")).collect();
+        assert_eq!(hit_names, ["SCALAR", "PALE", "WITH_ARRAY"], "{hits:?}");
+    }
+
+    #[test]
+    fn purple_scan_sees_pale_purples_that_an_hsv_scan_misses() {
+        // #E9D5FF is HSL saturation 1.00 but HSV saturation 0.16: a scan on HSV lets it through.
+        for hex in [0xE9D5FF_u32, 0xD5C3FF, 0xF3E8FF] {
+            let c = Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+            let (hue, sat) = rgb_hue_sat(c);
+            assert!((255.0..=300.0).contains(&hue) && sat > 0.25, "{hex:06X} slips past the Purple Ban scan: hue={hue:.1}, sat={sat:.2}");
+        }
+    }
+
+    #[test]
+    fn brand_label_passes_aa() {
+        for (bg_name, bg) in [("BG_BRAND", BG_BRAND), ("BG_BRAND_HOVER", BG_BRAND_HOVER), ("BG_BRAND_PRESSED", BG_BRAND_PRESSED)] {
+            let ratio = wcag_contrast(TEXT_ON_BRAND, bg);
+            assert!(ratio >= 4.5, "TEXT_ON_BRAND on {bg_name} fails AA: {ratio:.2}:1 < 4.5:1");
+        }
+    }
+
+    /// `BG_OVERLAY` drawn over white, straight alpha, the conservative C-1.40 / C-1.72 backdrop.
+    fn bg_overlay_on_white() -> Color32 {
+        assert_eq!(BG_OVERLAY, rgba(0x262626, 0xB3));
+        let (h, a) = (0x26u32, 0xB3u32);
+        let ch = (h as f64 * a as f64 / 255.0 + 255.0 * (255 - a) as f64 / 255.0).round() as u8;
+        Color32::from_rgb(ch, ch, ch)
+    }
+
+    fn opaque_hex(c: Color32) -> u32 {
+        let [r, g, b, a] = c.to_srgba_unmultiplied();
+        assert_eq!(a, 255, "{c:?} is translucent");
+        ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+    }
+
+    #[test]
+    fn chrome_contrast_pairs() {
+        let star_bg = bg_overlay_on_white();
+        let pairs = [
+            ("C-1.1", TEXT, BG, 4.5),
+            ("C-1.2", TEXT, BG_SECONDARY, 4.5),
+            ("C-1.3", TEXT, BG_SELECTED, 4.5),
+            ("C-1.4", TEXT, BG_PRESSED, 4.5),
+            ("C-1.5", TEXT_SECONDARY, BG, 4.5),
+            ("C-1.6", TEXT_SECONDARY, BG_PRESSED, 4.5),
+            ("C-1.7", TEXT_TERTIARY, BG, 4.5),
+            ("C-1.8", TEXT_TERTIARY, BG_SECONDARY, 4.5),
+            ("C-1.9", TEXT_TERTIARY, BG_SELECTED, 4.5),
+            ("C-1.10", TEXT_BRAND, BG, 4.5),
+            ("C-1.11", TEXT_BRAND, BG_SECONDARY, 4.5),
+            ("C-1.12", TEXT_ERROR, BG, 4.5),
+            ("C-1.13", TEXT_ERROR, BG_SECONDARY, 4.5),
+            ("C-1.14", TEXT_ON_BRAND, BG_BRAND, 4.5),
+            ("C-1.15", TEXT_ON_BRAND, BG_BRAND_HOVER, 4.5),
+            ("C-1.16", TEXT_ON_BRAND, BG_BRAND_PRESSED, 4.5),
+            ("C-1.17", TEXT_WHITE, BG_ERROR_SOLID, 4.5),
+            ("C-1.18", TEXT_WHITE, BG_ERROR_SOLID_HOVER, 4.5),
+            ("C-1.19", TEXT, BG_PRIMARY_SOLID, 4.5),
+            ("C-1.20", TEXT_SECONDARY, BG_PRIMARY_SOLID, 4.5),
+            ("C-1.21", UTILITY_GREEN_700, BG_SUCCESS_PRIMARY, 4.5),
+            ("C-1.22", UTILITY_YELLOW_700, BG_WARNING_PRIMARY, 4.5),
+            ("C-1.23", UTILITY_RED_700, BG_ERROR_PRIMARY, 4.5),
+            ("C-1.24", UTILITY_NEUTRAL_700, UTILITY_NEUTRAL_50, 4.5),
+            ("C-1.27", ICON_TERTIARY, BG_SELECTED, 3.0),
+            ("C-1.28", ICON_QUATERNARY, BG_SECONDARY, 3.0),
+            ("C-1.29", FOCUS_RING, BG, 3.0),
+            ("C-1.30", BORDER_SELECTED, BG_SECONDARY, 3.0),
+            ("C-1.31", UTILITY_BLUE_600, UTILITY_BLUE_50, 4.5),
+            ("C-1.32", UTILITY_AMBER_600, UTILITY_AMBER_50, 4.5),
+            ("C-1.33", UTILITY_GREEN_600, UTILITY_GREEN_50, 4.5),
+            ("C-1.34", UTILITY_ORANGE_600, UTILITY_ORANGE_50, 4.5),
+            ("C-1.35", TEXT_ON_BRAND, DEV_READY, 4.5),
+            ("C-1.36", DEV_READY, BG, 4.5),
+            ("C-1.37", BORDER_SELECTED, BG, 3.0),
+            ("C-1.38", BORDER_SELECTED, HOME_THUMB_BG, 3.0),
+            ("C-1.39", TEXT_SECONDARY, BG_SECONDARY_HOVER, 4.5),
+            ("C-1.40", TEXT_WARNING, star_bg, 3.0),
+            ("C-1.41", AGENT_LABEL_TEXT, AGENT_1, 4.5),
+            ("C-1.42", AGENT_LABEL_TEXT, AGENT_2, 4.5),
+            ("C-1.43", AGENT_LABEL_TEXT, AGENT_3, 4.5),
+            ("C-1.44", AGENT_LABEL_TEXT, AGENT_4, 4.5),
+            ("C-1.45", TEXT_QUATERNARY, BG_PRIMARY, 4.5),
+            ("C-1.46", STATUS_INFO_TEXT, STATUS_INFO_BG, 4.5),
+            ("C-1.47", PROVIDER_CLAUDE, BG_PRIMARY, 3.0),
+            ("C-1.48", PROVIDER_CODEX, BG_PRIMARY, 3.0),
+            ("C-1.49", PROVIDER_GROK, BG_PRIMARY, 3.0),
+            ("C-1.50", PROVIDER_GEMINI, BG_PRIMARY, 3.0),
+            ("C-1.51", ICON_TERTIARY, BG_PRIMARY, 3.0),
+            ("C-1.52", TEXT_SECONDARY_HOVER, BG_MENU_HOVER, 4.5),
+            ("C-1.53", TEXT_QUATERNARY, BG_MENU, 4.5),
+            ("C-1.54", TEXT, BG_PRIMARY_ALT, 4.5),
+            ("C-1.55", TEXT_TERTIARY, BG_MENU, 4.5),
+            ("C-1.56", TEXT_ON_LIGHT_CANVAS, CANVAS_COMPONENT, 4.5),
+            ("C-1.57", TEXT_SECONDARY, BG_MENU, 4.5),
+            ("C-1.58", TEXT_TERTIARY, BG_SECONDARY_HOVER, 4.5),
+            ("C-1.59", WARNING, BG_MENU, 3.0),
+            ("C-1.60", DANGER, BG_MENU, 3.0),
+            ("C-1.61", INFO, BG_MENU, 3.0),
+            ("C-1.62", SUCCESS, BG_MENU, 3.0),
+            ("C-1.63", TEXT_ON_BRAND, DEV_READY_HOVER, 4.5),
+            ("C-1.64", READER_LIGHT_TEXT_SUBTLE, READER_LIGHT_SURFACE_2, 4.5),
+            ("C-1.65", TEXT_ERROR_HOVER, BG_ERROR_PRIMARY, 4.5),
+            ("C-1.66", BORDER_ERROR, BG_ERROR_PRIMARY, 3.0),
+            ("C-1.67", BORDER_ERROR_SUBTLE, BG, 3.0),
+            ("C-1.68", BORDER_ERROR_SUBTLE, BG_ERROR_PRIMARY, 3.0),
+            ("C-1.69", FOCUS_RING_ERROR, BG, 3.0),
+            ("C-1.70", TEXT_ERROR, BG_SECONDARY, 4.5),
+            ("C-1.71", TEXT_ERROR, BG_SELECTED, 4.5),
+            ("C-1.72", ICON_SECONDARY, star_bg, 3.0),
+        ];
+        assert_eq!(pairs.len(), 70, "C-1 pass rows");
+        for (id, fg, bg, min) in pairs {
+            let ratio = wcag_contrast(fg, bg);
+            assert!(ratio >= min, "{id} contrast {ratio:.2}:1 < min {min:.1}:1 ({fg:?} on {bg:?})");
+        }
+        // Floor rows are exceptions, not passes: exact hex and a floor, never a 4.5 pass.
+        let floors = [
+            ("E-1.a", TEXT_PLACEHOLDER, BG, 3.0, 0x737373, 0x0A0A0A),
+            ("E-1.b", TEXT_PLACEHOLDER, BG_SECONDARY, 3.0, 0x737373, 0x171717),
+            ("E-2.a", BORDER_STRONG, BG, 1.7, 0x404040, 0x0A0A0A),
+            ("E-2.b", BORDER_STRONG, BG_SECONDARY, 1.7, 0x404040, 0x171717),
+        ];
+        assert_eq!(floors.len(), 4);
+        for (id, fg, bg, floor, fh, bh) in floors {
+            assert_eq!(opaque_hex(fg), fh, "{id} foreground");
+            assert_eq!(opaque_hex(bg), bh, "{id} background");
+            let ratio = wcag_contrast(fg, bg);
+            assert!(ratio >= floor, "{id} {ratio:.2}:1 is under floor {floor}");
+        }
     }
 }
