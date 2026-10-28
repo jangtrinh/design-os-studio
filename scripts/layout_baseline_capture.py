@@ -380,10 +380,14 @@ def import_kit_once(
     if dry_run:
         print(f"DRY-RUN clone-kit: cp -c {kit_path} {kit_source}")
         print(
-            f"DRY-RUN import-kit: {mcp_bin if mcp_bin.is_file() else bin_path} "
+            f"DRY-RUN import-kit: {mcp_bin} "
             f"designos_open_file({kit_source}) -> designos_save_file({kit_designos})"
         )
         return kit_designos
+
+    if not mcp_bin.is_file():
+        sys.stderr.write("designos-mcp not found next to --bin: build it with -p designos-mcp\n")
+        sys.exit(1)
 
     clone_file_apfs(kit_path, kit_source)
     home_dir, lib_dir, tmp_dir, stubs_dir = prepare_run_dir(
@@ -398,63 +402,131 @@ def import_kit_once(
         f"DESIGNOS_LIBRARY={lib_dir}",
     ]
 
-    if mcp_bin.is_file():
-        reqs = [
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {},
-                    "clientInfo": {"name": "layout-baseline-capture", "version": "1.0"},
-                },
-            },
-            {
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "designos_open_file",
-                    "arguments": {"path": str(kit_source)},
-                },
-            },
-            {
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {
-                    "name": "designos_save_file",
-                    "arguments": {"path": str(kit_designos)},
-                },
-            },
-        ]
-        payload = "\n".join(json.dumps(r) for r in reqs) + "\n"
-        proc = subprocess.run(
-            ["/usr/bin/env", "-i", *env_kv, str(mcp_bin), "--workspace", str(cache_dir)],
-            input=payload,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode != 0 or not kit_designos.is_file():
-            sys.stderr.write(
-                f"ERROR: designos-mcp failed to import kit {kit_source} -> {kit_designos} (exit {proc.returncode}):\n{proc.stdout}\n{proc.stderr}\n"
-            )
-            sys.exit(1)
-        return kit_designos
-
-    _, rc, out, err = run_env_i(
-        env_kv,
-        [str(bin_path), str(kit_source), "--out", str(kit_designos), "--inspect-json"],
+    proc = subprocess.Popen(
+        ["/usr/bin/env", "-i", *env_kv, str(mcp_bin), "--workspace", str(cache_dir)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
     )
-    if rc != 0:
+    assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
+
+    def fail_mcp(reason: str) -> None:
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            proc.kill()
+        err_out = ""
+        try:
+            err_out = proc.stderr.read()
+        except Exception:
+            pass
+        if kit_designos.exists():
+            kit_designos.unlink()
+        sys.stderr.write(f"ERROR: designos-mcp failed to import kit {kit_source}: {reason}\n{err_out}")
+        sys.exit(1)
+
+    def send_msg(msg: dict[str, Any]) -> None:
+        try:
+            proc.stdin.write(json.dumps(msg) + "\n")
+            proc.stdin.flush()
+        except Exception as exc:
+            fail_mcp(f"stdin write failed: {exc}")
+
+    def recv_id(expected_id: int) -> dict[str, Any]:
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                fail_mcp(f"EOF waiting for reply id={expected_id}")
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except Exception:
+                continue
+            if msg.get("id") != expected_id:
+                continue
+            if "error" in msg and msg["error"] is not None:
+                fail_mcp(f"JSON-RPC error on id={expected_id}: {msg['error']}")
+            result = msg.get("result")
+            if isinstance(result, dict) and result.get("isError"):
+                fail_mcp(f"tool call error on id={expected_id}: {result}")
+            return msg
+
+    send_msg(
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "layout-baseline-capture", "version": "1.0"},
+            },
+        }
+    )
+    recv_id(0)
+    send_msg({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    send_msg(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "designos_open_file",
+                "arguments": {"path": str(kit_source)},
+            },
+        }
+    )
+    open_reply = recv_id(1)
+    open_result = open_reply.get("result") or {}
+    doc_info: dict[str, Any] = {}
+    if isinstance(open_result.get("structuredContent"), dict):
+        doc_info = open_result["structuredContent"]
+    else:
+        content_list = open_result.get("content") or []
+        if content_list and isinstance(content_list[0], dict):
+            try:
+                doc_info = json.loads(content_list[0].get("text") or "{}")
+            except Exception:
+                doc_info = {}
+    pages = doc_info.get("pages")
+    page_count = len(pages) if isinstance(pages, list) else 0
+    if page_count <= 1:
+        fail_mcp(f"expected > 1 pages after designos_open_file, got {page_count} page(s)")
+
+    send_msg(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "designos_save_file",
+                "arguments": {"path": str(kit_designos)},
+            },
+        }
+    )
+    recv_id(2)
+
+    try:
+        proc.stdin.close()
+    except Exception:
+        pass
+    rc = proc.wait(timeout=30)
+    if rc != 0 or not kit_designos.is_file():
+        err_out = proc.stderr.read() if proc.stderr else ""
         sys.stderr.write(
-            f"ERROR: failed to import kit {kit_source} -> {kit_designos} (exit {rc}):\n{out}\n{err}\n"
+            f"ERROR: designos-mcp failed to import kit {kit_source} -> {kit_designos} (exit {rc}):\n{err_out}\n"
         )
         sys.exit(1)
-    if not kit_designos.is_file():
-        clone_file_apfs(kit_source, kit_designos)
     return kit_designos
 
 
