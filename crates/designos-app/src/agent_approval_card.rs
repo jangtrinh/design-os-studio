@@ -154,7 +154,7 @@ pub fn paint_approval_card_for_tab(
                 "agent-approval-allow-session",
                 next_right,
                 action_r.top(),
-                "Allow for this session",
+                "Allow this session",
                 false,
             );
             next_right = session_r.left() - theme::SPACE_ROW;
@@ -436,13 +436,13 @@ mod tests {
     #[test]
     fn the_session_button_is_only_offered_for_a_modify_with_a_target() {
         let modify = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "node_id:2")], AgentPermissionMode::AskRisky);
-        assert!(modify.iter().any(|t| t == "Allow for this session"), "{modify:?}");
+        assert!(modify.iter().any(|t| t == "Allow this session"), "{modify:?}");
         assert!(modify.iter().any(|t| t == "Approve"), "{modify:?}");
         let delete = card_texts(AgentCliPreset::Claude, &[request("designos_delete_node", "node_id:3")], AgentPermissionMode::AskRisky);
-        assert!(!delete.iter().any(|t| t == "Allow for this session"), "{delete:?}");
+        assert!(!delete.iter().any(|t| t == "Allow this session"), "{delete:?}");
         assert!(delete.iter().any(|t| t == "Deny"), "{delete:?}");
         let no_target = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "")], AgentPermissionMode::Ask);
-        assert!(!no_target.iter().any(|t| t == "Allow for this session"), "{no_target:?}");
+        assert!(!no_target.iter().any(|t| t == "Allow this session"), "{no_target:?}");
     }
 
     #[test]

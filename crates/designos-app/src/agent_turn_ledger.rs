@@ -1360,7 +1360,8 @@ mod tests {
     fn turn_card_lists_auto_allow_rows() {
         let mut r = rig();
         r.run_hook("start", "claude");
-        crate::agent_permissions::append_auto_allow_row(&r.dir, "designos_get_document", "", crate::agent_permissions::AutoAllowReason::Tier, 70).unwrap();
+        crate::agent_permissions::append_auto_allow_row(&r.dir, "designos_get_document", "", crate::agent_permissions::AutoAllowReason::Tier, 70, None)
+            .unwrap();
         r.run_hook("end", "claude");
         r.deliver();
 
@@ -1372,6 +1373,24 @@ mod tests {
         assert!(!turn.has_edits());
         let painted = painted_card_lines(&mut r.app);
         assert!(painted.iter().any(|line| line.contains("designos_get_document") && line.contains("read") && line.contains("tier")), "{painted:?}");
+        assert!(!painted.iter().any(|line| line == "Keep" || line == "Revert"), "no canvas edits hide Keep/Revert: {painted:?}");
+    }
+
+    #[test]
+    fn turn_card_hides_keep_and_revert_when_the_turn_has_no_canvas_edits() {
+        let mut r = rig();
+        r.run_hook("start", "claude");
+        crate::agent_permissions::append_auto_allow_row(&r.dir, "designos_get_document", "", crate::agent_permissions::AutoAllowReason::Tier, 71, None)
+            .unwrap();
+        r.run_hook("end", "claude");
+        r.deliver();
+        let turn = r.app.terminal.active_turn_ledger().visible_turn(Instant::now()).expect("visible");
+        assert!(!turn.has_edits());
+        assert!(!turn.calls.is_empty());
+        let painted = painted_card_lines(&mut r.app);
+        assert!(painted.iter().any(|line| line.contains("designos_get_document")), "{painted:?}");
+        assert!(!painted.contains(&"Keep".to_string()), "{painted:?}");
+        assert!(!painted.contains(&"Revert".to_string()), "{painted:?}");
     }
 
     #[test]
@@ -1380,7 +1399,7 @@ mod tests {
         let hash_before = doc_hash(&r.app.doc);
         r.run_hook("start", "claude");
         let added = r.agent_create_frame("Auto Allowed Frame", 20.0, 20.0);
-        crate::agent_permissions::append_auto_allow_row(&r.dir, "designos_apply_spec", "", crate::agent_permissions::AutoAllowReason::Tier, 80).unwrap();
+        crate::agent_permissions::append_auto_allow_row(&r.dir, "designos_apply_spec", "", crate::agent_permissions::AutoAllowReason::Tier, 80, None).unwrap();
         r.run_hook("end", "claude");
         r.deliver();
 

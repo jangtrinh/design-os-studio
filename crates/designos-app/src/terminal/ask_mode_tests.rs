@@ -539,6 +539,72 @@ fn a_session_dir_change_clears_grants_and_the_next_call_asks() {
 }
 
 #[test]
+fn bind_session_on_a_library_file_with_a_held_lock_clears_grants_and_keeps_the_dir() {
+    let mut st = fresh_terminal();
+    let lib = std::env::temp_dir().join(format!("designos-1288-lib-{}", crate::live_sync_tests::unique_tab_id()));
+    let _ = std::fs::remove_dir_all(&lib);
+    std::fs::create_dir_all(&lib).expect("library root");
+    st.bind_library_file(&lib, "file-a", "win-1");
+    assert!(st.lock_owner.is_some(), "the test holds session.lock");
+    let dir = st.session_dir.clone();
+    insert_modify_grant(&mut st);
+    assert!(settle_answers(&mut st, "before-lib-rebind"), "the grant answers before the session id changes");
+    let next_id = format!("{}-other", st.session_id);
+    st.bind_session(&next_id);
+    assert_eq!(st.session_id, next_id);
+    assert_eq!(st.session_dir, dir, "a library file with a lock keeps the session dir");
+    assert!(st.session_grants.is_empty(), "binding a different session id clears grants");
+    assert!(!settle_answers(&mut st, "after-lib-rebind"), "the same modify call asks again");
+    crate::agent_permissions::remove_auto_allow_log(&dir);
+    drop_terminal(st);
+    let _ = std::fs::remove_dir_all(&lib);
+}
+
+#[test]
+fn auto_allow_rows_from_a_background_tab_stay_on_that_tab() {
+    let mut st = fresh_terminal();
+    st.spawn_tab(AgentCliPreset::Shell, None).expect("first shell");
+    st.spawn_tab(AgentCliPreset::Shell, None).expect("second shell");
+    let t0 = st.tabs[0].id as u64;
+    let t1 = st.tabs[1].id as u64;
+    crate::agent_permissions::append_auto_allow_row(
+        &st.session_dir,
+        "designos_get_document",
+        "a",
+        crate::agent_permissions::AutoAllowReason::Tier,
+        1,
+        Some(t0),
+    )
+    .unwrap();
+    crate::agent_permissions::append_auto_allow_row(
+        &st.session_dir,
+        "designos_get_document",
+        "b",
+        crate::agent_permissions::AutoAllowReason::Tier,
+        2,
+        Some(t1),
+    )
+    .unwrap();
+    st.poll_auto_allow_into_tab(0);
+    let now = std::time::Instant::now();
+    let start = crate::agent_turn_marks::TurnMarkLine {
+        v: crate::agent_turn_marks::TURN_MARK_VERSION,
+        turn_mark: crate::agent_turn_marks::TurnPhase::Start,
+        cli: Some("claude".into()),
+        patch_bytes: 0,
+    };
+    st.ledger_for_tab_mut(0).ingest_marks(std::iter::once(start.clone()), now);
+    st.ledger_for_tab_mut(1).ingest_marks(std::iter::once(start), now);
+    let a = st.ledger_for_tab(0).visible_turn(now).expect("tab 0 turn");
+    let b = st.ledger_for_tab(1).visible_turn(now).expect("tab 1 turn");
+    assert_eq!(a.calls.len(), 1);
+    assert_eq!(a.calls[0].target, "a");
+    assert_eq!(b.calls.len(), 1);
+    assert_eq!(b.calls[0].target, "b");
+    drop_terminal(st);
+}
+
+#[test]
 fn closing_one_of_several_tabs_does_not_clear_grants() {
     let mut st = fresh_terminal();
     st.spawn_tab(AgentCliPreset::Shell, None).expect("first shell");

@@ -176,15 +176,8 @@ fn compute_turn_card_height(turn: &TurnRecord) -> f32 {
             let has_toggle = turn.touched_layers.len() > MAX_PREVIEW_LAYERS;
             let total_rows = visible_rows + usize::from(has_toggle);
             let rows_h = if total_rows > 0 { total_rows as f32 * theme::CONTROL_DENSE + (total_rows.saturating_sub(1)) as f32 * theme::SPACE_ROW } else { 0.0 };
-            pad * 2.0
-                + theme::LINE_BODY
-                + theme::SPACE_FACT
-                + theme::LINE_CAPTION
-                + theme::SPACE_INLINE
-                + rows_h
-                + calls_h
-                + theme::SPACE_INLINE
-                + theme::CONTROL_STANDARD
+            let buttons_h = if turn.has_edits() { theme::SPACE_INLINE + theme::CONTROL_STANDARD } else { 0.0 };
+            pad * 2.0 + theme::LINE_BODY + theme::SPACE_FACT + theme::LINE_CAPTION + theme::SPACE_INLINE + rows_h + calls_h + buttons_h
         }
         TurnState::Kept => 0.0,
     }
@@ -373,7 +366,9 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
     let limit = if turn.expanded { total_layers } else { total_layers.min(MAX_PREVIEW_LAYERS) };
     let has_toggle = total_layers > MAX_PREVIEW_LAYERS;
     let list_top = y;
-    let buttons_top = (inner.bottom() - theme::CONTROL_STANDARD).max(list_top);
+    // No Keep/Revert row means the height omits that gap, so the anchor sits one SPACE_INLINE past the bottom and the call block lands on the bottom edge.
+    let buttons_top =
+        if turn.has_edits() { (inner.bottom() - theme::CONTROL_STANDARD).max(list_top) } else { (inner.bottom() + theme::SPACE_INLINE).max(list_top) };
     // Height puts calls_h between the layer rows and the buttons, then SPACE_INLINE. With no calls
     // the anchor stays the button row, so the list matches the card from before auto-allow rows.
     let calls_h = call_block_height(turn);
@@ -497,6 +492,10 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
 
     if calls_h > 0.0 {
         let _ = draw_call_rows(ui, p, turn, inner.left(), inner.width(), rows_anchor, false);
+    }
+
+    if !turn.has_edits() {
+        return;
     }
 
     // 4. Two secondary buttons: `Revert` and `Keep`, `CONTROL_STANDARD` high, `RADIUS_CONTROL`, `SPACE_INLINE` apart.
