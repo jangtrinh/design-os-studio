@@ -255,6 +255,40 @@ pub(crate) fn utf16_to_byte_offsets(s: &str) -> Vec<usize> {
     out
 }
 
+/// An instance text override either links the style it names or drops the
+/// inherited one. Bindings the override does not restate go with the link, so
+/// the new style's own bindings (or the raw values, when there is no style)
+/// are what [`designos_doc::resolve_node`] applies. Fill bindings stay.
+fn apply_text_style_link(n: &mut Node, set: &Value) {
+    let clear = fbool(set, "_clearTextStyle") == Some(true);
+    let linked = set.get("styles").and_then(|s| s.get("text")).and_then(Value::as_str);
+    if !clear && linked.is_none() {
+        return;
+    }
+    if let Some(sid) = linked.filter(|_| !clear) {
+        n.style_refs.insert("text".into(), sid.to_string());
+    } else {
+        n.style_refs.remove("text");
+    }
+    let restated = crate::variables::parse_node_variables(set).bindings;
+    for key in [
+        "fontFamily",
+        "fontStyle",
+        "fontSize",
+        "fontWeight",
+        "lineHeight",
+        "letterSpacing",
+        "paragraphSpacing",
+        "paragraphIndent",
+        "listSpacing",
+        "leadingTrim",
+    ] {
+        if !restated.contains_key(key) {
+            n.variables.bindings.remove(key);
+        }
+    }
+}
+
 /// Applies the (possibly partial) REST `TypeStyle` fields in `v` onto `ts`.
 pub(crate) fn apply_type_style(ts: &mut TextStyle, v: &Value) {
     if let Some(f) = fstr(v, "fontFamily") {
@@ -3111,6 +3145,7 @@ impl<'a> Ctx<'a> {
                 _ => Sizing::Fixed,
             };
         }
+        apply_text_style_link(n, set);
         if let NodeKind::Text(t) = &mut n.kind {
             if let Some(ar) = fbool(set, "autoRename") {
                 t.auto_rename = ar;

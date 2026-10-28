@@ -2506,8 +2506,48 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             }
             text_overrides(&mut m, td, base_sz, lk);
         }
+        // A named text style replaces the master's link. Metric changes with no
+        // style detach it, so the raw values render instead of the master's bindings.
+        if let Some((key, val)) = text_style_override_link(obj, lk) {
+            m.insert(key.into(), val);
+        }
     }
     m
+}
+
+/// Text-style identity of an instance override.
+///
+/// `styleIdForText` links that style (or clears a null / unresolved id). Font
+/// metrics without a style id clear the inherited link: Figma shows "no text
+/// style" and the node's own values are what render. Character, alignment and
+/// truncation overrides do not change the link.
+fn text_style_override_link(obj: &Map<String, Value>, lk: &Lk) -> Option<(&'static str, Value)> {
+    const PROPS: &[&str] = &[
+        "fontName",
+        "fontSize",
+        "letterSpacing",
+        "textTracking",
+        "lineHeight",
+        "textCase",
+        "textDecoration",
+        "paragraphSpacing",
+        "paragraphIndent",
+        "listSpacing",
+        "leadingTrim",
+        "fontVariations",
+    ];
+    if let Some(r) = obj.get("styleIdForText") {
+        if let Some(id) = lk.style_id(r).filter(|id| lk.style_node(r).is_some() || id.starts_with("key:")) {
+            let mut styles = Map::new();
+            styles.insert("text".into(), Value::String(id));
+            return Some(("styles", Value::Object(styles)));
+        }
+        return Some(("_clearTextStyle", Value::Bool(true)));
+    }
+    if PROPS.iter().any(|k| obj.contains_key(*k)) {
+        return Some(("_clearTextStyle", Value::Bool(true)));
+    }
+    None
 }
 
 fn convert_derived_override(o: &Value, lk: &Lk) -> Map<String, Value> {
