@@ -22,10 +22,13 @@ pub struct SearchSources {
     pub extra: Vec<PathBuf>,
 }
 
+#[cfg(not(test))]
 static HERMETIC_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 #[cfg(test)]
-static TEST_HERMETIC_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+thread_local! {
+    static TEST_HERMETIC_DIR: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
 
 fn has_dot_or_dotdot_component(path: &Path) -> bool {
     path.components().any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::CurDir))
@@ -62,7 +65,10 @@ pub fn hermetic_mode_active() -> bool {
     }
     #[cfg(test)]
     {
-        std::env::var_os("DESIGNOS_AGENT_CLI_DIR").is_some()
+        if current_scoped_cli_dir().is_some() {
+            return false;
+        }
+        TEST_HERMETIC_DIR.with(|slot| slot.borrow().is_some())
     }
 }
 
@@ -75,10 +81,10 @@ pub fn hermetic_agent_cli_dir() -> Option<PathBuf> {
     }
     #[cfg(test)]
     {
-        if !hermetic_mode_active() {
+        if current_scoped_cli_dir().is_some() {
             return None;
         }
-        TEST_HERMETIC_DIR.lock().unwrap_or_else(|e| e.into_inner()).clone().or_else(|| HERMETIC_DIR.get().and_then(Clone::clone))
+        TEST_HERMETIC_DIR.with(|slot| slot.borrow().clone())
     }
 }
 
@@ -341,15 +347,16 @@ pub fn enforce_hermetic_startup(env: &BTreeMap<String, String>, opts: &crate::cl
     let Some(canon_dir) = hermetic_startup_check_inner(env, opts)? else {
         #[cfg(not(test))]
         let _ = HERMETIC_DIR.set(None);
+        #[cfg(test)]
+        TEST_HERMETIC_DIR.with(|slot| *slot.borrow_mut() = None);
         return Ok(None);
     };
     let tmp = env.get("TMPDIR").expect("TMPDIR validated by hermetic_startup_check");
     let ack = write_hermetic_ack(Path::new(tmp), &canon_dir, pid).map_err(|e| format!("hermetic agent mode failed to write acknowledgement: {e}"))?;
-    let _ = HERMETIC_DIR.set(Some(canon_dir.clone()));
+    #[cfg(not(test))]
+    let _ = HERMETIC_DIR.set(Some(canon_dir));
     #[cfg(test)]
-    {
-        *TEST_HERMETIC_DIR.lock().unwrap_or_else(|e| e.into_inner()) = Some(canon_dir);
-    }
+    TEST_HERMETIC_DIR.with(|slot| *slot.borrow_mut() = Some(canon_dir));
     Ok(Some(ack))
 }
 
@@ -395,6 +402,26 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+    struct ResetTestHermeticDir {
+        prev: Option<PathBuf>,
+    }
+
+    impl ResetTestHermeticDir {
+        fn enter() -> Self {
+            let prev = TEST_HERMETIC_DIR.with(|slot| slot.replace(None));
+            Self { prev }
+        }
+    }
+
+    impl Drop for ResetTestHermeticDir {
+        fn drop(&mut self) {
+            let prev = self.prev.take();
+            TEST_HERMETIC_DIR.with(|slot| {
+                *slot.borrow_mut() = prev;
+            });
+        }
+    }
 
     fn make_temp_dir(tag: &str) -> PathBuf {
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
@@ -647,6 +674,7 @@ mod tests {
     /// `tmp/.designos-hermetic-active` with that pid and `DIR`. A denied check writes nothing.
     #[test]
     fn hermetic_mode_writes_the_acknowledgement() {
+        let _reset_hermetic = ResetTestHermeticDir::enter();
         let root = make_temp_dir("h9");
         let stubs = root.join("stubs");
         let lib = root.join("lib");
@@ -1089,6 +1117,7 @@ mod tests {
     #[cfg(unix)]
     fn hermetic_startup_dir_is_pinned_after_symlink_retarget() {
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _reset_hermetic = ResetTestHermeticDir::enter();
         let root = make_temp_dir("r3-p1-retarget");
         let orig_stubs = root.join("orig-stubs");
         let retargeted = root.join("retargeted");
