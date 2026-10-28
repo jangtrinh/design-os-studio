@@ -1,0 +1,37 @@
+{
+ "_Tab button base": {
+  "selected/Focus -> Colors/Background/bg-primary_hover": 2,
+  "selected/Focus -> Colors/Background/bg-primary_alt": 4,
+  "selected/Focus -> Colors/Background/bg-brand-primary_alt": 2,
+  "selected/Hover -> Colors/Background/bg-primary_hover": 2,
+  "selected/Hover -> Colors/Background/bg-primary_alt": 4,
+  "selected/Hover -> Colors/Background/bg-brand-primary_alt": 2,
+  "selected/Default -> Colors/Background/bg-primary_hover": 2,
+  "selected/Default -> Colors/Background/bg-primary_alt": 4,
+  "selected/Default -> Colors/Background/bg-brand-primary_alt": 2,
+  "not-selected/Focus -> Colors/Background/bg-primary": 8,
+  "not-selected/Hover -> Colors/Background/bg-primary_hover": 2,
+  "not-selected/Hover -> Colors/Background/bg-primary_alt": 2,
+  "not-selected/Hover -> unbound": 6,
+  "not-selected/Hover -> Colors/Background/bg-brand-primary_alt": 2,
+  "not-selected/Default -> unbound": 12,
+  "selected/Focus -> unbound": 4,
+  "selected/Hover -> unbound": 4,
+  "selected/Default -> unbound": 4,
+  "not-selected/Focus -> unbound": 4
+ },
+ "_Tree view item": {
+  "not-selected/Default -> unbound": 2,
+  "selected/Default -> Colors/Background/bg-secondary": 4,
+  "selected/Default -> unbound": 2,
+  "not-selected/Hover -> Colors/Background/bg-primary_hover": 2,
+  "selected/Hover -> Colors/Background/bg-secondary_hover": 4,
+  "selected/Hover -> Colors/Background/bg-primary_hover": 2
+ },
+ "_Dropdown menu list item": {
+  "not-selected/Disabled -> unbound": 1,
+  "not-selected/Hover/active -> unbound": 1,
+  "not-selected/Default -> unbound": 2,
+  "not-selected/Open -> unbound": 1
+ }
+}
