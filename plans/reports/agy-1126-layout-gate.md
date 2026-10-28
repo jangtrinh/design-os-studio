@@ -1511,3 +1511,60 @@ Written to [`plans/reports/agy-1126-r8-mapping.md`](file:///Users/jangtrinh/orca
 
 Status: READY FOR CONTROLLER REVIEW (ROUND 8)
 
+---
+
+## Round 9 — Controller Rulings on the Round 8 Gaps (`#1126` Rule 14, Code Only, No Window)
+
+### 1. What Could NOT Be Verified (Stated First)
+
+1. **No GUI Window Launch or Visual Capture (`*.png`, `wireframe-*.png`, `colour-sheet.png`, or Blessed `*.layout.json`):**
+   - Explicitly forbidden in Round 9 by controller spec override: *"No window and no visual capture this round. Visual evidence = the dry-run log, the updated mapping table and the test logs."* and *"Never bless a baseline JSON (`*.layout.json`, `bless_sha`)."*
+   - Tier B command construction, `not_applicable` (`Tier A only`) handling for `x-board` and `x-deck`, `--panel interaction` on `id:77742` with no prep, `--add-comment` followed by `--panel comments` on `j-comments`, reachable `k-libraries` with no prep, and summary counts (`Tier A 76 / 0 / 0`, `Tier B 74 / 2 / 0`) are verified via unit tests and `--dry-run` across all 76 cases (`plans/reports/agy-1126-layout-gate-evidence/r9/tierb-dry-run.log`).
+
+---
+
+### 2. Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`) & Weakest Link
+
+- `FACT` — Ruling 1 (`x-board`, `x-deck` Tier A only): Updated [`cases.json`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json#L135-L162) so both `x-board` and `x-deck` carry `"tier_b": {"not_applicable": "<reason>"}` with no `prep: blank_board` / `prep: blank_deck` and no `unreachable`. Updated [`scripts/layout_baseline_capture.py`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/layout_baseline_capture.py) to skip `not_applicable` cases in Tier B (`SKIP <id>: not applicable in Tier B (Tier A only: ...)`), list them as `"Tier A only (2): x-board, x-deck"` in the summary, and include them as `"<id> — Tier A only"` in `build_colour_sheet_index` / `render_colour_sheet`.
+- `FACT` — Ruling 2 (`f-prototype-tab` / `--panel interaction` root fix): Updated `Some("interaction")` in [`crates/designos-app/src/shell.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/shell.rs#L472-L494) to (1) keep the `--select` node and open its first reaction (`app.proto.editing = Some((id, 0))`) when `!n.prototype.reactions.is_empty()`, (2) otherwise walk `app.page` in deterministic pre-order back-to-front paint order via `app.doc.walk(app.page, ...)` (`designos-doc/src/lib.rs:1288`, never `HashMap`/`BTreeMap` ID order) and pick the first reacting node, or (3) otherwise open `RightTab::Prototype` with `app.proto.editing = None`. Updated `f-prototype-tab` in `cases.json` so Tier B selects kit `id:77742` (native `OnClick`) with no `prep`, while Tier A keeps `prep: prototype_link` and selects `id:636200`.
+- `FACT` — Ruling 3 (`j-comments` / `--panel comments` preset): Added `"comments"` to `PANELS` and `USAGE` in [`crates/designos-app/src/cli.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/cli.rs#L160-L222) and added `Some("comments")` in [`crates/designos-app/src/shell.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/shell.rs#L495-L519). The preset sets `app.tool = Tool::Comment`, ranks nodes on `app.page` in deterministic page paint order via `app.doc.walk(app.page, ...)`, and opens the unresolved thread on `app.page` with `(lowest paint_rank, lowest thread_id)` (or `None` when no unresolved thread exists on `app.page`). Updated `j-comments` in `cases.json` to pass `["--panel", "comments"]`, keeping `prep: comment_thread` in both tiers and removing `tier_b.unreachable`.
+- `FACT` — Ruling 4 (`k-libraries` reachable in Tier B): Updated `k-libraries` in [`cases.json`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/cases.json#L1209-L1226) to drop the Tier B `prep: published_library` (`--import-variables`) entry and record `"tier_b": {"select": "id:44757", "name": "Desktop", "page": "id:44616 (      ❖ Dashboards 01)", "note": "subscribed badge covered in Tier A"}`.
+- `FACT` — Ruling 5 (Summary counts): Updated [`scripts/layout_baseline_capture.py`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/layout_baseline_capture.py#L1320-L1336) (`compute_tier_counts`) to print `Summary (reachable / not applicable / unreachable): Tier A 76 / 0 / 0, Tier B 74 / 2 / 0` followed by `Tier A only (2): x-board, x-deck`. Zero `"unreachable"` entries remain in `cases.json` or `plans/reports/agy-1126-r8-mapping.md`.
+- **Weakest link (one line):** Until the blessed baseline capture round runs `scripts/layout_baseline_capture.py` with window rendering enabled and commits the `*.layout.json` files and `cases.json.bless_sha`, `layout_unchanged_d..k` verify live capture + self-comparison (`compare(&snap, &snap, ...)`) rather than cross-commit baseline diffing.
+
+---
+
+### 3. Skills Loaded & Changes Made Because of Them
+
+- `es:astra-work` & `es:fable-thinking`: Ledgered every ruling against the code before editing, stated explicit predictions before each test/gate invocation, caught and eliminated direct `std::fs::write`/`remove_file` calls in `panel_presets.rs` when `agent_session_files::fs_sites_scan_tests` flagged them, and verified all 7 mandatory gates on the final code commit (`d0827da2`).
+- `es:dev` & `es:feature-dev`: Enforced strict Red (`4c8a0bc6`) -> Green (`d0827da2`) commit ordering for the 6 Rust preset/CLI tests and the Python Round 9 rulings test.
+- `es:rust`: Used `Document::walk(app.page, ...)` for deterministic pre-order paint-rank traversal without `HashMap`/`BTreeMap` iteration-order dependence, and reused `Sim::with_starter_prep` in `panel_presets.rs` so test helpers introduce zero unrouted `std::fs` calls.
+- `es:rust-gpu-canvas`: Preserved all GPU/CPU renderer paths untouched while ensuring `--panel interaction` and `--panel comments` configure `Shell` deterministically before frame 1.
+
+---
+
+### 4. Red -> Green Commits & Verification Summary
+
+| Step | Commit | Scope | Result |
+|---|---|---|---|
+| **RED** | `4c8a0bc6` | `crates/designos-app/src/shell/tests/panel_presets.rs` (6 tests), `crates/designos-app/src/shell/tests/layout_unchanged/mod.rs`, `scripts/tests/test_layout_baseline_capture.py` (`test_round9_rulings_dry_run_and_summary_counts`) | All 6 new Rust tests and the new Python test failed on assertions as predicted ([`red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r9/red.log)) |
+| **GREEN** | `d0827da2` | `crates/designos-app/src/cli.rs` (`PANELS`, `USAGE`), `crates/designos-app/src/shell.rs` (`interaction` & `comments` presets), `crates/designos-app/src/shell/tests/layout_unchanged/mod.rs`, `crates/designos-app/tests/layout-baseline/cases.json`, `scripts/layout_baseline_capture.py`, `scripts/tests/test_layout_baseline_capture.py` | `18/18` Rust tests in `layout_unchanged` (including all 6 `panel_presets` tests and all 8 spec letters `D..K`) and `12/12` Python tests in `test_layout_baseline_capture.py` (`58/58` across `scripts/tests`) passed ([`green.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r9/green.log)) |
+
+#### Evidence Files (`plans/reports/agy-1126-layout-gate-evidence/r9/`)
+- [`red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r9/red.log) — Failing outputs on `4c8a0bc6` for all 6 `panel_presets` tests and `test_round9_rulings_dry_run_and_summary_counts`.
+- [`green.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r9/green.log) — Passing outputs on `d0827da2` for `layout_unchanged` (`18 passed; 0 failed`) and `test_layout_baseline_capture.py` (`12 passed; 0 failed`).
+- [`tierb-dry-run.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r9/tierb-dry-run.log) — Full 76-case `--dry-run` trace against an APFS `cp -c` clone of the Untitled UI kit (`Summary (reachable / not applicable / unreachable): Tier A 76 / 0 / 0, Tier B 74 / 2 / 0`, `Tier A only (2): x-board, x-deck`, `Cases: 74 captured, 2 skipped (76 total)`).
+- Updated [`plans/reports/agy-1126-r8-mapping.md`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-r8-mapping.md) in place (`0` occurrences of `"unreachable"` remain).
+
+#### Mandatory Gate Results on Final Code Commit (`d0827da2`)
+- `cargo fmt --all -- --check`: **PASS** (`exit 0`)
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: **PASS** (`exit 0`)
+- `cargo test --workspace --locked --lib`: **PASS** (`1,342 passed; 0 failed`)
+- `cargo test -p designos-app --bin designos --locked`: **PASS** (`3,528 passed; 0 failed; 12 ignored`)
+- `python3 -B -m unittest discover -s scripts/tests -p "test_*.py"`: **PASS** (`58 passed; 0 failed`)
+- `python3 scripts/zero_fake_ui_gate.py`: **PASS** (`17/17 invariants satisfied`)
+- `python3 scripts/check_spacing_relationships.py`: **PASS** (`no count rose above the baseline`)
+
+Status: READY FOR CONTROLLER REVIEW (ROUND 9)
+
+
