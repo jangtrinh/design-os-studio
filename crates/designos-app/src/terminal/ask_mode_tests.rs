@@ -284,6 +284,23 @@ fn claude_ask_launches_without_the_skip_flag_and_writes_no_allow_rule() {
 }
 
 #[test]
+fn ask_risky_keeps_turn_marks_and_auto_allows_only_safe_tool_names() {
+    let risky = session_in(PermissionMode::AskRisky);
+    let hooks_path = crate::agent_permissions::claude_hooks_path(&risky);
+    assert!(!hooks_path.starts_with(&risky.session_dir), "Ask for risky only reads hooks from the private channel");
+    let hooks = std::fs::read_to_string(&hooks_path).unwrap_or_else(|e| panic!("{}: {e}", hooks_path.display()));
+    assert!(hooks.contains("turn-marks.jsonl"), "Ask for risky only still records turn boundaries");
+    assert!(hooks.contains("approve-hook.sh"), "risky calls still go through the approval hook");
+    let script_path = crate::agent_approval_channel::hook_script_path(&risky.session_dir).expect("approve-hook.sh");
+    assert!(!script_path.starts_with(&risky.session_dir), "the approval hook must not sit in the session folder");
+    let script = std::fs::read_to_string(&script_path).expect("approve-hook.sh");
+    assert!(script.contains("designos_get_document"), "a read is on the generated allow list");
+    assert!(!script.contains("designos_delete_node"), "a delete is not on the generated allow list");
+    assert!(!script.contains("designos_update_node"), "a modify is not on the generated allow list");
+    finish(risky);
+}
+
+#[test]
 fn codex_ask_launches_without_the_bypass_flag_and_sets_no_approval_override() {
     for cmd in launch_commands(AgentCliPreset::Codex, "codex", PermissionMode::Ask) {
         assert!(!cmd.contains("--dangerously-bypass-approvals-and-sandbox"), "Codex Ask must not bypass approvals: {cmd}");
