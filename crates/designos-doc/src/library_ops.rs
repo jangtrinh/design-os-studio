@@ -1046,9 +1046,14 @@ pub fn apply_style_values(n: &mut Node, style: &Style, key: &str) -> bool {
         Style::Text(ts) => {
             if let NodeKind::Text(t) = &mut n.kind {
                 if n.style_refs.get("text").is_some_and(|k| k == key) {
-                    t.style = TextStyle { fills: t.style.fills.clone(), ..ts.clone() };
+                    let (align_h, align_v) = (t.style.align_h, t.style.align_v);
+                    t.style = TextStyle { fills: t.style.fills.clone(), align_h, align_v, ..ts.clone() };
+                    t.paragraph.indent = ts.paragraph_indent;
+                    t.paragraph.list_spacing = ts.list_spacing;
+                    t.paragraph.leading_trim = ts.leading_trim;
                     for r in &mut t.runs {
-                        r.style = TextStyle { fills: r.style.fills.clone(), ..ts.clone() };
+                        let (align_h, align_v) = (r.style.align_h, r.style.align_v);
+                        r.style = TextStyle { fills: r.style.fills.clone(), align_h, align_v, ..ts.clone() };
                     }
                 }
             }

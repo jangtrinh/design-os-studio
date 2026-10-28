@@ -810,7 +810,10 @@ fn style_table(entries: &[Entry], lk: &Lk) -> Value {
                 }
             }
             "TEXT" => {
-                let ts = convert_type_style(j, None);
+                let mut ts = convert_type_style(j, None);
+                // Alignment belongs to the text layer, not the shared style.
+                ts.remove("textAlignHorizontal");
+                ts.remove("textAlignVertical");
                 if !ts.is_empty() {
                     m.insert("style".into(), Value::Object(ts));
                 }

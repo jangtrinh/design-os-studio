@@ -1130,6 +1130,7 @@ mod dev;
 mod dev_code_panel;
 mod dev_mode_shortcut;
 mod duplicate_order;
+mod effect_caps;
 mod effect_grid_styles;
 mod empty_slot_flows;
 mod fast_drag_draw;

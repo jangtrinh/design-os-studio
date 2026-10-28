@@ -162,6 +162,15 @@ fn type_style(ts: &TextStyle, auto: Option<TextAutoResize>, max_lines: Option<u3
     m.insert("fontSize".into(), n(ts.font_size));
     m.insert("letterSpacing".into(), n(ts.letter_spacing));
     m.insert("paragraphSpacing".into(), n(ts.paragraph_spacing));
+    if ts.paragraph_indent != 0.0 {
+        m.insert("paragraphIndent".into(), n(ts.paragraph_indent));
+    }
+    if ts.list_spacing != 0.0 {
+        m.insert("listSpacing".into(), n(ts.list_spacing));
+    }
+    if ts.leading_trim == LeadingTrim::CapHeight {
+        m.insert("leadingTrim".into(), "CAP_HEIGHT".into());
+    }
     m.insert(
         "textAlignHorizontal".into(),
         match ts.align_h {
