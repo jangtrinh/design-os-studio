@@ -139,8 +139,15 @@ fn library_fill_text_and_effect_styles_are_suggested_with_their_library_name_and
     lib_fx.style("s_fill", "Surface/Card", Style::Fill(vec![Paint::solid(BLUE)]), StyleProperty::Fill);
     let ts = TextStyle { font_size: 18.0, font_weight: 600, line_height: LineHeight::Pixels(24.0), ..TextStyle::default() };
     lib_fx.style("s_text", "Body/Lead", Style::Text(ts.clone()), StyleProperty::Text);
-    let fx_list =
-        vec![Effect::DropShadow { color: Color::rgba(0, 0, 0, 64), offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false }];
+    let fx_list = vec![Effect::DropShadow {
+        color: Color::rgba(0, 0, 0, 64),
+        offset: Vec2::new(0.0, 4.0),
+        radius: 8.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }];
     lib_fx.style("s_fx", "Elevation/Low", Style::Effect(fx_list.clone()), StyleProperty::Effect);
     let mut lib_app = lib_fx.app();
     lib_app.libs.set_root(root.clone());

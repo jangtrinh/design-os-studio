@@ -444,6 +444,11 @@ impl Shell {
                 app.ui.left_collapsed = false;
                 app.terminal.open_approval_fixture(p, app.file_path.as_deref());
             }
+            Some(p @ ("agents-turn-card" | "agents-turn-card-collapsed" | "agents-turn-card-small")) => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                crate::agent_turn_card::seed_turn_card_fixture(ctx, &mut app, p);
+            }
             Some("specs") => {
                 app.ui.rail = Some(crate::app::RailItem::Specs);
                 app.specs.open = true;
@@ -1613,7 +1618,12 @@ impl Shell {
         #[cfg(target_os = "macos")]
         crate::macos_menu::send_pending_quit(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
-            if !self.app.may_quit(&ctx) {
+            if self.shot.is_some() {
+                self.app.terminal.shutdown();
+                for tab in &mut self.app.tabs.entries {
+                    tab.terminal.shutdown();
+                }
+            } else if !self.app.may_quit(&ctx) {
                 // Edits no save has written are being asked about: the window stays open, and the close comes round again.
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             } else {

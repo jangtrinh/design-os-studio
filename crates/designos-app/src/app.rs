@@ -389,7 +389,7 @@ impl App {
             }
         }
         let next = Toast { text, until: self.now + theme::TOAST_SECONDS, error, reveal: None, enter_path: false, duration: theme::TOAST_SECONDS, armed: false };
-        if self.now > 0.0 && self.toast.as_ref().is_some_and(|t| t.reveal.is_some() && (!t.armed || self.now < t.until)) {
+        if self.toast.as_ref().is_some_and(|t| t.reveal.is_some() && (!t.armed || self.now < t.until)) {
             self.toast_queue.push_back(next);
             return;
         }

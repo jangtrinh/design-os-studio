@@ -206,6 +206,17 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
 .qa details[open] summary .ico{transform:rotate(180deg)}
 .qa details p{padding:0 40px 24px 0;max-width:var(--measure);color:var(--muted);text-wrap:pretty}
 
+/* listed on: one quiet row of directory badges, just above the footer */
+.listed{padding-block:clamp(32px,3vw,40px);border-top:1px solid var(--border)}
+.listed__row{display:flex;flex-wrap:wrap;align-items:center;gap:12px 28px}
+.listed h2{font-size:.8125rem;line-height:1.4;letter-spacing:.08em;text-transform:uppercase;font-weight:500;color:var(--muted)}
+.listed ul{display:flex;flex-wrap:wrap;align-items:center;gap:4px 20px}
+.listed a{display:flex;align-items:center;min-height:44px;border-radius:var(--r-sm)}
+.listed img{height:20px;width:auto;opacity:.88;transition:opacity .15s ease-out}
+.listed img.listed__fazier{height:auto;width:120px}
+.listed img[alt="Listed on Aback Launch"]{height:32px;width:150px}
+@media (hover:hover){.listed a:hover img{opacity:1}}
+
 /* footer */
 .foot{border-top:1px solid var(--border);padding-block:28px 24px;color:var(--muted);font-size:.9375rem}
 .foot-links{display:flex;flex-wrap:wrap;gap:0 24px;margin-top:36px}
@@ -465,9 +476,20 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.6.5. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.0. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--070" id="new-in-v070" aria-labelledby="v070-h">
+          <h3 id="v070-h" class="new-ver">0.7.0</h3>
+          <ul class="new-bullets">
+            <li><strong>Styles.</strong> Delete a style (<code>Delete style</code>) while linked layers keep its resolved values and variable bindings, group styles by <code>/</code> prefix into renameable folders (<code>Rename folder</code>) in Figma's order, edit style descriptions (<code>Description</code>) and read them as hover tooltips in style pickers and the colour picker's <code>Libraries</code> tab, and keep text alignment on each text layer while text styles carry paragraph indent, list spacing and leading trim.</li>
+            <li><strong>Effects and shadows.</strong> Drop shadows and inner shadows take a blend mode (<code>Blend</code>), the shadow cut-out of a frame with no fill and <code>Show behind</code> off follows its visible children's shapes, and the <code>Effects</code> section's <code>+</code> menu caps each effect type (8 drop shadows, 8 inner shadows, 1 layer blur, 1 background blur) without trimming imported effects.</li>
+            <li><strong>Export and files.</strong> PNG and SVG export bounds match Figma for shadows, strokes and groups; after an export, a toast shows where the file went with <code>Show in folder</code> (using <code>Downloads</code> when no save dialog is available) and never overwrites an existing file (<code>Card-1.png</code>, <code>Card-2.png</code>, …); and atomic saves keep macOS ACLs and extended attributes while leaving your own <code>.tmp</code> files alone.</li>
+            <li><strong>Left rail and panels.</strong> The left rail is icon-only with hover and keyboard-focus tooltips (<code>Main menu</code>, <code>File</code>, <code>Agents</code>, <code>Assets</code>, <code>Tools</code>, <code>Variables</code>, <code>Plugins</code>, <code>Updates &amp; Shortcuts</code>), and a draggable separator between <code>Pages</code> and <code>Layers</code> resizes the <code>Pages</code> list and remembers its height.</li>
+            <li><strong>Agents panel and canvas.</strong> Expanding the <code>changed layers</code> card with <code>Show all</code> scrolls inside the Agents panel with <code>Show less</code> while keeping <code>Revert</code> and <code>Keep</code> reachable, and an interrupted move on the canvas keeps the last pointer position.</li>
+            <li><strong>CLI and MCP.</strong> A <code>--screenshot</code> run with unsaved edits closes after writing the PNG without stopping on <code>Save changes to {name}?</code>, and <code>--apply-spec</code>, <code>designos_apply_spec</code> and <code>designos_apply_batch</code> centre hugging button labels inside <code>NodeSpec</code> presets and aligned frames while <code>designos_create_node</code> and <code>designos_update_node</code> keep explicit text box sizes.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--065" id="new-in-v065" aria-labelledby="v065-h">
           <h3 id="v065-h" class="new-ver">0.6.5</h3>
           <ul class="new-bullets">
@@ -680,6 +702,18 @@ rm -rf /tmp/design-os-studio</code></pre></div>
       </div>
     </div>
     <div class="get__burst" id="get-burst" aria-hidden="true"></div>
+  </section>
+
+  <!-- Listed on: every directory badge lives here and nowhere else. Free listings only, no paid or reciprocal badges. -->
+  <section id="listed" class="listed" aria-labelledby="listed-h">
+    <div class="wrap listed__row">
+      <h2 id="listed-h">Listed on</h2>
+      <ul>
+        <li><a href="https://mcpservers.org/servers/jangtrinh/design-os-studio" target="_blank" rel="noopener"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" width="163" height="20" loading="lazy" decoding="async"></a></li>
+        <li><a href="https://fazier.com" target="_blank" rel="noopener"><img class="listed__fazier" src="https://fazier.com/api/v1//public/badges/launch_badges.svg?badge_type=launched&theme=light" width="120" alt="Fazier badge" loading="lazy" decoding="async"></a></li>
+        <li><a href="https://abacklaunch.com" target="_blank" rel="noopener"><img src="https://abacklaunch.com/badges/listed-on-light.svg" alt="Listed on Aback Launch" width="150" height="32" /></a></li>
+      </ul>
+    </div>
   </section>
 
 </main>

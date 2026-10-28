@@ -721,7 +721,7 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
                     .push(("fillPaints", V::Array(paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect())));
             }
             Style::Text(ts) => {
-                append_text_style_fields(&mut fields, ts);
+                append_shared_text_style_fields(&mut fields, ts);
                 let var_entries = encode_var_entries_from_bindings(cx, bindings);
                 if !var_entries.is_empty() {
                     fields.push(("variableConsumptionMap", msg(vec![("entries", V::Array(var_entries))])));
@@ -2082,7 +2082,7 @@ fn encode_effect_full(
     y_var: Option<V>,
 ) -> V {
     let mut fields = match e {
-        Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind } => vec![
+        Effect::DropShadow { color: c, offset, radius, spread, visible, show_behind, blend } => vec![
             ("type", en("DROP_SHADOW")),
             ("color", color(c.r, c.g, c.b, c.a)),
             ("offset", vec2(offset.x, offset.y)),
@@ -2090,14 +2090,16 @@ fn encode_effect_full(
             ("spread", fl(*spread)),
             ("visible", V::Bool(*visible)),
             ("showShadowBehindNode", V::Bool(*show_behind)),
+            ("blendMode", en(blend_name(*blend))),
         ],
-        Effect::InnerShadow { color: c, offset, radius, spread, visible } => vec![
+        Effect::InnerShadow { color: c, offset, radius, spread, visible, blend } => vec![
             ("type", en("INNER_SHADOW")),
             ("color", color(c.r, c.g, c.b, c.a)),
             ("offset", vec2(offset.x, offset.y)),
             ("radius", fl(*radius)),
             ("spread", fl(*spread)),
             ("visible", V::Bool(*visible)),
+            ("blendMode", en(blend_name(*blend))),
         ],
         Effect::LayerBlur { radius, visible } => vec![("type", en("FOREGROUND_BLUR")), ("radius", fl(*radius)), ("visible", V::Bool(*visible))],
         Effect::BackgroundBlur { radius, visible } => vec![("type", en("BACKGROUND_BLUR")), ("radius", fl(*radius)), ("visible", V::Bool(*visible))],
@@ -2427,6 +2429,22 @@ fn append_text_style_fields(fields: &mut Vec<(&'static str, V)>, ts: &TextStyle)
         fields.push(("paragraphSpacing", fl(ts.paragraph_spacing)));
     }
     append_ot_and_variation_fields(fields, ts);
+}
+
+fn append_shared_text_style_fields(fields: &mut Vec<(&'static str, V)>, ts: &TextStyle) {
+    append_text_style_fields(fields, ts);
+    if ts.paragraph_indent != 0.0 {
+        fields.push(("paragraphIndent", fl(ts.paragraph_indent)));
+    }
+    if ts.list_spacing != 0.0 {
+        fields.push(("listSpacing", fl(ts.list_spacing)));
+    }
+    if ts.leading_trim == LeadingTrim::CapHeight {
+        fields.push(("leadingTrim", en("CAP_HEIGHT")));
+    }
+    // Alignment is a layer property and must never be serialized as part of a
+    // shared text style.
+    fields.retain(|(key, _)| *key != "textAlignHorizontal" && *key != "textAlignVertical");
 }
 
 fn encode_text_node(fields: &mut Vec<(&'static str, V)>, tp: &TextProps) {

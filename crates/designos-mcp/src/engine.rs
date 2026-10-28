@@ -2437,8 +2437,15 @@ mod tests {
         let mut e = Engine::default();
         let id = create(&mut e, "frame", "Card");
         assert_eq!(e.call("designos_get_document", json!({})).unwrap()["styles"], json!([]), "no styles yet");
-        let shadow =
-            Effect::DropShadow { color: Color::rgba(0, 0, 0, 64), offset: Vec2::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false };
+        let shadow = Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 64),
+            offset: Vec2::new(0.0, 4.0),
+            radius: 8.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        };
         e.doc.styles.insert("Shadow/Card".into(), Style::Effect(vec![shadow]));
         e.doc.styles.insert("Layout/Cols".into(), Style::Grid(vec![LayoutGrid::columns(12, 20.0, 0.0, Color::rgba(255, 0, 0, 26))]));
         for (key, name, property) in [("Shadow/Card", "Shadow/Card", StyleProperty::Effect), ("Layout/Cols", "Layout / 12 col", StyleProperty::Grid)] {

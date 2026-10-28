@@ -68,6 +68,7 @@ fn button(s: &mut S, parent: NodeId, ty: &str, size: &str) -> NodeId {
                         spread: -6.0,
                         visible: true,
                         show_behind: false,
+                        blend: Default::default(),
                     },
                     None,
                 );
@@ -125,7 +126,15 @@ fn toggle(s: &mut S, parent: NodeId, on: bool) -> NodeId {
     let knob = s.ellipse(f, "Knob", 22.0, 22.0, WHITE);
     s.effect(
         knob,
-        Effect::DropShadow { color: Color::rgba(0, 0, 0, 50), offset: Vec2::new(0.0, 2.0), radius: 4.0, spread: 0.0, visible: true, show_behind: false },
+        Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 50),
+            offset: Vec2::new(0.0, 2.0),
+            radius: 4.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        },
         None,
     );
     f

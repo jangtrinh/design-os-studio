@@ -196,7 +196,14 @@ fn headless_compile_stays_uncapped_whatever_the_budget() {
 #[test]
 fn effect_programs_of_a_node_are_budgeted_together() {
     // an inner shadow opens three programs (hole, grain layer, shape) and blurs one
-    let shadow = Effect::InnerShadow { color: Color::rgba(0, 0, 0, 128), offset: Vec2::new(0.0, 2.0), radius: 6.0, spread: 0.0, visible: true };
+    let shadow = Effect::InnerShadow {
+        color: Color::rgba(0, 0, 0, 128),
+        offset: Vec2::new(0.0, 2.0),
+        radius: 6.0,
+        spread: 0.0,
+        visible: true,
+        blend: Default::default(),
+    };
     let (doc, page) = effect_page(BLURRED, shadow);
     let mut unbounded = interactive_compiler();
     unbounded.opts.uncap_programs = true;
@@ -247,7 +254,14 @@ fn four_hundred_thousand_tiny_effect_nodes_stay_under_the_program_ceiling() {
     assert_eq!(frame.programs.len(), DEFAULT_REFINE_MAX_PROGRAMS, "refine should use up the program ceiling");
 
     // Also verify a smaller custom program ceiling on the 100-node inner-shadow page (3 programs per node)
-    let shadow = Effect::InnerShadow { color: Color::rgba(0, 0, 0, 128), offset: Vec2::new(0.0, 2.0), radius: 6.0, spread: 0.0, visible: true };
+    let shadow = Effect::InnerShadow {
+        color: Color::rgba(0, 0, 0, 128),
+        offset: Vec2::new(0.0, 2.0),
+        radius: 6.0,
+        spread: 0.0,
+        visible: true,
+        blend: Default::default(),
+    };
     let (sdoc, spage) = effect_page(BLURRED, shadow);
     let mut c2 = interactive_compiler();
     c2.opts.uncap_programs = true;
@@ -283,11 +297,19 @@ fn effect_group_page(count: usize, effect: Effect) -> (Document, NodeId) {
 }
 
 fn drop_shadow(show_behind: bool) -> Effect {
-    Effect::DropShadow { color: Color::rgba(0, 0, 0, 128), offset: Vec2::new(4.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind }
+    Effect::DropShadow {
+        color: Color::rgba(0, 0, 0, 128),
+        offset: Vec2::new(4.0, 4.0),
+        radius: 8.0,
+        spread: 0.0,
+        visible: true,
+        show_behind,
+        blend: Default::default(),
+    }
 }
 
 fn inner_shadow() -> Effect {
-    Effect::InnerShadow { color: Color::rgba(0, 0, 0, 128), offset: Vec2::new(0.0, 2.0), radius: 6.0, spread: 0.0, visible: true }
+    Effect::InnerShadow { color: Color::rgba(0, 0, 0, 128), offset: Vec2::new(0.0, 2.0), radius: 6.0, spread: 0.0, visible: true, blend: Default::default() }
 }
 
 /// Every group effect that draws the group's children into a silhouette program.

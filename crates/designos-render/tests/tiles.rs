@@ -24,6 +24,7 @@ fn scene() -> T {
         spread: 2.0,
         visible: true,
         show_behind: false,
+        blend: Default::default(),
     }];
     t.node(r).corner_radii = [12.0; 4];
     let b = t.rect(Some(frame), Rect::new(60.0, 200.0, 220.0, 140.0), BLUE);
@@ -39,8 +40,14 @@ fn scene() -> T {
     t.node(rot).transform = Affine { a: 0.75, b: 0.5, c: -0.5, d: 0.75, tx: 560.0, ty: 420.0 };
     t.node(rot).opacity = 0.6;
     let inner = t.rect(Some(rot), Rect::new(20.0, 20.0, 60.0, 30.0), Color::rgb(250, 200, 0));
-    t.node(inner).effects =
-        vec![Effect::InnerShadow { color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.6 }, offset: Vec2::new(2.0, 3.0), radius: 6.0, spread: 0.0, visible: true }];
+    t.node(inner).effects = vec![Effect::InnerShadow {
+        color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.6 },
+        offset: Vec2::new(2.0, 3.0),
+        radius: 6.0,
+        spread: 0.0,
+        visible: true,
+        blend: Default::default(),
+    }];
     let glass = t.rect(None, Rect::new(180.0, 480.0, 300.0, 120.0), Color { r: 1.0, g: 1.0, b: 1.0, a: 0.2 });
     t.node(glass).effects = vec![Effect::BackgroundBlur { radius: 12.0, visible: true }];
     // Seeded effects crossing tile borders (before the mask below, which would clip them): grain, edge texture and refractive glass.

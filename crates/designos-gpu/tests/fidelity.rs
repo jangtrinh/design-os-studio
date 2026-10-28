@@ -118,7 +118,15 @@ fn extreme_effects_render() {
     let a = t.rect(None, Rect::new(40.0, 40.0, 80.0, 80.0), Color::rgb(0xF0, 0x40, 0x20));
     t.node(a).effects = vec![
         Effect::LayerBlur { radius: 400.0, visible: true },
-        Effect::DropShadow { color: Color::BLACK, offset: Vec2::new(30.0, 30.0), radius: 300.0, spread: 20.0, visible: true, show_behind: true },
+        Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(30.0, 30.0),
+            radius: 300.0,
+            spread: 20.0,
+            visible: true,
+            show_behind: true,
+            blend: Default::default(),
+        },
     ];
     let b = t.rect(None, Rect::new(100.0, 100.0, 90.0, 90.0), Color::rgba(255, 255, 255, 80));
     t.node(b).effects = vec![Effect::BackgroundBlur { radius: 250.0, visible: true }];
@@ -273,6 +281,7 @@ fn text_drop_shadow_uses_the_bound_colour_alpha_like_cpu() {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         }];
         n
     });

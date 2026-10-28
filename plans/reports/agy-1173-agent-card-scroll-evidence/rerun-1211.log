@@ -1,0 +1,42 @@
+=== RERUN 1 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.61s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3352 filtered out; finished in 0.60s
+
+=== RERUN 2 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.59s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3352 filtered out; finished in 0.58s
+
+=== RERUN 3 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-mcp)
+   Compiling designos-app v0.6.3 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1173-agent-card-scroll/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.48s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-f103f8deb2404a79)
+
+running 1 test
+test shell::tests::agents_tab_strip::an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3352 filtered out; finished in 0.59s
+

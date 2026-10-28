@@ -15,7 +15,15 @@ pub const FIXTURE: &str = "check-designs";
 const PRIMARY: Color = Color { r: 13.0 / 255.0, g: 153.0 / 255.0, b: 1.0, a: 1.0 };
 
 fn card_shadow() -> Effect {
-    Effect::DropShadow { color: Color::rgba(0, 0, 0, 56), offset: Vec2::new(0.0, 6.0), radius: 16.0, spread: 0.0, visible: true, show_behind: false }
+    Effect::DropShadow {
+        color: Color::rgba(0, 0, 0, 56),
+        offset: Vec2::new(0.0, 6.0),
+        radius: 16.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
 }
 
 fn heading_style() -> TextStyle {

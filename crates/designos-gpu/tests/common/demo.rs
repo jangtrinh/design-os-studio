@@ -193,8 +193,24 @@ pub fn demo_scene() -> (Document, NodeId) {
     n.corner_radii = [10.0; 4];
     n.fills = vec![Paint::solid(Color::WHITE)];
     n.effects = vec![
-        Effect::DropShadow { color: Color::rgba(0, 0, 0, 64), offset: Vec2::new(0.0, 10.0), radius: 20.0, spread: -4.0, visible: true, show_behind: false },
-        Effect::DropShadow { color: Color::rgba(0, 0, 0, 38), offset: Vec2::new(0.0, 2.0), radius: 4.0, spread: 0.0, visible: true, show_behind: false },
+        Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 64),
+            offset: Vec2::new(0.0, 10.0),
+            radius: 20.0,
+            spread: -4.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        },
+        Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 38),
+            offset: Vec2::new(0.0, 2.0),
+            radius: 4.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: Default::default(),
+        },
     ];
     b.label(30.0, 450.0, "drop shadows");
 
@@ -202,7 +218,14 @@ pub fn demo_scene() -> (Document, NodeId) {
     let n = b.node(inn);
     n.corner_radii = [10.0; 4];
     n.fills = vec![Paint::solid(Color::rgb(0xF5, 0xC8, 0x42))];
-    n.effects = vec![Effect::InnerShadow { color: Color::rgba(0, 0, 0, 110), offset: Vec2::new(0.0, 6.0), radius: 8.0, spread: 0.0, visible: true }];
+    n.effects = vec![Effect::InnerShadow {
+        color: Color::rgba(0, 0, 0, 110),
+        offset: Vec2::new(0.0, 6.0),
+        radius: 8.0,
+        spread: 0.0,
+        visible: true,
+        blend: Default::default(),
+    }];
     b.label(150.0, 450.0, "inner shadow");
 
     let lb = b.add(None, |id| Node::ellipse(id, Rect::new(270.0, 370.0, 60.0, 60.0)));

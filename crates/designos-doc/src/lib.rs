@@ -55,6 +55,7 @@ mod renumber_ids;
 #[cfg(test)]
 mod renumber_ids_tests;
 mod settings;
+mod silhouette;
 #[cfg(test)]
 mod slot_model_tests;
 pub mod spec;
@@ -99,6 +100,7 @@ pub use openpencil::*;
 pub use paint::*;
 pub use prototype::*;
 pub use settings::*;
+pub use silhouette::{silhouette_source, FilllessKnockout, SilhouetteMode, SilhouetteSource, FILLLESS_KNOCKOUT};
 pub use spec::*;
 pub use spec_bind::*;
 pub use spec_instance::*;

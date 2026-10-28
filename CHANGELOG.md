@@ -2,6 +2,67 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.0] - 2026-10-28
+
+**Effects, styles and export** ([milestone v0.7.0](https://github.com/jangtrinh/design-os-studio/milestone/69)): Studio adds blend modes on drop and inner shadows, matches Figma's shadow cut-outs on fill-less frames and PNG/SVG export bounds, caps the `Effects` `+` menu per type without trimming imported effects, adds style deletion, `/` folder grouping and rename, style descriptions with hover tooltips, and local text alignment with paragraph indent, list spacing and leading trim on text styles, refines the icon-only left rail, resizable `Pages` / `Layers` split and scrollable `changed layers` card, and shows where exported files went without overwriting existing files.
+
+### Added
+- **Styles.**
+  - Delete a style from the style menu (`Delete style`, after `Detach style`) while linked layers detach and keep their resolved fill, stroke, text, effect or layout guide values and non-overridden variable bindings in one undo step, with toast `Style deleted · Cmd+Z to undo` (`Ctrl+Z` on Windows and Linux). Read-only library styles disable `Rename style`, `Delete style` and `Edit style` with the tooltip `Edit in the library file` (#127, PR #1112).
+  - Styles keep Figma's order across `.designos` and `.fig` round trips and group by `/` prefix into folders in style pickers and the Properties panel's `Styles` section. `Rename folder` in the style picker menu (or double-clicking a folder header in `Styles`) renames every style in that folder in one undo step (#129, PR #1153).
+  - Edit a style's `Description` in the `Edit style` popover in one undo step (read-only on library styles with `Edit in the library file`), and style pickers and the Properties panel's `Styles` lists show non-empty style descriptions as hover tooltips (PR #1170).
+  - The fill and stroke colour picker's `Libraries` tab shows local colour style descriptions on hover (#1178, PR #1203).
+- **Effects.**
+  - Drop shadows and inner shadows take a blend mode (`Blend` in the shadow popover: `Normal`, `Darken`, `Multiply`, `Linear burn`, `Color burn`, `Lighten`, `Screen`, `Linear dodge`, `Color dodge`, `Overlay`, `Soft light`, `Hard light`, `Difference`, `Exclusion`, `Hue`, `Saturation`, `Color` or `Luminosity`, showing `Mixed` when selected shadows differ), rendered on the canvas and in exports and preserved through `.fig` round trips (#161, PR #1271).
+  - The `Effects` section's `+` menu caps each effect type at Figma's limits (8 drop shadows, 8 inner shadows, 1 layer blur, 1 background blur), disabling a type at its cap with a tooltip such as `Up to 8 drop shadows`; imported effects are never trimmed (#162, PR #1264).
+- **Canvas and panels.**
+  - A draggable horizontal separator between `Pages` and `Layers` in the left panel resizes the `Pages` list, remembers its height across launches, resets to the 5-row default on double-click or `Enter`, and supports keyboard resizing with the arrow keys, `Home` and `End` (#1108, PR #1137).
+
+### Changed
+- **Canvas and panels.**
+  - The left rail is icon-only (`48 px` wide) without text captions under its buttons, and shows each button's name (`Main menu`, `File`, `Agents`, `Assets`, `Tools`, `Variables`, `Plugins`, `Updates & Shortcuts`) in a tooltip on pointer hover and keyboard focus (#1106, PR #1131).
+
+### Fixed
+- **Agents panel.**
+  - Expanding the `changed layers` review card with `Show all` caps the card inside the Agents panel and scrolls the layer list with the mouse wheel and a scrollbar while keeping `Show less`, `Revert` and `Keep` reachable at the bottom (PR #1276; the terminal part of #1173 is not fixed, see Known issues).
+- **Canvas and effects.**
+  - On a frame with no fill or stroke and `Show behind` off, the drop shadow's cut-out follows the union of its visible children's shapes (clipped when the frame clips content) instead of erasing the whole frame rectangle (#520, PR #1263).
+  - When a `Save changes to {name}?` dialog or another interruption commits an in-progress move before pointer release, Studio uses the last pointer position so a layer dragged out of a clipping frame reparents into the frame under the pointer (PR #1204).
+- **Styles.**
+  - Text styles no longer carry horizontal or vertical text alignment, so applying or editing a text style keeps each text layer's own alignment, and text styles now keep paragraph indent, list spacing and leading trim (#1031, PR #1270).
+- **Import and export.**
+  - PNG and SVG exports expand render bounds to match Figma for drop shadows, strokes and groups (#528, PR #1261).
+  - After an export (`Exported {path}` or `Exported {n} files to {folder}`), a toast shows where the file or files went with a `Show in folder` action (or names the path and reason when a write fails), replaces `/` and `:` in exported layer names with `-`, and never overwrites an existing file (`Card-1.png`, `Card-2.png`, …) (#1196, PR #1281).
+  - Fallback exports from the Export panel and menu when no save dialog is available always save to `Downloads` (creating it if missing), show a `Show in folder` toast, queue plain toasts behind an active reveal toast, and include the target path and OS reason when a write fails (#1095, PR #1148).
+  - Atomic saves on macOS keep the file's ACLs, extended attributes and permissions, allow saving a read-only file when an ACL grants write access, refuse a FIFO planted at the target path, and remove only Studio's own temporary save files so your own `.tmp` files are left alone (#483, PR #1129).
+- **CLI and MCP.**
+  - A `--screenshot` run with unsaved edits closes after writing the PNG without stopping on `Save changes to {name}?` or writing an autosave or version (#1274, PR #1280).
+  - `--apply-spec`, `designos_apply_spec` and `designos_apply_batch` centre hugging button labels inside `NodeSpec` presets and aligned auto-layout frames when the text has default alignment, and `designos_create_node` and `designos_update_node` keep explicit text box sizes across later text-only updates (#1098, PR #1151).
+
+### Known issues
+- Not in 0.7.0: Codex approvals answered from the Agents panel (#930) and the Ubuntu test-memory change (#1205) were reverted before release (#1284). Codex still asks for approval in its own terminal menu, and the Ubuntu test job passes without the change.
+- Scrolling the terminal with the mouse wheel after a large agent edit is not fixed, and the terminal parts of #1173 were not smoke-tested. #1173 stays open on 0.7.1. The `changed layers` card scrolling from PR #1276 is in 0.7.0.
+- Shadow cut-out of a frame with no fill cuts the wrong region when a child is a mask, a group, or paints nothing (#1277).
+- A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG (#1278).
+- Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 (#1279).
+- Esc on the Other CLI menu or form also reaches Codex and puts it in rewind mode (#1097).
+- A document with no path gives `designos-mcp` the whole disk as its workspace (#1074). In Ask mode each `designos-mcp` call asks first.
+- A prompt that contains `No, suggest changes` can hold the automatic Enter, and refuse sends, in a Gemini Ask tab until the line scrolls off (#1066).
+- Antigravity, Gemini CLI and Grok start MCP servers from copies of the session config that an agent can write, so a server command added there could run outside any sandbox (#1048). It needs an agent that can already write its session folder without asking, such as Codex under your own `workspace-write` setting. Studio checks and rewrites these copies when a tab starts. It does not stop an agent that writes later, and Grok may read an edited MCP config while a session runs [unverified: from Grok's source, not run]. Studio moves aside the sources that Grok's and Antigravity's docs and source name, and a later version of either CLI may read more. Workaround: in a window where an agent can write without asking, do not run a Grok or Antigravity tab in Ask mode. Planned for a later release: run Grok and Antigravity from a folder only that tab can write.
+- Gemini CLI in Ask mode reads `tools.allowed` and other settings from `.gemini/settings.json` in the session folder, which an agent can write (#1047). Some keys there skip Gemini's confirmation prompt, and `hooks` and `tools.discoveryCommand` run a command when the next Gemini tab starts. Gemini 0.35 has no switch that ignores workspace settings for one run. Studio rewrites the file when a tab starts, and an Ask-mode Gemini tab refuses to start when the rewrite fails, so a read-only `.gemini` no longer keeps an agent's file. Planned fix: #1059.
+- Ask covers agent tabs started from Studio. The `designos` CLI, which you run yourself, and a `designos-mcp` started by another host are not gated by Ask: that host approves its own MCP calls (#1101). A real MCP-level approval gate is planned for a later release.
+- Codex, Grok, Antigravity and Gemini CLI ask for approval in their own terminal menu, and the panel shows `Open tab`; Approve and Deny in the panel exist for Claude only (#930). Clicking an option in Codex's own approval menu does nothing, so use the arrow keys and Enter (#1096).
+- Gemini CLI and Grok in Ask mode: the status line may not show a waiting state for every approval prompt. For Gemini, the state comes from the confirmation dialog on the tab's screen or from Gemini's `ToolPermission` notification. The `ask_user` and `exit_plan_mode` dialogs draw no `No, suggest changes` option, and a panel narrower than 29 columns hides a cut label, so a wait there starts only from a hook record. The screen check is on for Gemini 0.35.x and 0.65.x, read from source only. For another Gemini version, a No answer leaves `Needs approval` standing until you type a prompt. Where Studio writes no Gemini hooks file (Windows, or Gemini already has system defaults), a wait starts only from the screen. For Grok, the state comes from its `permission_prompt` notification, and Studio never checked that payload against a real Grok [unverified]. No real Gemini or Grok approval prompt was run.
+- Export Frame as `.spec.json` writes into `designos_specs` in the temporary folder when Studio finds no source tree, by path, so an agent that can write the temporary folder could plant a link at the file name. It needs you to run the export (#1073).
+- The Windows test suite is advisory for 0.7.0. Releases are verified on macOS, and known Windows test failures are tracked in #1158.
+- Windows (releases are verified on macOS only):
+  - Stop on Windows is not checked by any test. The Stop tests fail there because their Python stub imports `tty`, which Python does not provide on Windows (#1066).
+  - Palette auto-fix undo is unverified on Windows: eight tests show different auto-layout sizes after one undo, and the cause is not known (#1066).
+  - The link checks for session files are not race-free on Windows (#1061, #1068), an Ask-mode Grok or Antigravity tab refuses an entry that is not Studio's instead of moving it (#1069), and no hooks file is written for Gemini, so its `Needs approval` comes from the screen only (#1058, #1066).
+  - Windows was not built or run by hand for these changes.
+- Not checked against a live model turn: the Ask-mode Claude launch (skill from a private plugin, Studio's hooks and MCP config from private copies), the Gemini approval state, and the Ask-mode Grok and Antigravity checks were tested with stubs and source reading, not with a real Claude, Gemini, Grok or Antigravity turn.
+- Of the 38 GUI fixes from 0.6.1 listed in #1102, 16 were re-checked by tests. The rest are not re-tested yet, and U-17 (a new design file is named "Untitled") is still open (#1102).
+
 ## [0.6.5] - 2026-10-27
 
 Patch for **AI design** ([milestone v0.6.5](https://github.com/jangtrinh/design-os-studio/milestone/52)): Studio ships the `DESIGN-OS Studio Starter` file, exports a single variable mode as one self-contained DTCG `.tokens.json` file with alias resolution and hex colors, addresses CLI nodes by name, id or Figma id, measures hug text with the renderer, and speeds up large multi-layer edits.

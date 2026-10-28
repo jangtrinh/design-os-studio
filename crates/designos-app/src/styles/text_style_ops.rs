@@ -4,7 +4,7 @@
 //! returns a [`Command`] and leaves the document alone, so the caller decides how the change joins
 //! the undo stack.
 
-use designos_doc::lint::token_match::same_text_style;
+use designos_doc::lint::token_match::{same_text_style, same_text_style_props};
 use designos_doc::*;
 
 /// Key of the `style_refs` entry that links a text layer to its text style.
@@ -35,7 +35,13 @@ fn text_layers<'a>(doc: &'a Document, nodes: &[NodeId]) -> Result<Vec<(&'a Node,
 pub fn shared_text_style(doc: &Document, nodes: &[NodeId]) -> Option<TextStyle> {
     let layers = text_layers(doc, nodes).ok()?;
     let (_, first) = *layers.first()?;
-    layers.iter().all(|(_, t)| has_single_text_style(t) && same_text_style(&t.style, &first.style)).then(|| first.style.clone())
+    let mut style = first.style.clone();
+    style.align_h = TextAlignH::Left;
+    style.align_v = TextAlignV::Top;
+    style.paragraph_indent = first.paragraph.indent;
+    style.list_spacing = first.paragraph.list_spacing;
+    style.leading_trim = first.paragraph.leading_trim;
+    layers.iter().all(|(_, t)| has_single_text_style(t) && same_text_style_props(t, &style)).then_some(style)
 }
 
 /// First `Text style N` that is neither the key nor the display name of a style of `doc`, so a style
