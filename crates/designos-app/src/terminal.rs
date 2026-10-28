@@ -2028,6 +2028,25 @@ impl TerminalState {
                 let _ = std::fs::write(approvals_dir.join("1001-Bash.request.json"), req.to_string());
                 let _ = self.poll_live_agent_bridge();
             }
+            "agents-approval-tainted" => {
+                // A delete requested after the turn read untrusted document text: the card carries the sink caption.
+                if let Some(tab) = self.active_tab_mut() {
+                    tab.preset = AgentCliPreset::Claude;
+                    tab.title = "Claude Code #1".into();
+                }
+                designos_mcp::untrusted::init_taint(&self.session_dir);
+                designos_mcp::untrusted::reset_turn_watermark(&self.session_dir);
+                designos_mcp::untrusted::record_taint(&self.session_dir);
+                let req = serde_json::json!({
+                    "id": "1001-delete",
+                    "tool_name": "designos_delete_node",
+                    "summary": "node_id:12:34",
+                    "target": "node_id:12:34",
+                    "timestamp": now,
+                });
+                let _ = std::fs::write(approvals_dir.join("1001-delete.request.json"), req.to_string());
+                let _ = self.poll_live_agent_bridge();
+            }
             "agents-approval-queued" => {
                 if let Some(tab) = self.active_tab_mut() {
                     tab.preset = AgentCliPreset::Claude;
@@ -11510,9 +11529,14 @@ mod tests {
 
     #[test]
     fn sim_approval_card_and_permissions_modal_pass_layout_lint() {
-        for preset_slug in
-            ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-approval-background-tab", "agents-scrollback"]
-        {
+        for preset_slug in [
+            "agents-approval-command",
+            "agents-approval-queued",
+            "agents-approval-open-tab",
+            "agents-approval-background-tab",
+            "agents-approval-tainted",
+            "agents-scrollback",
+        ] {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);
