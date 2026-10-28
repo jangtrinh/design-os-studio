@@ -22,7 +22,9 @@ TOK = {  # Untitled UI PRO v8.0, 1_ Color modes / Dark mode, resolved (evidence/
     "fg-primary": "#FFFFFF", "fg-secondary": "#D4D4D4", "fg-secondary_hover": "#E5E5E5",
     "fg-tertiary": "#A3A3A3", "fg-quaternary": "#737373", "fg-quaternary_hover": "#A3A3A3",
     "bg-error-solid": "#DC2626", "bg-error-solid_hover": "#B91C1C",  # R8.7: Red-700 (kit dark value Red-500 fails AA)
-    "Red-800": "#991B1B",  # primitive: derived destructive Pressed (white 8.31:1) "bg-error-primary": "#450A0A",
+    "Red-800": "#991B1B",  # primitive: derived destructive Pressed (white 8.31:1)
+    "focus-ring-error": "#EF4444", "border-error_subtle": "#EF4444", "text-error-primary_hover": "#FCA5A5",  # kit error roles, Dark
+    "bg-error-primary": "#450A0A",
     "border-error": "#F87171", "text-error-primary": "#F87171", "fg-error-primary": "#EF4444",
     "fg-success-primary": "#22C55E", "fg-warning-primary": "#EAB308", "bg-overlay": "#262626", "bg-primary-solid": "#262626",
     "bg-primary_alt": "#171717", "tooltip-supporting-text": "#D4D4D4", "fg-white": "#FFFFFF",
@@ -72,11 +74,11 @@ def glyph(ch, color, size=12):
     return text(ch, size, color, 500, name="icon " + ch)
 
 
-def ring(child, radius, on=True):
-    """Focus ring: 2px focus-ring stroke, 2px gap outside the control (kit Focus rings, R4 colour)."""
+def ring(child, radius, on=True, tok="focus-ring"):
+    """Focus ring: 2px ring, 2px gap outside the control (kit Focus rings; R4 colour, or the kit's error ring)."""
     if not on:
         return frame("no ring", [child], pad=(4, 4, 4, 4))
-    return frame("focus ring", [child], pad=(2, 2, 2, 2), stroke="focus-ring", sw=2, radius=radius + 2)
+    return frame("focus ring", [child], pad=(2, 2, 2, 2), stroke=tok, sw=2, radius=radius + 2)
 
 
 # ---------------------------------------------------------------- widget painters (one cell = one widget in one state)
@@ -263,7 +265,7 @@ def w_palette(st):
     items = frame("items", [w_menu_item((P, None, "text-secondary_hover", "text-quaternary"), "Export…", "⌘E", 176),
                             w_menu_item((None, None, "text-secondary", "text-quaternary"), "Rename", "⌘R", 176)],
                   direction="column", pad=(8, 0, 8, 0))
-    return frame("palette", [search, line, items], direction="column", fill=fill, stroke=border, sw=bw, radius=16, w=178)
+    return frame("palette", [search, line, items], direction="column", fill=fill, stroke=border, sw=bw, radius=12, w=178)
 
 
 # ---------------------------------------------------------------- the kit: one entry per Studio widget kind
@@ -280,29 +282,37 @@ def S(default, hover, pressed, focused, disabled="half", selected="n/a"):
 BTN = "Buttons/Button · Hierarchy={h} · Icon only={i} · Size=xs|sm|md"
 W = [
     dict(name="Button/Primary", draw=w_button, kit=BTN.format(h="Primary", i="False"), node=24945,
-         studio="home/dialog.rs:349-368 · libraries/modal.rs:81-101 · comments/ui.rs:92-108 · home/mod.rs:1407-1420 · agent_approval_card.rs:137-160",
+         studio="home/dialog.rs:367-386 · libraries/modal.rs:81-101 · comments/ui.rs:92-108 · home/mod.rs:1392-1405 · agent_approval_card.rs:172-197",
          geom="xs 32 (pad 6/10, icon 16) · sm 36 (pad 8/12, icon 20) · md 40 (pad 10/14, icon 20) · gap spacing-xs 4 · radius-md 8 · label text-sm semibold",
          st=S(("bg-brand-solid", N, "Neutral-950", "Neutral-950"), ("bg-brand-solid_hover", N, "Neutral-950", "Neutral-950"),
               ("Orange-600", N, "Neutral-950", "Neutral-950"), ("ring", ("bg-brand-solid", N, "Neutral-950", "Neutral-950")))),
     dict(name="Button/Secondary", draw=w_button, kit=BTN.format(h="Secondary", i="False"), node=24945,
-         studio="comments/ui.rs:92-108 (primary=false) · libraries/modal.rs:81-101 · home/mod.rs:1421-1426 · agent_approval_card.rs:150-158",
+         studio="comments/ui.rs:92-108 (primary=false) · libraries/modal.rs:81-101 · home/mod.rs:1406-1411 · agent_approval_card.rs:185-197",
          geom="as Button/Primary; border 1 px",
          st=S(("bg-primary", "border-primary", "text-secondary", "fg-quaternary"), (P, "border-primary", "text-secondary_hover", "fg-quaternary_hover"),
               ("bg-quaternary", "border-primary", "text-secondary_hover", "fg-quaternary_hover"),
               ("ring", ("bg-primary", "border-primary", "text-secondary", "fg-quaternary")))),
     dict(name="Button/Tertiary", draw=w_button, kit=BTN.format(h="Tertiary", i="False"), node=24945,
-         studio="home/dialog.rs:383-392 (Cancel) · comments/ui.rs:92-108 (plain tile)",
+         studio="home/dialog.rs:401-410 (Cancel) · comments/ui.rs:92-108 (plain tile)",
          geom="as Button/Primary; no fill, no border at rest",
          st=S((N, N, "text-tertiary", "fg-quaternary"), (P, N, "text-tertiary_hover", "fg-quaternary_hover"),
               ("bg-quaternary", N, "text-tertiary_hover", "fg-quaternary_hover"), ("ring", ("bg-primary", N, "text-tertiary", "fg-quaternary")))),
     dict(name="Button/Destructive", draw=w_button, kit="Buttons/Button destructive · Hierarchy=Primary · Size=xs|sm|md", node=26468,
-         studio="home/mod.rs:1427-1432 (Kind::Danger) · home/dialog.rs:353-354 (d.danger)",
+         studio="home/mod.rs:1412-1417 (Kind::Danger) · home/dialog.rs:371-372 (d.danger)",
          geom="as Button/Primary",
-         parts="kit Hover is Red-500 #EF4444 (white 3.76:1); R8.7 sets Red-700. Pressed Red-800 is derived (no kit Pressed).",
+         parts="kit Hover is Red-500 #EF4444 (white 3.76:1); R8.7 sets Red-700 (contract BG_ERROR_SOLID_HOVER). Pressed Red-800 is contract BG_ERROR_SOLID_PRESSED (N38; no kit Pressed). Focused rings in the kit's focus-ring-error (export: State=Focused carries Focus rings/focus-ring-error-shadow-xs-skeuomorphic).",
          st=S(("bg-error-solid", N, "text-white", "text-white"), ("bg-error-solid_hover", N, "text-white", "text-white"),
-              ("Red-800", N, "text-white", "text-white"), ("ring", ("bg-error-solid", N, "text-white", "text-white")))),
+              ("Red-800", N, "text-white", "text-white"), ("ring", ("bg-error-solid", N, "text-white", "text-white"), "focus-ring-error"))),
+    dict(name="Button/SecondaryDestructive", draw=w_button, args=dict(label="Empty trash"), kit="Buttons/Button destructive · Hierarchy=Secondary · Size=xs|sm|md (live set 6218:85578)", node=26468,
+         studio="home/mod.rs:1241 (\"Empty trash\", Kind::Danger today; ruling C-K) · home/mod.rs:1412-1417 (Kind::Danger look)",
+         geom="as Button/Secondary: xs 32 (pad 6/10), sm 36, md 40 · 1 px border · radius-md 8 · gap 4 · label text-sm semibold",
+         parts="Receipts, live kit, read-only (`figma-agent context <node> --depth 3`, file key VEffelx01mDl5BJJanwxja, Size=xs, Hierarchy=Secondary, set 6218:85578). Default 11129:3537: fill bound to bg-primary, 1 px stroke bound to border-error_subtle, radius-md 8, h 32, pad 6/10, gap 4 (spacing-xs), label 11129:3540 bound to `text-error-primary (600)` (the kit variable name of the role this table calls text-error-primary), text-sm 14 weight 600. Hover 11129:3605: fill bound to bg-error-primary, label 11129:3608 bound to text-error-primary_hover. Focused 11129:3575: effect style `Focus rings/focus-ring-error-shadow-xs-skeuomorphic` (a 2 px bg-primary gap, then a 4 px focus-ring-error ring). Disabled 11129:3556: opacity 0.5. Loading 11129:3610: fill bg-error-primary with `Buttons/Button loading icon` 11129:3611. Dark values from the resolved export: bg-error-primary #450A0A, border-error_subtle #EF4444, text-error-primary (600) #F87171, text-error-primary_hover #FCA5A5, focus-ring-error #EF4444, border-error #F87171 (the live nodes show only the Light fallbacks). This hierarchy has no solid fill, so R8.7 (Red-700 hover) and N38 (`BG_ERROR_SOLID_PRESSED`) govern the solid Button/Destructive only; here Hover is the kit tint, and Pressed is derived (the kit has no Pressed): the same tint, the border steps up to border-error. Controller reading, open to reversal: if R8.7 should also drive this hover, change the Hover fill to bg-error-solid_hover #B91C1C and the label to text-white.",
+         st=S(("bg-primary", "border-error_subtle", "text-error-primary", "text-error-primary"),
+              ("bg-error-primary", "border-error_subtle", "text-error-primary_hover", "text-error-primary_hover"),
+              ("bg-error-primary", "border-error", "text-error-primary_hover", "text-error-primary_hover"),
+              ("ring", ("bg-primary", "border-error_subtle", "text-error-primary", "text-error-primary"), "focus-ring-error"))),
     dict(name="Button/Icon", draw=w_button, args=dict(label="", icon="+"), kit=BTN.format(h="Tertiary", i="True"), node=24945,
-         studio="widgets/mod.rs:169-186 icon_button · widgets/mod.rs:101-115 button_bg · comments/ui.rs:117-131 dots_button",
+         studio="widgets/mod.rs:176-193 icon_button · widgets/mod.rs:108-122 button_bg · comments/ui.rs:117-131 dots_button",
          geom="xs 32×32 (pad 8, icon 16) · sm 36×36 (pad 8, icon 20) · radius-md 8",
          st=S((N, N, N, "fg-quaternary"), (P, N, N, "fg-quaternary_hover"), ("bg-quaternary", N, N, "fg-quaternary_hover"),
               ("ring", ("bg-primary", N, N, "fg-quaternary")), "half", ("bg-secondary_hover", N, N, "fg-secondary_hover"))),
@@ -322,29 +332,30 @@ FIELD = S(("bg-primary", "border-primary", "text-primary", "fg-quaternary"), ("b
           ("bg-primary", "border-brand", "text-primary", "fg-quaternary", 2))
 W += [
     dict(name="Input/Field", draw=w_field, args=dict(value="Frame 12"), kit="Input field · Type=Default · Size=sm (xs derived)", node=27883,
-         studio="widgets/field.rs:695-705 field_bg · :707-717 text_input/_ph · :25-126 edit_text_hint",
-         geom="xs 32 (derived: pad 0/10, value text-xs) · sm 36 (pad 8/12, gap 8, icon 16, text-sm) · radius-md 8 · placeholder text-placeholder",
+         studio="widgets/field.rs:695-705 field_bg · :707-717 text_input/_ph · :25-126 edit_text_hint · home/dialog.rs:295-320 (dialog text input: BG_SECONDARY fill, frameless TextEdit, no border; also the #1192 typed-path import prompt)",
+         parts="Receipt for the fill (ruling C-F), live kit, read-only (`figma-agent context 11351:120087 --depth 3`): Input field set 1090:57817, variant `Size=sm, Type=Default, Destructive=False, State=Placeholder` 11351:120087, its `Input` frame 11351:120092 binds fill to bg-primary, stroke to border-primary (1 px) and radius to radius-md (8). Select set 3281:377673, variant Size=sm, State=Default 11467:325117 (`Input` frame 11467:325123) binds the same three. Every Input/* row and Select/Trigger below takes bg-primary.",
+         geom="fill bg-primary (kit Input; ruling C-F) · xs 32 (derived: pad 0/10, value text-xs) · sm 36 (pad 8/12, gap 8, icon 16, text-sm) · radius-md 8 · placeholder text-placeholder",
          st=FIELD),
     dict(name="Input/PropertyField", draw=w_field, args=dict(value="1440", prefix="W"), kit="derived: Input field · Type=Leading text · Size=sm (add-on prefix without its divider)", node=27883,
          studio="widgets/field.rs:563-645 num_field · :648-693 scrub_prefix · :128-182 edit_num_text",
-         geom="xs 32; prefix slot 24 (letter text-xs medium or icon 12) in the add-on colour; value text-xs (numbers mono, spec B); radius-md 8",
+         geom="fill bg-primary (kit Input; ruling C-F) · xs 32; prefix slot 24 (letter text-xs medium or icon 12) in the add-on colour; value text-xs (numbers mono, spec B); radius-md 8",
          st=S(("bg-primary", "border-primary", "text-primary", "text-tertiary"), ("bg-primary", "border-primary", "text-primary", "text-tertiary"), "n/a",
               ("bg-primary", "border-brand", "text-primary", "text-tertiary", 2))),
     dict(name="Input/Search", draw=w_field, args=dict(value="Search layers", search=True), kit="Input field · Type=Default · Size=sm with a leading search icon", node=27883,
          studio="find/filter.rs:64-80 · libraries/modal.rs:129-144 · find/panel.rs:158-177 · cmdk.rs:357-385 (palette input, borderless)",
-         geom="as Input/Field; leading icon 16 at pad-left, gap 8",
+         geom="fill bg-primary (kit Input; ruling C-F) · as Input/Field; leading icon 16 at pad-left, gap 8",
          st=S(("bg-primary", "border-primary", "text-placeholder", "fg-quaternary"), ("bg-primary", "border-primary", "text-placeholder", "fg-quaternary"), "n/a",
               ("bg-primary", "border-brand", "text-primary", "fg-quaternary", 2))),
     dict(name="Select/Trigger", draw=w_field, args=dict(value="Fill", chevron=True), kit="Select · Type=Default · Size=sm (State=Open uses the focused look)", node=34416,
-         studio="widgets/menu.rs:571-601 dropdown/dropdown_checked · widgets/picker.rs:1255-1292 picker_dropdown",
-         geom="as Input/Field; chevron-down 16 at pad-right 10",
+         studio="widgets/menu.rs:571-606 dropdown/dropdown_checked · widgets/picker.rs:1283-1320 picker_dropdown",
+         geom="fill bg-primary (kit Input; ruling C-F) · as Input/Field; chevron-down 16 at pad-right 10",
          st=FIELD),
     dict(name="Menu/Panel", draw=w_menu, kit="Dropdown menu · Type=Icon advanced · Open=True → Menu (Context menu uses the same frame, node 27823)", node=27475,
-         studio="widgets/mod.rs:90-99 menu_panel · widgets/menu.rs:429 · panels/context.rs:145 (context menu via popup_tree)",
+         studio="widgets/mod.rs:97-106 menu_panel · widgets/menu.rs:429 · panels/context.rs:145 (context menu via popup_tree)",
          geom="radius-2xl 16 (R8.5; kit radius-md 8) · pad 8 all round, items inset 8 (R8.5, concentric 16 - 8 = 8) · width unchanged (layout) · no shadow (dark shadow-lg is transparent)",
          st=S(("bg-primary", "border-secondary_alt", "text-secondary", "fg-quaternary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Menu/Context", draw=w_menu, kit="Context menu · Type=Simple · Open=True → Menu (same frame as Dropdown menu)", node=27823,
-         studio="panels/context.rs:145 (show via widgets/menu.rs:299 popup_tree) · shell.rs:990 (ctx_menu position)",
+         studio="panels/context.rs:145 (show via widgets/menu.rs:299 popup_tree) · shell.rs:1084 (ctx_menu position)",
          geom="as Menu/Panel: bg-primary, border-secondary_alt 1 px, radius-2xl 16, pad 8, rows Menu/Item xs (R8.5)",
          st=S(("bg-primary", "border-secondary_alt", "text-secondary", "fg-quaternary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Menu/Item", draw=w_menu_item, kit="_Dropdown menu list item · Inset icon=True (Selected from _Select menu item · Selected=True, node 36212)", node=27767,
@@ -364,7 +375,7 @@ W += [
 
 W += [
     dict(name="Tabs/Segmented", draw=w_tab, kit="_Tab button base · Type=Button minimal · Size=sm (container: Horizontal tabs · Type=Button minimal)", node=86171,
-         studio="comments/ui.rs:133-152 segmented · panels/properties.rs:299-336 · panels/toolbar.rs:279-315 (mode switch)",
+         studio="comments/ui.rs:133-152 segmented · panels/properties.rs:314-351 · panels/toolbar.rs:279-315 (mode switch)",
          geom="height is the surface's current height (R10.1): Inspector segmented strip 24 with 20 px tiles (24 - 2 x INSET_SEGMENT); Home and dialogs keep sm (32 tiles in a 36 strip) · container pad 2, radius-md 8, tiles radius 6 (8 - 2 inset), pad 0/10 · label text-xs 12/18 semibold (R5, R8.6) · icon segments 16",
          st=S((N, N, "text-quaternary", "fg-quaternary"), (N, N, "text-secondary", "fg-quaternary_hover"), "n/a",
               ("ring", ("bg-primary", N, "text-quaternary", "fg-quaternary")), "half", ("bg-secondary_hover", "border-primary", "text-secondary", "fg-secondary"))),
@@ -379,54 +390,54 @@ W += [
          st=S(("bg-tertiary", "border-secondary", N, "fg-white", 0.5), ("bg-tertiary", "border-secondary", N, "fg-white", 0.5), "n/a",
               ("ring", ("bg-tertiary", "border-secondary", N, "fg-white", 0.5)), "half", ("bg-brand-solid", N, N, "fg-white"))),
     dict(name="Checkbox/Box", draw=w_checkbox, args=dict(on=False), radius=4, kit="Checkbox → _Checkbox base · Type=Checkbox · Size=sm (Selected = Checked=True)", node=27396,
-         studio="widgets/popover.rs:70-81 check · panels/properties.rs:338-352 · panels/check_designs.rs:330-337",
+         studio="widgets/popover.rs:70-81 check · panels/properties.rs:353-367 · panels/check_designs.rs:330-337",
          geom="16×16, radius-xs 4, check icon 12 · hit box >= 24 with its label",
          parts="Icon = the check mark. The unchecked border is the kit's 1 px border-primary #404040 (contract BORDER_STRONG): 1.91:1 on bg-primary, 1.73:1 on bg-secondary, a named exception to the 3:1 boundary rule decided by the owner (R10.7).",
          st=S((N, "border-primary", N, N), (N, "border-primary", N, N), "n/a", ("ring", ("bg-primary", "border-primary", N, N)),
               ("half", ("bg-tertiary", "border-primary", N, N)), ("bg-brand-solid", N, N, "Neutral-950"))),
     dict(name="Radio/Card", draw=w_radio_card, kit="Radio group item · Type=Radio button · Size=sm (dot: _Checkbox base · Type=Radio)", node=32801,
-         studio="agent_approval_card.rs:219-249 (permission mode options)",
+         studio="agent_approval_card.rs:256-286 (permission mode options)",
          geom="card pad 16, radius-xl 12, gap 8 · radio 16, radius-full, dot 6 · title text-sm medium, caption text-sm (dialog, sm)",
          parts="Fill/Border = the card. Icon = the radio circle: a 1 px border-primary ring when off (contract BORDER_STRONG, the R10.7 exception as Checkbox), a bg-brand-solid disc when Selected, with a 6 px Neutral-950 dot (5.73:1 on the disc).",
          st=S(("bg-primary", "border-secondary", "text-secondary", "border-primary"), (P, "border-secondary", "text-secondary", "border-primary"), "n/a",
               ("ring", ("bg-primary", "border-secondary", "text-secondary", "border-primary")), "half", ("bg-primary", "border-brand", "text-primary", "bg-brand-solid", 2))),
     dict(name="Badge/StatusCount", draw=w_badge, kit="Badge · Type=Pill color · Color=Gray · Icon=False · Size=sm (status: Color=Error|Success|Warning|Orange)", node=22406,
-         studio="home/mod.rs:1128-1130 (Trash count) · cmdk.rs:468-471 · canvas/agent_changes_chip.rs:452-457",
+         studio="home/mod.rs:1113-1115 (Trash count) · cmdk.rs:468-471 · canvas/agent_changes_chip.rs:452-457",
          geom="height 22, pad 2/8, radius-full, text-xs medium (count digits mono, spec B)",
          st=S(("utility-neutral-50", "utility-neutral-200", "utility-neutral-700", N), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Tag/Chip", draw=w_tag, kit="Tag · Icon=False · Action=X close · Checkbox=False · Size=sm", node=36937,
-         studio="agent_selection_chip.rs:160-200 · libraries/modal.rs:146-152 change_tag · image_jobs.rs:1241-1262 (status chip)",
+         studio="agent_selection_chip.rs:160-200 · libraries/modal.rs:146-152 change_tag · image_jobs.rs:1242-1263 (status chip)",
          geom="height 24, pad 2 / 6 right / 8 left and gap 4 (kit 3 / 4 / 8 and gap 3, snapped to the 2 and 4 steps), radius-md 8 (R5; kit radius-sm 6), text-xs medium, close × 14",
          st=S(("bg-primary", "border-primary", "text-secondary", "fg-quaternary"), ("bg-primary", "border-primary", "text-secondary", "fg-quaternary_hover"), "n/a",
               ("ring", ("bg-primary", "border-primary", "text-secondary", "fg-quaternary")), "n/a")),
     dict(name="Tooltip/Default", draw=w_tooltip, kit="Tooltip · Supporting text=False · Arrow=None", node=37898,
-         studio="theme.rs:618-655 (egui stock tooltips from on_hover_text, 84 calls in 33 files)",
+         studio="theme.rs:626-663 (egui stock tooltips from on_hover_text, 85 matches in 34 files)",
          geom="pad 8/12, radius-md 8 (live kit: Content frame radius 8, fill bg-primary-solid), title text-xs semibold text-primary; supporting line text-xs medium text-secondary (token-contract); no arrow",
          st=S(("bg-primary-solid", N, "text-primary", N), "n/a", "n/a", "n/a", "n/a")),
 ]
 
 
 W += [
-    dict(name="Tree/Row", na={"Focused": "Layers has no arrow-key navigation at 205c72ef (curator review); a later spec that adds it draws the S4 ring"},  draw=w_row, kit="_Tree view item · Size=sm (disclosure and indent derived)", node=86883,
+    dict(name="Tree/Row", na={"Focused": "Layers has no arrow-key navigation at 8dfaee93 (curator review); a later spec that adds it draws the S4 ring"},  draw=w_row, kit="_Tree view item · Size=sm (disclosure and indent derived)", node=86883,
          studio="panels/layers.rs:516-596 (pill :518-530, chevron :532-544, icon :571-579, label :587-664)",
          geom="row 32, pad 6/8, gap 8, radius-md 8 (R5; kit radius-sm 6), chevron 16 (kit), layer icon 16, indent 12 per level (derived), label text-xs semibold (R5)",
          st=S((N, N, "text-tertiary", "fg-quaternary"), (P, N, "text-tertiary", "fg-quaternary"), "n/a", "n/a", "n/a",
               ("bg-secondary_hover", N, "text-tertiary", "fg-quaternary"))),
     dict(name="List/Row", draw=w_row, args=dict(depth=0, chevron=False, label="Drafts"), kit="_Nav item base (xs 32 derived for Pages)", node=72558,
-         studio="home/mod.rs:1188-1205 (sidebar) · panels/left.rs:272-276 (pages) · home/dialog.rs:321-323 (picker list)",
+         studio="home/mod.rs:1173-1190 (sidebar) · panels/left.rs:290-294 (pages) · home/dialog.rs:339-341 (picker list)",
          geom="sm pitch 38 (row 36, pad 8, icon 20, gap 8, text-sm semibold) · xs pitch 32 (icon 16, text-xs) · radius-md 8 (R5; kit radius-sm 6)",
          st=S((N, N, "text-secondary", "fg-quaternary"), (P, N, "text-secondary_hover", "fg-quaternary_hover"), "n/a",
               ("ring", ("bg-primary", N, "text-secondary", "fg-quaternary")), "n/a", ("bg-secondary_hover", N, "text-secondary_hover", "fg-quaternary_hover"))),
     dict(name="Panel/Header", draw=w_header, kit="derived: _Modal header (title role) + Button/Icon action", node=None,
-         studio="panels/left.rs:192-194 section_title · widgets/popover.rs:31-36 · libraries/modal.rs:65-79",
+         studio="panels/left.rs:210-212 section_title · widgets/popover.rs:31-36 · libraries/modal.rs:65-79",
          geom="height 40 (unchanged), pad-left 16, title text-sm semibold (R5 titles), action Button/Icon xs at the right",
          st=S((N, N, "text-primary", "fg-quaternary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Section/Header", draw=w_header, args=dict(title="Fill", h=40), kit="derived: _Modal header title role; separator from _Modal header Divider", node=None,
-         studio="panels/properties.rs:199-226 (section_sep, title) · :285-293 sublabel · specs.rs:3777",
+         studio="panels/properties.rs:199-228 (section_sep, title) · :300-308 sublabel · specs.rs:3777",
          geom="height 40, title text-sm semibold, sublabels text-xs medium text-tertiary, separator 1 px border-secondary",
          st=S((N, "border-secondary", "text-primary", "fg-quaternary"), "n/a", "n/a", "n/a", ("half", (N, "border-secondary", "text-primary", "fg-quaternary")))),
     dict(name="Dialog/Modal", draw=w_surface, kit="Modal → _Modal header · Type=Left aligned + _Modal actions · Horizontal fill container", node="81903 + 81763",
-         studio="home/dialog.rs:228-392 · libraries/modal.rs:43-79 · agent_approval_card.rs:168-200 · shell.rs:1036+ (web-capture report)",
+         studio="home/dialog.rs:243-410 · libraries/modal.rs:43-79 · agent_approval_card.rs:205-237 · shell.rs:1162+ (web-capture report)",
          geom="frame radius-2xl 16 and no border (live kit: Modal set 4057:415205, frame Modal bound to radius-2xl, no stroke) over the bg-overlay scrim · header pad 24, gap 16, title text-md 16 semibold (kit), supporting text-sm text-tertiary, close Button/Close sm · footer divider + md 40 buttons, gap 12, pad 24",
          st=S(("bg-primary", N, "text-primary", "fg-quaternary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Popover/Panel", draw=w_surface, args=dict(title="Drop shadow", title_size=14), kit="derived: Dropdown menu frame + _Modal header (editor size)", node=27475,
@@ -436,21 +447,22 @@ W += [
 ]
 
 W += [
-    dict(name="Dialog/CommandPalette", draw=w_palette, kit="Command bar frame (= Modal surface) · items _Command dropdown menu item · Type=Default · State=Default|Hover|Focus", node=75734,
+    dict(name="Dialog/CommandPalette", draw=w_palette, kit="Command bar (live frame 3307:407031) · items _Command dropdown menu item · Type=Default · State=Default|Hover|Focus", node=75734,
          studio="cmdk.rs:268-272 (private palette) · :350-356 frame · :357-385 input · :395-426 tabs · :437-474 rows and badges",
-         geom="frame radius-2xl 16 (modal surface) · input row 40 (md, borderless, icon 16, text-sm; aligns with spec J) · items Menu/Item at inset 8 (kit _Command dropdown menu item: pitch 44, pill radius-md 8, gap 8), text-sm medium text-primary + text-tertiary supporting text · shortcut Menu/Shortcut",
+         parts="Receipt, live kit, read-only (`figma-agent context 3307:407031 --depth 1`): `Command bar` frame 3307:407031 (variant 3307:407212, set 3307:407570) binds radius to radius-xl (12) and fill to bg-primary, and has no stroke. Studio adds a 1 px border-secondary_alt (derived: the bar is docked above the toolbar with no scrim and no shadow, so without an edge it would melt into the panel; spec J rule 2 and spec D take the same edge). The surface is `kit::surface::command_bar_surface`: radius 12, no scrim, no shadow.",
+         geom="frame radius-xl 12, contract RADIUS_XL (ruling C-R; spec J owns the anatomy; not the 16 of menus and modals) · fill bg-primary, 1 px border-secondary_alt (derived, see Parts) · input row 40 (md, borderless, icon 16, text-sm; aligns with spec J) · items Menu/Item at inset 8 (kit _Command dropdown menu item: pitch 44, pill radius-md 8, gap 8), text-sm medium text-primary + text-tertiary supporting text · shortcut Menu/Shortcut",
          st=S(("bg-primary", "border-secondary_alt", "text-primary", "fg-quaternary"), "n/a", "n/a", "n/a", "n/a")),
-    dict(name="Toast/Default", parts="Icon = the status dot: fg-brand-primary for info, fg-error-primary #EF4444 for errors, fg-success-primary #22C55E for success.",  draw=w_toast, kit="Notification · Type=No icon (single-line form derived; status dot replaces the featured icon)", node=71816,
-         studio="shell.rs:993-1035 (shadow :1013, status dot :1015) · shell/toast_layout.rs (layout) · theme.rs:458 TOAST_HEIGHT 40",
-         geom="height 40 (unchanged), pad 0/16, gap 8, radius-xl 12 (kit Notification; contract RADIUS_XL), text-sm medium text-primary, dot 8: fg-brand-primary (info) / fg-error-primary (error) / fg-success-primary",
+    dict(name="Toast/Default", parts="Icon = the status dot: fg-brand-primary for info, fg-error-primary #EF4444 for errors, fg-success-primary #22C55E for success. Receipt for radius 12, live kit, read-only (`figma-agent context <node> --depth 1`): Notification set 1135:618, variant `Type=No icon, Breakpoint=Desktop` 1135:2644, its `Notification` frame 1135:2645 binds all four corner radii to radius-xl (12), fill to bg-primary_alt, stroke to border-secondary_alt (1 px) and padding and gap to spacing-xl (16); frame 1135:507 of another variant binds the same. Studio export set 71816.",  draw=w_toast, kit="Notification · Type=No icon (single-line form derived; status dot replaces the featured icon)", node=71816,
+         studio="shell.rs:1087-1161 (shadow :1134, status dot :1136) · shell/toast_layout.rs (layout) · theme.rs:466 TOAST_HEIGHT 40",
+         geom="height 40 (unchanged), pad 0/16, gap 8, radius-xl 12 (contract RADIUS_XL; receipt in Parts), fill bg-primary_alt, 1 px border-secondary_alt, text-sm medium text-primary, dot 8: fg-brand-primary (info) / fg-error-primary (error) / fg-success-primary",
          st=S(("bg-primary_alt", "border-secondary_alt", "text-primary", "fg-brand-primary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Swatch/Color", parts="Border = the 1 px inner outline; Selected adds the 2 px focus-ring outline (derived).",  draw=w_swatch, radius=4, kit="_Color swatch · Type=Default · State=Default|Hover|Focused", node=75651,
-         studio="widgets/mod.rs:188-200 swatch · :201-233 swatch_circle · widgets/picker.rs:675 paint_swatch, :1383 opacity_cell",
+         studio="widgets/mod.rs:195-207 swatch · :208-240 swatch_circle · widgets/picker.rs:684 paint_swatch, :1424 opacity_cell",
          geom="shape and size unchanged (layout); 1 px inner stroke alpha-black-10 (white 10 % in Dark) · focused: 2 px ring in the swatch's own colour at 4 px out (kit 28 ring on a 20 chip) · selected: Studio ring focus-ring (derived)",
          st=S((N, "alpha-black-10", N, N), (N, "alpha-black-10", N, N), "n/a", ("ring", (N, "alpha-black-10", N, N)), "n/a",
               (N, "focus-ring", N, N, 2))),
-    dict(name="Slider/Handle", parts="Fill = the empty track, Border = the handle border (kit slider-handle-border = bg-primary, contract BG), Icon = the handle fill (kit slider-handle-bg = fg-brand-primary, contract ICON_BRAND_PRIMARY); the filled part of the track is fg-brand-primary.",  draw=w_slider, kit="Slider · Label=False (track 8, radius-full) + _Control handle", node=36722,
-         studio="widgets/picker.rs:649-674 hue_bar and thumb_ring · :721 slider_pos · :1383 opacity_cell (gradient tracks are content, unchanged)",
+    dict(name="Slider/Handle", parts="Fill = the empty track, Border = the handle border (kit slider-handle-border = bg-primary, contract BG), Icon = the handle fill (kit slider-handle-bg = fg-brand-primary, contract ICON_BRAND_PRIMARY); the filled part of the track is fg-brand-primary. For range sliders only: the colour-picker hue and opacity track handles keep their white ring (spec F, ruling C-R) and do not call this widget.",  draw=w_slider, kit="Slider · Label=False (track 8, radius-full) + _Control handle", node=36722,
+         studio="none today: for range sliders only. Colour-picker track handles (widgets/picker.rs:658-683 hue_bar and thumb_ring, :1424 opacity_cell) keep their white ring (spec F, ruling C-R)",
          geom="track 8 bg-quaternary radius-full, fill fg-brand-primary · handle 16 in editor rows (derived; kit handle size not exported) with a 2 px bg-primary border (kit slider-handle-border)",
          st=S(("bg-quaternary", "bg-primary", N, "fg-brand-primary"), ("bg-quaternary", "bg-primary", N, "fg-brand-primary"), ("bg-quaternary", "bg-primary", N, "fg-brand-primary"),
               ("ring", ("bg-quaternary", "bg-primary", N, "fg-brand-primary")))),
@@ -459,15 +471,15 @@ W += [
          geom="track 8, radius-full, gap 12 to the label, label text-xs medium (R5; kit text-sm) text-secondary",
          st=S(("bg-quaternary", N, "text-secondary", "fg-brand-primary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Loading/Inline", parts="Icon = the spinner arc, drawn over a bg-tertiary ring; Fill/Border = the chip.",  draw=w_loading, kit="derived from Loading indicator · Style=Line simple (track bg-tertiary, arc fg-brand-primary), sized for a 24 chip", node=78330,
-         studio="image_jobs.rs:1241-1262 (Queued… / Working… chip)",
+         studio="image_jobs.rs:1242-1263 (Queued… / Working… chip)",
          geom="ring 16, stroke 2 (kit sm: 32, stroke 4) · chip height 24, radius-md 8 (R5), text-xs medium text-secondary",
          st=S(("bg-secondary", "border-secondary", "text-secondary", "fg-brand-primary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="EmptyState/Default", draw=w_empty, kit="Empty state · Icon=Featured icon · Size=sm (background pattern dropped)", node=76795,
-         studio="home/mod.rs:2201-2228 · panels/check_designs.rs:508 (spec K) · agent_sample_prompts.rs:250-262",
+         studio="home/mod.rs:2168-2195 · panels/check_designs.rs:508 (spec K) · agent_sample_prompts.rs:250-262",
          geom="icon tile 32 radius-md 8 with 1 px border-primary, gap 6 · title text-sm semibold text-primary · supporting text-xs text-tertiary (INFERENCE: kit text roles not extracted)",
          st=S((N, "border-primary", "text-primary", "fg-quaternary"), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Divider/Hairline", draw=w_divider, kit="derived: the 1 px border-secondary line of _Modal header · Divider=True and _Dropdown menu list item · Divider=True", node=81903,
-         studio="widgets/mod.rs:56-62 hline / vline (119 calls in 39 files)",
+         studio="widgets/mod.rs:63-69 hline / vline (143 calls in 41 files, definitions excluded)",
          geom="1 px, border-secondary; panel edges keep their own role from spec A",
          st=S(("border-secondary", N, N, N), "n/a", "n/a", "n/a", "n/a")),
 ]
@@ -486,7 +498,7 @@ def cell(w, state):
     if v == "n/a":
         return frame("n/a", [text("n/a", 12, "text-placeholder", 400)], w=190, h=56, main="center")
     if isinstance(v, tuple) and v[0] == "ring":
-        inner = ring(w["draw"](v[1], **args), w.get("radius", 8))
+        inner = ring(w["draw"](v[1], **args), w.get("radius", 8), tok=v[2] if len(v) > 2 else "focus-ring")
     elif isinstance(v, tuple) and v[0] == "half":
         inner = frame("disabled", [w["draw"](v[1], **args)], pad=(4, 4, 4, 4), opacity=0.5)
     else:
@@ -530,7 +542,8 @@ def md_cell(v, part):
     if isinstance(v, tuple) and v[0] == "half" and val:
         s += " @50 %"
     if isinstance(v, tuple) and v[0] == "ring" and part == 1:
-        s += " + ring `focus-ring` #F97316 2 px, gap 2"
+        rt = v[2] if len(v) > 2 else "focus-ring"
+        s += f" + ring `{rt}` {TOK[rt]} 2 px, gap 2"
     return s
 
 
@@ -560,7 +573,7 @@ NA_REASON = {"Hover": "not a pointer target", "Pressed": "no separate pressed lo
 
 
 def inventory():
-    out = ["| Anatomy (registry name) | Studio today (file:line at 205c72ef) | Untitled component · variant (node id in the kit copy) | Geometry at R5 |",
+    out = ["| Anatomy (registry name) | Studio today (file:line at 8dfaee93) | Untitled component · variant (node id in the kit copy) | Geometry at R5 |",
            "|---|---|---|---|"]
     for w in W:
         node = f" (node {w['node']})" if w.get("node") else ""
@@ -588,7 +601,7 @@ if __name__ == "__main__":
                 kind = v[0] if isinstance(v, tuple) and v[0] in ("ring", "half") else "plain"
                 fill, border, bw, txt, ic = look(v[1] if kind != "plain" else v)
                 rows[w["name"]][st] = {"fill": fill, "border": border, "border_w": bw, "text": txt, "icon": ic,
-                                       "ring": kind == "ring", "alpha": 0.5 if kind == "half" else 1.0}
+                                       "ring": (v[2] if len(v) > 2 else "focus-ring") if kind == "ring" else None, "alpha": 0.5 if kind == "half" else 1.0}
         print(json.dumps({"tokens": TOK, "rows": rows}, indent=1, ensure_ascii=False))
     else:
         json.dump(board(), open(sys.argv[1], "w"), indent=1, ensure_ascii=False)
