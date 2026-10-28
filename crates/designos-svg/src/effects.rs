@@ -55,6 +55,7 @@ fn one_filter(prims: &[usvg::filter::Primitive]) -> Vec<Effect> {
                     spread: 0.0,
                     visible: true,
                     show_behind: true,
+                    blend: Default::default(),
                 });
             }
             Kind::Morphology(m) => {
@@ -84,7 +85,14 @@ fn one_filter(prims: &[usvg::filter::Primitive]) -> Vec<Effect> {
                         let c = std::mem::take(&mut chain);
                         out.push(if c.inner {
                             // An inner shadow's morphology erodes the hole; spread is its size.
-                            Effect::InnerShadow { color, offset: Vec2::new(c.dx, c.dy), radius: c.blur, spread: c.spread.abs(), visible: true }
+                            Effect::InnerShadow {
+                                color,
+                                offset: Vec2::new(c.dx, c.dy),
+                                radius: c.blur,
+                                spread: c.spread.abs(),
+                                visible: true,
+                                blend: Default::default(),
+                            }
                         } else {
                             Effect::DropShadow {
                                 color,
@@ -93,6 +101,7 @@ fn one_filter(prims: &[usvg::filter::Primitive]) -> Vec<Effect> {
                                 spread: c.spread,
                                 visible: true,
                                 show_behind: !c.knockout,
+                                blend: Default::default(),
                             }
                         });
                     }

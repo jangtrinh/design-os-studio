@@ -216,36 +216,47 @@ impl App {
         match dialogs.fallback_dir() {
             None => self.show_toast(NO_FALLBACK_FOLDER, true),
             Some(dir) => match write_new_in(&dir, file_name, bytes) {
-                Ok(path) => {
-                    let text = format!("No save dialog. Saved to {}", path.display());
-                    self.show_toast_with_reveal_status(text, true, path);
+                Ok(path) => self.show_toast_with_reveal(format!("No save dialog. Saved to {}", path.display()), path),
+                Err(e) => {
+                    let tried = dir.join(designos_export::sanitize_file_name(file_name));
+                    self.show_export_write_error(true, &tried, &e);
                 }
-                Err(e) => self.show_export_write_error(true, &dir.join(file_name), &e),
             },
         }
     }
 }
 
-/// A dialog stand-in for tests: answers every request with one outcome and records what was asked.
-#[cfg(test)]
+/// A dialog stand-in: answers every request with one outcome and records what was asked.
+/// Tests script every outcome. The `--panel export-toast` capture uses `Unavailable` plus a fallback folder.
 pub struct ScriptedDialogs {
     pub outcome: DialogOutcome,
     pub fallback: Option<PathBuf>,
     pub requests: std::cell::RefCell<Vec<FileRequest>>,
+    #[cfg(test)]
     pub hang_ms: Option<u64>,
+    #[cfg(test)]
     pub reenter_guard: Option<Arc<AtomicBool>>,
 }
 
-#[cfg(test)]
 impl ScriptedDialogs {
     pub fn answering(outcome: DialogOutcome) -> Self {
-        Self { outcome, fallback: None, requests: std::cell::RefCell::new(Vec::new()), hang_ms: None, reenter_guard: None }
+        Self {
+            outcome,
+            fallback: None,
+            requests: std::cell::RefCell::new(Vec::new()),
+            #[cfg(test)]
+            hang_ms: None,
+            #[cfg(test)]
+            reenter_guard: None,
+        }
     }
 
+    #[cfg(test)]
     pub fn hanging() -> Self {
         Self { outcome: DialogOutcome::Cancelled, fallback: None, requests: std::cell::RefCell::new(Vec::new()), hang_ms: Some(350), reenter_guard: None }
     }
 
+    #[cfg(test)]
     pub fn reentering(outcome: DialogOutcome, guard: Arc<AtomicBool>) -> Self {
         Self { outcome, fallback: None, requests: std::cell::RefCell::new(Vec::new()), hang_ms: None, reenter_guard: Some(guard) }
     }
@@ -256,10 +267,10 @@ impl ScriptedDialogs {
     }
 }
 
-#[cfg(test)]
 impl FileDialogs for ScriptedDialogs {
     fn pick(&self, request: &FileRequest) -> DialogOutcome {
         self.requests.borrow_mut().push(request.clone());
+        #[cfg(test)]
         if let Some(ms) = self.hang_ms {
             let env = super::dialog_probe::ProbeEnv { path_dirs: vec![], data_dirs: vec![], sandboxed: true };
             let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
@@ -282,6 +293,7 @@ impl FileDialogs for ScriptedDialogs {
 
     fn pick_many(&self, request: &FileRequest) -> DialogOutcome<Vec<PathBuf>> {
         self.requests.borrow_mut().push(request.clone());
+        #[cfg(test)]
         if let Some(guard) = &self.reenter_guard {
             if self.requests.borrow().len() == 1 {
                 let mut second_app = crate::app::App::new(designos_doc::Document::new("Reenter"));
@@ -289,6 +301,7 @@ impl FileDialogs for ScriptedDialogs {
                 crate::home::import_files_dialog(&mut second_app, self);
             }
         }
+        #[cfg(test)]
         if let Some(ms) = self.hang_ms {
             let env = super::dialog_probe::ProbeEnv { path_dirs: vec![], data_dirs: vec![], sandboxed: true };
             let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();

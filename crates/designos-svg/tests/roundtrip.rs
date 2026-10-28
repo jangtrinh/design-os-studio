@@ -40,6 +40,7 @@ fn sample() -> (Document, NodeId) {
         spread: 0.0,
         visible: true,
         show_behind: false,
+        blend: Default::default(),
     }];
     add(&mut d, root, button, "Button");
 

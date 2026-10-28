@@ -290,6 +290,7 @@ fn drop_shadow_appears_on_the_page() {
         spread: 0.0,
         visible: true,
         show_behind: false,
+        blend: Default::default(),
     });
     let out = export(&doc, frame);
     let below = out.canvas.at(100.0, 106.0);
@@ -1146,6 +1147,7 @@ fn random_node(doc: &mut Document, parent: NodeId, rng: &mut Rng, depth: u32) {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         });
     }
     if rng.chance(0.2) && !is_text {

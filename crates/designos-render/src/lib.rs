@@ -582,13 +582,13 @@ impl Renderer<'_> {
         let fast_rrect = if blur::reference_mode() { None } else { self.solid_rrect(n, &ts, shape.as_ref()) };
         for e in &n.effects {
             match e {
-                Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind } => {
+                Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } => {
                     if let Some((rr, fill_alpha)) = fast_rrect {
-                        if shadow::drop_shadow_rrect(target, clip, rr, scale, color, *offset, *radius, *spread, *show_behind, alpha, fill_alpha, &sil) {
+                        if shadow::drop_shadow_rrect(target, clip, rr, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha, fill_alpha, &sil) {
                             continue;
                         }
                     }
-                    effects::drop_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, alpha, &sil)
+                    effects::drop_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha, &sil)
                 }
                 Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
                     effects::background_blur(target, back, clip, inner_bb, scale, *radius, &sil)
@@ -611,8 +611,8 @@ impl Renderer<'_> {
 
         // 3. inner shadows
         for e in &n.effects {
-            if let Effect::InnerShadow { color, offset, radius, spread, visible: true } = e {
-                effects::inner_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, alpha, &sil);
+            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
+                effects::inner_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *blend, alpha, &sil);
             }
         }
 

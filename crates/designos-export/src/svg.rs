@@ -696,7 +696,7 @@ impl Svg<'_> {
         self.def("  <feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"/>");
         let mut shadows = Vec::new();
         for (i, e) in n.effects.iter().enumerate() {
-            if let Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind } = e {
+            if let Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, .. } = e {
                 let mut input = "hardAlpha".to_string();
                 if *spread != 0.0 {
                     let op = if *spread > 0.0 { "dilate" } else { "erode" };
@@ -728,7 +728,7 @@ impl Svg<'_> {
             current = "withShadows".into();
         }
         for (i, e) in n.effects.iter().enumerate() {
-            if let Effect::InnerShadow { color, offset, radius, spread, visible: true } = e {
+            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } = e {
                 let mut input = "hardAlpha".to_string();
                 if *spread > 0.0 {
                     self.def(&format!("  <feMorphology in=\"{input}\" operator=\"erode\" radius=\"{}\" result=\"inset{i}\"/>", num(*spread)));
@@ -1094,8 +1094,9 @@ mod tests {
                     spread: 0.0,
                     visible: true,
                     show_behind: false,
+                    blend: Default::default(),
                 },
-                Effect::InnerShadow { color: Color::WHITE, offset: Vec2::new(1.0, 1.0), radius: 2.0, spread: 0.0, visible: true },
+                Effect::InnerShadow { color: Color::WHITE, offset: Vec2::new(1.0, 1.0), radius: 2.0, spread: 0.0, visible: true, blend: Default::default() },
                 Effect::LayerBlur { radius: 6.0, visible: true },
             ];
             d.insert(page, n).unwrap();

@@ -769,6 +769,7 @@ mod tests {
             spread: 0.0,
             visible: true,
             show_behind: false,
+            blend: Default::default(),
         }];
         if let NodeKind::Frame(f) = &mut card.kind {
             f.clips_content = true;

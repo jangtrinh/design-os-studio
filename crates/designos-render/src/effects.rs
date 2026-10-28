@@ -69,6 +69,18 @@ pub(crate) fn composite(target: &mut sk::Pixmap, x: i32, y: i32, pm: &sk::Pixmap
     target.draw_pixmap(x, y, pm.as_ref(), &pp, sk::Transform::identity(), clip);
 }
 
+/// Composites a finished shadow layer over `target` with the shadow's own blend
+/// mode. Linear burn / dodge go through the per-pixel [`paint::blend_layer`].
+pub(crate) fn composite_blended(target: &mut sk::Pixmap, x: i32, y: i32, pm: &sk::Pixmap, blend: d::BlendMode, clip: Option<&sk::Mask>) {
+    let Some(mode) = crate::paint::custom_blend(blend) else {
+        composite(target, x, y, pm, crate::paint::blend_mode(blend), clip);
+        return;
+    };
+    let Some(mut layer) = sk::Pixmap::new(target.width(), target.height()) else { return };
+    composite(&mut layer, x, y, pm, sk::BlendMode::SourceOver, clip);
+    crate::paint::blend_layer(target, &layer, 1.0, mode);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn drop_shadow(
     target: &mut sk::Pixmap,
@@ -80,6 +92,7 @@ pub fn drop_shadow(
     radius: f32,
     spread: f32,
     show_behind: bool,
+    blend: d::BlendMode,
     alpha: f32,
     sil: Sil,
 ) {
@@ -94,6 +107,7 @@ pub fn drop_shadow(
         radius,
         spread,
         show_behind,
+        blend,
         alpha,
         sil,
     );
@@ -115,6 +129,7 @@ pub(crate) fn drop_shadow_with(
     radius: f32,
     spread: f32,
     show_behind: bool,
+    blend: d::BlendMode,
     alpha: f32,
     sil: Sil,
 ) {
@@ -132,7 +147,7 @@ pub(crate) fn drop_shadow_with(
             composite(&mut pm, 0, 0, &knock, sk::BlendMode::DestinationOut, None);
         }
     }
-    composite(target, rx, ry, &pm, sk::BlendMode::SourceOver, clip);
+    composite_blended(target, rx, ry, &pm, blend, clip);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -145,6 +160,7 @@ pub fn inner_shadow(
     offset: d::Vec2,
     radius: f32,
     spread: f32,
+    blend: d::BlendMode,
     alpha: f32,
     sil: Sil,
 ) {
@@ -165,7 +181,7 @@ pub fn inner_shadow(
         sil(&mut shape, -(rx as f32), -(ry as f32), 0.0, d::SilhouetteMode::Alpha);
         composite(&mut pm, 0, 0, &shape, sk::BlendMode::DestinationIn, None);
     }
-    composite(target, rx, ry, &pm, sk::BlendMode::SourceOver, clip);
+    composite_blended(target, rx, ry, &pm, blend, clip);
 }
 
 /// Replaces the backdrop inside the node shape with a blurred copy of it. When

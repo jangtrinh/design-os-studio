@@ -70,7 +70,15 @@ fn path_with(points: usize) -> Path {
 }
 
 fn drop_shadow() -> Effect {
-    Effect::DropShadow { color: Color::WHITE, offset: Vec2::new(1.0, 2.0), radius: 4.0, spread: 0.0, visible: true, show_behind: false }
+    Effect::DropShadow {
+        color: Color::WHITE,
+        offset: Vec2::new(1.0, 2.0),
+        radius: 4.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: BlendMode::Normal,
+    }
 }
 
 /// A node whose every serialized field holds a non-default value, so each field is present until an edit resets it.

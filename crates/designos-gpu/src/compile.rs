@@ -321,6 +321,15 @@ fn special_blend(b: d::BlendMode) -> bool {
     !matches!(b, d::BlendMode::Normal | d::BlendMode::PassThrough)
 }
 
+/// How a finished shadow layer composites over what is beneath it.
+fn shadow_mode(b: d::BlendMode) -> CompMode {
+    if special_blend(b) {
+        CompMode::Blend(b)
+    } else {
+        CompMode::Over
+    }
+}
+
 #[inline]
 fn visible_fills(n: &Node) -> impl Iterator<Item = &d::Paint> + Clone {
     let slice = match &n.kind {
@@ -964,9 +973,9 @@ impl Ctx<'_> {
         if allow_fx {
             for e in &n.effects {
                 match e {
-                    Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind } => {
+                    Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } => {
                         if !interactive || (*radius * scale >= 1.0 || offset.x.hypot(offset.y) * scale >= 1.0 || *spread * scale >= 1.0) {
-                            self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, alpha);
+                            self.drop_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha);
                         }
                     }
                     Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
@@ -994,8 +1003,8 @@ impl Ctx<'_> {
         // 3. inner shadows
         if allow_fx {
             for e in &n.effects {
-                if let Effect::InnerShadow { color, offset, radius, spread, visible: true } = e {
-                    self.inner_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, alpha);
+                if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
+                    self.inner_shadow(n, &g, ts, clip, bb, scale, color, *offset, *radius, *spread, *blend, alpha);
                 }
             }
 
@@ -1313,9 +1322,11 @@ impl Ctx<'_> {
         radius: f32,
         spread: f32,
         show_behind: bool,
+        blend: d::BlendMode,
         alpha: f32,
     ) {
-        if self.drop_shadow_analytic(n, g, ts, clip, scale, color, offset, radius, spread, show_behind, alpha) {
+        // the analytic quad draws straight over the target: a blended shadow needs the layer path
+        if !special_blend(blend) && self.drop_shadow_analytic(n, g, ts, clip, scale, color, offset, radius, spread, show_behind, alpha) {
             return;
         }
         let sigma = radius.max(0.0) * scale / 2.0;
@@ -1343,7 +1354,7 @@ impl Ctx<'_> {
         }
         let aux = (!show_behind).then(|| (self.sil_program(n, g, ts, rect, 0.0, 0.0, 0.0, d::SilhouetteMode::Knockout), AuxMode::MulInv));
         let tint = [color.r.clamp(0.0, 1.0), color.g.clamp(0.0, 1.0), color.b.clamp(0.0, 1.0), (color.a * alpha).clamp(0.0, 1.0)];
-        self.push_op(Op::Composite(Box::new(CompositeOp { src: s, rect, opacity: 1.0, tint: Some(tint), aux, mode: CompMode::Over, clip })));
+        self.push_op(Op::Composite(Box::new(CompositeOp { src: s, rect, opacity: 1.0, tint: Some(tint), aux, mode: shadow_mode(blend), clip })));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1359,6 +1370,7 @@ impl Ctx<'_> {
         offset: Vec2,
         radius: f32,
         spread: f32,
+        blend: d::BlendMode,
         alpha: f32,
     ) {
         let sigma = radius.max(0.0) * scale / 2.0;
@@ -1394,7 +1406,7 @@ impl Ctx<'_> {
             opacity: 1.0,
             tint: Some(tint),
             aux: Some((shape, AuxMode::Mul)),
-            mode: CompMode::Over,
+            mode: shadow_mode(blend),
             clip,
         })));
     }

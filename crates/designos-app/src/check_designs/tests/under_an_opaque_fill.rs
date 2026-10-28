@@ -36,8 +36,15 @@ fn card_list(decorate: impl FnOnce(&mut Node), fill: Option<Color>) -> (Fx, Node
 }
 
 fn shadow(n: &mut Node) {
-    n.effects =
-        vec![Effect::DropShadow { color: Color::rgba(0, 0, 0, 51), offset: Vec2::new(0.0, 4.0), radius: 24.0, spread: 0.0, visible: true, show_behind: false }];
+    n.effects = vec![Effect::DropShadow {
+        color: Color::rgba(0, 0, 0, 51),
+        offset: Vec2::new(0.0, 4.0),
+        radius: 24.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }];
 }
 
 fn outside_stroke(n: &mut Node) {

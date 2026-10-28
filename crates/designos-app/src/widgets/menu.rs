@@ -576,6 +576,13 @@ pub fn dropdown(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &
 /// Like `dropdown`, but `checked[i]` decides whether option `i` shows a check mark, so a multi-select
 /// list marks every selected row regardless of what the closed field shows.
 pub fn dropdown_checked(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, options: &[String], checked: &[bool]) -> Option<usize> {
+    let items: Vec<MenuItem> = options.iter().enumerate().map(|(i, o)| MenuItem::new(o.clone()).checked(checked.get(i).copied().unwrap_or(false))).collect();
+    dropdown_items(ui, rect, key, label, &items, rect.width())
+}
+
+/// Like `dropdown_checked`, but with ready-made `items` (check marks, dividers) and a menu at
+/// least `min_width` wide.
+pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, items: &[MenuItem], min_width: f32) -> Option<usize> {
     let id = ui.id().with(("dd", key));
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
@@ -593,9 +600,7 @@ pub fn dropdown_checked(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, 
     }
     let mut picked = None;
     if open {
-        let items: Vec<MenuItem> =
-            options.iter().enumerate().map(|(i, o)| MenuItem::new(o.clone()).checked(checked.get(i).copied().unwrap_or(false))).collect();
-        match popup_menu(ui.ctx(), id.with("menu"), rect.left_bottom() + Vec2::new(0.0, 2.0), rect.width(), &items, Some(rect)) {
+        match popup_menu(ui.ctx(), id.with("menu"), rect.left_bottom() + Vec2::new(0.0, 2.0), rect.width().max(min_width), items, Some(rect)) {
             MenuResult::Picked(i) => {
                 picked = Some(i);
                 ui.data_mut(|d| d.insert_temp(id, false));

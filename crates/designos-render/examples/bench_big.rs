@@ -98,6 +98,7 @@ fn big_doc() -> (Document, NodeId, Vec<NodeId>) {
                         spread: 0.0,
                         visible: true,
                         show_behind: false,
+                        blend: Default::default(),
                     }];
                     n
                 }

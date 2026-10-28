@@ -7,7 +7,8 @@ use crate::app::App;
 use crate::icons::Icon;
 use crate::theme;
 use crate::widgets::field::{self, Prefix};
-use crate::widgets::menu::{dropdown, popup_menu, MenuItem, MenuResult};
+use crate::widgets::menu::{dropdown, dropdown_items, popup_menu, MenuItem, MenuResult};
+use crate::widgets::picker::{blend_group_ends, BLEND_MODES};
 use crate::widgets::{self, popover};
 use designos_doc::Vec2 as DVec2;
 use designos_doc::*;
@@ -83,9 +84,9 @@ pub fn default_effect(kind: usize, seed: u32) -> Effect {
     let shadow = |inner: bool| {
         let (color, offset, radius, spread, visible) = (Color::rgba(0, 0, 0, 64), DVec2::new(0.0, 4.0), 4.0, 0.0, true);
         if inner {
-            Effect::InnerShadow { color, offset, radius, spread, visible }
+            Effect::InnerShadow { color, offset, radius, spread, visible, blend: Default::default() }
         } else {
-            Effect::DropShadow { color, offset, radius, spread, visible, show_behind: false }
+            Effect::DropShadow { color, offset, radius, spread, visible, show_behind: false, blend: Default::default() }
         }
     };
     match kind {
@@ -129,6 +130,9 @@ pub fn convert(e: &Effect, kind: usize) -> Effect {
             Effect::LayerBlur { radius: r, .. } | Effect::BackgroundBlur { radius: r, .. } => *r = radius,
             _ => {}
         }
+    }
+    if let Some(mode) = shadow_blend(e) {
+        set_shadow_blend(&mut out, mode);
     }
     set_visible(&mut out, visible);
     out
@@ -334,8 +338,8 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect) {
 /// Number of setting rows of the popover of effect `e`.
 pub(super) fn effect_rows(e: &Effect) -> usize {
     match e {
-        Effect::DropShadow { .. } => 6,
-        Effect::InnerShadow { .. } => 5,
+        Effect::DropShadow { .. } => 7,
+        Effect::InnerShadow { .. } => 6,
         Effect::LayerBlur { .. } | Effect::BackgroundBlur { .. } => 1,
         Effect::Noise(n) => match n.mode {
             NoiseMode::Mono { .. } => 5,
@@ -419,6 +423,18 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                 }
             } else if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
+            }
+        });
+        popover::row(ui, body, next(), "Blend", |ui, rc| {
+            let blends: Vec<BlendMode> = match tgt {
+                FxTarget::Nodes(ids) => ids.iter().filter_map(|id| app.doc.get(*id)).filter_map(|n| n.effects.get(i)).filter_map(shadow_blend).collect(),
+                FxTarget::Style => shadow_blend(e).into_iter().collect(),
+            };
+            let (label, current) = blend_label(&blends);
+            let modes = shadow_blend_modes();
+            if let Some(k) = dropdown_items(ui, rc, ("fxp-blend", i), &label, &shadow_blend_items(&modes, current), BLEND_MENU_WIDTH) {
+                let mode = modes[k].0;
+                edit_effect(app, tgt, i, |e| set_shadow_blend(e, mode));
             }
         });
         if let Some(b) = behind {
@@ -599,6 +615,35 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
     }
 }
 
+/// The blend mode of a shadow effect; other effect types have none.
+fn shadow_blend(e: &Effect) -> Option<BlendMode> {
+    match e {
+        Effect::DropShadow { blend, .. } | Effect::InnerShadow { blend, .. } => Some(*blend),
+        _ => None,
+    }
+}
+
+fn set_shadow_blend(e: &mut Effect, mode: BlendMode) {
+    if let Effect::DropShadow { blend, .. } | Effect::InnerShadow { blend, .. } = e {
+        *blend = mode;
+    }
+}
+
+/// The dropdown label for the blend modes of the selected shadows, and the mode they share (if any).
+/// Modes outside the menu (imported linear burn / dodge, pass through) show their own name.
+fn blend_label(blends: &[BlendMode]) -> (String, Option<BlendMode>) {
+    let Some(&first) = blends.first() else { return ("Normal".into(), Some(BlendMode::Normal)) };
+    if blends.iter().any(|b| *b != first) {
+        return ("Mixed".into(), None);
+    }
+    let name = match first {
+        // not offered for shadows, but an imported value still shows a readable name
+        BlendMode::PassThrough => "Pass through".to_string(),
+        _ => BLEND_MODES.iter().find(|(m, _)| *m == first).map_or_else(|| format!("{first:?}"), |(_, n)| n.to_string()),
+    };
+    (name, Some(first))
+}
+
 pub fn set_noise_color(e: &mut Effect, secondary: bool, c: Color) {
     if let Effect::Noise(n) = e {
         match (&mut n.mode, secondary) {
@@ -618,8 +663,65 @@ pub fn set_shadow(e: &mut Effect, f: impl FnOnce(&mut Color, &mut DVec2, &mut f3
     }
 }
 
+/// Blend modes offered for a shadow. Figma effects have no pass-through, so it is not
+/// offered; an imported `PassThrough` is still kept and shown, it just can't be picked.
+fn shadow_blend_modes() -> Vec<(BlendMode, &'static str)> {
+    BLEND_MODES.iter().copied().filter(|(m, _)| *m != BlendMode::PassThrough).collect()
+}
+
+/// Same width as the paint blend menu.
+const BLEND_MENU_WIDTH: f32 = 140.0;
+
+/// The shadow Blend menu: one checkable row per mode, with Figma's group dividers.
+fn shadow_blend_items(modes: &[(BlendMode, &'static str)], current: Option<BlendMode>) -> Vec<MenuItem> {
+    modes
+        .iter()
+        .map(|(m, n)| {
+            let item = MenuItem::new(*n).checked(current == Some(*m));
+            if blend_group_ends(*m) {
+                item.sep()
+            } else {
+                item
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shadow_blend_menu_has_figma_groups_and_linear_modes() {
+        use designos_doc::BlendMode as B;
+        let modes = super::shadow_blend_modes();
+        let items = super::shadow_blend_items(&modes, Some(B::LinearBurn));
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"Linear burn") && labels.contains(&"Linear dodge"), "{labels:?}");
+        let groups: Vec<Vec<&str>> = items.split_inclusive(|i| i.separator_after).map(|g| g.iter().map(|i| i.label.as_str()).collect()).collect();
+        assert_eq!(
+            groups,
+            vec![
+                vec!["Normal"],
+                vec!["Darken", "Multiply", "Linear burn", "Color burn"],
+                vec!["Lighten", "Screen", "Linear dodge", "Color dodge"],
+                vec!["Overlay", "Soft light", "Hard light"],
+                vec!["Difference", "Exclusion"],
+                vec!["Hue", "Saturation", "Color", "Luminosity"],
+            ]
+        );
+        assert!(!items.last().unwrap().separator_after, "no divider after the last row");
+        assert!(items.iter().filter(|i| i.checked).map(|i| i.label.as_str()).eq(["Linear burn"]), "imported Linear burn is checked by name");
+        assert_eq!(super::BLEND_MENU_WIDTH, 140.0);
+    }
+
+    #[test]
+    fn shadow_blend_row_hides_pass_through() {
+        let modes = super::shadow_blend_modes();
+        assert!(modes.iter().all(|(m, _)| *m != designos_doc::BlendMode::PassThrough));
+        let others = super::BLEND_MODES.iter().filter(|(m, _)| *m != designos_doc::BlendMode::PassThrough).count();
+        assert_eq!(modes.len(), others, "only pass-through is hidden");
+        assert_eq!(super::blend_label(&[designos_doc::BlendMode::PassThrough]).0, "Pass through", "an imported value still shows");
+    }
+
     use super::*;
 
     #[test]
@@ -632,9 +734,33 @@ mod tests {
     }
 
     #[test]
+    fn convert_between_shadows_keeps_the_blend_mode() {
+        let mut drop = default_effect(1, 1);
+        set_shadow_blend(&mut drop, BlendMode::Multiply);
+        assert_eq!(shadow_blend(&convert(&drop, 0)), Some(BlendMode::Multiply));
+    }
+
+    #[test]
+    fn blend_label_is_mixed_when_the_selection_differs() {
+        assert_eq!(blend_label(&[BlendMode::LinearBurn]).0, "Linear burn");
+        assert_eq!(blend_label(&[BlendMode::LinearDodge]).0, "Linear dodge");
+        assert_eq!(blend_label(&[BlendMode::PassThrough]), ("Pass through".to_string(), Some(BlendMode::PassThrough)));
+        assert_eq!(blend_label(&[BlendMode::Multiply, BlendMode::Multiply]), ("Multiply".to_string(), Some(BlendMode::Multiply)));
+        assert_eq!(blend_label(&[BlendMode::Multiply, BlendMode::Screen]), ("Mixed".to_string(), None));
+        assert_eq!(blend_label(&[]).0, "Normal");
+    }
+
+    #[test]
     fn convert_keeps_shared_values_and_visibility() {
-        let e =
-            Effect::DropShadow { color: Color::rgba(1, 2, 3, 40), offset: DVec2::new(2.0, 3.0), radius: 9.0, spread: 1.0, visible: false, show_behind: false };
+        let e = Effect::DropShadow {
+            color: Color::rgba(1, 2, 3, 40),
+            offset: DVec2::new(2.0, 3.0),
+            radius: 9.0,
+            spread: 1.0,
+            visible: false,
+            show_behind: false,
+            blend: Default::default(),
+        };
         let inner = convert(&e, 0);
         assert!(matches!(inner, Effect::InnerShadow { radius, visible: false, .. } if radius == 9.0));
         let blur = convert(&e, 2);

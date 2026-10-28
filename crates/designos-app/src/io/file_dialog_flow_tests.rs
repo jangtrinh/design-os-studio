@@ -48,7 +48,7 @@ fn export_selection_without_a_dialog_says_so_and_saves_to_the_fallback_folder() 
     assert!(std::fs::metadata(&saved).unwrap().len() > 0, "the file holds the rendered PNG");
     let (text, error) = toast_of(&app).expect("a toast says what happened");
     assert_eq!(text, format!("No save dialog. Saved to {}", saved.display()));
-    assert!(error, "a missing dialog is a warning, not a plain success");
+    assert!(!error, "the file was written; the text still says there was no dialog");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -87,7 +87,7 @@ fn export_selection_fallback_saves_a_layer_with_a_very_long_name() {
         app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         let (text, error) = toast_of(&app).unwrap();
         assert!(text.starts_with("No save dialog. Saved to "), "{label}: {text}");
-        assert!(error);
+        assert!(!error, "{label}");
     }
     let names = files_in(&dir);
     assert_eq!(names.len(), 2, "{names:?}");
@@ -111,6 +111,45 @@ fn export_selection_cancel_is_silent_and_writes_nothing() {
     app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Cancelled).with_fallback(dir.clone()));
     assert_eq!(toast_of(&app), None, "a cancel in a working dialog says nothing");
     assert!(files_in(&dir).is_empty(), "and writes nothing");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn export_toast_menu_without_a_dialog_offers_reveal() {
+    let dir = scratch_dir("menu_reveal");
+    let mut app = app_with_selected_layer("Frame 1");
+    app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+    let saved = dir.join("Frame 1.png");
+    crate::fig_export::tests::assert_offers_reveal(&app, &saved);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn export_toast_menu_picked_path_offers_reveal() {
+    let dir = scratch_dir("menu_picked_reveal");
+    let target = dir.join("chosen.png");
+    let mut app = app_with_selected_layer("Frame 1");
+    app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Picked(target.clone())));
+    crate::fig_export::tests::assert_offers_reveal(&app, &target);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[cfg(unix)]
+#[test]
+fn export_toast_menu_read_only_folder_names_the_path_and_the_reason() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch_dir("menu_read_only");
+    let tried = dir.join("Frame 1.png");
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let mut app = app_with_selected_layer("Frame 1");
+    app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+    let toast = app.toast.as_ref().expect("a failed write must say so");
+    assert!(toast.error, "{}", toast.text);
+    assert!(toast.reveal.is_none(), "{}", toast.text);
+    assert!(toast.text.contains("Export failed"), "{}", toast.text);
+    assert!(toast.text.contains(&tried.display().to_string()), "toast names the path it tried: {}", toast.text);
+    assert!(toast.text.contains("Permission denied") || toast.text.contains("os error"), "toast names the reason: {}", toast.text);
+    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -373,7 +412,7 @@ mod other_dialog_sites {
         crate::panels::inspect::download_with(&mut app, id, &crate::panels::inspect::Asset::Svg, &dialogs);
         let saved = dir.join("Frame 1.svg");
         assert!(std::fs::read_to_string(&saved).unwrap().contains("<svg"), "{:?}", files_in(&dir));
-        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), true)));
+        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), false)));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -400,7 +439,7 @@ mod other_dialog_sites {
         app.export_deck_pdf_with(true, &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         let saved = dir.join("Talk.pdf");
         assert!(std::fs::read(&saved).unwrap().starts_with(b"%PDF-"), "{:?}", files_in(&dir));
-        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), true)));
+        assert_eq!(toast_of(&app), Some((format!("No save dialog. Saved to {}", saved.display()), false)));
         std::fs::remove_dir_all(&dir).ok();
     }
 
