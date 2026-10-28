@@ -1,0 +1,33 @@
+args: designos --home --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/01b-home.png
+idle before: 3499s
+exit=0 seconds=1
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/kit/kit.fig --select fig:1673:402973 --panel effect-styles --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/02-effect-styles.png
+idle before: 3600s
+exit=0 seconds=8
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/kit/kit.fig --select fig:1673:402973 --panel edit-style-effect --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/03a-edit-style-effect.png
+idle before: 3608s
+exit=0 seconds=8
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/kit/kit.fig --select fig:1673:402973 --panel fill-picker-libraries --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/03b-fill-picker-libraries.png
+idle before: 3616s
+exit=0 seconds=8
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/work/s8/starter-8shadows.designos --select id:636048 --panel effects-menu --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/05-effects-menu-8-drop-shadows.png
+idle before: 3500s
+exit=0 seconds=1
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/kit/kit.fig --select fig:5253:373440 --zoom fit --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/06b-kit-shadow-row-in-app.png
+idle before: 3624s
+exit=0 seconds=8
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/work/starter-1098.designos --panel agents-turn-card --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/08a-agents-turn-card.png
+idle before: 3501s
+exit=0 seconds=1
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/work/starter-1098.designos --panel agents-turn-card-small --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/08b-agents-turn-card-small.png
+idle before: 3502s
+exit=0 seconds=1
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/kit/kit.fig --select fig:5253:373434 --panel export-toast --size 1440x900 --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/09a-export-toast.png
+idle before: 3659s
+exit=0 seconds=11
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/kit/kit.fig --select fig:5253:373434 --panel export-toast --size 1440x900 --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/09b-export-toast-second-run.png
+idle before: 3669s
+exit=0 seconds=11
+args: designos /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/work/starter-1098.designos --select name:QA Centred CTA --zoom 300 --size 1440x900 --no-toast --screenshot /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/ev/11-centred-button-label.png
+idle before: 3503s
+exit=0 seconds=1

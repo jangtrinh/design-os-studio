@@ -1,0 +1,8 @@
+# 0.6.5 baseline: before save
+-rw-r--r--@ 1 jangtrinh  wheel  1860182 Oct 28 11:29 /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/work/acl065/acl-test.designos
+ 0: group:everyone allow read
+[1] designos_open_file: {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "{\"active_page_id\":1,\"can_redo\":false,\"can_undo\":false,\"comment_count\":0,\"in_progress\":{},
+[2] designos_create_node: {"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "{\"changed\":true,\"issues\":[],\"issues_total\":0,\"issues_truncated\":false,\"node\":{\"fills\"
+[3] designos_save_file: {"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "{\"path\":\"/private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-b
+# after MCP save (overwrite)
+-rw-r--r--@ 1 jangtrinh  wheel  1860484 Oct 28 11:29 /private/tmp/claude-501/-Users-jangtrinh-Products-design-os-studio/4a19d7c5-37f7-497b-bf78-6cbf99e83d54/scratchpad/qa070/work/acl065/acl-test.designos

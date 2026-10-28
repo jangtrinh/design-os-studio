@@ -1,0 +1,22 @@
+# 0.7.0 app save path (designos --apply-spec saves in place): before
+total 3640
+-rw-r--r--@ 1 jangtrinh  wheel  1860182 Oct 28 11:42 acl-test.designos
+	com.apple.provenance	     11 
+	com.designos.qa	      4 
+ 0: group:everyone allow read
+-rw-r--r--@ 1 jangtrinh  wheel        0 Oct 28 11:42 notes.tmp
+	com.apple.provenance	     11 
+$ designos acl-test.designos --apply-spec spec-1098-button.json
+{
+  "root_node_id": 636190,
+  "saved": true
+}
+exit=0
+# after
+total 3656
+-rw-r--r--@ 1 jangtrinh  wheel  1868685 Oct 28 11:42 acl-test.designos
+	com.apple.provenance	     11 
+	com.designos.qa	      4 
+ 0: group:everyone allow read
+-rw-r--r--@ 1 jangtrinh  wheel        0 Oct 28 11:42 notes.tmp
+	com.apple.provenance	     11 

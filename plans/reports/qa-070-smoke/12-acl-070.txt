@@ -1,0 +1,12 @@
+# 0.7.0: before save (plus a user .tmp file next to it)
+total 3640
+-rw-r--r--@ 1 jangtrinh  wheel  1860182 Oct 28 11:41 acl-test.designos
+ 0: group:everyone allow read
+-rw-r--r--@ 1 jangtrinh  wheel        0 Oct 28 11:41 notes.tmp
+[1] designos_open_file: {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "{\"active_page_id\":1,\"can_redo\":false,\"can_undo\":false
+[2] designos_create_node: {"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "{\"changed\":true,\"issues\":[],\"issues_total\":0,\"issu
+[3] designos_save_file: {"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "{\"path\":\"/private/tmp/claude-501/-Users-jangtrinh-Produc
+# after MCP save (overwrite=true)
+total 3728
+-rw-r--r--@ 1 jangtrinh  wheel  1860484 Oct 28 11:41 acl-test.designos
+-rw-r--r--@ 1 jangtrinh  wheel        0 Oct 28 11:41 notes.tmp

@@ -1,0 +1,6 @@
+$ designos starter-1098.designos --apply-spec spec-1098-button.json
+{
+  "root_node_id": 636190,
+  "saved": true
+}
+exit=0

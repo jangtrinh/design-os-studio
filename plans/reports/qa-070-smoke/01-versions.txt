@@ -1,0 +1,8 @@
+$ designos --version
+designos 0.7.0
+$ designos-studio --version
+designos-studio 0.7.0
+$ designos-mcp --version
+designos-mcp 0.7.0
+$ designos-diff --version
+designos-diff 0.7.0
