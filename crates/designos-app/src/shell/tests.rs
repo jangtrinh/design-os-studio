@@ -70,7 +70,8 @@ impl Sim {
     fn new() -> Self {
         Self::with(Options::default())
     }
-    fn with(mut opts: Options) -> Self {
+    /// The shell after `Shell::build`, before any frame. A preset toast raised during build has not been painted.
+    fn built(mut opts: Options) -> Self {
         designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
         if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
             opts.fixture = Some("demo".into());
@@ -78,7 +79,7 @@ impl Sim {
         let ctx = Context::default();
         let mut shell = Shell::build(&ctx, opts);
         script_empty_clipboard(&mut shell.app);
-        let mut s = Sim {
+        Sim {
             ctx,
             shell,
             t: 0.0,
@@ -89,7 +90,10 @@ impl Sim {
             accesskit_update: None,
             commands: Vec::new(),
             sent_commands: Vec::new(),
-        };
+        }
+    }
+    fn with(opts: Options) -> Self {
+        let mut s = Self::built(opts);
         s.frame(vec![]);
         s.frame(vec![]);
         s
@@ -1134,6 +1138,7 @@ mod duplicate_order;
 mod effect_caps;
 mod effect_grid_styles;
 mod empty_slot_flows;
+mod export_toast;
 mod fast_drag_draw;
 mod fast_drag_transform;
 mod fig_export_toast;

@@ -612,3 +612,87 @@ fn a_press_that_has_not_become_a_drag_is_not_made_into_an_edit_by_the_question()
     assert!(s.app().dialog.is_none(), "the document had nothing unsaved: {:?}", dialog_title(&s));
     assert_eq!(s.app().tabs.entries.len(), 1, "so the tab closed");
 }
+
+#[test]
+fn screenshot_run_closes_without_leave_questions_when_dirty() {
+    let dir = super::unsaved_dot::TmpDir::new();
+    let path = dir.0.join("outside.designos");
+    std::fs::write(&path, two_rects().to_json().unwrap()).unwrap();
+    let bytes_before = std::fs::read(&path).unwrap();
+    let mtime_before = std::fs::metadata(&path).unwrap().modified().unwrap();
+    let shot = dir.0.join("shot.png");
+
+    let mut s = Sim::with(Options { file: Some(path.clone()), screenshot: Some(shot.clone()), ..Default::default() });
+    // Dirty the document, open an in-progress text edit, and stage an agent's pending document.
+    super::unsaved_dot::edit_now(&mut s);
+    s.shell.app.set_tool(Tool::Text);
+    let spot = s.app().canvas_rect.min + egui::vec2(100.0, 420.0);
+    s.mv(spot);
+    s.button(true);
+    s.button(false);
+    s.one_frame().text("draft").send();
+    let mut pending_doc = two_rects();
+    pending_doc.name = "Agent pending".into();
+    s.shell.app.terminal.live_patch.pending_doc = Some(pending_doc);
+    assert!(s.app().has_unsaved_edits(), "the document is dirty");
+    assert!(s.app().canvas.text.is_some(), "an open edit is in progress");
+    assert!(s.app().terminal.live_patch.pending_doc.is_some(), "an agent's pending document is staged");
+
+    let requested = (0..60).any(|_| {
+        if s.commands.iter().any(|c| matches!(c, egui::ViewportCommand::Screenshot(_))) {
+            return true;
+        }
+        s.frame(vec![]);
+        s.commands.iter().any(|c| matches!(c, egui::ViewportCommand::Screenshot(_)))
+    });
+    assert!(requested, "screenshot mode must request a capture");
+    let image = std::sync::Arc::new(egui::ColorImage::filled([1600, 1088], egui::Color32::BLACK));
+    s.frame(vec![Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image }]);
+    assert!(shot.exists(), "screenshot PNG was written");
+    assert!(s.commands.contains(&egui::ViewportCommand::Close), "drive_screenshot requested window close");
+
+    s.close_frame();
+    assert!(!s.commands.contains(&egui::ViewportCommand::CancelClose), "close request must not be cancelled");
+    assert!(!s.app().leave.is_asking(), "no leave question may be open");
+    assert!(s.app().dialog.is_none(), "no dialog may be shown: {:?}", dialog_title(&s));
+    assert!(s.app().has_unsaved_edits(), "dirty flag is not cleared");
+    assert!(s.app().canvas.text.is_some(), "open edit was not committed by a leave prompt");
+    assert!(s.app().terminal.live_patch.pending_doc.is_some(), "pending agent document was not consumed by a leave dialog");
+    assert_eq!(std::fs::read(&path).unwrap(), bytes_before, "document file bytes are unchanged");
+    assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), mtime_before, "document file mtime is unchanged");
+    assert_eq!(s.app().autosave.saves, 0, "no autosave ran");
+    let mut files: Vec<String> = std::fs::read_dir(&dir.0).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    files.sort();
+    assert_eq!(files, vec!["outside.designos".to_string(), "shot.png".to_string()], "no autosave file exists");
+
+    // A library file opened in screenshot mode also never writes the library or version history on close.
+    let lib_root = dir.0.join("lib");
+    let seeded = designos_library::Library::open(&lib_root).unwrap();
+    let proj = seeded.create_project("Team").unwrap();
+    let lib_id = seeded.create_file(&proj.id, None, "Lib", &two_rects()).unwrap().id;
+    let lib_nodes_before = seeded.load_file(&lib_id).unwrap().nodes.len();
+    let lib_shot = dir.0.join("lib-shot.png");
+    let mut ls = Sim::with(Options { open_id: Some(lib_id.clone()), library: Some(lib_root), screenshot: Some(lib_shot), ..Default::default() });
+    super::unsaved_dot::edit_now(&mut ls);
+    assert_ne!(ls.app().doc.nodes.len(), lib_nodes_before, "library document is dirty in memory");
+    ls.close_frame();
+    assert!(!ls.commands.contains(&egui::ViewportCommand::CancelClose));
+    assert_eq!(seeded.load_file(&lib_id).unwrap().nodes.len(), lib_nodes_before, "library file on disk is unchanged");
+    assert!(seeded.list_versions(&lib_id).is_empty(), "no close version was written to the library");
+    assert_eq!(ls.app().autosave.saves, 0, "no autosave ran");
+}
+
+#[test]
+fn normal_run_still_asks_before_closing_a_dirty_document() {
+    let (mut s, _d, path) = external_sim_with(&two_rects());
+    edit(&mut s);
+    let on_disk = nodes_on_disk(&path);
+    let ctx = s.ctx.clone();
+    assert!(!s.shell.app.may_quit(&ctx), "may_quit returns false for a dirty document in a normal run");
+    assert!(s.app().leave.is_asking(), "the leave question is open");
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+    s.close_frame();
+    assert!(s.commands.contains(&egui::ViewportCommand::CancelClose), "the close request is cancelled while the question is open");
+    assert!(asks_about(&s, "Outside"), "{:?}", dialog_title(&s));
+    assert_eq!(nodes_on_disk(&path), on_disk, "nothing was written before an answer");
+}

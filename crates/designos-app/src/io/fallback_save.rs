@@ -33,21 +33,27 @@ fn cut_stem(stem: &str) -> String {
     cut
 }
 
-/// Writes `bytes` to `dir/file_name`, or to the first free `name 2.ext`, `name 3.ext`, ... Never replaces a file.
-/// The name is cleaned first, so a layer called `../x` stays inside `dir`.
-pub fn write_new_in(dir: &Path, file_name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
-    let clean = designos_export::sanitize_file_name(file_name);
+/// Cleans a layer or document name for an exported file: unsafe characters such as `/` and `:` become `-`.
+pub fn sanitize_export_name(name: &str) -> String {
+    let dashed: String =
+        name.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '-' } else { c }).collect();
+    designos_export::sanitize_file_name(&dashed)
+}
+
+fn write_unique_in(dir: &Path, clean: &str, bytes: &[u8], dashed: bool) -> std::io::Result<PathBuf> {
     let (stem, ext) = match clean.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() && ext.len() <= MAX_EXTENSION_BYTES => (stem, Some(ext)),
-        _ => (clean.as_str(), None),
+        _ => (clean, None),
     };
     let stem = cut_stem(stem);
-    for n in 1..=10_000u32 {
-        let name = match (n, ext) {
-            (1, Some(ext)) => format!("{stem}.{ext}"),
-            (1, None) => stem.clone(),
-            (_, Some(ext)) => format!("{stem} {n}.{ext}"),
-            (_, None) => format!("{stem} {n}"),
+    for step in 0..=10_000u32 {
+        let name = match (step, dashed, ext) {
+            (0, _, Some(ext)) => format!("{stem}.{ext}"),
+            (0, _, None) => stem.clone(),
+            (n, true, Some(ext)) => format!("{stem}-{n}.{ext}"),
+            (n, true, None) => format!("{stem}-{n}"),
+            (n, false, Some(ext)) => format!("{stem} {}.{ext}", n + 1),
+            (n, false, None) => format!("{stem} {}", n + 1),
         };
         let path = dir.join(name);
         match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
@@ -63,6 +69,28 @@ pub fn write_new_in(dir: &Path, file_name: &str, bytes: &[u8]) -> std::io::Resul
         }
     }
     Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, format!("too many files named {stem}")))
+}
+
+/// Writes `bytes` to `dir/file_name`, or to the first free `name 2.ext`, `name 3.ext`, ... Never replaces a file.
+/// The name is cleaned first, so a layer called `../x` stays inside `dir`.
+pub fn write_new_in(dir: &Path, file_name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    let clean = designos_export::sanitize_file_name(file_name);
+    write_unique_in(dir, &clean, bytes, false)
+}
+
+/// Writes `bytes` to `dir/file_name`, or to the first free `name-1.ext`, `name-2.ext`, ... Never replaces a file.
+/// Unsafe characters such as `/` and `:` in `file_name` become `-`.
+pub fn write_new_dashed_in(dir: &Path, file_name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    let clean = sanitize_export_name(file_name);
+    write_unique_in(dir, &clean, bytes, true)
+}
+
+/// Writes `bytes` to `path`, or to the first free `name-1.ext`, `name-2.ext`, ... in `path`'s folder.
+/// Never replaces an existing file.
+pub fn write_new_dashed_path(path: &Path, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("export");
+    write_new_dashed_in(dir, file_name, bytes)
 }
 
 #[cfg(test)]

@@ -124,7 +124,7 @@ fn panel_export_never_overwrites_an_existing_file() {
         click_export_btn(&mut s);
 
         assert_eq!(std::fs::read(&existing).unwrap(), b"keep me", "existing file must never be overwritten");
-        let second = downloads.join("Hero 2.png");
+        let second = downloads.join("Hero-1.png");
         assert!(second.is_file(), "new export must write to numbered sibling {}", second.display());
         assert!(std::fs::read(&second).unwrap().starts_with(b"\x89PNG\r\n\x1a\n"));
 
@@ -132,6 +132,13 @@ fn panel_export_never_overwrites_an_existing_file() {
         assert_eq!(toast.text, format!("No save dialog. Saved to {}", second.display()));
         assert_eq!(toast.reveal.as_deref(), Some(second.as_path()));
         assert!(s.rect_of("toast-reveal").width() > 0.0, "Show in folder button must be drawn");
+
+        click_export_btn(&mut s);
+        let third = downloads.join("Hero-2.png");
+        assert!(third.is_file(), "third export must write to numbered sibling {}", third.display());
+        let toast = s.app().toast.as_ref().expect("second panel Export must show a toast");
+        assert_eq!(toast.text, format!("No save dialog. Saved to {}", third.display()));
+        assert_eq!(toast.reveal.as_deref(), Some(third.as_path()));
     });
     std::fs::remove_dir_all(&home).ok();
 }
@@ -200,7 +207,7 @@ fn panel_export_multiple_settings_writes_all_files_to_fallback_and_shows_reveal_
 
         let toast = s.app().toast.as_ref().expect("multi-file export must show a toast");
         assert_eq!(toast.text, format!("No save dialog. Saved 2 files to {}", downloads.display()));
-        assert_eq!(toast.reveal.as_deref(), Some(png.as_path()), "multi-file export toast must support Show in folder");
+        assert_eq!(toast.reveal.as_deref(), Some(downloads.as_path()), "multi-file export toast must support Show in folder on the destination directory");
         assert!(s.rect_of("toast-reveal").width() > 0.0);
     });
     std::fs::remove_dir_all(&home).ok();
