@@ -20,3 +20,21 @@
 | 8 | DTCG one mode (#1140) | `--export-variables … --format dtcg --mode "Light mode"` exit 0. One file, 697 tokens, aliases inlined from `_Primitives` and `_Primitives (2)`. **All 160 `{…}` aliases resolve inside the file** (checked by script). | `08c-export.txt` |
 
 Found during the smoke: none blocking. A `--screenshot` run that edits the document never exits on "Save changes?" (#1274). It has been present since 0.6.1 and was hit by the dev `--panel` presets only.
+
+## Round 2 (2026-10-27 21:00 – 2026-10-28 07:35 UTC+7), after QA's review
+
+Same build (`451e42ba`), same isolation, the kit as an APFS clone (`cp -c`, proof below). One Studio window at a time.
+
+**Jang's rulings:**
+- 21:13: items 3 and 4's agent rename are waived. Agent CLIs are not run against his real home.
+- Later (via AskUserQuestion): the click-only checks are waived and 0.6.5 is tagged on QA PASS. The waived checks are About, *Open starter sample*, *Enter a path…* and auto-fix + Undo. Studio's egui window reports no accessibility focus, so the GUI driver refuses its clicks.
+
+| # | Item | Result | Evidence |
+|---|---|---|---|
+| — | Kit is an APFS clone | `cp -c` exit 0 (`clonefile`, which fails instead of copying). Free space dropped by 8 KiB for a 336 MB file. The original's size, mtime, link count and inode are unchanged. | `B0-kit-apfs-clone.txt` |
+| 2 | Launch with no file argument opens Home (#1212) | **PASS.** A real launch, with no file argument and no `--screenshot`, opened the Home window: Recents, *Getting started*, *DESIGN-OS Studio Starter*, and the badge **v0.6.5**. | `A2-real-launch-no-file-home.png` |
+| 4 | Frame labels cut like Figma (#1197) | **PASS.** The kit's *Desktop*/*Mobile* row at 10 %: the narrow mobile frames' labels read `Mo…`, and the wider desktop frames show `Desktop` in full. | `B4-kit-frame-labels-cut.png` (`--select fig:1673:402973 --zoom 10`) |
+| 5 | Icon in a resized instance (#1242) | **PASS.** `chevron-selector-vertical`, resized to 12 × 12 in a dropdown (`id:27753`, panel *Changed: size, layout*), keeps the main component's shape: two chevrons with round caps and the stroke scaled in proportion. The main is 24 × 24 (`id:6403`). | `B5a-resized-icon-instance-12px.png` (1600 %), `B5a-icon-main-component-24px.png` (800 %) |
+| 5 | No blank-named style in the style picker (#1165) | **PASS.** The effect style picker lists 26 effect styles, all named: *Backdrop blurs/…*, *Focus rings/…*, *Shadows/…*. The raw id `1186:100350`, which #1165 reported, is not listed. | `B5b-effect-style-picker.png` (`--panel effect-styles`) |
+| About · 1 *Open starter sample* · 6 auto-fix + Undo · 7 *Enter a path…* | **WAIVED** (click flows, Jang's ruling above). | Tests green on `67f45b74`: `ac10_help_open_starter_sample_creates_numbered_copies_in_current_project`; `fix_all_is_one_undo_step_and_a_contrast_fix_outranks_a_bind_it_made_stale`; `typed_import_path_expands_tilde_file`, `path_from_file_url`, `expand_tilde`. About prints `Version {CARGO_PKG_VERSION}` (`home/dialog.rs:216`); every binary's `--version` prints 0.6.5 (`09-versions.txt`), and Home shows v0.6.5 (`A2-…`). |
+| 3 · 4's agent rename | **WAIVED** (Jang, 21:13; tests listed in the #1250 comment). | — |

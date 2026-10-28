@@ -1,0 +1,2 @@
+args: --select fig:1673:402973 --zoom 10
+exit=0

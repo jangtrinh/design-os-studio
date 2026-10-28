@@ -1,0 +1,2 @@
+args: --select fig:1673:402973 --panel effect-styles
+exit=0

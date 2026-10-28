@@ -1,0 +1,12 @@
+# original before
+size=336639376 mtime=Oct 16 16:40:32 2026 links=1 inode=251309965
+# free before
+237463612 KiB free
+# cp -c (clonefile; fails instead of copying if a clone is impossible)
+cp -c exit=0
+# free after
+237463604 KiB free
+# clone
+size=336639376 inode=425026863
+# original after
+size=336639376 mtime=Oct 16 16:40:32 2026 links=1 inode=251309965
