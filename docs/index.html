@@ -206,6 +206,15 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
 .qa details[open] summary .ico{transform:rotate(180deg)}
 .qa details p{padding:0 40px 24px 0;max-width:var(--measure);color:var(--muted);text-wrap:pretty}
 
+/* listed on: one quiet row of directory badges, just above the footer */
+.listed{padding-block:clamp(32px,3vw,40px);border-top:1px solid var(--border)}
+.listed__row{display:flex;flex-wrap:wrap;align-items:center;gap:12px 28px}
+.listed h2{font-size:.8125rem;line-height:1.4;letter-spacing:.08em;text-transform:uppercase;font-weight:500;color:var(--muted)}
+.listed ul{display:flex;flex-wrap:wrap;align-items:center;gap:4px 20px}
+.listed a{display:flex;align-items:center;min-height:44px;border-radius:var(--r-sm)}
+.listed img{height:20px;width:auto;opacity:.88;transition:opacity .15s ease-out}
+@media (hover:hover){.listed a:hover img{opacity:1}}
+
 /* footer */
 .foot{border-top:1px solid var(--border);padding-block:28px 24px;color:var(--muted);font-size:.9375rem}
 .foot-links{display:flex;flex-wrap:wrap;gap:0 24px;margin-top:36px}
@@ -650,6 +659,16 @@ rm -rf /tmp/design-os-studio</code></pre></div>
       </div>
     </div>
     <div class="get__burst" id="get-burst" aria-hidden="true"></div>
+  </section>
+
+  <!-- Listed on: every directory badge lives here and nowhere else. Free listings only, no paid or reciprocal badges. -->
+  <section id="listed" class="listed" aria-labelledby="listed-h">
+    <div class="wrap listed__row">
+      <h2 id="listed-h">Listed on</h2>
+      <ul>
+        <li><a href="https://mcpservers.org/servers/jangtrinh/design-os-studio" target="_blank" rel="noopener"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" width="163" height="20" loading="lazy" decoding="async"></a></li>
+      </ul>
+    </div>
   </section>
 
 </main>

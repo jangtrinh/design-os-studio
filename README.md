@@ -674,6 +674,14 @@ Third-party files keep their own licenses (full notices in [`THIRD_PARTY_LICENSE
 
 ---
 
+## Listed on
+
+<p align="left">
+  <a href="https://mcpservers.org/servers/jangtrinh/design-os-studio"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" width="163" height="20"></a>
+</p>
+
+---
+
 If `design-os-studio` saves you time, a star on GitHub helps other engineers and AI agents find it.
 
 <p align="left">
