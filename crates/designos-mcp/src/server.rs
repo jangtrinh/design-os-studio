@@ -1514,14 +1514,11 @@ pub fn tools() -> Vec<Tool> {
             "name": name,
             "description": description,
             "inputSchema": {"type": "object", "properties": properties, "required": required, "additionalProperties": false},
-            "outputSchema": tool_output_schema(out_props, &out_req),
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": !matches!(name, "designos_save_file" | "designos_render_png"),
-                "idempotentHint": false,
-                "openWorldHint": false
-            }
+            "outputSchema": tool_output_schema(out_props, &out_req)
         }));
+    }
+    for tool in &mut raw {
+        crate::risk::stamp_tool_json(tool);
     }
     raw.into_iter().map(|v| serde_json::from_value(v).expect("valid built-in tool definition")).collect()
 }
