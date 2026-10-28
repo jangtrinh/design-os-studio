@@ -173,10 +173,14 @@ fn miss_hydrates_lazy_pages_once() {
 fn a_miss_says_what_was_searched() {
     let mut doc = two_cards();
     let msg = resolve_loaded(&mut doc, "Card Z").unwrap_err().to_string();
-    assert_eq!(msg, "--select \"Card Z\" matched no node (searched 6 layers on 1 page by name; use --inspect-json to list screens, or id:<n> / fig:<id>)");
+    assert_eq!(
+        msg,
+        "--select \"Card Z\" matched no node (searched 6 layers on 1 page by name; use --inspect-json to list screens, or id:<n> / fig:<id>) \
+         (ids of expanded instance content are per session; use fig:<id> or a name)"
+    );
     let msg = resolve_loaded(&mut doc, "id:99").unwrap_err().to_string();
     assert!(msg.starts_with("--select \"id:99\" matched no node (no node has id 99;"), "an id nothing has is a miss: {msg}");
-    assert!(!msg.contains("expanded instance"), "a typo gets no false explanation: {msg}");
+    assert!(!msg.contains("belongs to an expanded instance"), "a typo is not said to belong to an instance: {msg}");
     doc.remove(NodeId(6)).unwrap();
     let msg = resolve_loaded(&mut doc, "id:6").unwrap_err().to_string();
     assert!(msg.starts_with("--select \"id:6\" matched no node") && msg.contains("by id"), "an id below the watermark that is not there is a miss: {msg}");

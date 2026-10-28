@@ -71,7 +71,7 @@ fn a_missing_id_says_no_node_has_it_and_an_expanded_one_says_it_is_per_session()
     let mut doc = crate::agent_cli_select_tests::two_cards();
     let msg = resolve(&mut doc, "id:99", NodeId(7)).unwrap_err().to_string();
     assert!(msg.contains("no node has id 99"), "{msg}");
-    assert!(!msg.contains("expanded instance"), "{msg}");
+    assert!(!msg.contains("belongs to an expanded instance"), "a typo is not said to belong to an instance: {msg}");
 
     doc.insert(NodeId(2), named(9, "Expanded", 0.0)).unwrap();
     let msg = resolve(&mut doc, "id:9", NodeId(7)).unwrap_err().to_string();
@@ -141,4 +141,18 @@ fn fig_treats_exactly_10000_nodes_as_a_large_file() {
     let msg = resolve_loaded(&mut below, "fig:I1:2;3:4").unwrap_err().to_string();
     assert_eq!(calls.load(Ordering::SeqCst), 1, "9,999 nodes: one expansion");
     assert!(!msg.contains(HINT), "{msg}");
+}
+
+#[test]
+fn every_miss_says_ids_of_expanded_content_are_per_session() {
+    const SENTENCE: &str = "ids of expanded instance content are per session; use fig:<id> or a name";
+    for selector in ["Card Z", "name:Card Z", "id:99", "fig:0:0", "42"] {
+        let mut doc = crate::agent_cli_select_tests::two_cards();
+        let msg = resolve_loaded(&mut doc, selector).unwrap_err().to_string();
+        assert!(msg.contains(SENTENCE), "{selector}: {msg}");
+    }
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut expanded = lazy_cards(&calls);
+    let msg = resolve_loaded(&mut expanded, "Card Z").unwrap_err().to_string();
+    assert!(msg.contains("all pages expanded") && msg.contains(SENTENCE), "a miss after an expansion says both: {msg}");
 }

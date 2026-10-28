@@ -4,6 +4,9 @@ use super::resolve::{for_each_layer, Sel, LARGE_FILE_NODES};
 use super::SelectError;
 use designos_doc::Document;
 
+/// Rule 11: an id made by expanding instances differs from run to run, so every miss says what lasts.
+const PER_SESSION: &str = "ids of expanded instance content are per session; use fig:<id> or a name";
+
 /// `expanded` is true only when a page expansion ran and changed the document.
 pub(super) fn miss(doc: &Document, sel: &Sel, raw: &str, expanded: bool) -> SelectError {
     let mut layers = 0;
@@ -36,5 +39,6 @@ pub(super) fn miss(doc: &Document, sel: &Sel, raw: &str, expanded: bool) -> Sele
             searched.push_str(" (instance sublayers in files over 10,000 nodes keep no Figma id; select the instance and use id:<n>)");
         }
     }
+    searched.push_str(&format!(" ({PER_SESSION})"));
     SelectError::NoMatch { raw: raw.into(), searched }
 }

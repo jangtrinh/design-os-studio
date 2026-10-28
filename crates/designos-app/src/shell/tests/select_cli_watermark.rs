@@ -63,11 +63,13 @@ fn gui_rejects_a_page0_hydrated_id_like_the_cli() {
     page_zero_expands(&created);
     let s = Sim::with(Options { file: Some(file.clone()), select: Some(format!("id:{id}")), ..Default::default() });
     let msg = s.shell.select_miss.as_deref().expect("the id page 0 created is refused");
-    assert!(msg.contains(&format!("id {id} belongs to an expanded instance and is not stable across runs")), "{msg}");
+    assert!(msg.contains(&format!("id {id} belongs to an expanded instance and is not stable across runs; use fig:<id> or a name")), "{msg}");
     assert!(s.app().selection.is_empty());
 
     let err = run(&[text(&file), "--select", &format!("id:{id}"), "--inspect-json"]).expect_err("the agent CLI never created that node");
     assert!(err.contains(&format!("no node has id {id}")), "{err}");
+    // Where both refuse the same id, both say why it does not last and what to use instead.
+    assert!(err.contains("ids of expanded instance content are per session; use fig:<id> or a name"), "{err}");
 }
 
 #[test]
