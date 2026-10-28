@@ -1567,4 +1567,265 @@ Status: READY FOR CONTROLLER REVIEW (ROUND 8)
 
 Status: READY FOR CONTROLLER REVIEW (ROUND 9)
 
+---
+
+## Round 9b — Make `cli_resolve` Hermetic Startup Pin & `ScopedCliDirs` Race-Free Across Threads (`#1126`)
+
+### 1. What Could NOT Be Verified (Stated First)
+
+1. **No GUI Window Launch, `--screenshot`, or Visual Capture:**
+   - Explicitly forbidden in Round 9b by controller spec override: *"no window and no visual capture this round; visual evidence = the pasted test logs. Do not rebase. Push your own branch normally (no force)."*
+2. **No Rebase Onto `release/v0.7.1`:**
+   - Explicitly forbidden in Round 9b by controller spec: *"Base: Unchanged. Do not rebase; the controller rebases onto `release/v0.7.1` later."*
+
+---
+
+### 2. Spec `file:line` Drift Table (`5f70f087` vs. `8fd1237b`)
+
+| Citation in Round 9b Spec | Spec Says (`5f70f087`) | `5f70f087` Actual | Post-Fix `8fd1237b` (`HEAD`) |
+|---|---|---|---|
+| `crates/designos-app/src/cli_resolve.rs:956:9` | `assert_eq!` panic in `cli_resolve::tests::version_warmer_resolves_on_the_calling_thread` (H11) | `crates/designos-app/src/cli_resolve.rs:956:9` (exact match) | `crates/designos-app/src/cli_resolve.rs:984:9` (`+28` lines from thread-local `TEST_HERMETIC_DIR` and `ResetTestHermeticDir` guard) |
+| `crates/designos-app/src/cli_resolve.rs:1090` | `fn hermetic_startup_dir_is_pinned_after_symlink_retarget()` | `crates/designos-app/src/cli_resolve.rs:1090` (exact match) | `crates/designos-app/src/cli_resolve.rs:1118` (`+28` lines) |
+| `crates/designos-app/src/agent_session_failure.rs:543` | `LAST_WARMER_RESOLVED` thread-local definition | `crates/designos-app/src/agent_session_failure.rs:543` (exact match) | `crates/designos-app/src/agent_session_failure.rs:543` (`0` line drift; file unchanged) |
+
+---
+
+### 3. Root Cause Diagnosis & Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`)
+
+- `FACT` — On `5f70f087`, `enforce_hermetic_startup` (`crates/designos-app/src/cli_resolve.rs:348-352`) stored the startup-validated canonical path in two process-wide statics: `HERMETIC_DIR: OnceLock<Option<PathBuf>>` (`:25`) and `#[cfg(test)] static TEST_HERMETIC_DIR: Mutex<Option<PathBuf>>` (`:28`).
+- `FACT` — On `5f70f087`, `#[cfg(test)]` `hermetic_mode_active()` (`crates/designos-app/src/cli_resolve.rs:63-66`) returned `std::env::var_os("DESIGNOS_AGENT_CLI_DIR").is_some()` (process-wide environment variable), and `hermetic_agent_cli_dir()` (`:73-83`) returned `TEST_HERMETIC_DIR.lock().unwrap().clone().or_else(|| HERMETIC_DIR.get().and_then(Clone::clone))` whenever `hermetic_mode_active()` was `true`.
+- `FACT` — When `hermetic_startup_dir_is_pinned_after_symlink_retarget` (`:1090`) ran on Thread A, it called `enforce_hermetic_startup(Some(link_dir.as_os_str()), Some(ack.as_os_str()))` at `:1120` (setting process-wide `TEST_HERMETIC_DIR` to `Some(".../designos-1126-r3-p1-retarget-.../orig-stubs")`) and then called `std::env::set_var("DESIGNOS_AGENT_CLI_DIR", &link_dir)` at `:1134` before removing it at `:1139`.
+- `FACT` — During the window between `:1134` (`set_var`) and `:1139` (`remove_var`), `hermetic_agent_cli_dir()` returned `Some(".../orig-stubs")` on **every thread** in the test process. When `version_warmer_resolves_on_the_calling_thread` (H11, `:945`) ran concurrently on Thread B inside `ScopedCliDirs::enter(&stub)`, `warm_cli_version_cache(AgentCliPreset::Claude)` -> `probe_installed_cli_version` (`agent_session_failure.rs:572`) -> `current_search_sources(None)` (`cli_resolve.rs:177`) populated `SearchSources { hermetic: Some(orig-stubs), scoped: Some(h11-stub), .. }`. Because `cli_search_dirs_with` (`:208-214`) checks `sources.hermetic` (precedence 1) before `sources.scoped` (precedence 2), Thread A's hermetic startup pin shadowed Thread B's thread-local `ScopedCliDirs`, producing the exact failure (`left: Some(Some(".../orig-stubs/claude"))`, `right: Some(Some(".../h11-.../claude"))`).
+- `FACT` — Root-cause fix in [`crates/designos-app/src/cli_resolve.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/cli_resolve.rs#L25-L90):
+  1. Scoped `HERMETIC_DIR: OnceLock<Option<PathBuf>>` to `#[cfg(not(test))]` and replaced the process-wide `TEST_HERMETIC_DIR: Mutex<Option<PathBuf>>` with a `thread_local! { static TEST_HERMETIC_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) }; }` so `enforce_hermetic_startup` in test builds only mutates the calling thread's startup pin.
+  2. In `#[cfg(test)]`, `hermetic_mode_active()` and `hermetic_agent_cli_dir()` return `false` / `None` whenever `current_scoped_cli_dir().is_some()` (`ScopedCliDirs` is active on the calling thread), and otherwise read only the calling thread's `TEST_HERMETIC_DIR` (`TEST_HERMETIC_DIR.with(|slot| ...)`), never reading the process-wide `DESIGNOS_AGENT_CLI_DIR` env var across threads.
+  3. Added the RAII drop guard `ResetTestHermeticDir` (`crates/designos-app/src/cli_resolve.rs:407-424`) in `hermetic_mode_writes_the_acknowledgement` (`H9`) and `hermetic_startup_dir_is_pinned_after_symlink_retarget` so `TEST_HERMETIC_DIR` is restored to `None` when each test finishes or unwinds, preventing worker-thread reuse in `cargo test` from leaking `TEST_HERMETIC_DIR` into subsequent tests scheduled on the same worker thread.
+- **Weakest link (one line):** `std::env::set_var` inside `hermetic_codex_expansion_uses_tab_env_not_parent_env` and `hermetic_startup_dir_is_pinned_after_symlink_retarget` still mutates the OS environment block, which is safe against `cli_resolve` only because `#[cfg(test)]` `hermetic_mode_active()` no longer consults `std::env::var_os("DESIGNOS_AGENT_CLI_DIR")` and both env-mutating tests serialize on `ENV_LOCK`.
+
+---
+
+### 4. Ruling 4 — Complete Sibling Audit (`cli_resolve.rs` & `agent_session_failure.rs`)
+
+#### 4.1 Process-Wide / Thread-Local State Inventory
+
+| File & Line (`8fd1237b`) | Symbol | Scope | Guard / Why It Cannot Leak Across Tests |
+|---|---|---|---|
+| `cli_resolve.rs:26` | `HERMETIC_DIR: OnceLock<Option<PathBuf>>` | `#[cfg(not(test))]` only | Not compiled in `#[cfg(test)]`; production `main()` writes it once at startup before any threads spawn. |
+| `cli_resolve.rs:29-31` | `TEST_HERMETIC_DIR: RefCell<Option<PathBuf>>` | `#[cfg(test)]` `thread_local!` | Thread-local; bypassed when `ScopedCliDirs` is active (`current_scoped_cli_dir().is_some()`); cleared on drop by `ResetTestHermeticDir` in every test that populates `Some(...)`. |
+| `cli_resolve.rs:92-94` | `SCOPED_CLI_DIR: RefCell<Option<PathBuf>>` | `#[cfg(test)]` `thread_local!` | Thread-local; managed exclusively via `ScopedCliDirs::enter` RAII guard which restores `self.prev` on `Drop`. |
+| `cli_resolve.rs:390` | `STUB_DIR: OnceLock<PathBuf>` | `#[cfg(test)]` static | Immutable path to `crates/designos-app/tests/layout-baseline/stubs` (`chmod 0755` idempotently on first call). |
+| `cli_resolve.rs:400` | `NEXT_ID: AtomicU64` | `#[cfg(test)]` static | Monotonic counter used with `std::process::id()` in `fresh_temp_dir` so every test gets a disjoint temp directory. |
+| `cli_resolve.rs:1053` | `ENV_LOCK: Mutex<()>` | `#[cfg(test)]` static | Serialises the two tests that call `std::env::set_var` / `remove_var` (`hermetic_codex_expansion_uses_tab_env_not_parent_env` and `hermetic_startup_dir_is_pinned_after_symlink_retarget`). |
+| `agent_session_failure.rs:212` | `CATALOG: OnceLock<PatternCatalog>` | Process-wide static | Immutable regex catalog compiled once from static `RAW_PATTERNS`. |
+| `agent_session_failure.rs:472` | `CACHE: Mutex<(i64, String)>` | Process-wide static in `current_local_hhmm()` | Wall-clock `"HH:MM"` cache keyed by epoch minute; tests in `agent_session_failure.rs` pass explicit `now_hhmm: Some("...")` to `classify_session_failure`. |
+| `agent_session_failure.rs:537` | `VERSION_CACHE: OnceLock<Mutex<HashMap<AgentCliPreset, Option<String>>>>` | Process-wide static | Bypassed in `#[cfg(test)]` (`probe_installed_cli_version` returns `None` at `agent_session_failure.rs:577-579` before touching `VERSION_CACHE`). |
+| `agent_session_failure.rs:543-545` | `LAST_WARMER_RESOLVED: RefCell<Option<Option<PathBuf>>>` | `#[cfg(test)]` `thread_local!` | Thread-local slot written on the calling thread by `probe_installed_cli_version` before `cfg!(test)` early-returns. |
+
+#### 4.2 Per-Test Audit in `crates/designos-app/src/cli_resolve.rs` (20 Tests)
+
+| Test (`cli_resolve::tests::*`) | Line (`8fd1237b`) | State Mutated / Read | Coverage & Isolation |
+|---|---|---|---|
+| `hermetic_mode_is_denied_without_every_requirement` (`H1`) | `551` | Pure `BTreeMap` + `CliOpts` passed to `hermetic_startup_check` | Pure function call; no env, static, or thread-local mutation. |
+| `every_resolver_uses_resolve_in` (`H2`) | `585` | Reads source files under `crates/designos-app/src` | Read-only source scan + `fresh_temp_dir`. |
+| `hermetic_mode_refuses_symlink_outside_stub_dir` (`H3`) | `600` | `fresh_temp_dir` symlinks passed to `resolve_in_hermetic` | Per-test temp dir only. |
+| `search_dirs_precedence_is_hermetic_scoped_explicit_host` (`H5`) | `621` | Pure `SearchSources` struct passed to `cli_search_dirs_with` | Pure function call. |
+| `scoped_guard_applies_only_inside_a_gate_case` (`H7`) | `644` | Enters `ScopedCliDirs::enter(&stub)` (`SCOPED_CLI_DIR`) | Thread-local RAII guard (`ScopedCliDirs`); spawns a second thread to assert thread isolation. |
+| `hermetic_mode_writes_the_acknowledgement` (`H9`) | `674` | Calls `enforce_hermetic_startup` (`TEST_HERMETIC_DIR`) | Covered by `ResetTestHermeticDir::enter()` (`:676`) and thread-local `TEST_HERMETIC_DIR`. |
+| `hermetic_resolver_census` (`H4`) | `714` | Reads `crates/designos-app/src/*.rs` | Read-only static source scan. |
+| `startup_check_runs_before_seed_library_and_agent_cli` (`8a`) | `781` | Calls `run_startup_before_window` with invalid hermetic envs (`Err`) and `other_non_utf8_env` (no `DESIGNOS_AGENT_CLI_DIR`, sets `TEST_HERMETIC_DIR = None`) | Leaves `TEST_HERMETIC_DIR = None`; uses per-test temp dir. |
+| `hermetic_pty_env_is_stub_path_only` (`H6`) | `848` | Pure `CommandBuilder` + `configure_pty_env_with_session_and_hermetic(..., Some(stubs))` | No env, static, or thread-local mutation. |
+| `hermetic_startup_refuses_relative_or_dotdot_dir` (`8c`) | `876` | Pure `BTreeMap` + `CliOpts` passed to `hermetic_startup_check` | Pure function call. |
+| `hermetic_shell_cmd_has_no_login_or_interactive_flags` (`8d`) | `903` | Calls `build_agent_shell_cmd_for_tab_with_hermetic(..., Some(&stubs))` | Pure function call on `STUB_DIR`. |
+| `grok_usage_caller_with_no_grok_stub_spawns_nothing` (`8e`) | `921` | Enters `ScopedCliDirs::enter(&empty_stubs)` (`SCOPED_CLI_DIR`) | Thread-local RAII guard (`ScopedCliDirs`). |
+| `non_hermetic_catalog_path_prepends_install_and_extra_before_host_path` (`8f`) | `946` | Reads `catalog_child_path` and `host_path_raw` | Read-only when `TEST_HERMETIC_DIR` and `SCOPED_CLI_DIR` are `None` on the calling thread. |
+| `version_warmer_resolves_on_the_calling_thread` (`H11`) | `972` | Enters `ScopedCliDirs::enter(&stub)` (`SCOPED_CLI_DIR`) and reads `LAST_WARMER_RESOLVED` | Thread-local `ScopedCliDirs` + thread-local `LAST_WARMER_RESOLVED`; `ScopedCliDirs` now shadows `TEST_HERMETIC_DIR`. |
+| `hermetic_mode_refuses_compound_or_unknown_commands` (`H8`) | `991` | Calls `validate_hermetic_shell_cmd(..., &stubs)` | Pure function call on `STUB_DIR`. |
+| `hermetic_mode_refuses_background_redirect_and_unexpanded_vars` (`8b`) | `1022` | Calls `validate_hermetic_shell_cmd(..., &stubs)` | Pure function call on `STUB_DIR`. |
+| `hermetic_codex_expansion_uses_tab_env_not_parent_env` | `1059` | Mutates `DESIGNOS_MCP_BIN`, `DESIGNOS_WORKSPACE`, `DESIGNOS_FILE` via `std::env::set_var` / `remove_var` | Serialised by `ENV_LOCK` (`:1060`). |
+| `stub_scripts_behave` (`H10`) | `1092` | Spawns stub scripts under `Command::env_clear()` with per-test temp dir | Child process only; no parent env or static mutation. |
+| `hermetic_startup_dir_is_pinned_after_symlink_retarget` | `1118` | Calls `enforce_hermetic_startup` (`TEST_HERMETIC_DIR`) and mutates `DESIGNOS_AGENT_CLI_DIR` via `std::env::set_var` / `remove_var` | Serialised by `ENV_LOCK` (`:1119`), isolated to thread-local `TEST_HERMETIC_DIR`, and cleaned up by `ResetTestHermeticDir::enter()` (`:1120`). |
+| `retarget_and_scoped_version_warmer_do_not_race_across_threads` | `1189` | Spawns 2 threads on `Barrier(2)` running `hermetic_startup_dir_is_pinned_after_symlink_retarget` (40x) and `version_warmer_resolves_on_the_calling_thread` (200x) | Uses the guards of the two functions under test. |
+
+#### 4.3 Per-Test Audit in `crates/designos-app/src/agent_session_failure.rs` (13 Tests)
+
+All 13 tests in `agent_session_failure::tests` (`ac01_strip_ansi_ removes_csi_sgr_cursor_and_osc_sequences`, `ac01_catalog_covers_all_required_presets_and_classes`, `ac01_classifies_every_catalog_entry_from_realistic_pty_output`, `ac01_extracts_reset_times_and_upgrade_urls`, `ac01_false_positive_immunity_on_benign_conversation_output`, `ac02_claude_hook_failure_matches_map_to_canonical_classes`, `ac03_exit_status_fallback_requires_non_zero_exit_and_no_prior_card`, `edge_empty_whitespace_and_ansi_only_buffers_return_none`, `edge_binary_and_utf8_replacement_garbage_never_panics`, `edge_10mb_output_truncates_on_utf8_boundary_within_budget`, `edge_malformed_claude_hook_json_falls_back_cleanly`, `edge_url_sanitizer_strips_trailing_punctuation_and_rejects_non_https`, `edge_First_specific_error_wins_over_later_generic_line`) are pure unit tests over in-memory strings and structs (`classify_session_failure`, `classify_from_claude_hook`, `classify_from_exit_status`, `strip_ansi_and_control`, `sanitize_Https_url`, `tail_utf8_bounded`). None of them mutate environment variables, filesystem paths, or mutable statics.
+
+---
+
+### 5. Skills Loaded & What Changed Because of Them
+
+- `es:astra-work` & `es:fable-thinking`: Built an explicit `FACT`/`INFERENCE` root-cause ledger before editing, reproduced the exact cross-thread failure in `0.09s` with a deterministic `Barrier(2)` stress test before writing the fix, and discovered during full-suite verification that `terminal::tests::gemini_live_check` (`terminal.rs:9838`) resolves `/opt/homebrew/bin/gemini` via `extra_cli_path_dirs()` and requires `node` (`/opt/homebrew/Cellar/node/24.3.0/bin`, which holds zero agent CLIs) on `PATH` when `/opt/homebrew/bin` is stripped from `PATH`.
+- `es:dev` & `es:feature-dev`: Enforced strict Red (`3b60c4b5`) -> Green (`8fd1237b`) commit ordering within the allowed file scope (`crates/designos-app/src/cli_resolve.rs`).
+- `es:rust`: Replaced process-wide `Mutex<Option<PathBuf>>` test state with zero-contention `thread_local! { RefCell<Option<PathBuf>> }` plus RAII drop cleanup (`ResetTestHermeticDir`) so unwinding or worker-thread reuse in `cargo test` never leaks startup-pin state.
+- `es:orca-native-orchestration`: Sent periodic `orca orchestration send --type heartbeat` signals and checked coordinator mail via `orca orchestration check --json` before and after long test runs.
+
+---
+
+### 6. Acceptance Table & Pasted Verification Outputs
+
+| # | Gate / Requirement | Verdict | Evidence |
+|---|---|---|---|
+| **1** | `red.log` (failing stress test on `5f70f087` / `3b60c4b5`) and `green.log` (passing on `8fd1237b`) in `plans/reports/agy-1126-layout-gate-evidence/r9b/` | **PASS** | [`red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r9b/red.log), [`green.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/plans/reports/agy-1126-layout-gate-evidence/r9b/green.log) |
+| **2a** | `cargo fmt --all -- --check` under harness | **PASS** | Exit `0` |
+| **2b** | `cargo clippy --workspace --all-targets --locked -- -D warnings` under harness | **PASS** | Exit `0` (`0` warnings) |
+| **2c** | `cargo test --workspace --locked --lib` under harness | **PASS** | `1,342 passed; 0 failed; 3 ignored` across 12 lib crates |
+| **2d** | `cargo test -p designos-app --bin designos --locked` **3 times in a row** under harness | **PASS** | Run 1: `3529 passed; 0 failed; 12 ignored` (`296.47s`); Run 2: `3529 passed; 0 failed; 12 ignored` (`296.19s`); Run 3: `3529 passed; 0 failed; 12 ignored` (`300.64s`) |
+| **2e** | `cargo test -p designos-app --bin designos --locked -- cli_resolve` **20 times** under harness | **PASS** | `20/20` runs passed (`20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out` on every run) |
+| **2f** | `python3 -B -m unittest discover -s scripts/tests -p "test_*.py"` | **PASS** | `Ran 58 tests in 15.068s — OK` |
+| **2g** | `python3 scripts/zero_fake_ui_gate.py` & `python3 scripts/check_spacing_relationships.py` | **PASS** | `17/17 invariants satisfied` & `PASS: no count rose above the baseline` |
+| **3** | `out/cargo` removed (`rm -rf out/cargo`), report appended, branch pushed | **PASS** | `OUT_CARGO_REMOVED=1`, commits `3b60c4b5`, `8fd1237b` |
+
+#### 6.1 Red Run (`plans/reports/agy-1126-layout-gate-evidence/r9b/red.log` on `3b60c4b5`)
+
+```text
+running 1 test
+test cli_resolve::tests::retarget_and_scoped_version_warmer_do_not_race_across_threads ... FAILED
+
+failures:
+
+---- cli_resolve::tests::retarget_and_scoped_version_warmer_do_not_race_across_threads stdout ----
+
+thread '<unnamed>' (8676419) panicked at crates/designos-app/src/cli_resolve.rs:956:9:
+warm_cli_version_cache must resolve on the calling thread inside ScopedCliDirs before spawning
+  left: Some(Some("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.9zB02D/designos-1126-r3-p1-retarget-16029-2/orig-stubs/claude"))
+ right: Some(Some("/private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.9zB02D/designos-1126-h11-16029-4/claude"))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'cli_resolve::tests::retarget_and_scoped_version_warmer_do_not_race_across_threads' (8676417) panicked at crates/designos-app/src/cli_resolve.rs:1174:14:
+h11 thread panicked: Any { .. }
+
+
+failures:
+    cli_resolve::tests::retarget_and_scoped_version_warmer_do_not_race_across_threads
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3540 filtered out; finished in 0.09s
+```
+
+#### 6.2 Green Run (`plans/reports/agy-1126-layout-gate-evidence/r9b/green.log` on `8fd1237b`)
+
+```text
+running 20 tests
+test cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands ... ok
+test cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host ... ok
+test cli_resolve::tests::every_resolver_uses_resolve_in ... ok
+test cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case ... ok
+test cli_resolve::tests::hermetic_mode_refuses_symlink_outside_stub_dir ... ok
+test cli_resolve::tests::hermetic_pty_env_is_stub_path_only ... ok
+test cli_resolve::tests::hermetic_mode_refuses_background_redirect_and_unexpanded_vars ... ok
+test cli_resolve::tests::hermetic_startup_refuses_relative_or_dotdot_dir ... ok
+test cli_resolve::tests::version_warmer_resolves_on_the_calling_thread ... ok
+test cli_resolve::tests::hermetic_mode_writes_the_acknowledgement ... ok
+test cli_resolve::tests::hermetic_codex_expansion_uses_tab_env_not_parent_env ... ok
+test cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement ... ok
+test cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags ... ok
+test cli_resolve::tests::grok_usage_caller_with_no_grok_stub_spawns_nothing ... ok
+test cli_resolve::tests::startup_check_runs_before_seed_library_and_agent_cli ... ok
+test cli_resolve::tests::hermetic_startup_dir_is_pinned_after_symlink_retarget ... ok
+test cli_resolve::tests::stub_scripts_behave ... ok
+test cli_resolve::tests::retarget_and_scoped_version_warmer_do_not_race_across_threads ... ok
+test cli_resolve::tests::hermetic_resolver_census ... ok
+test cli_resolve::tests::non_hermetic_catalog_path_prepends_install_and_extra_before_host_path ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.43s
+```
+
+#### 6.3 20 Consecutive `cargo test -p designos-app --bin designos --locked -- cli_resolve` Runs
+
+```text
+=== CLI_RESOLVE_RUN 1 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.37s
+=== CLI_RESOLVE_RUN 2 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.37s
+=== CLI_RESOLVE_RUN 3 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.41s
+=== CLI_RESOLVE_RUN 4 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 5 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 6 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 7 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 8 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 9 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 10 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 11 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.37s
+=== CLI_RESOLVE_RUN 12 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.39s
+=== CLI_RESOLVE_RUN 13 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 14 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.37s
+=== CLI_RESOLVE_RUN 15 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.37s
+=== CLI_RESOLVE_RUN 16 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.46s
+=== CLI_RESOLVE_RUN 17 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.37s
+=== CLI_RESOLVE_RUN 18 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.37s
+=== CLI_RESOLVE_RUN 19 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.38s
+=== CLI_RESOLVE_RUN 20 ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3521 filtered out; finished in 0.37s
+```
+
+#### 6.4 3 Consecutive Full `cargo test -p designos-app --bin designos --locked` Runs
+
+```text
+=== FULL_BIN_RUN 1 ===
+test result: ok. 3529 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 296.47s
+=== FULL_BIN_RUN 2 ===
+test result: ok. 3529 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 296.19s
+=== FULL_BIN_RUN 3 ===
+test result: ok. 3529 passed; 0 failed; 12 ignored; 0 measured; 0 filtered out; finished in 300.64s
+```
+
+#### 6.5 Other Mandatory Gate Outputs (`fmt`, `clippy`, `--lib`, Python `unittest`, `zero_fake_ui_gate`, `check_spacing_relationships`)
+
+```text
+$ cargo fmt --all -- --check
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 48.63s
+FMT_RC=0 CLIPPY_RC=0
+
+$ cargo test --workspace --locked --lib
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 657 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.45s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 137 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.52s
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.49s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.37s
+test result: ok. 255 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.62s
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 33.50s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+$ python3 -B -m unittest discover -s scripts/tests -p "test_*.py"
+Ran 58 tests in 15.068s — OK
+
+$ python3 scripts/zero_fake_ui_gate.py
+Gate Verdict: PASS (17/17 invariants satisfied)
+
+$ python3 scripts/check_spacing_relationships.py
+literal geometry outside theme.rs: offset_literals=1655, inset_literals=45, radius_literals=253, font_literals=25, nonconcentric_pairs=2
+PASS: no count rose above the baseline
+```
+
+---
+
+### 7. Assumptions & Notes for Controller
+
+- `FACT`: No files outside the allowed scope (`crates/designos-app/src/cli_resolve.rs`, `plans/reports/agy-1126-layout-gate.md`, `plans/reports/agy-1126-layout-gate-evidence/r9b/{red.log,green.log}`) were modified.
+- `FACT`: During the full `--bin designos` runs, `terminal::tests::gemini_live_check` (`crates/designos-app/src/terminal.rs:9838, 9885`) checks `if runtime_binary_available("gemini")` and resolves `/opt/homebrew/bin/gemini` via `extra_cli_path_dirs()` (`/opt/homebrew/bin`). Because `/opt/homebrew/bin/gemini` has a `#!/usr/bin/env node` shebang, running the full bin suite with `/opt/homebrew/bin` stripped from `PATH` requires `/opt/homebrew/Cellar/node/24.3.0/bin` on `PATH` (which contains only `node`/`npm`/`npx`/`corepack` and zero agent CLIs: `for c in claude codex gemini grok agy opencode; do command -v $c; done` prints nothing).
+
+Status: READY FOR CONTROLLER REVIEW (ROUND 9B)
+
+
 
