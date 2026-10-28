@@ -2788,7 +2788,12 @@ impl<'a> Ctx<'a> {
         }
         let is_text = matches!(n.kind, NodeKind::Text(_));
         if let Some(obj) = set.as_object() {
-            for k in obj.keys() {
+            for (k, v) in obj {
+                // `styles` is a text-style link only when it names one. A fill or
+                // effect entry must not freeze the text style.
+                if k == "styles" && v.get("text").and_then(Value::as_str).is_none() {
+                    continue;
+                }
                 if let Some(of) = override_field(k, is_text) {
                     n.component.overrides.insert(of);
                 }
@@ -3551,7 +3556,10 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         | "opentypeFlags"
         | "fontVariations"
         | "textWrapStyle"
-        | "maxLines" => OverrideField::TextStyle,
+        | "maxLines"
+        | "_clearTextStyle" => OverrideField::TextStyle,
+        // A `styles` object with a text entry (the applier skips one without) is the link change.
+        "styles" if is_text => OverrideField::TextStyle,
         "layoutMode"
         | "itemSpacing"
         | "counterAxisSpacing"

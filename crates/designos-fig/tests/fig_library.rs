@@ -377,9 +377,9 @@ fn unavailable_text_style_keeps_local_properties() {
     assert_eq!(t.style.font_weight, 700);
 }
 
-/// #1327: an instance text override must follow the style it names, and drop the
-/// master's link when it changes text metrics and names no style. A node whose
-/// raw size is the pre-link value keeps resolving through the inherited link.
+/// #1327: `styleIdForText` naming a style relinks it; a null or unresolved
+/// `styleIdForText` clears the link (Figma's detach); every other override,
+/// including font metrics with no style id, keeps the inherited link.
 #[test]
 fn instance_text_style_override_replaces_or_clears_the_master_link() {
     let alias = |key: &str| json!({"dataType": "ALIAS", "resolvedDataType": "FLOAT", "value": {"alias": {"assetRef": {"key": key, "version": "1"}}}});
@@ -495,15 +495,16 @@ fn instance_text_style_override_replaces_or_clears_the_master_link() {
             (0, 1),
             "b",
             "INSTANCE",
-            "Badge",
+            "Detach",
             json!({
                 "size": {"x": 80.0, "y": 32.0}, "transform": at(0.0, 40.0),
                 "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
                     "guidPath": {"guids": [g(9, 2)]},
-                    "fontSize": 11.2,
+                    "styleIdForText": {"guid": g(4294967295, 4294967295)},
+                    "fontSize": 12.0,
                     "fontName": {"family": "Inter", "style": "Semi Bold"},
                     "lineHeight": {"units": "PIXELS", "value": 16.0},
-                    "textData": {"characters": "4.8"}
+                    "textData": {"characters": "Off"}
                 }]}
             })
         ),
@@ -521,6 +522,23 @@ fn instance_text_style_override_replaces_or_clears_the_master_link() {
                 }]}
             })
         ),
+        node(
+            (1, 4),
+            (0, 1),
+            "d",
+            "INSTANCE",
+            "Card title",
+            json!({
+                "size": {"x": 200.0, "y": 40.0}, "transform": at(0.0, 120.0),
+                "symbolData": {"symbolID": g(5, 3), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 4)]},
+                    "fontSize": 18.0,
+                    "lineHeight": {"units": "PERCENT", "value": 150.0},
+                    "fontName": {"family": "Inter", "style": "Regular"},
+                    "fontVersion": "1.0"
+                }]}
+            })
+        ),
     ]);
     let doc = import_fig_node_changes(&input, "t").unwrap();
 
@@ -534,14 +552,14 @@ fn instance_text_style_override_replaces_or_clears_the_master_link() {
     assert_eq!(t.style.line_height, LineHeight::Pixels(20.0));
     assert_eq!(t.style.font_weight, 600);
 
-    let badge = child(&doc, find(&doc, "Badge"), "Label");
-    assert!(!badge.style_refs.contains_key("text"), "a metric override with no style detaches the master's link");
-    let resolved = resolve_node(&doc, badge);
+    let detach = child(&doc, find(&doc, "Detach"), "Label");
+    assert!(!detach.style_refs.contains_key("text"), "a null styleIdForText detaches the master's link");
+    let resolved = resolve_node(&doc, detach);
     let NodeKind::Text(t) = &resolved.kind else { panic!("text") };
-    assert!((t.style.font_size - 11.2).abs() < 1e-3, "resolved size stays the raw override, got {}", t.style.font_size);
+    assert!((t.style.font_size - 12.0).abs() < 1e-3, "resolved size stays the override's own, got {}", t.style.font_size);
     assert_eq!(t.style.line_height, LineHeight::Pixels(16.0));
     assert_eq!(t.style.font_weight, 600);
-    assert!(badge.variables.bindings.keys().all(|k| k.starts_with("fills/")), "inherited text-style bindings are cleared");
+    assert!(detach.variables.bindings.keys().all(|k| k.starts_with("fills/")), "inherited text-style bindings are cleared");
 
     let header = child(&doc, find(&doc, "Header"), "Title");
     assert_eq!(doc.style_name(header.style_refs.get("text").expect("xl style link")), "Text xl/Regular");
@@ -553,6 +571,135 @@ fn instance_text_style_override_replaces_or_clears_the_master_link() {
     assert!((t.style.font_size - 20.0).abs() < 1e-3, "the inherited link still resolves, got {}", t.style.font_size);
     assert_eq!(t.style.font_weight, 400);
 
+    // Kit shape: font metrics and no styleIdForText. The stale 18 is not what renders.
+    let card = child(&doc, find(&doc, "Card title"), "Title");
+    assert_eq!(doc.style_name(card.style_refs.get("text").expect("xl style link")), "Text xl/Regular");
+    let NodeKind::Text(raw) = &card.kind else { panic!("text") };
+    assert!((raw.style.font_size - 18.0).abs() < 1e-3, "raw keeps the stale override size");
+    assert_eq!(raw.style.line_height, LineHeight::Percent(150.0));
+    let resolved = resolve_node(&doc, card);
+    let NodeKind::Text(t) = &resolved.kind else { panic!("text") };
+    assert!((t.style.font_size - 20.0).abs() < 1e-3, "the inherited link still resolves, got {}", t.style.font_size);
+    assert_eq!(t.style.font_weight, 400);
+
     let master = child(&doc, find(&doc, "Button"), "Label");
     assert_eq!(doc.style_name(master.style_refs.get("text").unwrap()), "Text md/Semibold");
+}
+
+/// #1327: relinking or clearing the text style is an override. Editing the main
+/// component's text style afterwards leaves the instance link as the override set it.
+#[test]
+fn instance_text_style_link_override_survives_main_edit() {
+    let text_style = |id: u64, pos: &str, name: &str, size: f64| {
+        node(
+            (8, id),
+            (0, 2),
+            pos,
+            "TEXT",
+            name,
+            json!({
+                "styleType": "TEXT", "fontSize": size,
+                "fontName": {"family": "Inter", "style": "Regular"}
+            }),
+        )
+    };
+    let input = json!([
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        text_style(1, "s", "Text md/Semibold", 16.0),
+        text_style(2, "t", "Text sm/Semibold", 14.0),
+        text_style(3, "u", "Text xl/Regular", 20.0),
+        node((5, 1), (0, 2), "c", "SYMBOL", "Button", json!({"size": {"x": 80.0, "y": 32.0}})),
+        node(
+            (5, 2),
+            (5, 1),
+            "a",
+            "TEXT",
+            "Label",
+            json!({
+                "overrideKey": g(9, 2), "size": {"x": 65.0, "y": 20.0},
+                "fontSize": 16.0, "fontName": {"family": "Inter", "style": "Semi Bold"},
+                "styleIdForText": {"guid": g(8, 1)},
+                "textData": {"characters": "Label"}
+            })
+        ),
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "Relink",
+            json!({
+                "size": {"x": 80.0, "y": 32.0}, "transform": at(0.0, 0.0),
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForText": {"guid": g(8, 2)}
+                }]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "External",
+            json!({
+                "size": {"x": 80.0, "y": 32.0}, "transform": at(0.0, 40.0),
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForText": {"assetRef": {"key": "EXT_SM", "version": "1"}}
+                }]}
+            })
+        ),
+        node(
+            (1, 3),
+            (0, 1),
+            "c",
+            "INSTANCE",
+            "Detach",
+            json!({
+                "size": {"x": 80.0, "y": 32.0}, "transform": at(0.0, 80.0),
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForText": {"guid": g(4294967295, 4294967295)}
+                }]}
+            })
+        ),
+        node(
+            (1, 4),
+            (0, 1),
+            "d",
+            "INSTANCE",
+            "Plain",
+            json!({
+                "size": {"x": 80.0, "y": 32.0}, "transform": at(0.0, 120.0),
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0}
+            })
+        ),
+    ]);
+    let mut doc = import_fig_node_changes(&input, "t").unwrap();
+
+    let relink_id = child(&doc, find(&doc, "Relink"), "Label").id;
+    let external_id = child(&doc, find(&doc, "External"), "Label").id;
+    let detach_id = child(&doc, find(&doc, "Detach"), "Label").id;
+    let plain_id = child(&doc, find(&doc, "Plain"), "Label").id;
+    let button_id = find(&doc, "Button").id;
+    let master_id = child(&doc, doc.get(button_id).unwrap(), "Label").id;
+    assert_eq!(doc.style_name(doc.get(relink_id).unwrap().style_refs.get("text").expect("sm link")), "Text sm/Semibold");
+    assert_eq!(doc.get(external_id).unwrap().style_refs.get("text").map(String::as_str), Some("key:EXT_SM"));
+    assert!(!doc.get(detach_id).unwrap().style_refs.contains_key("text"), "null styleIdForText clears the link");
+
+    let xl = doc.style_meta.iter().find(|(_, m)| m.name == "Text xl/Regular").expect("xl style").0.clone();
+    doc.get_mut(master_id).unwrap().style_refs.insert("text".into(), xl);
+    sync_instances(&mut doc, button_id).apply(&mut doc).unwrap();
+
+    assert_eq!(doc.style_name(doc.get(plain_id).unwrap().style_refs.get("text").expect("plain follows the main")), "Text xl/Regular");
+    assert_eq!(doc.style_name(doc.get(relink_id).unwrap().style_refs.get("text").expect("relink kept")), "Text sm/Semibold");
+    assert_eq!(
+        doc.get(external_id).unwrap().style_refs.get("text").map(String::as_str),
+        Some("key:EXT_SM"),
+        "a style link override is not replaced by the main"
+    );
+    assert!(!doc.get(detach_id).unwrap().style_refs.contains_key("text"), "a cleared text style stays cleared after the main changes");
 }
