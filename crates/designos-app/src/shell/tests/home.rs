@@ -91,6 +91,58 @@ fn first_launch_shows_the_home_screen_with_the_getting_started_project() {
     assert_eq!(s.shell.title, theme::APP_TITLE);
 }
 
+fn painted_home(s: &Sim) -> (Vec<egui::epaint::RectShape>, Vec<(String, egui::Color32)>) {
+    fn walk(shape: &egui::Shape, rects: &mut Vec<egui::epaint::RectShape>, texts: &mut Vec<(String, egui::Color32)>) {
+        match shape {
+            egui::Shape::Rect(r) => rects.push(r.clone()),
+            egui::Shape::Text(t) => {
+                let color = t.override_text_color.or_else(|| t.galley.job.sections.first().map(|sec| sec.format.color)).unwrap_or(egui::Color32::TRANSPARENT);
+                texts.push((t.galley.text().to_string(), color));
+            }
+            egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, rects, texts)),
+            _ => {}
+        }
+    }
+    let mut rects = Vec::new();
+    let mut texts = Vec::new();
+    for clipped in &s.shapes {
+        walk(&clipped.shape, &mut rects, &mut texts);
+    }
+    (rects, texts)
+}
+
+#[test]
+fn home_chrome_uses_studio_theme_colours() {
+    let (s, _d) = home_sim();
+    let (rects, texts) = painted_home(&s);
+
+    let side = rects
+        .iter()
+        .filter(|r| (r.rect.width() - theme::HOME_SIDEBAR_W).abs() < 0.5 && r.rect.height() > 400.0 && r.fill.a() == 255)
+        .max_by(|a, b| a.rect.height().total_cmp(&b.rect.height()))
+        .expect("sidebar background");
+    assert_eq!(side.fill, theme::BG, "sidebar background");
+
+    let main = rects
+        .iter()
+        .filter(|r| r.rect.left() >= theme::HOME_SIDEBAR_W - 0.5 && r.rect.width() > 800.0 && r.rect.height() > 400.0 && r.fill.a() == 255)
+        .max_by(|a, b| (a.rect.width() * a.rect.height()).total_cmp(&(b.rect.width() * b.rect.height())))
+        .expect("main area background");
+    assert_eq!(main.fill, theme::BG, "main area background");
+
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
+    let card_fill = rects.iter().find(|r| r.rect == card && r.fill.a() == 255).expect("file card fill");
+    assert_eq!(card_fill.fill, theme::BG_SECONDARY, "file card fill");
+    let card_stroke = rects.iter().find(|r| r.rect == card && r.stroke.width > 0.0).expect("file card stroke");
+    assert_eq!(card_stroke.stroke.color, theme::BORDER, "file card stroke");
+
+    let button = s.rect_of("home-new-file");
+    let button_fill = rects.iter().find(|r| r.rect == button && r.fill.a() == 255).expect("+ Design file fill");
+    assert_eq!(button_fill.fill, theme::BG_BRAND, "+ Design file fill");
+    let label = texts.iter().find(|(text, _)| text == "+ Design file").expect("+ Design file label");
+    assert_eq!(label.1, theme::TEXT_ON_BRAND, "+ Design file label");
+}
+
 #[test]
 fn new_design_file_creates_and_opens_an_untitled_library_file() {
     let (mut s, _d) = home_sim();
