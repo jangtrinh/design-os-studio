@@ -12,6 +12,10 @@ pub enum SelectError {
     NoMatch { raw: String, searched: String },
     /// Several nodes carry the Figma id, which is meant to be unique.
     Ambiguous { raw: String, count: usize, ids: String },
+    /// A bare number is both a layer name and a node id. `layer` is the name hit, `id` the node.
+    NameAndId { raw: String, layer: u64, id: u64 },
+    /// `id:` or a bare id at or above the load watermark. Those ids change with what was expanded.
+    Unstable { id: u64 },
 }
 
 impl fmt::Display for SelectError {
@@ -22,6 +26,12 @@ impl fmt::Display for SelectError {
             Self::NoMatch { raw, searched } => write!(f, "--select \"{raw}\" matched no node {searched}"),
             Self::Ambiguous { raw, count, ids } => {
                 write!(f, "--select \"{raw}\" is ambiguous: {count} nodes have that Figma id (ids: {ids}; use id:<n> to pick one)")
+            }
+            Self::NameAndId { raw, layer, id } => {
+                write!(f, "--select {raw} is ambiguous: layer \"{raw}\" (id {layer}) and node id {id}; use id:{id} or name:{raw}")
+            }
+            Self::Unstable { id } => {
+                write!(f, "id {id} belongs to an expanded instance and is not stable across runs; use fig:<id> or a name")
             }
         }
     }

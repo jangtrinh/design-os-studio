@@ -237,14 +237,13 @@ impl Shell {
         }
         let mut select_miss = None;
         if opts.select.is_some() && !shot_open_failed {
-            match crate::select_target::resolve_flag(&mut app.doc, opts.select.as_deref()) {
+            match crate::select_target::resolve_flag(&mut app.doc, opts.select.as_deref(), app.load_next_id) {
                 Ok(Some(target)) => {
                     if let Some(note) = target.note(opts.select.as_deref().unwrap_or("").trim()) {
                         eprintln!("designos: {note}");
                     }
                     if let Some(id) = target.node {
                         if let Some(pg) = app.doc.page_of(id) {
-                            app.doc.ensure_page_hydrated(pg);
                             app.page = pg;
                         }
                         if app.doc.pages.contains(&id) {

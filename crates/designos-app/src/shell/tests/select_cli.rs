@@ -26,6 +26,59 @@ fn gui_select_by_id_selects_the_node() {
     assert!(s.shell.select_miss.is_none(), "`none` selects nothing on purpose");
 }
 
+/// Page 0 grows one node the first time the window expands it, the way a deferred page does on open.
+#[derive(Debug)]
+struct PageZeroHydrator {
+    done: bool,
+    created: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl designos_doc::PageHydrator for PageZeroHydrator {
+    fn hydrate_page(&mut self, doc: &mut designos_doc::Document, page: NodeId) -> bool {
+        if self.done || doc.pages.first().copied() != Some(page) {
+            return false;
+        }
+        self.done = true;
+        let id = doc.alloc_id();
+        self.created.store(id.0, std::sync::atomic::Ordering::SeqCst);
+        let node = designos_doc::Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+        doc.insert(page, node).is_ok()
+    }
+
+    fn hydrate_all(&mut self, doc: &mut designos_doc::Document) -> bool {
+        let Some(page) = doc.pages.first().copied() else { return false };
+        self.hydrate_page(doc, page)
+    }
+
+    fn is_hydrated(&self, _page: NodeId) -> bool {
+        self.done
+    }
+}
+
+#[test]
+fn gui_rejects_a_page0_hydrated_id_like_the_cli() {
+    let dir = Scratch::new("gui_page0_watermark");
+    let launched = opened(&dir, &["--select", "id:7"]);
+    let msg = launched.shell.select_miss.as_deref().expect("id 7 is at the load watermark");
+    assert!(msg.contains("id 7 belongs to an expanded instance and is not stable across runs"), "{msg}");
+    assert!(launched.app().selection.is_empty());
+
+    let mut s = opened(&dir, &[]);
+    let mut doc = crate::agent_cli_select_tests::two_cards();
+    let watermark = doc.peek_next_id();
+    let created = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    doc.page_hydrator = Some(std::sync::Arc::new(std::sync::Mutex::new(PageZeroHydrator { done: false, created: created.clone() })));
+    s.shell.app.replace_document(doc, None);
+    let id = created.load(std::sync::atomic::Ordering::SeqCst);
+    assert_ne!(id, 0, "opening the file expanded a node on page 0");
+    assert_eq!(s.app().load_next_id, watermark, "the watermark is recorded before that expansion");
+    assert!(s.app().doc.get(NodeId(id)).is_some(), "the expanded node stays in the document");
+    let raw = format!("id:{id}");
+    let load_next_id = s.app().load_next_id;
+    let err = crate::select_target::resolve_flag(&mut s.shell.app.doc, Some(&raw), load_next_id).expect_err("id: of a node page 0 just created");
+    assert!(err.to_string().contains("not stable across runs"), "{err}");
+}
+
 #[test]
 fn gui_select_of_a_page_name_switches_to_the_page_and_selects_nothing() {
     let dir = Scratch::new("gui_select_page");

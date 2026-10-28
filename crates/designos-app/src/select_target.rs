@@ -3,8 +3,9 @@
 //! Grammar (the prefixes are case-sensitive): `none` selects nothing on purpose, `id:<n>` is a node id, `fig:<id>`
 //! is a Figma id (`Node::source_id`), `name:<text>` is a layer name taken literally, and anything else is a layer
 //! name. A name is looked up as a page, then a page child (screen), then any layer in page-walk order, then
-//! the same walk ignoring case. A bare number that names no layer is a node id. Nothing found is an error: a command
-//! never acts on a node other than the one it was told to.
+//! the same walk ignoring case. A bare number that is both a layer name and a node id is an error. One that names
+//! no layer is a node id, refused when that id is at or above the load watermark. `id:` never expands deferred
+//! pages; `fig:` does so once only under 10,000 nodes; a hit never does. A miss expands them once and retries the name.
 use designos_doc::{Document, Node, NodeId};
 mod error;
 pub use error::SelectError;
@@ -25,6 +26,8 @@ pub struct Target {
     pub matched_by: By,
     /// Layers that matched: 1, unless several share the name.
     pub ambiguous: usize,
+    /// False when the id was allocated at or after the load watermark (a name or `fig:` hit on expanded content).
+    pub id_stable: bool,
 }
 
 impl Target {
@@ -77,7 +80,7 @@ fn for_each_layer(doc: &Document, mut f: impl FnMut(&Node)) {
 }
 
 fn hit(doc: &Document, id: NodeId, matched_by: By, ambiguous: usize) -> Target {
-    Target { node: Some(id), page: doc.page_of(id), matched_by, ambiguous }
+    Target { node: Some(id), page: doc.page_of(id), matched_by, ambiguous, id_stable: true }
 }
 
 fn by_name(doc: &Document, needle: &str) -> Option<Target> {
@@ -118,14 +121,14 @@ fn by_figma_id(doc: &Document, raw: &str, want: &str) -> Result<Option<Target>, 
     }
 }
 
-fn find(doc: &Document, sel: &Sel, raw: &str) -> Result<Option<Target>, SelectError> {
-    let bare_id = |v: &str| v.parse::<u64>().ok().map(NodeId).filter(|id| doc.get(*id).is_some()).map(|id| hit(doc, id, By::BareId, 1));
-    Ok(match sel {
-        Sel::Id(id) => doc.get(*id).map(|_| hit(doc, *id, By::Id, 1)),
-        Sel::Figma(want) => by_figma_id(doc, raw, want)?,
-        Sel::Name(v) => by_name(doc, v),
-        Sel::Bare(v) => by_name(doc, v).or_else(|| bare_id(v)),
-    })
+fn stamp(mut target: Target, load_next_id: NodeId) -> Target {
+    target.id_stable = target.node.is_none_or(|id| id.0 < load_next_id.0);
+    target
+}
+
+/// Ids allocated while expanding instances. `id:` and a bare id in this range are refused; a name or `fig:` hit is kept.
+fn unstable(id: NodeId, load_next_id: NodeId) -> bool {
+    id.0 >= load_next_id.0
 }
 
 fn miss(doc: &Document, sel: &Sel, raw: &str, expanded: bool) -> SelectError {
@@ -143,7 +146,12 @@ fn miss(doc: &Document, sel: &Sel, raw: &str, expanded: bool) -> SelectError {
         if pages == 1 { "" } else { "s" }
     );
     if expanded {
-        searched.push_str(" (all pages expanded)");
+        let left = doc.hydration_unexpanded_instances();
+        if left > 0 {
+            searched.push_str(&format!(" (all pages expanded; {left} instances left unexpanded by the clone budget)"));
+        } else {
+            searched.push_str(" (all pages expanded)");
+        }
     }
     if matches!(sel, Sel::Figma(_)) {
         if !doc.nodes.values().any(|n| n.source_id.is_some()) {
@@ -156,28 +164,84 @@ fn miss(doc: &Document, sel: &Sel, raw: &str, expanded: bool) -> SelectError {
     SelectError::NoMatch { raw: raw.into(), searched }
 }
 
-/// Resolves `raw` to one node. A miss expands the deferred pages of a large file once and looks again.
-pub fn resolve(doc: &mut Document, raw: &str) -> Result<Target, SelectError> {
-    let s = raw.trim();
-    let sel = parse(s)?;
-    if let Some(target) = find(doc, &sel, s)? {
-        return Ok(target);
-    }
+fn retry_name(doc: &mut Document, needle: &str, load_next_id: NodeId) -> (Option<Target>, bool) {
     let deferred = doc.page_hydrator.is_some();
     if deferred && doc.hydrate_all_pages() {
-        if let Some(target) = find(doc, &sel, s)? {
-            return Ok(target);
+        if let Some(target) = by_name(doc, needle) {
+            return (Some(stamp(target, load_next_id)), true);
         }
     }
-    Err(miss(doc, &sel, s, deferred))
+    (None, deferred)
+}
+
+fn resolve_id(doc: &Document, raw: &str, id: NodeId, load_next_id: NodeId) -> Result<Target, SelectError> {
+    if unstable(id, load_next_id) {
+        return Err(SelectError::Unstable { id: id.0 });
+    }
+    match doc.get(id) {
+        Some(_) => Ok(stamp(hit(doc, id, By::Id, 1), load_next_id)),
+        None => Err(miss(doc, &Sel::Id(id), raw, false)),
+    }
+}
+
+fn resolve_fig(doc: &mut Document, raw: &str, want: &str, load_next_id: NodeId) -> Result<Target, SelectError> {
+    if let Some(target) = by_figma_id(doc, raw, want)? {
+        return Ok(stamp(target, load_next_id));
+    }
+    // Instance children in a large import keep no Figma id, so expanding pages cannot add a match.
+    let deferred = doc.nodes.len() < 10_000 && doc.page_hydrator.is_some();
+    if deferred && doc.hydrate_all_pages() {
+        if let Some(target) = by_figma_id(doc, raw, want)? {
+            return Ok(stamp(target, load_next_id));
+        }
+    }
+    Err(miss(doc, &Sel::Figma(want), raw, deferred))
+}
+
+fn resolve_name(doc: &mut Document, raw: &str, needle: &str, load_next_id: NodeId) -> Result<Target, SelectError> {
+    if let Some(target) = by_name(doc, needle) {
+        return Ok(stamp(target, load_next_id));
+    }
+    let (found, deferred) = retry_name(doc, needle, load_next_id);
+    found.ok_or_else(|| miss(doc, &Sel::Name(needle), raw, deferred))
+}
+
+fn resolve_bare(doc: &mut Document, raw: &str, v: &str, load_next_id: NodeId) -> Result<Target, SelectError> {
+    let name_hit = by_name(doc, v);
+    let id_hit = v.parse::<u64>().ok().map(NodeId).filter(|id| doc.get(*id).is_some());
+    match (name_hit, id_hit) {
+        (Some(name), Some(id)) => {
+            let layer = name.node.map(|n| n.0).unwrap_or(id.0);
+            Err(SelectError::NameAndId { raw: raw.into(), layer, id: id.0 })
+        }
+        (Some(name), None) => Ok(stamp(name, load_next_id)),
+        (None, Some(id)) if unstable(id, load_next_id) => Err(SelectError::Unstable { id: id.0 }),
+        (None, Some(id)) => Ok(stamp(hit(doc, id, By::BareId, 1), load_next_id)),
+        (None, None) => {
+            let (found, deferred) = retry_name(doc, v, load_next_id);
+            found.ok_or_else(|| miss(doc, &Sel::Bare(v), raw, deferred))
+        }
+    }
+}
+
+/// Resolves `raw`. `load_next_id` is [`Document::peek_next_id`] from just after the file was loaded, before any
+/// page was expanded. A hit does not expand pages. A name miss expands them once and retries the name only.
+pub fn resolve(doc: &mut Document, raw: &str, load_next_id: NodeId) -> Result<Target, SelectError> {
+    let s = raw.trim();
+    match parse(s)? {
+        Sel::Id(id) => resolve_id(doc, s, id, load_next_id),
+        Sel::Figma(want) => resolve_fig(doc, s, want, load_next_id),
+        Sel::Name(v) => resolve_name(doc, s, v, load_next_id),
+        Sel::Bare(v) => resolve_bare(doc, s, v, load_next_id),
+    }
 }
 
 /// `--select`'s value as the command line hands it over: absent or `none` is no target at all.
-pub fn resolve_flag(doc: &mut Document, select: Option<&str>) -> Result<Option<Target>, SelectError> {
+pub fn resolve_flag(doc: &mut Document, select: Option<&str>, load_next_id: NodeId) -> Result<Option<Target>, SelectError> {
     match select {
         None => Ok(None),
         Some(s) if s.trim().eq_ignore_ascii_case("none") => Ok(None),
-        Some(s) => resolve(doc, s).map(Some),
+        Some(s) => resolve(doc, s, load_next_id).map(Some),
     }
 }
 
