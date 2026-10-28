@@ -1,8 +1,9 @@
 //! Worst-case static risk for every declared MCP tool.
 //!
 //! The tier does not change per call. `designos_open_file` and
-//! `designos_new_document` are destructive because `discard_changes: true`
-//! drops unsaved work. `designos_save_file` is destructive because
+//! `designos_new_document` are additive because discarding unsaved work
+//! requires an explicit `discard_changes: true` opt-in. Without that opt-in,
+//! a dirty session refuses the call. `designos_save_file` is destructive because
 //! `overwrite: true` replaces a file. `designos_apply_batch` is destructive
 //! because an op can delete. `designos_export_fig_file` is destructive because
 //! the session truncates an existing `.fig`.
@@ -79,19 +80,19 @@ const TOOLS: &[(&str, RiskTier, bool)] = &[
     ("designos_lint", RiskTier::Read, true),
     ("designos_get_guidelines", RiskTier::Read, true),
     ("designos_import_web_capture", RiskTier::Additive, false),
-    ("designos_undo", RiskTier::Destructive, false),
+    ("designos_undo", RiskTier::Modify, false),
     ("designos_lint_fix", RiskTier::Modify, false),
-    ("designos_redo", RiskTier::Destructive, false),
+    ("designos_redo", RiskTier::Modify, false),
     ("designos_get_screenshot", RiskTier::Read, true),
     ("designos_set_in_progress", RiskTier::Modify, true),
     ("designos_apply_batch", RiskTier::Destructive, false),
     ("designos_get_design_context", RiskTier::Read, true),
     ("designos_configure_session", RiskTier::Modify, true),
     ("designos_get_app_state", RiskTier::Read, true),
-    ("designos_open_file", RiskTier::Destructive, false),
+    ("designos_open_file", RiskTier::Additive, false),
     ("designos_save_file", RiskTier::Destructive, false),
     ("designos_render_png", RiskTier::Additive, false),
-    ("designos_new_document", RiskTier::Destructive, false),
+    ("designos_new_document", RiskTier::Additive, false),
 ];
 
 fn canonical(name: &str) -> &str {
@@ -196,22 +197,21 @@ mod tests {
     #[test]
     fn additive_tools_are_not_destructive_and_worst_case_writes_are() {
         let tools = published();
-        for name in ["designos_create_node", "designos_add_comment", "designos_apply_spec", "designos_import_web_capture", "designos_render_png"] {
+        for name in [
+            "designos_create_node",
+            "designos_add_comment",
+            "designos_apply_spec",
+            "designos_import_web_capture",
+            "designos_render_png",
+            "designos_open_file",
+            "designos_new_document",
+        ] {
             let tool = by_name(&tools, name);
             assert_eq!(tool["annotations"]["readOnlyHint"], json!(false), "{name}");
             assert_eq!(tool["annotations"]["destructiveHint"], json!(false), "{name}");
             assert_eq!(tool["_meta"]["risk_tier"], json!("additive"), "{name}");
         }
-        for name in [
-            "designos_delete_node",
-            "designos_apply_batch",
-            "designos_open_file",
-            "designos_new_document",
-            "designos_save_file",
-            "designos_export_fig_file",
-            "designos_undo",
-            "designos_redo",
-        ] {
+        for name in ["designos_delete_node", "designos_apply_batch", "designos_save_file", "designos_export_fig_file"] {
             let tool = by_name(&tools, name);
             assert_eq!(tool["annotations"]["destructiveHint"], json!(true), "{name}");
             assert_eq!(tool["_meta"]["risk_tier"], json!("destructive"), "{name}");
@@ -224,6 +224,8 @@ mod tests {
             "designos_lint_fix",
             "designos_resolve_comment",
             "designos_set_dev_status",
+            "designos_undo",
+            "designos_redo",
         ] {
             let tool = by_name(&tools, name);
             assert_eq!(tool["annotations"]["readOnlyHint"], json!(false), "{name}");

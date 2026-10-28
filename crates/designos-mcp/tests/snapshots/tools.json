@@ -1096,7 +1096,7 @@
       "readOnlyHint": false
     },
     "_meta": {
-      "risk_tier": "destructive"
+      "risk_tier": "modify"
     }
   },
   {
@@ -1164,7 +1164,7 @@
       "readOnlyHint": false
     },
     "_meta": {
-      "risk_tier": "destructive"
+      "risk_tier": "modify"
     }
   },
   {
@@ -1854,13 +1854,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
     },
     "_meta": {
-      "risk_tier": "destructive"
+      "risk_tier": "additive"
     }
   },
   {
@@ -1950,13 +1950,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
     },
     "_meta": {
-      "risk_tier": "destructive"
+      "risk_tier": "additive"
     }
   }
 ]
