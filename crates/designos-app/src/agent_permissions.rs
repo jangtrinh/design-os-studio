@@ -281,7 +281,8 @@ pub fn build_resume_command_for_mode(
 ///
 /// `auto_allow_safe_tiers` lets read and additive designos tools exit allow before a request file exists.
 /// The name list is generated from [`designos_mcp::risk::names_where_tier`]. The block runs only after the tab id and
-/// the request id have been checked, and only when the payload names exactly one `tool_name`.
+/// the request id have been checked, and only when the payload names exactly one `tool_name`. When the channel
+/// folder's name is the session id, that block also appends each auto-allow to the private log the turn ledger reads.
 pub fn approval_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto_allow_safe_tiers: bool) -> String {
     let quote = |p: &Path| p.display().to_string().replace('\'', "'\\''");
     let channel_dir_escaped = quote(channel_dir);
@@ -292,7 +293,8 @@ pub fn approval_hook_script(channel_dir: &Path, status_file: Option<&Path>, auto
     // finds them. The script Studio writes on Windows (Git Bash) leaves `PATH` alone: Git Bash already leads it with its own
     // `/usr/bin`, and no CI run of this change could have checked the pin against that shell.
     let path_pin = if cfg!(windows) { "" } else { "PATH=\"/usr/bin:/bin${PATH:+:$PATH}\"\nexport PATH\n" };
-    let auto_block = if auto_allow_safe_tiers { shell_auto_allow_block() } else { String::new() };
+    let auto_log = if auto_allow_safe_tiers { prepare_channel_auto_allow_log(channel_dir) } else { None };
+    let auto_block = if auto_allow_safe_tiers { shell_auto_allow_block(auto_log.as_deref()) } else { String::new() };
     let script = format!(
         r#"#!/bin/sh
 set -eu
@@ -471,7 +473,46 @@ exit 0
     script.replacen("@@AUTO_ALLOW@@", &auto_block, 1)
 }
 
-fn shell_auto_allow_block() -> String {
+const AUTO_ALLOW_TARGET_AWK: &str = r#"function pick(text, key,    pat, rest, i, c, out) {
+    pat = "\"" key "\"[[:space:]]*:[[:space:]]*"
+    if (!match(text, pat)) return ""
+    rest = substr(text, RSTART + RLENGTH)
+    if (substr(rest, 1, 1) == "\"") {
+        rest = substr(rest, 2)
+        out = ""
+        i = 1
+        while (i <= length(rest)) {
+            c = substr(rest, i, 1)
+            if (c == "\\") {
+                if (i + 1 <= length(rest)) out = out substr(rest, i + 1, 1)
+                i += 2
+                continue
+            }
+            if (c == "\"") break
+            out = out c
+            i++
+        }
+        return out
+    }
+    if (match(rest, /^-?[0-9]+([.][0-9]+)?/)) return substr(rest, RSTART, RLENGTH)
+    return ""
+}
+{ buf = buf $0 }
+END {
+    n = split("node_id page_id parent_id thread_id comment_id file_path path output_path", keys, " ")
+    for (i = 1; i <= n; i++) {
+        v = pick(buf, keys[i])
+        if (length(v) > 0 && length(v) <= 512) {
+            gsub(/\\/, "\\\\", v)
+            gsub(/"/, "\\\"", v)
+            gsub(/[\r\n\t]/, " ", v)
+            printf "%s:%s", keys[i], v
+            exit
+        }
+    }
+}"#;
+
+fn shell_auto_allow_block(log_path: Option<&Path>) -> String {
     let mut names = Vec::new();
     for name in designos_mcp::risk::names_where_tier(|tier| matches!(tier, designos_mcp::risk::RiskTier::Read | designos_mcp::risk::RiskTier::Additive)) {
         for spelled in [name.to_string(), format!("mcp__designos__{name}"), format!("designos__{name}"), format!("designos:{name}")] {
@@ -481,6 +522,23 @@ fn shell_auto_allow_block() -> String {
         }
     }
     let pattern = names.join("|");
+    let log_append = match log_path {
+        Some(path) => {
+            let escaped = path.display().to_string().replace('\'', "'\\''");
+            format!(
+                r#"    TS=$(date +%s 2>/dev/null || printf '0')
+    case "$TS" in
+        ''|*[!0-9]*) TS=0 ;;
+    esac
+    TARGET=$(printf '%s' "$PAYLOAD" | awk '{awk}')
+    printf '%s\n' "{{\"ts\":$TS,\"tool\":\"$TOOL_FOR_TIER\",\"target\":\"$TARGET\",\"reason\":\"tier\"}}" >> '{escaped}' 2>/dev/null || true
+"#,
+                awk = AUTO_ALLOW_TARGET_AWK,
+                escaped = escaped,
+            )
+        }
+        None => String::new(),
+    };
     format!(
         r#"# Auto-allow only when the payload names exactly one tool. A second "tool_name" key (for example inside
 # tool_input) is ambiguous, so the call falls through to the card.
@@ -491,11 +549,13 @@ if [ -n "$TOOL_NAME_KEYS" ] && [ "$(printf '%s\n' "$TOOL_NAME_KEYS" | wc -l)" -e
 fi
 case "$TOOL_FOR_TIER" in
 {pattern})
-    printf '%s\n' '{{"hookSpecificOutput":{{"hookEventName":"PermissionRequest","decision":{{"behavior":"allow"}}}}}}'
+{log_append}    printf '%s\n' '{{"hookSpecificOutput":{{"hookEventName":"PermissionRequest","decision":{{"behavior":"allow"}}}}}}'
     exit 0
     ;;
 esac
-"#
+"#,
+        pattern = pattern,
+        log_append = log_append,
     )
 }
 
@@ -1035,6 +1095,414 @@ impl GrantStore {
     }
 }
 
+pub const AUTO_ALLOW_CAP: usize = 200;
+
+const AUTO_ALLOW_LINE_MAX: usize = 4096;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoAllowReason {
+    Tier,
+    Grant,
+}
+
+impl AutoAllowReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tier => "tier",
+            Self::Grant => "grant",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoAllowKind {
+    Informational,
+    Revertable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AutoAllowRow {
+    pub timestamp: u64,
+    pub tool_name: String,
+    pub target: String,
+    pub reason: AutoAllowReason,
+    pub kind: AutoAllowKind,
+}
+
+impl AutoAllowRow {
+    pub fn card_label(&self, reverted: bool) -> String {
+        let role = match self.kind {
+            AutoAllowKind::Informational => "read",
+            AutoAllowKind::Revertable => "write",
+        };
+        let mut label = format!("{} · {role} · {}", self.tool_name, self.reason.as_str());
+        if !self.target.is_empty() {
+            label.push_str(" · ");
+            label.push_str(&self.target);
+        }
+        if reverted {
+            label.push_str(" · reverted");
+        }
+        label
+    }
+}
+
+fn user_data_dir() -> Option<PathBuf> {
+    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME").filter(|p| !p.is_empty()) {
+        return Some(PathBuf::from(xdg));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("APPDATA").filter(|p| !p.is_empty()).map(PathBuf::from);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join(".local").join("share"))
+    }
+}
+
+fn cache_dir() -> Option<PathBuf> {
+    if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME").filter(|p| !p.is_empty()) {
+        return Some(PathBuf::from(xdg));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return std::env::var_os("LOCALAPPDATA").filter(|p| !p.is_empty()).map(PathBuf::from);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join(".cache"))
+    }
+}
+
+fn auto_allow_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(data) = user_data_dir() {
+        roots.push(data.join("designos").join("auto-allow"));
+    }
+    if let Some(cache) = cache_dir() {
+        roots.push(cache.join("designos").join("auto-allow"));
+    }
+    roots
+}
+
+fn path_is_agent_temp(path: &Path) -> bool {
+    let mut roots = vec![std::env::temp_dir(), PathBuf::from("/tmp"), PathBuf::from("/var/tmp")];
+    if let Some(tmpdir) = std::env::var_os("TMPDIR").filter(|p| !p.is_empty()) {
+        roots.push(PathBuf::from(tmpdir));
+    }
+    roots.iter().any(|root| path.starts_with(root))
+}
+
+fn is_channel_sid(sid: &str) -> bool {
+    sid.len() == 16 && sid.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn auto_allow_log_path_for_sid(sid: &str, outside: Option<&Path>) -> Option<PathBuf> {
+    for root in auto_allow_roots() {
+        if path_is_agent_temp(&root) || outside.is_some_and(|dir| root.starts_with(dir)) {
+            continue;
+        }
+        let path = root.join(sid).join("auto-allow.jsonl");
+        if path_is_agent_temp(&path) || outside.is_some_and(|dir| path.starts_with(dir)) {
+            continue;
+        }
+        if ensure_owner_dir(&root).is_ok() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// The hook and the agent are the same user, so mode `0700` does not stop the agent. The boundary is
+/// the path: it is outside the session folder and the temp roots #1023 treats as agent-writable.
+/// The file name is the channel session id, so a hook installed in that channel appends to this file.
+pub fn auto_allow_log_path(session_dir: &Path) -> Option<PathBuf> {
+    auto_allow_log_path_for_sid(&crate::agent_approval_channel::session_id(session_dir), Some(session_dir))
+}
+
+fn prepare_log_file(path: &Path) -> Option<PathBuf> {
+    let parent = path.parent()?;
+    ensure_owner_dir(parent).ok()?;
+    if !path.exists() {
+        std::fs::OpenOptions::new().create(true).append(true).open(path).ok()?;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Some(path.to_path_buf())
+}
+
+/// A channel folder is named with the session id. Only that name is logged, and the path is the one [`auto_allow_log_path`] returns for the session.
+fn prepare_channel_auto_allow_log(channel_dir: &Path) -> Option<PathBuf> {
+    let sid = channel_dir.file_name().and_then(|name| name.to_str())?;
+    if !is_channel_sid(sid) {
+        return None;
+    }
+    prepare_log_file(&auto_allow_log_path_for_sid(sid, None)?)
+}
+
+fn tab_channel_sid(approvals_dir: &Path) -> Option<&str> {
+    let name = approvals_dir.file_name().and_then(|n| n.to_str())?;
+    let rest = name.strip_prefix("tab-")?;
+    if rest.is_empty() || !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let sid = approvals_dir.parent().and_then(|parent| parent.file_name()).and_then(|n| n.to_str())?;
+    is_channel_sid(sid).then_some(sid)
+}
+
+fn log_path_for_approvals(approvals_dir: &Path) -> Option<PathBuf> {
+    if let Some(sid) = tab_channel_sid(approvals_dir) {
+        if let Some(path) = auto_allow_log_path_for_sid(sid, None) {
+            return prepare_log_file(&path);
+        }
+    }
+    prepare_auto_allow_log(&auto_allow_session_key(approvals_dir))
+}
+
+pub fn auto_allow_session_key(approvals_dir: &Path) -> PathBuf {
+    let name = approvals_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if let Some(parent) = approvals_dir.parent() {
+        if name.starts_with("tab-") && parent.file_name().and_then(|n| n.to_str()) == Some("approvals") {
+            if let Some(session) = parent.parent() {
+                return session.to_path_buf();
+            }
+        }
+        if name == "approvals" {
+            return parent.to_path_buf();
+        }
+    }
+    approvals_dir.to_path_buf()
+}
+
+fn ensure_owner_dir(path: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    match builder.create(path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists || path.is_dir() => {}
+        Err(err) => return Err(err),
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+pub fn prepare_auto_allow_log(session_dir: &Path) -> Option<PathBuf> {
+    prepare_log_file(&auto_allow_log_path(session_dir)?)
+}
+
+pub fn remove_auto_allow_log(session_dir: &Path) {
+    let Some(path) = auto_allow_log_path(session_dir) else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::remove_dir_all(parent);
+    }
+}
+
+fn append_auto_allow_at(path: &Path, tool_name: &str, target: &str, reason: AutoAllowReason, now_secs: u64) -> std::io::Result<()> {
+    let line = serde_json::json!({
+        "ts": now_secs,
+        "tool": canonical_designos_tool(tool_name),
+        "target": canonical_target(target),
+        "reason": reason.as_str(),
+    });
+    let mut encoded = serde_json::to_string(&line).map_err(|err| std::io::Error::other(err.to_string()))?;
+    encoded.push('\n');
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    use std::io::Write;
+    file.write_all(encoded.as_bytes())
+}
+
+pub fn append_auto_allow_row(session_dir: &Path, tool_name: &str, target: &str, reason: AutoAllowReason, now_secs: u64) -> std::io::Result<()> {
+    let Some(path) = prepare_auto_allow_log(session_dir) else {
+        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no private auto-allow log"));
+    };
+    append_auto_allow_at(&path, tool_name, target, reason, now_secs)
+}
+
+fn kind_for_tool(tool_name: &str) -> AutoAllowKind {
+    match designos_mcp::risk::tool_risk(tool_name).map(|risk| risk.tier) {
+        Some(designos_mcp::risk::RiskTier::Additive | designos_mcp::risk::RiskTier::Modify) => AutoAllowKind::Revertable,
+        _ => AutoAllowKind::Informational,
+    }
+}
+
+enum ParsedLogLine {
+    Row(AutoAllowRow),
+    Dropped(u64),
+    Skip,
+}
+
+fn parse_auto_allow_line(line: &str) -> ParsedLogLine {
+    if line.len() > AUTO_ALLOW_LINE_MAX || line.trim().is_empty() {
+        return ParsedLogLine::Skip;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return ParsedLogLine::Skip;
+    };
+    if value.get("tool").is_none() {
+        if let Some(dropped) = value.get("dropped").and_then(|n| n.as_u64()) {
+            return ParsedLogLine::Dropped(dropped);
+        }
+    }
+    let Some(timestamp) = value.get("ts").and_then(|n| n.as_u64()) else {
+        return ParsedLogLine::Skip;
+    };
+    let Some(tool) = value.get("tool").and_then(|n| n.as_str()).filter(|tool| !tool.is_empty() && tool.len() <= 200) else {
+        return ParsedLogLine::Skip;
+    };
+    let reason = match value.get("reason").and_then(|n| n.as_str()) {
+        Some("tier") => AutoAllowReason::Tier,
+        Some("grant") => AutoAllowReason::Grant,
+        _ => return ParsedLogLine::Skip,
+    };
+    let tool_name = canonical_designos_tool(tool);
+    let target = value.get("target").and_then(|n| n.as_str()).map(canonical_target).unwrap_or_default();
+    let kind = kind_for_tool(&tool_name);
+    ParsedLogLine::Row(AutoAllowRow { timestamp, tool_name, target, reason, kind })
+}
+
+pub fn load_auto_allow_log(path: &Path) -> (Vec<AutoAllowRow>, u64) {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return (Vec::new(), 0);
+    };
+    let (mut rows, mut dropped) = (Vec::new(), 0u64);
+    for line in raw.split_inclusive('\n') {
+        let line = line.trim_end_matches(['\n', '\r']);
+        if line.is_empty() {
+            continue;
+        }
+        match parse_auto_allow_line(line) {
+            ParsedLogLine::Row(row) => rows.push(row),
+            ParsedLogLine::Dropped(count) => dropped = dropped.saturating_add(count),
+            ParsedLogLine::Skip => {}
+        }
+    }
+    if rows.len() > AUTO_ALLOW_CAP {
+        let excess = rows.len() - AUTO_ALLOW_CAP;
+        dropped = dropped.saturating_add(excess as u64);
+        rows.drain(0..excess);
+        let mut body = format!("{{\"dropped\":{dropped}}}\n");
+        for row in &rows {
+            if let Ok(line) = serde_json::to_string(&serde_json::json!({
+                "ts": row.timestamp,
+                "tool": row.tool_name,
+                "target": row.target,
+                "reason": row.reason.as_str(),
+            })) {
+                body.push_str(&line);
+                body.push('\n');
+            }
+        }
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = designos_library::write_atomic(path, body.as_bytes());
+    }
+    (rows, dropped)
+}
+
+#[derive(Debug)]
+pub struct AutoAllowLog {
+    path: Option<PathBuf>,
+    offset: u64,
+    skipping: bool,
+}
+
+impl AutoAllowLog {
+    pub fn bind(session_dir: &Path) -> Self {
+        let path = auto_allow_log_path(session_dir);
+        let offset = path.as_ref().and_then(|p| std::fs::metadata(p).ok()).map(|meta| meta.len()).unwrap_or(0);
+        Self { path, offset, skipping: false }
+    }
+
+    pub fn poll(&mut self) -> Vec<AutoAllowRow> {
+        let Some(path) = self.path.clone() else {
+            return Vec::new();
+        };
+        let Ok(meta) = std::fs::metadata(&path) else {
+            return Vec::new();
+        };
+        let len = meta.len();
+        if len < self.offset {
+            self.offset = 0;
+            self.skipping = false;
+        }
+        if len == self.offset {
+            return Vec::new();
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            return Vec::new();
+        };
+        let start = (self.offset as usize).min(bytes.len());
+        let slice = &bytes[start..];
+        let mut rows = Vec::new();
+        let mut pos = 0usize;
+        if self.skipping {
+            match slice.iter().position(|b| *b == b'\n') {
+                Some(nl) => {
+                    pos = nl + 1;
+                    self.skipping = false;
+                }
+                None => {
+                    self.offset = len;
+                    return Vec::new();
+                }
+            }
+        }
+        while let Some(rel) = slice[pos..].iter().position(|b| *b == b'\n') {
+            let line = &slice[pos..pos + rel];
+            pos += rel + 1;
+            if line.len() > AUTO_ALLOW_LINE_MAX {
+                continue;
+            }
+            let text = String::from_utf8_lossy(line);
+            if let ParsedLogLine::Row(row) = parse_auto_allow_line(text.trim_end_matches('\r')) {
+                rows.push(row);
+            }
+        }
+        if slice.len() - pos > AUTO_ALLOW_LINE_MAX {
+            self.skipping = true;
+            pos = slice.len();
+        }
+        self.offset = start as u64 + pos as u64;
+        if self.offset == len {
+            let (kept, _) = load_auto_allow_log(&path);
+            if let Ok(meta) = std::fs::metadata(&path) {
+                if meta.len() < self.offset {
+                    self.offset = meta.len();
+                }
+            }
+            if rows.len() > kept.len() {
+                let drop_n = rows.len() - kept.len();
+                rows.drain(0..drop_n);
+            }
+        }
+        rows
+    }
+}
+
 /// Writes `allow` for requests this window already granted. An answer file, including `allow session`, never inserts a grant.
 pub fn settle_granted_requests(store: &mut GrantStore, session_id: &str, approvals_dir: &Path, reqs: &mut Vec<ApprovalRequest>, now_secs: u64) {
     reqs.retain(|req| {
@@ -1043,6 +1511,9 @@ pub fn settle_granted_requests(store: &mut GrantStore, session_id: &str, approva
         }
         if store.matches(session_id, &req.tool_name, &req.target, now_secs) {
             let _ = write_approval_answer_in_dir(approvals_dir, &req.id, ApprovalDecision::Allow);
+            if let Some(path) = log_path_for_approvals(approvals_dir) {
+                let _ = append_auto_allow_at(&path, &req.tool_name, &req.target, AutoAllowReason::Grant, now_secs);
+            }
             false
         } else {
             true
@@ -1595,6 +2066,7 @@ mod tests {
         assert_eq!(script.matches("\"behavior\":\"allow\"").count(), 2, "one auto-allow and one answer from the card");
         let ask_script = approval_hook_script(Path::new("/chan"), Some(Path::new("/hooks/agent-status.json")), false);
         assert_eq!(ask_script.matches("\"behavior\":\"allow\"").count(), 1);
+        assert_eq!(script.matches("\"behavior\":\"allow\"").count(), 2, "the auto-allow log line must not add another allow decision");
         assert!(ask_script.contains("allow)"));
         assert!(!ask_script.contains("designos_get_document"));
     }
@@ -1677,6 +2149,7 @@ mod tests {
         let answer = std::fs::read_to_string(dir.join("same.answer")).unwrap();
         assert_eq!(parse_answer(&answer), Some(ParsedAnswer::Allow(AnswerScope::Once)));
         assert!(store.matches("sess", "designos_update_node", "node_id:2", 61));
+        remove_auto_allow_log(&auto_allow_session_key(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1744,6 +2217,134 @@ mod tests {
         assert_eq!(canonical_target("path:file:///tmp//a/"), "path:/tmp/a");
         assert_eq!(canonical_target("node_id:2"), "node_id:2");
         assert_ne!(canonical_target("node_id:2"), canonical_target("node_id:3"));
+    }
+
+    #[test]
+    fn hook_ask_risky_read_writes_an_auto_allow_row() {
+        let fx = Fixture::risky("row-read");
+        let path = auto_allow_log_path(&fx.session).expect("private log");
+        assert!(!path.starts_with(&fx.session), "the log is outside the session folder: {}", path.display());
+        assert!(!path_is_agent_temp(&path), "the log is outside temp: {}", path.display());
+        let payload = serde_json::json!({
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "mcp__designos__designos_get_document",
+            "tool_input": { "node_id": 2 }
+        });
+        let out = fx.start(10_000, &payload).wait_with_output().unwrap();
+        let text = String::from_utf8_lossy(&out.stdout);
+        let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|err| panic!("{err}: {text} / {}", String::from_utf8_lossy(&out.stderr)));
+        assert_eq!(parsed["hookSpecificOutput"]["decision"]["behavior"], "allow");
+        let (rows, _) = load_auto_allow_log(&path);
+        assert_eq!(rows.len(), 1, "a read auto-allow writes one row: {}", std::fs::read_to_string(&path).unwrap_or_default());
+        assert_eq!(rows[0].reason, AutoAllowReason::Tier);
+        assert_eq!(rows[0].tool_name, "designos_get_document");
+        assert_eq!(rows[0].target, "node_id:2");
+        assert_eq!(rows[0].kind, AutoAllowKind::Informational);
+        assert!(rows[0].timestamp > 0);
+    }
+
+    #[test]
+    fn hook_ask_risky_delete_writes_no_auto_allow_row() {
+        let fx = Fixture::risky("row-delete");
+        let path = auto_allow_log_path(&fx.session).expect("private log");
+        let payload = serde_json::json!({
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "mcp__designos__designos_delete_node",
+            "tool_input": { "node_id": 3 }
+        });
+        let child = fx.start(10_000, &payload);
+        let req = wait_for_request(&fx.tab_dir);
+        assert_eq!(req.tool_name, "mcp__designos__designos_delete_node");
+        withdraw_pending_requests_in_dir(&fx.tab_dir);
+        let _ = child.wait_with_output();
+        let (rows, _) = load_auto_allow_log(&path);
+        assert!(rows.is_empty(), "a delete writes no auto-allow row: {rows:?}");
+    }
+
+    #[test]
+    fn settle_on_a_tab_folder_logs_the_grant_on_the_session() {
+        let fx = Fixture::new("grant-tab");
+        let mut store = GrantStore::default();
+        assert!(store.insert("sess", "designos_update_node", "node_id:2", 50));
+        let mut pending = vec![ApprovalRequest {
+            id: "granted".into(),
+            tool_name: "mcp__designos__designos_update_node".into(),
+            input_summary: "rename".into(),
+            target: "node_id:2".into(),
+            timestamp: 50,
+        }];
+        settle_granted_requests(&mut store, "sess", &fx.tab_dir, &mut pending, 60);
+        assert!(pending.is_empty(), "the grant answers the request");
+        let path = auto_allow_log_path(&fx.session).expect("private log");
+        let (rows, _) = load_auto_allow_log(&path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].reason, AutoAllowReason::Grant);
+        assert_eq!(rows[0].tool_name, "designos_update_node");
+        assert_eq!(rows[0].target, "node_id:2");
+        assert_eq!(rows[0].timestamp, 60);
+    }
+
+    #[test]
+    fn settle_granted_request_writes_a_grant_row() {
+        let dir = std::env::temp_dir().join(format!("designos-1288-grant-row-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut store = GrantStore::default();
+        assert!(store.insert("sess", "designos_update_node", "node_id:2", 50));
+        let mut pending = vec![ApprovalRequest {
+            id: "granted".into(),
+            tool_name: "mcp__designos__designos_update_node".into(),
+            input_summary: "rename".into(),
+            target: "node_id:2".into(),
+            timestamp: 50,
+        }];
+        settle_granted_requests(&mut store, "sess", &dir, &mut pending, 60);
+        assert!(pending.is_empty(), "the grant answers the request");
+        let key = auto_allow_session_key(&dir);
+        let path = auto_allow_log_path(&key).expect("private log");
+        let (rows, _) = load_auto_allow_log(&path);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].reason, AutoAllowReason::Grant);
+        assert_eq!(rows[0].tool_name, "designos_update_node");
+        assert_eq!(rows[0].target, "node_id:2");
+        assert_eq!(rows[0].kind, AutoAllowKind::Revertable);
+        assert_eq!(rows[0].timestamp, 60);
+        remove_auto_allow_log(&key);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn auto_allow_log_skips_a_malformed_line_and_drops_oldest_past_the_cap() {
+        let dir = std::env::temp_dir().join(format!("designos-1288-log-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = prepare_auto_allow_log(&dir).expect("private log");
+        let mut body = String::from("not-json\n{\"nope\":1}\n{\"dropped\":4}\n");
+        body.push_str(&"x".repeat(AUTO_ALLOW_LINE_MAX + 8));
+        body.push('\n');
+        let written = AUTO_ALLOW_CAP + 2;
+        for i in 0..written {
+            body.push_str(&format!("{{\"ts\":{i},\"tool\":\"designos_get_document\",\"target\":\"\",\"reason\":\"tier\"}}\n"));
+        }
+        std::fs::write(&path, &body).unwrap();
+        let (rows, dropped) = load_auto_allow_log(&path);
+        assert_eq!(rows.len(), AUTO_ALLOW_CAP);
+        assert_eq!(dropped, 4 + 2);
+        assert_eq!(rows[0].timestamp, 2);
+        assert_eq!(rows[0].kind, AutoAllowKind::Informational);
+        assert!(rows.iter().all(|row| row.reason == AutoAllowReason::Tier));
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.starts_with("{\"dropped\":"));
+        assert!(!raw.contains("not-json"));
+        let mut log = AutoAllowLog::bind(&dir);
+        assert!(log.poll().is_empty(), "a reader opened on an existing file starts at the end");
+        append_auto_allow_row(&dir, "designos_get_app_state", "", AutoAllowReason::Tier, 9_000).unwrap();
+        let got = log.poll();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].tool_name, "designos_get_app_state");
+        assert_eq!(got[0].timestamp, 9_000);
+        remove_auto_allow_log(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
