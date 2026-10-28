@@ -679,6 +679,7 @@ Third-party files keep their own licenses (full notices in [`THIRD_PARTY_LICENSE
 <p align="left">
   <a href="https://mcpservers.org/servers/jangtrinh/design-os-studio"><img src="https://mcpservers.org/badge.svg" alt="Listed on mcpservers.org" width="163" height="20"></a>
   <a href="https://fazier.com" target="_blank" rel="noopener"><img src="https://fazier.com/api/v1//public/badges/launch_badges.svg?badge_type=launched&theme=light" width="120" alt="Fazier badge" /></a>
+  <a href="https://abacklaunch.com" target="_blank" rel="noopener"><img src="https://abacklaunch.com/badges/listed-on-light.svg" alt="Listed on Aback Launch" width="150" height="32" /></a>
 </p>
 
 ---
