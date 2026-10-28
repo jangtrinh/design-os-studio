@@ -1343,20 +1343,39 @@ fn apply_set_style_op(
         updated.style_refs.insert(ref_slot.into(), resolved_key.clone());
         apply_style_values(&mut updated, st, &resolved_key);
         if prop == StyleProperty::Text {
-            if let NodeKind::Text(tp) = &updated.kind {
-                match tp.auto_resize {
-                    TextAutoResize::WidthAndHeight => {
-                        updated.size = designos_doc::text_measure::intrinsic_text_size(tp, None);
-                    }
-                    TextAutoResize::Height => {
-                        updated.size.y = designos_doc::text_measure::intrinsic_text_size(tp, Some(updated.size.x.max(20.0))).y;
-                    }
-                    TextAutoResize::None | TextAutoResize::Truncate => {}
-                }
-            }
+            resize_hug_text(&mut updated);
         }
         if &updated != cur {
             cmds.push(Command::Update { node: Box::new(updated) });
+        }
+    }
+
+    let applied_ids: BTreeSet<NodeId> = cmds
+        .iter()
+        .filter_map(|c| match c {
+            Command::Update { node } => Some(node.id),
+            _ => None,
+        })
+        .collect();
+    for (key, style) in &styles {
+        let Style::Text(_) = style else { continue };
+        if doc.styles.get(key) == Some(style) || !doc.styles.contains_key(key) {
+            continue;
+        }
+        for nid in designos_doc::linked_style_nodes(doc, key) {
+            if applied_ids.contains(&nid) {
+                continue;
+            }
+            let Some(cur) = doc.get(nid) else { continue };
+            if !matches!(cur.kind, NodeKind::Text(_)) {
+                continue;
+            }
+            let mut updated = cur.clone();
+            apply_style_values(&mut updated, style, key);
+            resize_hug_text(&mut updated);
+            if &updated != cur {
+                cmds.push(Command::Update { node: Box::new(updated) });
+            }
         }
     }
 
@@ -1365,6 +1384,63 @@ fn apply_set_style_op(
     }
     let count = (op.upsert.len() + op.delete.len() + op.apply.len()).max(1);
     Ok((cmds, count, first_applied_node))
+}
+
+fn resize_hug_text(node: &mut designos_doc::Node) {
+    let NodeKind::Text(tp) = &node.kind else { return };
+    let mode = tp.auto_resize;
+    let props = tp.clone();
+    let width = node.size.x;
+    match mode {
+        TextAutoResize::WidthAndHeight => node.size = crate::tools::measure_text(&props, None),
+        TextAutoResize::Height => node.size.y = crate::tools::measure_text(&props, Some(width.max(20.0))).y,
+        TextAutoResize::None | TextAutoResize::Truncate => {}
+    }
+}
+
+fn text_binding_hits(doc: &Document, node: &designos_doc::Node, key: &str, changed: &BTreeSet<&str>) -> bool {
+    if node.variables.bindings.get(key).is_some_and(|id| changed.contains(id.as_str())) {
+        return true;
+    }
+    node.style_refs.get("text").and_then(|sk| doc.style_meta.get(sk)).and_then(|m| m.bindings.get(key)).is_some_and(|id| changed.contains(id.as_str()))
+}
+
+/// Hug text whose `fontSize` or `characters` binding names a variable this op writes.
+fn remeasure_bound_hug_text(doc: &Document, op: &SetVariablesOp) -> Vec<Command> {
+    let changed: BTreeSet<&str> = op.upsert_variables.iter().map(|v| v.id.as_str()).chain(op.delete_variables.iter().map(String::as_str)).collect();
+    if changed.is_empty() {
+        return Vec::new();
+    }
+    let mut cmds = Vec::new();
+    for id in doc.nodes.keys().copied().collect::<Vec<_>>() {
+        let Some(node) = doc.get(id) else { continue };
+        let NodeKind::Text(tp) = &node.kind else { continue };
+        if !matches!(tp.auto_resize, TextAutoResize::WidthAndHeight | TextAutoResize::Height) {
+            continue;
+        }
+        let font = text_binding_hits(doc, node, "fontSize", &changed);
+        let chars = text_binding_hits(doc, node, "characters", &changed);
+        if !font && !chars {
+            continue;
+        }
+        let drawn = designos_doc::resolve_node(doc, node);
+        let NodeKind::Text(drawn_tp) = &drawn.kind else { continue };
+        let mut updated = node.clone();
+        if let NodeKind::Text(dst) = &mut updated.kind {
+            if chars {
+                dst.content = drawn_tp.content.clone();
+                dst.runs.clear();
+            }
+            if font {
+                dst.style.font_size = drawn_tp.style.font_size;
+            }
+        }
+        resize_hug_text(&mut updated);
+        if &updated != node {
+            cmds.push(Command::Update { node: Box::new(updated) });
+        }
+    }
+    cmds
 }
 
 fn build_name_to_id_map(doc: &Document, created_roots: &[CreatedRootRecord], all_created_ids: &BTreeSet<NodeId>) -> Map<String, Value> {
@@ -1497,7 +1573,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 }
                 let prev_children = pnode.children.clone();
                 let data_before = SpecDataSnapshot::of(&trial);
-                let report = trial.apply_spec_with_report(parent, &a.spec).map_err(|se| {
+                let report = trial.apply_spec_with_measure(parent, &a.spec, &[], Some(&designos_render::RenderTextMeasure)).map_err(|se| {
                     let cause = crate::tools::errors::from_spec_error(designos_doc::SpecError::from(se), &format!("{op_path}/spec"));
                     ToolError::batch_op_failed(op_idx, op_name, cause)
                 })?;
@@ -1609,10 +1685,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                     build_created_node(&mut trial, parent, a.index, &a.kind, a.name.clone(), a.text.clone(), a.x, a.y, a.width, a.height)
                         .map_err(|e| wrap_op_err(op_idx, op_name, &op_path, e))?;
                 if let NodeKind::Text(tp) = &node.kind {
-                    if (a.width.is_none() || a.height.is_none())
-                        && designos_doc::text_measure::uses_fallback_font(tp)
-                        && !measured_with_fallback.contains(&id.0)
-                    {
+                    if (a.width.is_none() || a.height.is_none()) && crate::tools::text_fell_back(tp) && !measured_with_fallback.contains(&id.0) {
                         measured_with_fallback.push(id.0);
                     }
                 }
@@ -1784,6 +1857,16 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         recorded_live_ops.extend(ops);
                     }
                     cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                    let mut extras = Vec::new();
+                    for extra in remeasure_bound_hug_text(&trial, a) {
+                        if recording_live {
+                            let ops =
+                                live_ops_for_command(&trial, &extra).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                            recorded_live_ops.extend(ops);
+                        }
+                        extra.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                        extras.push(extra);
+                    }
                     if let Some(p) = default_page {
                         if let Some(pnode) = trial.get(p) {
                             let children = pnode.children.clone();
@@ -1794,6 +1877,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         }
                     }
                     collected_cmds.push(cmd);
+                    collected_cmds.extend(extras);
                     changed.variables += count;
                 }
                 let root_node = default_page.unwrap_or(NodeId(1));
@@ -1846,10 +1930,13 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 let snapshots = engine.collect_library_snapshots(&spec_node);
                 let mut temp_doc = trial.clone();
                 let parent = cur_node.parent.or(default_page).unwrap_or(NodeId(1));
-                let (_cmd, built_id) = designos_doc::apply_spec_command(&mut temp_doc, parent, &spec_node, &snapshots).map_err(|se| {
-                    let cause = crate::tools::errors::from_spec_error(se, &format!("{op_path}/value"));
-                    ToolError::batch_op_failed(op_idx, op_name, cause)
-                })?;
+                let (_cmd, built_id) =
+                    designos_doc::apply_spec_command_with(&mut temp_doc, parent, &spec_node, &snapshots, Some(&designos_render::RenderTextMeasure)).map_err(
+                        |se| {
+                            let cause = crate::tools::errors::from_spec_error(se, &format!("{op_path}/value"));
+                            ToolError::batch_op_failed(op_idx, op_name, cause)
+                        },
+                    )?;
                 for fid in &built_id.measured_with_fallback {
                     if !measured_with_fallback.contains(fid) {
                         measured_with_fallback.push(*fid);

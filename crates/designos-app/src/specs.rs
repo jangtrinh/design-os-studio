@@ -2191,7 +2191,7 @@ impl App {
     pub fn apply_node_spec_replacing(&mut self, spec: &NodeSpec, label: &str, replacing: Option<NodeId>) -> Option<NodeId> {
         let parent = self.page;
         let mut trial = self.doc.clone();
-        match trial.apply_spec_with_report(parent, spec) {
+        match trial.apply_spec_with_measure(parent, spec, &[], Some(&designos_render::RenderTextMeasure)) {
             Ok(report) => {
                 let root_id = report.root_node_id;
                 let mut nodes = Vec::new();

@@ -126,7 +126,6 @@ impl Engine {
 
 impl Default for Engine {
     fn default() -> Self {
-        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
         Self {
@@ -719,8 +718,9 @@ impl Engine {
                 let baseline =
                     crate::tools::issues::PreCallBaseline::capture_container(&self.doc, parent, &self.session_options.issues, a.lint, self.lint_env());
                 let snapshots = self.collect_library_snapshots(&a.spec);
-                let (cmd, report) = designos_doc::apply_spec_command(&mut self.doc, parent, &a.spec, &snapshots)
-                    .map_err(|e| crate::tools::errors::from_spec_error(e, "/spec"))?;
+                let (cmd, report) =
+                    designos_doc::apply_spec_command_with(&mut self.doc, parent, &a.spec, &snapshots, Some(&designos_render::RenderTextMeasure))
+                        .map_err(|e| crate::tools::errors::from_spec_error(e, "/spec"))?;
                 self.exec(cmd)?;
                 for (id, ip) in &report.in_progress {
                     if self.doc.in_progress.get(id) != Some(ip) {
@@ -1258,7 +1258,7 @@ impl Engine {
         let mut warnings = Vec::new();
         let mut measured_with_fallback = Vec::new();
         if let NodeKind::Text(tp) = &node.kind {
-            if (a.width.is_none() || a.height.is_none()) && designos_doc::text_measure::uses_fallback_font(tp) {
+            if (a.width.is_none() || a.height.is_none()) && crate::tools::text_fell_back(tp) {
                 measured_with_fallback.push(id.0);
                 warnings.push(designos_doc::SpecWarning {
                     code: "TEXT_MEASURED_WITH_FALLBACK_FONT".to_string(),
@@ -4214,8 +4214,8 @@ mod tests {
         let NodeKind::Text(tp) = &label.kind else { panic!("expected text node") };
         let measured = designos_render::measure_text_box(tp, None);
         assert!(
-            (label.size.x - measured.x).abs() <= 0.5 && label.size.x < 145.0,
-            "instance override label width ({}) must match measured ({}) within 0.5px and be < 145.0 (not 157.0)",
+            (label.size.x - measured.x).abs() <= 0.5 && label.size.x <= 145.0,
+            "instance override label width ({}) must match measured ({}) within 0.5px and be <= 145.0 (not 157.0)",
             label.size.x,
             measured.x
         );
@@ -4298,5 +4298,266 @@ mod tests {
             warnings.iter().any(|w| w["code"] == "TEXT_MEASURED_WITH_FALLBACK_FONT"),
             "warnings must include TEXT_MEASURED_WITH_FALLBACK_FONT, got {warnings:?}"
         );
+    }
+
+    fn assert_whole_hug(node: &designos_doc::Node, label: &str) {
+        let NodeKind::Text(tp) = &node.kind else { panic!("{label} is not a text node") };
+        let measured = designos_render::measure_text_box(tp, None);
+        assert_eq!(node.size.x.fract(), 0.0, "{label} width {} is not a whole pixel", node.size.x);
+        assert_eq!(node.size.y.fract(), 0.0, "{label} height {} is not a whole pixel", node.size.y);
+        assert!(node.size.x >= 1.0 && node.size.y >= 1.0, "{label} must be at least 1px, got {:?}", node.size);
+        assert_eq!(node.size, measured, "{label} size {:?} must equal measure_text_box {:?}", node.size, measured);
+    }
+
+    fn text_style_json(font_size: f32) -> serde_json::Value {
+        json!({
+            "font_family": "Inter",
+            "font_weight": 600,
+            "italic": false,
+            "font_size": font_size,
+            "line_height": "Auto",
+            "letter_spacing": 0.0,
+            "paragraph_spacing": 0.0,
+            "align_h": "Left",
+            "align_v": "Top",
+            "case": "Original",
+            "decoration": "None",
+            "fills": []
+        })
+    }
+
+    /// Hug width and height are whole pixels on every agent path (spec text, generated
+    /// label, instance override, create, update, set_style, set_variables).
+    #[test]
+    fn hug_text_sizes_are_whole_pixels() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+
+        let spec_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "text",
+                        "name": "SpecLabel",
+                        "text": "Delete",
+                        "font_size": 14.0,
+                        "font_weight": 600
+                    }
+                }),
+            )
+            .unwrap();
+        let spec_id = NodeId(spec_res["root_node_id"].as_u64().unwrap());
+        assert_whole_hug(e.doc.get(spec_id).unwrap(), "spec text");
+
+        let gen_res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "GenBtn",
+                        "width_sizing": "hug",
+                        "height_sizing": "hug",
+                        "text": "Delete",
+                        "font_size": 14.0,
+                        "font_weight": 600
+                    }
+                }),
+            )
+            .unwrap();
+        let gen_id = NodeId(gen_res["name_to_id"]["GenBtn/Delete"].as_u64().unwrap());
+        assert_whole_hug(e.doc.get(gen_id).unwrap(), "generated label");
+
+        let _comp = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "component",
+                        "name": "WholeBtn",
+                        "width_sizing": "hug",
+                        "height_sizing": "hug",
+                        "layout": { "direction": "row", "align": "center" },
+                        "children": [{
+                            "kind": "text",
+                            "name": "Label",
+                            "text": "OK",
+                            "font_size": 14.0,
+                            "font_weight": 600
+                        }]
+                    }
+                }),
+            )
+            .unwrap();
+        let inst = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "name": "WholeInst",
+                        "component": "WholeBtn",
+                        "overrides": [{ "path": "Label", "text": "Delete" }]
+                    }
+                }),
+            )
+            .unwrap();
+        let inst_label = NodeId(inst["name_to_id"]["WholeInst/Label"].as_u64().unwrap());
+        assert_whole_hug(e.doc.get(inst_label).unwrap(), "instance override");
+
+        let created = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": page.0,
+                    "kind": "text",
+                    "name": "Created",
+                    "text": "Delete"
+                }),
+            )
+            .unwrap();
+        let created_id = NodeId(created["node"]["id"].as_u64().unwrap());
+        assert_whole_hug(e.doc.get(created_id).unwrap(), "create_node");
+
+        let height_only = e
+            .call(
+                "designos_create_node",
+                json!({
+                    "parent_id": page.0,
+                    "kind": "text",
+                    "name": "HeightOnly",
+                    "text": "Delete",
+                    "height": 40.0
+                }),
+            )
+            .unwrap();
+        let height_id = NodeId(height_only["node"]["id"].as_u64().unwrap());
+        let height_node = e.doc.get(height_id).unwrap();
+        let NodeKind::Text(htp) = &height_node.kind else { panic!("height-only create is not text") };
+        assert_eq!(htp.auto_resize, designos_doc::TextAutoResize::None, "height-only create keeps the given height fixed");
+        assert_eq!(height_node.size.y, 40.0);
+        assert_eq!(height_node.size.x.fract(), 0.0, "height-only width {} is not a whole pixel", height_node.size.x);
+        assert!(height_node.size.x >= 1.0);
+
+        e.call("designos_update_node", json!({ "node_id": created_id.0, "text": "Save changes" })).unwrap();
+        assert_whole_hug(e.doc.get(created_id).unwrap(), "update_node");
+
+        let styled = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "text",
+                        "name": "Styled",
+                        "text": "Delete",
+                        "font_size": 14.0,
+                        "font_weight": 600
+                    }
+                }),
+            )
+            .unwrap();
+        let styled_id = NodeId(styled["root_node_id"].as_u64().unwrap());
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_style",
+                    "upsert": [{
+                        "key": "label_style",
+                        "name": "Label Style",
+                        "property": "text",
+                        "text_style": text_style_json(22.0)
+                    }],
+                    "apply": [{ "node": styled_id.0, "style": "label_style" }]
+                }]
+            }),
+        )
+        .unwrap();
+        assert_whole_hug(e.doc.get(styled_id).unwrap(), "set_style apply");
+
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_style",
+                    "upsert": [{
+                        "key": "label_style",
+                        "text_style": text_style_json(36.0)
+                    }]
+                }]
+            }),
+        )
+        .unwrap();
+        let styled_node = e.doc.get(styled_id).unwrap();
+        let NodeKind::Text(stp) = &styled_node.kind else { panic!("styled node is not text") };
+        assert_eq!(stp.style.font_size, 36.0, "upserting a linked text style must update the hug text");
+        assert_whole_hug(styled_node, "set_style upsert");
+
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_variables",
+                    "upsert_collections": [{
+                        "id": "type",
+                        "name": "Type",
+                        "modes": [{ "id": "m", "name": "Default" }],
+                        "default_mode": "m"
+                    }],
+                    "upsert_variables": [{
+                        "id": "type/body",
+                        "name": "Body",
+                        "collection": "type",
+                        "kind": "number",
+                        "values": { "m": 14.0 }
+                    }]
+                }]
+            }),
+        )
+        .unwrap();
+        let bound = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "text",
+                        "name": "Bound",
+                        "text": "Delete",
+                        "font_size": "var:type/Body",
+                        "font_weight": 600
+                    }
+                }),
+            )
+            .unwrap();
+        let bound_id = NodeId(bound["root_node_id"].as_u64().unwrap());
+        let before = e.doc.get(bound_id).unwrap().size;
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "set_variables",
+                    "upsert_variables": [{
+                        "id": "type/body",
+                        "values": { "m": 28.0 }
+                    }]
+                }]
+            }),
+        )
+        .unwrap();
+        let bound_node = e.doc.get(bound_id).unwrap();
+        let drawn = designos_doc::resolve_node(&e.doc, bound_node);
+        let NodeKind::Text(btp) = &drawn.kind else { panic!("bound node is not text") };
+        let expected = designos_render::measure_text_box(btp, None);
+        assert!(expected.x > before.x, "fontSize 14 -> 28 must widen the hug box ({before:?} -> {expected:?})");
+        assert_eq!(bound_node.size.x.fract(), 0.0, "set_variables width {} is not a whole pixel", bound_node.size.x);
+        assert_eq!(bound_node.size.y.fract(), 0.0, "set_variables height {} is not a whole pixel", bound_node.size.y);
+        assert_eq!(bound_node.size, expected, "set_variables size {:?} must match the resolved measure {:?}", bound_node.size, expected);
     }
 }

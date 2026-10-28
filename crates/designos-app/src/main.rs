@@ -129,7 +129,6 @@ fn window_icon() -> Option<egui::IconData> {
 }
 
 fn main() {
-    designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
     let opts = match cli::parse(std::env::args().skip(1)) {
         Ok(o) => o,
         Err(e) => {
@@ -372,7 +371,7 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
         let raw = std::fs::read_to_string(spec_path).map_err(|e| format!("Cannot read {}: {e}", spec_path.display()))?;
         let spec = cli::parse_spec_json(&raw).map_err(|e| format!("Invalid NodeSpec JSON in {}: {e}", spec_path.display()))?;
         let parent = selected_node.or_else(|| doc.pages.first().copied()).ok_or("Document has no pages")?;
-        let root_id = doc.apply_spec(parent, &spec)?;
+        let root_id = doc.apply_spec_with_measure(parent, &spec, &[], Some(&designos_render::RenderTextMeasure)).map_err(|e| e.to_string())?.root_node_id;
         // no window drains the deferred layout here, and the queue is not part of the file
         doc.flush_pending_relayout();
         save_target.save(&doc)?;

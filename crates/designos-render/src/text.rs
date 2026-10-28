@@ -782,8 +782,8 @@ pub fn text_geometry(props: &TextProps, size: Vec2) -> Rc<TextGeometry> {
     geom
 }
 
-/// Natural bounding box `(width, height)` of `tp` (wrapped at `wrap_width` when `Some`),
-/// rounded up to the next `0.25 px`.
+/// Natural bounding box `(width, height)` of `tp` (wrapped at `wrap_width` when `Some`).
+/// Width and height are each rounded up to a whole pixel, minimum 1.
 pub fn measure_text_box(tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
     let mut p = tp.clone();
     p.style.fills.clear();
@@ -803,17 +803,10 @@ pub fn measure_text_box(tp: &TextProps, wrap_width: Option<f32>) -> Vec2 {
         }
     };
     let g = text_geometry(&p, size);
-    let round_q = |v: f32| (v * 4.0).ceil() * 0.25;
-    let min_w = if tp.content.is_empty() { 16.0 } else { 1.0 };
-    let w = match wrap_width {
-        Some(w) => w,
-        None => round_q(g.width).max(min_w),
-    };
-    let h = round_q(g.height).max(1.0);
-    Vec2::new(w, h)
+    Vec2::new(g.width.ceil().max(1.0), g.height.ceil().max(1.0))
 }
 
-/// Process-wide [`designos_doc::text_measure::TextMeasure`] backed by [`measure_text_box`]
+/// [`designos_doc::text_measure::TextMeasure`] backed by [`measure_text_box`]
 /// and the renderer's `cosmic-text` font database.
 pub struct RenderTextMeasure;
 
