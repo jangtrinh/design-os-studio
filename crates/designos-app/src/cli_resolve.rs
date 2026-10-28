@@ -1152,4 +1152,29 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// Round 9b: Running the symlink-retarget startup-pin scenario and the H11 scoped version-warmer
+    /// scenario concurrently on two threads must never leak the startup-pinned stub path into the
+    /// `ScopedCliDirs` thread.
+    #[test]
+    #[cfg(unix)]
+    fn retarget_and_scoped_version_warmer_do_not_race_across_threads() {
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let b1 = std::sync::Arc::clone(&barrier);
+        let t_retarget = std::thread::spawn(move || {
+            b1.wait();
+            for _ in 0..40 {
+                hermetic_startup_dir_is_pinned_after_symlink_retarget();
+            }
+        });
+        let b2 = std::sync::Arc::clone(&barrier);
+        let t_warmer = std::thread::spawn(move || {
+            b2.wait();
+            for _ in 0..200 {
+                version_warmer_resolves_on_the_calling_thread();
+            }
+        });
+        t_retarget.join().expect("retarget thread must not panic");
+        t_warmer.join().expect("scoped version_warmer thread must not panic");
+    }
 }
