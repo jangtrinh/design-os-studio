@@ -547,9 +547,6 @@ pub struct SessionEnv {
     pub gemini_system_defaults: Option<String>,
     /// Value of `DESIGNOS_CLAUDE_PLUGIN`, which an Ask-mode Claude launch passes as `--plugin-dir` (`None` in Skip mode).
     pub claude_plugin: Option<String>,
-    /// Today's launch command of a new Ask-mode Codex session: its presence asks for the Approve/Deny card path (`#930`), which
-    /// starts the TUI as `codex --remote` when every launch gate holds. `None` for every other tab.
-    pub codex_card_command: Option<String>,
     #[cfg(test)]
     pub path_override: Option<std::ffi::OsString>,
 }
@@ -581,7 +578,6 @@ impl SessionEnv {
             claude_settings: None,
             claude_plugin: None,
             gemini_system_defaults: None,
-            codex_card_command: None,
             #[cfg(test)]
             path_override: None,
         }
@@ -713,8 +709,6 @@ pub struct TerminalTab {
     pub approvals_dir: Option<PathBuf>,
     /// Pending approval requests queued for this tab (`#656`).
     pub pending_approvals: Vec<crate::agent_permissions::ApprovalRequest>,
-    /// Codex's own approvals through `codex app-server` (`#930`): the link, its cards, and why it is off.
-    pub codex: crate::agent_codex_cards::CodexTab,
     /// Active stop sequence state (`#684`), or `None` when not stopping.
     pub stop_state: Option<crate::agent_stop::StopState>,
     /// Shared flag so the PTY reader thread ignores OSC status updates while a stop sequence is in flight (`#684`).
@@ -799,7 +793,7 @@ fn persisted_pty_heuristic_status(explicit: &AgentTabStatus, effective: &AgentTa
 impl TerminalTab {
     /// True when this tab has a queued approval request file or is a non-Claude tab in `Ask` mode waiting for input (`#656`).
     pub fn needs_approval(&self) -> bool {
-        if !self.pending_approvals.is_empty() || self.codex.is_waiting() {
+        if !self.pending_approvals.is_empty() {
             return true;
         }
         self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask
@@ -914,20 +908,6 @@ impl TerminalTab {
         if session.is_some() {
             cmd.env("DESIGNOS_TAB_ID", id.to_string());
         }
-        // A new Ask-mode Codex tab takes the Approve/Deny card path when every gate holds; any other tab starts as before (`#930`).
-        let codex = match session {
-            Some(sess) => crate::agent_codex_cards::start_for_tab(
-                &mut cmd,
-                &crate::agent_codex_cards::StartParams {
-                    tab_id: id,
-                    session_id: &sess.session_id,
-                    session_dir: &sess.session_dir,
-                    card_command: sess.codex_card_command.as_deref().filter(|_| preset == AgentCliPreset::Codex),
-                    platform_supported: cfg!(target_os = "macos"),
-                },
-            ),
-            None => crate::agent_codex_cards::CodexTab::default(),
-        };
 
         let mut reader = pair.master.try_clone_reader().map_err(|e| format!("try_clone_reader failed: {e}"))?;
         let writer = pair.master.take_writer().map_err(|e| format!("take_writer failed: {e}"))?;
@@ -1074,7 +1054,6 @@ impl TerminalTab {
             permission_mode: crate::agent_permissions::AgentPermissionMode::default(),
             approvals_dir,
             pending_approvals: Vec::new(),
-            codex,
             stop_state: None,
             stop_in_flight,
             stop_sent_instant: None,
@@ -1547,8 +1526,6 @@ pub struct TerminalState {
     pub notification_latch: crate::agent_permissions::NotificationLatch,
     /// Pluggable OS notification sender (`#656`).
     pub approval_notifier: Arc<dyn crate::agent_permissions::ApprovalNotifier>,
-    /// The Codex card path's version probe and login-shell capture were started for this session (`#930`).
-    pub codex_cards_warmed: bool,
     /// Tracks whether `agent-status.json` was already observed in the `Done` state so transitions fire once.
     pub last_agent_status_done: bool,
     /// Active `@`-mentions recorded for the current composer draft (`#655`).
@@ -1833,7 +1810,6 @@ impl TerminalState {
             pending_approvals: Vec::new(),
             notification_latch: crate::agent_permissions::NotificationLatch::default(),
             approval_notifier,
-            codex_cards_warmed: false,
             last_agent_status_done: false,
             active_mentions: Vec::new(),
             mention_popup: crate::agent_mention_popup::MentionPopupState::default(),
@@ -1909,7 +1885,6 @@ impl TerminalState {
             crate::agent_permissions::withdraw_pending_requests_in_dir(dir);
         }
         tab.pending_approvals.clear();
-        tab.codex.clear();
     }
 
     fn sync_active_tab_approvals(&mut self) {
@@ -1941,63 +1916,6 @@ impl TerminalState {
         }
     }
 
-    /// Starts the Codex card path's version probe and login-shell capture once per session, in Ask mode on macOS, so the
-    /// first Codex tab finds both answered instead of starting as before. Runs off the UI thread; nothing waits on it.
-    pub fn warm_codex_cards(&mut self, file_path: Option<&Path>) {
-        if self.codex_cards_warmed || !cfg!(target_os = "macos") || self.permission_mode != crate::agent_permissions::AgentPermissionMode::Ask {
-            return;
-        }
-        self.codex_cards_warmed = true;
-        let env = self.session_env();
-        let mut builder = CommandBuilder::new(default_shell_program());
-        configure_pty_env_with_session(&mut builder, AgentCliPreset::Codex, file_path, Some(&env));
-        crate::agent_codex_cards::warm(&builder, &env.session_id);
-    }
-
-    /// The Codex card the panel shows (`#930`): the oldest request of any tab, answered on the tab it came from, or the
-    /// notice that a tab's link dropped. A request of a background tab shows with its tab's title.
-    pub fn codex_view(&self, in_active_terminal: bool) -> Option<crate::agent_codex_cards::CodexView> {
-        let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
-        let oldest = self
-            .tabs
-            .iter()
-            .enumerate()
-            .flat_map(|(idx, tab)| tab.codex.cards.iter().map(move |pending| (idx, tab, pending)))
-            .min_by_key(|(_, _, pending)| pending.seq);
-        if let Some((idx, tab, pending)) = oldest {
-            let total = self.tabs.iter().map(|t| t.codex.cards.len()).sum();
-            let tab_title = (idx != active_idx).then(|| tab.title.clone());
-            return Some(crate::agent_codex_cards::CodexView::Card { tab_id: tab.id, tab_title, pending: Box::new(pending.clone()), total });
-        }
-        self.tabs
-            .iter()
-            .enumerate()
-            .find(|(_, tab)| tab.codex.link_lost)
-            .map(|(idx, tab)| crate::agent_codex_cards::CodexView::LinkLost { tab_id: tab.id, in_active_terminal: in_active_terminal && idx == active_idx })
-    }
-
-    /// The note under the #1195 banner of `tab_id`: why a Codex tab asks in its terminal instead of on a card (`#930`).
-    pub fn banner_caption(&self, tab_id: usize) -> Option<String> {
-        self.tabs.iter().find(|t| t.id == tab_id).and_then(|t| t.codex.banner_caption())
-    }
-
-    /// Answers a Codex card with the JSON-RPC response of its request. Nothing else is sent anywhere: the tab's PTY never
-    /// gets the answer (`#930`).
-    fn answer_codex_card(&mut self, tab_id: usize, key: &str, decision: crate::agent_codex_cards::Decision) {
-        let Some(tab) = self.tabs.iter_mut().find(|t| t.id == tab_id) else { return };
-        if !tab.codex.answer(key, decision) {
-            return;
-        }
-        if !tab.codex.is_waiting() {
-            if let Ok(mut st) = tab.agent_status.lock() {
-                if matches!(*st, AgentTabStatus::WaitingForInput(_)) {
-                    *st = AgentTabStatus::Idle;
-                }
-            }
-        }
-        self.notification_latch.reset();
-    }
-
     /// Handles a click on the in-panel approval card (`Approve`, `Deny`, `Show prompt`, or `Open tab`).
     pub fn handle_approval_card_action(&mut self, action: crate::agent_approval_card::CardAction) {
         match action {
@@ -2007,10 +1925,6 @@ impl TerminalState {
             crate::agent_approval_card::CardAction::Deny(id) => {
                 self.answer_pending_approval(&id, crate::agent_permissions::ApprovalDecision::Deny);
             }
-            crate::agent_approval_card::CardAction::CodexApprove { tab_id, key } => {
-                self.answer_codex_card(tab_id, &key, crate::agent_codex_cards::Decision::Approve)
-            }
-            crate::agent_approval_card::CardAction::CodexDeny { tab_id, key } => self.answer_codex_card(tab_id, &key, crate::agent_codex_cards::Decision::Deny),
             crate::agent_approval_card::CardAction::ShowPrompt => {
                 self.picker_open = false;
                 self.side_panel_pty_open = true;
@@ -2031,83 +1945,12 @@ impl TerminalState {
         }
     }
 
-    /// The `--panel agents-codex-*` previews of the Codex cards (`#930`): a Codex tab in Ask mode with cards set directly, no server.
-    #[cfg(unix)]
-    fn open_codex_card_fixture(&mut self, preset_slug: &str) {
-        use crate::codex_remote::card_mapping::CodexCard;
-        use crate::codex_remote::file_changes::FileLine;
-        use crate::codex_remote::protocol::CardKind;
-        let card = |kind, title: &str, summary: &str| CodexCard {
-            key: "cx-preview-1".into(),
-            raw_id: serde_json::json!(1),
-            kind,
-            title: title.into(),
-            summary: summary.into(),
-            truncated: false,
-            thread_id: "preview".into(),
-            turn_id: "preview".into(),
-            detail: Box::default(),
-        };
-        let file = |verb, path: &str, counts| FileLine { verb, path: path.into(), counts };
-        let (cards, link_lost, fallback) = match preset_slug {
-            "agents-codex-command" => {
-                let mut first = card(CardKind::Command, "Codex wants to run a command", "rm -rf build");
-                first.detail.cwd = Some("~/work/design-os-studio".into());
-                let mut second = card(CardKind::Command, "Codex wants to run a command", "cargo test");
-                second.key = "cx-preview-2".into();
-                (vec![first, second], false, None)
-            }
-            "agents-codex-files" => {
-                let mut change = card(CardKind::FileChange, "Codex wants to change 3 files", "");
-                change.detail.files = vec![
-                    file("edit", "crates/app/src/a.rs", Some((12, 3))),
-                    file("edit", "crates/app/src/b.rs", Some((1, 1))),
-                    file("add", "docs/README.md", Some((4, 0))),
-                ];
-                (vec![change], false, None)
-            }
-            "agents-codex-tool" => {
-                let mut tool = card(CardKind::McpTool, "Codex wants to use design:os rename_node", "");
-                tool.detail.tool = Some("rename_node".into());
-                tool.detail.input = Some(r#"{"id":"12:40","name":"Card / Header"}"#.into());
-                (vec![tool], false, None)
-            }
-            "agents-codex-gate" => (Vec::new(), false, Some(crate::codex_remote::FallbackReason::VersionOutsideRange("0.162.1".into()))),
-            _ => (Vec::new(), true, None),
-        };
-        if let Some(tab) = self.active_tab_mut() {
-            tab.preset = AgentCliPreset::Codex;
-            tab.title = "Codex CLI #1".into();
-            tab.codex = crate::agent_codex_cards::CodexTab::preview(cards, link_lost, fallback);
-            if let Ok(mut st) = tab.agent_status.lock() {
-                *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
-            }
-        }
-    }
-
-    /// Without Unix sockets there is no Codex link, so the previews show the #1195 banner path.
-    #[cfg(not(unix))]
-    fn open_codex_card_fixture(&mut self, _preset_slug: &str) {
-        if let Some(tab) = self.active_tab_mut() {
-            tab.preset = AgentCliPreset::Codex;
-            tab.title = "Codex CLI #1".into();
-            tab.codex = crate::agent_codex_cards::CodexTab::preview(Vec::new(), false, None);
-            if let Ok(mut st) = tab.agent_status.lock() {
-                *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
-            }
-        }
-    }
-
     /// Populates the approval card state for the `--panel agents-approval-*` screenshot fixtures (`#656`, `#1195`).
     pub fn open_approval_fixture(&mut self, preset_slug: &str, file_path: Option<&Path>) {
         self.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
         self.ensure_default_tab(file_path);
         if let Some(tab) = self.active_tab_mut() {
             tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
-        }
-        if preset_slug.starts_with("agents-codex-") {
-            self.open_codex_card_fixture(preset_slug);
-            return;
         }
         let now = crate::agent_sessions::unix_timestamp_secs();
         let Some(approvals_dir) = self.active_tab().and_then(|tab| tab.approvals_dir.clone()) else {
@@ -2660,7 +2503,6 @@ impl TerminalState {
             claude_settings: crate::agent_permissions::claude_settings_value(&self.session_dir, self.permission_mode),
             claude_plugin: crate::agent_permissions::claude_plugin_value(&self.session_dir, self.permission_mode),
             gemini_system_defaults: None,
-            codex_card_command: None,
         }
     }
 
@@ -3243,8 +3085,6 @@ impl TerminalState {
         // No tab is left to ask: the approval channel (hook script, requests, answers) goes with the session.
         if self.tabs.is_empty() {
             crate::agent_approval_channel::remove_channel(&self.session_dir);
-            crate::agent_codex_cards::forget(&self.session_id);
-            self.codex_cards_warmed = false;
         }
         if crate::agent_session_files::is_ephemeral_session_dir(&self.session_dir) {
             if self.lock_owner.is_some() {
@@ -3546,10 +3386,6 @@ impl TerminalState {
         }
         let mut env = self.session_env();
         env.tab_session_uuid = session_uuid.clone();
-        // Only a new Codex session (`spawn_tab`) in Ask mode can be started as `codex --remote`: a resume or a login has its own command.
-        env.codex_card_command = command
-            .filter(|_| register_new_entry && !is_resumed && preset == AgentCliPreset::Codex && mode == crate::agent_permissions::AgentPermissionMode::Ask)
-            .map(str::to_string);
         // A Gemini tab in Ask mode reads its status hooks from a private file, written before the tab starts.
         env.gemini_system_defaults = crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, id, mode, preset).map(|path| path.display().to_string());
         let cmd_override = command.map(|c| {
@@ -3972,8 +3808,7 @@ impl TerminalState {
                 .iter_mut()
                 .map(|tab| {
                     tab.approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&self.session_dir, tab.id);
-                    // Codex answers over its app-server link only: a request file in its folder is never read as one (`#930`).
-                    match tab.approvals_dir.as_deref().filter(|dir| dir.is_dir() && tab.spawn_preset != AgentCliPreset::Codex) {
+                    match tab.approvals_dir.as_deref().filter(|dir| dir.is_dir()) {
                         Some(dir) => crate::agent_permissions::poll_approvals_in_dir(dir, now_secs, crate::agent_permissions::APPROVAL_HOOK_TIMEOUT_SECS),
                         None => Vec::new(),
                     }
@@ -4002,23 +3837,6 @@ impl TerminalState {
                 }
             }
             self.sync_active_tab_approvals();
-        }
-
-        // Channel 5: Codex's approval requests from each tab's `codex app-server` link (`#930`). A card closes here when the
-        // server reports the request answered, wherever it was answered.
-        for tab in &mut self.tabs {
-            let was_waiting = tab.codex.is_waiting();
-            let changed = tab.codex.poll();
-            let waiting = tab.codex.is_waiting();
-            if changed || was_waiting != waiting {
-                if let Ok(mut st) = tab.agent_status.lock() {
-                    if waiting {
-                        *st = AgentTabStatus::WaitingForInput(Some(NEEDS_APPROVAL_LABEL.into()));
-                    } else if was_waiting && matches!(*st, AgentTabStatus::WaitingForInput(_)) {
-                        *st = AgentTabStatus::Idle;
-                    }
-                }
-            }
         }
 
         // Track where each running turn started in the undo stack so Stop can fold exactly that turn (`#684`).
@@ -5876,8 +5694,6 @@ pub fn show_left_with_selection(
     file_path: Option<&Path>,
     selection_summary: &crate::agent_selection_chip::SelectionSummary,
 ) -> Vec<TerminalAction> {
-    crate::agent_codex_cards::register_repaint(ui.ctx());
-    state.warm_codex_cards(file_path);
     let empty_doc = Document::new(&state.doc_name);
     let page = NodeId(state.current_page_id.max(1));
     show_left_with_doc(state, ui, rect, file_path, selection_summary, &empty_doc, page)
@@ -6388,15 +6204,8 @@ pub fn show_left_with_doc(
 
     // ---- C. Center Area (`between runtime bar and bottom composer`)
     let full_center_rect = Rect::from_min_max(Pos2::new(rect.left(), top_y), Pos2::new(rect.right(), (composer_rect.top() - 8.0).max(top_y + 32.0)));
-    let center_rect = if let Some(view) = state.codex_view(state.side_panel_pty_open && !state.picker_open) {
-        let (act, card_h) = crate::agent_codex_cards::paint_codex_card(ui, full_center_rect, &view, "agents-left-chat");
-        if let Some(act) = act {
-            state.handle_approval_card_action(act);
-        }
-        Rect::from_min_max(Pos2::new(full_center_rect.left(), (full_center_rect.top() + card_h).min(full_center_rect.bottom())), full_center_rect.max)
-    } else if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
+    let center_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
         let on_active_claude = is_active_tab && banner_preset == AgentCliPreset::Claude;
-        let caption = state.banner_caption(target_tab_id);
         if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
             ui,
             full_center_rect,
@@ -6405,13 +6214,11 @@ pub fn show_left_with_doc(
             target_tab_id,
             on_active_claude,
             total_pending,
-            caption.as_deref(),
             "agents-left-chat",
         ) {
             state.handle_approval_card_action(act);
         }
-        let card_h =
-            crate::agent_approval_card::approval_card_outer_height(if on_active_claude { banner_preset } else { AgentCliPreset::Codex }, caption.is_some());
+        let card_h = crate::agent_approval_card::approval_card_outer_height(if on_active_claude { banner_preset } else { AgentCliPreset::Codex });
         Rect::from_min_max(Pos2::new(full_center_rect.left(), (full_center_rect.top() + card_h).min(full_center_rect.bottom())), full_center_rect.max)
     } else {
         full_center_rect
@@ -6529,19 +6336,8 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     p.rect_filled(viewport_rect, 0.0, TERM_BG_VIEWPORT);
 
     let mut card_activated = false;
-    let viewport_rect = if let Some(view) = state.codex_view(state.side_panel_pty_open && !state.picker_open) {
-        let (act, card_h) = crate::agent_codex_cards::paint_codex_card(ui, viewport_rect, &view, surface_id);
-        if let Some(act) = act {
-            card_activated = true;
-            state.handle_approval_card_action(act);
-            if let Some(fid) = ui.ctx().memory(|m| m.focused()) {
-                ui.ctx().memory_mut(|m| m.surrender_focus(fid));
-            }
-        }
-        Rect::from_min_max(Pos2::new(viewport_rect.left(), (viewport_rect.top() + card_h).min(viewport_rect.bottom())), viewport_rect.max)
-    } else if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
+    let viewport_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
         let in_active_terminal = is_active_tab && state.side_panel_pty_open && !state.picker_open;
-        let caption = state.banner_caption(target_tab_id);
         if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
             ui,
             viewport_rect,
@@ -6550,7 +6346,6 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
             target_tab_id,
             in_active_terminal,
             total_pending,
-            caption.as_deref(),
             surface_id,
         ) {
             card_activated = true;
@@ -6559,10 +6354,11 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 ui.ctx().memory_mut(|m| m.surrender_focus(fid));
             }
         }
-        let card_h = crate::agent_approval_card::approval_card_outer_height(
-            if in_active_terminal && banner_preset == AgentCliPreset::Claude { banner_preset } else { AgentCliPreset::Codex },
-            caption.is_some(),
-        );
+        let card_h = crate::agent_approval_card::approval_card_outer_height(if in_active_terminal && banner_preset == AgentCliPreset::Claude {
+            banner_preset
+        } else {
+            AgentCliPreset::Codex
+        });
         Rect::from_min_max(Pos2::new(viewport_rect.left(), (viewport_rect.top() + card_h).min(viewport_rect.bottom())), viewport_rect.max)
     } else {
         viewport_rect
@@ -11527,18 +11323,9 @@ mod tests {
 
     #[test]
     fn sim_approval_card_and_permissions_modal_pass_layout_lint() {
-        for preset_slug in [
-            "agents-approval-command",
-            "agents-approval-queued",
-            "agents-approval-open-tab",
-            "agents-approval-background-tab",
-            "agents-scrollback",
-            "agents-codex-command",
-            "agents-codex-files",
-            "agents-codex-tool",
-            "agents-codex-gate",
-            "agents-codex-lost",
-        ] {
+        for preset_slug in
+            ["agents-approval-command", "agents-approval-queued", "agents-approval-open-tab", "agents-approval-background-tab", "agents-scrollback"]
+        {
             let ctx = egui::Context::default();
             crate::theme::install_fonts(&ctx);
             crate::theme::apply(&ctx);
