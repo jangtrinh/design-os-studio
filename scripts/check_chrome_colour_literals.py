@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-DESIGN:OS Studio — Chrome Colour Literal Gate (Spec A / #1142, Rule 13)
+DESIGN:OS Studio — Chrome Colour Literal Gate
 
 Counts inline `Color32` literal sites per Rust source file in
 `crates/designos-app/src/` (excluding `theme.rs` and test files/blocks) using
-Spec D §2's regex over `rust_literal_scan.clean` output, ratcheted against
+the regex below over `rust_literal_scan.clean` output, ratcheted against
 `scripts/chrome_colour_baseline.json`.
 
 A chrome colour site is:

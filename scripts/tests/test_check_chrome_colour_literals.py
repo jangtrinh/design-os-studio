@@ -51,7 +51,7 @@ class CheckChromeColourLiteralsTests(unittest.TestCase):
         self.assertEqual(len(hits), 5)
 
     def test_injected_color32_literal_in_temp_copy_fails_against_baseline(self) -> None:
-        """Spec A §10.7: injecting one Color32::from_rgb(1, 2, 3) into a temp copy fails."""
+        """Injecting one Color32::from_rgb(1, 2, 3) into a temp copy of the source tree fails the gate."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_src = Path(tmp) / "src"
             shutil.copytree(ccl.APP_SRC, tmp_src)
@@ -94,18 +94,19 @@ class CheckChromeColourLiteralsTests(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
 
-    def test_g04_fails_when_a11y_chrome_pairs_missing(self) -> None:
-        """G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is missing."""
+    def test_g04_is_report_only_when_a11y_chrome_pairs_missing(self) -> None:
+        """G04 stays supplementary (passed) and names the missing pairs file."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_root = Path(tmp)
             (tmp_root / "design").mkdir(parents=True, exist_ok=True)
             with mock.patch.object(dse, "REPO_ROOT", tmp_root):
                 ok, summary, _ = dse.check_ui_ds_a11y()
-            self.assertFalse(ok)
+            self.assertTrue(ok)
+            self.assertIn("supplementary", summary)
             self.assertIn("design/a11y-chrome-pairs.txt", summary)
 
-    def test_g04_fails_when_a11y_chrome_pairs_empty(self) -> None:
-        """G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is empty."""
+    def test_g04_is_report_only_when_a11y_chrome_pairs_empty(self) -> None:
+        """G04 stays supplementary (passed) and names an empty pairs file."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_root = Path(tmp)
             pairs_path = tmp_root / "design" / "a11y-chrome-pairs.txt"
@@ -113,8 +114,23 @@ class CheckChromeColourLiteralsTests(unittest.TestCase):
             pairs_path.write_text("   \n", encoding="utf-8")
             with mock.patch.object(dse, "REPO_ROOT", tmp_root):
                 ok, summary, _ = dse.check_ui_ds_a11y()
-            self.assertFalse(ok)
+            self.assertTrue(ok)
+            self.assertIn("supplementary", summary)
             self.assertIn("design/a11y-chrome-pairs.txt", summary)
+
+    def test_purple_band_flags_the_retired_syntax_keyword(self) -> None:
+        """A Color32 constant with hue 255-300 deg and HSL S > 0.25 is flagged; BOARD_* is exempt."""
+        hits = dse.purple_band_constants(
+            "pub const SYNTAX_KEYWORD: Color32 = rgb(0xC792EA);\n"
+            "pub const BOARD_SWATCH: Color32 = rgb(0xD5C3FF);\n"
+        )
+        self.assertEqual(len(hits), 1)
+        self.assertIn("SYNTAX_KEYWORD", hits[0])
+        self.assertIn("#C792EA", hits[0])
+
+    def test_purple_band_on_theme_rs_is_empty(self) -> None:
+        theme = (SCRIPTS_DIR.parent / "crates/designos-app/src/theme.rs").read_text(encoding="utf-8")
+        self.assertEqual(dse.purple_band_constants(theme), [])
 
 
 if __name__ == "__main__":

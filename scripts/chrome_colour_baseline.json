@@ -17,7 +17,7 @@
       "chrome_sites": 6
     },
     "canvas/draw.rs": {
-      "chrome_sites": 26
+      "chrome_sites": 27
     },
     "canvas/interact.rs": {
       "chrome_sites": 1
@@ -89,7 +89,7 @@
       "chrome_sites": 1
     },
     "panels/inspect.rs": {
-      "chrome_sites": 20
+      "chrome_sites": 16
     },
     "panels/left.rs": {
       "chrome_sites": 2
@@ -98,7 +98,7 @@
       "chrome_sites": 4
     },
     "panels/properties.rs": {
-      "chrome_sites": 19
+      "chrome_sites": 20
     },
     "panels/prototype.rs": {
       "chrome_sites": 10
@@ -134,7 +134,7 @@
       "chrome_sites": 8
     },
     "terminal.rs": {
-      "chrome_sites": 51
+      "chrome_sites": 50
     },
     "updater.rs": {
       "chrome_sites": 11

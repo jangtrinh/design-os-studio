@@ -18,7 +18,7 @@ pub const fn rgba(c: u32, a: u8) -> Color32 {
     Color32::from_rgba_premultiplied(r as u8, g as u8, b as u8, a)
 }
 
-// ---------------------------------------------------------------- colors (Untitled UI PRO v8.0 Dark + DESIGN:OS)
+// ---------------------------------------------------------------- colors (Studio dark chrome)
 pub const BG: Color32 = rgb(0x0A0A0A);
 pub const BG_PRIMARY: Color32 = rgb(0x0A0A0A);
 pub const BG_SECONDARY: Color32 = rgb(0x171717);
@@ -81,7 +81,8 @@ pub const INNER_HIGHLIGHT: Color32 = rgb(0x262626);
 pub const CHECKER_A: Color32 = rgb(0xFFFFFF);
 pub const CHECKER_B: Color32 = rgb(0xCCCCCC);
 
-// Untitled UI PRO v8.0 dark roles added in Spec A (N1..N46)
+// Studio dark colour roles beyond the legacy set. Constants no call site reads yet carry `#[allow(dead_code)]`;
+// the surface that first uses one removes the attribute.
 pub const BG_SECONDARY_HOVER: Color32 = rgb(0x262626);
 #[allow(dead_code)]
 pub const TEXT_SECONDARY_HOVER: Color32 = rgb(0xE5E5E5);
@@ -173,6 +174,68 @@ pub const UTILITY_GREEN_600: Color32 = rgb(0x4ADE80);
 pub const UTILITY_ORANGE_50: Color32 = rgb(0x431407);
 #[allow(dead_code)]
 pub const UTILITY_ORANGE_600: Color32 = rgb(0xFB923C);
+#[allow(dead_code)]
+pub const DEV_READY_HOVER: Color32 = rgb(0x30B870);
+#[allow(dead_code)]
+pub const HUD_POINTER_FILL: Color32 = rgb(0x111216);
+#[allow(dead_code)]
+pub const PLAYGROUND_GRID_DOT: Color32 = rgba(0xFAFAFA, 0x12);
+#[allow(dead_code)]
+pub const SWATCH_PLACEHOLDER: Color32 = rgb(0x404040);
+#[allow(dead_code)]
+pub const TYPE_PREVIEW_BASELINE: Color32 = rgba(0x0D99FF, 0x6E);
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_FILL: Color32 = CANVAS_HANDLE_FILL;
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_RING: Color32 = rgba(0x000000, 0x4D);
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_CASING: Color32 = rgba(0x000000, 0x66);
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_AXIS: Color32 = rgba(0xFFFFFF, 0xB2);
+#[allow(dead_code)]
+pub const CONTENT_HANDLE_STOP_IDLE: Color32 = rgba(0xFFFFFF, 0xCC);
+#[allow(dead_code)]
+pub const CONTENT_MARK_SHADOW: Color32 = rgba(0x000000, 0x6E);
+#[allow(dead_code)]
+pub const CONTENT_MARK_LIGHT: Color32 = rgba(0xFFFFFF, 0xDC);
+#[allow(dead_code)]
+pub const READER_LIGHT_BG_PAGE: Color32 = rgb(0xFAFAFA);
+#[allow(dead_code)]
+pub const READER_LIGHT_DOC_SHEET: Color32 = rgb(0xFFFFFF);
+#[allow(dead_code)]
+pub const READER_LIGHT_SURFACE: Color32 = rgb(0xFFFFFF);
+#[allow(dead_code)]
+pub const READER_LIGHT_SURFACE_2: Color32 = rgb(0xF5F5F5);
+#[allow(dead_code)]
+pub const READER_LIGHT_SURFACE_3: Color32 = rgb(0xFAFAFA);
+#[allow(dead_code)]
+pub const READER_LIGHT_CODE_BG: Color32 = rgb(0xFAFAFA);
+#[allow(dead_code)]
+pub const READER_LIGHT_BORDER: Color32 = rgb(0xE5E5E5);
+#[allow(dead_code)]
+pub const READER_LIGHT_HAIRLINE: Color32 = rgb(0xF5F5F5);
+#[allow(dead_code)]
+pub const READER_LIGHT_TEXT: Color32 = rgb(0x171717);
+#[allow(dead_code)]
+pub const READER_LIGHT_TEXT_MUTED: Color32 = rgb(0x404040);
+#[allow(dead_code)]
+pub const READER_LIGHT_TEXT_SUBTLE: Color32 = rgb(0x525252);
+#[allow(dead_code)]
+pub const READER_LIGHT_DOT_OK: Color32 = rgb(0x16A34A);
+#[allow(dead_code)]
+pub const READER_LIGHT_DOT_WARN: Color32 = rgb(0xCA8A04);
+#[allow(dead_code)]
+pub const READER_LIGHT_DOT_NEUTRAL: Color32 = rgb(0xA3A3A3);
+#[allow(dead_code)]
+pub const READER_LIGHT_HIGHLIGHT: Color32 = rgb(0xFEFCE8);
+#[allow(dead_code)]
+pub const FOCUS_RING_ERROR: Color32 = rgb(0xEF4444);
+#[allow(dead_code)]
+pub const BORDER_ERROR_SUBTLE: Color32 = rgb(0xEF4444);
+#[allow(dead_code)]
+pub const BORDER_ERROR: Color32 = rgb(0xF87171);
+#[allow(dead_code)]
+pub const TEXT_ERROR_HOVER: Color32 = rgb(0xFCA5A5);
 
 // canvas overlays (EaseUI BrainWave Primary Blue #3582FF & Cyan #06B6D4)
 pub const CANVAS_SELECTION: Color32 = rgb(0x3582FF);
@@ -712,7 +775,7 @@ pub fn apply(ctx: &egui::Context) {
     *v = egui::Visuals::dark();
     v.panel_fill = BG;
     v.window_fill = BG_MENU;
-    v.extreme_bg_color = BG_SECONDARY;
+    v.extreme_bg_color = BG;
     v.faint_bg_color = BG_SECONDARY;
     v.override_text_color = None;
     v.window_shadow = egui::Shadow::NONE;
@@ -1164,6 +1227,37 @@ mod tests {
             ("UTILITY_GREEN_600", UTILITY_GREEN_600),
             ("UTILITY_ORANGE_50", UTILITY_ORANGE_50),
             ("UTILITY_ORANGE_600", UTILITY_ORANGE_600),
+            ("DEV_READY_HOVER", DEV_READY_HOVER),
+            ("HUD_POINTER_FILL", HUD_POINTER_FILL),
+            ("PLAYGROUND_GRID_DOT", PLAYGROUND_GRID_DOT),
+            ("SWATCH_PLACEHOLDER", SWATCH_PLACEHOLDER),
+            ("TYPE_PREVIEW_BASELINE", TYPE_PREVIEW_BASELINE),
+            ("CONTENT_HANDLE_FILL", CONTENT_HANDLE_FILL),
+            ("CONTENT_HANDLE_RING", CONTENT_HANDLE_RING),
+            ("CONTENT_HANDLE_CASING", CONTENT_HANDLE_CASING),
+            ("CONTENT_HANDLE_AXIS", CONTENT_HANDLE_AXIS),
+            ("CONTENT_HANDLE_STOP_IDLE", CONTENT_HANDLE_STOP_IDLE),
+            ("CONTENT_MARK_SHADOW", CONTENT_MARK_SHADOW),
+            ("CONTENT_MARK_LIGHT", CONTENT_MARK_LIGHT),
+            ("READER_LIGHT_BG_PAGE", READER_LIGHT_BG_PAGE),
+            ("READER_LIGHT_DOC_SHEET", READER_LIGHT_DOC_SHEET),
+            ("READER_LIGHT_SURFACE", READER_LIGHT_SURFACE),
+            ("READER_LIGHT_SURFACE_2", READER_LIGHT_SURFACE_2),
+            ("READER_LIGHT_SURFACE_3", READER_LIGHT_SURFACE_3),
+            ("READER_LIGHT_CODE_BG", READER_LIGHT_CODE_BG),
+            ("READER_LIGHT_BORDER", READER_LIGHT_BORDER),
+            ("READER_LIGHT_HAIRLINE", READER_LIGHT_HAIRLINE),
+            ("READER_LIGHT_TEXT", READER_LIGHT_TEXT),
+            ("READER_LIGHT_TEXT_MUTED", READER_LIGHT_TEXT_MUTED),
+            ("READER_LIGHT_TEXT_SUBTLE", READER_LIGHT_TEXT_SUBTLE),
+            ("READER_LIGHT_DOT_OK", READER_LIGHT_DOT_OK),
+            ("READER_LIGHT_DOT_WARN", READER_LIGHT_DOT_WARN),
+            ("READER_LIGHT_DOT_NEUTRAL", READER_LIGHT_DOT_NEUTRAL),
+            ("READER_LIGHT_HIGHLIGHT", READER_LIGHT_HIGHLIGHT),
+            ("FOCUS_RING_ERROR", FOCUS_RING_ERROR),
+            ("BORDER_ERROR_SUBTLE", BORDER_ERROR_SUBTLE),
+            ("BORDER_ERROR", BORDER_ERROR),
+            ("TEXT_ERROR_HOVER", TEXT_ERROR_HOVER),
             ("CANVAS_SELECTION", CANVAS_SELECTION),
             ("CANVAS_COMPONENT", CANVAS_COMPONENT),
             ("CANVAS_HANDLE_FILL", CANVAS_HANDLE_FILL),
@@ -1242,9 +1336,24 @@ mod tests {
         }
     }
 
+    /// `BG_OVERLAY` drawn over white, straight alpha, the conservative C-1.40 / C-1.72 backdrop.
+    fn bg_overlay_on_white() -> Color32 {
+        assert_eq!(BG_OVERLAY, rgba(0x262626, 0xB3));
+        let (h, a) = (0x26u32, 0xB3u32);
+        let ch = (h as f64 * a as f64 / 255.0 + 255.0 * (255 - a) as f64 / 255.0).round() as u8;
+        Color32::from_rgb(ch, ch, ch)
+    }
+
+    fn opaque_hex(c: Color32) -> u32 {
+        let [r, g, b, a] = c.to_srgba_unmultiplied();
+        assert_eq!(a, 255, "{c:?} is translucent");
+        ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+    }
+
     #[test]
     fn chrome_contrast_pairs() {
-        let pairs: [(&str, Color32, Color32, f64); 62] = [
+        let star_bg = bg_overlay_on_white();
+        let pairs = [
             ("C-1.1", TEXT, BG, 4.5),
             ("C-1.2", TEXT, BG_SECONDARY, 4.5),
             ("C-1.3", TEXT, BG_SELECTED, 4.5),
@@ -1269,8 +1378,6 @@ mod tests {
             ("C-1.22", UTILITY_YELLOW_700, BG_WARNING_PRIMARY, 4.5),
             ("C-1.23", UTILITY_RED_700, BG_ERROR_PRIMARY, 4.5),
             ("C-1.24", UTILITY_NEUTRAL_700, UTILITY_NEUTRAL_50, 4.5),
-            ("C-1.25", TEXT_PLACEHOLDER, BG, 3.0),
-            ("C-1.26", TEXT_PLACEHOLDER, BG_SECONDARY, 3.0),
             ("C-1.27", ICON_TERTIARY, BG_SELECTED, 3.0),
             ("C-1.28", ICON_QUATERNARY, BG_SECONDARY, 3.0),
             ("C-1.29", FOCUS_RING, BG, 3.0),
@@ -1284,7 +1391,7 @@ mod tests {
             ("C-1.37", BORDER_SELECTED, BG, 3.0),
             ("C-1.38", BORDER_SELECTED, HOME_THUMB_BG, 3.0),
             ("C-1.39", TEXT_SECONDARY, BG_SECONDARY_HOVER, 4.5),
-            ("C-1.40", TEXT_TERTIARY, BG_OVERLAY, 4.5),
+            ("C-1.40", TEXT_WARNING, star_bg, 3.0),
             ("C-1.41", AGENT_LABEL_TEXT, AGENT_1, 4.5),
             ("C-1.42", AGENT_LABEL_TEXT, AGENT_2, 4.5),
             ("C-1.43", AGENT_LABEL_TEXT, AGENT_3, 4.5),
@@ -1307,10 +1414,35 @@ mod tests {
             ("C-1.60", DANGER, BG_MENU, 3.0),
             ("C-1.61", INFO, BG_MENU, 3.0),
             ("C-1.62", SUCCESS, BG_MENU, 3.0),
+            ("C-1.63", TEXT_ON_BRAND, DEV_READY_HOVER, 4.5),
+            ("C-1.64", READER_LIGHT_TEXT_SUBTLE, READER_LIGHT_SURFACE_2, 4.5),
+            ("C-1.65", TEXT_ERROR_HOVER, BG_ERROR_PRIMARY, 4.5),
+            ("C-1.66", BORDER_ERROR, BG_ERROR_PRIMARY, 3.0),
+            ("C-1.67", BORDER_ERROR_SUBTLE, BG, 3.0),
+            ("C-1.68", BORDER_ERROR_SUBTLE, BG_ERROR_PRIMARY, 3.0),
+            ("C-1.69", FOCUS_RING_ERROR, BG, 3.0),
+            ("C-1.70", TEXT_ERROR, BG_SECONDARY, 4.5),
+            ("C-1.71", TEXT_ERROR, BG_SELECTED, 4.5),
+            ("C-1.72", ICON_SECONDARY, star_bg, 3.0),
         ];
+        assert_eq!(pairs.len(), 70, "C-1 pass rows");
         for (id, fg, bg, min) in pairs {
             let ratio = wcag_contrast(fg, bg);
             assert!(ratio >= min, "{id} contrast {ratio:.2}:1 < min {min:.1}:1 ({fg:?} on {bg:?})");
+        }
+        // Floor rows are exceptions, not passes: exact hex and a floor, never a 4.5 pass.
+        let floors = [
+            ("E-1.a", TEXT_PLACEHOLDER, BG, 3.0, 0x737373, 0x0A0A0A),
+            ("E-1.b", TEXT_PLACEHOLDER, BG_SECONDARY, 3.0, 0x737373, 0x171717),
+            ("E-2.a", BORDER_STRONG, BG, 1.7, 0x404040, 0x0A0A0A),
+            ("E-2.b", BORDER_STRONG, BG_SECONDARY, 1.7, 0x404040, 0x171717),
+        ];
+        assert_eq!(floors.len(), 4);
+        for (id, fg, bg, floor, fh, bh) in floors {
+            assert_eq!(opaque_hex(fg), fh, "{id} foreground");
+            assert_eq!(opaque_hex(bg), bh, "{id} background");
+            let ratio = wcag_contrast(fg, bg);
+            assert!(ratio >= floor, "{id} {ratio:.2}:1 is under floor {floor}");
         }
     }
 }
