@@ -24,8 +24,10 @@ fn main_row_center(i: usize) -> f32 {
     main_row_center_for(theme::MENU_ITEM_HEIGHT, i)
 }
 
+/// Checks the reference numbers only, not the app: they were read off a menu of 24 px items, while the app's items are
+/// `MENU_ITEM_HEIGHT` (32, the editor row size). What they still pin is the shared top padding and the separator block.
 #[test]
-fn main_menu_rows_sit_where_figma_puts_them() {
+fn figma_reference_menu_rows_use_the_shared_padding_and_separator() {
     // Figma reference (800x600): Back to files 64, Actions 105, File 146, Edit 170 ... Vector 290.
     let figma = |i| main_row_center_for(FIGMA_MENU_ITEM_HEIGHT, i);
     assert_eq!(figma(0), 64.0);

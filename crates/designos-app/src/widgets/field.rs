@@ -570,16 +570,17 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
     let id = ui.id().with(("num", key));
     let display = value.map(fmt_num).unwrap_or_default();
     let has_prefix = !matches!(prefix, Prefix::None);
-    let pw = if has_prefix { theme::FIELD_PREFIX_W } else { 0.0 };
+    let mut pw = if has_prefix { theme::FIELD_PREFIX_W } else { 0.0 };
     field_bg(ui, rect, id);
     let p = ui.painter().clone();
     match prefix {
         Prefix::None => {}
         Prefix::Text(s) => {
             // 8px in; the value starts 24px in. A prefix is one or two glyphs and is never worth eliding: at the 12px
-            // step "CS" is 16.5px and the arrow 16.1px, so the slot takes one border width of slack into the value
-            // gutter rather than shrinking them to a bare ellipsis.
-            super::field_text(
+            // step "CS" is 16.5px and the arrow 16.1px, so the slot takes one border width of slack rather than
+            // shrinking them to a bare ellipsis, and a prefix that then ends past the 24px line pushes the value
+            // to the next whole pixel plus a 4px gap, so the two never read as one string.
+            let painted = super::field_text(
                 &p,
                 rect,
                 theme::FIELD_PREFIX_X,
@@ -588,6 +589,10 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
                 theme::font_body(),
                 theme::TEXT_SECONDARY,
             );
+            let prefix_right = painted.right() - rect.left();
+            if prefix_right > theme::FIELD_PREFIX_W {
+                pw = prefix_right.ceil() + theme::SPACE_FACT;
+            }
         }
         Prefix::Icon(i) => {
             let slot = Rect::from_min_size(
@@ -827,6 +832,39 @@ mod tests {
                 }
             }
             assert!(painted.iter().any(|t| t == prefix), "prefix {prefix:?} was not painted whole: {painted:?}");
+        }
+    }
+
+    #[test]
+    fn the_value_never_starts_before_the_prefix_ends() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let rect = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(theme::FIELD_WIDTH_HALF, theme::FIELD_HEIGHT));
+        for prefix in ["W", "px", "CS", "RS", "\u{2194}", "\u{2195}"] {
+            let mut runs = Vec::new();
+            for _ in 0..2 {
+                let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    num_field(ui, rect, "prefix-gap-test", Prefix::Text(prefix), Some(100.0), "");
+                });
+                runs.clear();
+                for cs in &out.shapes {
+                    if let egui::Shape::Text(t) = &cs.shape {
+                        runs.push((t.galley.text().to_string(), t.pos.x, t.pos.x + t.galley.size().x));
+                    }
+                }
+            }
+            let prefix_run = runs.iter().find(|r| r.0 == prefix).unwrap_or_else(|| panic!("prefix {prefix:?} not painted: {runs:?}"));
+            let value_run = runs.iter().find(|r| r.0 == "100").unwrap_or_else(|| panic!("value not painted: {runs:?}"));
+            assert!(
+                prefix_run.2 <= value_run.1,
+                "prefix {prefix:?} ends at {} but the value starts at {}",
+                prefix_run.2 - rect.left(),
+                value_run.1 - rect.left()
+            );
+            if prefix_run.2 - rect.left() <= theme::FIELD_PREFIX_W {
+                assert_eq!(value_run.1 - rect.left(), theme::FIELD_PREFIX_W, "a prefix that fits keeps the value 24 px in ({prefix:?})");
+            }
         }
     }
 

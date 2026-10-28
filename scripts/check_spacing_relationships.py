@@ -118,9 +118,11 @@ def load_baseline(path: Path) -> Counts:
 
 
 def recorded_categories(path: Path) -> tuple:
-    """Categories the baseline file already holds counts for."""
+    """Categories the baseline file already holds counts for: the ones it lists, and every one that any file
+    entry carries (so deleting a name from the list cannot reopen seeding)."""
     data = json.loads(path.read_text(encoding="utf-8"))
-    return tuple(data.get("categories", ORIGINAL_CATEGORIES))
+    listed = set(data.get("categories", ORIGINAL_CATEGORIES))
+    return tuple(listed | {c for per in data.get("files", {}).values() for c in per})
 
 
 def write_baseline(path: Path, counts: Counts) -> None:

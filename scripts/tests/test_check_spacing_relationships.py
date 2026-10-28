@@ -153,6 +153,21 @@ class SpacingRatchetTest(unittest.TestCase):
                 fh.write("fn chip() -> f32 {\n    theme::CONTROL_STANDARD\n}\n")
             self.assertEqual(run(src, baseline, "--write-baseline").returncode, 1)
 
+    def test_deleting_a_category_name_from_the_baseline_does_not_reopen_seeding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            src, baseline = tmp / "src", tmp / "baseline.json"
+            shutil.copytree(FIXTURES / "dirty", src)
+            run(src, baseline, "--write-baseline")
+            doc = json.loads(baseline.read_text(encoding="utf-8"))
+            doc["categories"].remove("legacy_control_refs")  # the entries below still hold counts for it
+            baseline.write_text(json.dumps(doc), encoding="utf-8")
+            with open(src / "bad_legacy.rs", "a", encoding="utf-8") as fh:
+                fh.write("fn chip() -> f32 {\n    theme::CONTROL_STANDARD\n}\n")
+            before = baseline.read_text(encoding="utf-8")
+            self.assertEqual(run(src, baseline, "--write-baseline").returncode, 1, "a category with counts on file is recorded")
+            self.assertEqual(baseline.read_text(encoding="utf-8"), before)
+
     def test_missing_baseline_is_a_usage_error_not_a_pass(self):
         proc = run(FIXTURES / "clean", FIXTURES / "does-not-exist.json")
         self.assertEqual(proc.returncode, 2)

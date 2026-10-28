@@ -727,7 +727,8 @@ fn the_dev_tabs_hug_their_content_with_the_same_inset_on_both_sides() {
                 })
                 .expect("the count badge is painted inside the tab")
         } else {
-            text.pos.x + text.galley.size().x
+            // The tab hugs its label in whole pixels, rounded up (R11).
+            text.pos.x + text.galley.size().x.ceil()
         };
         assert!((text.pos.x - tab.left() - theme::INSET_CONTROL).abs() < 0.01, "{label:?}: {} px in from the left", text.pos.x - tab.left());
         assert!((tab.right() - content_right - theme::INSET_CONTROL).abs() < 0.01, "{label:?}: {} px in from the right", tab.right() - content_right);

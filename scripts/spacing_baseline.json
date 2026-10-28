@@ -139,7 +139,7 @@
       "offset_literals": 1
     },
     "dev/sections.rs": {
-      "offset_literals": 62,
+      "offset_literals": 61,
       "radius_literals": 7
     },
     "find/filter.rs": {
@@ -367,7 +367,7 @@
     "inset_literals": 45,
     "legacy_control_refs": 83,
     "nonconcentric_pairs": 2,
-    "offset_literals": 1651,
+    "offset_literals": 1650,
     "radius_literals": 252
   },
   "totals_excluding_own_palette": {
@@ -375,7 +375,7 @@
     "inset_literals": 45,
     "legacy_control_refs": 79,
     "nonconcentric_pairs": 1,
-    "offset_literals": 1344,
+    "offset_literals": 1343,
     "radius_literals": 156
   },
   "version": 1

@@ -170,8 +170,7 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
     let w = 168.0;
     // The menu opens below the button, lifted when its rows would reach past the inspector's visible area into the
     // footer bar under it.
-    let separators = items.iter().filter(|i| i.separator_after).count() as f32;
-    let menu_h = 2.0 * theme::MENU_PADDING + items.len() as f32 * theme::MENU_ITEM_HEIGHT + separators * widgets::menu::SEP_H;
+    let menu_h = widgets::menu::menu_height(&items);
     let view = ui.clip_rect();
     let top = (btn.bottom() + 4.0).min(view.bottom() - menu_h - theme::SPACE_FACT).max(view.top());
     let pos = Pos2::new(btn.right() - w, top);

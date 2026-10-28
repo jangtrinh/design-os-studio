@@ -44,7 +44,8 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
     let total: usize = rows(&app.doc).iter().filter(|r| matches!(r, Row::Item { .. })).count();
     for (i, (tab, label)) in [(LeftTab::ReadyForDev, "Ready for dev"), (LeftTab::Layers, "Layers")].into_iter().enumerate() {
         let show_badge = tab == LeftTab::ReadyForDev && total > 0;
-        let label_w = widgets::text_width(ui.painter(), label, &font);
+        // Whole pixels, rounded up (R11): the label, the badge after it and the tab around them all sit on that width.
+        let label_w = widgets::text_width(ui.painter(), label, &font).ceil();
         let badge_str = total.to_string();
         let badge_w = if show_badge { (widgets::text_width(ui.painter(), &badge_str, &mono_font) + 10.0).max(18.0) } else { 0.0 };
         // The tab hugs its content with the same control inset on both sides.
