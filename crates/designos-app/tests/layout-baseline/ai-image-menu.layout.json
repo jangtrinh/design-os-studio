@@ -1,0 +1,2202 @@
+{
+  "schema": 1,
+  "case": "ai-image-menu",
+  "size": [
+    1600,
+    1088
+  ],
+  "scale": 1.0,
+  "regions": {
+    "canvas": [
+      290.0,
+      32.0,
+      1069.0,
+      1056.0
+    ],
+    "home": null,
+    "left_panel": [
+      49.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "notes": null,
+    "present": null,
+    "rail": [
+      0.0,
+      32.0,
+      49.0,
+      1056.0
+    ],
+    "right_panel": [
+      1359.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "tab_bar": [
+      0.0,
+      0.0,
+      1600.0,
+      32.0
+    ],
+    "title_bar": null,
+    "variables_full": null
+  },
+  "overlays": [
+    {
+      "name": "overlay:Foreground/0",
+      "rect": [
+        1216.0,
+        668.0,
+        180.0,
+        129.0
+      ]
+    }
+  ],
+  "named": {
+    "al-upgrade-v1": {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        695.0,
+        184.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bound:fills/0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1400.0,
+        1235.0,
+        135.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bound:topLeftRadius": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        766.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "copy-to-figma-slides-btn": {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        157.0,
+        184.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "copy-to-slides": {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        157.0,
+        184.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "distribute": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        248.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "effect-style-button": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1540.0,
+        1422.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "effect-style-detach": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1568.0,
+        1458.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "effect-style-edit": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1540.0,
+        1458.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "effect-style-row": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1376.0,
+        1458.0,
+        160.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "export-add": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1568.0,
+        2190.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "file-header": {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        40.0,
+        199.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Avatars": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1782.0,
+        223.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Gradients": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1726.0,
+        223.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Primary": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1902.0,
+        223.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "folder:Effect styles/Shadows": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        2061.0,
+        223.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "fx-add": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1568.0,
+        1422.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "grid-style-button": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1540.0,
+        1507.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "help-button": {
+      "region": "right_panel",
+      "rect": [
+        1566.0,
+        1056.0,
+        28.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "layers-collapse-all": {
+      "region": "left_panel",
+      "rect": [
+        229.0,
+        201.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "layers-list": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        233.0,
+        240.0,
+        855.0
+      ],
+      "count": 1
+    },
+    "layers-search": {
+      "region": "left_panel",
+      "rect": [
+        257.0,
+        201.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "left-header-subtitle": {
+      "region": "left_panel",
+      "rect": [
+        63.0,
+        71.0,
+        115.0,
+        18.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-handle": {
+      "region": "left_panel",
+      "rect": [
+        287.0,
+        32.0,
+        6.0,
+        1056.0
+      ],
+      "count": 1
+    },
+    "menu-check-0-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "menu-check-0-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "menu-check-0-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "menu-check-0-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "menu-level-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1216.0,
+        668.0,
+        180.0,
+        129.0
+      ],
+      "count": 1
+    },
+    "menu-row-0-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1216.0,
+        676.0,
+        180.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "menu-row-0-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1216.0,
+        700.0,
+        180.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "menu-row-0-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1216.0,
+        741.0,
+        180.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "menu-row-0-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1216.0,
+        765.0,
+        180.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter colours": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1472.0,
+        1102.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter dividers": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1472.0,
+        1158.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter platform colours": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        850.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter primitives": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1472.0,
+        1130.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter progress and icons": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1074.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter roles": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        962.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter shape and size": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        822.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        990.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing extra": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        878.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing tokens": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        906.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter surfaces": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        934.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter theme": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1046.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "mode:Starter theme compact": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1018.0,
+        88.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "pages-layers-separator": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        189.0,
+        240.0,
+        6.0
+      ],
+      "count": 1
+    },
+    "pages-list": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        137.0,
+        240.0,
+        48.0
+      ],
+      "count": 1
+    },
+    "pages-toggle": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        97.0,
+        240.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "present-button": {
+      "region": "right_panel",
+      "rect": [
+        1498.0,
+        40.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "present-chevron": {
+      "region": "right_panel",
+      "rect": [
+        1522.0,
+        40.0,
+        16.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "project-tab-0": {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "project-tab-id-1": {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "rail-Agents": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        144.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Assets": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        200.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-File": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        88.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Plugins": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        384.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Tools": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        256.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Variables": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        328.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-help": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        1048.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "rail-menu": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        40.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "right-tab-Design": {
+      "region": "right_panel",
+      "rect": [
+        1368.0,
+        80.0,
+        52.75,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-tab-Prototype": {
+      "region": "right_panel",
+      "rect": [
+        1424.75,
+        80.0,
+        67.25,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-avatar": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        40.0,
+        38.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-share": {
+      "region": "right_panel",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "scrollbar-track": {
+      "region": "right_panel",
+      "rect": [
+        1592.0,
+        113.0,
+        8.0,
+        939.0
+      ],
+      "count": 1
+    },
+    "selhex:0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1400.0,
+        1584.0,
+        96.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "selhex:1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1400.0,
+        1616.0,
+        96.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "selsw:0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1376.0,
+        1588.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1376.0,
+        1620.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "share-button": {
+      "region": "right_panel",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "style:10420:191552": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1750.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:191557": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        2085.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:191562": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        2117.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:192284": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        2149.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:784805": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1806.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:19356:557808": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1838.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:19438:568206": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1870.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:2002:48701": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1926.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:20787:131720": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1990.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:94:9101": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        1958.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "sw:false:0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1380.0,
+        1239.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "sw:true:0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1380.0,
+        1324.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "tab-bar-brand": {
+      "region": "tab_bar",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "tab-bar-home": {
+      "region": "tab_bar",
+      "rect": [
+        8.0,
+        4.0,
+        72.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-bar-new": {
+      "region": "tab_bar",
+      "rect": [
+        337.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-close-1": {
+      "region": "tab_bar",
+      "rect": [
+        310.0,
+        7.0,
+        18.0,
+        18.0
+      ],
+      "count": 1
+    },
+    "tab-unsaved-dot-1": {
+      "region": "tab_bar",
+      "rect": [
+        301.0,
+        13.0,
+        6.0,
+        6.0
+      ],
+      "count": 1
+    },
+    "title-action:Auto layout": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        397.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "title-action:Export": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1568.0,
+        2190.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "title-action:Layout guide": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1568.0,
+        1507.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-0": {
+      "region": "canvas",
+      "rect": [
+        584.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-1": {
+      "region": "canvas",
+      "rect": [
+        640.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-2": {
+      "region": "canvas",
+      "rect": [
+        696.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-3": {
+      "region": "canvas",
+      "rect": [
+        752.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-4": {
+      "region": "canvas",
+      "rect": [
+        808.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "toolbar-actions-btn": {
+      "region": "canvas",
+      "rect": [
+        872.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-design": {
+      "region": "canvas",
+      "rect": [
+        967.25,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-dev": {
+      "region": "canvas",
+      "rect": [
+        1006.75,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-draw": {
+      "region": "canvas",
+      "rect": [
+        928.0,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    },
+    "xform:0": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        356.0,
+        29.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "xform:1": {
+      "region": "right_panel",
+      "rect": [
+        1501.0,
+        356.0,
+        29.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "xform:2": {
+      "region": "right_panel",
+      "rect": [
+        1530.0,
+        356.0,
+        29.0,
+        24.0
+      ],
+      "count": 1
+    }
+  },
+  "unnamed": [
+    {
+      "region": "canvas",
+      "rect": [
+        290.0,
+        32.0,
+        1069.0,
+        1056.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        544.0,
+        1028.0,
+        512.0,
+        48.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        552.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        608.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        664.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        720.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        776.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        832.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        253.0,
+        44.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        229.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        257.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        137.0,
+        224.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        161.0,
+        224.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        233.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        237.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        265.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        73.0,
+        269.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        297.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        89.0,
+        301.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        329.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        105.0,
+        333.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        361.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        105.0,
+        365.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        393.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        121.0,
+        397.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        425.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        137.0,
+        429.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        457.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        153.0,
+        461.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        489.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        153.0,
+        493.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        521.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        137.0,
+        525.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        553.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        89.0,
+        557.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        585.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        589.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        617.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        621.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1376.0,
+        663.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1376.0,
+        766.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1537.0,
+        80.0,
+        55.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        125.0,
+        136.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1511.0,
+        125.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1539.0,
+        125.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1567.0,
+        125.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        248.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1405.0,
+        248.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1434.0,
+        248.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1471.0,
+        248.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1500.0,
+        248.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1529.0,
+        248.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        302.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        302.0,
+        64.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        302.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        302.0,
+        64.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        356.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        356.0,
+        59.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        447.0,
+        22.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1398.0,
+        447.0,
+        22.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1420.0,
+        447.0,
+        22.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1442.0,
+        447.0,
+        22.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        447.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        447.0,
+        64.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        501.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        501.0,
+        64.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        501.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        501.0,
+        64.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        555.0,
+        88.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        555.0,
+        88.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        609.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        609.0,
+        64.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        609.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        609.0,
+        64.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1405.0,
+        663.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1434.0,
+        663.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1467.0,
+        663.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1488.0,
+        663.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1517.0,
+        663.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1546.0,
+        663.0,
+        29.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        766.0,
+        53.25,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        794.0,
+        184.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1046.0,
+        88.0,
+        6.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        216.0,
+        26.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    }
+  ],
+  "scroll": []
+}

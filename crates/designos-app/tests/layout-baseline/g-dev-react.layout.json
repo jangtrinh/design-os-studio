@@ -1,0 +1,4964 @@
+{
+  "schema": 1,
+  "case": "g-dev-react",
+  "size": [
+    1600,
+    1088
+  ],
+  "scale": 1.0,
+  "regions": {
+    "canvas": [
+      290.0,
+      32.0,
+      1069.0,
+      1056.0
+    ],
+    "home": null,
+    "left_panel": [
+      49.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "notes": null,
+    "present": null,
+    "rail": [
+      0.0,
+      32.0,
+      49.0,
+      1056.0
+    ],
+    "right_panel": [
+      1359.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "tab_bar": [
+      0.0,
+      0.0,
+      1600.0,
+      32.0
+    ],
+    "title_bar": null,
+    "variables_full": null
+  },
+  "overlays": [],
+  "named": {
+    "annot-add": {
+      "region": "right_panel",
+      "rect": [
+        1528.0,
+        248.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-\"annot-add\"": {
+      "region": "right_panel",
+      "rect": [
+        1528.0,
+        248.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-\"code-connect-terminal\"": {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        767.0,
+        209.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "btn-\"copy-code\"": {
+      "region": "unknown",
+      "rect": [
+        1528.0,
+        1099.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-\"dev-add-redlines\"": {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        810.0,
+        88.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "btn-\"link-new\"": {
+      "region": "right_panel",
+      "rect": [
+        1528.0,
+        373.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-\"mcp-copy-prompt\"": {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        638.0,
+        209.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 0)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129164.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 1)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129192.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 10)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129444.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 11)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129472.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 12)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129500.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 13)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129528.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 14)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129556.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 15)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129584.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 16)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129612.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 17)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129640.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 18)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129668.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 19)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129696.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 2)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129220.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 20)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129724.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 21)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129752.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 22)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129780.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 23)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129808.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 24)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129836.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 25)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129864.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 26)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129892.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 27)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129920.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 28)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129948.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 29)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129976.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 3)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129248.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 30)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130004.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 31)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130032.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 32)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130060.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 33)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130088.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 34)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130116.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 35)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130144.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 36)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130172.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 37)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130200.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 38)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130228.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 39)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130256.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 4)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129276.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 40)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130284.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 41)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130312.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 42)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        130340.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 5)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129304.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 6)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129332.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 7)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129360.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 8)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129388.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 9)": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        129416.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"dev-clear\", 0)": {
+      "region": "right_panel",
+      "rect": [
+        1483.5,
+        203.0,
+        100.5,
+        28.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 0)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        82616.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 1)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86212.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 10)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        89736.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 11)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        90240.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 12)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        91916.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 13)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96432.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 14)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96800.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 15)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        97100.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 16)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        101136.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 17)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        102492.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 18)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        102648.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 19)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106044.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 2)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86444.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 20)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106200.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 21)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106432.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 22)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        107004.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 23)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        107160.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 24)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108236.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 25)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110032.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 26)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110332.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 27)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110836.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 28)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111068.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 29)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111224.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 3)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        87016.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 30)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111456.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 31)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111688.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 32)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111920.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 33)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112832.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 34)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114288.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 35)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114684.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 36)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116684.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 37)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        117080.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 38)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        118916.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 39)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119624.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 4)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        87652.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 40)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        120300.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 41)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        120456.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 42)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        120612.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 43)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        120768.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 44)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        120924.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 45)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        121080.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 46)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        121396.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 47)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        121712.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 48)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        122028.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 49)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        122264.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 5)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88292.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 50)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        122500.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 51)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        122736.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 52)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123784.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 53)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124628.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 54)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        125144.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 55)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        125376.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 56)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        125532.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 57)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        125688.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 58)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        125844.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 59)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126144.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 6)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88592.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 60)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126376.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 61)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126608.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 62)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126908.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 63)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127140.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 64)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127576.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 7)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88988.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 8)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        89224.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 9)": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        89460.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-add-redlines": {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        810.0,
+        88.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "dev-code-block": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        1151.0,
+        209.0,
+        81156.0
+      ],
+      "count": 1
+    },
+    "dev-code-connect": {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        673.0,
+        209.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "dev-code-thumb": {
+      "region": "unknown",
+      "rect": [
+        1383.0,
+        82299.0,
+        33.0,
+        4.0
+      ],
+      "count": 1
+    },
+    "dev-code-thumb-grab": {
+      "region": "unknown",
+      "rect": [
+        1383.0,
+        82283.0,
+        33.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-color-format": {
+      "region": "unknown",
+      "rect": [
+        1504.0,
+        127621.0,
+        80.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-complete": {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        203.0,
+        100.5,
+        28.0
+      ],
+      "count": 1
+    },
+    "dev-copy-code": {
+      "region": "unknown",
+      "rect": [
+        1528.0,
+        1099.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127665.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127709.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-10": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128265.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-11": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128329.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-12": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128393.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-13": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128457.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-14": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128521.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-15": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128585.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-16": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128629.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-17": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128693.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-18": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128757.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-19": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128821.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127773.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-20": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128885.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-21": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128949.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-22": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        129013.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-23": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        129077.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127837.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127901.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127965.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128029.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128093.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128157.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-9": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        128201.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-inspect-code": {
+      "region": "right_panel",
+      "rect": [
+        1548.0,
+        127.0,
+        20.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "dev-inspect-link": {
+      "region": "right_panel",
+      "rect": [
+        1526.0,
+        127.0,
+        20.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "dev-inspect-more": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        127.0,
+        20.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "dev-item-12873": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        319.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "dev-lang": {
+      "region": "unknown",
+      "rect": [
+        1414.0,
+        1099.0,
+        108.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-link-0": {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        397.0,
+        181.0,
+        36.0
+      ],
+      "count": 1
+    },
+    "dev-mcp-btn": {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        442.0,
+        209.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "dev-mcp-prompt": {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        550.0,
+        209.0,
+        80.0
+      ],
+      "count": 1
+    },
+    "dev-mode-toggle": {
+      "region": "canvas",
+      "rect": [
+        889.0,
+        1036.0,
+        36.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "dev-ready-toggle": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        193.0,
+        240.0,
+        52.0
+      ],
+      "count": 1
+    },
+    "dev-recenter": {
+      "region": "canvas",
+      "rect": [
+        741.0,
+        992.0,
+        118.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        82412.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-11": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        89832.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-13": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92012.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-14": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96528.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-15": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96896.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86308.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-21": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106296.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-22": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106528.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-25": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108332.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-26": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110128.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-27": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110428.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-28": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110932.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86540.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-30": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111320.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-31": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111552.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-32": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111784.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-33": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112016.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-34": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112928.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-36": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114780.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-39": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119012.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        87748.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-52": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        122832.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-53": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123880.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-55": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        125240.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-59": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        125940.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88388.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-60": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126240.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-61": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126472.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-62": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126704.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-63": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127004.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-64": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127236.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-0-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        82500.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-0-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        82568.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        89920.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        89988.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        90056.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        90124.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        90192.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92100.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92168.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-10": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92780.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-11": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92848.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-12": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92916.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-13": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92984.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-14": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93052.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-15": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93120.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-16": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93188.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-17": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93256.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-18": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93324.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-19": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93392.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92236.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-20": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93460.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-21": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93528.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-22": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93596.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-23": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93664.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-24": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93732.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-25": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93800.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-26": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93868.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-27": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        93936.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-28": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94004.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-29": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94072.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92304.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-30": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94140.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-31": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94208.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-32": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94276.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-33": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94344.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-34": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94412.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-35": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94480.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-36": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94548.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-37": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94616.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-38": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94684.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-39": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94752.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92372.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-40": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94820.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-41": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94888.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-42": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        94956.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-43": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95024.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-44": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95092.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-45": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95160.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-46": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95228.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-47": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95296.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-48": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95364.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-49": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95432.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92440.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-50": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95500.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-51": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95568.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-52": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95636.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-53": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95704.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-54": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95772.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-55": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95840.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-56": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95908.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-57": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        95976.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-58": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96044.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-59": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96112.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92508.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-60": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96180.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-61": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96248.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-62": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96316.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-63": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96384.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92576.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92644.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-9": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        92712.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-14-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96616.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-14-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96684.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-14-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96752.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-15-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        96984.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-15-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        97052.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-2-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86396.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-21-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106384.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106616.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106684.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106752.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106820.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106888.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        106956.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108420.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108488.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-10": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109100.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-11": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109168.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-12": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109236.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-13": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109304.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-14": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109372.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-15": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109440.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-16": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109508.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-17": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109576.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-18": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109644.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-19": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109712.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108556.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-20": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109780.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-21": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109848.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-22": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109916.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-23": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109984.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108624.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108692.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108760.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108828.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108896.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        108964.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-9": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        109032.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-26-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110216.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-26-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110284.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110516.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-12": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110720.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-16": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110788.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110584.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        110652.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-28-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111020.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86628.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86696.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86764.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86832.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86900.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        86968.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-30-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111408.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-31-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111640.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-32-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        111872.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112104.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112172.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-10": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112784.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112240.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112308.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112376.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112444.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112512.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112580.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112648.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-9": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        112716.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113016.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-10": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113560.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-11": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113628.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-12": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113696.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-13": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113764.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-15": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113832.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-17": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113900.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-19": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113968.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-21": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114036.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-23": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114104.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-25": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114172.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-27": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114240.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113084.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113152.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113220.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113288.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113356.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113424.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-9": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        113492.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114868.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        114936.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-10": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115548.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-11": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115616.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-12": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115684.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-13": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115752.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-14": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115820.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-15": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115888.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-16": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115956.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-17": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116024.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-18": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116092.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-19": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116160.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115004.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-20": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116228.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-21": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116296.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-22": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116364.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-23": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116432.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-24": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116500.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-25": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116568.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-26": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        116636.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115072.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115140.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115208.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115276.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115344.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115412.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-9": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        115480.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119100.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119168.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119236.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119304.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119372.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119440.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119508.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        119576.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        87836.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-12": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88040.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-16": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88108.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-20": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88176.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-24": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88244.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        87904.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        87972.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        122920.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        122988.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-10": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123600.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-11": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123668.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-12": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123736.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123056.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123124.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123192.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123260.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123328.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123396.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123464.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-9": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123532.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        123968.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124036.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124104.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124172.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-4": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124240.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-5": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124308.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-6": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124376.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-7": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124444.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-8": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124512.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-9": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        124580.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-55-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        125328.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-59-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126028.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-59-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126096.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-6-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88476.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-6-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        88544.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-60-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126328.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-61-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126560.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-62-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126792.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-62-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        126860.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-63-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127092.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-64-0": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127324.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-64-1": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127392.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-64-2": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127460.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-64-3": {
+      "region": "unknown",
+      "rect": [
+        1375.0,
+        127528.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "file-header": {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        40.0,
+        199.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "help-button": {
+      "region": "right_panel",
+      "rect": [
+        1566.0,
+        1056.0,
+        28.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "left-dev-mark-ready": {
+      "region": "left_panel",
+      "rect": [
+        59.0,
+        218.0,
+        220.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "left-dev-ready-section": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        193.0,
+        240.0,
+        52.0
+      ],
+      "count": 1
+    },
+    "left-header-subtitle": {
+      "region": "left_panel",
+      "rect": [
+        63.0,
+        71.0,
+        115.0,
+        18.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-handle": {
+      "region": "left_panel",
+      "rect": [
+        287.0,
+        32.0,
+        6.0,
+        1056.0
+      ],
+      "count": 1
+    },
+    "link-new": {
+      "region": "right_panel",
+      "rect": [
+        1528.0,
+        373.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "pages-layers-separator": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        189.0,
+        240.0,
+        6.0
+      ],
+      "count": 1
+    },
+    "pages-list": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        137.0,
+        240.0,
+        48.0
+      ],
+      "count": 1
+    },
+    "pages-toggle": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        97.0,
+        240.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "present-button": {
+      "region": "right_panel",
+      "rect": [
+        1498.0,
+        40.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "present-chevron": {
+      "region": "right_panel",
+      "rect": [
+        1522.0,
+        40.0,
+        16.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "project-tab-0": {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "project-tab-id-1": {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "rail-Agents": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        144.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Assets": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        200.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-File": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        88.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Plugins": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        384.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Tools": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        256.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Variables": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        328.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-help": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        1048.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "rail-menu": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        40.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "right-tab-Inspect": {
+      "region": "right_panel",
+      "rect": [
+        1368.0,
+        80.0,
+        55.25,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-tab-Plugins": {
+      "region": "right_panel",
+      "rect": [
+        1427.25,
+        80.0,
+        54.25,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-avatar": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        40.0,
+        38.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-share": {
+      "region": "right_panel",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "scrollbar-track": {
+      "region": "right_panel",
+      "rect": [
+        1592.0,
+        113.0,
+        8.0,
+        939.0
+      ],
+      "count": 1
+    },
+    "share-button": {
+      "region": "right_panel",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-bar-brand": {
+      "region": "tab_bar",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "tab-bar-home": {
+      "region": "tab_bar",
+      "rect": [
+        8.0,
+        4.0,
+        72.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-bar-new": {
+      "region": "tab_bar",
+      "rect": [
+        337.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-close-1": {
+      "region": "tab_bar",
+      "rect": [
+        310.0,
+        7.0,
+        18.0,
+        18.0
+      ],
+      "count": 1
+    },
+    "tab-unsaved-dot-1": {
+      "region": "tab_bar",
+      "rect": [
+        301.0,
+        13.0,
+        6.0,
+        6.0
+      ],
+      "count": 1
+    }
+  },
+  "unnamed": [
+    {
+      "region": "canvas",
+      "rect": [
+        290.0,
+        32.0,
+        1069.0,
+        1056.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        760.5,
+        353.75,
+        85.75,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        564.75,
+        377.75,
+        164.0,
+        76.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        667.0,
+        1028.0,
+        266.0,
+        48.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        675.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        715.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        755.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        795.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        835.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        253.0,
+        44.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        229.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        257.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        137.0,
+        224.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        161.0,
+        224.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        65.0,
+        255.0,
+        111.25,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        180.25,
+        255.0,
+        49.25,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1537.0,
+        80.0,
+        55.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        272.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1560.0,
+        403.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        498.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        522.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        832.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        856.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        880.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1375.0,
+        904.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        216.0,
+        26.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    }
+  ],
+  "scroll": []
+}
