@@ -6,17 +6,17 @@ _12 component(s), regenerated from the registry._
 
 ### Button/Primary
 
-Brand orange primary CTA button (#E36323 fill, #09090B label, 28px min height, 6px radius)
+Brand orange primary CTA button (#E36323 fill, #0A0A0A label, 28px min height, 6px radius)
 
 - **Variants:** Size=28px, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
   - `colors.primary` → #e36323
-  - `colors.primary-active` → #ff9e66
-  - `colors.primary-foreground` → #09090b
-  - `colors.primary-hover` → #f07436
-  - `colors.ring` → #e36323
+  - `colors.primary-active` → #ea580c
+  - `colors.primary-foreground` → #0a0a0a
+  - `colors.primary-hover` → #f97316
+  - `colors.ring` → #f97316
   - `duration.duration-fast` → 83ms
   - `radius.radius-md` → 6px
   - `spacing.space-2` → 8px
@@ -26,17 +26,17 @@ Brand orange primary CTA button (#E36323 fill, #09090B label, 28px min height, 6
 
 ### Button/Secondary
 
-Elevated zinc secondary action button (#27272A fill, #F5F5F7 label, 1px #27272A border)
+Elevated zinc secondary action button (#262626 fill, #FAFAFA label, 1px #262626 border)
 
 - **Variants:** State=Active, State=Default, State=Disabled, State=Focus, State=Hover, Tone=Zinc
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.border` → #27272a
-  - `colors.secondary` → #27272a
-  - `colors.secondary-active` → #3f3f46
-  - `colors.secondary-foreground` → #f5f5f7
-  - `colors.secondary-hover` → #2e2e34
+  - `colors.border` → #262626
+  - `colors.secondary` → #262626
+  - `colors.secondary-active` → #404040
+  - `colors.secondary-foreground` → #fafafa
+  - `colors.secondary-hover` → #404040
   - `duration.duration-fast` → 83ms
   - `radius.radius-md` → 6px
   - `spacing.space-2` → 8px
@@ -54,11 +54,11 @@ Home workspace file card with live node mini-map preview, concentric 8px outer /
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.border` → #27272a
-  - `colors.card` → #1e1e22
-  - `colors.card-foreground` → #f5f5f7
-  - `colors.muted-foreground` → #a8a8b2
-  - `colors.surface-hover` → #232329
+  - `colors.border` → #262626
+  - `colors.card` → #171717
+  - `colors.card-foreground` → #fafafa
+  - `colors.muted-foreground` → #a3a3a3
+  - `colors.surface-hover` → #262626
   - `radius.radius-lg` → 8px
   - `spacing.space-3` → 12px
   - `spacing.space-4` → 16px
@@ -74,11 +74,11 @@ Interactive starter template card in Home top tray with mini-canvas preview and 
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.border` → #27272a
-  - `colors.card` → #1e1e22
-  - `colors.card-foreground` → #f5f5f7
+  - `colors.border` → #262626
+  - `colors.card` → #171717
+  - `colors.card-foreground` → #fafafa
   - `colors.primary` → #e36323
-  - `colors.surface-hover` → #232329
+  - `colors.surface-hover` → #262626
   - `radius.radius-lg` → 8px
   - `spacing.space-3` → 12px
   - `spacing.space-4` → 16px
@@ -96,9 +96,9 @@ Pill count and semantic status badge using monospace numerals separated from sec
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
   - `colors.component` → #06b6d4
-  - `colors.muted-foreground` → #a8a8b2
-  - `colors.secondary` → #27272a
-  - `colors.success` → #14ae5c
+  - `colors.muted-foreground` → #a3a3a3
+  - `colors.secondary` → #262626
+  - `colors.success` → #22c55e
   - `radius.radius-pill` → 13px
   - `spacing.space-1` → 4px
   - `spacing.space-2` → 8px
@@ -109,18 +109,18 @@ Pill count and semantic status badge using monospace numerals separated from sec
 
 ### Input/PropertyField
 
-24px height numeric/text scrubbable inspector input with muted prefix label and #E36323 focus ring
+24px height numeric/text scrubbable inspector input with muted prefix label and #F97316 focus ring
 
 - **Variants:** Axis=Scrub, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.bg-foreground` → #f5f5f7
-  - `colors.border-focus` → #e36323
-  - `colors.border-subtle` → #222226
-  - `colors.input` → #121215
-  - `colors.muted-foreground` → #a8a8b2
-  - `colors.ring` → #e36323
+  - `colors.bg-foreground` → #fafafa
+  - `colors.border-focus` → #fb923c
+  - `colors.border-subtle` → #262626
+  - `colors.input` → #0a0a0a
+  - `colors.muted-foreground` → #a3a3a3
+  - `colors.ring` → #f97316
   - `radius.radius-sm` → 4px
   - `spacing.space-1` → 4px
   - `spacing.space-2` → 8px
@@ -137,13 +137,13 @@ Pill count and semantic status badge using monospace numerals separated from sec
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.bg` → #18181b
-  - `colors.border` → #27272a
-  - `colors.canvas` → #121215
-  - `colors.canvas-foreground` → #f5f5f7
+  - `colors.bg` → #0a0a0a
+  - `colors.border` → #262626
+  - `colors.canvas` → #0a0a0a
+  - `colors.canvas-foreground` → #fafafa
   - `colors.primary` → #e36323
-  - `colors.success` → #14ae5c
-  - `colors.warning` → #f59e0b
+  - `colors.success` → #22c55e
+  - `colors.warning` → #eab308
   - `radius.radius-sm` → 4px
   - `spacing.ai-panel-width` → 400px
   - `spacing.space-2` → 8px
@@ -158,12 +158,12 @@ Pill count and semantic status badge using monospace numerals separated from sec
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.bg` → #18181b
-  - `colors.bg-foreground` → #f5f5f7
-  - `colors.border` → #27272a
+  - `colors.bg` → #0a0a0a
+  - `colors.bg-foreground` → #fafafa
+  - `colors.border` → #262626
   - `colors.component` → #06b6d4
-  - `colors.success` → #14ae5c
-  - `colors.surface` → #1e1e22
+  - `colors.success` → #22c55e
+  - `colors.surface` → #171717
   - `radius.radius-sm` → 4px
   - `spacing.panel-width` → 240px
   - `spacing.space-2` → 8px
@@ -182,12 +182,12 @@ Floating bottom canvas creation dock with tool triggers and #14AE5C Dev Mode tog
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.border` → #27272a
+  - `colors.border` → #262626
   - `colors.primary` → #e36323
-  - `colors.success` → #14ae5c
-  - `colors.surface` → #1e1e22
-  - `colors.surface-foreground` → #f5f5f7
-  - `colors.surface-hover` → #232329
+  - `colors.success` → #22c55e
+  - `colors.surface` → #171717
+  - `colors.surface-foreground` → #fafafa
+  - `colors.surface-hover` → #262626
   - `radius.radius-lg` → 8px
   - `spacing.space-2` → 8px
   - `spacing.space-3` → 12px
@@ -196,20 +196,20 @@ Floating bottom canvas creation dock with tool triggers and #14AE5C Dev Mode tog
 
 ### Navigation/LeftRail
 
-Home sidebar and 56px editor activity rail with 1px right border and orange active indicator
+Home sidebar and 48px editor activity rail with 1px right border and orange active indicator
 
 - **Variants:** Rail=56px, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.bg` → #18181b
-  - `colors.bg-foreground` → #f5f5f7
-  - `colors.border` → #27272a
+  - `colors.bg` → #0a0a0a
+  - `colors.bg-foreground` → #fafafa
+  - `colors.border` → #262626
   - `colors.primary` → #e36323
-  - `colors.surface-active` → #2e2e36
-  - `colors.surface-hover` → #232329
+  - `colors.surface-active` → #262626
+  - `colors.surface-hover` → #262626
   - `radius.radius-md` → 6px
-  - `spacing.rail-width` → 56px
+  - `spacing.rail-width` → 48px
   - `spacing.space-2` → 8px
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
   - `typography.font-size-body` → 11px
@@ -222,11 +222,11 @@ Home sidebar and 56px editor activity rail with 1px right border and orange acti
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.bg` → #18181b
-  - `colors.bg-foreground` → #f5f5f7
-  - `colors.border` → #27272a
+  - `colors.bg` → #0a0a0a
+  - `colors.bg-foreground` → #fafafa
+  - `colors.border` → #262626
   - `colors.primary` → #e36323
-  - `colors.surface` → #1e1e22
+  - `colors.surface` → #171717
   - `radius.radius-sm` → 4px
   - `spacing.space-2` → 8px
   - `spacing.space-3` → 12px
@@ -243,11 +243,11 @@ Modal Cmd+K command palette overlay with fuzzy action search, keyboard shortcut 
 - **States:** —
 - **Consider adding:** focus, disabled, loading, error, empty (common states this component does not declare)
 - **Tokens used:**
-  - `colors.border-strong` → #3f3f46
-  - `colors.popover` → #18181b
-  - `colors.popover-foreground` → #f5f5f7
+  - `colors.border-strong` → #404040
+  - `colors.popover` → #0a0a0a
+  - `colors.popover-foreground` → #fafafa
   - `colors.primary` → #e36323
-  - `colors.surface-hover` → #232329
+  - `colors.surface-hover` → #262626
   - `radius.radius-xl` → 10px
   - `spacing.space-3` → 12px
   - `spacing.space-4` → 16px

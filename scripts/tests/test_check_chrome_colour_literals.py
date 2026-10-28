@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Unit tests for scripts/check_chrome_colour_literals.py."""
+
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+import check_chrome_colour_literals as ccl  # noqa: E402
+import design_os_self_evolve as dse  # noqa: E402
+
+
+class CheckChromeColourLiteralsTests(unittest.TestCase):
+    def test_ignores_comments_strings_and_cfg_test(self) -> None:
+        src = """
+        // Color32::from_rgb(1, 2, 3) in a line comment
+        /* Color32::WHITE in a block comment */
+        let s = "Color32::from_rgb(4, 5, 6)";
+        let transparent = Color32::TRANSPARENT;
+        let computed = Color32::from_rgb(r, g, b);
+
+        #[cfg(test)]
+        mod tests {
+            fn fixture() {
+                let _ = Color32::from_rgb(9, 9, 9);
+                let _ = Color32::WHITE;
+            }
+        }
+        """
+        self.assertEqual(ccl.scan_source(src), [])
+
+    def test_detects_literal_constructors_and_named_colours(self) -> None:
+        src = """
+        fn paint() {
+            let a = Color32::from_rgb(1, 2, 3);
+            let b = Color32::from_rgba_unmultiplied(0x18, 0x18, 0x1B, 0xFF);
+            let c = Color32::from_gray(40);
+            let d = Color32::from_black_alpha(128);
+            let e = Color32::WHITE;
+        }
+        """
+        hits = ccl.scan_source(src)
+        self.assertEqual(len(hits), 5)
+
+    def test_injected_color32_literal_in_temp_copy_fails_against_baseline(self) -> None:
+        """Spec A §10.7: injecting one Color32::from_rgb(1, 2, 3) into a temp copy fails."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_src = Path(tmp) / "src"
+            shutil.copytree(ccl.APP_SRC, tmp_src)
+            target = tmp_src / "tabs.rs"
+            target.write_text(
+                target.read_text(encoding="utf-8")
+                + "\npub fn _injected_chrome_literal() -> egui::Color32 { egui::Color32::from_rgb(1, 2, 3) }\n",
+                encoding="utf-8",
+            )
+            exit_code = ccl.main(
+                ["--src-root", str(tmp_src), "--baseline", str(ccl.BASELINE_PATH)]
+            )
+            self.assertEqual(exit_code, 1)
+
+    def test_new_file_not_in_baseline_with_color32_literal_fails(self) -> None:
+        """A temp .rs file not in the baseline containing Color32::from_rgb(1, 2, 3) makes the checker exit 1."""
+        baseline_files = json.loads(ccl.BASELINE_PATH.read_text(encoding="utf-8")).get(
+            "files", {}
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_src = Path(tmp) / "src"
+            shutil.copytree(ccl.APP_SRC, tmp_src)
+            new_rel = "unbaselined_chrome_surface.rs"
+            self.assertNotIn(new_rel, baseline_files)
+            new_file = tmp_src / new_rel
+            new_file.write_text(
+                "pub fn _new_file_chrome_literal() -> egui::Color32 {\n"
+                "    Color32::from_rgb(1, 2, 3)\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            exit_code = ccl.main(
+                ["--src-root", str(tmp_src), "--baseline", str(ccl.BASELINE_PATH)]
+            )
+            self.assertEqual(exit_code, 1)
+
+    def test_head_passes_against_committed_baseline(self) -> None:
+        exit_code = ccl.main(
+            ["--src-root", str(ccl.APP_SRC), "--baseline", str(ccl.BASELINE_PATH)]
+        )
+        self.assertEqual(exit_code, 0)
+
+    def test_g04_fails_when_a11y_chrome_pairs_missing(self) -> None:
+        """G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is missing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            (tmp_root / "design").mkdir(parents=True, exist_ok=True)
+            with mock.patch.object(dse, "REPO_ROOT", tmp_root):
+                ok, summary, _ = dse.check_ui_ds_a11y()
+            self.assertFalse(ok)
+            self.assertIn("design/a11y-chrome-pairs.txt", summary)
+
+    def test_g04_fails_when_a11y_chrome_pairs_empty(self) -> None:
+        """G04 fails with a message naming design/a11y-chrome-pairs.txt when the file is empty."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            pairs_path = tmp_root / "design" / "a11y-chrome-pairs.txt"
+            pairs_path.parent.mkdir(parents=True, exist_ok=True)
+            pairs_path.write_text("   \n", encoding="utf-8")
+            with mock.patch.object(dse, "REPO_ROOT", tmp_root):
+                ok, summary, _ = dse.check_ui_ds_a11y()
+            self.assertFalse(ok)
+            self.assertIn("design/a11y-chrome-pairs.txt", summary)
+
+
+if __name__ == "__main__":
+    unittest.main()
