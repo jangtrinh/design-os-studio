@@ -1301,8 +1301,7 @@
         "name": "Avatar users",
         "page": "id:21626 (      ↳ Avatars)"
       },
-      "kit": true,
-      "spawns": true
+      "kit": true
     }
   ]
 }
