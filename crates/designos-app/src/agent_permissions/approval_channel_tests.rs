@@ -54,6 +54,7 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         crate::agent_approval_channel::remove_channel(&self.session);
+        super::remove_auto_allow_log(&self.session);
         let _ = std::fs::remove_dir_all(&self.session);
     }
 }

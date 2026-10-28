@@ -1527,6 +1527,7 @@ pub struct TerminalState {
     pub pending_approvals: Vec<crate::agent_permissions::ApprovalRequest>,
     /// Modify grants for this window. Another window has its own store. Never written into the session folder.
     pub session_grants: crate::agent_permissions::GrantStore,
+    pub auto_allow_log: crate::agent_permissions::AutoAllowLog,
     /// Latch ensuring at most one OS notification per waiting episode (`#656`).
     pub notification_latch: crate::agent_permissions::NotificationLatch,
     /// Pluggable OS notification sender (`#656`).
@@ -1724,6 +1725,7 @@ impl TerminalState {
         let hook_paths = crate::agent_hook_outputs::HookPaths::locate(&session_dir);
         let turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(hook_paths.turn_marks());
         let event_stream = crate::agent_turn_status::AgentEventStream::bind(hook_paths.events());
+        let auto_allow_log = crate::agent_permissions::AutoAllowLog::bind(&session_dir);
         #[cfg(test)]
         let notifier = crate::agent_notify::AgentNotifier::with_sink(Arc::new(crate::agent_notify::StubNotificationSink::new()));
         #[cfg(not(test))]
@@ -1814,6 +1816,7 @@ impl TerminalState {
             permission_mode: crate::agent_permissions::AgentPermissionMode::default(),
             pending_approvals: Vec::new(),
             session_grants: crate::agent_permissions::GrantStore::default(),
+            auto_allow_log,
             notification_latch: crate::agent_permissions::NotificationLatch::default(),
             approval_notifier,
             last_agent_status_done: false,
@@ -2109,6 +2112,20 @@ impl TerminalState {
         self.ledger_for_tab(idx)
     }
 
+    pub fn poll_auto_allow_into_active(&mut self) {
+        let rows = self.auto_allow_log.poll();
+        if !rows.is_empty() {
+            self.active_turn_ledger_mut().record_auto_allow(rows);
+        }
+    }
+
+    pub fn poll_auto_allow_into_tab(&mut self, tab_idx: usize) {
+        let rows = self.auto_allow_log.poll();
+        if !rows.is_empty() {
+            self.ledger_for_tab_mut(tab_idx).record_auto_allow(rows);
+        }
+    }
+
     /// Mutable access to the active tab's turn ledger (or the fallback ledger when no tabs are spawned).
     pub fn active_turn_ledger_mut(&mut self) -> &mut crate::agent_turn_ledger::AgentTurnLedger {
         let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
@@ -2269,6 +2286,7 @@ impl TerminalState {
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.hook_paths().turn_marks());
         self.event_stream = crate::agent_turn_status::AgentEventStream::bind(self.hook_paths().events());
+        self.auto_allow_log = crate::agent_permissions::AutoAllowLog::bind(&self.session_dir);
         self.last_synced_key = None;
         self.last_bootstrap_key = None;
         self.bootstrap_markdown = None;
@@ -3735,15 +3753,14 @@ impl TerminalState {
             }
         }
 
+        self.poll_auto_allow_into_active();
         // Channel 2a: turn-marks.jsonl (written by CLI session hooks before/after agent turns).
         let expected_marks_path = self.hook_paths().turn_marks();
         if self.turn_marks.path() != expected_marks_path {
             self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
         }
         let marks = self.turn_marks.poll();
-        if !marks.is_empty() {
-            self.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
-        }
+        self.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
 
         // Channel 2b: doc-patch.jsonl (written by designos-mcp tools). Edits and document switches
         // share this one log, so their order is the log's order.
