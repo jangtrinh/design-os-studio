@@ -22,6 +22,8 @@ Tool results wrap foreign text (layer names, text-layer characters, comments, we
 
 Structured field shape: `{"untrusted": true, "origin": "text_layer|layer_name|comment|web_capture|import_fig|import_svg", "value": "..."}` with optional `"truncated": true`.
 
+Wrapped string fields are declared as string-or-envelope in outputSchema.
+
 Text (`content[0].text`) replaces each envelope with a length-prefixed delimited block:
 
 ```
@@ -30,11 +32,17 @@ value
 <<<END UNTRUSTED token=TOKEN>>>
 ```
 
-The token is derived from the value and is regenerated until it does not appear in the value. `bytes` is the UTF-8 length of `value`, so a payload cannot close the block from inside. Strings are truncated to fit [`MAX_RESULT_JSON_CHARS`] (100000) including envelope overhead. Binary-looking strings (NUL or a high control-byte ratio) are truncated to a short preview first.
+The token is derived from the value and is regenerated until it does not appear in the value. `bytes` is the UTF-8 length of `value`, so a payload cannot close the block from inside. Both the structured JSON and the rendered `content[0].text` are kept at or under [`MAX_RESULT_JSON_CHARS`] (100000), including envelope overhead. When any untrusted value is shortened, the structured object gains `"untrusted_truncated": <count>` and the text gains a final line `[designos: result truncated to fit 100000 chars; N untrusted value(s) shortened]`. `truncated` on an envelope is true only when bytes were actually dropped. Binary-looking strings (NUL or a high control-byte ratio) are truncated to a short preview first, and are flagged only if that preview is shorter than the original.
 
 `DESIGNOS_MCP_UNTRUSTED_ENVELOPE=0` turns wrapping off. The default is on.
 
-After a result that contains an envelope, the MCP server appends a seq line to `<session_dir>/untrusted-taint`. Studio records the seq at the start of the next user turn in `untrusted-turn`. While `taint seq > turn seq` (or either file is unreadable), destructive and external tools always show an approval card in Ask and in Ask for risky only, and a session grant cannot settle them. Skip mode does not install the approval hook, so it does not apply this sink gate.
+After a result that contains an envelope, the MCP server appends a seq line to `<session_dir>/untrusted-taint`. Studio records the seq at the start of the next user turn in `untrusted-turn`. While `taint seq > turn seq` (or either file is unreadable), dest/ext approval cards in Ask and Ask for risky only carry the advisory caption "Read document text this turn", and a session grant cannot settle them. Skip mode does not install the approval hook, so it does not apply this sink gate.
+
+The caption is advisory. `untrusted-turn` lives in the agent-writable session dir; forging it drops the caption and re-shows "Allow this session". It cannot drop the card: destructive and external tools are never on the Ask-for-risky auto-allow list, and Ask already asks for every tool. Taint is not a hard security boundary. Any wrapped read taints the turn, so nearly every dest/ext card after a read carries the caption.
+
+#### Per-CLI canary
+
+`scripts/qa/untrusted-canary.sh` is the release check that a real agent CLI, wired to `designos-mcp` with no skip-permission flags, reads a hostile text layer and does not delete layers, write `pwned.txt`, or leak the canary secret. It requires `DESIGNOS_MCP_BIN` (default `target/debug/designos-mcp`). `scripts/qa/untrusted-canary.sh --self-test` checks the harness with stub CLIs (python3 + the MCP binary only). The self-test does not prove that any real model resists the injection.
 
 | Tool | Foreign-text fields | Origin |
 | --- | --- | --- |
@@ -46,27 +54,27 @@ After a result that contains an envelope, the MCP server appends a seq line to `
 | `designos_get_node` | `node.name`, `node.kind.Text.content`, `node.dev.annotations.*.text`, `node.slide.notes` | comment, layer_name, text_layer |
 | `designos_get_variables` | `variables.**.name`, `collections.**.name` | layer_name |
 | `designos_generate_code` | `code` | text_layer |
-| `designos_create_node` | `node.name`, `node.kind.Text.content`, `node.dev.annotations.*.text`, `node.slide.notes`, `issues.*.node_name`, `issues.*.path` | comment, layer_name, text_layer |
-| `designos_update_node` | `node.name`, `node.kind.Text.content`, `node.dev.annotations.*.text`, `node.slide.notes`, `issues.*.node_name`, `issues.*.path` | comment, layer_name, text_layer |
-| `designos_delete_node` | `issues.*.node_name`, `issues.*.path` | layer_name |
+| `designos_create_node` | `node.name`, `node.kind.Text.content`, `node.dev.annotations.*.text`, `node.slide.notes`, `issues.*.node_name`, `issues.*.path`, `issues.*.message` | comment, layer_name, text_layer |
+| `designos_update_node` | `node.name`, `node.kind.Text.content`, `node.dev.annotations.*.text`, `node.slide.notes`, `issues.*.node_name`, `issues.*.path`, `issues.*.message` | comment, layer_name, text_layer |
+| `designos_delete_node` | `issues.*.node_name`, `issues.*.path`, `issues.*.message` | layer_name |
 | `designos_list_comments` | `comments.*.page_name`, `comments.*.target_node_name`, `comments.*.target_frame_name`, `comments.*.messages.*.text` | comment, layer_name |
 | `designos_add_comment` | `page_name`, `target_node_name`, `target_frame_name`, `messages.*.text`, `thread.page_name`, `thread.target_node_name`, `thread.target_frame_name`, `thread.messages.*.text` | comment, layer_name |
 | `designos_reply_comment` | `page_name`, `target_node_name`, `target_frame_name`, `messages.*.text`, `thread.page_name`, `thread.target_node_name`, `thread.target_frame_name`, `thread.messages.*.text` | comment, layer_name |
 | `designos_resolve_comment` | none | — |
-| `designos_apply_spec` | `node.name`, `node.kind.Text.content`, `issues.*.node_name`, `issues.*.path` | layer_name, text_layer |
+| `designos_apply_spec` | `node.name`, `node.kind.Text.content`, `issues.*.node_name`, `issues.*.path`, `issues.*.message` | layer_name, text_layer |
 | `designos_export_spec` | `spec.**.name`, `spec.**.text`, `spec.**.annotations.*`, `spec.**.comments.*.page_name`, `spec.**.comments.*.target_node_name`, `spec.**.comments.*.target_frame_name`, `spec.**.comments.*.messages.*.text` | comment, layer_name, text_layer |
 | `designos_set_dev_status` | `dev.annotations.*.text` | comment |
 | `designos_export_fig_file` | none | — |
 | `designos_query_xpath` | `rows.*.1`, `rows.*.name` | layer_name |
-| `designos_lint` | `findings.*.node_name`, `findings.*.path` | layer_name |
+| `designos_lint` | `findings.*.node_name`, `findings.*.path`, `findings.*.message` | layer_name |
 | `designos_get_guidelines` | none | — |
-| `designos_import_web_capture` | `root_name`, `node.name`, `node.kind.Text.content`, `report.**.name`, `issues.*.node_name`, `issues.*.path` | web_capture |
+| `designos_import_web_capture` | `root_name`, `node.name`, `node.kind.Text.content`, `report.**.name`, `issues.*.node_name`, `issues.*.path`, `issues.*.message` | web_capture |
 | `designos_undo` | none | — |
-| `designos_lint_fix` | `issues.*.node_name`, `issues.*.path` | layer_name |
+| `designos_lint_fix` | `issues.*.node_name`, `issues.*.path`, `issues.*.message` | layer_name |
 | `designos_redo` | none | — |
 | `designos_get_screenshot` | none | — |
 | `designos_set_in_progress` | none | — |
-| `designos_apply_batch` | `issues.*.node_name`, `issues.*.path` | layer_name |
+| `designos_apply_batch` | `issues.*.node_name`, `issues.*.path`, `issues.*.message` | layer_name |
 | `designos_get_design_context` | `code`, `xml`, `annotations.*.text`, `annotations.*.node_name` | comment, layer_name, text_layer |
 | `designos_configure_session` | none | — |
 | `designos_get_app_state` | `sections.*.content`, `markdown` | layer_name |

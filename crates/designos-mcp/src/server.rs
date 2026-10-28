@@ -1530,6 +1530,7 @@ pub fn tools() -> Vec<Tool> {
     }
     for tool in &mut raw {
         crate::risk::stamp_tool_json(tool);
+        crate::untrusted::relax_tool_output_schema(tool);
     }
     raw.into_iter().map(|v| serde_json::from_value(v).expect("valid built-in tool definition")).collect()
 }

@@ -556,6 +556,11 @@ else
     case "$WSEQ" in ''|*[!0-9]*) WSEQ=0 ;; esac
     if [ "$TSEQ" -gt "$WSEQ" ] || [ "$TSEQ" -lt "$WSEQ" ]; then TAINTED=1; fi
 fi
+# Advisory sink rewrite. Dest/ext tools are never in the auto-allow pattern below, so
+# rewriting the name to tainted-sink does not create the card (Ask already asks, and
+# Ask-for-risky never auto-allows dest/ext). It only keeps "Allow this session" off
+# those cards and pairs with the caption. untrusted-turn is agent-writable; forging
+# it drops the caption, not the card. Taint is not a hard security boundary.
 if [ "$TAINTED" = 1 ]; then
     case "$TOOL_FOR_TIER" in
     {sink})
@@ -1040,6 +1045,11 @@ pub fn offer_session_grant(mode: PermissionMode, req: &ApprovalRequest) -> bool 
 }
 
 /// Destructive and external tools never auto-allow and never settle through a grant after this turn read untrusted text.
+///
+/// Advisory. Dest/ext names were never on the auto-allow list, so a card always appears.
+/// This flag only withholds a session grant and drives [`designos_mcp::untrusted::SINK_CAPTION`].
+/// Forging `untrusted-turn` clears `tainted` and drops the caption; it cannot drop the card.
+/// Not a hard security boundary.
 pub fn sink_blocks_grant(tool_name: &str, tainted: bool) -> bool {
     if !tainted {
         return false;
