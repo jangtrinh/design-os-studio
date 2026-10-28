@@ -65,10 +65,7 @@ pub fn hermetic_mode_active() -> bool {
     }
     #[cfg(test)]
     {
-        if current_scoped_cli_dir().is_some() {
-            return false;
-        }
-        TEST_HERMETIC_DIR.with(|slot| slot.borrow().is_some())
+        TEST_HERMETIC_DIR.with(|slot| slot.borrow().is_some()) || std::env::var_os("DESIGNOS_AGENT_CLI_DIR").is_some()
     }
 }
 
@@ -81,9 +78,6 @@ pub fn hermetic_agent_cli_dir() -> Option<PathBuf> {
     }
     #[cfg(test)]
     {
-        if current_scoped_cli_dir().is_some() {
-            return None;
-        }
         TEST_HERMETIC_DIR.with(|slot| slot.borrow().clone())
     }
 }
@@ -1258,7 +1252,11 @@ mod tests {
                 Some(hermetic_canon.as_path()),
                 "hermetic_agent_cli_dir() must return the pinned hermetic dir even when ScopedCliDirs is active"
             );
-            assert_eq!(cli_search_dirs(None), vec![hermetic_canon.clone()], "cli_search_dirs(None) must rank hermetic (precedence 1) above scoped (precedence 2)");
+            assert_eq!(
+                cli_search_dirs(None),
+                vec![hermetic_canon.clone()],
+                "cli_search_dirs(None) must rank hermetic (precedence 1) above scoped (precedence 2)"
+            );
         }
 
         let _ = std::fs::remove_dir_all(&root);
