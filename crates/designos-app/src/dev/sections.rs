@@ -21,11 +21,17 @@ pub fn status_color(s: DevStatus) -> Color32 {
     }
 }
 
+/// Width of the status pill of `s`: the label hugged in whole pixels (rounded up), plus the slot of the dot before it
+/// and the padding after it. Whoever frames or places a pill takes its width from here, so the frame always holds the label.
+pub fn status_pill_width(p: &egui::Painter, s: DevStatus) -> f32 {
+    text_width(p, s.label(), &theme::font_caption_medium()).ceil() + 26.0
+}
+
 /// A rounded status pill with a dot; returns its width.
 pub fn status_pill(p: &egui::Painter, at: Pos2, s: DevStatus) -> f32 {
     let font = theme::font_caption_medium();
     let label = s.label();
-    let w = text_width(p, label, &font) + 26.0;
+    let w = status_pill_width(p, s);
     let r = Rect::from_min_size(at, Vec2::new(w, 20.0));
     p.rect_filled(r, theme::cr_pill(r.height()), status_color(s).gamma_multiply(0.22));
     p.circle_filled(Pos2::new(r.left() + 10.0, r.center().y), 3.5, status_color(s));

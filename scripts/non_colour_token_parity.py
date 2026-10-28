@@ -2,7 +2,7 @@
 
 G01 in `design_os_self_evolve.py` already pins the colour constants. This module
 extends it to every dimensional token that has a Rust constant. The mapping is
-explicit: `font-size-title` is 12 while `FONT_SIZE_TITLE` is 20, so names are
+explicit: `font-size-title` is 14 while `FONT_SIZE_TITLE` is 20, so names are
 never matched by similarity.
 
 A token with no entry in `TOKEN_TO_RUST` is listed as unmapped (information
@@ -21,16 +21,17 @@ from rust_literal_scan import parse_theme_consts
 # primitive they are built on (P3): the ladder rung, the inset and the control height each name a
 # different relationship, so each is checked against its primitive separately.
 TOKEN_TO_RUST: Dict[str, List[str]] = {
-    "radius.radius-xs": ["RADIUS_MARK"],
+    # `radius-xs` (4) is not mapped: RADIUS_MARK is the 2px mark radius, which has no token.
     "radius.radius-sm": ["RADIUS_SEGMENT"],
     "radius.radius-md": ["RADIUS_CONTROL"],
+    "radius.radius-xl": ["RADIUS_XL"],
     "typography.font-size-small": ["FONT_SIZE_CANVAS"],
-    "typography.font-size-caption": ["FONT_SIZE_CAPTION"],
+    "typography.font-size-caption": ["FONT_SIZE_CAPTION", "FONT_SIZE_TEXT_XS"],
     "typography.font-size-body": ["FONT_SIZE_BODY"],
-    "typography.font-size-heading": ["FONT_SIZE_LARGE"],
-    # The token is named hero; the constant is still called TITLE (it is 20 px). The token
-    # `font-size-title` is 12 and belongs to no constant, so names are never matched by similarity.
-    "typography.font-size-hero": ["FONT_SIZE_TITLE"],
+    "typography.font-size-heading": ["FONT_SIZE_LARGE", "FONT_SIZE_TEXT_SM"],
+    # The token is named hero; the constants are TITLE and TEXT_XL (both 20 px). The token
+    # `font-size-title` (14) belongs to no constant, so names are never matched by similarity.
+    "typography.font-size-hero": ["FONT_SIZE_TITLE", "FONT_SIZE_TEXT_XL"],
     "spacing.rail-width": ["RAIL_WIDTH"],
     "spacing.panel-width": ["LEFT_PANEL_WIDTH", "RIGHT_PANEL_WIDTH"],
     "spacing.space-1": ["SPACE_FACT", "SPACE_ROW"],
@@ -39,15 +40,19 @@ TOKEN_TO_RUST: Dict[str, List[str]] = {
     "spacing.space-4": ["SPACE_BLOCK", "INSET_PANEL", "INSET_POPOVER"],
     "spacing.space-6": ["SPACE_SECTION", "INSET_MODAL"],
     "spacing.space-7": ["CONTROL_STANDARD"],
-    "spacing.space-8": ["CONTROL_TOOL"],
-    "spacing.space-10": ["CONTROL_ROW"],
+    "spacing.space-8": ["CONTROL_XS"],
+    "spacing.space-10": ["CONTROL_MD"],
     "spacing.space-12": ["SPACE_REGION"],
 }
 
 # Role constants with no token to compare against, and why. A new SPACE_/INSET_/CONTROL_/RADIUS_/
 # FONT_SIZE_ constant must be mapped above or listed here, so no role value goes unguarded.
 RUST_ONLY: Dict[str, str] = {
-    "RADIUS_FRAME": "frame radius 14 has no token; the sealed store cannot add one (design/principles.md P1)",
+    "RADIUS_FRAME": "16px frame radius has no token; the sealed store cannot add one (design/principles.md P1)",
+    "RADIUS_MARK": "2px mark radius has no token; the 4px radius-xs token is a different step",
+    "CONTROL_SM": "36px control height for Home and dialogs, no token",
+    "FONT_SIZE_TEXT_MD": "16px text step, no token",
+    "FONT_SIZE_TEXT_LG": "18px text step, no token",
     "INSET_SEGMENT": "2px tile inset inside a segmented control; no 2px spacing token exists",
     "TARGET_MIN": "24px pointer floor (WCAG 2.5.8), a floor rather than a spacing value",
     "CONTROL_DENSE": "24px dense control height, equal to the floor, not to a spacing step",

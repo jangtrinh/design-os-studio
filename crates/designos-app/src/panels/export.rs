@@ -18,6 +18,8 @@ const PREVIEW_H: f32 = 120.0;
 // scale | suffix | format | remove, filling the 184px content width.
 const COL_GAP: f32 = 4.0;
 const SCALE_W: f32 = 56.0;
+/// The chevron slot at the right end of the scale field: the presets menu opens from it, the text takes the rest.
+const SCALE_CHEVRON_W: f32 = 16.0;
 const SUFFIX_W: f32 = 36.0;
 const FORMAT_W: f32 = 56.0;
 const THUMB_CHECK_SECONDS: f64 = 0.3;
@@ -223,8 +225,8 @@ pub fn section(app: &mut App, ui: &mut Ui, x0: f32, top: f32, sel: &[NodeId]) ->
             at(theme::SECTION_CONTENT_X + theme::SECTION_CONTENT_W - theme::PANEL_ACTION_BUTTON, y, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
 
         // Scale: editable text ("2x", "512w") with a presets menu behind the chevron.
-        let text_r = Rect::from_min_max(scale_r.min, Pos2::new(scale_r.right() - 20.0, scale_r.bottom()));
-        let chev_r = Rect::from_min_max(Pos2::new(scale_r.right() - 20.0, scale_r.top()), scale_r.max);
+        let text_r = Rect::from_min_max(scale_r.min, Pos2::new(scale_r.right() - SCALE_CHEVRON_W, scale_r.bottom()));
+        let chev_r = Rect::from_min_max(Pos2::new(scale_r.right() - SCALE_CHEVRON_W, scale_r.top()), scale_r.max);
         let fid = ui.id().with(("export-scale", first, i));
         field::field_bg(ui, scale_r, fid);
         if let Some(s) = field::edit_text(ui, text_r, fid, &scale_of(row.constraint).to_string(), theme::font_body(), theme::TEXT, 4.0) {
@@ -600,7 +602,7 @@ mod tests {
             }
             for l in ["512w", "1.5x", "2x"] {
                 let w = widgets::text_width(ui.painter(), l, &theme::font_body());
-                assert!(w <= SCALE_W - 20.0 - 8.0, "{l} is {w}px wide");
+                assert!(w <= SCALE_W - SCALE_CHEVRON_W - 8.0, "{l} is {w}px wide");
             }
         });
     }

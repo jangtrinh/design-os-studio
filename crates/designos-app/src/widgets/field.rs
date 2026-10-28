@@ -576,12 +576,14 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
     match prefix {
         Prefix::None => {}
         Prefix::Text(s) => {
-            // 8px in; the value starts 24px in.
+            // 8px in; the value starts 24px in. A prefix is one or two glyphs and is never worth eliding: at the 12px
+            // step "CS" is 16.5px and the arrow 16.1px, so the slot takes one border width of slack into the value
+            // gutter rather than shrinking them to a bare ellipsis.
             super::field_text(
                 &p,
                 rect,
                 theme::FIELD_PREFIX_X,
-                rect.width() - theme::FIELD_PREFIX_X - theme::FIELD_PREFIX_ICON,
+                rect.width() - theme::FIELD_PREFIX_X - theme::FIELD_PREFIX_ICON - theme::BORDER_WIDTH,
                 s,
                 theme::font_body(),
                 theme::TEXT_SECONDARY,
@@ -803,6 +805,29 @@ mod tests {
         assert_eq!(eval_number_expr(&format!("{}1", "-".repeat(10)), None, false), Some(1.0));
         assert_eq!(eval_number_expr(&format!("{}5{}", "(".repeat(20), ")".repeat(20)), None, false), Some(5.0));
         assert_eq!(eval_number_expr("2^2^3", None, false), Some(256.0));
+    }
+
+    #[test]
+    fn one_and_two_glyph_prefixes_are_painted_whole() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let rect = Rect::from_min_size(Pos2::new(10.0, 10.0), Vec2::new(theme::FIELD_WIDTH_HALF, theme::FIELD_HEIGHT));
+        for prefix in ["W", "px", "CS", "RS", "\u{2194}", "\u{2195}"] {
+            let mut painted = Vec::new();
+            for _ in 0..2 {
+                let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    num_field(ui, rect, "prefix-test", Prefix::Text(prefix), Some(0.0), "");
+                });
+                painted.clear();
+                for cs in &out.shapes {
+                    if let egui::Shape::Text(t) = &cs.shape {
+                        painted.push(t.galley.text().to_string());
+                    }
+                }
+            }
+            assert!(painted.iter().any(|t| t == prefix), "prefix {prefix:?} was not painted whole: {painted:?}");
+        }
     }
 
     #[test]

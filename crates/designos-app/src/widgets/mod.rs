@@ -295,16 +295,16 @@ pub use designos_export::util::fmt_num;
 mod tests {
     use super::*;
 
-    /// Value text in a 24px field sits on a baseline 16px below the field's top edge
-    /// (Figma: 11px Inter in a 16px line box centred in the field), at any pixel ratio.
+    /// Value text in a field sits on a baseline 0.3638 em below the field's centre line
+    /// (Inter's centre-to-baseline distance), at any pixel ratio.
     #[test]
-    fn field_text_baseline_is_16px_below_the_top() {
+    fn field_text_baseline_is_centred_in_the_field() {
         for ppp in [1.0f32, 2.0] {
             let ctx = egui::Context::default();
             crate::theme::apply(&ctx);
             crate::theme::install_fonts(&ctx);
             let mut baseline = None;
-            let field = Rect::from_min_size(Pos2::new(40.0, 100.0), Vec2::new(88.0, 24.0));
+            let field = Rect::from_min_size(Pos2::new(40.0, 100.0), Vec2::new(88.0, theme::FIELD_HEIGHT));
             let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))), ..Default::default() };
             raw.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
             for _ in 0..2 {
@@ -318,7 +318,8 @@ mod tests {
                 }
             }
             let b = baseline.expect("text painted");
-            assert!((b - (field.top() + 16.0)).abs() <= 0.5 / ppp + 1e-3, "baseline {b} at ppp {ppp}");
+            let expected = field.center().y + 0.3638 * theme::FONT_SIZE_BODY;
+            assert!((b - expected).abs() <= 0.5 / ppp + 1e-3, "baseline {b} at ppp {ppp}, expected {expected}");
         }
     }
 

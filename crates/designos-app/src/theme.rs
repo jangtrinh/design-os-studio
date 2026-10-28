@@ -259,25 +259,54 @@ pub const AGENT_LABEL_TEXT: Color32 = rgb(0x0A0A0A);
 pub const LIGHT_BG_THRESHOLD: f32 = 0.5;
 
 // ---------------------------------------------------------------- fonts
-/// Chrome captions: sublabels, rail labels, counts, chips (P5).
-pub const FONT_SIZE_CAPTION: f32 = 10.0;
+/// Chrome captions: sublabels, rail labels, counts, chips (P5). The same size as the body: colour and
+/// position tell a caption from a name.
+pub const FONT_SIZE_CAPTION: f32 = 12.0;
 /// Canvas overlays only (rulers, canvas pills, annotation marks): the declared exception to the chrome floor.
 pub const FONT_SIZE_CANVAS: f32 = 9.0;
-pub const FONT_SIZE_BODY: f32 = 11.0;
-pub const FONT_SIZE_LARGE: f32 = 13.0;
+/// Rows, menu items and values in the editor panels.
+pub const FONT_SIZE_BODY: f32 = 12.0;
+/// Panel titles.
+pub const FONT_SIZE_LARGE: f32 = 14.0;
 pub const FONT_SIZE_TITLE: f32 = 20.0;
-/// Line heights: body text 16px, captions 14px (P5). A label box is one caption line.
-pub const LINE_BODY: f32 = 16.0;
-pub const LINE_CAPTION: f32 = 14.0;
+/// Line heights: body text and captions both 18px, the line of the 12 step (P5). A label box is one caption line.
+pub const LINE_BODY: f32 = 18.0;
+pub const LINE_CAPTION: f32 = 18.0;
 pub const CHEVRON_SMALL: f32 = 10.0;
 pub const FONT_SIZE_LABEL_CANVAS: f32 = 11.0;
+// Text steps of the UI type scale: each size beside the line height it is set on. Chrome rows and labels
+// take the 12 step, panel titles the 14 step; Home and dialogs set their text on the 14 step.
+#[allow(dead_code)] // staged: the surfaces that set text on the step name it
+pub const FONT_SIZE_TEXT_XS: f32 = 12.0;
+#[allow(dead_code)] // staged: button labels and Home and dialog text
+pub const FONT_SIZE_TEXT_SM: f32 = 14.0;
+#[allow(dead_code)] // staged: dialog titles
+pub const FONT_SIZE_TEXT_MD: f32 = 16.0;
+#[allow(dead_code)] // staged
+pub const FONT_SIZE_TEXT_LG: f32 = 18.0;
+#[allow(dead_code)] // staged
+pub const FONT_SIZE_TEXT_XL: f32 = 20.0;
+#[allow(dead_code)] // staged: the line height of the 12 step
+pub const LINE_TEXT_XS: f32 = 18.0;
+#[allow(dead_code)] // staged: the line height of the 14 step
+pub const LINE_TEXT_SM: f32 = 20.0;
+#[allow(dead_code)] // staged
+pub const LINE_TEXT_MD: f32 = 24.0;
+#[allow(dead_code)] // staged
+pub const LINE_TEXT_LG: f32 = 28.0;
+#[allow(dead_code)] // staged
+pub const LINE_TEXT_XL: f32 = 30.0;
 pub const FAMILY_STRONG: &str = "designos-strong";
 pub const UI_FONT_FAMILY: &str = "Inter";
-/// Variable-font instances of the bundled Inter (ui-spec font.weight_default / weight_strong).
-pub const UI_FONT_WEIGHT: f32 = 450.0;
-pub const UI_FONT_WEIGHT_STRONG: f32 = 550.0;
+/// Variable-font instances of the bundled Inter: regular, medium and semibold are the three UI weights.
+pub const UI_FONT_WEIGHT: f32 = 400.0;
+pub const UI_FONT_WEIGHT_STRONG: f32 = 600.0;
 pub const UI_FONT_WEIGHT_MEDIUM: f32 = 500.0;
 pub const FAMILY_MEDIUM: &str = "designos-medium";
+/// Frame labels on the canvas are document overlays, not chrome: they keep the weight that matches Figma's
+/// canvas labels, so their elision points do not move with the chrome weights.
+pub const CANVAS_LABEL_FONT_WEIGHT: f32 = 450.0;
+pub const FAMILY_CANVAS_LABEL: &str = "designos-canvas-label";
 /// The UI monospace role (numbers, hex codes, token paths): bundled Roboto Mono at its regular instance.
 pub const UI_MONO_FAMILY: &str = "Roboto Mono";
 pub const UI_MONO_WEIGHT: f32 = 400.0;
@@ -329,17 +358,48 @@ pub fn font_mono() -> FontId {
     FontId::new(FONT_SIZE_BODY, FontFamily::Monospace)
 }
 
+/// The three UI weights, by name: regular 400, medium 500, semibold 600. Bold is a display weight and has no
+/// chrome constant.
+#[allow(dead_code)] // staged: surfaces set text through `font_text` as they adopt the text steps
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextWeight {
+    Regular,
+    Medium,
+    Semibold,
+}
+
+/// Inter at `size` in one of the three UI weights, for a text step such as `FONT_SIZE_TEXT_SM`.
+#[allow(dead_code)] // staged: first used by the button labels
+pub fn font_text(size: f32, weight: TextWeight) -> FontId {
+    let family = match weight {
+        TextWeight::Regular => FontFamily::Proportional,
+        TextWeight::Medium => FontFamily::Name(FAMILY_MEDIUM.into()),
+        TextWeight::Semibold => FontFamily::Name(FAMILY_STRONG.into()),
+    };
+    FontId::new(size, family)
+}
+
+/// Frame, component and section labels above top-level frames on the canvas: overlay text that keeps its
+/// own size and weight (`FONT_SIZE_LABEL_CANVAS`, `CANVAS_LABEL_FONT_WEIGHT`) whatever the chrome scale is.
+pub fn font_canvas_label() -> FontId {
+    FontId::new(FONT_SIZE_LABEL_CANVAS, FontFamily::Name(FAMILY_CANVAS_LABEL.into()))
+}
+
 // ---------------------------------------------------------------- radii
-// Four radius roles (design/principles.md P4). A shape inset `x` px inside a frame takes
-// `concentric(outer, x)`; a pill takes `radius_full(height)`.
+// Five radius roles (design/principles.md P4). A shape inset `x` px inside a frame takes
+// `concentric(outer, x)`; a pill takes `radius_full(height)`. The chain 16 > 12 > 8 > 6 > 2 never grows
+// inwards: a frame holds cards, a card holds controls, a control holds a segment tile.
 /// Tiny marks: swatches, canvas badges.
 pub const RADIUS_MARK: u8 = 2;
 /// The tile inside a segmented control: `RADIUS_CONTROL - INSET_SEGMENT`.
-pub const RADIUS_SEGMENT: u8 = 4;
+pub const RADIUS_SEGMENT: u8 = 6;
 /// Controls, fields, tool buttons, rows and the hover pills of a frame: `RADIUS_FRAME - INSET_FRAME`.
-pub const RADIUS_CONTROL: u8 = 6;
+pub const RADIUS_CONTROL: u8 = 8;
+/// Cards and nested panels that hold controls at a 4px inset: `RADIUS_XL - 4 = RADIUS_CONTROL`.
+#[allow(dead_code)] // staged: first used by the card surfaces
+pub const RADIUS_XL: u8 = 12;
 /// Floating chrome: menus, palettes, popovers, modals, toasts, toolbars.
-pub const RADIUS_FRAME: u8 = 14;
+pub const RADIUS_FRAME: u8 = 16;
 
 pub fn cr(r: u8) -> CornerRadius {
     CornerRadius::same(r)
@@ -369,7 +429,8 @@ pub fn radius_full(height: f32) -> f32 {
 
 // ---------------------------------------------------------------- spacing
 // Every gap names the relationship it separates and takes that rung (design/principles.md P3).
-// Rungs may share a value but never swap order. All values sit on the 4px grid.
+// Rungs may share a value but never swap order. Every value is a step of the spacing scale
+// (0, 2, 4, 6, 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128, 160).
 /// Parts of one fact: icon and label, a label and the field it names.
 pub const SPACE_FACT: f32 = 4.0;
 /// Stacked rows in one group.
@@ -397,11 +458,26 @@ pub const INSET_PANEL: f32 = 16.0;
 pub const INSET_POPOVER: f32 = 16.0;
 pub const INSET_MODAL: f32 = 24.0;
 
-// Control heights: a separate family the ladder never re-values (P3).
+// Control heights: a separate family the ladder never re-values (P3). Buttons and inputs come in 32, 36
+// and 40 (`CONTROL_XS`, `CONTROL_SM`, `CONTROL_MD`); badges in 22, 24 and 28.
+/// Legacy: its sites mix buttons, chips and hit boxes, so each surface re-points the ones it owns
+/// (button or row -> `CONTROL_XS`, chip -> a badge height, hit box -> `TARGET_MIN`); a ratchet stops new uses.
 pub const CONTROL_DENSE: f32 = 24.0;
+/// Legacy, see `CONTROL_DENSE`.
 pub const CONTROL_STANDARD: f32 = 28.0;
-pub const CONTROL_TOOL: f32 = 32.0;
-pub const CONTROL_ROW: f32 = 40.0;
+/// Editor buttons, rows and fields.
+pub const CONTROL_XS: f32 = 32.0;
+/// Home and dialog buttons and inputs.
+#[allow(dead_code)] // staged: first used by the Home and dialog surfaces
+pub const CONTROL_SM: f32 = 36.0;
+/// Panel title rows; the larger Home and dialog buttons and inputs.
+pub const CONTROL_MD: f32 = 40.0;
+/// Badge heights: small, medium and large status and count marks.
+#[allow(dead_code)] // staged: first used by the chip and pill surfaces
+pub const BADGE_SM: f32 = 22.0;
+pub const BADGE_MD: f32 = 24.0;
+#[allow(dead_code)] // staged
+pub const BADGE_LG: f32 = 28.0;
 /// Smallest pointer target (WCAG 2.5.8 AA).
 pub const TARGET_MIN: f32 = 24.0;
 
@@ -426,11 +502,11 @@ pub const LEFT_SUBLABEL_Y: f32 = 40.0;
 pub const LEFT_ACTION_Y: f32 = 12.0;
 pub const LEFT_SIDEBAR_BTN_RIGHT_PAD: f32 = 12.0;
 pub const PAGES_SEARCH_DX: f32 = 28.0;
-pub const PANEL_TITLE_ROW_HEIGHT: f32 = CONTROL_ROW;
+pub const PANEL_TITLE_ROW_HEIGHT: f32 = CONTROL_MD;
 pub const PANEL_ACTION_BUTTON: f32 = TARGET_MIN;
 pub const PANEL_ACTION_RIGHT_PAD: f32 = 8.0;
 pub const PANEL_PADDING_X: f32 = INSET_PANEL;
-pub const PAGE_ROW_HEIGHT: f32 = CONTROL_DENSE;
+pub const PAGE_ROW_HEIGHT: f32 = CONTROL_XS;
 pub const PAGE_ROW_INSET: f32 = INSET_FRAME;
 pub const PAGE_ROW_TEXT_PAD: f32 = 8.0;
 pub const PAGES_MAX_VISIBLE_ROWS: usize = 5;
@@ -441,10 +517,10 @@ pub const PAGES_SEPARATOR_STEP: f32 = 8.0;
 pub const PAGES_SEPARATOR_SHIFT_MULT: f32 = 5.0;
 pub const LAYERS_MIN_HEIGHT: f32 = 120.0;
 pub const LEFT_DEV_READY_SECTION_STEP: f32 = 54.0;
-pub const LAYER_FILTER_ROW_HEIGHT: f32 = CONTROL_TOOL;
+pub const LAYER_FILTER_ROW_HEIGHT: f32 = CONTROL_XS;
 pub const PAGE_MENU_WIDTH: f32 = 160.0;
-pub const LAYER_HEADER_HEIGHT: f32 = CONTROL_ROW;
-pub const LAYER_ROW_HEIGHT: f32 = CONTROL_TOOL;
+pub const LAYER_HEADER_HEIGHT: f32 = CONTROL_MD;
+pub const LAYER_ROW_HEIGHT: f32 = CONTROL_XS;
 pub const LAYER_INDENT: f32 = 16.0;
 pub const LAYER_CHEVRON_BOX: f32 = 24.0;
 pub const LAYER_CHEVRON_PAD: f32 = 8.0;
@@ -454,12 +530,12 @@ pub const LAYER_TOGGLE_SIZE: f32 = 24.0;
 pub const LAYER_DROP_THICKNESS: f32 = 2.0;
 
 // Find and replace panel and the layers name filter (left sidebar).
-pub const FIND_FIELD_H: f32 = CONTROL_STANDARD;
+pub const FIND_FIELD_H: f32 = CONTROL_XS;
 pub const FIND_ROW_GAP: f32 = 8.0;
 pub const FIND_TOGGLE_SIZE: f32 = 22.0;
 pub const FIND_BUTTON_H: f32 = 24.0;
 pub const FIND_STATUS_H: f32 = 32.0;
-pub const FIND_GROUP_ROW_H: f32 = 28.0;
+pub const FIND_GROUP_ROW_H: f32 = CONTROL_XS;
 /// Highlight behind the matched characters of a result or a filtered layer name.
 pub const FIND_HIGHLIGHT: Color32 = rgba(0x0D99FF, 0x59);
 pub const FIND_HIGHLIGHT_SELECTED: Color32 = rgba(0x7CC4F8, 0x66);
@@ -477,7 +553,7 @@ pub const PRESENT_ICON_H: f32 = 16.0;
 #[allow(dead_code)]
 pub const PRESENT_ICON_STROKE: f32 = 1.2;
 pub const RIGHT_BTN_Y: f32 = 8.0;
-pub const RIGHT_BTN_SIZE: f32 = CONTROL_TOOL;
+pub const RIGHT_BTN_SIZE: f32 = CONTROL_XS;
 pub const RIGHT_PRESENT_CHEVRON_W: f32 = 16.0;
 pub const RIGHT_TABS_Y: f32 = 48.0;
 pub const RIGHT_TABS_H: f32 = CONTROL_DENSE;
@@ -490,11 +566,11 @@ pub const RIGHT_SELECTION_HEADER_Y: f32 = 93.0;
 pub const RIGHT_NAME_FIELD_X: f32 = 9.0;
 pub const RIGHT_NAME_FIELD_W: f32 = 136.0;
 pub const RIGHT_NAME_ACTION_X: [f32; 3] = [153.0, 181.0, 209.0];
-pub const SECTION_TITLE_HEIGHT: f32 = CONTROL_ROW;
+pub const SECTION_TITLE_HEIGHT: f32 = CONTROL_MD;
 pub const SECTION_CONTENT_X: f32 = 17.0;
 pub const SECTION_CONTENT_W: f32 = 184.0;
 pub const SECTION_TRAILING_X: f32 = 209.0;
-pub const FIELD_HEIGHT: f32 = CONTROL_DENSE;
+pub const FIELD_HEIGHT: f32 = CONTROL_XS;
 pub const FIELD_WIDTH_HALF: f32 = 88.0;
 pub const FIELD_COL_X: [f32; 2] = [17.0, 113.0];
 pub const FIELD_PREFIX_W: f32 = 24.0;
@@ -510,7 +586,7 @@ pub const FIELD_PLAIN_X: f32 = 8.0;
 /// Gap between a value and a worded suffix such as " ms".
 pub const FIELD_SUFFIX_GAP: f32 = 4.0;
 pub const DISTRIBUTE_BTN_X: f32 = 209.0;
-pub const SUBLABEL_HEIGHT: f32 = 16.0;
+pub const SUBLABEL_HEIGHT: f32 = LINE_CAPTION;
 /// The label box of a labelled field group: one caption line, `SPACE_GROUP` below the field above and
 /// `SPACE_FACT` above the field it names, so the label reads as part of the field it names (P9).
 pub const LABEL_BOX_H: f32 = LINE_CAPTION;
@@ -542,14 +618,14 @@ pub const PAGE_DIVIDER_X: f32 = 129.0;
 pub const PAGE_OPACITY_PAD: f32 = 8.0;
 pub const PAGE_PERCENT_W: f32 = 16.0;
 pub const PAGE_PERCENT_RIGHT: f32 = 7.0;
-pub const STYLE_FOLDER_ROW_H: f32 = 24.0;
+pub const STYLE_FOLDER_ROW_H: f32 = CONTROL_XS;
 pub const STYLE_INDENT: f32 = 12.0;
 pub const OPACITY_FIELD_W: f32 = 48.0;
 
 pub const TOOLBELT_HEIGHT: f32 = 48.0;
 pub const TOOLBELT_BOTTOM_MARGIN: f32 = 12.0;
 pub const TOOLBELT_PADDING: f32 = 8.0;
-pub const TOOL_BUTTON: f32 = CONTROL_TOOL;
+pub const TOOL_BUTTON: f32 = CONTROL_XS;
 pub const TOOL_CHEVRON_W: f32 = 16.0;
 pub const TOOL_CHEVRON_GAP: f32 = 0.0;
 /// Glyph size of the dropdown chevrons (the 16px box holds a ~6px wide arrow).
@@ -567,7 +643,7 @@ pub const TOOLBAR_DIVIDER_GAP_BEFORE: f32 = 13.0;
 pub const TOOLBAR_DIVIDER_GAP_AFTER: f32 = 8.0;
 
 pub const MENU_WIDTH: f32 = 200.0;
-pub const MENU_ITEM_HEIGHT: f32 = CONTROL_DENSE;
+pub const MENU_ITEM_HEIGHT: f32 = CONTROL_XS;
 /// Vertical padding above the first and below the last row.
 pub const MENU_PADDING: f32 = INSET_FRAME;
 /// Highlight pill: inset from the panel edges, corner radius.
@@ -812,7 +888,7 @@ pub fn apply(ctx: &egui::Context) {
     ctx.set_global_style(style);
 }
 
-/// Installs the bundled Inter variable font (regular, medium, strong instances) and Roboto Mono.
+/// Installs the bundled Inter variable font (regular, medium, strong and canvas-label instances) and Roboto Mono.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let inter = designos_fonts::bundled().iter().find(|a| a.family == UI_FONT_FAMILY && !a.italic).expect("bundled Inter");
@@ -823,6 +899,7 @@ pub fn install_fonts(ctx: &egui::Context) {
     fonts.font_data.insert("ui-regular".into(), instance(UI_FONT_WEIGHT));
     fonts.font_data.insert("ui-strong".into(), instance(UI_FONT_WEIGHT_STRONG));
     fonts.font_data.insert("ui-medium".into(), instance(UI_FONT_WEIGHT_MEDIUM));
+    fonts.font_data.insert("ui-canvas-label".into(), instance(CANVAS_LABEL_FONT_WEIGHT));
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "ui-regular".into());
     let mut strong_family = vec!["ui-strong".to_string()];
     strong_family.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
@@ -830,6 +907,9 @@ pub fn install_fonts(ctx: &egui::Context) {
     let mut medium_family = vec!["ui-medium".to_string()];
     medium_family.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
     fonts.families.insert(FontFamily::Name(FAMILY_MEDIUM.into()), medium_family);
+    let mut canvas_label_family = vec!["ui-canvas-label".to_string()];
+    canvas_label_family.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
+    fonts.families.insert(FontFamily::Name(FAMILY_CANVAS_LABEL.into()), canvas_label_family);
     // Monospace role: bundled Roboto Mono first, egui's default mono face as the glyph fallback.
     let mono = designos_fonts::bundled().iter().find(|a| a.family == UI_MONO_FAMILY && !a.italic).expect("bundled Roboto Mono");
     let mono_tweak = egui::FontTweak { coords: egui::epaint::text::VariationCoords::new([("wght", UI_MONO_WEIGHT)]), ..Default::default() };
@@ -867,8 +947,8 @@ pub const VAR_FLOAT_W: f32 = 642.0;
 pub const VAR_FLOAT_H: f32 = 380.0;
 pub const VAR_FLOAT_Y: f32 = 8.0;
 pub const VAR_FLOAT_BAR_H: f32 = 40.0;
-pub const VAR_HEAD_H: f32 = CONTROL_ROW;
-pub const VAR_ROW_H: f32 = CONTROL_ROW;
+pub const VAR_HEAD_H: f32 = CONTROL_MD;
+pub const VAR_ROW_H: f32 = CONTROL_MD;
 pub const VAR_ROW_PITCH: f32 = 41.0;
 /// Name column width (the 1px grid line follows it).
 pub const VAR_NAME_COL: f32 = 200.0;
@@ -880,8 +960,8 @@ pub const VAR_SCROLL_H: f32 = 11.0;
 pub const VAR_SCROLL_THUMB: Color32 = rgb(0x737373);
 pub const VAR_SEARCH_W: f32 = 174.0;
 pub const VAR_FILTER_W: f32 = 25.0;
-pub const VAR_SIDE_ROW: f32 = CONTROL_TOOL;
-pub const VAR_PILL_H: f32 = CONTROL_DENSE;
+pub const VAR_SIDE_ROW: f32 = CONTROL_XS;
+pub const VAR_PILL_H: f32 = BADGE_MD;
 pub const VAR_ICON_X: f32 = 16.0;
 pub const VAR_NAME_X: f32 = 44.0;
 pub const VAR_SWATCH: f32 = 16.0;
@@ -964,13 +1044,25 @@ mod tests {
 
     const LADDER: [f32; 7] = [SPACE_FACT, SPACE_ROW, SPACE_INLINE, SPACE_GROUP, SPACE_BLOCK, SPACE_SECTION, SPACE_REGION];
     const INSETS: [f32; 7] = [INSET_SEGMENT, INSET_CONTROL, INSET_FRAME, INSET_BUTTON, INSET_PANEL, INSET_POPOVER, INSET_MODAL];
-    const CONTROLS: [f32; 5] = [CONTROL_DENSE, CONTROL_STANDARD, CONTROL_TOOL, CONTROL_ROW, TARGET_MIN];
+    /// The control heights that are component sizes rather than spacing steps.
+    const CONTROLS: [f32; 7] = [CONTROL_XS, CONTROL_SM, CONTROL_MD, BADGE_SM, BADGE_MD, BADGE_LG, TARGET_MIN];
+    /// The spacing scale (2px and 6px included) and the sizes controls come in.
+    const SPACING_SCALE: [f32; 17] = [0.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 20.0, 24.0, 32.0, 40.0, 48.0, 64.0, 80.0, 96.0, 128.0, 160.0];
+    const BUTTON_AND_INPUT_SIZES: [f32; 5] = [32.0, 36.0, 40.0, 44.0, 48.0];
+    const BADGE_SIZES: [f32; 3] = [22.0, 24.0, 28.0];
+    const RADIUS_SCALE: [f32; 10] = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 16.0, 20.0, 24.0];
 
     #[test]
-    fn ladder_insets_and_controls_sit_on_the_4px_grid() {
-        // The segment inset (2px) is the one declared half-step inside a control.
-        for v in LADDER.into_iter().chain(INSETS.into_iter().filter(|v| *v != INSET_SEGMENT)).chain(CONTROLS) {
-            assert_eq!(v % 4.0, 0.0, "{v} is off the 4px grid");
+    fn ladder_insets_and_controls_sit_on_the_scale_steps() {
+        // Two kinds of value, two sets: a gap or inset is a spacing step; a control height is a component size.
+        for v in LADDER.into_iter().chain(INSETS) {
+            assert!(SPACING_SCALE.contains(&v), "{v} is not a spacing step");
+        }
+        for v in CONTROLS {
+            assert!(
+                BUTTON_AND_INPUT_SIZES.contains(&v) || BADGE_SIZES.contains(&v) || v == TARGET_MIN,
+                "{v} is neither a button or input size, a badge size nor the pointer floor"
+            );
         }
     }
 
@@ -996,10 +1088,18 @@ mod tests {
     }
 
     #[test]
-    fn control_heights_are_the_ratified_family() {
-        assert_eq!([CONTROL_DENSE, CONTROL_STANDARD, CONTROL_TOOL, CONTROL_ROW], [24.0, 28.0, 32.0, 40.0]);
+    fn control_heights_are_the_button_and_badge_sizes() {
+        assert_eq!([CONTROL_XS, CONTROL_SM, CONTROL_MD], [32.0, 36.0, 40.0]);
+        assert_eq!([BADGE_SM, BADGE_MD, BADGE_LG], [22.0, 24.0, 28.0]);
         assert_eq!(TARGET_MIN, 24.0);
+        // The legacy heights keep their names and values until each surface re-points its sites.
+        assert_eq!([CONTROL_DENSE, CONTROL_STANDARD], [24.0, 28.0]);
         assert_eq!(CONTROL_DENSE, TARGET_MIN, "the densest control sits exactly on the pointer floor");
+        // Rows, menu items and Inspector fields are the editor button size.
+        assert_eq!(PAGE_ROW_HEIGHT, CONTROL_XS);
+        assert_eq!(MENU_ITEM_HEIGHT, CONTROL_XS);
+        assert_eq!(FIELD_HEIGHT, CONTROL_XS);
+        assert_eq!(VAR_PILL_H, BADGE_MD, "a pill is a badge, not a control");
         assert_eq!(RIGHT_TABS_H, CONTROL_DENSE, "inspector tab strips are 24px, not 28px");
     }
 
@@ -1012,6 +1112,16 @@ mod tests {
         // The chain from a frame down to a segment tile never grows.
         let chain = [RADIUS_FRAME, RADIUS_CONTROL, RADIUS_SEGMENT, RADIUS_MARK];
         assert!(chain.windows(2).all(|w| w[0] > w[1]), "{chain:?} is not strictly decreasing");
+        // A card holding controls at a 4px inset sits between the frame and the control.
+        let full_chain = [RADIUS_FRAME, RADIUS_XL, RADIUS_CONTROL, RADIUS_SEGMENT, RADIUS_MARK];
+        assert_eq!(full_chain, [16, 12, 8, 6, 2]);
+        assert!(full_chain.windows(2).all(|w| w[0] > w[1]), "{full_chain:?} is not strictly decreasing");
+        assert_eq!(concentric(RADIUS_XL as f32, 4.0), RADIUS_CONTROL as f32);
+        for r in full_chain {
+            assert!(RADIUS_SCALE.contains(&(r as f32)), "{r} is not a radius step");
+        }
+        // A pill inside a pill: a 32px track holding a 28px thumb at a 2px inset.
+        assert_eq!(radius_full(32.0) - 2.0, radius_full(28.0));
     }
 
     #[test]
@@ -1028,12 +1138,56 @@ mod tests {
     }
 
     #[test]
-    fn type_roles_keep_their_order_and_the_canvas_size_is_the_only_one_below_the_chrome_floor() {
+    fn type_roles_are_the_text_steps() {
+        // The role chain never shrinks, and the canvas size is the only one in the set below the chrome floor of 12.
         let chain = [FONT_SIZE_CANVAS, FONT_SIZE_CAPTION, FONT_SIZE_BODY, FONT_SIZE_LARGE, FONT_SIZE_TITLE];
-        assert!(chain.windows(2).all(|w| w[0] < w[1]), "{chain:?} is not strictly increasing");
-        assert_eq!([FONT_SIZE_CAPTION, FONT_SIZE_BODY, FONT_SIZE_LARGE, FONT_SIZE_TITLE], [10.0, 11.0, 13.0, 20.0]);
+        assert!(chain.windows(2).all(|w| w[0] <= w[1]), "{chain:?} is not non-decreasing");
+        assert_eq!([FONT_SIZE_CAPTION, FONT_SIZE_BODY, FONT_SIZE_LARGE, FONT_SIZE_TITLE], [12.0, 12.0, 14.0, 20.0]);
         assert_eq!(FONT_SIZE_CANVAS, 9.0);
         assert_eq!(RULER_FONT_SIZE, FONT_SIZE_CANVAS);
+        let scanned = [
+            FONT_SIZE_CAPTION,
+            FONT_SIZE_BODY,
+            FONT_SIZE_LARGE,
+            FONT_SIZE_TITLE,
+            FONT_SIZE_TEXT_XS,
+            FONT_SIZE_TEXT_SM,
+            FONT_SIZE_TEXT_MD,
+            FONT_SIZE_TEXT_LG,
+            FONT_SIZE_TEXT_XL,
+            FONT_SIZE_CANVAS,
+        ];
+        let below_floor: Vec<f32> = scanned.into_iter().filter(|s| *s < 12.0).collect();
+        assert_eq!(below_floor, [FONT_SIZE_CANVAS], "only the canvas size sits below the chrome floor");
+        // Each text step with the line height it is set on.
+        let steps = [
+            (FONT_SIZE_TEXT_XS, LINE_TEXT_XS, 12.0, 18.0),
+            (FONT_SIZE_TEXT_SM, LINE_TEXT_SM, 14.0, 20.0),
+            (FONT_SIZE_TEXT_MD, LINE_TEXT_MD, 16.0, 24.0),
+            (FONT_SIZE_TEXT_LG, LINE_TEXT_LG, 18.0, 28.0),
+            (FONT_SIZE_TEXT_XL, LINE_TEXT_XL, 20.0, 30.0),
+        ];
+        for (size, line, want_size, want_line) in steps {
+            assert_eq!((size, line), (want_size, want_line));
+        }
+    }
+
+    #[test]
+    fn caption_and_body_are_one_font_and_the_weights_tell_the_helpers_apart() {
+        assert_eq!(font_caption(), font_body(), "colour and position tell a caption from a name, not the face");
+        assert_eq!(font_caption_medium(), font_body_medium());
+        assert_eq!(font_caption_strong(), font_body_strong());
+        assert_ne!(font_body(), font_body_medium());
+        assert_ne!(font_body_medium(), font_body_strong());
+    }
+
+    #[test]
+    fn font_text_sets_a_step_in_one_of_the_three_weights() {
+        assert_eq!(font_text(FONT_SIZE_TEXT_XS, TextWeight::Regular), font_body());
+        assert_eq!(font_text(FONT_SIZE_TEXT_XS, TextWeight::Medium), font_body_medium());
+        assert_eq!(font_text(FONT_SIZE_TEXT_XS, TextWeight::Semibold), font_body_strong());
+        // Button labels are the 14 step in semibold at every button size.
+        assert_eq!(font_text(FONT_SIZE_TEXT_SM, TextWeight::Semibold), font_large_strong());
     }
 
     #[test]
@@ -1041,15 +1195,36 @@ mod tests {
         for (line, size, ratio) in [(LINE_CAPTION, FONT_SIZE_CAPTION, 1.3), (LINE_BODY, FONT_SIZE_BODY, 1.4)] {
             assert!(line >= size * ratio, "line {line} is too tight for {size}px text");
         }
+        assert_eq!([LINE_CAPTION, LINE_BODY], [18.0, 18.0]);
         assert_eq!(LABEL_BOX_H, LINE_CAPTION);
-        // A label box plus the gap below it stays inside the 24px field slot it introduces.
-        let slot = std::hint::black_box(CONTROL_DENSE);
+        // A label box plus the gap below it stays inside the 32px field slot it introduces.
+        let slot = std::hint::black_box(FIELD_HEIGHT);
         assert!(LABEL_BOX_H + SPACE_FACT <= slot);
     }
 
     #[test]
     fn only_three_ui_weights_exist() {
-        assert_eq!([UI_FONT_WEIGHT, UI_FONT_WEIGHT_MEDIUM, UI_FONT_WEIGHT_STRONG], [450.0, 500.0, 550.0]);
+        assert_eq!([UI_FONT_WEIGHT, UI_FONT_WEIGHT_MEDIUM, UI_FONT_WEIGHT_STRONG], [400.0, 500.0, 600.0]);
+    }
+
+    #[test]
+    fn canvas_labels_keep_their_own_size_and_weight() {
+        // Frame labels are document overlays: neither the chrome size nor a chrome weight.
+        assert_eq!(FONT_SIZE_LABEL_CANVAS, 11.0);
+        assert_eq!(CANVAS_LABEL_FONT_WEIGHT, 450.0);
+        assert!(![UI_FONT_WEIGHT, UI_FONT_WEIGHT_MEDIUM, UI_FONT_WEIGHT_STRONG].contains(&CANVAS_LABEL_FONT_WEIGHT));
+        let font = font_canvas_label();
+        assert_eq!(font.size, FONT_SIZE_LABEL_CANVAS);
+        assert_eq!(font.family, FontFamily::Name(FAMILY_CANVAS_LABEL.into()));
+        // Installed: the family lays text out, and at weight 450 it is wider than the 400 chrome regular.
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        let sample = "A frame with a very long name that overflows";
+        let width_of = |font: FontId| ctx.fonts_mut(|f| f.layout_no_wrap(sample.to_string(), font, Color32::WHITE).size().x);
+        let label = width_of(font_canvas_label());
+        let chrome = width_of(FontId::new(FONT_SIZE_LABEL_CANVAS, FontFamily::Proportional));
+        assert!(label > chrome, "canvas label {label}px should be wider than regular {chrome}px");
     }
 
     #[test]

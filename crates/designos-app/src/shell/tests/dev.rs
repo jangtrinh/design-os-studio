@@ -82,9 +82,9 @@ fn language_dropdown_switches_the_code_and_copy_reports() {
         let dd = s.rect_of("dev-lang");
         s.click(dd.center());
         // the popup sits under the dropdown, shifted up when the longer list would leave the screen
-        let menu_h = Language::ALL.len() as f32 * 24.0 + 2.0 * theme::MENU_PADDING;
+        let menu_h = Language::ALL.len() as f32 * theme::MENU_ITEM_HEIGHT + 2.0 * theme::MENU_PADDING;
         let top = (dd.bottom() + 2.0).min(s.ctx.content_rect().bottom() - menu_h - 2.0);
-        let y = top + theme::MENU_PADDING + i as f32 * 24.0 + 12.0;
+        let y = top + theme::MENU_PADDING + (i as f32 + 0.5) * theme::MENU_ITEM_HEIGHT;
         s.click(Pos2::new(dd.center().x, y));
         assert_eq!(s.app().dev.lang, lang, "option {i}");
         frames(&mut s, 2);
@@ -559,6 +559,8 @@ fn dev_mode_component_playground_toggles_props_without_mutating_doc_and_updates_
     // Edit the `Label` text property in the playground.
     let label_field = s.rect_of("dev-playground-prop-Label");
     s.click(label_field.center());
+    // The click lands inside the text, wherever the glyphs sit at this size: End puts the caret after "Get started".
+    s.key(Key::End);
     s.type_text(" now");
     frames(&mut s, 2);
 

@@ -168,7 +168,13 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
     }
     items.push(MenuItem { icon: Some(Icon::Shader), disabled: true, ..MenuItem::new("Shader").shortcut("Soon") });
     let w = 168.0;
-    let pos = Pos2::new(btn.right() - w, btn.bottom() + 4.0);
+    // The menu opens below the button, lifted when its rows would reach past the inspector's visible area into the
+    // footer bar under it.
+    let separators = items.iter().filter(|i| i.separator_after).count() as f32;
+    let menu_h = 2.0 * theme::MENU_PADDING + items.len() as f32 * theme::MENU_ITEM_HEIGHT + separators * widgets::menu::SEP_H;
+    let view = ui.clip_rect();
+    let top = (btn.bottom() + 4.0).min(view.bottom() - menu_h - theme::SPACE_FACT).max(view.top());
+    let pos = Pos2::new(btn.right() - w, top);
     match popup_menu(ui.ctx(), Id::new("fx-add-menu"), pos, w, &items, Some(btn)) {
         MenuResult::Picked(k) if k < KINDS.len() => {
             app.props.fx_menu = false;

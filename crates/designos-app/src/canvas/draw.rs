@@ -152,7 +152,7 @@ fn subtract_rect(pieces: &mut Vec<ERect>, cover: ERect) {
 fn measure_label(ctx: &egui::Context, n: &Node, w_px: f32) -> (bool, String, f32) {
     let w_px = w_px.max(0.0);
     let max_w = (w_px - LABEL_RIGHT_INSET).max(0.0);
-    let font = theme::font_body();
+    let font = theme::font_canvas_label();
     let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
     let is_comp_like = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
     ctx.fonts_mut(|f| {
@@ -921,7 +921,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
                     paint_instance_diamond(&piece_p, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 5.0, col);
                 }
             }
-            piece_p.text(Pos2::new(r.left() + dx, r.center().y), Align2::LEFT_CENTER, &entry.text, theme::font_body(), col);
+            piece_p.text(Pos2::new(r.left() + dx, r.center().y), Align2::LEFT_CENTER, &entry.text, theme::font_canvas_label(), col);
         }
         if let Some((badge_r, status)) = dev_status_badge_rect(id, n, r) {
             let badge_col = match status {

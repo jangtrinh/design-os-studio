@@ -1,7 +1,7 @@
 //! Annotation callouts and status badges drawn over the canvas in Dev mode.
 
 use super::data;
-use super::sections::{status_color, status_pill};
+use super::sections::{status_color, status_pill, status_pill_width};
 use super::AnnotEdit;
 use crate::app::App;
 use crate::panels::inspect::page_aabb;
@@ -91,7 +91,7 @@ pub fn overlay(app: &mut App, ui: &Ui, rect: Rect) {
         let Some(n) = app.doc.get(id) else { continue };
         if let Some(s) = n.dev.status {
             let at = Pos2::new(sr.left(), sr.top() - 24.0);
-            let w = text_width(&p, s.label(), &theme::font_canvas_medium()) + 26.0;
+            let w = status_pill_width(&p, s);
             let pill = Rect::from_min_size(at, Vec2::new(w, 20.0));
             if rect.intersects(pill) {
                 p.rect_filled(pill, theme::cr(10), theme::BG);
