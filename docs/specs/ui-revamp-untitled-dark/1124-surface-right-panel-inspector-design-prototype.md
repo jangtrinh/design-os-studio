@@ -180,6 +180,8 @@ None.
 
 Not mine: `theme.rs`, `design/*` (A, B); `widgets/field.rs`, `widgets/menu.rs`, `widgets/mod.rs`, `widgets/popover.rs`, `widgets/field_tab.rs`, `widgets/popup_open.rs`, `panels/mod.rs` (C); `tabs.rs`, `shell.rs`, `panels/rail.rs`, `panels/toolbar.rs`, `panels/menus.rs`, `canvas/rulers.rs` (D); `panels/left.rs`, `panels/layers.rs`, `find/filter.rs` (E); `dev/*`, `specs.rs` (G); `panels/context.rs`, `history/*`, `comments/*` (J); `panels/assets.rs`, `variables/*`, `libraries/*` (K). `panels/check_designs.rs` (K, plan.md 22:20); `dev/code_view.rs` (G).
 
+Also F's, for colour-literal and constant re-points only (controller, plan.md H–K check rulings, 2026-10-29 01:05): `canvas/proto.rs`, the prototype-flow overlay (4 chrome sites); no layout change (R1).
+
 **Colour-literal gate.** Spec A rule 13 adds `scripts/check_chrome_colour_literals.py` (new name). F's allowlist: `export.rs:309` (identity image tint). Until the gate exists, the section 2 command must print `chrome_sites=0` for every owned file except `panels/export.rs` (1).
 
 ## 6. File-format mapping
