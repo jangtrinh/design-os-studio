@@ -850,6 +850,76 @@ class LayoutBaselineCaptureTest(unittest.TestCase):
             # Unnamed in-canvas widget [90, 80, 12, 10] -> relative to (60, 50) -> 30,30,12,10
             self.assertIn("30,30,12,10", recorded["ignores"])
 
+    def test_round9_rulings_dry_run_and_summary_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            stubs = make_stub_dir(root)
+            out_dir = root / "out"
+            kit_file = root / "Untitled.fig"
+            kit_file.write_bytes(b"fig-kiwi")
+            fake_bin = write_executable_python(
+                root / "fake-designos",
+                """
+                import sys
+                sys.exit(99)
+                """,
+            )
+            real_cases = (
+                Path(__file__).resolve().parents[2]
+                / "crates"
+                / "designos-app"
+                / "tests"
+                / "layout-baseline"
+                / "cases.json"
+            )
+            proc = self.run_script(
+                "--dry-run",
+                "--bin",
+                str(fake_bin),
+                "--cases",
+                str(real_cases),
+                "--stubs",
+                str(stubs),
+                "--out",
+                str(out_dir),
+                "--kit",
+                str(kit_file),
+            )
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertIn("SKIP x-board: not applicable in Tier B (Tier A only:", proc.stdout)
+            self.assertIn("SKIP x-deck: not applicable in Tier B (Tier A only:", proc.stdout)
+            self.assertIn("Tier A only (2): x-board, x-deck", proc.stdout)
+
+            self.assertNotIn("DRY-RUN [f-prototype-tab] prep", proc.stdout)
+            f_cap = [
+                line
+                for line in proc.stdout.splitlines()
+                if "DRY-RUN [f-prototype-tab] capture:" in line
+            ]
+            self.assertEqual(len(f_cap), 1)
+            self.assertIn("--select id:77742", f_cap[0])
+            self.assertIn("--panel interaction", f_cap[0])
+
+            lines = proc.stdout.splitlines()
+            j_prep_idx = next(
+                (i for i, l in enumerate(lines) if "DRY-RUN [j-comments] prep (comment_thread):" in l),
+                -1,
+            )
+            j_cap_idx = next(
+                (i for i, l in enumerate(lines) if "DRY-RUN [j-comments] capture:" in l),
+                -1,
+            )
+            self.assertGreaterEqual(j_prep_idx, 0)
+            self.assertGreater(j_cap_idx, j_prep_idx)
+            self.assertIn("--add-comment", lines[j_prep_idx])
+            self.assertIn("--panel comments", lines[j_cap_idx])
+
+            self.assertNotIn("DRY-RUN [k-libraries] prep", proc.stdout)
+            self.assertIn("DRY-RUN [k-libraries] capture:", proc.stdout)
+
+            self.assertIn("Tier A 76 / 0 / 0", proc.stdout)
+            self.assertIn("Tier B 74 / 2 / 0", proc.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

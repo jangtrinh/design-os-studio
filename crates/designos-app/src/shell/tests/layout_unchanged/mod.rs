@@ -10,6 +10,8 @@ mod h;
 mod i;
 mod j;
 mod k;
+#[path = "../panel_presets.rs"]
+mod panel_presets;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CasesFile {
