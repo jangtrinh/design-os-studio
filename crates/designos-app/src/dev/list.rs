@@ -47,8 +47,10 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
         let label_w = widgets::text_width(ui.painter(), label, &font);
         let badge_str = total.to_string();
         let badge_w = if show_badge { (widgets::text_width(ui.painter(), &badge_str, &mono_font) + 10.0).max(18.0) } else { 0.0 };
-        let w = if show_badge { label_w + 6.0 + badge_w + 14.0 } else { label_w + 14.0 };
+        // The tab hugs its content with the same control inset on both sides.
+        let w = if show_badge { label_w + 6.0 + badge_w } else { label_w } + 2.0 * theme::INSET_CONTROL;
         let r = Rect::from_min_size(Pos2::new(x, row.center().y - 12.0), Vec2::new(w, 24.0));
+        widgets::record(ui, if tab == LeftTab::ReadyForDev { "dev-left-tab-ready" } else { "dev-left-tab-layers" }, r);
         let resp = ui.interact(r, ui.id().with(("dev-left-tab", i)), Sense::click());
         let active = app.dev.left_tab == tab;
         if active {
