@@ -6952,12 +6952,10 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
 
 /// Maximum wheel reports or cursor-key steps emitted in a single UI frame so a fast trackpad flick
 /// cannot flood the child PTY stdin buffer (`#1173`).
-#[allow(dead_code)]
 const MAX_WHEEL_STEPS_PER_FRAME: usize = 10;
 
 /// Outcome of a mouse-wheel event over the terminal viewport (`#1173`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 enum WheelAction {
     /// Scroll Studio's own 5,000-line scrollback buffer by signed row count (`> 0` up into history, `< 0` down).
     Scrollback(isize),
@@ -6983,15 +6981,48 @@ fn wheel_bytes(screen: &vt100::Screen, delta_rows: isize, cell: (u16, u16), shif
     if delta_rows == 0 {
         return WheelAction::Noop;
     }
-    let alt_screen = screen.alternate_screen();
-    let mouse_active = screen.mouse_protocol_mode() != vt100::MouseProtocolMode::None;
-    if alt_screen && mouse_active && !shift {
+    if !screen.alternate_screen() {
+        return WheelAction::Scrollback(delta_rows);
+    }
+    let steps = delta_rows.unsigned_abs().min(MAX_WHEEL_STEPS_PER_FRAME);
+    if screen.mouse_protocol_mode() != vt100::MouseProtocolMode::None {
+        if shift {
+            return WheelAction::Noop;
+        }
         let (r0, c0) = cell;
-        let button = if delta_rows > 0 { 64 } else { 65 };
-        let seq = format!("\x1b[<{button};{};{}M", c0 + 1, r0 + 1);
-        WheelAction::WritePty(seq.into_bytes())
+        let col = c0.saturating_add(1);
+        let row = r0.saturating_add(1);
+        let button: u8 = if delta_rows > 0 { 64 } else { 65 };
+        let one: Vec<u8> = match screen.mouse_protocol_encoding() {
+            vt100::MouseProtocolEncoding::Sgr => format!("\x1b[<{button};{col};{row}M").into_bytes(),
+            vt100::MouseProtocolEncoding::Default => {
+                let cx = col.min(223) as u8;
+                let cy = row.min(223) as u8;
+                vec![0x1b, b'[', b'M', 32 + button, 32 + cx, 32 + cy]
+            }
+            vt100::MouseProtocolEncoding::Utf8 => {
+                let mut seq = Vec::with_capacity(9);
+                seq.extend_from_slice(b"\x1b[M");
+                seq.push(32 + button);
+                let mut buf = [0u8; 4];
+                if let Some(ch) = char::from_u32(32 + u32::from(col.min(2015))) {
+                    seq.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+                }
+                if let Some(ch) = char::from_u32(32 + u32::from(row.min(2015))) {
+                    seq.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
+                }
+                seq
+            }
+        };
+        WheelAction::WritePty(one.repeat(steps))
     } else {
-        WheelAction::Scrollback(delta_rows)
+        let key: &[u8] = match (screen.application_cursor(), delta_rows > 0) {
+            (true, true) => b"\x1bOA",
+            (true, false) => b"\x1bOB",
+            (false, true) => b"\x1b[A",
+            (false, false) => b"\x1b[B",
+        };
+        WheelAction::WritePty(key.repeat(steps))
     }
 }
 
