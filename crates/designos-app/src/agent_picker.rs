@@ -282,7 +282,10 @@ fn keep_arrows_on_row(ui: &Ui, resp: &egui::Response) {
     }
 }
 
-fn state_pill_colors(signed_in: SignIn, installed: bool) -> (Color32, Color32, Color32) {
+fn state_pill_colors(signed_in: SignIn, installed: bool, label: Option<&str>) -> (Color32, Color32, Color32) {
+    if label == Some("Unavailable") {
+        return (theme::BG_TERTIARY, theme::BORDER, theme::TEXT_DISABLED);
+    }
     if !installed {
         return (theme::BG_TERTIARY, theme::BORDER, theme::TEXT_DISABLED);
     }
@@ -312,16 +315,24 @@ const OTHER_FORM_CAPTION_HEIGHT: f32 = 2.0 * theme::LINE_CAPTION;
 const OTHER_FORM_BUTTON_HEIGHT: f32 = theme::TARGET_MIN;
 const PICKER_FOOTER_HEIGHT: f32 = 22.0;
 
-/// Height of the picker card for `row_count` rows (header, rows, optional `"Other CLI…"` form, footer).
-fn picker_card_height(row_count: usize, other_form_open: bool) -> f32 {
-    let form_h = if other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
-    theme::INSET_POPOVER * 2.0 + theme::SPACE_SECTION + row_count as f32 * (theme::CONTROL_MD + theme::SPACE_ROW) + form_h + PICKER_FOOTER_HEIGHT
+fn picker_row_height(row: &PickerRow) -> f32 {
+    if row.caption.is_some() && !row.selectable {
+        theme::CONTROL_MD + 2.0 * theme::LINE_CAPTION
+    } else {
+        theme::CONTROL_MD
+    }
 }
 
-/// Height [`show_picker_panel_with_rows`] needs for `row_count` rows: the card plus its top margin, so a caller can
+fn picker_card_height(rows: &[PickerRow], other_form_open: bool) -> f32 {
+    let form_h = if other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
+    let rows_h: f32 = rows.iter().map(|row| picker_row_height(row) + theme::SPACE_ROW).sum();
+    theme::INSET_POPOVER * 2.0 + theme::SPACE_SECTION + rows_h + form_h + PICKER_FOOTER_HEIGHT
+}
+
+/// Height [`show_picker_panel_with_rows`] needs for `rows`: the card plus its top margin, so a caller can
 /// stack content below it (`#688` §3 rule 3).
-pub fn picker_outer_height(row_count: usize, other_form_open: bool) -> f32 {
-    theme::INSET_POPOVER + picker_card_height(row_count, other_form_open)
+pub fn picker_outer_height(rows: &[PickerRow], other_form_open: bool) -> f32 {
+    theme::INSET_POPOVER + picker_card_height(rows, other_form_open)
 }
 
 /// Renders the full new-session picker panel (`CONTROL_MD` = 40 px rows, `#652` §7).
@@ -339,11 +350,10 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
 
     let p = ui.painter().clone();
     let pad = theme::INSET_POPOVER;
-    let row_h = theme::CONTROL_MD;
     let row_gap = theme::SPACE_ROW;
     let form_h = if state.picker.other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
     let header_h = theme::SPACE_SECTION;
-    let content_h = picker_card_height(rows.len(), state.picker.other_form_open);
+    let content_h = picker_card_height(&rows, state.picker.other_form_open);
     let card_w = (rect.width() - pad * 2.0).clamp(220.0, 380.0);
     let card_h = content_h.min((rect.height() - pad).max(160.0));
     let card_x = rect.left() + ((rect.width() - card_w) * 0.5).max(theme::SPACE_INLINE);
@@ -369,6 +379,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
     let st_reserve = 90.0;
 
     for (idx, row) in rows.iter().enumerate() {
+        let row_h = picker_row_height(row);
         let r_rect = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
         let row_id = format!("picker-row-{}", row.id);
         let resp = ui.interact(r_rect, Id::new(&row_id), Sense::click());
@@ -431,7 +442,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
             }
         } else if let PickerRowKind::CatalogCli { signed_in, installed, .. } = row.kind {
             if let Some(ref st_lbl) = row.state_label {
-                let (p_bg, p_border, p_fg) = state_pill_colors(signed_in, installed);
+                let (p_bg, p_border, p_fg) = state_pill_colors(signed_in, installed, Some(st_lbl));
                 let lbl_w = widgets::text_width(&p, st_lbl, &theme::font_caption()) + theme::SPACE_GROUP;
                 let pill_w = lbl_w.clamp(48.0, (inner_w * 0.46).max(64.0));
                 let pill_h = 18.0;
@@ -441,18 +452,34 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
                 p.rect_stroke(pill_r, theme::cr_pill(pill_r.height()), Stroke::new(theme::BORDER_WIDTH, p_border), StrokeKind::Inside);
                 let pill_txt = widgets::elide(&p, st_lbl, &theme::font_caption(), (pill_w - theme::SPACE_INLINE).max(24.0));
                 p.text(pill_r.center(), Align2::CENTER_CENTER, pill_txt, theme::font_caption(), p_fg);
+                widgets::record(ui, &format!("{}-pill", row.id), pill_r);
             }
         }
 
         if let Some(ref cap) = row.caption {
-            let cap_elided = widgets::elide(&p, cap, &theme::font_caption(), (inner_w - theme::INSET_CONTROL * 2.0).max(48.0));
-            p.text(
-                Pos2::new(r_rect.left() + theme::INSET_CONTROL, r_rect.bottom() - caption_bottom_offset),
-                Align2::LEFT_CENTER,
-                cap_elided,
-                theme::font_caption(),
-                theme::TEXT_TERTIARY,
-            );
+            let cap_max_w = (inner_w - theme::INSET_CONTROL * 2.0).max(48.0);
+            if row.selectable {
+                let cap_elided = widgets::elide(&p, cap, &theme::font_caption(), cap_max_w);
+                p.text(
+                    Pos2::new(r_rect.left() + theme::INSET_CONTROL, r_rect.bottom() - caption_bottom_offset),
+                    Align2::LEFT_CENTER,
+                    cap_elided,
+                    theme::font_caption(),
+                    theme::TEXT_TERTIARY,
+                );
+            } else {
+                let cap_fmt = egui::TextFormat {
+                    font_id: theme::font_caption(),
+                    color: theme::TEXT_TERTIARY,
+                    line_height: Some(theme::LINE_CAPTION),
+                    ..Default::default()
+                };
+                let mut cap_job = egui::text::LayoutJob::single_section(cap.clone(), cap_fmt);
+                cap_job.wrap = egui::text::TextWrapping { max_width: cap_max_w, max_rows: 3, break_anywhere: false, overflow_character: Some('…') };
+                let galley = p.layout_job(cap_job);
+                let cap_pos = Pos2::new(r_rect.left() + theme::INSET_CONTROL, r_rect.bottom() - caption_bottom_offset - galley.size().y);
+                p.galley(cap_pos, galley, theme::TEXT_TERTIARY);
+            }
         }
 
         widgets::record(ui, &row_id, r_rect);
@@ -583,10 +610,14 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
             }
             right_limit = btn_r.left() - theme::SPACE_FACT;
         } else if let Some(ref st_lbl) = row.state_label {
-            let st_col = match &row.kind {
-                PickerRowKind::CatalogCli { signed_in: SignIn::Yes, .. } => STATUS_OK_TEXT,
-                PickerRowKind::CatalogCli { signed_in: SignIn::No, .. } => STATUS_WARN_TEXT,
-                _ => theme::TEXT_SECONDARY,
+            let st_col = if st_lbl == "Unavailable" {
+                theme::TEXT_DISABLED
+            } else {
+                match &row.kind {
+                    PickerRowKind::CatalogCli { signed_in: SignIn::Yes, .. } => STATUS_OK_TEXT,
+                    PickerRowKind::CatalogCli { signed_in: SignIn::No, .. } => STATUS_WARN_TEXT,
+                    _ => theme::TEXT_SECONDARY,
+                }
             };
             let max_st_w = (inner_w * 0.44).max(44.0);
             let st_str = widgets::elide(&p, st_lbl, &theme::font_caption(), max_st_w);
@@ -1097,6 +1128,50 @@ mod tests {
         st.permission_mode = crate::terminal::PermissionMode::Ask;
         let ask_rows = rows_for_state(&mut st);
         assert!(ask_rows.iter().find(|r| r.label == "Codex").expect("Codex").selectable, "Ask still offers Codex");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ask_risky_picker_wraps_the_disabled_reason_and_paints_unavailable_neutral() {
+        let root = temp_test_dir("ask-risky-wrap");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 900.0));
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+            show_picker_panel(&mut st, ui, panel_rect, None);
+        });
+        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
+        let joined: String = texts.iter().map(|t| t.text.replace('\n', "")).collect::<Vec<_>>().join(" ");
+        assert!(joined.contains("Ask for risky only is unavailable"), "full disabled reason must wrap, not ellipsize: {joined}");
+        assert!(!joined.contains("unav…"), "the reason must not be cut with an ellipsis: {joined}");
+        let pill = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-dropdown-codex-pill".to_string())))).expect("Unavailable pill");
+        let mut saw_ok_green = false;
+        let mut saw_neutral = false;
+        fn walk(shape: &egui::Shape, pill: Rect, saw_ok_green: &mut bool, saw_neutral: &mut bool) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, pill, saw_ok_green, saw_neutral)),
+                egui::Shape::Rect(r) if r.rect.contains(pill.center()) => {
+                    if r.fill == STATUS_OK_BG {
+                        *saw_ok_green = true;
+                    }
+                    if r.fill == theme::BG_TERTIARY {
+                        *saw_neutral = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        for cs in &out.shapes {
+            walk(&cs.shape, pill, &mut saw_ok_green, &mut saw_neutral);
+        }
+        assert!(saw_neutral, "Unavailable uses the neutral pill fill");
+        assert!(!saw_ok_green, "Unavailable must not use the success fill");
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }

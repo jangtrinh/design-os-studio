@@ -1915,7 +1915,7 @@ impl TerminalState {
         }
     }
 
-    /// Handles a click on the in-panel approval card (`Approve`, `Allow for this session`, `Deny`, `Show prompt`, or `Open tab`).
+    /// Handles a click on the in-panel approval card (`Approve`, `Allow this session`, `Deny`, `Show prompt`, or `Open tab`).
     pub fn handle_approval_card_action(&mut self, action: crate::agent_approval_card::CardAction) {
         match action {
             crate::agent_approval_card::CardAction::Approve(id) => {
@@ -1989,17 +1989,18 @@ impl TerminalState {
     }
 
     /// Populates the approval card state for the `--panel agents-approval-*` screenshot fixtures (`#656`, `#1195`).
-    pub fn open_approval_fixture(&mut self, preset_slug: &str, file_path: Option<&Path>) {
-        self.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+    pub fn open_approval_fixture(&mut self, preset_slug: &str, file_path: Option<&Path>, mode: crate::agent_permissions::AgentPermissionMode) {
+        self.permission_mode = mode;
         self.ensure_default_tab(file_path);
         if let Some(tab) = self.active_tab_mut() {
-            tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+            tab.permission_mode = mode;
         }
         let now = crate::agent_sessions::unix_timestamp_secs();
         let Some(approvals_dir) = self.active_tab().and_then(|tab| tab.approvals_dir.clone()) else {
             return;
         };
         let _ = crate::agent_approval_channel::create_private_dir_all(&approvals_dir);
+        let risky = mode == crate::agent_permissions::AgentPermissionMode::AskRisky;
         match preset_slug {
             "agents-approval-command" => {
                 if let Some(tab) = self.active_tab_mut() {
@@ -2008,8 +2009,9 @@ impl TerminalState {
                 }
                 let req = serde_json::json!({
                     "id": "1001-Bash",
-                    "tool_name": "Bash",
+                    "tool_name": if risky { "designos_update_node" } else { "Bash" },
                     "summary": "cargo test -p designos-app --bin designos",
+                    "target": if risky { "node_id:12:34" } else { "" },
                     "timestamp": now,
                 });
                 let _ = std::fs::write(approvals_dir.join("1001-Bash.request.json"), req.to_string());
@@ -2082,6 +2084,64 @@ impl TerminalState {
         }
     }
 
+    pub fn seed_screenshot_cli_probes(&mut self) {
+        use crate::agent_cli_catalog::{CliProbe, SignIn};
+        for (preset, version) in [
+            (AgentCliPreset::Claude, "2.1.302"),
+            (AgentCliPreset::Codex, "0.163.0"),
+            (AgentCliPreset::Grok, "1.0.62"),
+            (AgentCliPreset::Gemini, "0.38.2"),
+            (AgentCliPreset::Antigravity, "1.0"),
+        ] {
+            self.picker.cache.set_probe(preset, CliProbe { installed: true, version: Some(version.into()), signed_in: SignIn::Yes });
+        }
+        self.picker.probe_started = true;
+    }
+
+    pub fn open_ask_risky_screenshot_fixture(&mut self, _file_path: Option<&Path>) {
+        self.permission_mode = crate::agent_permissions::AgentPermissionMode::AskRisky;
+        self.seed_screenshot_cli_probes();
+        self.picker_open = true;
+        let now_secs = crate::agent_sessions::unix_timestamp_secs();
+        let _ = self.session_grants.insert(&self.session_id, "designos_update_node", "node_id:12:34", now_secs);
+        let now = std::time::Instant::now();
+        self.active_turn_ledger_mut().record_auto_allow(vec![
+            crate::agent_permissions::AutoAllowRow {
+                timestamp: now_secs,
+                tool_name: "designos_get_document".into(),
+                target: String::new(),
+                reason: crate::agent_permissions::AutoAllowReason::Tier,
+                kind: crate::agent_permissions::AutoAllowKind::Informational,
+                tab: None,
+            },
+            crate::agent_permissions::AutoAllowRow {
+                timestamp: now_secs,
+                tool_name: "designos_create_node".into(),
+                target: "node_id:1:2".into(),
+                reason: crate::agent_permissions::AutoAllowReason::Tier,
+                kind: crate::agent_permissions::AutoAllowKind::Revertable,
+                tab: None,
+            },
+        ]);
+        self.active_turn_ledger_mut().ingest_marks(
+            [
+                crate::agent_turn_marks::TurnMarkLine {
+                    v: crate::agent_turn_marks::TURN_MARK_VERSION,
+                    turn_mark: crate::agent_turn_marks::TurnPhase::Start,
+                    cli: Some("claude".into()),
+                    patch_bytes: 0,
+                },
+                crate::agent_turn_marks::TurnMarkLine {
+                    v: crate::agent_turn_marks::TURN_MARK_VERSION,
+                    turn_mark: crate::agent_turn_marks::TurnPhase::End,
+                    cli: Some("claude".into()),
+                    patch_bytes: 0,
+                },
+            ],
+            now,
+        );
+    }
+
     /// Returns the turn ledger for `tab_idx` (or the fallback ledger when no tabs are spawned).
     pub fn ledger_for_tab(&self, tab_idx: usize) -> &crate::agent_turn_ledger::AgentTurnLedger {
         self.tabs.get(tab_idx).map_or(&self.turn_ledger, |t| &t.turn_ledger)
@@ -2104,15 +2164,22 @@ impl TerminalState {
 
     pub fn poll_auto_allow_into_active(&mut self) {
         let rows = self.auto_allow_log.poll();
-        if !rows.is_empty() {
-            self.active_turn_ledger_mut().record_auto_allow(rows);
-        }
+        self.distribute_auto_allow_rows(rows);
     }
 
-    pub fn poll_auto_allow_into_tab(&mut self, tab_idx: usize) {
+    pub fn poll_auto_allow_into_tab(&mut self, _tab_idx: usize) {
         let rows = self.auto_allow_log.poll();
-        if !rows.is_empty() {
-            self.ledger_for_tab_mut(tab_idx).record_auto_allow(rows);
+        self.distribute_auto_allow_rows(rows);
+    }
+
+    fn distribute_auto_allow_rows(&mut self, rows: Vec<crate::agent_permissions::AutoAllowRow>) {
+        if rows.is_empty() {
+            return;
+        }
+        let fallback = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        for row in rows {
+            let idx = row.tab.and_then(|id| self.tabs.iter().position(|tab| tab.id as u64 == id)).unwrap_or(fallback);
+            self.ledger_for_tab_mut(idx).record_auto_allow(vec![row]);
         }
     }
 
@@ -11522,7 +11589,7 @@ mod tests {
 
         let mut st = ScopedTerminalState::default();
         st.bind_session(&format!("656-status-{}", std::process::id()));
-        st.open_approval_fixture("agents-approval-command", None);
+        st.open_approval_fixture("agents-approval-command", None, crate::agent_permissions::AgentPermissionMode::Ask);
         assert!(st.needs_approval());
         let tab_status = st.active_tab().unwrap().agent_status.lock().unwrap().clone();
         assert_eq!(tab_status, AgentTabStatus::WaitingForInput(Some("Needs approval".into())));
@@ -11650,7 +11717,7 @@ mod tests {
             crate::theme::apply(&ctx);
             let mut st = ScopedTerminalState::default();
             st.bind_session(&format!("656-lint-{preset_slug}-{}", std::process::id()));
-            st.open_approval_fixture(preset_slug, None);
+            st.open_approval_fixture(preset_slug, None, crate::agent_permissions::AgentPermissionMode::Ask);
 
             crate::lint::take_icons();
             let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(300.0, 800.0));
