@@ -2810,7 +2810,13 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, is_replace: bool, skipped:
     let mut by_coll_and_sanitized: HashMap<(String, String), String> = HashMap::new();
     let mut coll_by_group_name: HashMap<String, String> = HashMap::new();
 
+    // A carried group (manifest `group`, or the top-level key of a file with no
+    // manifest) is the only alias key. The collection name is used only when no
+    // group was carried.
     for c in doc.variable_collections.values() {
+        if explicit_group_by_coll.contains_key(&c.id) {
+            continue;
+        }
         if !c.is_library() || !coll_by_group_name.contains_key(&c.name) {
             coll_by_group_name.insert(c.name.clone(), c.id.clone());
         }
@@ -4513,9 +4519,42 @@ mod tests {
 
     #[test]
     fn dtcg_round_trip_keeps_every_collection() {
-        let doc = make_1140_fixture_doc();
+        let mut doc = make_1140_fixture_doc();
+        // Same path as the library copy (`Colors/Gray (dark mode)/950`), but the
+        // alias target is the local collection, so the export writes `{_Primitives.…}`.
+        doc.variables.insert(
+            "VariableID:30:bg_local".into(),
+            Variable {
+                id: "VariableID:30:bg_local".into(),
+                name: "Colors/Background/bg-local".into(),
+                collection: "VariableCollectionId:30:3".into(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([
+                    ("30:light".into(), VariableValue::Alias("VariableID:10:gray950".into())),
+                    ("30:dark".into(), VariableValue::Alias("VariableID:10:gray950".into())),
+                ]),
+                description: String::new(),
+                scopes: Vec::new(),
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: CodeSyntax::new(),
+                extensions: FigmaExtensions::new(),
+                mode_extensions: BTreeMap::new(),
+            },
+        );
+        doc.variable_collections.get_mut("VariableCollectionId:30:3").unwrap().variables.push("VariableID:30:bg_local".into());
+
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
         assert_all_aliases_resolve_in_bundle(&bundle);
+
+        let dark_bytes = &bundle.files.iter().find(|(n, _)| n == "Color modes.Dark.tokens.json").unwrap().1;
+        let dark_val: Value = serde_json::from_slice(dark_bytes).unwrap();
+        assert_eq!(dark_val["Color modes"]["Colors"]["Background"]["bg-primary"]["$value"].as_str().unwrap(), "{_Primitives (2).Colors.Gray (dark mode).950}");
+        assert_eq!(
+            dark_val["Color modes"]["Colors"]["Background"]["bg-local"]["$value"].as_str().unwrap(),
+            "{_Primitives.Colors.Gray (dark mode).950}",
+            "alias into the local collection must use the plain group, not the library copy"
+        );
 
         let manifest_bytes = bundle.files.iter().find(|(n, _)| n == "tokens.manifest.json").unwrap().1.clone();
         let additional: Vec<(String, Vec<u8>)> =
@@ -4543,9 +4582,117 @@ mod tests {
             Some(&VariableValue::Alias("VariableID:20:gray950".into())),
             "alias into _Primitives (2) must resolve to the library copy's variable"
         );
+        let local_alias = &imported.variables["VariableID:30:bg_local"];
+        assert_eq!(
+            local_alias.values.get("30:dark"),
+            Some(&VariableValue::Alias("VariableID:10:gray950".into())),
+            "plain {{_Primitives.…}} alias must resolve to the local collection when the library copy has the same path"
+        );
         let (_, resolved_dark) = resolve_literal_in_mode(&imported, "VariableID:30:bg_primary", "30:dark", "Dark").unwrap();
         let (_, orig_dark) = resolve_literal_in_mode(&doc, "VariableID:30:bg_primary", "30:dark", "Dark").unwrap();
         assert_eq!(resolved_dark, orig_dark, "same resolved Dark bg-primary after round-trip");
+        let (_, resolved_local) = resolve_literal_in_mode(&imported, "VariableID:30:bg_local", "30:dark", "Dark").unwrap();
+        let (_, orig_local) = resolve_literal_in_mode(&doc, "VariableID:30:bg_local", "30:dark", "Dark").unwrap();
+        assert_eq!(resolved_local, orig_local, "same resolved Dark bg-local after round-trip");
+
+        // The collection name is not an alias key once a manifest group was carried.
+        // `{Brand.swatch}` is the local group; `{LibraryBrand.swatch}` is only the library name.
+        let name_manifest = r##"{
+            "schema": "designos-dtcg-manifest",
+            "format": "dtcg",
+            "collections": [
+                {
+                    "id": "VariableCollectionId:10:1",
+                    "name": "LocalBrand",
+                    "group": "Brand",
+                    "default_mode": "10:m1",
+                    "modes": [{"id": "10:m1", "name": "Style", "file": "local.tokens.json"}]
+                },
+                {
+                    "id": "VariableCollectionId:20:2",
+                    "name": "LibraryBrand",
+                    "group": "Brand (2)",
+                    "source_library_key": "lib",
+                    "default_mode": "20:m1",
+                    "modes": [{"id": "20:m1", "name": "Style", "file": "lib.tokens.json"}]
+                },
+                {
+                    "id": "VariableCollectionId:30:3",
+                    "name": "Modes",
+                    "group": "Modes",
+                    "default_mode": "30:m1",
+                    "modes": [{"id": "30:m1", "name": "Mode 1", "file": "modes.tokens.json"}]
+                }
+            ]
+        }"##;
+        let local_file = r##"{
+            "Brand": {
+                "swatch": {
+                    "$type": "color",
+                    "$value": "#FF0000",
+                    "$extensions": {"org.designos": {"id": "VariableID:10:swatch", "collection_id": "VariableCollectionId:10:1"}}
+                }
+            }
+        }"##;
+        let lib_file = r##"{
+            "Brand (2)": {
+                "swatch": {
+                    "$type": "color",
+                    "$value": "#0000FF",
+                    "$extensions": {"org.designos": {"id": "VariableID:20:swatch", "collection_id": "VariableCollectionId:20:2"}}
+                }
+            }
+        }"##;
+        let modes_file = r##"{
+            "Modes": {
+                "by-group": {
+                    "$type": "color",
+                    "$value": "{Brand.swatch}",
+                    "$extensions": {"org.designos": {"id": "VariableID:30:by_group", "collection_id": "VariableCollectionId:30:3"}}
+                },
+                "by-lib": {
+                    "$type": "color",
+                    "$value": "{Brand (2).swatch}",
+                    "$extensions": {"org.designos": {"id": "VariableID:30:by_lib", "collection_id": "VariableCollectionId:30:3"}}
+                },
+                "by-name": {
+                    "$type": "color",
+                    "$value": "{LibraryBrand.swatch}",
+                    "$extensions": {"org.designos": {"id": "VariableID:30:by_name", "collection_id": "VariableCollectionId:30:3"}}
+                }
+            }
+        }"##;
+        let mut named = Document::new("name-is-not-group");
+        let name_rep = import_variables_bytes(
+            &mut named,
+            name_manifest.as_bytes(),
+            Some("tokens.manifest.json"),
+            VariablesFormat::Dtcg,
+            ImportVariablesOptions {
+                additional_files: vec![
+                    ("local.tokens.json".into(), local_file.as_bytes().to_vec()),
+                    ("lib.tokens.json".into(), lib_file.as_bytes().to_vec()),
+                    ("modes.tokens.json".into(), modes_file.as_bytes().to_vec()),
+                ],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            named.variables["VariableID:30:by_group"].values.get("30:m1"),
+            Some(&VariableValue::Alias("VariableID:10:swatch".into())),
+            "manifest group Brand resolves to the local collection"
+        );
+        assert_eq!(
+            named.variables["VariableID:30:by_lib"].values.get("30:m1"),
+            Some(&VariableValue::Alias("VariableID:20:swatch".into())),
+            "manifest group Brand (2) resolves to the library copy"
+        );
+        assert!(
+            name_rep.skipped.iter().any(|s| s.reason.contains("LibraryBrand.swatch")),
+            "collection name is not an alias key when a manifest group was carried: {:?}",
+            name_rep.skipped
+        );
     }
 
     fn collect_dtcg_alias_refs(v: &Value, out: &mut Vec<String>) {
