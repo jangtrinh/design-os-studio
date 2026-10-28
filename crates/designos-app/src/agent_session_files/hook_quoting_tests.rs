@@ -28,6 +28,7 @@ pub(super) fn job_in(session_dir: &Path) -> SnapshotJob {
         bootstrap_run_id: 1,
         agent_runtime: "claude".into(),
         ask_mode: false,
+        ask_risky: false,
         unread_probe: None,
         exact_project_config: None,
     }

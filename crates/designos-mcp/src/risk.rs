@@ -47,6 +47,25 @@ impl RiskTier {
     pub fn open_world(self) -> bool {
         matches!(self, Self::External)
     }
+
+    /// Higher rank asks more. A mixed batch uses the highest rank in the batch.
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Read => 0,
+            Self::Additive => 1,
+            Self::Modify => 2,
+            Self::Destructive => 3,
+            Self::External => 4,
+        }
+    }
+
+    pub fn strictest(self, other: Self) -> Self {
+        if other.rank() > self.rank() {
+            other
+        } else {
+            self
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +134,28 @@ pub fn tool_risk(name: &str) -> Option<ToolRisk> {
     TOOLS.iter().find(|(row, _, _)| *row == name).map(|&(_, tier, idempotent)| ToolRisk { tier, idempotent })
 }
 
+/// Bare name of the row `name` resolves to, or `name` when it is not in the table.
+pub fn canonical_tool_name(name: &str) -> String {
+    let name = canonical(name);
+    TOOLS.iter().find(|(row, _, _)| *row == name).map(|(row, _, _)| (*row).to_string()).unwrap_or_else(|| name.to_string())
+}
+
+/// Declared names and aliases whose tier matches `pred`. The approval hook projects this list. It does not keep a second table.
+pub fn names_where_tier(mut pred: impl FnMut(RiskTier) -> bool) -> Vec<&'static str> {
+    let mut names = Vec::new();
+    for &(name, tier, _) in TOOLS {
+        if pred(tier) {
+            names.push(name);
+        }
+    }
+    for alias in crate::engine::ALIASES {
+        if tool_risk(alias).is_some_and(|risk| pred(risk.tier)) {
+            names.push(*alias);
+        }
+    }
+    names
+}
+
 /// Writes `annotations` and `_meta.risk_tier` from [`tool_risk`].
 /// Panics when `name` has no row, so a new tool cannot be listed unclassified.
 pub fn stamp_tool_json(tool: &mut Value) {
@@ -180,6 +221,15 @@ mod tests {
             let via_target = tool_risk(canonical(alias)).unwrap();
             assert_eq!(via_alias, via_target, "alias {alias} must share its target tier");
         }
+    }
+
+    #[test]
+    fn strictest_tier_is_the_higher_rank() {
+        assert_eq!(RiskTier::Read.strictest(RiskTier::Destructive), RiskTier::Destructive);
+        assert_eq!(RiskTier::External.strictest(RiskTier::Destructive), RiskTier::External);
+        let mixed = [RiskTier::Read, RiskTier::Additive, RiskTier::Modify, RiskTier::Destructive].into_iter().fold(RiskTier::Read, RiskTier::strictest);
+        assert_eq!(tool_risk("designos_apply_batch").unwrap().tier, mixed);
+        assert_eq!(tool_risk("designos_apply_batch").unwrap().tier, RiskTier::Destructive);
     }
 
     #[test]

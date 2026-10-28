@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use egui::{Align2, Color32, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
 use crate::agent_cli_catalog::{
-    build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, ASK_PERMISSION_CAPTION, CUSTOM_CLI_WARNING, SKIP_PERMISSION_CAPTION,
+    build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, ASK_PERMISSION_CAPTION, ASK_RISKY_PERMISSION_CAPTION,
+    CUSTOM_CLI_WARNING, SKIP_PERMISSION_CAPTION,
 };
 use crate::agent_start_failure::FixAction;
 use crate::comments::settings::{add_custom_cli, load_custom_clis};
@@ -123,7 +124,31 @@ pub fn rows_for_state(state: &mut TerminalState) -> Vec<PickerRow> {
         let order = state.picker.open_row_order.clone();
         rows.sort_by_key(|r| order.iter().position(|id| id == &r.id).unwrap_or(usize::MAX));
     }
+    apply_ask_risky_availability(state, &mut rows);
     rows
+}
+
+/// In Ask for risky only, a CLI with no shared approval hook cannot be started from the picker.
+fn apply_ask_risky_availability(state: &TerminalState, rows: &mut [PickerRow]) {
+    if state.permission_mode != crate::terminal::PermissionMode::AskRisky {
+        return;
+    }
+    for row in rows.iter_mut() {
+        if !row.selectable {
+            continue;
+        }
+        let reason = match &row.kind {
+            PickerRowKind::CatalogCli { preset, .. } => crate::agent_permissions::ask_risky_unsupported_reason(*preset),
+            PickerRowKind::CustomCli { .. } | PickerRowKind::OtherCli => {
+                Some("A custom command does not share the approval hook, so Ask for risky only is unavailable.")
+            }
+            PickerRowKind::Shell => None,
+        };
+        let Some(reason) = reason else { continue };
+        row.selectable = false;
+        row.state_label = Some("Unavailable".to_string());
+        row.caption = Some(reason.to_string());
+    }
 }
 
 /// Saves the inline `"Other CLI…"` form (`other_label_input`, `other_command_input`) to Studio's
@@ -424,7 +449,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
 
         widgets::record(ui, &row_id, r_rect);
         if resp.clicked() && matches!(interaction, PickerInteraction::None) {
-            if row.kind == PickerRowKind::OtherCli {
+            if row.kind == PickerRowKind::OtherCli && row.selectable {
                 interaction = PickerInteraction::OpenOtherForm;
             } else if is_row_clickable_on_pointer(state, row) {
                 interaction = PickerInteraction::SelectRow(idx);
@@ -452,6 +477,7 @@ fn permission_caption(mode: crate::terminal::PermissionMode) -> &'static str {
     match mode {
         crate::terminal::PermissionMode::Skip => SKIP_PERMISSION_CAPTION,
         crate::terminal::PermissionMode::Ask => ASK_PERMISSION_CAPTION,
+        crate::terminal::PermissionMode::AskRisky => ASK_RISKY_PERMISSION_CAPTION,
     }
 }
 
@@ -581,7 +607,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
 
         widgets::record(ui, &row.id, row_r);
         if resp.clicked() && matches!(interaction, PickerInteraction::None) {
-            if row.kind == PickerRowKind::OtherCli {
+            if row.kind == PickerRowKind::OtherCli && row.selectable {
                 interaction = PickerInteraction::OpenOtherForm;
             } else if is_row_clickable_on_pointer(state, row) {
                 interaction = PickerInteraction::SelectRow(idx);
@@ -1032,6 +1058,33 @@ mod tests {
         assert_eq!(grok_fix, Some(FixAction::OpenInstallPage("https://x.ai/cli")));
         assert!(st.tabs.is_empty(), "uninstalled Grok must not spawn a tab");
 
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ask_risky_disables_clis_without_a_shared_hook() {
+        let root = temp_test_dir("ask-risky-rows");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        let rows = rows_for_state(&mut st);
+        let claude = rows.iter().find(|r| r.label == "Claude Code").expect("Claude");
+        assert!(claude.selectable, "Claude shares the approval hook");
+        let codex = rows.iter().find(|r| r.label == "Codex").expect("Codex");
+        assert!(!codex.selectable);
+        assert_eq!(codex.state_label.as_deref(), Some("Unavailable"));
+        assert!(codex.caption.as_deref().is_some_and(|c| c.contains("Codex")));
+        let grok = rows.iter().find(|r| r.label == "Grok").expect("Grok");
+        assert!(!grok.selectable);
+        let shell = rows.iter().find(|r| r.label == "Shell").expect("Shell");
+        assert!(shell.selectable);
+        let other = rows.iter().find(|r| r.kind == PickerRowKind::OtherCli).expect("Other CLI");
+        assert!(!other.selectable);
+        st.permission_mode = crate::terminal::PermissionMode::Ask;
+        let ask_rows = rows_for_state(&mut st);
+        assert!(ask_rows.iter().find(|r| r.label == "Codex").expect("Codex").selectable, "Ask still offers Codex");
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }
