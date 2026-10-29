@@ -1396,6 +1396,7 @@ fn export_dtcg_inner(doc: &Document, color_format: ColorFormat) -> Result<Export
         let group_prefixes = &coll_prefixes[&coll.id];
         let clean_coll_name = &coll_group_names[&coll.id];
         let mut mode_entries = Vec::new();
+        let mut used_mode_filenames = HashSet::new();
 
         for mode in &coll.modes {
             let mut coll_group = Map::new();
@@ -1511,7 +1512,13 @@ fn export_dtcg_inner(doc: &Document, color_format: ColorFormat) -> Result<Export
             file_root.insert(clean_coll_name.clone(), Value::Object(coll_group));
 
             let (clean_mode_file, _) = sanitize_dtcg_segment(&mode.name);
-            let file_name = format!("{clean_coll_name}.{clean_mode_file}.tokens.json");
+            let mode_stem = format!("{clean_coll_name}.{clean_mode_file}");
+            let mut file_name = format!("{mode_stem}.tokens.json");
+            let mut counter = 2usize;
+            while !used_mode_filenames.insert(file_name.to_ascii_lowercase()) {
+                file_name = format!("{mode_stem} ({counter}).tokens.json");
+                counter += 1;
+            }
             let bytes = serde_json::to_vec_pretty(&Value::Object(file_root))?;
             files.push((file_name.clone(), bytes));
 
@@ -4523,6 +4530,7 @@ mod tests {
         let mut doc = make_1140_fixture_doc();
         doc.variable_collections.get_mut("VariableCollectionId:10:1").unwrap().name = "Brand".into();
         doc.variable_collections.get_mut("VariableCollectionId:20:2").unwrap().name = "brand".into();
+        doc.variable_collections.get_mut("VariableCollectionId:10:1").unwrap().modes.push(VariableMode { id: "10:m2".into(), name: "style".into() });
 
         let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
         let token_files: Vec<(String, Vec<u8>)> = bundle.files.iter().filter(|(name, _)| name.ends_with(".tokens.json")).cloned().collect();
@@ -4533,6 +4541,12 @@ mod tests {
             "DTCG files collide on case-insensitive filesystems: {:?}",
             token_files.iter().map(|(n, _)| n).collect::<Vec<_>>()
         );
+
+        let manifest: Value = serde_json::from_slice(&bundle.files.iter().find(|(name, _)| name == "tokens.manifest.json").unwrap().1).unwrap();
+        let emitted: BTreeSet<&str> = bundle.files.iter().map(|(name, _)| name.as_str()).collect();
+        for mode in manifest["collections"].as_array().unwrap().iter().flat_map(|c| c["modes"].as_array().unwrap()) {
+            assert!(emitted.contains(mode["file"].as_str().unwrap()), "manifest references missing file: {mode:?}");
+        }
 
         let manifest_bytes = bundle.files.iter().find(|(name, _)| name == "tokens.manifest.json").unwrap().1.clone();
         let additional = bundle.files.iter().filter(|(name, _)| name != "tokens.manifest.json").cloned().collect();
@@ -4548,6 +4562,8 @@ mod tests {
         assert!(report.skipped.is_empty(), "round-trip skipped tokens: {:?}", report.skipped);
         assert!(imported.variable_collections.contains_key("VariableCollectionId:10:1"));
         assert!(imported.variable_collections.contains_key("VariableCollectionId:20:2"));
+        assert!(imported.variables.values().any(|v| v.collection == "VariableCollectionId:10:1"));
+        assert!(imported.variables.values().any(|v| v.collection == "VariableCollectionId:20:2"));
     }
 
     #[test]
