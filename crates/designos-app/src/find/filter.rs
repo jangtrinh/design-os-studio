@@ -5,7 +5,7 @@ use crate::app::App;
 use crate::icons::{self, Icon};
 use crate::panels::layers::Row;
 use crate::theme;
-use crate::widgets::{self, field};
+use crate::widgets;
 use designos_doc::find::{FindOptions, Matcher};
 use designos_doc::{Document, NodeId};
 use egui::{Align, Key, Margin, Pos2, Rect, Sense, TextEdit, Ui, Vec2};
@@ -59,16 +59,29 @@ pub fn paint_highlights(p: &egui::Painter, name: &str, ranges: &[Range<usize>], 
     }
 }
 
+const SEARCH_ICON_PX: f32 = 14.0;
+const SEARCH_ICON_DX: f32 = 14.0;
+const SEARCH_TEXT_DX: f32 = 26.0;
+const CLEAR_GLYPH_PX: f32 = 12.0;
+const CLEAR_TEXT_GAP: f32 = 2.0;
+
+/// Hit box of the clear control. It meets the target floor and sits on the field's right edge.
+pub fn clear_button_rect(field: Rect) -> Rect {
+    Rect::from_center_size(Pos2::new(field.right() - theme::TARGET_MIN * 0.5, field.center().y), Vec2::splat(theme::TARGET_MIN))
+}
+
 /// The filter field under the "Layers" header: search icon, text, clear button.
 /// Escape (or the clear button on an empty field) closes it.
 pub fn show_field(app: &mut App, ui: &mut Ui, row: Rect) {
     let p = ui.painter().clone();
-    let r = Rect::from_min_max(Pos2::new(row.left() + 8.0, row.top() + 2.0), Pos2::new(row.right() - 8.0, row.bottom() - 2.0));
+    let r = Rect::from_min_max(Pos2::new(row.left() + theme::INSET_FRAME, row.top()), Pos2::new(row.right() - theme::INSET_FRAME, row.bottom()));
     let id = ui.id().with("layer-filter");
-    field::field_bg(ui, r, id);
-    icons::paint(&p, Icon::Search, Pos2::new(r.left() + 14.0, r.center().y), 14.0, theme::ICON_SECONDARY);
-    let clear = Rect::from_center_size(Pos2::new(r.right() - 14.0, r.center().y), Vec2::splat(20.0));
-    let text_rect = Rect::from_min_max(Pos2::new(r.left() + 26.0, r.top()), Pos2::new(clear.left() - 2.0, r.bottom()));
+    let focused = ui.memory(|m| m.has_focus(id));
+    let look = crate::widgets::kit::search_look(if focused { crate::widgets::kit::State::Focused } else { crate::widgets::kit::State::Default });
+    crate::widgets::kit::paint_frame(&p, r, theme::RADIUS_CONTROL, &look);
+    icons::paint(&p, Icon::Search, Pos2::new(r.left() + SEARCH_ICON_DX, r.center().y), SEARCH_ICON_PX, look.icon);
+    let clear = clear_button_rect(r);
+    let text_rect = Rect::from_min_max(Pos2::new(r.left() + SEARCH_TEXT_DX, r.top()), Pos2::new(clear.left() - CLEAR_TEXT_GAP, r.bottom()));
     if app.layers.filter_focus {
         // Keep asking until the field has it: the click on the header icon that opened the
         // filter can still take the focus away on the frame it happens.
@@ -87,13 +100,13 @@ pub fn show_field(app: &mut App, ui: &mut Ui, row: Rect) {
         .frame(egui::Frame::NONE)
         .margin(Margin::ZERO)
         .vertical_align(Align::Center)
-        .hint_text(egui::RichText::new("Filter layers by name").font(font).color(theme::TEXT_TERTIARY))
+        .hint_text(egui::RichText::new("Filter layers by name").font(font).color(theme::TEXT_PLACEHOLDER))
         .desired_width(text_rect.width());
     ui.put(text_rect, te);
     let has_text = !app.layers.filter.is_empty();
     if has_text {
         let cr = ui.interact(clear, ui.id().with("layer-filter-clear"), Sense::click());
-        icons::paint(&p, Icon::Close, clear.center(), 12.0, if cr.hovered() { theme::ICON } else { theme::ICON_SECONDARY });
+        icons::paint(&p, Icon::Close, clear.center(), CLEAR_GLYPH_PX, if cr.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY });
         if cr.clicked() {
             app.layers.filter.clear();
             ui.memory_mut(|m| m.request_focus(id));
@@ -168,5 +181,15 @@ mod tests {
     fn highlight_ranges_are_char_aligned() {
         let m = matcher("é").unwrap();
         assert_eq!(highlights(&m, "Café É"), vec![3..5, 6..8]);
+    }
+
+    #[test]
+    fn clear_button_hit_box_meets_the_target_floor() {
+        let field = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(200.0, theme::CONTROL_XS));
+        let clear = clear_button_rect(field);
+        assert!((clear.width() - theme::TARGET_MIN).abs() < 0.1, "clear width {}", clear.width());
+        assert!((clear.height() - theme::TARGET_MIN).abs() < 0.1, "clear height {}", clear.height());
+        assert!((clear.right() - field.right()).abs() < 0.1, "clear sits on the field's right edge");
+        assert!((clear.center().y - field.center().y).abs() < 0.1, "clear is centred on the field");
     }
 }

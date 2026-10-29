@@ -1201,6 +1201,7 @@ mod layer_drag_fast;
 mod leave_menu_quit;
 mod leave_prompt;
 mod leave_prompt_edges;
+mod left_panel_actions;
 mod live_agent_edits;
 mod live_patch_agent_switch;
 mod live_patch_agent_switch_edges;

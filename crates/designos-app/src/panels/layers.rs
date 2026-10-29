@@ -240,10 +240,12 @@ fn split_row_text(text_left: f32, text_right: f32, label_w: f32) -> RowTextSplit
     }
 }
 
+const TYPE_LABEL_COMPONENT_ALPHA: f32 = 0.75;
+
 /// The type label is dimmer than the name and greys out together with it when the layer is hidden.
 fn type_label_color(node_visible: bool, component_like: bool) -> egui::Color32 {
     if node_visible && component_like {
-        theme::TEXT_COMPONENT.gamma_multiply(0.75)
+        theme::TEXT_COMPONENT.gamma_multiply(TYPE_LABEL_COMPONENT_ALPHA)
     } else {
         theme::TEXT_TERTIARY
     }
@@ -513,20 +515,24 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             if resp.hovered() {
                 app.hover_layer = Some(row.id);
             }
-            // One shape for every row state: a pill at the frame inset (selection, hover and the tint of
-            // a selected layer's children all share it).
             let pill = rr.shrink2(Vec2::new(theme::INSET_FRAME, 0.0));
-            if is_sel {
-                p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), if resp.hovered() || canvas_hov { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED });
+            let pointer_hover = resp.hovered() && app.layers.drag.is_none();
+            let row_state = if is_sel {
+                crate::widgets::kit::State::Selected
+            } else if pointer_hover {
+                crate::widgets::kit::State::Hover
+            } else {
+                crate::widgets::kit::State::Default
+            };
+            let mut row_paint = crate::widgets::kit::tree_row_look(row_state, crate::widgets::kit::Surface::Primary);
+            if is_sel && (pointer_hover || canvas_hov) {
+                row_paint.fill = theme::BG_SELECTED_HOVER;
             } else if under_sel {
-                p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED_SECONDARY);
-                if canvas_hov {
-                    p.rect_stroke(pill, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-                }
-            } else if canvas_hov {
-                p.rect_stroke(pill, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-            } else if resp.hovered() && app.layers.drag.is_none() {
-                p.rect_stroke(pill, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+                row_paint.fill = theme::BG_SELECTED_SECONDARY;
+            }
+            crate::widgets::kit::paint_frame(&p, pill, theme::RADIUS_CONTROL, &row_paint);
+            if !is_sel && canvas_hov {
+                p.rect_stroke(pill, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_SELECTED), StrokeKind::Inside);
             }
 
             let indent = row.depth as f32 * theme::LAYER_INDENT;
@@ -534,13 +540,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             if row.has_children {
                 let open = app.layers.expanded.contains(&row.id);
                 let cr = ui.interact(chev, ui.id().with(("chev", row.id.0)), Sense::click());
-                let col = if is_sel {
-                    theme::ICON_SELECTED
-                } else if cr.hovered() {
-                    theme::ICON
-                } else {
-                    theme::ICON_TERTIARY
-                };
+                let col = if cr.hovered() || resp.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY };
                 icons::paint(&p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, chev.center(), 12.0, col);
                 if cr.clicked() {
                     let alt = ui.input(|i| i.modifiers.alt);
@@ -580,10 +580,10 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             let icon_c = Pos2::new(chev.right() + theme::LAYER_ICON_GAP + theme::LAYER_ICON_SIZE / 2.0, rr.center().y);
             let icon_col = if comp {
                 theme::TEXT_COMPONENT
-            } else if is_sel {
-                theme::ICON_SELECTED
+            } else if resp.hovered() || canvas_hov {
+                theme::ICON_QUATERNARY_HOVER
             } else {
-                theme::ICON_TERTIARY
+                theme::ICON_QUATERNARY
             };
             icons::paint(&p, icon, icon_c, theme::LAYER_ICON_SIZE, icon_col);
 
@@ -595,13 +595,13 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             } else if comp {
                 theme::TEXT_COMPONENT
             } else {
-                theme::TEXT
+                row_paint.text
             };
             if app.layers.renaming == Some(row.id) {
                 let id = ui.id().with(("layer-rename", row.id.0));
                 let tr = Rect::from_min_max(Pos2::new(text_left - 4.0, rr.top() + 4.0), Pos2::new(rr.right() - 8.0, rr.bottom() - 4.0));
-                p.rect_filled(tr, theme::cr(theme::RADIUS_MARK), theme::BG);
-                p.rect_stroke(tr, theme::cr(theme::RADIUS_MARK), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                let field_paint = crate::widgets::kit::field_look(crate::widgets::kit::State::Focused, false);
+                crate::widgets::kit::paint_frame(&p, tr, theme::RADIUS_CONTROL, &field_paint);
                 if !app.layers.rename_started {
                     ui.memory_mut(|m| m.request_focus(id));
                     app.layers.rename_started = true;
@@ -1153,7 +1153,11 @@ mod tests {
             let (name, label) = name_and_label(&texts);
             (name.expect("name painted").color, label.expect("type label painted").color)
         };
-        assert_eq!(colors(0), (theme::TEXT_COMPONENT, theme::TEXT_COMPONENT.gamma_multiply(0.75)), "visible instance keeps the component colours");
+        assert_eq!(
+            colors(0),
+            (theme::TEXT_COMPONENT, theme::TEXT_COMPONENT.gamma_multiply(TYPE_LABEL_COMPONENT_ALPHA)),
+            "visible instance keeps the component colours"
+        );
         assert_eq!(colors(1), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden instance greys the name and the label together");
         assert_eq!(colors(2), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden rectangle greys the name and the label together");
     }
@@ -1180,5 +1184,46 @@ mod tests {
         }
         assert_eq!(found.0, None, "a press on a floating panel is the panel's, not a row's");
         assert!(found.1.is_some(), "beside the panel the same height is a row");
+    }
+
+    fn shape_has_fill(shape: &egui::Shape, color: egui::Color32) -> bool {
+        match shape {
+            egui::Shape::Rect(r) => r.fill == color,
+            egui::Shape::Vec(v) => v.iter().any(|s| shape_has_fill(s, color)),
+            _ => false,
+        }
+    }
+
+    fn shape_has_stroke(shape: &egui::Shape, color: egui::Color32) -> bool {
+        match shape {
+            egui::Shape::Rect(r) => r.stroke.width > 0.0 && r.stroke.color == color,
+            egui::Shape::Vec(v) => v.iter().any(|s| shape_has_stroke(s, color)),
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn row_states_use_tree_row_roles() {
+        let (d, _page, frame, _a, _b) = sample();
+        let mut app = App::new(d);
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 200.0));
+        let painted = paint_panel(&mut app, region);
+        let (name, _) = name_and_label(&row_texts(&painted, region, 0));
+        assert_eq!(name.expect("row name").color, theme::TEXT_TERTIARY, "an idle row name uses the tertiary text role");
+
+        let ctx = egui::Context::default();
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), ..Default::default() };
+        raw.events.push(egui::Event::PointerMoved(Pos2::new(80.0, theme::LAYER_ROW_HEIGHT * 0.5)));
+        // Hover is reported on the frame after the row exists under the pointer.
+        let _ = ctx.run_ui(raw.clone(), |ui| show(&mut app, ui, region));
+        let hovered = ctx.run_ui(raw, |ui| show(&mut app, ui, region));
+        assert!(hovered.shapes.iter().any(|c| shape_has_fill(&c.shape, theme::BG_HOVER)), "unselected hover fills with the hover role");
+        assert!(!hovered.shapes.iter().any(|c| shape_has_stroke(&c.shape, theme::BORDER)), "unselected hover does not stroke the row");
+
+        app.select_only(frame);
+        let ctx = egui::Context::default();
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), ..Default::default() };
+        let selected = ctx.run_ui(raw, |ui| show(&mut app, ui, region));
+        assert!(selected.shapes.iter().any(|c| shape_has_fill(&c.shape, theme::BG_SELECTED)), "a selected row keeps the selected fill");
     }
 }
