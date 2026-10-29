@@ -127,6 +127,7 @@ LINE	gemini_status_hooks.rs	1	.and_then(|bytes| crate::agent_approval_channel::w
 LINE	gemini_status_hooks.rs	1	let _ = std::fs::remove_file(path);	Studio's private channel folder (`<data dir>/designos/ap/<hash>`; `channel_dir_in` refuses a folder inside the session folder), outside every session folder
 LINE	gemini_status_hooks.rs	1	settings.parent().is_some_and(|dir| dir.join("system-defaults.json").symlink_metadata().is_ok())	stat of Gemini's own system-defaults file, in the system folder of Gemini
 LINE	history/preset.rs	1	let _ = std::fs::remove_dir_all(&root);	the library folder of a screenshot fixture (`--panel`), or a scratch folder in the temp folder, made for it
+LINE	home/leave.rs	1	let path = self.terminal.session_dir.join("leave-asking");	path of a session file: every read, write and delete of it goes through the routed helpers (`atomic_write_session_file`, `remove_session_file`)
 LINE	home/thumb.rs	1	let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();	the thumbnails of the user's library
 LINE	home/thumb.rs	1	let tex = std::fs::read(&path).ok().and_then(|bytes| image::load_from_memory(&bytes).ok()).map(|img| {	the thumbnails of the user's library
 LINE	image_jobs.rs	1	disk_mtime: std::fs::metadata(crate::home::library_file_disk_path(lib, &lf.project_id, &lf.id))	stat of the library file's copy on disk

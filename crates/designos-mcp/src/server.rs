@@ -9,7 +9,7 @@ use crate::tools::ledger::{
 };
 use crate::tools::ledger_reconnect::replay_unabsorbed_patches;
 use crate::tools::session_options::SessionOptions;
-use designos_doc::live_patch::{DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
+use designos_doc::live_patch::{CloseIntent, DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -159,9 +159,45 @@ struct OpenArgs {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SaveArgs {
-    path: String,
+    path: Option<String>,
     #[serde(default)]
     overwrite: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UnsavedPolicy {
+    Save,
+    Discard,
+    Fail,
+}
+
+impl UnsavedPolicy {
+    fn parse(raw: Option<&str>) -> Result<Self, ToolError> {
+        match raw {
+            None | Some("fail") => Ok(Self::Fail),
+            Some("save") => Ok(Self::Save),
+            Some("discard") => Ok(Self::Discard),
+            Some(other) => Err(ToolError::new(ErrorCode::InvalidArguments, "/unsaved", "unsaved must be save, discard, or fail")
+                .with_received(json!(other))
+                .with_valid_options(["save", "discard", "fail"])),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Save => "save",
+            Self::Discard => "discard",
+            Self::Fail => "fail",
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloseArgs {
+    #[serde(default)]
+    unsaved: Option<String>,
+    path: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -713,6 +749,59 @@ impl Session {
         Ok(resolved)
     }
 
+    fn titled_save_path(&self) -> Option<String> {
+        let raw = self.engine.file_path.as_deref()?.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let p = Path::new(raw);
+        if p.is_absolute() {
+            p.strip_prefix(&self.root).ok()?.to_str().map(str::to_string)
+        } else {
+            Some(raw.to_string())
+        }
+    }
+
+    fn path_required() -> ToolError {
+        ToolError::new(ErrorCode::PathRequired, "/path", "Untitled documents need a path to save")
+            .with_next_step("Pass path to a .designos file inside the workspace, then retry.")
+    }
+
+    fn save_current(&mut self, path: &str, overwrite: bool, files_created: &mut usize) -> Result<PathBuf, ToolError> {
+        let resolved = self.output_path_allow_overwrite(path, overwrite)?;
+        self.engine.settle_layout();
+        let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        crate::engine::write_checked_output_file(&resolved, path, "/path", bytes.as_bytes(), overwrite, true)?;
+        *files_created += 1;
+        self.dirty = false;
+        self.engine.file_path = Some(path.to_string());
+        Ok(resolved)
+    }
+
+    fn reset_closed_session(&mut self) {
+        let next_rev = self.engine.revision.wrapping_add(1);
+        self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
+        self.save_session_options();
+        self.record_live_ops();
+        self.dirty = false;
+        self.ledger.clear();
+    }
+
+    fn publish_live_close(&mut self, unsaved: UnsavedPolicy, path: Option<&str>) -> Result<(), String> {
+        let Some(log) = self.bridge.live_doc_patch_path.clone() else {
+            return Ok(());
+        };
+        let line = serde_json::to_string(&CloseIntent::of(unsaved.as_str(), path.map(str::to_string))).map_err(|e| format!("serialize close: {e}"))? + "\n";
+        append_log_line(&log, &line)
+    }
+
+    fn leave_is_asking(&mut self) -> bool {
+        let Some(dir) = self.bridge.session_dir.as_ref() else {
+            return false;
+        };
+        self.file_problems.read_to_string(&dir.join("leave-asking")).is_some()
+    }
+
     fn png_output_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         if path.trim().is_empty() {
             crate::engine::validate_output_name(path, "/path")?;
@@ -1000,6 +1089,7 @@ impl Session {
                 self.save_session_options();
                 self.record_live_ops();
                 self.dirty = false;
+                self.engine.file_path = Some(a.path.clone());
                 self.ledger.clear();
                 self.publish_live_doc_sync().map_err(|e| {
                     ToolError::new(
@@ -1040,6 +1130,7 @@ impl Session {
                 let next_rev = self.engine.revision.wrapping_add(1);
                 self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
                 self.engine.doc.name = a.name;
+                self.engine.file_path = None;
                 self.save_session_options();
                 self.record_live_ops();
                 self.dirty = true;
@@ -1058,13 +1149,57 @@ impl Session {
             }
             "designos_save_file" => {
                 let a: SaveArgs = parse(args)?;
-                let path = self.output_path_allow_overwrite(&a.path, a.overwrite)?;
-                self.engine.settle_layout();
-                let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
-                crate::engine::write_checked_output_file(&path, &a.path, "/path", bytes.as_bytes(), a.overwrite, true)?;
-                *files_created += 1;
-                self.dirty = false;
-                Ok(json!({"path": path, "saved": true}))
+                let (path, overwrite) = match a.path.as_deref() {
+                    Some(path) => (path.to_string(), a.overwrite),
+                    None => (self.titled_save_path().ok_or_else(Self::path_required)?, true),
+                };
+                let resolved = self.save_current(&path, overwrite, files_created)?;
+                Ok(json!({"path": resolved, "saved": true}))
+            }
+            "designos_close_document" => {
+                let a: CloseArgs = parse(args)?;
+                let policy = UnsavedPolicy::parse(a.unsaved.as_deref())?;
+                if self.leave_is_asking() {
+                    return Err(ToolError::new(ErrorCode::UnsavedChanges, "/unsaved", "Unsaved changes. The editor is already asking about this document.")
+                        .with_safe_to_retry(false)
+                        .with_next_step("Wait for the person at the editor, or call designos_save_file."));
+                }
+                if self.dirty && policy == UnsavedPolicy::Fail {
+                    return Err(ToolError::new(ErrorCode::UnsavedChanges, "/unsaved", "Unsaved changes. The document stayed open.")
+                        .with_received(json!("fail"))
+                        .with_safe_to_retry(false)
+                        .with_next_step("Call designos_save_file, or call designos_close_document with unsaved set to save."));
+                }
+                let mut saved = false;
+                let mut saved_path: Option<String> = None;
+                if policy == UnsavedPolicy::Save && (self.dirty || a.path.is_some()) {
+                    let (path, overwrite) = match a.path.as_deref() {
+                        Some(path) => (path.to_string(), true),
+                        None => (self.titled_save_path().ok_or_else(Self::path_required)?, true),
+                    };
+                    let resolved = self.save_current(&path, overwrite, files_created)?;
+                    saved = true;
+                    saved_path = Some(resolved.to_string_lossy().into_owned());
+                }
+                self.publish_live_close(policy, saved_path.as_deref().or(a.path.as_deref())).map_err(|e| {
+                    ToolError::new(
+                        ErrorCode::EditorNotNotified,
+                        "",
+                        format!("Closed the session, but the editor was not told, so it still shows the document: {e}"),
+                    )
+                    .with_next_step("Call designos_get_document before editing.")
+                    .with_safe_to_retry(false)
+                })?;
+                self.reset_closed_session();
+                let mut out = json!({
+                    "closed": true,
+                    "unsaved": policy.as_str(),
+                    "saved": saved,
+                });
+                if let Some(p) = saved_path {
+                    out["path"] = json!(p);
+                }
+                Ok(out)
             }
             "designos_render_png" => {
                 let a: RenderArgs = parse(args)?;
@@ -1466,14 +1601,27 @@ pub fn tools() -> Vec<Tool> {
         ),
         (
             "designos_save_file",
-            "Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
+            "Save this session to a .designos file inside the workspace, or in place when path is omitted. Untitled documents require path. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
             json!({"path":{"type":"string"},"overwrite":{"type":"boolean","default":false}}),
-            vec!["path"],
+            vec![],
             json!({
                 "path": {"type": "string"},
                 "saved": {"type": "boolean"}
             }),
             vec!["path", "saved"],
+        ),
+        (
+            "designos_close_document",
+            "Close this session document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard.",
+            json!({"unsaved":{"type":"string","enum":["save","discard","fail"],"default":"fail"},"path":{"type":"string"}}),
+            vec![],
+            json!({
+                "closed": {"type": "boolean"},
+                "unsaved": {"type": "string"},
+                "saved": {"type": "boolean"},
+                "path": {"type": "string"}
+            }),
+            vec!["closed", "unsaved", "saved"],
         ),
         (
             "designos_render_png",
@@ -2663,6 +2811,9 @@ mod tests {
 
         // 71. NameTooLong (output filename component > 255 bytes)
         record(s.call("designos_save_file", json!({"path": format!("{}.designos", "a".repeat(260))})).unwrap_err(), ErrorCode::NameTooLong, true);
+
+        // 72. PathRequired (in-place save of an untitled document)
+        record(Session::new(&ws_dir).unwrap().call("designos_save_file", json!({})).unwrap_err(), ErrorCode::PathRequired, true);
 
         for code in ErrorCode::ALL {
             assert!(seen.contains(code.as_str()), "ErrorCode::{code:?} ({}) was not covered by every_code_has_a_fixture", code.as_str());

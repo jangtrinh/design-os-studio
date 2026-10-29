@@ -101,7 +101,7 @@ pub fn apply_pending_live_patches(app: &mut App) {
     // A question about the shown document (Save changes, File changed on disk, and any other) is answered about the
     // document and the tab it was asked on, and the agent's document changes what both hold: it waits for the answer.
     // Edits made on the document it opened wait behind it.
-    if app.terminal.live_patch.pending_doc.is_some() && (app.leave.is_asking() || app.dialog.is_some()) {
+    if (app.terminal.live_patch.pending_doc.is_some() || app.terminal.live_patch.pending_close.is_some()) && (app.leave.is_asking() || app.dialog.is_some()) {
         return;
     }
     if let Some((tab_idx, turn_id)) = app.terminal.pending_turn_revert.take() {
@@ -148,6 +148,7 @@ pub fn apply_pending_live_patches(app: &mut App) {
         } else {
             apply_live_patches_with_offsets(app, &patches, &offsets);
         }
+        maybe_autosave_ai_changes(app);
     } else if let Some(depth) = pending_depth {
         crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
     }
@@ -157,7 +158,29 @@ pub fn apply_pending_live_patches(app: &mut App) {
     if dropped > 0 {
         note_dropped_edits(app, dropped);
     }
+    if let Some(_intent) = app.terminal.live_patch.pending_close.take() {
+        if let Some(id) = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id) {
+            app.request_leave_from_agent(None, crate::home::Leave::CloseTab(id));
+        }
+    }
     publish_live_context(app);
+}
+
+fn maybe_autosave_ai_changes(app: &mut App) {
+    if app.lib_file.is_some() {
+        return;
+    }
+    let Some(root) = app.lib.as_ref().map(|l| l.root().to_path_buf()) else { return };
+    if !crate::comments::settings::load_autosave_ai_changes(&root) {
+        return;
+    }
+    if app.file_path.is_none() {
+        return;
+    }
+    if !app.has_unsaved_edits() {
+        return;
+    }
+    app.save(false);
 }
 
 /// Adds to the toast on screen that edits made on the previous document were dropped.

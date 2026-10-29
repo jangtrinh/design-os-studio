@@ -6,6 +6,8 @@ fn a_log_line_is_an_edit_or_a_document_switch() {
     assert!(matches!(LiveLogLine::parse(edit.as_bytes()), Ok(LiveLogLine::Patch(p)) if p.ops.len() == 1));
     let switch = serde_json::to_string(&DocEpoch::of(3, b"doc")).unwrap();
     assert_eq!(LiveLogLine::parse(switch.as_bytes()).unwrap(), LiveLogLine::DocEpoch(DocEpoch::of(3, b"doc")));
+    let close = serde_json::to_string(&CloseIntent::of("discard", None)).unwrap();
+    assert_eq!(LiveLogLine::parse(close.as_bytes()).unwrap(), LiveLogLine::Close(CloseIntent::of("discard", None)));
 }
 
 #[test]

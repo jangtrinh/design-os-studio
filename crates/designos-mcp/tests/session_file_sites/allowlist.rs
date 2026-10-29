@@ -51,6 +51,7 @@ pub const NAMES: &[Allowed] = &[
     Allowed { file: "src/server.rs", func: Some("new"), why: "the ledger's path; Ledger reads and writes it through session_file_io" },
     Allowed { file: "src/server.rs", func: Some("with_session_dir"), why: "the ledger's path; Ledger reads and writes it through session_file_io" },
     Allowed { file: "src/server.rs", func: Some("sync_from_live_canvas_if_newer"), why: "reads mcp-config.json and bootstrap.json through file_problems" },
+    Allowed { file: "src/server.rs", func: Some("leave_is_asking"), why: "reads the leave-asking marker through file_problems" },
     Allowed { file: "src/tools/ledger.rs", func: Some("-"), why: "the ledger's file name" },
     Allowed { file: "src/tools/session_options.rs", func: Some("file_path"), why: PATH_ONLY },
 ];

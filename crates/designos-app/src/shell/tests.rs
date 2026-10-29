@@ -1164,6 +1164,7 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
     }
 }
 
+mod agent_autosave;
 mod agent_turn_card_scroll;
 mod app_shell;
 mod board;
@@ -1197,6 +1198,7 @@ mod home;
 mod home_agents_card;
 mod idle_repaint;
 mod layer_drag_fast;
+mod leave_agent;
 #[cfg(target_os = "macos")]
 mod leave_menu_quit;
 mod leave_prompt;

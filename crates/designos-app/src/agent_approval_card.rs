@@ -216,6 +216,8 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         + theme::SPACE_ROW
         + row_h
         + theme::SPACE_GROUP
+        + row_h
+        + theme::SPACE_GROUP
         + theme::LINE_CAPTION
         + theme::INSET_MODAL;
     let rect = Rect::from_center_size(screen.center(), Vec2::new(theme::PERMISSIONS_MODAL_WIDTH, modal_h));
@@ -293,6 +295,33 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         }
 
         y = y - theme::SPACE_ROW + theme::SPACE_GROUP;
+        let autosave_on = lib_root.map(crate::comments::settings::load_autosave_ai_changes).unwrap_or(true);
+        let auto_r = Rect::from_min_size(Pos2::new(inner_x, y), Vec2::new(inner_w, row_h));
+        let auto_resp = ui.interact(auto_r, Id::new("agent-autosave-ai"), Sense::click());
+        let auto_fill = if auto_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY };
+        p.rect_filled(auto_r, theme::cr(theme::RADIUS_CONTROL), auto_fill);
+        p.rect_stroke(auto_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+        p.text(
+            Pos2::new(auto_r.left() + theme::INSET_FRAME, auto_r.top() + theme::INSET_FRAME),
+            Align2::LEFT_TOP,
+            "Auto-save changes made by AI",
+            theme::font_body_medium(),
+            theme::TEXT,
+        );
+        p.text(
+            Pos2::new(auto_r.left() + theme::INSET_FRAME, auto_r.top() + theme::INSET_FRAME + theme::LINE_BODY + theme::SPACE_FACT),
+            Align2::LEFT_TOP,
+            if autosave_on { "On. Save after each agent tool batch, outside the library." } else { "Off. Edits stay unsaved until the agent or you save." },
+            theme::font_caption(),
+            theme::TEXT_SECONDARY,
+        );
+        widgets::record(ui, "agent-autosave-ai", auto_r);
+        if auto_resp.clicked() {
+            if let Some(root) = lib_root {
+                let _ = crate::comments::settings::save_autosave_ai_changes(root, !autosave_on);
+            }
+        }
+        y += row_h + theme::SPACE_GROUP;
         p.text(Pos2::new(inner_x, y), Align2::LEFT_TOP, "Applies to new agent tabs.", theme::font_caption(), theme::TEXT_SECONDARY);
     });
 

@@ -57,7 +57,7 @@ const SESSION_MARKERS: [&str; 9] = [
     "context_json_path",
     "LEDGER_FILE_NAME",
 ];
-const NAME_TOKENS: [&str; 17] = [
+const NAME_TOKENS: [&str; 18] = [
     "\"canvas.designos\"",
     "\"doc-sync.designos\"",
     "\"live-spec.json\"",
@@ -67,6 +67,7 @@ const NAME_TOKENS: [&str; 17] = [
     "\"idempotency-ledger.jsonl\"",
     "\"mcp-config.json\"",
     "\"bootstrap.json\"",
+    "\"leave-asking\"",
     "LEDGER_FILE_NAME",
     "DESIGNOS_SESSION_DIR",
     "DESIGNOS_LIVE_CANVAS",

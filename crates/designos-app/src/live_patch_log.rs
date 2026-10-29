@@ -4,7 +4,7 @@
 //! recreated or truncated is noticed even when it has grown past the old read position.
 
 use designos_doc::live_patch::{
-    log_version_refusal, DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES, UPDATE_BOTH_HINT,
+    log_version_refusal, CloseIntent, DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES, UPDATE_BOTH_HINT,
 };
 use designos_doc::Document;
 use std::io::{Read, Seek, SeekFrom};
@@ -65,6 +65,8 @@ pub struct LivePatchLog {
     /// A document the agent switched to while the user was mid-edit. It replaces the open one
     /// once the canvas is idle, before any patch in `pending` (those were made on it).
     pub pending_doc: Option<Document>,
+    /// The agent closed the document. Applied after held patches, never as a quit of other tabs.
+    pub pending_close: Option<CloseIntent>,
     /// Where the agent's documents are written: `doc-sync.designos` next to the log.
     doc_sync_path: PathBuf,
     /// Edits dropped because they were made on a document the agent had already left, or on one
@@ -175,6 +177,7 @@ impl LivePatchLog {
             last_polled_offsets: std::collections::VecDeque::new(),
             pending_epoch_switch: false,
             pending_doc: None,
+            pending_close: None,
             wake: Default::default(),
             doc_sync_path: path.with_file_name("doc-sync.designos"),
             dropped_old_epoch: 0,
@@ -214,7 +217,7 @@ impl LivePatchLog {
 
     /// Agent changes wait for the canvas to go idle.
     pub fn has_held(&self) -> bool {
-        !self.pending.is_empty() || self.pending_doc.is_some()
+        !self.pending.is_empty() || self.pending_doc.is_some() || self.pending_close.is_some()
     }
 
     /// A complete line (ending in a newline) was appended that no poll has read yet; see
@@ -363,6 +366,7 @@ impl LivePatchLog {
                     self.dropped_old_epoch += self.pending.len();
                     self.pending.clear();
                     self.pending_offsets.clear();
+                    self.pending_close = None;
                     self.pending_epoch_switch = true;
                     self.pending_doc = None;
                     self.load_failed = false;
@@ -379,6 +383,13 @@ impl LivePatchLog {
                             errors.push(e);
                         }
                     }
+                }
+                LiveLogLine::Close(intent) => {
+                    self.fenced = false;
+                    self.fenced_dropped = 0;
+                    self.fence_notice = None;
+                    self.pending_close = Some(intent);
+                    self.discarding = true;
                 }
             }
         }
@@ -469,7 +480,7 @@ mod tests {
             .iter()
             .flat_map(|l| match l {
                 LiveLogLine::Patch(p) => p.ops.iter().collect(),
-                LiveLogLine::DocEpoch(_) | LiveLogLine::Newer { .. } => Vec::new(),
+                LiveLogLine::DocEpoch(_) | LiveLogLine::Close(_) | LiveLogLine::Newer { .. } => Vec::new(),
             })
             .map(|op| if let LiveOp::Remove { id } = op { id.0 } else { 0 })
             .collect()

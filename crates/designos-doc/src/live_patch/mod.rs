@@ -91,6 +91,24 @@ impl LivePatch {
     }
 }
 
+/// The agent's session closed the document (`designos_close_document`). One line of
+/// `doc-patch.jsonl`, after any patches of that document, so the editor closes the tab once those
+/// edits are in. `close` is always true and is how a reader tells this line from a patch.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloseIntent {
+    pub v: u32,
+    pub close: bool,
+    pub unsaved: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+impl CloseIntent {
+    pub fn of(unsaved: impl Into<String>, path: Option<String>) -> Self {
+        Self { v: LIVE_PATCH_VERSION, close: true, unsaved: unsaved.into(), path }
+    }
+}
+
 /// The agent's session switched to another document (`designos_open_file`,
 /// `designos_new_document`). One line of `doc-patch.jsonl`, written after the document itself
 /// (`doc-sync.designos`) so the one log fixes the order: patches above it were made on the
@@ -127,6 +145,7 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 pub enum LiveLogLine {
     Patch(LivePatch),
     DocEpoch(DocEpoch),
+    Close(CloseIntent),
     /// An edit written in a format version newer than this build reads. Its ops are not parsed: a
     /// newer writer may use ops this build has never heard of, and the reader must still say "newer"
     /// instead of "unreadable". Never replay it; report [`log_version_refusal`].
@@ -136,9 +155,10 @@ pub enum LiveLogLine {
 }
 
 impl LiveLogLine {
-    /// Reads one log line. A line holding `doc_epoch` is a document switch, any other an edit. An
-    /// edit in a newer format version is named, not parsed. A switch always parses, so a reader
-    /// that cannot honour it still stops following the agent's previous document.
+    /// Reads one log line. A line holding `close: true` is a document close, a line holding
+    /// `doc_epoch` is a document switch, any other an edit. An edit in a newer format version is
+    /// named, not parsed. A switch always parses, so a reader that cannot honour it still stops
+    /// following the agent's previous document.
     pub fn parse(line: &[u8]) -> Result<Self, serde_json::Error> {
         #[derive(Deserialize)]
         struct Probe {
@@ -146,9 +166,13 @@ impl LiveLogLine {
             v: Option<u32>,
             #[serde(default)]
             doc_epoch: Option<u64>,
+            #[serde(default)]
+            close: Option<bool>,
         }
         let probe = serde_json::from_slice::<Probe>(line)?;
-        if probe.doc_epoch.is_some() {
+        if probe.close == Some(true) {
+            serde_json::from_slice(line).map(Self::Close)
+        } else if probe.doc_epoch.is_some() {
             serde_json::from_slice(line).map(Self::DocEpoch)
         } else if let Some(v) = probe.v.filter(|v| *v > LIVE_PATCH_VERSION) {
             Ok(Self::Newer { v })

@@ -19,6 +19,8 @@ pub mod updater;
 pub use dialog::{Dialog, Intent};
 #[cfg(test)]
 pub use leave::Answer;
+#[cfg(test)]
+pub use leave::LeaveFrom;
 pub use leave::{Leave, LeaveFlow};
 #[cfg(test)]
 pub(crate) use main_view::{fit_breadcrumb, Crumb};
