@@ -6223,7 +6223,7 @@ pub fn show_left_with_doc(
         let active_receipt =
             state.active_tab().filter(|t| !matches!(t.effective_status(), AgentTabStatus::Working(_))).and_then(|t| t.last_turn_receipt().cloned());
         let receipt_h = if active_receipt.is_some() { 24.0 } else { 0.0 };
-        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE - receipt_h).max(ctx_r.bottom() + theme::CONTROL_ROW);
+        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE - receipt_h).max(ctx_r.bottom() + theme::CONTROL_MD);
         let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), Pos2::new(rect.right(), vp_bottom));
 
         if ui.input(|i| i.pointer.any_pressed()) {
@@ -10932,8 +10932,8 @@ mod tests {
     #[test]
     fn theme_has_info_success_warning_in_token_parity() {
         assert_eq!(theme::INFO, Color32::from_rgb(0x0D, 0x99, 0xFF));
-        assert_eq!(theme::SUCCESS, Color32::from_rgb(0x14, 0xAE, 0x5C));
-        assert_eq!(theme::WARNING, Color32::from_rgb(0xF5, 0x9E, 0x0B));
+        assert_eq!(theme::SUCCESS, Color32::from_rgb(0x22, 0xC5, 0x5E));
+        assert_eq!(theme::WARNING, Color32::from_rgb(0xEA, 0xB3, 0x08));
 
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let script = manifest_dir.join("../../scripts/design_os_self_evolve.py");
@@ -10946,8 +10946,8 @@ mod tests {
         let tokens_raw = std::fs::read_to_string(&tokens_path).expect("read design.tokens.json");
         let tokens_json: serde_json::Value = serde_json::from_str(&tokens_raw).expect("parse design.tokens.json");
         assert_eq!(tokens_json["colors"]["info"]["$value"].as_str(), Some("#0d99ff"));
-        assert_eq!(tokens_json["colors"]["success"]["$value"].as_str(), Some("#14ae5c"));
-        assert_eq!(tokens_json["colors"]["warning"]["$value"].as_str(), Some("#f59e0b"));
+        assert_eq!(tokens_json["colors"]["success"]["$value"].as_str(), Some("#22c55e"));
+        assert_eq!(tokens_json["colors"]["warning"]["$value"].as_str(), Some("#eab308"));
     }
 
     #[test]

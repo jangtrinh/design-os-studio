@@ -1646,7 +1646,7 @@ fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
         let (rect, _) = ui.allocate_exact_size(size, Sense::click());
         widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
         let p = ui.painter();
-        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + theme::CONTROL_TOOL));
+        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + theme::CONTROL_XS));
         let title_r = p.text(
             Pos2::new(head.left() + theme::SPACE_GROUP, head.center().y),
             Align2::LEFT_CENTER,

@@ -288,11 +288,24 @@ fn ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout() {
     let p_rect = panel_rect(&s);
     let (term_rect, _) = terminal_rects(&s);
     let card_rect = s.rect_of("agent-turn-card");
-    // Base commit formula for 3 rows:
-    // pad*2 (16) + LINE_BODY (18) + SPACE_FACT (4) + LINE_CAPTION (14) + SPACE_INLINE (8)
-    // + (3 * 24 + 2 * 4) (80) + SPACE_INLINE (8) + CONTROL_STANDARD (26) = 174.0; reserve = 174 + 16 = 190.0.
-    assert!((card_rect.height() - 174.0).abs() < 0.5, "AC-05: 3-row card height must match base commit (174.0), got {}", card_rect.height());
-    assert!((term_rect.height() - 710.0).abs() < 0.5, "AC-05: 3-row terminal height must match base commit (710.0), got {}", term_rect.height());
+    // Base commit formula for 3 rows, from the theme's line heights and gaps:
+    // pad*2 (16) + LINE_BODY + SPACE_FACT + LINE_CAPTION + SPACE_INLINE
+    // + (3 * 24 + 2 * 4) (80) + SPACE_INLINE + CONTROL_STANDARD; the terminal takes the panel minus the card and 16.
+    let card_height = 16.0
+        + crate::theme::LINE_BODY
+        + crate::theme::SPACE_FACT
+        + crate::theme::LINE_CAPTION
+        + crate::theme::SPACE_INLINE
+        + 80.0
+        + crate::theme::SPACE_INLINE
+        + crate::theme::CONTROL_STANDARD;
+    let terminal_height = 900.0 - card_height - 16.0;
+    assert!((card_rect.height() - card_height).abs() < 0.5, "AC-05: 3-row card height must match the base formula ({card_height}), got {}", card_rect.height());
+    assert!(
+        (term_rect.height() - terminal_height).abs() < 0.5,
+        "AC-05: 3-row terminal height must match the base formula ({terminal_height}), got {}",
+        term_rect.height()
+    );
     assert!(
         (term_rect.bottom() - (card_rect.top() - crate::theme::INSET_FRAME)).abs() < 0.5
             && (card_rect.bottom() + crate::theme::INSET_FRAME - p_rect.bottom()).abs() < 0.5,

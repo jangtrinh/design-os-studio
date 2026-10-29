@@ -73,6 +73,13 @@ pub enum TreeResult {
 
 /// Vertical space of a separator between two rows (margin + 1px line + margin).
 pub const SEP_H: f32 = theme::MENU_SEP_MARGIN * 2.0 + theme::BORDER_WIDTH;
+
+/// Height of a menu level made of `items`, before the screen clamps it: the padding at both ends, every row and every
+/// separator block. A caller that places a menu so it clears something takes its height from here.
+pub fn menu_height(items: &[MenuItem]) -> f32 {
+    items.iter().fold(2.0 * theme::MENU_PADDING, |h, it| h + theme::MENU_ITEM_HEIGHT + if it.separator_after { SEP_H } else { 0.0 })
+}
+
 /// Width given to submenu panels at minimum.
 const SUBMENU_MIN_W: f32 = 190.0;
 
@@ -183,7 +190,7 @@ impl Layout {
                 need = need.max(label_x(it, has_check) + lw + right);
             }
         });
-        Self { w: need.ceil().max(min_w), h: y + theme::MENU_PADDING, tops, has_check }
+        Self { w: need.ceil().max(min_w), h: menu_height(items), tops, has_check }
     }
 
     /// Whether the level is taller than the `limit` it may fill, so that it scrolls.
@@ -617,6 +624,18 @@ pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_height_is_the_height_of_the_panel_the_layout_gives_the_items() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {}); // the fonts are in place from the first pass on
+        let mut items = vec![MenuItem::new("One"), MenuItem::new("Two"), MenuItem::new("Three")];
+        items[1].separator_after = true;
+        assert_eq!(menu_height(&items), 2.0 * theme::MENU_PADDING + 3.0 * theme::MENU_ITEM_HEIGHT + SEP_H);
+        assert_eq!(Layout::new(&ctx, &items, 100.0).h, menu_height(&items));
+        assert_eq!(menu_height(&[]), 2.0 * theme::MENU_PADDING);
+    }
     use crate::proto::DEVICES;
 
     const SCREEN: Vec2 = Vec2::new(900.0, 600.0);

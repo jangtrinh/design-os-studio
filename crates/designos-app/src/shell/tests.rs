@@ -485,16 +485,32 @@ fn hand_tool_pans() {
     assert_eq!(s.app().tool, Tool::Hand);
 }
 
+/// Centre of Layers row `i` (0 = the top-most layer) in a window that has not scrolled the list.
+fn layer_row_y(s: &Sim, i: usize) -> f32 {
+    s.rect_of("layers-list").top() + (i as f32 + 0.5) * theme::LAYER_ROW_HEIGHT
+}
+
+/// Centre of Pages row `i`.
+fn page_row_y(s: &Sim, i: usize) -> f32 {
+    s.rect_of("pages-list").top() + (i as f32 + 0.5) * theme::PAGE_ROW_HEIGHT
+}
+
+/// Centre of item `i` of a popup menu opened with its top-left corner at `top` (no separators).
+fn menu_item_y(top: f32, i: usize) -> f32 {
+    top + theme::MENU_PADDING + (i as f32 + 0.5) * theme::MENU_ITEM_HEIGHT
+}
+
 #[test]
 fn layers_panel_click_and_visibility_toggle() {
     let mut s = Sim::new();
     // first row (top-most layer = "Dashboard") of the layers list
-    s.click(Pos2::new(180.0, 241.0));
+    let row = layer_row_y(&s, 0);
+    s.click(Pos2::new(180.0, row));
     let dash = s.by_name("Dashboard");
     assert_eq!(s.app().selection, vec![dash]);
     // hover reveals the eye button at the row's right edge
-    s.mv(Pos2::new(180.0, 241.0));
-    s.click(Pos2::new(297.0 - 8.0 - 12.0 - 1.0, 241.0));
+    s.mv(Pos2::new(180.0, row));
+    s.click(Pos2::new(297.0 - 8.0 - 12.0 - 1.0, row));
     assert!(!s.app().doc.get(dash).unwrap().visible);
     s.cmd_key(Key::Z);
     assert!(s.app().doc.get(dash).unwrap().visible);
@@ -505,8 +521,8 @@ fn layers_drag_reparents_into_frame() {
     let mut s = Sim::new();
     let welcome = s.by_name("Welcome");
     let card = s.by_name("Card");
-    // rows: Dashboard (241), Card (273), Welcome (305). Drag Card onto the middle of Welcome.
-    s.drag(Pos2::new(180.0, 273.0), Pos2::new(180.0, 305.0));
+    // rows: Dashboard (0), Card (1), Welcome (2). Drag Card onto the middle of Welcome.
+    s.drag(Pos2::new(180.0, layer_row_y(&s, 1)), Pos2::new(180.0, layer_row_y(&s, 2)));
     assert_eq!(s.app().doc.get(card).unwrap().parent, Some(welcome));
 }
 
@@ -600,13 +616,15 @@ fn page_context_menu_duplicates_and_deletes() {
     let mut s = Sim::new();
     let n = s.app().doc.pages.len();
     // second page row, then the menu opens at the pointer
-    s.right_click(Pos2::new(150.0, 141.0));
+    let second = page_row_y(&s, 1);
+    s.right_click(Pos2::new(150.0, second));
     assert!(s.app().layers.page_menu.is_some());
-    s.click(Pos2::new(180.0, 141.0 + 4.0 + 24.0 + 12.0)); // Duplicate
+    s.click(Pos2::new(180.0, menu_item_y(second, 1))); // Duplicate
     assert_eq!(s.app().doc.pages.len(), n + 1);
     assert!(s.app().layers.page_menu.is_none());
-    s.right_click(Pos2::new(150.0, 118.0));
-    s.click(Pos2::new(180.0, 118.0 + 4.0 + 48.0 + 12.0)); // Delete
+    let first = page_row_y(&s, 0);
+    s.right_click(Pos2::new(150.0, first));
+    s.click(Pos2::new(180.0, menu_item_y(first, 2))); // Delete
     assert_eq!(s.app().doc.pages.len(), n);
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.pages.len(), n + 1);
@@ -631,8 +649,9 @@ fn page_context_menu_rename() {
 fn dragging_a_page_row_reorders_it() {
     let mut s = Sim::new();
     let first = s.app().doc.pages[0];
-    // drag page 1 below page 2 (slot 2)
-    s.drag(Pos2::new(150.0, 118.0), Pos2::new(150.0, 118.0 + 28.0));
+    // drag page 1 below page 2 (slot 2): one row plus 4 px past the first row's centre
+    let first_row = page_row_y(&s, 0);
+    s.drag(Pos2::new(150.0, first_row), Pos2::new(150.0, first_row + theme::PAGE_ROW_HEIGHT + 4.0));
     assert_eq!(s.app().doc.pages[1], first);
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.pages[0], first);

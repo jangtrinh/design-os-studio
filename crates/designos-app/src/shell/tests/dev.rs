@@ -82,9 +82,9 @@ fn language_dropdown_switches_the_code_and_copy_reports() {
         let dd = s.rect_of("dev-lang");
         s.click(dd.center());
         // the popup sits under the dropdown, shifted up when the longer list would leave the screen
-        let menu_h = Language::ALL.len() as f32 * 24.0 + 2.0 * theme::MENU_PADDING;
+        let menu_h = Language::ALL.len() as f32 * theme::MENU_ITEM_HEIGHT + 2.0 * theme::MENU_PADDING;
         let top = (dd.bottom() + 2.0).min(s.ctx.content_rect().bottom() - menu_h - 2.0);
-        let y = top + theme::MENU_PADDING + i as f32 * 24.0 + 12.0;
+        let y = top + theme::MENU_PADDING + (i as f32 + 0.5) * theme::MENU_ITEM_HEIGHT;
         s.click(Pos2::new(dd.center().x, y));
         assert_eq!(s.app().dev.lang, lang, "option {i}");
         frames(&mut s, 2);
@@ -559,6 +559,8 @@ fn dev_mode_component_playground_toggles_props_without_mutating_doc_and_updates_
     // Edit the `Label` text property in the playground.
     let label_field = s.rect_of("dev-playground-prop-Label");
     s.click(label_field.center());
+    // The click lands inside the text, wherever the glyphs sit at this size: End puts the caret after "Get started".
+    s.key(Key::End);
     s.type_text(" now");
     frames(&mut s, 2);
 
@@ -665,6 +667,105 @@ fn playground_swap_with_preferred_values_stays_preferred_only() {
     let got = swap_choices(&mut s.shell.app, true, &preferred, comp);
     assert_eq!(got, preferred);
     assert_eq!(swap_list_builds(), base, "nothing is scanned when the prop names its choices");
+}
+
+/// What the canvas shows for a status: the label badge (canvas font) and the Dev annotation pill (caption font),
+/// counted among the "Ready for dev" texts painted inside the canvas area, and whether the pill's hit region exists.
+fn canvas_status_marks(s: &Sim, id: NodeId) -> (usize, usize, bool) {
+    fn walk(shape: &egui::Shape, out: &mut Vec<(Pos2, f32)>) {
+        match shape {
+            egui::Shape::Vec(inner) => inner.iter().for_each(|shape| walk(shape, out)),
+            egui::Shape::Text(text) if text.galley.job.text == "Ready for dev" => {
+                if let Some(section) = text.galley.job.sections.first() {
+                    out.push((text.pos, section.format.font_id.size));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut texts = Vec::new();
+    s.shapes.iter().for_each(|clipped| walk(&clipped.shape, &mut texts));
+    let canvas = s.app().canvas_rect;
+    let on_canvas = |size: f32| texts.iter().filter(|(pos, text_size)| canvas.contains(*pos) && *text_size == size).count();
+    let pill_registered = s.ctx.read_response(egui::Id::new(("dev-badge", id.0))).is_some();
+    (on_canvas(theme::FONT_SIZE_CANVAS), on_canvas(theme::FONT_SIZE_CAPTION), pill_registered)
+}
+
+/// Every painted shape of the last frame, groups opened.
+fn painted_shapes(s: &Sim) -> Vec<&egui::Shape> {
+    fn walk<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
+        match shape {
+            egui::Shape::Vec(inner) => inner.iter().for_each(|shape| walk(shape, out)),
+            other => out.push(other),
+        }
+    }
+    let mut out = Vec::new();
+    s.shapes.iter().for_each(|clipped| walk(&clipped.shape, &mut out));
+    out
+}
+
+#[test]
+fn the_dev_tabs_hug_their_content_with_the_same_inset_on_both_sides() {
+    let (mut s, _) = dev_sim();
+    run_action(&mut s, Action::MarkReadyForDev); // a status in the file: the first tab shows its count badge
+    for (key, label, has_badge) in [("dev-left-tab-ready", "Ready for dev", true), ("dev-left-tab-layers", "Layers", false)] {
+        let tab = s.rect_of(key);
+        let shapes = painted_shapes(&s);
+        let text = shapes
+            .iter()
+            .find_map(|shape| match shape {
+                egui::Shape::Text(t) if t.galley.job.text == label && tab.contains(t.pos) => Some(t),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{label:?} is not painted inside its tab {tab:?}"));
+        let content_right = if has_badge {
+            shapes
+                .iter()
+                .find_map(|shape| match shape {
+                    egui::Shape::Rect(r) if r.rect.height() == 16.0 && tab.contains_rect(r.rect) => Some(r.rect.right()),
+                    _ => None,
+                })
+                .expect("the count badge is painted inside the tab")
+        } else {
+            // The tab hugs its label in whole pixels, rounded up (R11).
+            text.pos.x + text.galley.size().x.ceil()
+        };
+        assert!((text.pos.x - tab.left() - theme::INSET_CONTROL).abs() < 0.01, "{label:?}: {} px in from the left", text.pos.x - tab.left());
+        assert!((tab.right() - content_right - theme::INSET_CONTROL).abs() < 0.01, "{label:?}: {} px in from the right", tab.right() - content_right);
+    }
+}
+
+#[test]
+fn a_top_level_frame_shows_its_status_once_in_the_label_badge_and_not_as_a_dev_pill() {
+    let (mut s, card) = dev_sim();
+    run_action(&mut s, Action::MarkReadyForDev);
+    assert_eq!(status(&s, card), Some(DevStatus::ReadyForDev));
+    let (badges, pills, pill_registered) = canvas_status_marks(&s, card);
+    assert_eq!((badges, pills, pill_registered), (1, 0, false), "one badge beside the frame name, no pill over it");
+}
+
+#[test]
+fn a_nested_frame_keeps_the_dev_pill_because_it_has_no_label_badge() {
+    let (mut s, _) = dev_sim();
+    let welcome = s.by_name("Welcome");
+    let id = s.shell.app.doc.alloc_id();
+    let inner = s.shell.app.doc.insert(welcome, designos_doc::Node::frame(id, designos_doc::Rect::new(20.0, 20.0, 120.0, 80.0))).unwrap();
+    s.shell.app.select_only(inner);
+    run_action(&mut s, Action::MarkReadyForDev);
+    assert_eq!(status(&s, inner), Some(DevStatus::ReadyForDev));
+    let (_, pills, pill_registered) = canvas_status_marks(&s, inner);
+    assert_eq!((pills, pill_registered), (1, true), "a nested layer has no frame label, so the pill stays");
+}
+
+#[test]
+fn the_dev_pill_returns_when_the_frame_label_is_hidden_by_zoom() {
+    let (mut s, card) = dev_sim();
+    run_action(&mut s, Action::MarkReadyForDev);
+    s.shell.app.view.zoom = theme::CANVAS_LABEL_MAX_ZOOM_HIDE * 0.5;
+    frames(&mut s, 3);
+    let (badges, _, pill_registered) = canvas_status_marks(&s, card);
+    assert_eq!(badges, 0, "the labels, and their badges, are hidden at this zoom");
+    assert!(pill_registered, "the pill is the only status mark left, so it is painted");
 }
 
 #[test]
