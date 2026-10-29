@@ -416,17 +416,49 @@ fn live_close_save_with_an_unreachable_editor_is_retryable_not_path_required() {
     assert!(session_dir.join("close-cancel.json").exists(), "the close is cancelled so the editor cannot act on it later");
 }
 
-/// The editor cannot be reached at all (its log is gone): the same answer, and the document stays open.
+/// The editor's log cannot be written to (something that is not a file is in its place): the same answer, and the document stays open.
 #[test]
 fn live_close_save_that_cannot_reach_the_editor_log_is_retryable() {
     let dir = Workspace::new();
     let (session_dir, mut s) = live_session(&dir, 4);
-    fs::remove_dir_all(&session_dir).unwrap();
+    fs::create_dir(session_dir.join("doc-patch.jsonl")).unwrap();
     let err = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap_err().to_json_value();
     assert_ne!(err["code"], json!("PATH_REQUIRED"), "{err}");
     assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
     assert_eq!(err["safe_to_retry"], true, "{err}");
     assert!(err["message"].as_str().unwrap_or("").contains("could not be told"), "{err}");
+}
+
+/// The tab's folder is gone (a scratch folder goes with its tab): there is no editor to ask, so the answer is that the tab is closed
+/// and asking again can never work, at once and not after the wait.
+#[test]
+fn live_close_when_the_tab_folder_is_gone_is_tab_closed_not_retryable() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 6);
+    s.set_close_ack_timeout(Duration::from_secs(10));
+    fs::remove_dir_all(&session_dir).unwrap();
+    let started = std::time::Instant::now();
+    let err = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap_err().to_json_value();
+    assert!(started.elapsed() < Duration::from_secs(2), "no wait for an editor that is gone");
+    assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert!(err["next_step"].as_str().unwrap_or("").contains("already closed"), "{err}");
+    assert!(!session_dir.exists(), "the close did not bring the folder back");
+}
+
+/// A folder that is still there but holds the editor's `tab-closed.json` (a library file's folder outlives its tab) says the same.
+#[test]
+fn live_close_when_the_tab_left_its_mark_is_tab_closed_not_retryable() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 7);
+    s.set_close_ack_timeout(Duration::from_secs(10));
+    fs::write(session_dir.join(CloseIntent::TAB_CLOSED_FILE), b"{\"tab_closed\":true}\n").unwrap();
+    let started = std::time::Instant::now();
+    let err = s.call("designos_close_document", json!({"unsaved": "discard"})).unwrap_err().to_json_value();
+    assert!(started.elapsed() < Duration::from_secs(2), "no wait for an editor that is gone");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert!(err["next_step"].as_str().unwrap_or("").contains("already closed"), "{err}");
+    assert!(!session_dir.join("doc-patch.jsonl").exists(), "nothing was written to a log nobody reads");
 }
 
 /// The editor itself answers that the tab is not the one shown: nothing changed, so it is retryable too.

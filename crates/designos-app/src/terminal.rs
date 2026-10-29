@@ -1546,6 +1546,20 @@ pub struct TerminalState {
     pub viewport_size: (u16, u16),
 }
 
+/// Removes a scratch session folder but keeps `close-result.json`: an agent's close of this very tab writes its answer there, and
+/// the tab's shutdown (which removes the folder) runs right after. Without the answer the agent waits out its timeout for a close that
+/// happened. The stray folder holds only that file and goes with the next sweep of folders whose process is gone.
+fn remove_scratch_dir_keeping_the_close_answer(dir: &Path) {
+    let result = dir.join(designos_doc::live_patch::CloseIntent::RESULT_FILE);
+    let answer = crate::agent_session_files::read_session_file(&result).ok();
+    let _ = std::fs::remove_dir_all(dir);
+    if let Some(bytes) = answer {
+        if crate::agent_session_files::ensure_session_dir(dir).is_ok() {
+            let _ = atomic_write_session_file(&result, &bytes);
+        }
+    }
+}
+
 impl Default for TerminalState {
     fn default() -> Self {
         // A test state has a tab id and a live-spec path of its own, so tests never see each other's session folder or spec.
@@ -2202,6 +2216,7 @@ impl TerminalState {
             crate::agent_approval_channel::remove_channel(&self.session_dir);
         }
         self.session_dir = session_dir;
+        self.clear_tab_closed_mark();
         // A reply a run left in the folder now bound (Studio quit before the prompt hook ran) must not reach this run's prompts.
         crate::skills::hook_delivery::remove_all_replies(self.hook_paths().dir());
         self.last_watched_mtime = spec_mtime(&self.live_spec_path);
@@ -2903,6 +2918,7 @@ impl TerminalState {
         self.snapshot_worker.cancel_and_wait();
         self.set_aside_note = None;
         self.session_closed = false;
+        self.clear_tab_closed_mark();
         self.write_backoff.clear();
         self.last_synced_key = None;
         let job = crate::agent_session_files::SnapshotJob {
@@ -3076,7 +3092,7 @@ impl TerminalState {
                             return;
                         }
                     }
-                    let _ = std::fs::remove_dir_all(&self.session_dir);
+                    remove_scratch_dir_keeping_the_close_answer(&self.session_dir);
                     if self.tabs.is_empty() {
                         self.update_session_dir_paths(stable_dir);
                     } else {
@@ -3085,7 +3101,7 @@ impl TerminalState {
                     return;
                 }
             }
-            let _ = std::fs::remove_dir_all(&self.session_dir);
+            remove_scratch_dir_keeping_the_close_answer(&self.session_dir);
             self.last_synced_key = None;
             self.session_closed = true;
         }
@@ -3120,6 +3136,25 @@ impl TerminalState {
         self.release_lock();
         // A library file's stable folder stays on disk, but this window no longer owns it: publish nothing more.
         self.session_closed = true;
+        self.mark_tab_closed();
+    }
+
+    /// Tells an agent whose MCP server outlives this tab that the tab is gone: a folder that is still on disk (a library file's) gets
+    /// `tab-closed.json`; a scratch folder was removed, and its absence says the same. The editor no longer reads this folder's log, so
+    /// the agent's next close would otherwise wait out its timeout and call itself retryable.
+    fn mark_tab_closed(&self) {
+        if !self.session_dir.is_dir() {
+            return;
+        }
+        let marker = self.session_dir.join(designos_doc::live_patch::CloseIntent::TAB_CLOSED_FILE);
+        if let Err(e) = atomic_write_session_file(&marker, b"{\"tab_closed\":true}\n") {
+            eprintln!("design:os studio: could not mark {} as closed: {e}", self.session_dir.display());
+        }
+    }
+
+    /// The folder is bound again (a tab opened the file anew): the marker of its earlier tab no longer applies.
+    fn clear_tab_closed_mark(&self) {
+        let _ = crate::agent_session_files::remove_session_file(&self.session_dir.join(designos_doc::live_patch::CloseIntent::TAB_CLOSED_FILE));
     }
 
     /// Returns `true` when the embedded terminal viewport is actively capturing raw keyboard input,

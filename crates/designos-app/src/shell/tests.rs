@@ -1173,6 +1173,7 @@ mod canvas_label_rename;
 mod check_designs;
 mod chrome_census;
 mod close_human_dirty;
+mod close_tab_kinds;
 mod comments;
 mod components;
 mod components_cycles;

@@ -110,6 +110,10 @@ pub struct CloseIntent {
 impl CloseIntent {
     pub const RESULT_FILE: &'static str = "close-result.json";
     pub const CANCEL_FILE: &'static str = "close-cancel.json";
+    /// Written into a session folder that outlives its tab (a library file's folder) when the editor closes that tab, and removed
+    /// when the folder is bound again. A close that finds it, or finds no folder at all, has no tab to ask: the editor no longer
+    /// reads the log, so a close published now would only wait out its timeout.
+    pub const TAB_CLOSED_FILE: &'static str = "tab-closed.json";
 
     pub fn of(unsaved: impl Into<String>, path: Option<String>) -> Self {
         Self { v: LIVE_PATCH_VERSION, close: true, unsaved: unsaved.into(), path, tab_id: None, close_id: None }
