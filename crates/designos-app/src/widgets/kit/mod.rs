@@ -1,8 +1,6 @@
-//! Pure widget looks. Each function returns colours and a border width for one state.
-//! Drawing a frame, a focus band or a control is a later step.
-#![cfg_attr(not(test), allow(dead_code, unused_imports))]
+//! Widget looks and the painters that read them.
 
-use egui::Color32;
+use egui::{Color32, Painter, Rect, Stroke, StrokeKind};
 
 #[cfg(test)]
 mod contrast_table;
@@ -19,6 +17,8 @@ mod state_tests;
 #[cfg(test)]
 mod table_tests;
 #[cfg(test)]
+mod theme_apply_tests;
+#[cfg(test)]
 mod token_tests;
 
 mod badge;
@@ -31,25 +31,40 @@ mod rows;
 mod surface;
 mod tabs;
 
-pub use badge::{count_badge, status_dot, tag_look, tag_ring, DotTone, Tone};
-pub use button::{button_look, button_ring, Hierarchy};
+#[allow(unused_imports)]
+pub use badge::{count_badge, count_badge_look, status_color, status_dot, tag, tag_look, tag_ring, DotTone, Tone};
+#[allow(unused_imports)]
+pub use button::{button, button_icon, button_look, button_ring, paint_icon_bg, Hierarchy};
+#[allow(unused_imports)]
 pub use choice::{
-    checkbox_look, checkbox_ring, radio_card_look, radio_ring, slider_handle_look, slider_ring, swatch_look, swatch_ring, toggle_look, toggle_ring,
+    checkbox, checkbox_look, checkbox_ring, radio_card, radio_card_look, radio_ring, slider_handle, slider_handle_look, slider_ring, swatch_look, swatch_ring,
+    swatch_ring_color, toggle, toggle_look, toggle_ring,
 };
-pub use feedback::{empty_state_look, loading_look, progress_look, tile_icon, TileKind};
-pub use field::{field_look, property_field_look, search_look, select_look};
-pub use rows::{divider_look, list_row_ring, menu_item_look, panel_header_look, row_look, section_header_look, separator_look, shortcut_look, tree_row_look};
+#[allow(unused_imports)]
+pub use feedback::{empty_state, empty_state_look, loading_look, loading_ring, progress_bar, progress_look, tile_icon, tile_look, TileKind};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub use field::{field_look, paint_field, property_field_look, search_look, select_look};
+#[allow(unused_imports)]
+pub use rows::{
+    divider_look, list_row, list_row_ring, menu_item_look, menu_row_look, panel_header, panel_header_look, row_look, section_header, section_header_look,
+    separator_look, shortcut_look, tree_row_bg, tree_row_look,
+};
+#[allow(unused_imports)]
 pub use surface::{
-    command_look, menu_context_look, menu_item_height, menu_panel_look, modal_look, popover_look, toast_look, tooltip_look, MENU_INSET, MENU_RADIUS,
-    PILL_RADIUS,
+    command_bar_surface, command_look, menu_context_look, menu_item_height, menu_panel_look, menu_surface, modal_look, modal_surface, popover_look,
+    popover_surface, toast_look, toast_surface, tooltip_frame, tooltip_look, MENU_INSET, MENU_RADIUS, PILL_RADIUS,
 };
-pub use tabs::{segment_tile_h, segmented_look, segmented_ring, tab_look, tab_ring, FILE_TAB_BAR_H, HOME_TAB_H, SEGMENTED_STRIP_H, SESSION_TAB_H};
+#[allow(unused_imports)]
+pub use tabs::{
+    segment_tile_h, segmented, segmented_look, segmented_ring, tab, tab_look, tab_ring, FILE_TAB_BAR_H, HOME_TAB_H, SEGMENTED_STRIP_H, SESSION_TAB_H,
+};
 
 /// Editor step, Home and dialog body, dialog footer action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Size {
     Xs,
     Sm,
+    #[cfg_attr(not(test), allow(dead_code))]
     Md,
 }
 
@@ -62,10 +77,12 @@ pub enum State {
     Focused,
     Disabled,
     Selected,
+    #[cfg_attr(not(test), allow(dead_code))]
     Loading,
 }
 
 /// Page colour behind a row. Secondary retargets hover, selected and pressed fills.
+#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
     Primary,
@@ -81,6 +98,17 @@ pub struct Look {
     pub text: Color32,
     pub icon: Color32,
     pub mark: Color32,
+}
+
+/// Fills and strokes `rect` from `paint`. A transparent fill or border is skipped.
+pub fn paint_frame(p: &Painter, rect: Rect, radius: u8, paint: &Look) {
+    let curve = crate::theme::cr(radius);
+    if paint.fill != Color32::TRANSPARENT {
+        p.rect_filled(rect, curve, paint.fill);
+    }
+    if paint.border != Color32::TRANSPARENT && paint.border_w > 0.0 {
+        p.rect_stroke(rect, curve, Stroke::new(paint.border_w, paint.border), StrokeKind::Inside);
+    }
 }
 
 pub(crate) const fn look(fill: Color32, border: Color32, border_w: f32, text: Color32, icon: Color32) -> Look {

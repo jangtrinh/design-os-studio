@@ -36,8 +36,66 @@ fn selected_hover_keeps_the_fill_and_takes_the_hot_label() {
 
 #[test]
 fn swatch_keyboard_ring_is_the_focus_ring() {
-    assert_eq!(swatch_ring(true), theme::FOCUS_RING);
-    assert_eq!(swatch_ring(false), Color32::TRANSPARENT);
+    assert_eq!(swatch_ring_color(true), theme::FOCUS_RING);
+    assert_eq!(swatch_ring_color(false), Color32::TRANSPARENT);
+}
+
+fn ring_strokes(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::epaint::RectShape> {
+    shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(shape) if shape.stroke.color == theme::FOCUS_RING && shape.stroke.width == 2.0 => Some(shape.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn snap_px(value: f32, pixels_per_point: f32) -> f32 {
+    (value * pixels_per_point).round() / pixels_per_point
+}
+
+#[test]
+fn focus_ring_is_two_px_outside_with_two_px_gap() {
+    let ctx = egui::Context::default();
+    let rect = egui::Rect::from_min_size(egui::pos2(10.5, 20.25), egui::vec2(40.5, 32.0));
+    let pixels_per_point = 2.0;
+    let mut input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))), ..Default::default() };
+    input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(pixels_per_point);
+    let out = ctx.run_ui(input, |ui| {
+        focus::focus_ring(ui.painter(), rect, 8.0);
+    });
+    let rings = ring_strokes(&out.shapes);
+    assert_eq!(rings.len(), 1, "one 2 px focus band");
+    let ring = &rings[0];
+    let outer = rect.expand(4.0);
+    let snapped = egui::Rect::from_min_max(
+        egui::pos2(snap_px(outer.min.x, pixels_per_point), snap_px(outer.min.y, pixels_per_point)),
+        egui::pos2(snap_px(outer.max.x, pixels_per_point), snap_px(outer.max.y, pixels_per_point)),
+    );
+    assert_eq!(ring.rect, snapped);
+    assert_eq!(ring.corner_radius, egui::CornerRadius::same(12));
+    assert_eq!(ring.stroke_kind, egui::StrokeKind::Inside);
+    assert_eq!(ring.stroke.color, theme::FOCUS_RING);
+    assert!(ring.rect.min.x <= rect.min.x - 4.0 + 0.5);
+    assert!(rect.min.x - ring.rect.min.x >= 3.5);
+}
+
+#[test]
+fn ring_draws_on_a_focused_button() {
+    let ctx = egui::Context::default();
+    theme::install_fonts(&ctx);
+    let rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(80.0, 32.0));
+    let mut saw = false;
+    for _ in 0..3 {
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let response = button::button(ui, rect, "send", "Send", Hierarchy::Primary, Size::Xs, true);
+            response.request_focus();
+            assert!(response.has_focus() || saw);
+            assert!(focus::keyboard_focus(ui, response.id));
+        });
+        saw = !ring_strokes(&out.shapes).is_empty();
+    }
+    assert!(saw, "a focused button paints the focus band");
 }
 
 #[test]

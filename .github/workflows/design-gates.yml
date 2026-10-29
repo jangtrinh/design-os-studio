@@ -35,6 +35,9 @@ jobs:
       - name: Zero fake UI gate
         run: python3 -B scripts/zero_fake_ui_gate.py
 
+      - name: Ontology parity
+        run: python3 -B scripts/check_ds_ontology_parity.py
+
       - name: Token parity (G01, read-only)
         run: |
           python3 -B - <<'PY'

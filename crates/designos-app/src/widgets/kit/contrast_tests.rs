@@ -26,13 +26,13 @@ fn every_state_meets_chrome_contrast() {
         }
     }
     for (row, tone) in [("Badge/Neutral", Tone::Neutral), ("Badge/Success", Tone::Success), ("Badge/Warning", Tone::Warning), ("Badge/Error", Tone::Error)] {
-        score(&mut bad, &table, row, State::Default, count_badge(tone), theme::BG, "page");
+        score(&mut bad, &table, row, State::Default, count_badge_look(tone), theme::BG, "page");
     }
     for kind in [TileKind::Design, TileKind::Board, TileKind::Deck, TileKind::Spec, TileKind::Neutral] {
-        score(&mut bad, &table, "Tile", State::Default, tile_icon(kind), theme::BG, "page");
+        score(&mut bad, &table, "Tile", State::Default, tile_look(kind), theme::BG, "page");
     }
     for tone in [DotTone::Info, DotTone::Success, DotTone::Error] {
-        let dot = status_dot(tone);
+        let dot = status_color(tone);
         for (surface, where_) in [(theme::BG, "page"), (theme::BG_SECONDARY, "secondary")] {
             let ratio = contrast(dot, surface);
             if ratio < 3.0 {

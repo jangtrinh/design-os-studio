@@ -73,8 +73,11 @@ pub const TEXT_ON_LIGHT_CANVAS: Color32 = rgb(0x0A0A0A);
 pub const SHADOW_COLOR: Color32 = rgba(0x000000, 0x00);
 pub const SHADOW_COLOR_STRONG: Color32 = rgba(0x000000, 0x00);
 /// Elevation 400: drop shadow colour, 0.5px inset ring (#ffffff59 at half coverage) and top edge.
+/// Shared helpers no longer paint the shadow or the top edge, so those two stay for the contract.
+#[allow(dead_code)]
 pub const ELEVATION_400_SHADOW: Color32 = rgba(0x000000, 0x00);
 pub const ELEVATION_400_RING: Color32 = rgb(0x262626);
+#[allow(dead_code)]
 pub const ELEVATION_400_TOP: Color32 = rgba(0xFFFFFF, 0x00);
 pub const INNER_HIGHLIGHT: Color32 = rgb(0x262626);
 pub const CHECKER_A: Color32 = rgb(0xFFFFFF);
@@ -849,7 +852,7 @@ pub fn apply(ctx: &egui::Context) {
     let v = &mut style.visuals;
     *v = egui::Visuals::dark();
     v.panel_fill = BG;
-    v.window_fill = BG_MENU;
+    v.window_fill = BG;
     v.extreme_bg_color = BG;
     v.faint_bg_color = BG_SECONDARY;
     v.override_text_color = None;
@@ -857,7 +860,7 @@ pub fn apply(ctx: &egui::Context) {
     v.popup_shadow = egui::Shadow::NONE;
     v.window_stroke = egui::Stroke::new(1.0, BORDER_MENU);
     v.window_corner_radius = cr(RADIUS_CONTROL);
-    v.menu_corner_radius = cr(RADIUS_CONTROL);
+    v.menu_corner_radius = cr(RADIUS_FRAME);
     v.selection.bg_fill = BG_TEXT_SELECTION;
     v.selection.stroke = egui::Stroke::new(1.0, BORDER_SELECTED);
     v.text_cursor.stroke = egui::Stroke::new(1.0, TEXT);
@@ -868,11 +871,11 @@ pub fn apply(ctx: &egui::Context) {
         w.corner_radius = cr(RADIUS_CONTROL);
         w.fg_stroke = egui::Stroke::new(1.0, TEXT);
     }
-    v.widgets.inactive.bg_fill = BG_SECONDARY;
-    v.widgets.inactive.weak_bg_fill = BG_SECONDARY;
+    v.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+    v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
     v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, BORDER_STRONG);
-    v.widgets.hovered.bg_fill = BG_SECONDARY_HOVER;
-    v.widgets.hovered.weak_bg_fill = BG_SECONDARY_HOVER;
+    v.widgets.hovered.bg_fill = BG_HOVER;
+    v.widgets.hovered.weak_bg_fill = BG_HOVER;
     v.widgets.active.bg_fill = BG_PRESSED;
     v.widgets.active.weak_bg_fill = BG_PRESSED;
     style.spacing.item_spacing = egui::vec2(0.0, 0.0);

@@ -40,15 +40,15 @@ fn no_purple_in_kit() {
         }
     }
     for tone in [Tone::Neutral, Tone::Success, Tone::Warning, Tone::Error] {
-        let look = count_badge(tone);
+        let look = count_badge_look(tone);
         colors.extend([look.fill, look.border, look.text]);
     }
     for kind in [TileKind::Design, TileKind::Board, TileKind::Deck, TileKind::Spec, TileKind::Neutral] {
-        let look = tile_icon(kind);
+        let look = tile_look(kind);
         colors.extend([look.fill, look.icon, look.border]);
     }
     for tone in [DotTone::Info, DotTone::Success, DotTone::Error] {
-        colors.push(status_dot(tone));
+        colors.push(status_color(tone));
     }
     for color in colors {
         let (hue, sat) = hue_sat(color);

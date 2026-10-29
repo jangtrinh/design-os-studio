@@ -5,9 +5,10 @@ DESIGN:OS Studio — design-system ontology parity gate
 Checks the links between the component registry, the Rust kit, the theme names and the token store.
 It reads files only: no `ui` CLI, no cargo build, so it runs in the design-gates job.
 
-  P1  registry <-> Rust     every record names its `rust=` symbol; `exists` symbols resolve at HEAD, a symbol
-                            that a later spec creates (`new-in-C|D|K`) is reported until that spec's PR; a
-                            symbol serves one family (first name segment) only
+  P1  registry <-> Rust     every record names its `rust=` symbol; `exists` and `new-in-C` symbols resolve
+                            at HEAD (a `kit/` path is the module under `widgets/kit/` when the short path is
+                            not a file); a symbol a later spec creates (`new-in-D|K`) is reported until that
+                            spec's PR; a symbol serves one family (first name segment) only
   P2  painted code          the chrome colour-literal ratchet and the spacing/radius/type ratchet pass
   P3  names <-> store       every theme.rs colour name is in one of four classes (G01), mapped and shared
                             names equal their store key, pending names equal their pinned full value; per
@@ -54,7 +55,7 @@ from non_colour_token_parity import RUST_ONLY  # noqa: E402
 
 TIERS = ("element", "component", "composite", "region", "screen")
 TIER_RANK = {tier: rank for rank, tier in enumerate(TIERS)}
-# Only these three new-in statuses report instead of failing; any other status is a failure.
+# new-in-D and new-in-K report instead of failing. new-in-C resolves like exists. Any other status is a failure.
 RUST_STATUS_RE = re.compile(r"^(exists|new-in-[CDK])$")
 SYMBOL_RE = re.compile(r"^[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*\.rs(?:::[a-z_][a-z0-9_]*){1,2}$")
 STATE_NAMES = ("Default", "Hover", "Active", "Focus", "Disabled", "Selected")
@@ -219,10 +220,18 @@ def read_json(path: Path) -> object:
 # --------------------------------------------------------------------------- P1
 
 def resolve_symbol(src_root: Path, symbol: str) -> Optional[str]:
-    """None when `<file>::<fn>` (or `<file>::<mod>::<fn>` for an inline module) resolves; else the reason."""
+    """None when `<file>::<fn>` (or `<file>::<mod>::<fn>` for an inline module) resolves; else the reason.
+
+    Registry rows name the kit as `kit/<file>.rs`. That module lives at `widgets/kit/<file>.rs`.
+    """
     parts = symbol.split("::")
     rel, path = parts[0], parts[1:]
     file = src_root / rel
+    if not file.is_file() and rel.startswith("kit/") and rel.endswith(".rs"):
+        aliased = f"widgets/{rel}"
+        if (src_root / aliased).is_file():
+            rel = aliased
+            file = src_root / aliased
     if not file.is_file():
         return f"file {rel} does not exist"
     text = file.read_text(encoding="utf-8", errors="replace")
@@ -252,14 +261,15 @@ def check_p1(ctx: Context) -> Result:
         if not RUST_STATUS_RE.match(status):
             result.problems.append(f"{rec.name}: rust_status={status!r} is not exists, new-in-C, new-in-D or new-in-K")
             continue
-        if status != "exists":
+        resolves = status in ("exists", "new-in-C")
+        if not resolves:
             pending_by_status.setdefault(status, []).append(rec.name)
         for symbol in symbols:
             if not SYMBOL_RE.match(symbol):
                 result.problems.append(f"{rec.name}: rust={symbol} is not <file>::<fn> or <file>::<mod>::<fn>")
                 continue
             claims.setdefault(symbol, {}).setdefault(rec.family, set()).add(rec.name)
-            if status == "exists":
+            if resolves:
                 reason = resolve_symbol(ctx.app_src, symbol)
                 if reason:
                     result.problems.append(f"{rec.name}: rust={symbol} does not resolve: {reason}")

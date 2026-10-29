@@ -628,7 +628,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                 return Err(format!(
                     "G4 unnamed widget count mismatch in case {case_id} region '{reg}': baseline={}, current={} (virtualized={is_virt})",
                     b_list.len(),
-                    c_list.len()
+                    c_list.len(),
                 ));
             }
         }

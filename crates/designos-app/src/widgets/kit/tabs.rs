@@ -1,15 +1,22 @@
-use super::{disabled, look, Look, State};
+use super::focus::{keyboard_focus, paint_ring};
+use super::{disabled, look, paint_frame, selected_hover, state_of, Look, Size, State};
 use crate::theme;
-use egui::Color32;
+use crate::widgets::Key;
+use egui::{Color32, Rect, Response, Sense, Ui};
 
 const W: f32 = theme::BORDER_WIDTH;
 const CLEAR: Color32 = Color32::TRANSPARENT;
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const FILE_TAB_BAR_H: f32 = theme::CONTROL_XS;
+#[cfg_attr(not(test), allow(dead_code))]
 pub const SESSION_TAB_H: f32 = theme::RIGHT_TABS_H;
+#[cfg_attr(not(test), allow(dead_code))]
 pub const SEGMENTED_STRIP_H: f32 = theme::RIGHT_TABS_H;
+#[cfg_attr(not(test), allow(dead_code))]
 pub const HOME_TAB_H: f32 = theme::CONTROL_SM;
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const fn segment_tile_h() -> f32 {
     theme::RIGHT_TABS_H - theme::INSET_SEGMENT * 2.0
 }
@@ -22,13 +29,16 @@ const fn focus(focused: bool) -> Color32 {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const fn segmented_ring(focused: bool) -> Color32 {
     focus(focused)
 }
+#[cfg_attr(not(test), allow(dead_code))]
 pub const fn tab_ring(focused: bool) -> Color32 {
     focus(focused)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const fn segmented_look(state: State) -> Look {
     match state {
         State::Hover => look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY_HOVER),
@@ -39,6 +49,7 @@ pub const fn segmented_look(state: State) -> Look {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const fn tab_look(state: State) -> Look {
     match state {
         State::Hover => look(theme::BG_HOVER, CLEAR, W, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY_HOVER),
@@ -47,4 +58,59 @@ pub const fn tab_look(state: State) -> Look {
         State::Selected => look(theme::BG_SELECTED, CLEAR, W, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY_HOVER),
         _ => look(CLEAR, CLEAR, W, theme::TEXT_QUATERNARY, theme::ICON_QUATERNARY),
     }
+}
+
+#[allow(dead_code)]
+fn label_font(size: Size) -> egui::FontId {
+    match size {
+        Size::Xs => theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium),
+        Size::Sm | Size::Md => theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium),
+    }
+}
+
+#[allow(dead_code)]
+fn paint_cell(ui: &Ui, cell: Rect, paint: &Look, label: &str, font: egui::FontId, ring: Color32, radius: u8) {
+    paint_frame(ui.painter(), cell, radius, paint);
+    ui.painter().text(cell.center(), egui::Align2::CENTER_CENTER, label, font, paint.text);
+    paint_ring(ui.painter(), cell, radius as f32, ring);
+}
+
+#[allow(dead_code)]
+pub fn segmented(ui: &mut Ui, rect: Rect, key: impl Key, items: &[&str], selected: usize, size: Size) -> Option<usize> {
+    if items.is_empty() {
+        return None;
+    }
+    let font = label_font(size);
+    let salt = ui.id().with(key);
+    let width = rect.width() / items.len() as f32;
+    let mut picked = None;
+    for (i, label) in items.iter().enumerate() {
+        let cell = Rect::from_min_size(egui::pos2(rect.left() + width * i as f32, rect.top()), egui::vec2(width, rect.height()));
+        let response = ui.interact(cell, salt.with(i), Sense::click());
+        let on = i == selected;
+        let state = state_of(&response, on, true);
+        let paint = if on && response.hovered() && !response.is_pointer_button_down_on() {
+            selected_hover(segmented_look(State::Selected), segmented_look(State::Hover))
+        } else {
+            segmented_look(state)
+        };
+        paint_cell(ui, cell, &paint, label, font.clone(), segmented_ring(keyboard_focus(ui, response.id)), theme::RADIUS_SEGMENT);
+        if response.clicked() {
+            picked = Some(i);
+        }
+    }
+    picked
+}
+
+#[allow(dead_code)]
+pub fn tab(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected: bool) -> Response {
+    let response = ui.interact(rect, ui.id().with(key), Sense::click());
+    let state = state_of(&response, selected, true);
+    let paint = if selected && response.hovered() && !response.is_pointer_button_down_on() {
+        selected_hover(tab_look(State::Selected), tab_look(State::Hover))
+    } else {
+        tab_look(state)
+    };
+    paint_cell(ui, rect, &paint, label, label_font(Size::Sm), tab_ring(keyboard_focus(ui, response.id)), theme::RADIUS_CONTROL);
+    response
 }

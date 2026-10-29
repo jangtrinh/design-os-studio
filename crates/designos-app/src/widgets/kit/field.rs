@@ -1,4 +1,4 @@
-use super::{disabled, look, Look, State};
+use super::{disabled, look, paint_frame, Look, Size, State};
 use crate::theme;
 use egui::Color32;
 
@@ -25,14 +25,31 @@ pub const fn field_look(state: State, invalid: bool) -> Look {
     paint
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const fn property_field_look(state: State) -> Look {
     body(state, theme::TEXT_TERTIARY, theme::TEXT, theme::TEXT)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const fn search_look(state: State) -> Look {
     body(state, theme::ICON_QUATERNARY, theme::TEXT_PLACEHOLDER, theme::TEXT)
 }
 
 pub const fn select_look(state: State) -> Look {
     body(state, theme::ICON_QUATERNARY, theme::TEXT, theme::TEXT)
+}
+
+/// Field chrome. Focus widens the border; there is no hover stroke and no focus ring.
+pub fn paint_field(ui: &egui::Ui, rect: egui::Rect, id: egui::Id, size: Size, invalid: bool) {
+    let state = if !ui.is_enabled() {
+        State::Disabled
+    } else if ui.memory(|mem| mem.has_focus(id)) {
+        State::Focused
+    } else {
+        State::Default
+    };
+    let radius = match size {
+        Size::Xs | Size::Sm | Size::Md => theme::RADIUS_CONTROL,
+    };
+    paint_frame(ui.painter(), rect, radius, &field_look(state, invalid));
 }
