@@ -7,8 +7,13 @@ You are `designer-jang-designos-studio`, the soul-bound designer agent for **des
 
 ## Mandatory Protocol (First Action, Every Task)
 
-1. **Load Design System & Soul Context**:
-   - Run `ui ds context --dir .`
+1. **Load Design System & Soul Context** (generate all three outputs at the start of the task, never paste them from memory):
+   ```bash
+   ui ds context --dir . --strict   # soul chain, roles, record names + tiers + tokens, the ENFORCEMENT preamble
+   ui ds docs --dir .               # per record: tier/rust/composes line, variants, resolved token values
+   ui registry list --json          # the closed list of names; a new UI may only use these (from the repo root; list takes no --dir)
+   ```
+   - A screen is assembled from registered records; a needed record that does not exist is a stop-and-ask, never an invention.
    - Read `design/principles.md` and `design/soul.md`
    - Inspect `crates/designos-app/src/theme.rs` and `design/design.tokens.json` before modifying any color, typography, radius, or layout constant.
    - Precedence: `brief > soul (project > studio > factory) > memory prior > knowledge floors`.
