@@ -18,7 +18,7 @@ const PAD_VERTICAL: f32 = 12.0;
 const ACTION_GAP: f32 = 12.0;
 /// The action's inner padding (its pointer target is `ACTION_HEIGHT` tall, at least 24 px).
 const ACTION_PAD: f32 = 8.0;
-const ACTION_HEIGHT: f32 = 24.0;
+const ACTION_HEIGHT: f32 = theme::CONTROL_XS;
 /// Narrowest message column, so a tiny window still gets a readable toast.
 const MIN_TEXT_WIDTH: f32 = 80.0;
 /// Narrowest toast, before the window's side margins squeeze it further.
@@ -42,14 +42,28 @@ pub(super) struct ToastLayout {
     pub dot: Pos2,
     /// The action's pointer target and its label, when the toast has an action.
     pub action: Option<(Rect, Arc<Galley>)>,
+    /// A second action to the left of `action`, when the toast has two.
+    pub extra: Option<(Rect, Arc<Galley>)>,
 }
 
-/// Lays the toast out inside `screen`. Its bottom edge is `TOAST_BOTTOM` above the window's bottom.
-pub(super) fn layout(p: &Painter, text: &str, font: &FontId, screen: Rect, action_label: Option<&str>) -> ToastLayout {
+/// Lays the toast out inside `screen`. Its bottom edge is `TOAST_BOTTOM` above the window's bottom. The message uses
+/// `font` and the actions use `action_font`.
+pub(super) fn layout(
+    p: &Painter,
+    text: &str,
+    font: &FontId,
+    action_font: &FontId,
+    screen: Rect,
+    action_label: Option<&str>,
+    extra_label: Option<&str>,
+) -> ToastLayout {
     let max_w = (screen.width() - SIDE_MARGINS).clamp(MIN_WIDTH, MAX_WIDTH);
-    let action_galley = action_label.map(|label| p.layout_no_wrap(label.to_string(), font.clone(), theme::TEXT_BRAND));
+    let action_galley = action_label.map(|label| p.layout_no_wrap(label.to_string(), action_font.clone(), Color32::PLACEHOLDER));
+    let extra_galley = extra_label.map(|label| p.layout_no_wrap(label.to_string(), action_font.clone(), Color32::PLACEHOLDER));
     let action_w = action_galley.as_ref().map_or(0.0, |g| g.size().x + ACTION_PADS);
-    let reserved = PAD_LEFT + PAD_RIGHT + if action_galley.is_some() { action_w + ACTION_GAP } else { 0.0 };
+    let extra_w = extra_galley.as_ref().map_or(0.0, |g| g.size().x + ACTION_PADS);
+    let slots = (action_w > 0.0) as u8 + (extra_w > 0.0) as u8;
+    let reserved = PAD_LEFT + PAD_RIGHT + action_w + extra_w + if slots > 0 { ACTION_GAP * slots as f32 } else { 0.0 };
     let wrap_w = (max_w - reserved).max(MIN_TEXT_WIDTH);
     let galley = p.layout(text.to_string(), font.clone(), Color32::PLACEHOLDER, wrap_w);
 
@@ -64,5 +78,10 @@ pub(super) fn layout(p: &Painter, text: &str, font: &FontId, screen: Rect, actio
         let target = Rect::from_center_size(Pos2::new(rect.right() - PAD_RIGHT - action_w / 2.0, rect.center().y), Vec2::new(action_w, ACTION_HEIGHT));
         (target, label)
     });
-    ToastLayout { rect, text: galley, text_pos, dot, action }
+    let extra = extra_galley.map(|label| {
+        let right = action.as_ref().map(|(r, _)| r.left() - ACTION_GAP).unwrap_or(rect.right() - PAD_RIGHT);
+        let target = Rect::from_center_size(Pos2::new(right - extra_w / 2.0, rect.center().y), Vec2::new(extra_w, ACTION_HEIGHT));
+        (target, label)
+    });
+    ToastLayout { rect, text: galley, text_pos, dot, action, extra }
 }

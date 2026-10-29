@@ -225,36 +225,81 @@ fn page_pos(app: &App, rect: ERect, pos: Pos2, axis: GuideAxis) -> f32 {
 
 /// Starts a guide drag when the press hits a ruler (new guide) or, with the move
 /// tool, an existing guide, duplicating an existing guide when `alt` is held (`#71`).
+fn begin_new_guide(app: &mut App, rect: ERect, pos: Pos2, axis: GuideAxis) {
+    let on_ruler = on_ruler_strip(rect, axis, pos, true);
+    let v = page_pos(app, rect, pos, axis);
+    app.canvas.inter = Interaction::Guide(GuideDrag { axis, index: None, pos: v, frame: None, on_ruler });
+}
+
+fn begin_guide_grab(app: &mut App, i: usize, g: &RulerGuide, alt: bool) {
+    let index = if alt {
+        let dup = store(&app.doc, g.axis, g.pos, g.frame);
+        let list = app.doc.guides.entry(app.page).or_default();
+        list.push(dup);
+        Some(list.len() - 1)
+    } else {
+        Some(i)
+    };
+    app.canvas.inter = Interaction::Guide(GuideDrag { axis: g.axis, index, pos: g.pos, frame: g.frame, on_ruler: false });
+}
+
+/// How far the press band reaches past a ruler strip: the pointer floor minus the strip.
+fn press_band_extra() -> f32 {
+    theme::DRAG_DIVIDER_HIT - theme::RULER_SIZE
+}
+
+/// Whether `pos` is over the ruler strip of `axis`, with the press band counted in when `with_band`. A new guide
+/// counts the band as the ruler, so a click there drops none, like a click on the strip. A grabbed guide does not:
+/// nudged inside the band it would otherwise be deleted on release.
+fn on_ruler_strip(rect: ERect, axis: GuideAxis, pos: Pos2, with_band: bool) -> bool {
+    let (top, left) = strips(rect);
+    if with_band {
+        // Inclusive like the press band's `Rect::contains`, so a press on its far edge also drops no guide.
+        let reach = press_band_extra();
+        return match axis {
+            GuideAxis::Y => pos.y <= top.bottom() + reach,
+            GuideAxis::X => pos.x <= left.right() + reach,
+        };
+    }
+    match axis {
+        GuideAxis::Y => pos.y < top.bottom(),
+        GuideAxis::X => pos.x < left.right(),
+    }
+}
+
 pub fn press_with_alt(app: &mut App, rect: ERect, pos: Pos2, alt: bool) -> bool {
     if !app.ui.rulers || app.canvas.text.is_some() {
         return false;
     }
     let (top, left) = strips(rect);
-    let new = if top.contains(pos) {
-        Some(GuideAxis::Y)
-    } else if left.contains(pos) {
-        Some(GuideAxis::X)
-    } else {
-        None
-    };
-    if let Some(axis) = new {
-        let v = page_pos(app, rect, pos, axis);
-        app.canvas.inter = Interaction::Guide(GuideDrag { axis, index: None, pos: v, frame: None, on_ruler: true });
+    let extra = press_band_extra();
+    let top_press = ERect::from_min_max(top.min, Pos2::new(top.max.x, top.max.y + extra));
+    let left_press = ERect::from_min_max(left.min, Pos2::new(left.max.x + extra, left.max.y));
+    let extra_top = top_press.contains(pos) && !top.contains(pos);
+    let extra_left = left_press.contains(pos) && !left.contains(pos);
+    if extra_top || extra_left {
+        if matches!(app.tool, tools::Tool::Move | tools::Tool::Scale) {
+            if let Some((i, g)) = hit_guide(app, rect, pos) {
+                begin_guide_grab(app, i, &g, alt);
+                return true;
+            }
+        }
+        begin_new_guide(app, rect, pos, if extra_top { GuideAxis::Y } else { GuideAxis::X });
+        return true;
+    }
+    if top.contains(pos) {
+        begin_new_guide(app, rect, pos, GuideAxis::Y);
+        return true;
+    }
+    if left.contains(pos) {
+        begin_new_guide(app, rect, pos, GuideAxis::X);
         return true;
     }
     if !matches!(app.tool, tools::Tool::Move | tools::Tool::Scale) {
         return false;
     }
     if let Some((i, g)) = hit_guide(app, rect, pos) {
-        let index = if alt {
-            let dup = store(&app.doc, g.axis, g.pos, g.frame);
-            let list = app.doc.guides.entry(app.page).or_default();
-            list.push(dup);
-            Some(list.len() - 1)
-        } else {
-            Some(i)
-        };
-        app.canvas.inter = Interaction::Guide(GuideDrag { axis: g.axis, index, pos: g.pos, frame: g.frame, on_ruler: false });
+        begin_guide_grab(app, i, &g, alt);
         return true;
     }
     false
@@ -317,13 +362,8 @@ pub fn drag(app: &App, g: &mut GuideDrag, rect: ERect, pos: Pos2) {
     if g.index.is_none() {
         g.frame = selected_frame_at(app, app.view.to_page(rect.min, pos));
     }
-    let (top, left) = strips(rect);
     // Back on a ruler (or off the canvas): releasing now removes / cancels the guide.
-    let over = match g.axis {
-        GuideAxis::Y => pos.y < top.bottom(),
-        GuideAxis::X => pos.x < left.right(),
-    };
-    g.on_ruler = over || !rect.contains(pos);
+    g.on_ruler = on_ruler_strip(rect, g.axis, pos, g.index.is_none()) || !rect.contains(pos);
 }
 
 pub fn release(app: &mut App, g: GuideDrag) {
@@ -419,7 +459,7 @@ pub fn overlay(app: &App, ui: &Ui, rect: ERect) {
             let w = crate::widgets::text_width(&p, &text, &font) + theme::CANVAS_BADGE_PAD_X * 2.0;
             let r = ERect::from_min_size(ptr + EV::new(12.0, 12.0), EV::new(w, theme::CANVAS_BADGE_HEIGHT));
             p.rect_filled(r, theme::cr(theme::CANVAS_BADGE_RADIUS), theme::RULER_GUIDE);
-            p.text(r.center(), Align2::CENTER_CENTER, text, font, Color32::WHITE);
+            p.text(r.center(), Align2::CENTER_CENTER, text, font, theme::TEXT_ON_BRAND);
         }
     }
 
@@ -546,5 +586,109 @@ mod tests {
         assert_eq!(fmt_value(100.0), "100");
         assert_eq!(fmt_value(-0.0), "0");
         assert_eq!(fmt_value(2.5), "2.5");
+    }
+
+    fn fresh_app() -> crate::app::App {
+        let mut doc = designos_doc::Document::new("Rulers");
+        doc.add_page("Page 1");
+        let mut app = crate::app::App::new(doc);
+        app.ui.rulers = true;
+        app.page = app.doc.pages[0];
+        app
+    }
+
+    #[test]
+    fn ruler_press_band_meets_the_target_floor() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut app = fresh_app();
+        assert!(press_with_alt(&mut app, rect, egui::pos2(100.0, 22.0), false), "22px from the top edge starts a guide");
+        assert!(matches!(app.canvas.inter, Interaction::Guide(GuideDrag { axis: GuideAxis::Y, index: None, .. })));
+        app.canvas.inter = Interaction::None;
+        assert!(!press_with_alt(&mut app, rect, egui::pos2(100.0, 25.0), false), "25px is outside the press band");
+        app.canvas.inter = Interaction::None;
+        assert!(press_with_alt(&mut app, rect, egui::pos2(22.0, 100.0), false), "22px from the left edge starts a guide");
+        assert!(matches!(app.canvas.inter, Interaction::Guide(GuideDrag { axis: GuideAxis::X, index: None, .. })));
+
+        let mut app = fresh_app();
+        app.tool = crate::canvas::tools::Tool::Move;
+        let guide = store(&app.doc, GuideAxis::Y, 22.0, None);
+        app.doc.guides.entry(app.page).or_default().push(guide);
+        assert!(press_with_alt(&mut app, rect, egui::pos2(100.0, 22.0), false));
+        match app.canvas.inter {
+            Interaction::Guide(GuideDrag { index: Some(0), .. }) => {}
+            _ => panic!("an existing guide inside the band is grabbed"),
+        }
+    }
+
+    fn guide_count(app: &crate::app::App) -> usize {
+        app.doc.guides.get(&app.page).map_or(0, Vec::len)
+    }
+
+    #[test]
+    fn a_press_and_release_in_the_press_band_drops_no_guide() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        for at in [
+            egui::pos2(100.0, 10.0),
+            egui::pos2(100.0, 22.0),
+            egui::pos2(100.0, 24.0),
+            egui::pos2(10.0, 100.0),
+            egui::pos2(22.0, 100.0),
+            egui::pos2(24.0, 100.0),
+        ] {
+            let mut app = fresh_app();
+            assert!(press_with_alt(&mut app, rect, at, false), "{at:?} starts a guide drag");
+            let Interaction::Guide(mut g) = std::mem::take(&mut app.canvas.inter) else { panic!("a guide drag is open") };
+            drag(&app, &mut g, rect, at);
+            release(&mut app, g);
+            assert_eq!(guide_count(&app), 0, "a click at {at:?} drops no guide");
+        }
+        let mut app = fresh_app();
+        let from = egui::pos2(100.0, 22.0);
+        assert!(press_with_alt(&mut app, rect, from, false));
+        let Interaction::Guide(mut g) = std::mem::take(&mut app.canvas.inter) else { panic!("a guide drag is open") };
+        drag(&app, &mut g, rect, egui::pos2(100.0, 140.0));
+        release(&mut app, g);
+        assert_eq!(guide_count(&app), 1, "dragging out of the band into the canvas places the guide");
+    }
+
+    #[test]
+    fn nudging_a_grabbed_guide_inside_the_press_band_keeps_it() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut app = fresh_app();
+        app.tool = crate::canvas::tools::Tool::Move;
+        let guide = store(&app.doc, GuideAxis::Y, 22.0, None);
+        app.doc.guides.entry(app.page).or_default().push(guide);
+        assert!(press_with_alt(&mut app, rect, egui::pos2(100.0, 22.0), false));
+        let Interaction::Guide(mut g) = std::mem::take(&mut app.canvas.inter) else { panic!("a guide drag is open") };
+        drag(&app, &mut g, rect, egui::pos2(103.0, 23.0));
+        release(&mut app, g);
+        assert_eq!(guide_count(&app), 1, "the grabbed guide stays when it is let go inside the band");
+    }
+
+    #[test]
+    fn guide_badge_label_is_dark_on_the_guide_fill() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut app = fresh_app();
+        app.canvas.inter = Interaction::Guide(GuideDrag { axis: GuideAxis::X, index: None, pos: 40.0, frame: None, on_ruler: false });
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0));
+        let raw = egui::RawInput { screen_rect: Some(rect), events: vec![egui::Event::PointerMoved(egui::pos2(80.0, 80.0))], ..Default::default() };
+        let shapes = ctx.run_ui(raw, |ui| overlay(&app, ui, rect)).shapes;
+        fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Color32)>) {
+            match shape {
+                egui::Shape::Text(t) => {
+                    let color = t.galley.job.sections.first().map(|s| s.format.color).unwrap_or(egui::Color32::TRANSPARENT);
+                    out.push((t.galley.text().to_string(), color));
+                }
+                egui::Shape::Vec(inner) => inner.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for clipped in &shapes {
+            texts(&clipped.shape, &mut found);
+        }
+        let badge = found.iter().find(|(text, _)| text.starts_with("X:")).expect("guide badge");
+        assert_eq!(badge.1, theme::TEXT_ON_BRAND, "badge label is the dark on-brand role, got {found:?}");
     }
 }

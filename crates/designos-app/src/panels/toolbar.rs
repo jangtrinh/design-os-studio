@@ -128,69 +128,97 @@ fn primary_pressed_in(ui: &Ui, rect: Rect) -> bool {
     presses.into_iter().any(|p| rect.contains(p) && ctx.layer_id_at(p).is_none_or(|l| l == own))
 }
 
+fn tool_look(resp: &egui::Response, selected: bool) -> crate::widgets::kit::Look {
+    if selected && resp.hovered() && !resp.is_pointer_button_down_on() {
+        crate::widgets::kit::selected_hover(
+            crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Tool, crate::widgets::kit::State::Selected),
+            crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Tool, crate::widgets::kit::State::Hover),
+        )
+    } else {
+        crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Tool, crate::widgets::kit::state_of(resp, selected, true))
+    }
+}
+
+fn mark_focus(ui: &Ui, p: &egui::Painter, id: egui::Id, rect: Rect, radius: f32) {
+    if crate::widgets::kit::keyboard_focus(ui, id) {
+        crate::widgets::kit::focus_ring(p, rect, radius);
+    }
+}
+
+/// Selection actions above the main toolbar. Hidden while a menu, toast, or popover covers that band.
+fn contextual_bar(app: &mut App, ui: &mut Ui, screen: Rect, bar: Rect) {
+    if app.selection.is_empty()
+        || app.canvas.vedit.is_some()
+        || app.ui.menu.is_some()
+        || app.cmdk.open
+        || app.toast.is_some()
+        || app.props.pop.is_some()
+        || app.props.picker.is_some()
+    {
+        return;
+    }
+    let p = ui.painter().clone();
+    let more_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    let more_w =
+        (theme::INSET_CONTROL + widgets::text_width(&p, "More", &more_font) + theme::SPACE_FACT + theme::LAYER_ICON_SIZE + theme::INSET_CONTROL).ceil();
+    let step = theme::CONTROL_XS + theme::INSET_SEGMENT;
+    let ctx_w = theme::SPACE_FACT + step * 2.0 + 3.0 + 5.0 + more_w + theme::SPACE_FACT;
+    let ctx_h = theme::CONTROL_MD;
+    let ctx_bar = Rect::from_min_size(Pos2::new((screen.center().x - ctx_w * 0.5).round(), bar.top() - theme::SPACE_INLINE - ctx_h), Vec2::new(ctx_w, ctx_h));
+    widgets::record(ui, "contextual-floating-bar", ctx_bar);
+    let surface = crate::widgets::kit::Look {
+        fill: theme::BG_TOOLBAR,
+        border: theme::INNER_HIGHLIGHT,
+        border_w: theme::BORDER_WIDTH,
+        text: Color32::TRANSPARENT,
+        icon: Color32::TRANSPARENT,
+        mark: Color32::TRANSPARENT,
+    };
+    crate::widgets::kit::paint_frame(&p, ctx_bar, theme::RADIUS_XL, &surface);
+    ui.interact(ctx_bar, ui.id().with("ctx-toolbar-block"), Sense::click_and_drag());
+
+    let mut cx = ctx_bar.left() + theme::SPACE_FACT;
+    let cy = ctx_bar.top() + (ctx_h - theme::CONTROL_XS) * 0.5;
+    let ctx_items: [(Icon, &str, &str); 2] = [(Icon::Rectangle, "ctx-select-area", "Select area"), (Icon::Pen, "ctx-edit-prompt", "Edit with prompt")];
+    for (icon, key, tip) in ctx_items {
+        let br = Rect::from_min_size(Pos2::new(cx, cy), Vec2::splat(theme::CONTROL_XS));
+        widgets::record(ui, key, br);
+        let resp = ui.interact(br, ui.id().with(key), Sense::click());
+        let look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Icon, crate::widgets::kit::state_of(&resp, false, true));
+        crate::widgets::kit::paint_frame(&p, br, theme::RADIUS_CONTROL, &look);
+        icons::paint(&p, icon, br.center(), theme::LAYER_ICON_SIZE, look.icon);
+        mark_focus(ui, &p, resp.id, br, theme::RADIUS_CONTROL as f32);
+        if resp.on_hover_text(tip).clicked() {
+            apply_contextual_action(app, key);
+        }
+        cx += step;
+    }
+    cx += 3.0;
+    widgets::vline(&p, cx, ctx_bar.top() + 6.0, ctx_bar.bottom() - 6.0, theme::BORDER);
+    cx += 5.0;
+    let more_r = Rect::from_min_size(Pos2::new(cx, cy), Vec2::new(more_w, theme::CONTROL_XS));
+    let more_resp = ui.interact(more_r, ui.id().with("ctx-more"), Sense::click());
+    let more_look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Tertiary, crate::widgets::kit::state_of(&more_resp, false, true));
+    crate::widgets::kit::paint_frame(&p, more_r, theme::RADIUS_CONTROL, &more_look);
+    p.text(Pos2::new(more_r.left() + theme::INSET_CONTROL, more_r.center().y), egui::Align2::LEFT_CENTER, "More", more_font, more_look.text);
+    let chevron_at = Pos2::new(more_r.right() - theme::INSET_CONTROL - theme::LAYER_ICON_SIZE * 0.5, more_r.center().y);
+    icons::paint(&p, Icon::ChevronDown, chevron_at, theme::LAYER_ICON_SIZE, more_look.icon);
+    mark_focus(ui, &p, more_resp.id, more_r, theme::RADIUS_CONTROL as f32);
+    if more_resp.on_hover_text("More actions   Ctrl+K").clicked() {
+        app.cmdk.open = true;
+        app.cmdk.focus_requested = true;
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
     if app.ui.dev_mode {
         show_dev_mode_toolbar(app, ui, screen);
         return;
     }
-    let figma_blue = Color32::from_rgb(0x0D, 0x99, 0xFF);
     let bar = toolbar_rect(screen);
     let p = ui.painter().clone();
+    contextual_bar(app, ui, screen, bar);
 
-    // 1:1 Figma UI3 Contextual Floating Action Bar (`figma_live_editor.png`):
-    // Rendered 8px above the main bottom toolbar when a layer/frame is selected in Design Mode
-    // and no popup menu, toast, popover, or Actions modal is covering that region.
-    if !app.selection.is_empty()
-        && app.canvas.vedit.is_none()
-        && app.ui.menu.is_none()
-        && !app.cmdk.open
-        && app.toast.is_none()
-        && app.props.pop.is_none()
-        && app.props.picker.is_none()
-    {
-        let ctx_w = 128.0;
-        let ctx_h = 34.0;
-        let ctx_bar = Rect::from_min_size(Pos2::new((screen.center().x - ctx_w * 0.5).round(), bar.top() - 8.0 - ctx_h), Vec2::new(ctx_w, ctx_h));
-        widgets::record(ui, "contextual-floating-bar", ctx_bar);
-        widgets::shadow(&p, ctx_bar, 8, Vec2::new(0.0, 2.0), 6.0, theme::SHADOW_COLOR);
-        p.rect_filled(ctx_bar, theme::cr(8), theme::BG_TOOLBAR);
-        p.rect_stroke(ctx_bar.shrink(0.5), theme::cr(8), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), egui::StrokeKind::Inside);
-        ui.interact(ctx_bar, ui.id().with("ctx-toolbar-block"), Sense::click_and_drag());
-
-        let mut cx = ctx_bar.left() + 4.0;
-        let cy = ctx_bar.top() + 3.0;
-        let ctx_items: [(Icon, &str, &str); 2] = [(Icon::Rectangle, "ctx-select-area", "Select area"), (Icon::Pen, "ctx-edit-prompt", "Edit with prompt")];
-        for (icon, key, tip) in ctx_items {
-            let br = Rect::from_min_size(Pos2::new(cx, cy), Vec2::splat(28.0));
-            widgets::record(ui, key, br);
-            let resp = ui.interact(br, ui.id().with(key), Sense::click());
-            if resp.hovered() {
-                p.rect_filled(br, theme::cr(theme::RADIUS_CONTROL), theme::BG_TOOLBAR_HOVER);
-            }
-            icons::paint(&p, icon, br.center(), 15.0, theme::ICON);
-            if resp.on_hover_text(tip).clicked() {
-                apply_contextual_action(app, key);
-            }
-            cx += 30.0;
-        }
-        cx += 3.0;
-        widgets::vline(&p, cx, ctx_bar.top() + 6.0, ctx_bar.bottom() - 6.0, theme::BORDER);
-        cx += 5.0;
-        let more_r = Rect::from_min_size(Pos2::new(cx, cy), Vec2::new(48.0, 28.0));
-        let more_resp = ui.interact(more_r, ui.id().with("ctx-more"), Sense::click());
-        if more_resp.hovered() {
-            p.rect_filled(more_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_TOOLBAR_HOVER);
-        }
-        p.text(Pos2::new(more_r.left() + 6.0, more_r.center().y), egui::Align2::LEFT_CENTER, "More", theme::font_caption(), theme::TEXT);
-        icons::paint(&p, Icon::ChevronDown, Pos2::new(more_r.right() - 9.0, more_r.center().y), theme::TOOL_CHEVRON_ICON, theme::ICON_SECONDARY);
-        if more_resp.on_hover_text("More actions   Ctrl+K").clicked() {
-            app.cmdk.open = true;
-            app.cmdk.focus_requested = true;
-        }
-    }
-
-    widgets::shadow(&p, bar, theme::RADIUS_FRAME, Vec2::new(0.0, 3.0), 8.0, theme::SHADOW_COLOR);
-    widgets::shadow(&p, bar, theme::RADIUS_FRAME, Vec2::new(0.0, 1.0), 3.0, theme::SHADOW_COLOR_STRONG);
     p.rect_filled(bar, theme::cr(theme::RADIUS_FRAME), theme::BG_TOOLBAR);
     p.rect_stroke(bar.shrink(0.5), theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::INNER_HIGHLIGHT), egui::StrokeKind::Inside);
     // Block canvas interaction under the bar.
@@ -209,18 +237,10 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
         let br = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON));
         let resp = ui.interact(br, ui.id().with(("tool", gi)), Sense::click());
         let has_chev = has_chevron(group);
-        // Only the 32x32 icon button takes the selected fill: a neutral fill, never an accent (P2).
-        let fill = if selected {
-            theme::BG_TOOLBAR_SELECTED
-        } else if resp.hovered() {
-            theme::BG_TOOLBAR_HOVER
-        } else {
-            Color32::TRANSPARENT
-        };
-        if fill != Color32::TRANSPARENT {
-            p.rect_filled(br, theme::cr(theme::RADIUS_CONTROL), fill);
-        }
-        icons::paint(&p, tool_icon(shown), br.center(), theme::TOOL_ICON_SIZE, if selected { Color32::WHITE } else { theme::ICON });
+        let look = tool_look(&resp, selected);
+        crate::widgets::kit::paint_frame(&p, br, theme::RADIUS_CONTROL, &look);
+        icons::paint(&p, tool_icon(shown), br.center(), theme::TOOL_ICON_SIZE, look.icon);
+        mark_focus(ui, &p, resp.id, br, theme::RADIUS_CONTROL as f32);
         if resp.clicked() {
             app.set_tool(tool);
         }
@@ -230,21 +250,30 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
         if has_chev {
             x += theme::TOOL_CHEVRON_GAP;
             let cr = Rect::from_min_size(Pos2::new(x, y), Vec2::new(theme::TOOL_CHEVRON_W, theme::TOOL_BUTTON));
-            let cresp = ui.interact(cr, ui.id().with(("tool-chev", gi)), Sense::click());
-            widgets::record(ui, &format!("tool-chevron-{gi}"), cr);
+            let hit = Rect::from_min_size(cr.min, Vec2::new(theme::TOOL_CHEVRON_W + theme::TOOL_GROUP_GAP, theme::TOOL_BUTTON));
+            let cresp = ui.interact(hit, ui.id().with(("tool-chev", gi)), Sense::click());
+            widgets::record_with(ui, || format!("tool-chevron-{gi}"), cr);
+            widgets::record_with(ui, || format!("tool-chevron-hit-{gi}"), hit);
             #[cfg(test)]
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("test-chevron-id", gi)), cresp.id));
             let open = app.ui.menu == Some(MenuKind::ToolGroup(gi));
-            // The chevron stays transparent unless hovered or its menu is open.
-            if open || cresp.hovered() {
-                p.rect_filled(cr, theme::cr(theme::RADIUS_CONTROL), theme::BG_TOOLBAR_HOVER);
-            }
+            // The painted chevron stays 16px. The press target is the wider hit. An open menu uses the hover fill.
+            let chev_state = if cresp.is_pointer_button_down_on() {
+                crate::widgets::kit::State::Pressed
+            } else if open || cresp.hovered() {
+                crate::widgets::kit::State::Hover
+            } else {
+                crate::widgets::kit::State::Default
+            };
+            let chev_look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Tool, chev_state);
+            crate::widgets::kit::paint_frame(&p, cr, theme::RADIUS_CONTROL, &chev_look);
+            mark_focus(ui, &p, cresp.id, cr, theme::RADIUS_CONTROL as f32);
             let cc = Pos2::new(br.right() + theme::TOOL_CHEVRON_CENTER_DX, cr.center().y);
-            icons::paint(&p, Icon::ChevronDown, cc, theme::TOOL_CHEVRON_ICON, theme::ICON_SECONDARY);
+            icons::paint(&p, Icon::ChevronDown, cc, theme::TOOL_CHEVRON_ICON, chev_look.icon);
             // The menu opens on the press, so the same press can slide onto a row and pick it on release; a second
             // press on the chevron closes it. Space or Enter on the focused chevron and a screen reader's activation
             // reach `clicked` without a pointer click and toggle it too.
-            if primary_pressed_in(ui, cr) || (cresp.clicked() && !cresp.clicked_by(egui::PointerButton::Primary)) {
+            if primary_pressed_in(ui, hit) || (cresp.clicked() && !cresp.clicked_by(egui::PointerButton::Primary)) {
                 app.ui.menu = if open { None } else { Some(MenuKind::ToolGroup(gi)) };
             }
             if app.ui.menu == Some(MenuKind::ToolGroup(gi)) {
@@ -254,18 +283,15 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
         }
     }
 
-    // Actions button (`figma_ui3_actions_cmdk.png`: fills #0D99FF Figma Blue when Actions is open).
     x += theme::TOOL_GROUP_GAP;
     let ar = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON));
     widgets::record(ui, "toolbar-actions-btn", ar);
     let aresp = ui.interact(ar, ui.id().with("actions"), Sense::click());
     let actions_open = app.cmdk.open || app.ui.menu == Some(MenuKind::Palette);
-    if actions_open {
-        p.rect_filled(ar, theme::cr(theme::RADIUS_CONTROL), figma_blue);
-    } else if aresp.hovered() {
-        p.rect_filled(ar, theme::cr(theme::RADIUS_CONTROL), theme::BG_TOOLBAR_HOVER);
-    }
-    icons::paint(&p, Icon::Sparkle, ar.center(), theme::TOOL_ICON_SIZE, if actions_open { Color32::WHITE } else { theme::ICON });
+    let actions_look = tool_look(&aresp, actions_open);
+    crate::widgets::kit::paint_frame(&p, ar, theme::RADIUS_CONTROL, &actions_look);
+    icons::paint(&p, Icon::Sparkle, ar.center(), theme::TOOL_ICON_SIZE, actions_look.icon);
+    mark_focus(ui, &p, aresp.id, ar, theme::RADIUS_CONTROL as f32);
     if aresp.on_hover_text("Actions   Ctrl+K").clicked() {
         super::menus::run(app, ui.ctx(), super::menus::Action::OpenPalette);
     }
@@ -299,24 +325,27 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
         } else {
             i == 1
         };
-        let dev_green = Color32::from_rgb(0x1B, 0xC4, 0x7D);
-        if sel {
-            // Active segment: Dev Mode uses Figma UI3 #1BC47D green; Design/Draw use darker inset tile with #0D99FF icon.
-            let active_bg = if i == 2 { dev_green } else { theme::BG_TOOLBAR };
-            p.rect_filled(r, theme::cr(theme::RADIUS_SEGMENT), active_bg);
-        } else if resp.hovered() {
-            p.rect_filled(r, theme::cr(theme::RADIUS_SEGMENT), theme::BG_TOOLBAR_HOVER);
-        }
-        let icon_col = if sel && i == 2 {
-            Color32::WHITE
+        let seg = if sel && i == 2 {
+            crate::widgets::kit::Look {
+                fill: theme::DEV_READY,
+                border: Color32::TRANSPARENT,
+                border_w: theme::BORDER_WIDTH,
+                text: theme::TEXT_ON_BRAND,
+                icon: theme::TEXT_ON_BRAND,
+                mark: Color32::TRANSPARENT,
+            }
         } else if sel {
-            figma_blue
-        } else if i == 2 && resp.hovered() {
-            dev_green
+            let mut seg = crate::widgets::kit::segmented_look(crate::widgets::kit::State::Selected);
+            seg.border = Color32::TRANSPARENT;
+            seg
+        } else if resp.hovered() {
+            crate::widgets::kit::segmented_look(crate::widgets::kit::State::Hover)
         } else {
-            theme::ICON_SECONDARY
+            crate::widgets::kit::segmented_look(crate::widgets::kit::State::Default)
         };
-        icons::paint(&p, icon, r.center(), 16.0, icon_col);
+        crate::widgets::kit::paint_frame(&p, r, theme::RADIUS_SEGMENT, &seg);
+        mark_focus(ui, &p, resp.id, r, theme::RADIUS_SEGMENT as f32);
+        icons::paint(&p, icon, r.center(), theme::LAYER_ICON_SIZE, seg.icon);
         if resp.on_hover_text(label).clicked() {
             match i {
                 0 => {
@@ -339,7 +368,6 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
 
 /// 1:1 Figma UI3 Dev Mode 5-tool bottom floating dock + floating `↩ Re-center  ⇧2` pill (`Gap C`).
 fn show_dev_mode_toolbar(app: &mut App, ui: &mut Ui, screen: Rect) {
-    let dev_green = Color32::from_rgb(0x1B, 0xC4, 0x7D);
     let dev_toggle_w = 36.0;
     let tools_count = 5usize;
     let w = theme::TOOLBELT_PADDING * 2.0
@@ -356,27 +384,25 @@ fn show_dev_mode_toolbar(app: &mut App, ui: &mut Ui, screen: Rect) {
     );
     let p = ui.painter().clone();
 
-    // Floating `↩ Re-center  ⇧2` pill 8px above the Dev Mode bottom toolbar
-    let recenter_rect = Rect::from_min_size(Pos2::new(bar.center().x - 59.0, bar.top() - 8.0 - 28.0), Vec2::new(118.0, 28.0));
+    // Floating re-center control above the Dev Mode bottom toolbar.
+    let label_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    let hint_font = theme::font_body();
+    let label = "\u{21A9} Re-center";
+    let hint = "\u{21E7}2";
+    let measured = 10.0 + widgets::text_width(&p, label, &label_font) + theme::SPACE_FACT + widgets::text_width(&p, hint, &hint_font) + 10.0;
+    let recenter_w = if measured > 118.0 { measured.ceil() } else { 118.0 };
+    let recenter_h = theme::TOOL_BUTTON;
+    let recenter_rect = Rect::from_min_size(
+        Pos2::new((bar.center().x - recenter_w * 0.5).round(), bar.top() - theme::SPACE_INLINE - recenter_h),
+        Vec2::new(recenter_w, recenter_h),
+    );
     widgets::record(ui, "dev-recenter", recenter_rect);
     let recenter_resp = ui.interact(recenter_rect, ui.id().with("dev-recenter"), Sense::click());
-    widgets::shadow(&p, recenter_rect, 6, Vec2::new(0.0, 2.0), 6.0, theme::SHADOW_COLOR);
-    p.rect_filled(recenter_rect, theme::cr(6), if recenter_resp.hovered() { Color32::from_rgb(0x36, 0x36, 0x36) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) });
-    p.rect_stroke(recenter_rect, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), egui::StrokeKind::Inside);
-    p.text(
-        Pos2::new(recenter_rect.left() + 10.0, recenter_rect.center().y),
-        egui::Align2::LEFT_CENTER,
-        "\u{21A9} Re-center",
-        theme::font_caption_strong(),
-        theme::TEXT,
-    );
-    p.text(
-        Pos2::new(recenter_rect.right() - 10.0, recenter_rect.center().y),
-        egui::Align2::RIGHT_CENTER,
-        "\u{21E7}2",
-        theme::font_caption(),
-        theme::TEXT_SECONDARY,
-    );
+    let recenter_look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Secondary, crate::widgets::kit::state_of(&recenter_resp, false, true));
+    crate::widgets::kit::paint_frame(&p, recenter_rect, theme::RADIUS_CONTROL, &recenter_look);
+    p.text(Pos2::new(recenter_rect.left() + 10.0, recenter_rect.center().y), egui::Align2::LEFT_CENTER, label, label_font, recenter_look.text);
+    p.text(Pos2::new(recenter_rect.right() - 10.0, recenter_rect.center().y), egui::Align2::RIGHT_CENTER, hint, hint_font, theme::TEXT_QUATERNARY);
+    mark_focus(ui, &p, recenter_resp.id, recenter_rect, theme::RADIUS_CONTROL as f32);
     if recenter_resp.on_hover_text("Re-center canvas   Shift+2").clicked() {
         if app.selection.is_empty() {
             app.fit_all();
@@ -385,9 +411,6 @@ fn show_dev_mode_toolbar(app: &mut App, ui: &mut Ui, screen: Rect) {
         }
     }
 
-    // Bottom floating dock container
-    widgets::shadow(&p, bar, theme::RADIUS_FRAME, Vec2::new(0.0, 3.0), 8.0, theme::SHADOW_COLOR);
-    widgets::shadow(&p, bar, theme::RADIUS_FRAME, Vec2::new(0.0, 1.0), 3.0, theme::SHADOW_COLOR_STRONG);
     p.rect_filled(bar, theme::cr(theme::RADIUS_FRAME), theme::BG_TOOLBAR);
     p.rect_stroke(bar.shrink(0.5), theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::INNER_HIGHLIGHT), egui::StrokeKind::Inside);
     ui.interact(bar, ui.id().with("toolbar-block-dev"), Sense::click_and_drag());
@@ -409,18 +432,10 @@ fn show_dev_mode_toolbar(app: &mut App, ui: &mut Ui, screen: Rect) {
         }
         let br = Rect::from_min_size(Pos2::new(x, y), Vec2::splat(theme::TOOL_BUTTON));
         let resp = ui.interact(br, ui.id().with(("dev-tool", idx)), Sense::click());
-        let fill = if active {
-            theme::BG_TOOLBAR_SELECTED
-        } else if resp.hovered() {
-            theme::BG_TOOLBAR_HOVER
-        } else {
-            Color32::TRANSPARENT
-        };
-        if fill != Color32::TRANSPARENT {
-            p.rect_filled(br, theme::cr(theme::RADIUS_CONTROL), fill);
-        }
-        let icon_col = if active { Color32::WHITE } else { theme::ICON };
-        icons::paint(&p, icon, br.center(), theme::TOOL_ICON_SIZE, icon_col);
+        let look = tool_look(&resp, active);
+        crate::widgets::kit::paint_frame(&p, br, theme::RADIUS_CONTROL, &look);
+        icons::paint(&p, icon, br.center(), theme::TOOL_ICON_SIZE, look.icon);
+        mark_focus(ui, &p, resp.id, br, theme::RADIUS_CONTROL as f32);
         if resp.on_hover_text(tip).clicked() {
             match idx {
                 0 => {
@@ -462,8 +477,10 @@ fn show_dev_mode_toolbar(app: &mut App, ui: &mut Ui, screen: Rect) {
     let toggle_r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(dev_toggle_w, theme::TOOL_BUTTON));
     widgets::record(ui, "dev-mode-toggle", toggle_r);
     let toggle_resp = ui.interact(toggle_r, ui.id().with("dev-mode-toggle"), Sense::click());
-    p.rect_filled(toggle_r, theme::cr(theme::RADIUS_CONTROL), if toggle_resp.hovered() { Color32::from_rgb(0x22, 0xD4, 0x89) } else { dev_green });
-    icons::paint(&p, Icon::Dev, toggle_r.center(), 16.0, Color32::WHITE);
+    let toggle_fill = if toggle_resp.hovered() { theme::DEV_READY_HOVER } else { theme::DEV_READY };
+    p.rect_filled(toggle_r, theme::cr(theme::RADIUS_CONTROL), toggle_fill);
+    icons::paint(&p, Icon::Dev, toggle_r.center(), theme::LAYER_ICON_SIZE, theme::TEXT_ON_BRAND);
+    mark_focus(ui, &p, toggle_resp.id, toggle_r, theme::RADIUS_CONTROL as f32);
     if toggle_resp.on_hover_text("Exit Dev Mode   Shift+D").clicked() {
         app.set_dev_mode(false);
     }
@@ -725,5 +742,67 @@ mod tests {
         assert!(press_seen(chevron, on_chevron, Rect::NOTHING), "nothing over the chevron: the press is its");
         assert!(!press_seen(chevron, on_chevron, panel), "a panel over the chevron takes the press");
         assert!(!press_seen(chevron, Pos2::new(300.0, 620.0), Rect::NOTHING), "a press beside the chevron is not its");
+    }
+
+    const TOOLBAR_SCREEN: Vec2 = Vec2::new(1440.0, 900.0);
+
+    fn paint_toolbar(app: &mut App) -> (egui::Context, Vec<egui::epaint::ClippedShape>) {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, TOOLBAR_SCREEN);
+        let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+        let shapes = ctx.run_ui(raw, |ui| show(app, ui, screen)).shapes;
+        (ctx, shapes)
+    }
+
+    #[test]
+    fn chevron_hit_box_meets_the_target_floor() {
+        let mut app = App::new(designos_doc::Document::new("Chevron"));
+        let (ctx, _) = paint_toolbar(&mut app);
+        let named = |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string()))));
+        let screen = Rect::from_min_size(Pos2::ZERO, TOOLBAR_SCREEN);
+        assert_eq!(toolbar_width(), 512.0);
+        let mut checked = 0;
+        for (gi, group) in GROUPS.iter().enumerate() {
+            if !has_chevron(group) {
+                continue;
+            }
+            let hit = named(&format!("tool-chevron-hit-{gi}")).expect("chevron hit");
+            let visual = named(&format!("tool-chevron-{gi}")).expect("chevron visual");
+            assert!(hit.width() + 0.5 >= theme::TARGET_MIN, "chevron {gi} hit is at least 24 wide");
+            assert!((visual.width() - theme::TOOL_CHEVRON_W).abs() < 0.5, "the painted chevron {gi} stays 16 wide");
+            assert_eq!(visual, chevron_rect(screen, gi), "the layout helper and the painted chevron {gi} agree");
+            // the tool buttons are not recorded, so the next control is found from the layout the helper mirrors
+            let next = if gi + 1 < GROUPS.len() { group_button_rect(screen, gi + 1) } else { named("toolbar-actions-btn").expect("actions button") };
+            assert!(hit.right() <= next.left() + 0.5, "the hit of chevron {gi} ends at {} but the next control starts at {}", hit.right(), next.left());
+            checked += 1;
+        }
+        assert!(checked >= 2, "the toolbar has chevron groups to check, found {checked}");
+    }
+
+    #[test]
+    fn dev_toggle_label_is_dark_on_the_dev_fill() {
+        let mut app = App::new(designos_doc::Document::new("DevToggle"));
+        app.ui.dev_mode = true;
+        let (ctx, shapes) = paint_toolbar(&mut app);
+        let toggle = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "dev-mode-toggle".to_string())))).expect("dev toggle");
+        fn walk_fill(shape: &egui::Shape, toggle: Rect, fills: &mut Vec<egui::Color32>, glyphs: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Rect(r) if r.rect == toggle => fills.push(r.fill),
+                egui::Shape::Mesh(mesh) => {
+                    if mesh.vertices.iter().any(|v| toggle.contains(v.pos)) {
+                        glyphs.extend(mesh.vertices.iter().map(|v| v.color));
+                    }
+                }
+                egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk_fill(s, toggle, fills, glyphs)),
+                _ => {}
+            }
+        }
+        let (mut fills, mut glyphs) = (Vec::new(), Vec::new());
+        for clipped in &shapes {
+            walk_fill(&clipped.shape, toggle, &mut fills, &mut glyphs);
+        }
+        assert!(fills.contains(&theme::DEV_READY), "dev toggle fill is the ready role, got {fills:?}");
+        assert!(glyphs.contains(&theme::TEXT_ON_BRAND), "dev glyph is the dark label, got {glyphs:?}");
     }
 }

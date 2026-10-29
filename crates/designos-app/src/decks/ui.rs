@@ -73,7 +73,7 @@ pub fn sidebar(app: &mut App, ui: &mut Ui, rect: Rect) {
                 let preview = Rect::from_min_max(card.min + Vec2::splat(4.0), Pos2::new(card.right() - 4.0, card.bottom() - 28.0));
                 p.rect_filled(preview, theme::cr(theme::RADIUS_MARK), theme::BG_TERTIARY);
                 if let Some(texture) = thumbnail(app, ui, *id, preview.width()) {
-                    p.image(texture.id(), preview, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), egui::Color32::WHITE);
+                    p.image(texture.id(), preview, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), theme::TEXT_WHITE);
                 }
                 p.rect_stroke(
                     card,
@@ -189,12 +189,14 @@ pub fn notes(app: &mut App, ui: &mut Ui, rect: Rect) {
     widgets::record(ui, "deck-save", save);
     let field = Rect::from_min_max(Pos2::new(rect.left() + pad, rect.top() + 40.0), Pos2::new(rect.right() - pad, rect.bottom() - 12.0));
     ui.add_enabled_ui(active.is_some() && editable, |ui| {
+        crate::widgets::kit::paint_field(ui, field, Id::new("deck-notes"), crate::widgets::kit::Size::Md, false);
         ui.put(
             field,
             TextEdit::multiline(&mut app.decks.notes_draft)
                 .id(Id::new("deck-notes"))
                 .font(theme::font_body())
                 .text_color(theme::TEXT)
+                .frame(egui::Frame::NONE)
                 .hint_text("Add talking points. Save notes or select another slide to keep them.")
                 .desired_width(field.width())
                 .min_size(field.size()),
@@ -225,4 +227,45 @@ fn thumbnail(app: &App, ui: &Ui, id: NodeId, width: f32) -> Option<egui::Texture
     let texture = ui.ctx().load_texture(format!("slide-{}", id.0), image, egui::TextureOptions::LINEAR);
     ui.ctx().data_mut(|data| data.insert_temp(key, Thumbnail { texture: texture.clone(), checked: now }));
     Some(texture)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rects(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::epaint::RectShape> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<egui::epaint::RectShape>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push(r.clone()),
+                egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn speaker_notes_field_uses_the_input_frame() {
+        let mut app = App::new(designos_doc::Document::new("Notes"));
+        app.new_deck_document();
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let panel = Rect::from_min_size(Pos2::new(40.0, 80.0), Vec2::new(280.0, 220.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0));
+        let pad = theme::PANEL_PADDING_X;
+        let field = Rect::from_min_max(Pos2::new(panel.left() + pad, panel.top() + 40.0), Pos2::new(panel.right() - pad, panel.bottom() - 12.0));
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| notes(&mut app, ui, panel));
+        let recorded = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "deck-notes".to_string()))));
+        assert_eq!(recorded, Some(field), "the notes field keeps its rect");
+        let painted = rects(&out.shapes);
+        assert!(painted.iter().any(|r| r.rect == field && r.fill == theme::BG), "the notes field fills with the page background");
+        let strong = painted.iter().filter(|r| r.stroke.color == theme::BORDER_STRONG && r.stroke.width > 0.0).count();
+        assert_eq!(strong, 1, "one input border, not a second field frame");
+        assert!(painted.iter().any(|r| r.rect == field && r.stroke.color == theme::BORDER_STRONG), "that border is the notes field");
+        assert_eq!(painted.iter().filter(|r| r.stroke.color == theme::FOCUS_RING).count(), 0, "a resting field draws no focus ring");
+    }
 }
