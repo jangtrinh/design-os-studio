@@ -1,0 +1,38 @@
+=== Developer Mac Real-CLI Check (normal PATH) ===
+claude -> /opt/homebrew/bin/claude
+codex -> /opt/homebrew/bin/codex
+gemini -> /opt/homebrew/bin/gemini
+grok -> /Users/jangtrinh/.grok/bin/grok
+agy -> /opt/homebrew/bin/agy
+opencode -> /Users/jangtrinh/.opencode/bin/opencode
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.42s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+
+running 11 tests
+test cli_resolve::tests::search_dirs_precedence_is_hermetic_scoped_explicit_host ... ok
+test cli_resolve::tests::hermetic_mode_refuses_compound_or_unknown_commands ... ok
+test cli_resolve::tests::every_resolver_uses_resolve_in ... ok
+test cli_resolve::tests::version_warmer_resolves_on_the_calling_thread ... ok
+test cli_resolve::tests::scoped_guard_applies_only_inside_a_gate_case ... ok
+test cli_resolve::tests::hermetic_mode_writes_the_acknowledgement ... ok
+test cli_resolve::tests::hermetic_shell_cmd_has_no_login_or_interactive_flags ... ok
+test cli_resolve::tests::hermetic_pty_env_is_stub_path_only ... ok
+test cli_resolve::tests::hermetic_mode_is_denied_without_every_requirement ... ok
+test cli_resolve::tests::hermetic_resolver_census ... ok
+test cli_resolve::tests::stub_scripts_behave ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 2968 filtered out; finished in 0.09s
+
+=== Stub invocation log under normal PATH ===
+/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/claude --check-invocation
+/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/codex --check-invocation
+/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/agy --check-invocation
+/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/grok --check-invocation
+/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/gemini --check-invocation
+/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/opencode --check-invocation
+VERIFIED: all 6 invocations in invocations.log start with /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/tests/layout-baseline/stubs/

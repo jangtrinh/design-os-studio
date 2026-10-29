@@ -76,6 +76,8 @@ struct Shot {
     /// The capture cannot happen: the file did not open, or `--select` matched nothing. The window closes at once
     /// and writes no PNG.
     open_failed: bool,
+    /// --layout-json: output path for the deterministic `LayoutSnapshot` JSON.
+    layout_json: Option<PathBuf>,
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
@@ -92,12 +94,13 @@ pub fn is_typing_in_agent_panel(app: &App, ctx: &Context) -> bool {
 }
 
 pub struct Shell {
-    app: App,
+    pub(crate) app: App,
     shot: Option<Shot>,
     title: String,
     paste_chord: crate::clipboard::PasteChord,
     /// Why a `--select` or `--edit-text` named nothing, when it did not.
     select_miss: Option<String>,
+    launch_had_panel_or_file: bool,
 }
 
 impl Shell {
@@ -108,8 +111,6 @@ impl Shell {
         }
         opts.home = opts.wants_home();
         let screenshot = opts.screenshot.is_some();
-        let panel_was_none = opts.panel.is_none();
-        let has_file = opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
         let mut shell = Self::build(&cc.egui_ctx, opts);
         if shell.app.ui.pages_height.is_none() {
@@ -118,10 +119,6 @@ impl Shell {
         }
         if let Some(miss) = shell.select_miss.as_ref().filter(|_| screenshot) {
             let _ = SELECT_MISS.set(miss.clone());
-        }
-        if !screenshot && panel_was_none && !has_file {
-            shell.app.ui.rail = Some(crate::app::RailItem::Agents);
-            shell.app.ui.left_collapsed = false;
         }
         if let Some(rs) = &cc.wgpu_render_state {
             if let Some(max) = canvas::gpu::init(rs) {
@@ -135,16 +132,29 @@ impl Shell {
         let start = canvas::gpu_default::decide(saved, gpu_flag, software);
         shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
-        shell.app.tabs.always_visible = true;
-        if shell.app.home.is_none() {
-            let mut tabs = std::mem::take(&mut shell.app.tabs);
-            tabs.sync_from_app(&shell.app);
-            shell.app.tabs = tabs;
-        }
+        shell.apply_launch_defaults(screenshot);
         shell
     }
 
+    pub fn apply_launch_defaults(&mut self, screenshot: bool) {
+        self.app.ui.screenshot_chrome = screenshot;
+        self.app.ui.rulers = true;
+        if !screenshot && !self.launch_had_panel_or_file {
+            self.app.ui.rail = Some(crate::app::RailItem::Agents);
+            self.app.ui.left_collapsed = false;
+        }
+        self.app.tabs.always_visible = true;
+        if self.app.home.is_none() {
+            let mut tabs = std::mem::take(&mut self.app.tabs);
+            tabs.sync_from_app(&self.app);
+            self.app.tabs = tabs;
+        }
+    }
+
     pub fn build(ctx: &Context, opts: Options) -> Self {
+        #[cfg(test)]
+        let _scoped_cli_dirs = opts.agent_cli_dir.as_deref().map(crate::cli_resolve::ScopedCliDirs::enter);
+        let launch_had_panel_or_file = opts.panel.is_some() || opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         theme::install_fonts(ctx);
         theme::apply(ctx);
         let mut app = App::new(match opts.fixture.as_deref() {
@@ -180,8 +190,45 @@ impl Shell {
         });
         // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
         // session directory once; bind the terminal to the id the tab bar keeps before any can start.
-        let session_id = app.tabs.active_session_id();
-        app.terminal.bind_session(&session_id);
+        #[cfg(test)]
+        if let Some(ref cli_dir) = opts.agent_cli_dir {
+            static GATE_CASE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let seq = GATE_CASE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let case_id = format!("gate-{}-{seq}", std::process::id());
+            let case_temp = std::env::temp_dir().join("designos-gate-cases").join(&case_id);
+            let settings_dir = case_temp.join("settings");
+            let fallback_lib_dir = case_temp.join("lib");
+            let _ = std::fs::create_dir_all(&settings_dir);
+            let _ = std::fs::create_dir_all(&fallback_lib_dir);
+            let lib_root = opts.library.clone().unwrap_or(fallback_lib_dir);
+            app.terminal.path_override = Some(cli_dir.as_os_str().to_os_string());
+            app.terminal.picker.settings_root_override = Some(settings_dir);
+            app.libs.set_root(lib_root.clone());
+            app.terminal.library_root = Some(lib_root.clone());
+            app.terminal.skills.set_library_root(lib_root);
+            crate::terminal::pin_installed_catalog_clis(
+                &mut app.terminal,
+                &[
+                    crate::terminal::AgentCliPreset::Claude,
+                    crate::terminal::AgentCliPreset::Codex,
+                    crate::terminal::AgentCliPreset::Antigravity,
+                    crate::terminal::AgentCliPreset::Grok,
+                    crate::terminal::AgentCliPreset::Gemini,
+                    crate::terminal::AgentCliPreset::OpenCode,
+                ],
+            );
+            app.terminal.picker.opencode_installed = Some(true);
+            app.terminal.picker.probe_started = true;
+            app.terminal.bind_session(&case_id);
+        } else {
+            let session_id = app.tabs.active_session_id();
+            app.terminal.bind_session(&session_id);
+        }
+        #[cfg(not(test))]
+        {
+            let session_id = app.tabs.active_session_id();
+            app.terminal.bind_session(&session_id);
+        }
         #[cfg(any(test, feature = "fixtures"))]
         {
             if !matches!(
@@ -233,6 +280,10 @@ impl Shell {
                 } else if mode == "dialog" {
                     app.open_import_path_dialog();
                 }
+            }
+            #[cfg(test)]
+            if let (Some(fixed_now), Some(home)) = (opts.fixed_now, app.home.as_mut()) {
+                home.fixed_now = Some(fixed_now);
             }
         }
         let mut select_miss = None;
@@ -360,15 +411,8 @@ impl Shell {
             Some("agents-chat") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
+                app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
                 app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
-                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
-                while std::time::Instant::now() < deadline {
-                    let _ = app.terminal.poll_live_agent_bridge();
-                    if app.terminal.active_composer().pending_send.is_none() {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(30));
-                }
             }
             Some("agents-skills") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -432,10 +476,47 @@ impl Shell {
             }
             Some("interaction") => {
                 app.ui.right_tab = Some(crate::app::RightTab::Prototype);
-                if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
-                    app.selection = vec![add];
-                    app.proto.editing = Some((add, 0));
+                let selected_reacting = app.selection.first().copied().filter(|&id| app.doc.get(id).is_some_and(|n| !n.prototype.reactions.is_empty()));
+                let target = selected_reacting.or_else(|| {
+                    let mut first = None;
+                    app.doc.walk(app.page, |n, _| {
+                        if first.is_none() && n.id != app.page && !n.prototype.reactions.is_empty() {
+                            first = Some(n.id);
+                        }
+                    });
+                    first
+                });
+                if let Some(id) = target {
+                    app.selection = vec![id];
+                    app.proto.editing = Some((id, 0));
+                } else {
+                    app.proto.editing = None;
                 }
+            }
+            Some("comments") => {
+                app.tool = Tool::Comment;
+                let mut paint_rank = std::collections::BTreeMap::new();
+                app.doc.walk(app.page, |n, _| {
+                    if n.id != app.page {
+                        let next = paint_rank.len();
+                        paint_rank.entry(n.id).or_insert(next);
+                    }
+                });
+                let thread_id_key = |id: &str| {
+                    let split = id.rfind(|c: char| !c.is_ascii_digit()).map_or(0, |i| i + 1);
+                    let (prefix, digits) = id.split_at(split);
+                    (prefix.to_string(), digits.parse::<u64>().ok(), id.to_string())
+                };
+                app.comments.open = app
+                    .doc
+                    .comments
+                    .iter()
+                    .filter(|t| !t.resolved && crate::comments::model::thread_page(&app.doc, t) == app.page)
+                    .min_by_key(|t| {
+                        let rank = t.anchor.node.and_then(|nid| paint_rank.get(&nid).copied()).unwrap_or(usize::MAX);
+                        (rank, thread_id_key(&t.id))
+                    })
+                    .map(|t| t.id.clone());
             }
             Some("present-variables") => {}
             Some("libraries") => app.open_libraries(),
@@ -444,7 +525,10 @@ impl Shell {
                 app.plugins.install_form = panel == "plugin-install";
                 app.plugins.fresh = app.plugins.install_form;
             }
-            Some("version-history") => crate::history::preset::apply(&mut app, opts.library.clone()),
+            Some("version-history") => {
+                let hist_lib = opts.library.clone().or_else(|| app.libs.root.clone());
+                crate::history::preset::apply(&mut app, hist_lib);
+            }
             Some(p @ ("dev-annotate" | "dev-compare")) => crate::dev::preset::panel(&mut app, p),
             Some(panel @ ("variables" | "variables-floating")) => {
                 app.vars.full = panel == "variables";
@@ -484,6 +568,10 @@ impl Shell {
                 seq_capture = Some(MicroSeqCapture { slug: slug.to_string(), cur: 0, total, base_doc, hud, wait_frames: 0, no_caption: opts.no_caption });
             }
         }
+        if opts.layout_json.is_some() {
+            crate::layout_snapshot::RECORDING.store(true, Ordering::Relaxed);
+        }
+        let layout_json = opts.layout_json;
         let shot = opts.screenshot.map(|path| Shot {
             path,
             size: opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32)),
@@ -496,8 +584,9 @@ impl Shell {
             seq: seq_capture,
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
+            layout_json,
         });
-        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss }
+        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -556,6 +645,23 @@ impl Shell {
                         match buf.save(&shot.path) {
                             Ok(()) => SHOT_OK.store(true, Ordering::SeqCst),
                             Err(e) => eprintln!("designos: cannot write {}: {e}", shot.path.display()),
+                        }
+                        if let Some(layout_path) = &shot.layout_json {
+                            if let Some(dir) = layout_path.parent() {
+                                let _ = std::fs::create_dir_all(dir);
+                            }
+                            let mut snap = crate::layout_snapshot::capture(ctx, &self.app.ui.regions);
+                            if snap.case.is_empty() {
+                                snap.case = layout_path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().trim_end_matches(".layout").to_string();
+                            }
+                            match serde_json::to_string_pretty(&snap) {
+                                Ok(json) => {
+                                    if let Err(e) = std::fs::write(layout_path, format!("{json}\n")) {
+                                        eprintln!("designos: cannot write {}: {e}", layout_path.display());
+                                    }
+                                }
+                                Err(e) => eprintln!("designos: cannot serialize layout snapshot: {e}"),
+                            }
                         }
                     }
                 }
@@ -1492,6 +1598,7 @@ impl Shell {
         }
         self.app.repaint_if_dot_moved(&ctx);
         self.request_screenshot(&ctx);
+        widgets::finish_pass_records();
     }
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {
@@ -1533,10 +1640,12 @@ impl Shell {
         if self.app.step_pending_relayout() {
             ctx.request_repaint();
         }
+        let mut regions = crate::app::ShellRegions::default();
         let window_full = ui.max_rect();
-        let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && self.app.proto.present.is_none();
+        let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && !self.app.ui.screenshot_chrome && self.app.proto.present.is_none();
         let after_title_rect = if show_title_bar {
             let title_bar_rect = Rect::from_min_max(window_full.min, Pos2::new(window_full.right(), window_full.top() + TOP_TITLE_BAR_HEIGHT));
+            regions.title_bar = Some(title_bar_rect);
             let tp = ui.painter_at(title_bar_rect);
             tp.rect_filled(title_bar_rect, 0.0, egui::Color32::from_rgb(0x18, 0x18, 0x1B));
             tp.hline(title_bar_rect.x_range(), title_bar_rect.bottom() - 0.5, egui::Stroke::new(1.0, egui::Color32::from_rgb(0x27, 0x27, 0x2A)));
@@ -1564,6 +1673,7 @@ impl Shell {
         let full = if show_tab_bar {
             let bar_rect =
                 Rect::from_min_max(after_title_rect.min, Pos2::new(after_title_rect.right(), after_title_rect.top() + crate::tabs::TOP_TAB_BAR_HEIGHT));
+            regions.tab_bar = Some(bar_rect);
             crate::tabs::show_top_tab_bar_ui(ui, bar_rect, &mut self.app);
             Rect::from_min_max(Pos2::new(after_title_rect.left(), bar_rect.bottom()), after_title_rect.max)
         } else {
@@ -1573,6 +1683,8 @@ impl Shell {
             after_title_rect
         };
         if self.app.home.is_some() {
+            regions.home = Some(full);
+            self.app.ui.regions = regions;
             if show_tab_bar {
                 let mut home_ui = ui.new_child(egui::UiBuilder::new().max_rect(full));
                 self.home_frame(&mut home_ui, &ctx);
@@ -1587,6 +1699,8 @@ impl Shell {
         self.app.history_tick();
         self.app.dev_tick(&ctx);
         if self.app.proto.present.is_some() {
+            regions.present = Some(full);
+            self.app.ui.regions = regions;
             crate::present::show(&mut self.app, ui);
             crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
@@ -1615,6 +1729,23 @@ impl Shell {
         let notes_rect = Rect::from_min_max(Pos2::new(canvas_left, canvas_rect.bottom()), Pos2::new(right_rect.left(), full.bottom()));
 
         let full_vars = self.app.vars.open && self.app.vars.full;
+        regions.rail = Some(rail_rect);
+        if full_vars {
+            let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
+            regions.variables_full = Some(content);
+        } else {
+            if !self.app.ui.left_collapsed {
+                regions.left_panel = Some(left_rect);
+            }
+            regions.canvas = Some(canvas_rect);
+            if deck {
+                regions.notes = Some(notes_rect);
+            }
+            if !board {
+                regions.right_panel = Some(right_rect);
+            }
+        }
+        self.app.ui.regions = regions;
         crate::live_patch_apply::publish_live_context(&mut self.app);
         if let Some(ai_copy) = self.app.specs.last_ai_copy.take() {
             self.app.terminal.send_copy_for_ai(&ai_copy);
