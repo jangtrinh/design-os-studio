@@ -321,6 +321,42 @@ fn path_outside_workspace_is_needs_human_and_not_safe_to_retry() {
     assert_eq!(err["code"], "PATH_OUTSIDE_WORKSPACE", "{err}");
     assert_eq!(err["error_kind"], "needs_human", "{err}");
     assert_eq!(err["safe_to_retry"], false, "{err}");
+    let step = err["next_step"].as_str().unwrap().to_lowercase();
+    assert!(step.contains("stop"), "{err}");
+    assert!(step.contains("ask") || step.contains("tell the user"), "{err}");
+    assert!(!step.contains("relative path"), "{err}");
+    assert!(err.get("corrected_example").is_none(), "PATH_OUTSIDE_WORKSPACE must not offer a workaround example: {err}");
+}
+
+#[test]
+fn unsupported_node_kind_and_extension_are_fatal_live() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].clone();
+
+    let kind_err = s.call("designos_create_node", json!({"parent_id": page, "kind": "group"})).unwrap_err().to_json_value();
+    assert_eq!(kind_err["code"], "UNSUPPORTED_NODE_KIND", "{kind_err}");
+    assert_eq!(kind_err["error_kind"], "fatal", "{kind_err}");
+    assert_eq!(kind_err["safe_to_retry"], false, "{kind_err}");
+
+    let ext_err = s.call("designos_save_file", json!({"path": "wrong.txt"})).unwrap_err().to_json_value();
+    assert_eq!(ext_err["code"], "UNSUPPORTED_EXTENSION", "{ext_err}");
+    assert_eq!(ext_err["error_kind"], "fatal", "{ext_err}");
+    assert_eq!(ext_err["safe_to_retry"], false, "{ext_err}");
+}
+
+#[test]
+fn document_invalid_is_fatal_and_not_safe_to_retry_live() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    fs::write(dir.0.join("corrupt.designos"), "not a design file").unwrap();
+    let err = s.call("designos_open_file", json!({"path": "corrupt.designos", "discard_changes": true})).unwrap_err().to_json_value();
+    assert_eq!(err["code"], "DOCUMENT_INVALID", "{err}");
+    assert_eq!(err["error_kind"], "fatal", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    let step = err["next_step"].as_str().unwrap().to_lowercase();
+    assert!(!step.contains("adjust the value"), "{err}");
+    assert!(!step.contains("and retry"), "{err}");
 }
 
 #[test]

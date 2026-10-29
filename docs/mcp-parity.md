@@ -129,6 +129,7 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `MOVE_CYCLE` | `retryable` |
 | `INSTANCE_CYCLE` | `retryable` |
 | `OVERRIDE_FIELD_NOT_APPLICABLE` | `retryable` |
+| `UNSUPPORTED_NODE_KIND` | `fatal` |
 | `UNKNOWN_COMPONENT` | `retryable` |
 | `AMBIGUOUS_COMPONENT` | `retryable` |
 | `UNKNOWN_VARIANT_PROPERTY` | `retryable` |
@@ -167,6 +168,10 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `PATCH_TOO_LARGE` | `retryable` |
 | `HISTORY_DROPPED` | `fatal` |
 | `INTERNAL_ERROR` | `fatal` |
+| `UNSUPPORTED_EXTENSION` | `fatal` |
+| `ANOTHER_WINDOW_OWNS_SESSION` | `needs_human` |
+| `APPROVAL_DENIED` | `needs_human` |
+| `APPROVAL_TIMEOUT` | `needs_human` |
 | `INVALID_SELECTOR` | `retryable` |
 | `UNKNOWN_LANGUAGE` | `retryable` |
 | `OUTSIDE_OWNED_FRAMES` | `retryable` |
@@ -191,4 +196,4 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `INVALID_NAME` | `retryable` |
 | `NAME_TOO_LONG` | `retryable` |
 
-Status strings are not error kinds. "Another window owns this file's agent session" (`ANOTHER_WINDOW_OWNS_SESSION_MSG`) is a Studio status line shown when a session lock is held by another window. It is not an MCP `ToolError`, has no `ErrorCode` and no `error_kind`, and an agent never receives it as a tool result.
+`ANOTHER_WINDOW_OWNS_SESSION` is the MCP code when a tool call is refused because another Studio window holds this file's agent session. Studio still shows `ANOTHER_WINDOW_OWNS_SESSION_MSG` as a UI status line at `crates/designos-app/src/agent_sessions.rs`. `APPROVAL_DENIED` and `APPROVAL_TIMEOUT` are catalogue codes for the approval flow (#1310); call `ToolError::approval_denied` and `ToolError::approval_timeout` when that flow lands. There is no tool-call path for those three codes on this branch yet.

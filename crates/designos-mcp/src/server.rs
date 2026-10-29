@@ -2116,7 +2116,12 @@ mod tests {
         let rect_id = rect_val["node"]["id"].as_u64().unwrap();
 
         // 1. InvalidArguments
-        record(s.call("designos_create_node", json!({"parent_id": page.0, "kind": "not_a_kind"})).unwrap_err(), ErrorCode::InvalidArguments, true);
+        record(s.call("designos_save_file", json!({"path": "x.designos/"})).unwrap_err(), ErrorCode::InvalidArguments, true);
+        record(s.call("designos_create_node", json!({"parent_id": page.0, "kind": "not_a_kind"})).unwrap_err(), ErrorCode::UnsupportedNodeKind, false);
+        record(s.call("designos_save_file", json!({"path": "wrong.txt"})).unwrap_err(), ErrorCode::UnsupportedExtension, false);
+        record(ToolError::another_window_owns_session(), ErrorCode::AnotherWindowOwnsSession, false);
+        record(ToolError::approval_denied(), ErrorCode::ApprovalDenied, false);
+        record(ToolError::approval_timeout(), ErrorCode::ApprovalTimeout, false);
         // 2. UnknownField
         record(s.call("designos_apply_spec", json!({"spec": {"kind": "frame", "layout": {"dirr": "row"}}})).unwrap_err(), ErrorCode::UnknownField, true);
         // 3. MissingField
@@ -2514,7 +2519,7 @@ mod tests {
 
         // 45. DocumentInvalid
         fs::write(ws_dir.join("invalid.designos"), "not valid json").unwrap();
-        record(s.call("designos_open_file", json!({"path": "invalid.designos", "discard_changes": true})).unwrap_err(), ErrorCode::DocumentInvalid, true);
+        record(s.call("designos_open_file", json!({"path": "invalid.designos", "discard_changes": true})).unwrap_err(), ErrorCode::DocumentInvalid, false);
 
         // 46. EditorNotNotified (safe_to_retry == false because session already replaced in-memory document)
         let mut live_s = Session::with_session_dir(&ws_dir, &sess_dir).unwrap();
@@ -2552,7 +2557,7 @@ mod tests {
         // 49. HistoryDropped
         live_s.history_dropped = true;
         live_s.strict_history_dropped = true;
-        record(live_s.call("designos_undo", json!({})).unwrap_err(), ErrorCode::HistoryDropped, true);
+        record(live_s.call("designos_undo", json!({})).unwrap_err(), ErrorCode::HistoryDropped, false);
         live_s.strict_history_dropped = false;
 
         // 50. InternalError (exhausted node IDs)
@@ -2562,7 +2567,7 @@ mod tests {
             raw_val["next_id"] = json!(u64::MAX);
             exh.engine.doc = serde_json::from_value(raw_val).unwrap();
             let p = exh.engine.doc.pages[0];
-            record(exh.call("designos_create_node", json!({"parent_id": p.0, "kind": "frame"})).unwrap_err(), ErrorCode::InternalError, true);
+            record(exh.call("designos_create_node", json!({"parent_id": p.0, "kind": "frame"})).unwrap_err(), ErrorCode::InternalError, false);
         }
 
         // 51. InvalidSelector

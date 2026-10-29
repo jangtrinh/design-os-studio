@@ -1648,7 +1648,7 @@ pub(crate) fn validate_existing_output_target(
     });
     if !ext_ok {
         return Err(ToolError::new(
-            ErrorCode::InvalidArguments,
+            ErrorCode::UnsupportedExtension,
             ptr,
             format!("{display_path} does not end with .{ext}. Choose a path ending with .{ext}, then try again."),
         )
@@ -1715,7 +1715,9 @@ pub(crate) fn write_checked_output_file(
             ErrorCode::InternalError,
             ptr,
             format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."),
-        ),
+        )
+        // A failed write changed nothing on disk (callers that did change it override this).
+        .with_safe_to_retry(true),
     };
     if !overwrite {
         let mut opts = std::fs::OpenOptions::new();

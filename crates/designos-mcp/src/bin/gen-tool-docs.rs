@@ -205,7 +205,7 @@ pub fn render_parity_markdown(snapshots: &[ToolSnapshot], parity: &ParityFile) -
     for code in designos_mcp::tools::errors::ErrorCode::ALL {
         out.push_str(&format!("| `{}` | `{}` |\n", escape_md_cell(code.as_str()), escape_md_cell(code.default_kind().as_str())));
     }
-    out.push_str("\nStatus strings are not error kinds. \"Another window owns this file's agent session\" (`ANOTHER_WINDOW_OWNS_SESSION_MSG`) is a Studio status line shown when a session lock is held by another window. It is not an MCP `ToolError`, has no `ErrorCode` and no `error_kind`, and an agent never receives it as a tool result.\n");
+    out.push_str("\n`ANOTHER_WINDOW_OWNS_SESSION` is the MCP code when a tool call is refused because another Studio window holds this file's agent session. Studio still shows `ANOTHER_WINDOW_OWNS_SESSION_MSG` as a UI status line at `crates/designos-app/src/agent_sessions.rs`. `APPROVAL_DENIED` and `APPROVAL_TIMEOUT` are catalogue codes for the approval flow (#1310); call `ToolError::approval_denied` and `ToolError::approval_timeout` when that flow lands. There is no tool-call path for those three codes on this branch yet.\n");
 
     out
 }

@@ -18,13 +18,14 @@ pub enum ErrorCode {
     TextTooLong,
     InvalidColor,
 
-    // Nodes (6)
+    // Nodes (7)
     NodeNotFound,
     NotAContainer,
     PageRootProtected,
     MoveCycle,
     InstanceCycle,
     OverrideFieldNotApplicable,
+    UnsupportedNodeKind,
 
     // Grounding (E15-1..3) (22)
     UnknownComponent,
@@ -56,7 +57,7 @@ pub enum ErrorCode {
     DuplicateAs,
     BatchTooLarge,
 
-    // Session (12)
+    // Session (16)
     UnknownTool,
     ToolDisabled,
     UnsavedChanges,
@@ -69,6 +70,10 @@ pub enum ErrorCode {
     PatchTooLarge,
     HistoryDropped,
     InternalError,
+    UnsupportedExtension,
+    AnotherWindowOwnsSession,
+    ApprovalDenied,
+    ApprovalTimeout,
 
     // Active pack codes (3)
     InvalidSelector,
@@ -111,7 +116,6 @@ impl ErrorCode {
     // Backwards-compatible aliases used across tool modules
     pub const OutOfRange: Self = Self::ValueOutOfRange;
     pub const InvalidGeometry: Self = Self::ValueOutOfRange;
-    pub const UnsupportedNodeKind: Self = Self::InvalidArguments;
     pub const InvalidNodeKind: Self = Self::InvalidArguments;
     pub const PageNotFound: Self = Self::NodeNotFound;
     pub const NotATextNode: Self = Self::OverrideFieldNotApplicable;
@@ -137,7 +141,6 @@ impl ErrorCode {
     pub const LivePatchTooLarge: Self = Self::PatchTooLarge;
     pub const MalformedNodeGraph: Self = Self::DocumentInvalid;
     pub const LayerLimitExceeded: Self = Self::FileTooLarge;
-    pub const UnsupportedExtension: Self = Self::InvalidArguments;
     pub const NotAFile: Self = Self::InvalidArguments;
     pub const EmptyRender: Self = Self::InvalidArguments;
     pub const IoError: Self = Self::InternalError;
@@ -159,6 +162,7 @@ impl ErrorCode {
         Self::MoveCycle,
         Self::InstanceCycle,
         Self::OverrideFieldNotApplicable,
+        Self::UnsupportedNodeKind,
         Self::UnknownComponent,
         Self::AmbiguousComponent,
         Self::UnknownVariantProperty,
@@ -197,6 +201,10 @@ impl ErrorCode {
         Self::PatchTooLarge,
         Self::HistoryDropped,
         Self::InternalError,
+        Self::UnsupportedExtension,
+        Self::AnotherWindowOwnsSession,
+        Self::ApprovalDenied,
+        Self::ApprovalTimeout,
         Self::InvalidSelector,
         Self::UnknownLanguage,
         Self::OutsideOwnedFrames,
@@ -236,6 +244,7 @@ impl ErrorCode {
             Self::MoveCycle => "MOVE_CYCLE",
             Self::InstanceCycle => "INSTANCE_CYCLE",
             Self::OverrideFieldNotApplicable => "OVERRIDE_FIELD_NOT_APPLICABLE",
+            Self::UnsupportedNodeKind => "UNSUPPORTED_NODE_KIND",
             Self::UnknownComponent => "UNKNOWN_COMPONENT",
             Self::AmbiguousComponent => "AMBIGUOUS_COMPONENT",
             Self::UnknownVariantProperty => "UNKNOWN_VARIANT_PROPERTY",
@@ -274,6 +283,10 @@ impl ErrorCode {
             Self::PatchTooLarge => "PATCH_TOO_LARGE",
             Self::HistoryDropped => "HISTORY_DROPPED",
             Self::InternalError => "INTERNAL_ERROR",
+            Self::UnsupportedExtension => "UNSUPPORTED_EXTENSION",
+            Self::AnotherWindowOwnsSession => "ANOTHER_WINDOW_OWNS_SESSION",
+            Self::ApprovalDenied => "APPROVAL_DENIED",
+            Self::ApprovalTimeout => "APPROVAL_TIMEOUT",
             Self::InvalidSelector => "INVALID_SELECTOR",
             Self::UnknownLanguage => "UNKNOWN_LANGUAGE",
             Self::OutsideOwnedFrames => "OUTSIDE_OWNED_FRAMES",
@@ -309,7 +322,15 @@ impl ErrorCode {
             Self::UnsavedChanges => "Stop and tell the user: the open document has unsaved changes. Do not discard them.",
             Self::FileExists => "Pass overwrite=true or choose a new path.",
             Self::FileTooLarge => "This file is over the limit in `expected`. Open it in DESIGN:OS Studio, or use a smaller file.",
-            Self::PathOutsideWorkspace => "Pass a relative path inside the active workspace.",
+            Self::PathOutsideWorkspace => "Stop and tell the user: the path is outside the workspace. Do not work around it.",
+            Self::DocumentInvalid => "The file is corrupt or is not a design file. Stop and tell the user, then open another file.",
+            Self::UnsupportedNodeKind => "This node kind is not supported. Pick a supported kind from valid_options, or tell the user.",
+            Self::UnsupportedExtension => "This file extension is not supported. Choose a supported extension, or tell the user.",
+            Self::AnotherWindowOwnsSession => {
+                "Stop and tell the user: another window owns this file's agent session. Switch to that window. Do not work around it."
+            }
+            Self::ApprovalDenied => "Stop and tell the user: the approval was denied. Do not work around it.",
+            Self::ApprovalTimeout => "Stop and tell the user: the approval timed out. Do not work around it.",
             Self::InvalidName => "Choose a valid file name without control or direction-control characters, then retry.",
             Self::NameTooLong => "Choose a file name of at most 255 UTF-8 bytes, then retry.",
             Self::NodeNotFound => "Call designos_list_nodes or designos_get_document to inspect valid node IDs.",
@@ -346,6 +367,7 @@ impl ErrorCode {
             "MOVE_CYCLE" => Some(Self::MoveCycle),
             "INSTANCE_CYCLE" => Some(Self::InstanceCycle),
             "OVERRIDE_FIELD_NOT_APPLICABLE" | "NOT_A_TEXT_NODE" => Some(Self::OverrideFieldNotApplicable),
+            "UNSUPPORTED_NODE_KIND" => Some(Self::UnsupportedNodeKind),
             "UNKNOWN_COMPONENT" | "COMPONENT_NOT_FOUND" | "NOT_A_COMPONENT" => Some(Self::UnknownComponent),
             "AMBIGUOUS_COMPONENT" => Some(Self::AmbiguousComponent),
             "UNKNOWN_VARIANT_PROPERTY" => Some(Self::UnknownVariantProperty),
@@ -384,6 +406,10 @@ impl ErrorCode {
             "PATCH_TOO_LARGE" => Some(Self::PatchTooLarge),
             "HISTORY_DROPPED" => Some(Self::HistoryDropped),
             "INTERNAL_ERROR" | "ID_EXHAUSTED" | "INSERT_FAILED" => Some(Self::InternalError),
+            "UNSUPPORTED_EXTENSION" => Some(Self::UnsupportedExtension),
+            "ANOTHER_WINDOW_OWNS_SESSION" => Some(Self::AnotherWindowOwnsSession),
+            "APPROVAL_DENIED" => Some(Self::ApprovalDenied),
+            "APPROVAL_TIMEOUT" => Some(Self::ApprovalTimeout),
             "INVALID_SELECTOR" => Some(Self::InvalidSelector),
             "UNKNOWN_LANGUAGE" => Some(Self::UnknownLanguage),
             "OUTSIDE_OWNED_FRAMES" => Some(Self::OutsideOwnedFrames),
@@ -480,8 +506,15 @@ impl ErrorCode {
             | Self::RuleUnavailable
             | Self::InvalidName
             | Self::NameTooLong => ErrorKind::Retryable,
-            Self::UnsavedChanges | Self::PathOutsideWorkspace => ErrorKind::NeedsHuman,
-            Self::FileTooLarge | Self::DocumentInvalid | Self::HistoryDropped | Self::InternalError => ErrorKind::Fatal,
+            Self::UnsavedChanges | Self::PathOutsideWorkspace | Self::AnotherWindowOwnsSession | Self::ApprovalDenied | Self::ApprovalTimeout => {
+                ErrorKind::NeedsHuman
+            }
+            Self::FileTooLarge
+            | Self::DocumentInvalid
+            | Self::HistoryDropped
+            | Self::InternalError
+            | Self::UnsupportedNodeKind
+            | Self::UnsupportedExtension => ErrorKind::Fatal,
         }
     }
 }
@@ -559,14 +592,26 @@ impl ToolError {
             failed_op: None,
             op: None,
             error_kind,
-            safe_to_retry: error_kind != ErrorKind::NeedsHuman && !matches!(code, ErrorCode::FileTooLarge),
+            safe_to_retry: error_kind == ErrorKind::Retryable,
             next_step: code.default_next_step().to_string(),
         }
     }
 
+    pub fn another_window_owns_session() -> Self {
+        Self::new(ErrorCode::AnotherWindowOwnsSession, "", "This file's agents run in another window. Switch to it.")
+    }
+
+    pub fn approval_denied() -> Self {
+        Self::new(ErrorCode::ApprovalDenied, "", "The user denied this action.")
+    }
+
+    pub fn approval_timeout() -> Self {
+        Self::new(ErrorCode::ApprovalTimeout, "", "The user did not approve this action in time.")
+    }
+
     pub fn with_error_kind(mut self, kind: ErrorKind) -> Self {
         self.error_kind = kind;
-        if kind == ErrorKind::NeedsHuman {
+        if kind != ErrorKind::Retryable {
             self.safe_to_retry = false;
         }
         self
@@ -606,7 +651,9 @@ impl ToolError {
     }
 
     pub fn with_corrected_example(mut self, example: Value) -> Self {
-        self.corrected_example = Some(example);
+        if self.code != ErrorCode::PathOutsideWorkspace {
+            self.corrected_example = Some(example);
+        }
         self
     }
 
@@ -1839,11 +1886,12 @@ pub fn contextualize_corrected_example(err: &mut ToolError, original_args: &Valu
 
 /// Shared JSON Schema fragment for the structured error envelope (§3.1, §4).
 pub fn error_envelope_schema() -> Value {
+    let codes: Vec<&'static str> = ErrorCode::ALL.iter().map(ErrorCode::as_str).collect();
     json!({
         "type": "object",
         "required": ["code", "message", "path", "error_kind", "safe_to_retry", "next_step"],
         "properties": {
-            "code": { "type": "string" },
+            "code": { "type": "string", "enum": codes },
             "message": { "type": "string" },
             "path": { "type": "string" },
             "error_kind": { "type": "string", "enum": ["retryable", "fatal", "needs_human"] },
@@ -2039,8 +2087,17 @@ mod error_kind_tests {
             | ErrorCode::RuleUnavailable
             | ErrorCode::InvalidName
             | ErrorCode::NameTooLong => "retryable",
-            ErrorCode::UnsavedChanges | ErrorCode::PathOutsideWorkspace => "needs_human",
-            ErrorCode::FileTooLarge | ErrorCode::DocumentInvalid | ErrorCode::HistoryDropped | ErrorCode::InternalError => "fatal",
+            ErrorCode::UnsavedChanges
+            | ErrorCode::PathOutsideWorkspace
+            | ErrorCode::AnotherWindowOwnsSession
+            | ErrorCode::ApprovalDenied
+            | ErrorCode::ApprovalTimeout => "needs_human",
+            ErrorCode::FileTooLarge
+            | ErrorCode::DocumentInvalid
+            | ErrorCode::HistoryDropped
+            | ErrorCode::InternalError
+            | ErrorCode::UnsupportedNodeKind
+            | ErrorCode::UnsupportedExtension => "fatal",
         }
     }
 
@@ -2052,7 +2109,7 @@ mod error_kind_tests {
             let kind = json["error_kind"].as_str().unwrap_or("");
             assert_eq!(kind, expected_kind(*code), "{}", code.as_str());
         }
-        assert_eq!(ErrorCode::ALL.len(), 73);
+        assert_eq!(ErrorCode::ALL.len(), 78);
     }
 
     #[test]
@@ -2080,18 +2137,97 @@ mod error_kind_tests {
 
     #[test]
     fn internal_and_unsupported_errors_are_fatal() {
-        for code in [ErrorCode::InternalError, ErrorCode::FileTooLarge, ErrorCode::DocumentInvalid, ErrorCode::HistoryDropped] {
+        for code in [
+            ErrorCode::InternalError,
+            ErrorCode::FileTooLarge,
+            ErrorCode::DocumentInvalid,
+            ErrorCode::HistoryDropped,
+            ErrorCode::UnsupportedNodeKind,
+            ErrorCode::UnsupportedExtension,
+        ] {
             let json = ToolError::new(code, "", "m").to_json_value();
             assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
         }
     }
 
     #[test]
     fn needs_human_errors_set_safe_to_retry_false() {
-        for code in [ErrorCode::UnsavedChanges, ErrorCode::PathOutsideWorkspace] {
+        for code in [
+            ErrorCode::UnsavedChanges,
+            ErrorCode::PathOutsideWorkspace,
+            ErrorCode::AnotherWindowOwnsSession,
+            ErrorCode::ApprovalDenied,
+            ErrorCode::ApprovalTimeout,
+        ] {
             let json = ToolError::new(code, "/x", "m").to_json_value();
             assert_eq!(json["error_kind"], "needs_human", "{}", code.as_str());
             assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn unsupported_codes_are_their_own_fatal_kind() {
+        assert_eq!(ErrorCode::UnsupportedNodeKind.as_str(), "UNSUPPORTED_NODE_KIND");
+        assert_eq!(ErrorCode::UnsupportedExtension.as_str(), "UNSUPPORTED_EXTENSION");
+        for code in [ErrorCode::UnsupportedNodeKind, ErrorCode::UnsupportedExtension] {
+            let json = ToolError::new(code, "/x", "m").to_json_value();
+            assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
+            let step = json["next_step"].as_str().unwrap().to_lowercase();
+            assert!(step.contains("not supported") || step.contains("unsupported"), "{}: {step}", code.as_str());
+        }
+        assert_ne!(ErrorCode::UnsupportedNodeKind, ErrorCode::InvalidArguments);
+        assert_ne!(ErrorCode::UnsupportedExtension, ErrorCode::InvalidArguments);
+    }
+
+    #[test]
+    fn no_fatal_code_is_safe_to_retry() {
+        for code in ErrorCode::ALL {
+            let err = ToolError::new(*code, "", "m");
+            if err.error_kind != ErrorKind::Fatal {
+                continue;
+            }
+            assert!(!err.safe_to_retry, "{} is fatal but safe_to_retry is true", code.as_str());
+            if *code == ErrorCode::DocumentInvalid {
+                let step = err.next_step.to_lowercase();
+                assert!(!step.contains("adjust the value"), "DOCUMENT_INVALID next_step: {}", err.next_step);
+                assert!(!step.contains("and retry"), "DOCUMENT_INVALID next_step: {}", err.next_step);
+            }
+        }
+    }
+
+    #[test]
+    fn path_outside_workspace_next_step_tells_the_agent_to_stop() {
+        let err = ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "outside").with_corrected_example(json!({"path": "inside.designos"}));
+        let step = err.next_step.to_lowercase();
+        assert!(step.contains("stop"), "{}", err.next_step);
+        assert!(step.contains("ask") || step.contains("tell the user"), "{}", err.next_step);
+        assert!(!step.contains("relative path"), "{}", err.next_step);
+        assert!(err.corrected_example.is_none(), "PATH_OUTSIDE_WORKSPACE must not offer a workaround example: {:?}", err.corrected_example);
+    }
+
+    #[test]
+    fn window_lock_and_approval_codes_are_needs_human() {
+        for wire in ["ANOTHER_WINDOW_OWNS_SESSION", "APPROVAL_DENIED", "APPROVAL_TIMEOUT"] {
+            let code = ErrorCode::from_code_str(wire).unwrap_or_else(|| panic!("{wire} must be a catalogue code"));
+            let err = ToolError::new(code, "", "m");
+            assert_eq!(err.code.as_str(), wire);
+            assert_eq!(err.error_kind, ErrorKind::NeedsHuman, "{wire}");
+            assert!(!err.safe_to_retry, "{wire}");
+            let step = err.next_step.to_lowercase();
+            assert!(step.contains("stop"), "{wire}: {}", err.next_step);
+            assert!(step.contains("ask") || step.contains("tell the user"), "{wire}: {}", err.next_step);
+        }
+        let lock = ToolError::another_window_owns_session();
+        let denied = ToolError::approval_denied();
+        let timeout = ToolError::approval_timeout();
+        assert_eq!(lock.code.as_str(), "ANOTHER_WINDOW_OWNS_SESSION");
+        assert_eq!(denied.code.as_str(), "APPROVAL_DENIED");
+        assert_eq!(timeout.code.as_str(), "APPROVAL_TIMEOUT");
+        for err in [&lock, &denied, &timeout] {
+            assert_eq!(err.error_kind, ErrorKind::NeedsHuman, "{}", err.code.as_str());
+            assert!(!err.safe_to_retry, "{}", err.code.as_str());
         }
     }
 
