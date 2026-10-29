@@ -28,7 +28,7 @@ fn dev_mark_ready_rect(x: f32, width: f32, sec_top: f32) -> Rect {
     Rect::from_min_size(Pos2::new(x + MARK_READY_X, sec_top + MARK_READY_Y), Vec2::new(width - MARK_READY_PAD, theme::TARGET_MIN))
 }
 
-fn action_cluster(right: f32, row_top: f32) -> (Rect, Rect) {
+pub(crate) fn action_cluster(right: f32, row_top: f32) -> (Rect, Rect) {
     let primary = Rect::from_min_size(
         Pos2::new(right - theme::PANEL_ACTION_RIGHT_PAD - LEFT_ACTION_BUTTON, row_top + LEFT_ACTION_INSET_Y),
         Vec2::splat(LEFT_ACTION_BUTTON),
@@ -40,9 +40,11 @@ fn action_cluster(right: f32, row_top: f32) -> (Rect, Rect) {
 /// a recorded name on the same rect would drop it from the unnamed list and shift every later index.
 fn remember(ui: &Ui, name: &str, rect: Rect) {
     #[cfg(test)]
-    ui.ctx().data_mut(|d| {
-        d.insert_temp(egui::Id::new(("test-rect", name.to_string())), rect);
-    });
+    if widgets::recording() {
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(egui::Id::new(("test-rect", name.to_string())), rect);
+        });
+    }
     #[cfg(not(test))]
     let _ = (ui, name, rect);
 }
@@ -352,9 +354,6 @@ fn pages_list(app: &mut App, ui: &mut Ui, list: Rect) {
             if ready_count > 0 {
                 icons::paint(&p, Icon::Dev, Pos2::new(row.right() - 12.0, row.center().y), 12.0, theme::DEV_READY);
             }
-            if r.clicked() && !separator_press {
-                r.request_focus();
-            }
             if r.double_clicked() && !separator_press {
                 app.layers.renaming_page = Some(*pid);
                 app.layers.rename_started = false;
@@ -536,6 +535,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn remembered_rects_follow_the_record_switch() {
+        fn stored(ctx: &egui::Context) -> Option<Rect> {
+            ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "probe".to_string()))))
+        }
+        let rect = Rect::from_min_size(Pos2::new(3.0, 4.0), Vec2::splat(5.0));
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| remember(ui, "probe", rect));
+        assert_eq!(stored(&ctx), Some(rect), "recorded while recording is on");
+        let ctx = egui::Context::default();
+        let _disabled = widgets::RecordDisabled::begin();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| remember(ui, "probe", rect));
+        assert_eq!(stored(&ctx), None, "nothing is stored while recording is off, as in a release build");
+    }
+
+    #[test]
     fn pages_list_height_is_five_rows() {
         let mut doc = designos_doc::Document::new("t");
         for i in 0..8 {
@@ -545,6 +559,7 @@ mod tests {
         let inner = Rect::from_min_size(Pos2::new(49.0, 32.0), Vec2::new(theme::LEFT_PANEL_WIDTH, 1000.0));
         let top = 32.0 + theme::LEFT_HEADER_HEIGHT + theme::PANEL_TITLE_ROW_HEIGHT;
         let bounds = left_sep::compute_bounds(&app, inner, top);
+        assert_eq!(theme::PAGE_ROW_HEIGHT, theme::CONTROL_XS, "a page row is the extra-small control height");
         let five = theme::PAGES_MAX_VISIBLE_ROWS as f32 * theme::PAGE_ROW_HEIGHT;
         assert!((bounds.default_h - five).abs() < 0.1, "default pages height is five rows ({five}), got {}", bounds.default_h);
     }

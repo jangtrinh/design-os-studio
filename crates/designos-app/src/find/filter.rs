@@ -184,6 +184,31 @@ mod tests {
     }
 
     #[test]
+    fn match_highlight_uses_find_highlight() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let row = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, theme::LAYER_ROW_HEIGHT));
+        let name = "Logo mark";
+        let m = matcher("logo").unwrap();
+        let ranges = highlights(&m, name);
+        assert_eq!(ranges, vec![0..4]);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 80.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| paint_highlights(ui.painter(), name, &ranges, 40.0, row, &theme::font_body(), 200.0));
+        fn fills(shape: &egui::Shape, out: &mut Vec<(Rect, egui::Color32)>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push((r.rect, r.fill)),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| fills(s, out)),
+                _ => {}
+            }
+        }
+        let mut painted = Vec::new();
+        out.shapes.iter().for_each(|c| fills(&c.shape, &mut painted));
+        assert_eq!(painted.len(), 1, "one mark per matched range, got {painted:?}");
+        assert_eq!(painted[0].1, theme::FIND_HIGHLIGHT, "the mark is the shared find highlight");
+        assert!(painted[0].0.left() >= 40.0 - 0.5 && painted[0].0.right() <= 200.0 + 0.5, "the mark sits behind the name text, got {:?}", painted[0].0);
+    }
+
+    #[test]
     fn clear_button_hit_box_meets_the_target_floor() {
         let field = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(200.0, theme::CONTROL_XS));
         let clear = clear_button_rect(field);

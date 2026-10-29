@@ -540,7 +540,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
             if row.has_children {
                 let open = app.layers.expanded.contains(&row.id);
                 let cr = ui.interact(chev, ui.id().with(("chev", row.id.0)), Sense::click());
-                let col = if cr.hovered() || resp.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY };
+                let col = if cr.hovered() { theme::ICON_QUATERNARY_HOVER } else { row_paint.icon };
                 icons::paint(&p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, chev.center(), 12.0, col);
                 if cr.clicked() {
                     let alt = ui.input(|i| i.modifiers.alt);
@@ -578,13 +578,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                 }
             }
             let icon_c = Pos2::new(chev.right() + theme::LAYER_ICON_GAP + theme::LAYER_ICON_SIZE / 2.0, rr.center().y);
-            let icon_col = if comp {
-                theme::TEXT_COMPONENT
-            } else if resp.hovered() || canvas_hov {
-                theme::ICON_QUATERNARY_HOVER
-            } else {
-                theme::ICON_QUATERNARY
-            };
+            let icon_col = if comp { theme::TEXT_COMPONENT } else { row_paint.icon };
             icons::paint(&p, icon, icon_c, theme::LAYER_ICON_SIZE, icon_col);
 
             let text_left = icon_c.x + theme::LAYER_ICON_SIZE / 2.0 + 6.0;
@@ -684,7 +678,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     if node_visible { Icon::Eye } else { Icon::EyeOff },
                     eye.center(),
                     14.0,
-                    if er.hovered() { theme::ICON } else { theme::ICON_SECONDARY },
+                    if er.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY },
                 );
                 if er.clicked() {
                     app.toggle_visible(row.id);
@@ -697,7 +691,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     if node_locked { Icon::Lock } else { Icon::Unlock },
                     lock.center(),
                     14.0,
-                    if lr.hovered() { theme::ICON } else { theme::ICON_SECONDARY },
+                    if lr.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY },
                 );
                 if lr.clicked() {
                     app.toggle_lock(row.id);
@@ -1200,6 +1194,121 @@ mod tests {
             egui::Shape::Vec(v) => v.iter().any(|s| shape_has_stroke(s, color)),
             _ => false,
         }
+    }
+
+    /// Every icon painted on layer row `row`, left to right, with its box and tint.
+    fn row_icons(shapes: &[egui::epaint::ClippedShape], region: Rect, row: usize) -> Vec<(Rect, egui::Color32)> {
+        fn collect(shape: &egui::Shape, out: &mut Vec<(Rect, egui::Color32)>) {
+            match shape {
+                egui::Shape::Mesh(m) => {
+                    if let Some(v) = m.vertices.first() {
+                        out.push((m.calc_bounds(), v.color));
+                    }
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| collect(s, out)),
+                _ => {}
+            }
+        }
+        let center_y = region.top() + (row as f32 + 0.5) * theme::LAYER_ROW_HEIGHT;
+        let mut all = Vec::new();
+        shapes.iter().for_each(|c| collect(&c.shape, &mut all));
+        all.retain(|(r, _)| (r.center().y - center_y).abs() < 1.0);
+        all.sort_by(|a, b| a.0.left().total_cmp(&b.0.left()));
+        all
+    }
+
+    /// Two frames with the pointer at `pos` (hover is reported on the frame after the row sits under it); returns the second.
+    fn frame_with_pointer(app: &mut App, region: Rect, pos: Pos2) -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), ..Default::default() };
+        raw.events.push(egui::Event::PointerMoved(pos));
+        let _ = ctx.run_ui(raw.clone(), |ui| show(app, ui, region));
+        ctx.run_ui(raw, |ui| show(app, ui, region)).shapes
+    }
+
+    /// The chevron, the kind icon and the lock and eye toggles of a row that has all four.
+    fn row_glyphs(icons: &[(Rect, egui::Color32)]) -> [(Rect, egui::Color32); 4] {
+        assert_eq!(icons.len(), 4, "chevron, kind icon, lock and eye: {icons:?}");
+        [icons[0], icons[1], icons[2], icons[3]]
+    }
+
+    #[test]
+    fn row_glyphs_keep_the_tree_row_icon_colour_on_row_hover_and_canvas_hover() {
+        let (d, _page, frame, _a, _b) = sample();
+        let mut app = App::new(d);
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 200.0));
+        let row = 1; // the frame: it has a child, so it has a chevron
+        let row_y = (row as f32 + 0.5) * theme::LAYER_ROW_HEIGHT;
+        let rest = theme::ICON_QUATERNARY;
+
+        let hovered = frame_with_pointer(&mut app, region, Pos2::new(80.0, row_y));
+        for (rect, tint) in row_glyphs(&row_icons(&hovered, region, row)) {
+            assert_eq!(tint, rest, "a glyph at {rect:?} keeps the Tree/Row icon colour while the pointer is on the row");
+        }
+
+        app.select_only(frame);
+        let selected = frame_with_pointer(&mut app, region, Pos2::new(80.0, row_y));
+        for (rect, tint) in row_glyphs(&row_icons(&selected, region, row)) {
+            assert_eq!(tint, rest, "a glyph at {rect:?} keeps the Tree/Row icon colour on a selected, hovered row");
+        }
+
+        app.select_only(frame);
+        app.hover = Some(frame);
+        let off_row = frame_with_pointer(&mut app, region, Pos2::new(700.0, 500.0));
+        let icons = row_icons(&off_row, region, row);
+        assert_eq!(icons.len(), 2, "off the row the toggles are not drawn: {icons:?}");
+        for (rect, tint) in icons {
+            assert_eq!(tint, rest, "a glyph at {rect:?} keeps the Tree/Row icon colour under canvas hover");
+        }
+    }
+
+    #[test]
+    fn eye_and_lock_toggles_use_the_quaternary_pair_and_brighten_only_under_their_own_pointer() {
+        let (d, _page, _frame, _a, _b) = sample();
+        let mut app = App::new(d);
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 200.0));
+        let row = 1;
+        let row_y = (row as f32 + 0.5) * theme::LAYER_ROW_HEIGHT;
+
+        let on_row = frame_with_pointer(&mut app, region, Pos2::new(80.0, row_y));
+        let [_, _, lock, eye] = row_glyphs(&row_icons(&on_row, region, row));
+        assert_eq!((lock.1, eye.1), (theme::ICON_QUATERNARY, theme::ICON_QUATERNARY), "toggles rest in the quaternary role");
+
+        let on_eye = frame_with_pointer(&mut app, region, eye.0.center());
+        let [_, _, lock, eye] = row_glyphs(&row_icons(&on_eye, region, row));
+        assert_eq!(eye.1, theme::ICON_QUATERNARY_HOVER, "the eye brightens under its own pointer");
+        assert_eq!(lock.1, theme::ICON_QUATERNARY, "the lock does not");
+
+        let on_lock = frame_with_pointer(&mut app, region, lock.0.center());
+        let [_, _, lock, eye] = row_glyphs(&row_icons(&on_lock, region, row));
+        assert_eq!(lock.1, theme::ICON_QUATERNARY_HOVER, "the lock brightens under its own pointer");
+        assert_eq!(eye.1, theme::ICON_QUATERNARY, "the eye does not");
+
+        // Hidden and locked rows show their toggles without hover, in the same role.
+        let frame_id = app.layers.rows_cache[row].id;
+        {
+            let n = app.doc.get_mut(frame_id).unwrap();
+            n.visible = false;
+            n.locked = true;
+        }
+        let at_rest = frame_with_pointer(&mut app, region, Pos2::new(700.0, 500.0));
+        let [_, _, lock, eye] = row_glyphs(&row_icons(&at_rest, region, row));
+        assert_eq!((lock.1, eye.1), (theme::ICON_QUATERNARY, theme::ICON_QUATERNARY), "a hidden, locked row shows both toggles in the quaternary role");
+    }
+
+    #[test]
+    fn a_chevron_brightens_under_its_own_pointer() {
+        let (d, _page, _frame, _a, _b) = sample();
+        let mut app = App::new(d);
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 200.0));
+        let row = 1;
+        let row_y = (row as f32 + 0.5) * theme::LAYER_ROW_HEIGHT;
+        let on_row = frame_with_pointer(&mut app, region, Pos2::new(80.0, row_y));
+        let [chevron, ..] = row_glyphs(&row_icons(&on_row, region, row));
+        let on_chevron = frame_with_pointer(&mut app, region, chevron.0.center());
+        let [chevron, kind, ..] = row_glyphs(&row_icons(&on_chevron, region, row));
+        assert_eq!(chevron.1, theme::ICON_QUATERNARY_HOVER, "the chevron is a button of its own");
+        assert_eq!(kind.1, theme::ICON_QUATERNARY, "the kind icon does not follow it");
     }
 
     #[test]

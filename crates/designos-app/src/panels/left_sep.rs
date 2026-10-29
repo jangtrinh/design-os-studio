@@ -290,7 +290,8 @@ pub fn paint_and_interact(ui: &mut Ui, app: &App, inner: Rect, pages_list_top: f
         ui.memory_mut(|m| {
             m.set_focus_lock_filter(sep_id, EventFilter { vertical_arrows: true, ..Default::default() });
         });
-        crate::widgets::kit::focus_ring(ui.painter(), hit_rect, theme::RADIUS_MARK as f32);
+        // The ring sits 4 px outside the rect it is given; shrinking the rect keeps the outer edge on the panel's inner edges.
+        crate::widgets::kit::focus_ring(ui.painter(), hit_rect.shrink2(Vec2::new(theme::SPACE_FACT, 0.0)), theme::RADIUS_MARK as f32);
     }
 
     if !ui.input(|i| i.pointer.primary_down()) {

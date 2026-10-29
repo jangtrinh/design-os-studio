@@ -8,6 +8,7 @@ use crate::theme;
 use crate::widgets::{self, elide};
 use designos_doc::*;
 use egui::{Align2, Id, Pos2, Rect, Sense, Ui, Vec2};
+use std::borrow::Cow;
 
 /// One row of the list.
 #[derive(Clone, Debug, PartialEq)]
@@ -54,13 +55,13 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
     let mono_font = theme::font_mono();
     let gap = theme::SPACE_FACT;
     let origin = row.left() + theme::PANEL_PADDING_X;
-    let right_limit = row.right() - theme::PANEL_ACTION_RIGHT_PAD - theme::CONTROL_XS - (theme::CONTROL_XS + theme::SPACE_FACT) - theme::SPACE_FACT;
+    let right_limit = crate::panels::left::action_cluster(row.right(), row.top()).1.left() - theme::SPACE_FACT;
     let budget = (right_limit - origin).max(0.0);
     let total: usize = rows(&app.doc).iter().filter(|r| matches!(r, Row::Item { .. })).count();
     let tabs_def = [(LeftTab::ReadyForDev, "Ready for dev"), (LeftTab::Layers, "Layers")];
     let layers_label = tabs_def[1].1;
-    let (_, layers_w) = tab_width(ui.painter(), layers_label, &font, 0.0);
-    let mut ready_label = tabs_def[0].1.to_string();
+    let (layers_label_w, layers_w) = tab_width(ui.painter(), layers_label, &font, 0.0);
+    let mut ready_label = Cow::Borrowed(tabs_def[0].1);
     let mut show_badge = total > 0;
     let badge_str = total.to_string();
     let full_badge_w = (widgets::text_width(ui.painter(), &badge_str, &mono_font) + TAB_BADGE_TEXT_PAD).max(TAB_BADGE_MIN);
@@ -73,7 +74,7 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
     }
     if ready_w + gap + layers_w > budget {
         let max_label = (budget - gap - layers_w - 2.0 * theme::INSET_CONTROL).max(0.0);
-        ready_label = elide(ui.painter(), &ready_label, &font, max_label);
+        ready_label = Cow::Owned(elide(ui.painter(), &ready_label, &font, max_label));
         show_badge = false;
         badge_w = 0.0;
         (ready_label_w, ready_w) = tab_width(ui.painter(), &ready_label, &font, 0.0);
@@ -81,9 +82,9 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
     let mut x = origin;
     for (i, (tab, _)) in tabs_def.into_iter().enumerate() {
         let (label, label_w, w, badge_here) = if tab == LeftTab::ReadyForDev {
-            (ready_label.as_str(), ready_label_w, ready_w, show_badge)
+            (ready_label.as_ref(), ready_label_w, ready_w, show_badge)
         } else {
-            (layers_label, tab_width(ui.painter(), layers_label, &font, 0.0).0, layers_w, false)
+            (layers_label, layers_label_w, layers_w, false)
         };
         let r = Rect::from_min_size(Pos2::new(x, row.center().y - theme::TARGET_MIN * 0.5), Vec2::new(w, theme::TARGET_MIN));
         widgets::record(ui, if tab == LeftTab::ReadyForDev { "dev-left-tab-ready" } else { "dev-left-tab-layers" }, r);
@@ -107,7 +108,7 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
                 Vec2::new(badge_w, TAB_BADGE_H),
             );
             ui.painter().rect_filled(badge_r, egui::CornerRadius::same(7), egui::Color32::from_rgba_unmultiplied(0x14, 0xAE, 0x5C, 38));
-            ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, badge_str.clone(), mono_font.clone(), egui::Color32::from_rgb(0x34, 0xD3, 0x99));
+            ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, &badge_str, mono_font.clone(), egui::Color32::from_rgb(0x34, 0xD3, 0x99));
         }
         if resp.clicked() {
             app.dev.left_tab = tab;
@@ -277,13 +278,13 @@ mod tests {
         assert!(texts.iter().any(|t| t.contains('…')), "the ready label elides once the count is gone, texts={texts:?}");
         let ready = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "dev-left-tab-ready".to_string())))).expect("ready tab");
         let layers = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "dev-left-tab-layers".to_string())))).expect("layers tab");
-        let right_limit = row.right() - theme::PANEL_ACTION_RIGHT_PAD - theme::CONTROL_XS - (theme::CONTROL_XS + theme::SPACE_FACT) - theme::SPACE_FACT;
-        assert!(ready.right() <= right_limit + 0.5, "ready {:?} past {right_limit}", ready);
-        assert!(layers.right() <= right_limit + 0.5, "layers {:?} past {right_limit}", layers);
-        let cluster = Rect::from_min_size(
-            Pos2::new(row.right() - theme::PANEL_ACTION_RIGHT_PAD - theme::CONTROL_XS - (theme::CONTROL_XS + theme::SPACE_FACT), row.top()),
-            Vec2::new(theme::CONTROL_XS + theme::SPACE_FACT + theme::CONTROL_XS, row.height()),
+        let (primary, secondary) = crate::panels::left::action_cluster(row.right(), row.top());
+        let cluster = primary.union(secondary);
+        assert!(
+            !ready.intersects(cluster) && !layers.intersects(cluster),
+            "tabs ready {ready:?} and layers {layers:?} paint under the action cluster {cluster:?}"
         );
-        assert!(!ready.intersects(cluster) && !layers.intersects(cluster), "tabs intersect the action cluster");
+        assert!(ready.right() <= layers.left(), "the tabs keep their order: ready {ready:?}, layers {layers:?}");
+        assert!(ready.left() >= row.left() + theme::PANEL_PADDING_X - 0.5, "the strip starts at the panel padding, got {ready:?}");
     }
 }

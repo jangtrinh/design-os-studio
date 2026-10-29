@@ -343,3 +343,37 @@ fn separator_band_is_24_px_and_yields_to_controls_and_the_scrollbar() {
     s.click(Pos2::new(list.left() + 60.0, list.bottom() - 2.0));
     assert_eq!(s.app().page, current, "the band's overlap with the last page row does not switch pages");
 }
+
+#[test]
+fn a_click_on_a_page_row_leaves_the_keyboard_with_the_document() {
+    let mut s = Sim::new();
+    s.click(Pos2::new(150.0, page_row_y(&s, 1)));
+    assert_eq!(s.app().page, s.app().doc.pages[1], "the click switches the page");
+    assert!(!crate::agent_a11y::non_canvas_has_focus(&s.ctx), "a page click must not take keyboard focus");
+    s.key(Key::H);
+    assert_eq!(s.app().tool, Tool::Hand, "a tool key still reaches the document after a page click");
+}
+
+fn ring_rects(shape: &Shape, color: Color32, out: &mut Vec<Rect>) {
+    match shape {
+        Shape::Rect(r) if r.stroke.width > 0.0 && r.stroke.color == color => out.push(r.rect),
+        Shape::Vec(children) => children.iter().for_each(|c| ring_rects(c, color, out)),
+        _ => {}
+    }
+}
+
+#[test]
+fn the_separator_focus_ring_stays_inside_the_left_panel() {
+    let mut s = Sim::new();
+    s.ctx.memory_mut(|m| m.request_focus(egui::Id::new("pages-layers-separator")));
+    s.frame(vec![]);
+    let sep = s.rect_of("pages-layers-separator");
+    let panel = s.rect_of("pages-list");
+    let mut rings = Vec::new();
+    s.shapes.iter().for_each(|cs| ring_rects(&cs.shape, theme::FOCUS_RING, &mut rings));
+    rings.retain(|r| (r.center().y - sep.center().y).abs() <= theme::SPACE_FACT + 1.0);
+    assert_eq!(rings.len(), 1, "one ring around the separator, got {rings:?}");
+    let ring = rings[0];
+    assert!(ring.left() >= panel.left() - 0.5, "the ring starts at {} left of the panel edge {}", ring.left(), panel.left());
+    assert!(ring.right() <= panel.right() + 0.5, "the ring ends at {} right of the panel edge {}", ring.right(), panel.right());
+}
