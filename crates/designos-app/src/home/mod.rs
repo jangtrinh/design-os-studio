@@ -21,7 +21,7 @@ pub use dialog::{Dialog, Intent};
 pub use leave::Answer;
 pub use leave::{Leave, LeaveFlow};
 #[cfg(test)]
-pub(crate) use main_view::{button_colours, fit_breadcrumb, Kind};
+pub(crate) use main_view::{fit_breadcrumb, Crumb};
 pub(crate) use session::library_file_disk_path;
 pub(crate) use session::load_starter_document;
 pub(crate) use session::{doc_hash, node_fingerprint};
@@ -897,6 +897,8 @@ mod sidebar {
 
     const ROW_H: f32 = theme::CONTROL_SM;
     const INDENT: f32 = 16.0;
+    /// Space above and below the Trash row inside its band under the divider.
+    const TRASH_PAD: f32 = 9.0;
 
     pub fn show(h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
         let p = ui.painter().clone();
@@ -929,12 +931,12 @@ mod sidebar {
         }
 
         // Right notification/activity icon button
-        let bell_r = Rect::from_min_size(Pos2::new(x0 + w - 34.0, y + 14.0), Vec2::splat(24.0));
+        let bell_r = Rect::from_center_size(Pos2::new(x0 + w - 22.0, ws_rect.center().y), Vec2::splat(24.0));
         let _ = widgets::icon_button(ui, bell_r, "home-notifications", Icon::Eye, false, "Workspace activity");
         widgets::record(ui, "home-notifications", bell_r);
         y += theme::CONTROL_SM + 16.0;
 
-        // Search field at the small control height. The kit field painter does not use the search look.
+        // Search field at the small control height, framed with the kit's search look; the text edit is drawn inside it.
         let sr = Rect::from_min_size(Pos2::new(x0 + 12.0, y), Vec2::new(w - 24.0, theme::CONTROL_SM));
         let search_focused = ui.memory(|m| m.has_focus(Id::new("home-search")));
         let search = kit::search_look(if search_focused { State::Focused } else { State::Default });
@@ -1144,13 +1146,13 @@ mod sidebar {
         }
 
         // 7. Auto-Update & Upstream Figma Watchdog Status Card (`US-09` / `DIR-11`)
-        let trash_h = 46.0;
+        let trash_h = ROW_H + TRASH_PAD * 2.0;
         let updater_r = Rect::from_min_size(Pos2::new(x0 + 8.0, rect.bottom() - trash_h - 46.0), Vec2::new(w - 16.0, 40.0));
         super::updater::show_sidebar_card_in_rect(ui, updater_r, &mut h.updater);
 
         // 8. Bottom `Trash` Row (`V3.3` / `D85`: separate count pill badge instead of parenthetical string)
         widgets::hline(&p, x0, x0 + w, rect.bottom() - trash_h, theme::BORDER);
-        let tr = Rect::from_min_size(Pos2::new(x0 + 8.0, rect.bottom() - 9.0 - ROW_H), Vec2::new(w - 16.0, ROW_H));
+        let tr = Rect::from_min_size(Pos2::new(x0 + 8.0, rect.bottom() - TRASH_PAD - ROW_H), Vec2::new(w - 16.0, ROW_H));
         let n = h.snap.trash.len();
         let trash_resp = row(ui, tr, Id::new("home-trash"), Icon::Trash, "Trash", 0.0, h.section == Section::Trash && !h.searching(), false, "trash");
         if n > 0 {
@@ -1256,6 +1258,7 @@ mod main_view {
     use crate::widgets::kit::{self, Hierarchy, State, Surface, TileKind};
     use designos_library::{FileEntry, Library};
     use egui::{Align2, Color32, CornerRadius, Id, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2};
+    use std::borrow::Cow;
 
     /// Whether Home offers the spec bundle: the `+ Spec bundle` header button and the spec bundle
     /// template card. Both push `Act::OpenSpecs`, which only switches the rail to the spec reader,
@@ -1265,16 +1268,10 @@ mod main_view {
     const SPEC_BUNDLE_ENTRY_ENABLED: bool = false;
 
     #[derive(Clone, Copy, PartialEq)]
-    pub(crate) enum Kind {
+    enum Kind {
         Primary,
         Secondary,
         SecondaryDestructive,
-    }
-
-    #[cfg(test)]
-    pub(crate) fn button_colours(kind: Kind) -> (Color32, Color32, Color32) {
-        let look = kit::button_look(hierarchy(kind), State::Default);
-        (look.fill, look.border, look.text)
     }
 
     fn hierarchy(kind: Kind) -> Hierarchy {
@@ -1285,9 +1282,14 @@ mod main_view {
         }
     }
 
+    /// Height of the text block under a card's thumbnail: padding, the title line, the meta line, padding.
+    const CARD_META_H: f32 = theme::SPACE_GROUP + theme::LINE_TEXT_SM + theme::LINE_TEXT_XS + theme::SPACE_GROUP;
+
+    // The theme keeps `HOME_CARD_H` (thumbnail plus a 58 px text block) as its contract value. The card is never shorter.
+    const _: () = assert!(theme::HOME_THUMB_H + CARD_META_H >= theme::HOME_CARD_H);
+
     fn file_card_size() -> (f32, f32, f32, f32) {
-        let meta = theme::SPACE_GROUP + theme::LINE_TEXT_SM + theme::LINE_TEXT_XS + theme::SPACE_GROUP;
-        (theme::HOME_CARD_W, (theme::HOME_THUMB_H + meta).max(theme::HOME_CARD_H), theme::HOME_CARD_GAP, 24.0)
+        (theme::HOME_CARD_W, theme::HOME_THUMB_H + CARD_META_H, theme::HOME_CARD_GAP, 24.0)
     }
 
     pub fn show(lib: &Library, h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
@@ -1299,37 +1301,36 @@ mod main_view {
         // 1. Top Header & Creation Strip (`+ Design file`, `+ FigJam board`, `+ Spec bundle` while `SPEC_BUNDLE_ENTRY_ENABLED`, `Import`, context `+ New folder`)
         let head = Rect::from_min_size(rect.min, Vec2::new(rect.width(), theme::HOME_HEADER_H));
         let mut right = rect.right() - pad;
-        let folder_target = if trash || h.searching() {
+        let folder_target: Option<(&str, Option<&str>)> = if trash || h.searching() {
             None
         } else {
             match &h.section {
-                Section::Project(pid, folder) => Some((pid.clone(), folder.clone())),
-                Section::AllProjects => h.snap.projects.first().map(|pr| (pr.id.clone(), None)),
+                Section::Project(pid, folder) => Some((pid.as_str(), folder.as_deref())),
+                Section::AllProjects => h.snap.projects.first().map(|pr| (pr.id.as_str(), None)),
                 _ => None,
             }
         };
-        let mut labels: Vec<&str> = Vec::new();
-        if trash {
-            if !h.snap.trash.is_empty() {
-                labels.push("Empty trash");
-            }
-        } else {
-            labels.push("+ Design file");
-            labels.push("+ FigJam board");
-            if SPEC_BUNDLE_ENTRY_ENABLED {
-                labels.push("+ Spec bundle");
-            }
-            labels.push("Import");
-            if folder_target.is_some() {
-                labels.push("+ New folder");
-            }
-        }
         let gap = 8.0;
         let mut span = 0.0;
-        for (i, label) in labels.iter().enumerate() {
-            span += button_width(&p, label);
-            if i + 1 != labels.len() {
+        let mut add = |label: &str| {
+            if span > 0.0 {
                 span += gap;
+            }
+            span += button_width(&p, label);
+        };
+        if trash {
+            if !h.snap.trash.is_empty() {
+                add("Empty trash");
+            }
+        } else {
+            add("+ Design file");
+            add("+ FigJam board");
+            if SPEC_BUNDLE_ENTRY_ENABLED {
+                add("+ Spec bundle");
+            }
+            add("Import");
+            if folder_target.is_some() {
+                add("+ New folder");
             }
         }
         let leftmost = right - span;
@@ -1367,7 +1368,7 @@ mod main_view {
                 right -= gap;
                 let r = button(ui, &p, &mut right, head.center().y, "+ New folder", Kind::Secondary, "home-new-folder");
                 if r.clicked() {
-                    acts.push(Act::NewFolder(pid, parent_folder));
+                    acts.push(Act::NewFolder(pid.to_string(), parent_folder.map(str::to_string)));
                 }
             }
         }
@@ -1382,7 +1383,7 @@ mod main_view {
             let fr = Rect::from_min_size(Pos2::new(rect.left() + pad, y), Vec2::new(fw, theme::CONTROL_SM));
             let fresp = ui.interact(fr, Id::new("home-filter"), Sense::click());
             let filter_hot = h.filter_menu.is_some() || fresp.hovered();
-            paint_secondary(&p, fr, &filter_lbl, filter_hot, true);
+            paint_secondary(ui, fr, &filter_lbl, filter_hot, true, fresp.id);
             widgets::record(ui, "home-filter", fr);
             if fresp.clicked() {
                 h.filter_menu = if h.filter_menu.is_some() { None } else { Some(fr) };
@@ -1394,7 +1395,7 @@ mod main_view {
             let sr = Rect::from_min_size(Pos2::new(fr.right() + 8.0, y), Vec2::new(sw, theme::CONTROL_SM));
             let sresp = ui.interact(sr, Id::new("home-sort"), Sense::click());
             let sort_hot = h.sort_menu.is_some() || sresp.hovered();
-            paint_secondary(&p, sr, &sort_lbl, sort_hot, true);
+            paint_secondary(ui, sr, &sort_lbl, sort_hot, true, sresp.id);
             widgets::record(ui, "home-sort", sr);
             if sresp.clicked() {
                 h.sort_menu = if h.sort_menu.is_some() { None } else { Some(sr) };
@@ -1433,55 +1434,39 @@ mod main_view {
 
     const CRUMB_SEP: f32 = theme::SPACE_SECTION;
 
-    /// Drop leading segments behind "…" until `labels` fit in `avail`, then shorten the last one.
-    pub(crate) fn fit_breadcrumb(labels: &[String], widths: &[f32], sep: f32, ellipsis_w: f32, avail: f32) -> Vec<String> {
-        fn total(parts: &[f32], sep: f32) -> f32 {
-            if parts.is_empty() {
-                return 0.0;
-            }
-            parts.iter().sum::<f32>() + sep * (parts.len() - 1) as f32
+    /// One crumb on screen: the path segment it stands for (`None` for the leading "…") and the text drawn.
+    pub(crate) struct Crumb<'a> {
+        pub(crate) segment: Option<usize>,
+        pub(crate) text: Cow<'a, str>,
+    }
+
+    /// Drops leading segments behind "…" until the path fits in `avail`, then shortens the last one. `width_of`
+    /// measures text in the crumb font, so the shortened text and its "…" are measured, not estimated.
+    pub(crate) fn fit_breadcrumb<'a>(labels: &[&'a str], sep: f32, avail: f32, mut width_of: impl FnMut(&str) -> f32) -> Vec<Crumb<'a>> {
+        let Some(last) = labels.len().checked_sub(1) else {
+            return Vec::new();
+        };
+        let ellipsis_w = width_of("…");
+        // Width of `labels[start..]` with a separator between neighbours.
+        let mut tail = labels.iter().map(|&label| width_of(label)).sum::<f32>() + sep * last as f32;
+        let mut start = 0;
+        let lead_w = |start: usize| if start > 0 { ellipsis_w + sep } else { 0.0 };
+        while start < last && lead_w(start) + tail > avail {
+            tail -= width_of(labels[start]) + sep;
+            start += 1;
         }
-        if labels.is_empty() {
-            return vec![];
+        let mut out = Vec::with_capacity(last - start + 2);
+        if start > 0 {
+            out.push(Crumb { segment: None, text: Cow::Borrowed("…") });
         }
-        let mut start = 0usize;
-        let mut lead = false;
-        while start < labels.len() {
-            let mut parts = Vec::new();
-            if lead {
-                parts.push(ellipsis_w);
-            }
-            parts.extend_from_slice(&widths[start..]);
-            if total(&parts, sep) <= avail {
-                let mut out = Vec::new();
-                if lead {
-                    out.push("…".to_string());
-                }
-                out.extend(labels[start..].iter().cloned());
-                return out;
-            }
-            if start + 1 < labels.len() {
-                lead = true;
-                start += 1;
-                continue;
-            }
-            break;
-        }
-        let mut out = Vec::new();
-        if lead {
-            out.push("…".to_string());
-        }
-        let used = if lead { ellipsis_w + sep } else { 0.0 };
-        let budget = (avail - used).max(0.0);
-        let last = &labels[labels.len() - 1];
-        let last_w = widths[widths.len() - 1];
-        if last_w <= budget || last.is_empty() {
-            out.push(last.clone());
+        if lead_w(start) + tail <= avail {
+            out.extend((start..=last).map(|segment| Crumb { segment: Some(segment), text: Cow::Borrowed(labels[segment]) }));
         } else {
-            let keep = ((budget / last_w.max(1.0)) * last.chars().count() as f32).floor() as usize;
-            let mut short: String = last.chars().take(keep.max(1)).collect();
-            short.push('…');
-            out.push(short);
+            let (short, _) = widgets::elide_with(&mut width_of, labels[last], (avail - lead_w(start)).max(0.0));
+            // A second "…" after the leading one would only repeat it.
+            if start == 0 || short != "…" {
+                out.push(Crumb { segment: Some(last), text: Cow::Owned(short) });
+            }
         }
         out
     }
@@ -1489,51 +1474,54 @@ mod main_view {
     /// Title, or clickable "Project / Folder / ..." path inside a project.
     fn breadcrumb(h: &Home, ui: &mut Ui, p: &egui::Painter, at: Pos2, max_x: f32, acts: &mut Vec<Act>) {
         let font = theme::font_text(theme::FONT_SIZE_TEXT_XL, theme::TextWeight::Semibold);
-        let mut segs: Vec<(String, Section)> = vec![];
+        let title: String;
+        let mut labels: Vec<&str> = Vec::new();
+        // Folders below the project, outermost first: (name, id). Segment `k + 1` of the path is `folders[k]`.
+        let mut folders: Vec<(&str, &str)> = Vec::new();
+        let mut project_id = None;
         match &h.section {
             Section::Project(pid, folder) if !h.searching() => {
-                segs.push((h.snap.project_name(pid).to_string(), Section::Project(pid.clone(), None)));
+                project_id = Some(pid.as_str());
+                labels.push(h.snap.project_name(pid));
                 if let Some(pr) = h.snap.projects.iter().find(|x| &x.id == pid) {
-                    let mut chain = vec![];
-                    let mut cur = folder.clone();
+                    let mut cur = folder.as_deref();
                     while let Some(fid) = cur {
                         let Some(f) = pr.folders.iter().find(|x| x.id == fid) else { break };
-                        chain.push((f.name.clone(), Section::Project(pid.clone(), Some(f.id.clone()))));
-                        cur = f.parent.clone();
+                        folders.push((f.name.as_str(), f.id.as_str()));
+                        cur = f.parent.as_deref();
                     }
-                    chain.reverse();
-                    segs.extend(chain);
+                    folders.reverse();
+                    labels.extend(folders.iter().map(|&(name, _)| name));
                 }
             }
-            _ => segs.push((h.title(), h.section.clone())),
+            _ => {
+                title = h.title();
+                labels.push(&title);
+            }
         }
-        let labels: Vec<String> = segs.iter().map(|(label, _)| label.clone()).collect();
-        let widths: Vec<f32> = labels.iter().map(|label| widgets::text_width(p, label, &font)).collect();
-        let ellipsis_w = widgets::text_width(p, "…", &font);
-        let shown = fit_breadcrumb(&labels, &widths, CRUMB_SEP, ellipsis_w, (max_x - at.x).max(0.0));
+        let shown = fit_breadcrumb(&labels, CRUMB_SEP, (max_x - at.x).max(0.0), |text| widgets::text_width(p, text, &font));
         let mut x = at.x;
         let last = shown.len().saturating_sub(1);
-        for (i, label) in shown.into_iter().enumerate() {
-            let w = widgets::text_width(p, &label, &font);
-            let r = Rect::from_min_size(Pos2::new(x, at.y - theme::CONTROL_SM * 0.5), Vec2::new(w.max(theme::CONTROL_SM), theme::CONTROL_SM));
+        for (i, crumb) in shown.iter().enumerate() {
+            let w = widgets::text_width(p, &crumb.text, &font);
+            // The hit area never reaches into the next crumb, whose text starts `CRUMB_SEP` after this one ends.
+            let hit_w = w.max(theme::CONTROL_SM).min(w + CRUMB_SEP - 1.0);
+            let r = Rect::from_min_size(Pos2::new(x, at.y - theme::CONTROL_SM * 0.5), Vec2::new(hit_w, theme::CONTROL_SM));
             let color = if i == last { theme::TEXT } else { theme::TEXT_TERTIARY };
-            if label != "…" {
-                if let Some((_, section)) = segs.iter().find(|(name, _)| name == &label) {
-                    if i < last {
-                        let resp = ui.interact(r, Id::new(("home-crumb", i)), Sense::click());
-                        if resp.hovered() {
-                            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-                        }
-                        if resp.clicked() {
-                            acts.push(Act::Go(section.clone()));
-                        }
-                    }
+            if let (Some(segment), Some(pid), true) = (crumb.segment, project_id, i < last) {
+                let resp = ui.interact(r, Id::new(("home-crumb", i)), Sense::click());
+                if resp.hovered() {
+                    p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+                }
+                if resp.clicked() {
+                    let folder = segment.checked_sub(1).map(|k| folders[k].1.to_string());
+                    acts.push(Act::Go(Section::Project(pid.to_string(), folder)));
                 }
             }
-            p.text(Pos2::new(x, at.y), Align2::LEFT_CENTER, &label, font.clone(), color);
-            widgets::record(
+            p.text(Pos2::new(x, at.y), Align2::LEFT_CENTER, &*crumb.text, font.clone(), color);
+            widgets::record_with(
                 ui,
-                &format!("home-crumb-{i}"),
+                || format!("home-crumb-{i}"),
                 Rect::from_min_size(Pos2::new(x, at.y - theme::LINE_TEXT_XL * 0.5), Vec2::new(w, theme::LINE_TEXT_XL)),
             );
             x += w;
@@ -1548,9 +1536,24 @@ mod main_view {
         widgets::text_width(p, label, &theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold)) + theme::SPACE_GROUP * 2.0
     }
 
-    fn paint_secondary(p: &egui::Painter, r: Rect, label: &str, hot: bool, chevron: bool) {
+    /// The kit's focus band around `r` while the keyboard focus sits on `id`: 2 px wide, 2 px clear of the control.
+    fn paint_focus_ring(ui: &Ui, r: Rect, id: Id) {
+        let ring = kit::button_ring(Hierarchy::Secondary, ui.memory(|m| m.has_focus(id)));
+        if ring == Color32::TRANSPARENT {
+            return;
+        }
+        let mut p = ui.painter().clone();
+        p.set_clip_rect(p.clip_rect().expand(theme::SPACE_FACT));
+        let band = kit::look(Color32::TRANSPARENT, ring, 2.0, Color32::TRANSPARENT, Color32::TRANSPARENT);
+        kit::paint_frame(&p, r.expand(theme::SPACE_FACT), theme::RADIUS_CONTROL + theme::SPACE_FACT as u8, &band);
+    }
+
+    /// A secondary button painted over a rect whose click and keyboard focus belong to `id`.
+    fn paint_secondary(ui: &Ui, r: Rect, label: &str, hot: bool, chevron: bool, id: Id) {
+        let p = ui.painter();
         let look = kit::button_look(Hierarchy::Secondary, if hot { State::Hover } else { State::Default });
         kit::paint_frame(p, r, theme::RADIUS_CONTROL, &look);
+        paint_focus_ring(ui, r, id);
         let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
         if chevron {
             p.text(Pos2::new(r.left() + theme::SPACE_GROUP, r.center().y), Align2::LEFT_CENTER, label, font, look.text);
@@ -1692,11 +1695,13 @@ mod main_view {
                 p.rect_filled(banner, CornerRadius { nw: top_r, ne: top_r, sw: 0, se: 0 }, tile.fill);
                 let icon_box = Rect::from_min_size(Pos2::new(r.left() + 12.0, r.top() + 14.0), Vec2::splat(28.0));
                 p.rect_filled(icon_box, theme::cr(theme::RADIUS_CONTROL), tile.fill);
+                p.rect_stroke(icon_box, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
                 icons::paint(&p, *icon, icon_box.center(), 15.0, tile.icon);
 
                 let bw = widgets::text_width(&p, badge, &theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Semibold)) + 14.0;
                 let pill_r = Rect::from_min_size(Pos2::new(r.right() - bw - 12.0, r.top() + 16.0), Vec2::new(bw, 20.0));
                 p.rect_filled(pill_r, theme::cr_pill(pill_r.height()), tile.fill);
+                p.rect_stroke(pill_r, theme::cr_pill(pill_r.height()), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
                 p.text(pill_r.center(), Align2::CENTER_CENTER, *badge, theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Semibold), tile.icon);
 
                 let bar_y = banner.bottom() - 14.0;
@@ -1723,7 +1728,7 @@ mod main_view {
                     Pos2::new(r.left() + theme::SPACE_GROUP, r.bottom() - theme::SPACE_GROUP - theme::CONTROL_SM),
                     Vec2::new(r.width() - theme::SPACE_GROUP * 2.0, theme::CONTROL_SM),
                 );
-                paint_secondary(&p, btn_r, btn_lbl, hot, false);
+                paint_secondary(ui, btn_r, btn_lbl, hot, false, resp.id);
 
                 widgets::record(ui, record, r);
                 if resp.clicked() {
@@ -1863,7 +1868,7 @@ mod main_view {
                 }
 
                 // Top-right `+ Folder` mini button
-                paint_secondary(&p, plus_r, "+ Folder", plus_resp.hovered(), false);
+                paint_secondary(ui, plus_r, "+ Folder", plus_resp.hovered(), false, plus_resp.id);
                 widgets::record(ui, &format!("home-project-new-folder-{}", pr.name), plus_r);
 
                 // Bottom metadata
@@ -2179,13 +2184,13 @@ mod main_view {
                     let b2 = Rect::from_min_size(Pos2::new(b1.right() + 6.0, btn_top), Vec2::new(bw, theme::CONTROL_SM));
                     let r1 = ui.interact(b1, Id::new(("home-res-b1", *btn1_key)), Sense::click());
                     let r2 = ui.interact(b2, Id::new(("home-res-b2", *btn2_key)), Sense::click());
-                    paint_secondary(&p, b1, btn1_lbl, r1.hovered(), false);
+                    paint_secondary(ui, b1, btn1_lbl, r1.hovered(), false, r1.id);
                     widgets::record(ui, btn1_key, b1);
                     widgets::labelled(ui, r1.id, egui::accesskit::Role::Button, btn1_lbl);
                     if r1.clicked() {
                         acts.push(btn1_act.clone());
                     }
-                    paint_secondary(&p, b2, btn2_lbl, r2.hovered(), false);
+                    paint_secondary(ui, b2, btn2_lbl, r2.hovered(), false, r2.id);
                     widgets::record(ui, btn2_key, b2);
                     widgets::labelled(ui, r2.id, egui::accesskit::Role::Button, btn2_lbl);
                     if r2.clicked() {
@@ -2194,7 +2199,7 @@ mod main_view {
                 } else {
                     let b1 = Rect::from_min_size(Pos2::new(r.left() + 14.0, btn_top), Vec2::new(r.width() - 28.0, theme::CONTROL_SM));
                     let r1 = ui.interact(b1, Id::new(("home-res-b1", *btn1_key)), Sense::click());
-                    paint_secondary(&p, b1, btn1_lbl, r1.hovered(), false);
+                    paint_secondary(ui, b1, btn1_lbl, r1.hovered(), false, r1.id);
                     widgets::record(ui, btn1_key, b1);
                     widgets::labelled(ui, r1.id, egui::accesskit::Role::Button, btn1_lbl);
                     if r1.clicked() {
@@ -2741,16 +2746,17 @@ mod main_view {
     }
 
     fn board_badge(p: &egui::Painter, area: Rect) {
-        let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Semibold);
+        let look = kit::count_badge_look(kit::Tone::Neutral);
+        let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
         let w = widgets::text_width(p, "Board", &font) + 28.0;
-        let r = Rect::from_min_size(Pos2::new(area.left() + 8.0, area.bottom() - 8.0 - 20.0), Vec2::new(w, 20.0));
-        p.rect_filled(r, theme::cr(10), theme::BADGE_NEUTRAL_BG);
-        icons::paint(p, Icon::Sticky, Pos2::new(r.left() + 10.0, r.center().y), 12.0, theme::ICON);
-        p.text(Pos2::new(r.left() + 19.0, r.center().y), Align2::LEFT_CENTER, "Board", font, theme::BADGE_NEUTRAL_TEXT);
+        let r = Rect::from_min_size(Pos2::new(area.left() + 8.0, area.bottom() - 8.0 - theme::BADGE_SM), Vec2::new(w, theme::BADGE_SM));
+        kit::paint_frame(p, r, theme::radius_full(r.height()).round() as u8, &look);
+        icons::paint(p, Icon::Sticky, Pos2::new(r.left() + 10.0, r.center().y), 12.0, look.text);
+        p.text(Pos2::new(r.left() + 19.0, r.center().y), Align2::LEFT_CENTER, "Board", font, look.text);
     }
 
-    /// Draws the Figma UI3 File-Type Badge icon (`20x20` rounded badge: `#0D99FF` Design,
-    /// `#F59E0B` Board, `#14AE5C` Deck, `#FF6A3D` Spec bundle).
+    /// Draws a file's type tile (`20x20`, `RADIUS_CONTROL`): the kit's design, board, deck or spec bundle colours with
+    /// the matching glyph.
     fn draw_file_type_badge(p: &egui::Painter, center: Pos2, name: &str, board: bool) {
         let low = name.to_ascii_lowercase();
         let (kind, icon) = if board {
@@ -2768,7 +2774,7 @@ mod main_view {
         icons::paint(p, icon, center, 12.0, tile.icon);
     }
 
-    /// A grid file card: `8px` outer radius, `BG_SECONDARY` body, thumbnail stage,
+    /// A grid file card: `RADIUS_XL` outer radius, `BG_SECONDARY` body, thumbnail stage,
     /// `BORDER` stroke (`BORDER_SELECTED` at `2px` when selected), and bottom metadata row.
     #[allow(clippy::too_many_arguments)]
     fn card(p: &egui::Painter, r: Rect, f: &FileEntry, project: &str, tex: Tex, board: bool, missing: bool, hover: bool, selected: bool, now: u64) {
