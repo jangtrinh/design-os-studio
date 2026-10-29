@@ -1,6 +1,7 @@
 //! Writes the shared auto-layout solver ([`crate::layout_solver`]) straight into a [`Document`].
 
-use crate::layout_solver::{compute_with_stroke, hugged_axes, ChildIn, SizeLimits};
+use crate::layout_solver::{compute_then_refit_wrapped, hugged_axes, ChildIn, SizeLimits};
+use crate::text_measure::{height_resize_text_height, layout_measurer};
 use crate::{Document, LayoutDirection, Node, NodeId, NodeKind, Vec2};
 
 impl Document {
@@ -169,9 +170,16 @@ impl Document {
                 }
             }
         }
-        let (flow_ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|cid| self.flow_child_input(*cid, horiz).map(|k| (*cid, k))).unzip();
+        let (flow_ids, mut kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|cid| self.flow_child_input(*cid, horiz).map(|k| (*cid, k))).unzip();
 
-        let out = compute_with_stroke(&al, frame, own_limits, &stroke, &kids);
+        let measure = layout_measurer();
+        let out = {
+            let doc = &*self;
+            compute_then_refit_wrapped(&al, frame, own_limits, &stroke, &flow_ids, &mut kids, |id, w| {
+                let measure = measure.as_deref()?;
+                height_resize_text_height(doc.get(id)?, w, measure)
+            })
+        };
         self.note_layout_written_outside_history();
         if let Some(fnode) = self.get_mut(root) {
             fnode.size = out.frame;
