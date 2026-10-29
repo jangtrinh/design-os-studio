@@ -115,85 +115,86 @@
 
 Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the arguments and call again. `fatal`: this call cannot succeed. `needs_human`: stop and ask the user; do not retry or work around.
 
-| Code | error_kind |
-| --- | --- |
-| `INVALID_ARGUMENTS` | `retryable` |
-| `UNKNOWN_FIELD` | `retryable` |
-| `MISSING_FIELD` | `retryable` |
-| `VALUE_OUT_OF_RANGE` | `retryable` |
-| `TEXT_TOO_LONG` | `retryable` |
-| `INVALID_COLOR` | `retryable` |
-| `NODE_NOT_FOUND` | `retryable` |
-| `NOT_A_CONTAINER` | `retryable` |
-| `PAGE_ROOT_PROTECTED` | `retryable` |
-| `MOVE_CYCLE` | `retryable` |
-| `INSTANCE_CYCLE` | `retryable` |
-| `OVERRIDE_FIELD_NOT_APPLICABLE` | `retryable` |
-| `UNSUPPORTED_NODE_KIND` | `fatal` |
-| `UNKNOWN_COMPONENT` | `retryable` |
-| `AMBIGUOUS_COMPONENT` | `retryable` |
-| `UNKNOWN_VARIANT_PROPERTY` | `retryable` |
-| `UNKNOWN_VARIANT_VALUE` | `retryable` |
-| `NO_SUCH_VARIANT` | `retryable` |
-| `UNKNOWN_OVERRIDE_PATH` | `retryable` |
-| `AMBIGUOUS_OVERRIDE_PATH` | `retryable` |
-| `UNKNOWN_COMPONENT_PROPERTY` | `retryable` |
-| `PROPERTY_TYPE_MISMATCH` | `retryable` |
-| `FIELD_NOT_ALLOWED_ON_INSTANCE` | `retryable` |
-| `UNKNOWN_SLOT` | `retryable` |
-| `SLOT_FILL_NOT_ALLOWED` | `retryable` |
-| `SLOT_CHILD_COUNT` | `retryable` |
-| `INVALID_SLOT_VALUE` | `retryable` |
-| `SLOT_CONTAINER_NOT_FOUND` | `retryable` |
-| `UNKNOWN_VARIABLE` | `retryable` |
-| `AMBIGUOUS_VARIABLE` | `retryable` |
-| `VARIABLE_TYPE_MISMATCH` | `retryable` |
-| `VARIABLE_SCOPE_MISMATCH` | `retryable` |
-| `UNKNOWN_STYLE` | `retryable` |
-| `STYLE_TYPE_MISMATCH` | `retryable` |
-| `UNKNOWN_VARIABLE_MODE` | `retryable` |
-| `BATCH_OP_FAILED` | `retryable` |
-| `UNKNOWN_REF` | `retryable` |
-| `DUPLICATE_AS` | `retryable` |
-| `BATCH_TOO_LARGE` | `retryable` |
-| `UNKNOWN_TOOL` | `retryable` |
-| `TOOL_DISABLED` | `retryable` |
-| `UNSAVED_CHANGES` | `needs_human` |
-| `PATH_OUTSIDE_WORKSPACE` | `needs_human` |
-| `FILE_EXISTS` | `retryable` |
-| `FILE_TOO_LARGE` | `fatal` |
-| `DOCUMENT_INVALID` | `fatal` |
-| `EDITOR_NOT_NOTIFIED` | `retryable` |
-| `EDITOR_PUBLISH_FAILED` | `retryable` |
-| `PATCH_TOO_LARGE` | `retryable` |
-| `HISTORY_DROPPED` | `fatal` |
-| `INTERNAL_ERROR` | `fatal` |
-| `UNSUPPORTED_EXTENSION` | `fatal` |
-| `ANOTHER_WINDOW_OWNS_SESSION` | `needs_human` |
-| `APPROVAL_DENIED` | `needs_human` |
-| `APPROVAL_TIMEOUT` | `needs_human` |
-| `INVALID_SELECTOR` | `retryable` |
-| `UNKNOWN_LANGUAGE` | `retryable` |
-| `OUTSIDE_OWNED_FRAMES` | `retryable` |
-| `IN_PROGRESS_TARGET_NOT_ROOT` | `retryable` |
-| `NODE_IN_PROGRESS_BY_OTHER_RUN` | `retryable` |
-| `UNKNOWN_PRESET` | `retryable` |
-| `UNKNOWN_RULE` | `retryable` |
-| `EXACTLY_ONE_SCOPE` | `retryable` |
-| `INVALID_CURSOR` | `retryable` |
-| `UNKNOWN_TOPIC` | `retryable` |
-| `TOPIC_NOT_AVAILABLE` | `retryable` |
-| `UNKNOWN_PROPERTY_KEY` | `retryable` |
-| `EXACTLY_ONE_TARGET` | `retryable` |
-| `INVALID_REGION` | `retryable` |
-| `IMAGE_TOO_LARGE` | `retryable` |
-| `NODES_ON_DIFFERENT_PAGES` | `retryable` |
-| `UNKNOWN_PROMPT` | `retryable` |
-| `IDEMPOTENCY_KEY_REUSED` | `retryable` |
-| `IDEMPOTENCY_KEY_STALE` | `retryable` |
-| `CURSOR_STALE` | `retryable` |
-| `RULE_UNAVAILABLE` | `retryable` |
-| `INVALID_NAME` | `retryable` |
-| `NAME_TOO_LONG` | `retryable` |
+| Code | error_kind | Status |
+| --- | --- | --- |
+| `INVALID_ARGUMENTS` | `retryable` | active |
+| `UNKNOWN_FIELD` | `retryable` | active |
+| `MISSING_FIELD` | `retryable` | active |
+| `VALUE_OUT_OF_RANGE` | `retryable` | active |
+| `TEXT_TOO_LONG` | `retryable` | active |
+| `INVALID_COLOR` | `retryable` | active |
+| `NODE_NOT_FOUND` | `retryable` | active |
+| `NOT_A_CONTAINER` | `retryable` | active |
+| `PAGE_ROOT_PROTECTED` | `retryable` | active |
+| `MOVE_CYCLE` | `retryable` | active |
+| `INSTANCE_CYCLE` | `retryable` | active |
+| `OVERRIDE_FIELD_NOT_APPLICABLE` | `retryable` | active |
+| `UNSUPPORTED_NODE_KIND` | `fatal` | active |
+| `UNKNOWN_COMPONENT` | `retryable` | active |
+| `AMBIGUOUS_COMPONENT` | `retryable` | active |
+| `UNKNOWN_VARIANT_PROPERTY` | `retryable` | active |
+| `UNKNOWN_VARIANT_VALUE` | `retryable` | active |
+| `NO_SUCH_VARIANT` | `retryable` | active |
+| `UNKNOWN_OVERRIDE_PATH` | `retryable` | active |
+| `AMBIGUOUS_OVERRIDE_PATH` | `retryable` | active |
+| `UNKNOWN_COMPONENT_PROPERTY` | `retryable` | active |
+| `PROPERTY_TYPE_MISMATCH` | `retryable` | active |
+| `FIELD_NOT_ALLOWED_ON_INSTANCE` | `retryable` | active |
+| `UNKNOWN_SLOT` | `retryable` | active |
+| `SLOT_FILL_NOT_ALLOWED` | `retryable` | active |
+| `SLOT_CHILD_COUNT` | `retryable` | active |
+| `INVALID_SLOT_VALUE` | `retryable` | active |
+| `SLOT_CONTAINER_NOT_FOUND` | `retryable` | active |
+| `UNKNOWN_VARIABLE` | `retryable` | active |
+| `AMBIGUOUS_VARIABLE` | `retryable` | active |
+| `VARIABLE_TYPE_MISMATCH` | `retryable` | active |
+| `VARIABLE_SCOPE_MISMATCH` | `retryable` | active |
+| `UNKNOWN_STYLE` | `retryable` | active |
+| `STYLE_TYPE_MISMATCH` | `retryable` | active |
+| `UNKNOWN_VARIABLE_MODE` | `retryable` | active |
+| `BATCH_OP_FAILED` | `retryable` | active |
+| `UNKNOWN_REF` | `retryable` | active |
+| `DUPLICATE_AS` | `retryable` | active |
+| `BATCH_TOO_LARGE` | `retryable` | active |
+| `UNKNOWN_TOOL` | `retryable` | active |
+| `TOOL_DISABLED` | `retryable` | active |
+| `UNSAVED_CHANGES` | `needs_human` | active |
+| `PATH_OUTSIDE_WORKSPACE` | `needs_human` | active |
+| `FILE_EXISTS` | `retryable` | active |
+| `FILE_TOO_LARGE` | `fatal` | active |
+| `DOCUMENT_INVALID` | `fatal` | active |
+| `EDITOR_NOT_NOTIFIED` | `retryable` | active |
+| `EDITOR_PUBLISH_FAILED` | `retryable` | active |
+| `PATCH_TOO_LARGE` | `retryable` | active |
+| `HISTORY_DROPPED` | `fatal` | active |
+| `INTERNAL_ERROR` | `fatal` | active |
+| `UNSUPPORTED_EXTENSION` | `fatal` | active |
+| `UNSUPPORTED_FILE_TYPE` | `fatal` | active |
+| `ANOTHER_WINDOW_OWNS_SESSION` | `needs_human` | reserved |
+| `APPROVAL_DENIED` | `needs_human` | active |
+| `APPROVAL_TIMEOUT` | `needs_human` | reserved |
+| `INVALID_SELECTOR` | `retryable` | active |
+| `UNKNOWN_LANGUAGE` | `retryable` | active |
+| `OUTSIDE_OWNED_FRAMES` | `retryable` | active |
+| `IN_PROGRESS_TARGET_NOT_ROOT` | `retryable` | active |
+| `NODE_IN_PROGRESS_BY_OTHER_RUN` | `retryable` | active |
+| `UNKNOWN_PRESET` | `retryable` | active |
+| `UNKNOWN_RULE` | `retryable` | active |
+| `EXACTLY_ONE_SCOPE` | `retryable` | active |
+| `INVALID_CURSOR` | `retryable` | active |
+| `UNKNOWN_TOPIC` | `retryable` | active |
+| `TOPIC_NOT_AVAILABLE` | `retryable` | active |
+| `UNKNOWN_PROPERTY_KEY` | `retryable` | active |
+| `EXACTLY_ONE_TARGET` | `retryable` | active |
+| `INVALID_REGION` | `retryable` | active |
+| `IMAGE_TOO_LARGE` | `retryable` | active |
+| `NODES_ON_DIFFERENT_PAGES` | `retryable` | active |
+| `UNKNOWN_PROMPT` | `retryable` | active |
+| `IDEMPOTENCY_KEY_REUSED` | `retryable` | active |
+| `IDEMPOTENCY_KEY_STALE` | `retryable` | active |
+| `CURSOR_STALE` | `retryable` | active |
+| `RULE_UNAVAILABLE` | `retryable` | active |
+| `INVALID_NAME` | `retryable` | active |
+| `NAME_TOO_LONG` | `retryable` | active |
 
-`ANOTHER_WINDOW_OWNS_SESSION` is the MCP code when a tool call is refused because another Studio window holds this file's agent session. Studio still shows `ANOTHER_WINDOW_OWNS_SESSION_MSG` as a UI status line at `crates/designos-app/src/agent_sessions.rs`. The Ask-mode approval hook deny message carries `APPROVAL_DENIED` so the agent stops. `APPROVAL_TIMEOUT` still exits 0 and lets the CLI prompt. There is no MCP tool-call path for the window lock or timeout on this branch yet.
+`reserved` codes are kept in the registry but no tool call emits them today. `APPROVAL_TIMEOUT` is reserved because the Ask-mode approval hook exits 0 on timeout and the agent CLI shows its own prompt. `ANOTHER_WINDOW_OWNS_SESSION` is reserved because it surfaces only through `fallback_lock_outcome` in `crates/designos-app/src/agent_sessions.rs`, which Studio shows as the `ANOTHER_WINDOW_OWNS_SESSION_MSG` status line, not as a tool error. `APPROVAL_DENIED` is active: the hook deny message carries it so the agent stops. `designos_open_file` returns `UNSUPPORTED_FILE_TYPE` for a file whose extension is not importable and whose content is not native design JSON; `designos_save_file` returns `UNSUPPORTED_EXTENSION` for a wrong output extension.

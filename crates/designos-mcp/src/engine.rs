@@ -1625,15 +1625,15 @@ pub(crate) fn open_import_extension_ok(display_path: &str) -> bool {
         .is_some_and(|actual| OPEN_IMPORT_EXTENSIONS.iter().any(|ok| actual.eq_ignore_ascii_case(ok)))
 }
 
-pub(crate) fn unsupported_open_extension(display_path: &str) -> ToolError {
+pub(crate) fn unsupported_open_file_type(display_path: &str) -> ToolError {
     ToolError::new(
-        ErrorCode::UnsupportedExtension,
+        ErrorCode::UnsupportedFileType,
         "/path",
-        format!("{display_path} is not a supported design file. Open a .designos, .fig, .svg, or .json file."),
+        format!("{display_path} is not a supported design file. Open a .designos, .fig, .svg, .json, or .webcapture file, or a file that holds native design JSON."),
     )
     .with_received(json!(display_path))
     .with_expected(".designos, .fig, .svg, .json, .webcapture")
-    .with_next_step("Stop and tell the user: this file extension is not supported. Supported extensions are .designos, .fig, .svg, .json, and .webcapture.")
+    .with_next_step("Stop and tell the user: this file type is not supported. Supported extensions are .designos, .fig, .svg, .json, and .webcapture. Do not retry with the same path.")
 }
 
 pub(crate) fn validate_existing_output_target(

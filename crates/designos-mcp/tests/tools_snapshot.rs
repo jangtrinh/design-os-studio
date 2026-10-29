@@ -328,9 +328,15 @@ fn stdio_count_follows_snapshot() {
 #[test]
 fn parity_doc_lists_window_lock_and_approval_as_needs_human() {
     let doc = std::fs::read_to_string(repo_root().join("docs/mcp-parity.md")).expect("docs/mcp-parity.md");
-    assert!(doc.contains("| `ANOTHER_WINDOW_OWNS_SESSION` | `needs_human` |"), "parity table must list ANOTHER_WINDOW_OWNS_SESSION as needs_human");
-    assert!(doc.contains("| `APPROVAL_DENIED` | `needs_human` |"), "parity table must list APPROVAL_DENIED as needs_human");
-    assert!(doc.contains("| `APPROVAL_TIMEOUT` | `needs_human` |"), "parity table must list APPROVAL_TIMEOUT as needs_human");
+    assert!(
+        doc.contains("| `ANOTHER_WINDOW_OWNS_SESSION` | `needs_human` | reserved |"),
+        "parity table must list ANOTHER_WINDOW_OWNS_SESSION as needs_human and reserved"
+    );
+    assert!(doc.contains("| `APPROVAL_DENIED` | `needs_human` | active |"), "parity table must list APPROVAL_DENIED as needs_human and active");
+    assert!(doc.contains("| `APPROVAL_TIMEOUT` | `needs_human` | reserved |"), "parity table must list APPROVAL_TIMEOUT as needs_human and reserved");
+    assert!(doc.contains("fallback_lock_outcome"), "docs must say the window lock surfaces only via fallback_lock_outcome");
+    assert!(doc.contains("exits 0 on timeout"), "docs must say the hook exits 0 on timeout");
+    assert!(doc.contains("| `UNSUPPORTED_FILE_TYPE` | `fatal` | active |"));
     assert!(doc.contains("ANOTHER_WINDOW_OWNS_SESSION_MSG"), "docs must still name the Studio status string");
     assert!(!doc.contains("no `ErrorCode` and no `error_kind`"), "AC-09 is no longer partial: the window lock is a real error kind");
     assert!(!doc.contains("AC-09 is partial"), "docs must not say AC-09 is partial");

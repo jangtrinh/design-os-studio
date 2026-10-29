@@ -346,19 +346,55 @@ fn unsupported_node_kind_and_extension_are_fatal_live() {
 }
 
 #[test]
-fn open_file_unsupported_extension_is_fatal() {
+fn open_file_unknown_extension_that_is_not_design_json_is_unsupported_file_type() {
     let dir = Workspace::new();
     let mut s = Session::new(&dir.0).unwrap();
-    for name in ["a.txt", "a.png", "a.psd", "a"] {
+    for (name, body) in [("a.txt", "hello"), ("a.png", "\u{89}PNG"), ("a.psd", "8BPS"), ("a", "plain"), ("b.txt", "{\"not\":\"a design\"}")] {
+        fs::write(dir.0.join(name), body).unwrap();
         let err = s.call("designos_open_file", json!({"path": name})).unwrap_err().to_json_value();
-        assert_eq!(err["code"], "UNSUPPORTED_EXTENSION", "{name}: {err}");
+        assert_eq!(err["code"], "UNSUPPORTED_FILE_TYPE", "{name}: {err}");
         assert_eq!(err["error_kind"], "fatal", "{name}: {err}");
         assert_eq!(err["safe_to_retry"], false, "{name}: {err}");
         let step = err["next_step"].as_str().unwrap_or_default().to_lowercase();
-        assert!(step.contains("stop"), "{name}: {err}");
-        assert!(step.contains("tell the user"), "{name}: {err}");
-        assert!(step.contains(".designos"), "{name}: {err}");
+        assert!(step.contains("stop") && step.contains("tell the user"), "{name}: {err}");
+        for ext in [".designos", ".fig", ".svg", ".json", ".webcapture"] {
+            assert!(step.contains(ext), "{name} lacks {ext}: {err}");
+        }
     }
+}
+
+#[test]
+fn open_file_unknown_extension_with_native_design_json_opens() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].clone();
+    let node = s.call("designos_create_node", json!({"parent_id": page, "kind": "frame", "name": "Sniffed"})).unwrap();
+    s.call("designos_save_file", json!({"path": "native.designos"})).unwrap();
+    fs::copy(dir.0.join("native.designos"), dir.0.join("a.txt")).unwrap();
+    let mut other = Session::new(&dir.0).unwrap();
+    other.call("designos_open_file", json!({"path": "a.txt"})).unwrap();
+    let id = node["node"]["id"].clone();
+    assert_eq!(other.call("designos_get_node", json!({"node_id": id})).unwrap()["node"]["name"], "Sniffed");
+}
+
+#[test]
+fn open_file_unknown_extension_missing_file_is_not_a_file_type_error() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let err = s.call("designos_open_file", json!({"path": "missing.txt"})).unwrap_err().to_json_value();
+    assert_ne!(err["code"], "UNSUPPORTED_FILE_TYPE", "{err}");
+}
+
+#[test]
+fn unsupported_node_kind_is_fatal_but_keeps_its_corrected_example() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["id"].clone();
+    let err = s.call("designos_create_node", json!({"parent_id": page, "kind": "not_a_kind"})).unwrap_err().to_json_value();
+    assert_eq!(err["code"], "UNSUPPORTED_NODE_KIND", "{err}");
+    assert_eq!(err["error_kind"], "fatal", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert_eq!(err["corrected_example"]["kind"], "frame", "{err}");
 }
 
 #[test]

@@ -1083,6 +1083,15 @@ mod tests {
     }
 
     #[test]
+    fn hook_script_timeout_exits_zero_so_the_cli_prompts() {
+        let fx = Fixture::new("timeout-exit");
+        let out = fx.start(300, &bash_payload("echo hi")).wait_with_output().unwrap();
+        assert_eq!(out.status.code(), Some(0), "the hook must exit 0 on timeout");
+        assert!(out.stdout.is_empty(), "{:?}", String::from_utf8_lossy(&out.stdout));
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("APPROVAL_TIMEOUT"));
+    }
+
+    #[test]
     fn request_file_holds_only_a_summary() {
         let long_cmd = "x".repeat(5000);
         let input = serde_json::json!({

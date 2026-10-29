@@ -965,10 +965,10 @@ impl Session {
                 // The path is checked first, so a path outside the workspace is refused as such and is
                 // never echoed back in the unsaved-changes hint.
                 self.ensure_inside_workspace(&a.path)?;
-                if !crate::engine::open_import_extension_ok(&a.path) {
-                    return Err(crate::engine::unsupported_open_extension(&a.path));
-                }
                 let path = self.input_path(&a.path)?;
+                if !crate::engine::open_import_extension_ok(&a.path) && !is_native_design_json(&path) {
+                    return Err(crate::engine::unsupported_open_file_type(&a.path));
+                }
                 if self.dirty && !a.discard_changes {
                     return Err(ToolError::new(ErrorCode::UnsavedChanges, "/discard_changes", "Unsaved changes: stop and tell the user. Do not discard them.")
                         .with_received(json!(false))
@@ -1312,6 +1312,21 @@ const REPAIR_PREFIX: &str = "Document node graph is malformed";
 /// not a native document yields a parse error (not prefixed by [`REPAIR_PREFIX`]).
 fn parse_unrepaired_native(raw: &str) -> Result<designos_doc::Document, String> {
     parse_native_checked(raw).map(|(doc, _)| doc)
+}
+
+/// Whether a file with an extension `designos_open_file` does not import still holds native design JSON.
+/// A file too large to sniff counts as native so the size gate reports it; a damaged native file counts as
+/// native so it is refused as `DOCUMENT_INVALID`.
+fn is_native_design_json(path: &Path) -> bool {
+    let Ok(meta) = fs::metadata(path) else { return false };
+    if meta.len() > MAX_IMPORT_FILE_BYTES {
+        return true;
+    }
+    let Ok(raw) = fs::read_to_string(path) else { return false };
+    match parse_native_checked(&raw) {
+        Ok(_) => true,
+        Err(e) => e.starts_with(REPAIR_PREFIX),
+    }
 }
 
 /// [`parse_unrepaired_native`], also returning the load report so a caller can tell the user about
@@ -2130,6 +2145,12 @@ mod tests {
         record(s.call("designos_save_file", json!({"path": "x.designos/"})).unwrap_err(), ErrorCode::InvalidArguments, true);
         record(s.call("designos_create_node", json!({"parent_id": page.0, "kind": "not_a_kind"})).unwrap_err(), ErrorCode::UnsupportedNodeKind, false);
         record(s.call("designos_save_file", json!({"path": "wrong.txt"})).unwrap_err(), ErrorCode::UnsupportedExtension, false);
+        {
+            let dir = ws_dir.join("sniff");
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(dir.join("t.txt"), "hello").unwrap();
+            record(s.call("designos_open_file", json!({"path": "sniff/t.txt"})).unwrap_err(), ErrorCode::UnsupportedFileType, false);
+        }
         record(ToolError::another_window_owns_session(), ErrorCode::AnotherWindowOwnsSession, false);
         record(ToolError::approval_denied(), ErrorCode::ApprovalDenied, false);
         record(ToolError::approval_timeout(), ErrorCode::ApprovalTimeout, false);

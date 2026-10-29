@@ -71,6 +71,7 @@ pub enum ErrorCode {
     HistoryDropped,
     InternalError,
     UnsupportedExtension,
+    UnsupportedFileType,
     AnotherWindowOwnsSession,
     ApprovalDenied,
     ApprovalTimeout,
@@ -202,6 +203,7 @@ impl ErrorCode {
         Self::HistoryDropped,
         Self::InternalError,
         Self::UnsupportedExtension,
+        Self::UnsupportedFileType,
         Self::AnotherWindowOwnsSession,
         Self::ApprovalDenied,
         Self::ApprovalTimeout,
@@ -284,6 +286,7 @@ impl ErrorCode {
             Self::HistoryDropped => "HISTORY_DROPPED",
             Self::InternalError => "INTERNAL_ERROR",
             Self::UnsupportedExtension => "UNSUPPORTED_EXTENSION",
+            Self::UnsupportedFileType => "UNSUPPORTED_FILE_TYPE",
             Self::AnotherWindowOwnsSession => "ANOTHER_WINDOW_OWNS_SESSION",
             Self::ApprovalDenied => "APPROVAL_DENIED",
             Self::ApprovalTimeout => "APPROVAL_TIMEOUT",
@@ -313,6 +316,13 @@ impl ErrorCode {
         }
     }
 
+    /// Codes kept in the registry for a flow that has no tool-call path today. They are never emitted by a tool.
+    pub const RESERVED: &'static [ErrorCode] = &[Self::ApprovalTimeout, Self::AnotherWindowOwnsSession];
+
+    pub fn is_reserved(&self) -> bool {
+        Self::RESERVED.contains(self)
+    }
+
     pub const fn default_next_step(&self) -> &'static str {
         match self {
             Self::EditorNotNotified => "Call designos_get_document before editing.",
@@ -326,6 +336,7 @@ impl ErrorCode {
             Self::DocumentInvalid => "The file is corrupt or is not a design file. Stop and tell the user, then open another file.",
             Self::UnsupportedNodeKind => "This node kind is not supported. Pick a supported kind from valid_options, or tell the user.",
             Self::UnsupportedExtension => "This file extension is not supported. Choose a supported extension, or tell the user.",
+            Self::UnsupportedFileType => "Stop and tell the user: this file type is not supported. Do not retry with the same path.",
             Self::AnotherWindowOwnsSession => {
                 "Stop and tell the user: another window owns this file's agent session. Switch to that window. Do not work around it."
             }
@@ -407,6 +418,7 @@ impl ErrorCode {
             "HISTORY_DROPPED" => Some(Self::HistoryDropped),
             "INTERNAL_ERROR" | "ID_EXHAUSTED" | "INSERT_FAILED" => Some(Self::InternalError),
             "UNSUPPORTED_EXTENSION" => Some(Self::UnsupportedExtension),
+            "UNSUPPORTED_FILE_TYPE" => Some(Self::UnsupportedFileType),
             "ANOTHER_WINDOW_OWNS_SESSION" => Some(Self::AnotherWindowOwnsSession),
             "APPROVAL_DENIED" => Some(Self::ApprovalDenied),
             "APPROVAL_TIMEOUT" => Some(Self::ApprovalTimeout),
@@ -514,7 +526,8 @@ impl ErrorCode {
             | Self::HistoryDropped
             | Self::InternalError
             | Self::UnsupportedNodeKind
-            | Self::UnsupportedExtension => ErrorKind::Fatal,
+            | Self::UnsupportedExtension
+            | Self::UnsupportedFileType => ErrorKind::Fatal,
         }
     }
 }
@@ -2097,7 +2110,8 @@ mod error_kind_tests {
             | ErrorCode::HistoryDropped
             | ErrorCode::InternalError
             | ErrorCode::UnsupportedNodeKind
-            | ErrorCode::UnsupportedExtension => "fatal",
+            | ErrorCode::UnsupportedExtension
+            | ErrorCode::UnsupportedFileType => "fatal",
         }
     }
 
@@ -2109,7 +2123,7 @@ mod error_kind_tests {
             let kind = json["error_kind"].as_str().unwrap_or("");
             assert_eq!(kind, expected_kind(*code), "{}", code.as_str());
         }
-        assert_eq!(ErrorCode::ALL.len(), 78);
+        assert_eq!(ErrorCode::ALL.len(), 79);
     }
 
     #[test]
@@ -2144,10 +2158,20 @@ mod error_kind_tests {
             ErrorCode::HistoryDropped,
             ErrorCode::UnsupportedNodeKind,
             ErrorCode::UnsupportedExtension,
+            ErrorCode::UnsupportedFileType,
         ] {
             let json = ToolError::new(code, "", "m").to_json_value();
             assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
             assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn exactly_the_two_unreachable_codes_are_reserved() {
+        let reserved: Vec<&str> = ErrorCode::ALL.iter().filter(|c| c.is_reserved()).map(ErrorCode::as_str).collect();
+        assert_eq!(reserved, ["ANOTHER_WINDOW_OWNS_SESSION", "APPROVAL_TIMEOUT"]);
+        for code in ErrorCode::RESERVED {
+            assert_eq!(code.default_kind(), ErrorKind::NeedsHuman, "{}", code.as_str());
         }
     }
 
@@ -2170,7 +2194,7 @@ mod error_kind_tests {
     fn unsupported_codes_are_their_own_fatal_kind() {
         assert_eq!(ErrorCode::UnsupportedNodeKind.as_str(), "UNSUPPORTED_NODE_KIND");
         assert_eq!(ErrorCode::UnsupportedExtension.as_str(), "UNSUPPORTED_EXTENSION");
-        for code in [ErrorCode::UnsupportedNodeKind, ErrorCode::UnsupportedExtension] {
+        for code in [ErrorCode::UnsupportedNodeKind, ErrorCode::UnsupportedExtension, ErrorCode::UnsupportedFileType] {
             let json = ToolError::new(code, "/x", "m").to_json_value();
             assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
             assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
