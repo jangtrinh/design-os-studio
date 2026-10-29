@@ -2590,6 +2590,9 @@ mod tests {
         assert!(rects.iter().any(|r| r.fill == theme::BG_SECONDARY), "the editor's own frame is painted");
         let field_rings = rects.iter().filter(|r| r.stroke.color == theme::BORDER_STRONG).count();
         assert_eq!(field_rings, 0, "a framed TextEdit draws the resting field ring inside the editor frame");
+        let rose = egui::Color32::from_rgb(244, 63, 94);
+        assert!(rects.iter().any(|r| r.stroke.color == rose && r.stroke.width == 1.0), "the rose frame is the editing indicator");
+        assert_eq!(rects.iter().filter(|r| r.stroke.color == theme::FOCUS_RING).count(), 0, "the editor draws no focus ring of its own");
     }
 
     /// A page with `count` plain frames at x = 0, 300, 600 ..., each 100 x 100 with one 40 x 40 layer inside.

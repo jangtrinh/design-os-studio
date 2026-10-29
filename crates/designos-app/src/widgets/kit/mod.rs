@@ -41,6 +41,9 @@ mod choice;
 mod feedback;
 mod field;
 mod focus;
+
+#[allow(unused_imports)]
+pub use focus::{focus_ring, keyboard_focus};
 mod rows;
 mod surface;
 mod tabs;
@@ -48,7 +51,7 @@ mod tabs;
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use badge::{count_badge, count_badge_look, status_color, status_dot, tag, tag_look, tag_ring, DotTone, Tone};
 #[cfg_attr(not(test), allow(unused_imports))]
-pub use button::{button, button_icon, button_look, button_ring, paint_icon_bg, Hierarchy};
+pub use button::{button, button_icon, button_look, button_ring, close_look_over, paint_icon_bg, toast_action_look, ClosePlate, Hierarchy};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use choice::{
     checkbox, checkbox_look, checkbox_ring, radio_card, radio_card_look, radio_ring, slider_handle, slider_handle_look, slider_ring, swatch_look, swatch_ring,
