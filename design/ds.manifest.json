@@ -649,17 +649,485 @@
       "reason": "Studio scale: full pill radius",
       "to": "9999px",
       "ts": "2026-10-28T18:04:19.128Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Divider/Hairline",
+      "ts": "2026-10-29T00:23:08.264Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Separator",
+      "ts": "2026-10-29T00:23:08.312Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Shortcut",
+      "ts": "2026-10-29T00:23:08.361Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Focus/Ring",
+      "ts": "2026-10-29T00:23:08.410Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Icon/Glyph",
+      "ts": "2026-10-29T00:23:08.457Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Status/Dot",
+      "ts": "2026-10-29T00:23:08.504Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Primary",
+      "ts": "2026-10-29T00:23:08.550Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Secondary",
+      "ts": "2026-10-29T00:23:08.597Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Tertiary",
+      "ts": "2026-10-29T00:23:08.644Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Destructive",
+      "ts": "2026-10-29T00:23:08.691Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/SecondaryDestructive",
+      "ts": "2026-10-29T00:23:08.738Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Icon",
+      "ts": "2026-10-29T00:23:08.789Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Tool",
+      "ts": "2026-10-29T00:23:08.841Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Close",
+      "ts": "2026-10-29T00:23:08.890Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/Field",
+      "ts": "2026-10-29T00:23:08.938Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/PropertyField",
+      "ts": "2026-10-29T00:23:08.985Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/Search",
+      "ts": "2026-10-29T00:23:09.032Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Select/Trigger",
+      "ts": "2026-10-29T00:23:09.079Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Item",
+      "ts": "2026-10-29T00:23:09.125Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tabs/Pill",
+      "ts": "2026-10-29T00:23:09.173Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Toggle/Switch",
+      "ts": "2026-10-29T00:23:09.219Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Checkbox/Box",
+      "ts": "2026-10-29T00:23:09.266Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Radio/Card",
+      "ts": "2026-10-29T00:23:09.313Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Badge/StatusCount",
+      "ts": "2026-10-29T00:23:09.361Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tag/Chip",
+      "ts": "2026-10-29T00:23:09.408Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tooltip/Default",
+      "ts": "2026-10-29T00:23:09.454Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tree/Row",
+      "ts": "2026-10-29T00:23:09.502Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "List/Row",
+      "ts": "2026-10-29T00:23:09.549Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Swatch/Color",
+      "ts": "2026-10-29T00:23:09.596Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Slider/Handle",
+      "ts": "2026-10-29T00:23:09.643Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Progress/Bar",
+      "ts": "2026-10-29T00:23:09.696Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Loading/Inline",
+      "ts": "2026-10-29T00:23:09.744Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Icon/Tile",
+      "ts": "2026-10-29T00:23:09.792Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Panel",
+      "ts": "2026-10-29T00:23:09.840Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Context",
+      "ts": "2026-10-29T00:23:09.887Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tabs/Segmented",
+      "ts": "2026-10-29T00:23:09.934Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/Header",
+      "ts": "2026-10-29T00:23:09.982Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Section/Header",
+      "ts": "2026-10-29T00:23:10.029Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Dialog/Modal",
+      "ts": "2026-10-29T00:23:10.077Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Popover/Panel",
+      "ts": "2026-10-29T00:23:10.124Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Dialog/CommandPalette",
+      "ts": "2026-10-29T00:23:10.208Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Toast/Default",
+      "ts": "2026-10-29T00:23:10.256Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "EmptyState/Default",
+      "ts": "2026-10-29T00:23:10.304Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/FileThumbnail",
+      "ts": "2026-10-29T00:23:10.351Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/StarterTemplate",
+      "ts": "2026-10-29T00:23:10.399Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/Library",
+      "ts": "2026-10-29T00:23:10.446Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/Approval",
+      "ts": "2026-10-29T00:23:10.493Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/AgentTurn",
+      "ts": "2026-10-29T00:23:10.541Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Banner/Inline",
+      "ts": "2026-10-29T00:23:10.589Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Table/Data",
+      "ts": "2026-10-29T00:23:10.637Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Code/Block",
+      "ts": "2026-10-29T00:23:10.686Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/Composer",
+      "ts": "2026-10-29T00:23:10.734Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Popover/ColorPicker",
+      "ts": "2026-10-29T00:23:10.782Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Bar/Contextual",
+      "ts": "2026-10-29T00:23:10.829Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/TitleBar",
+      "ts": "2026-10-29T00:23:10.877Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/TopTabBar",
+      "ts": "2026-10-29T00:23:10.924Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/LeftRail",
+      "ts": "2026-10-29T00:23:10.971Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/BottomCanvasToolbar",
+      "ts": "2026-10-29T00:23:11.018Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/Rulers",
+      "ts": "2026-10-29T00:23:11.065Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/LeftLayers",
+      "ts": "2026-10-29T00:23:11.113Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/RightInspector",
+      "ts": "2026-10-29T00:23:11.162Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/DevInspect",
+      "ts": "2026-10-29T00:23:11.209Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/AgentTerminal",
+      "ts": "2026-10-29T00:23:11.257Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/SpecReader",
+      "ts": "2026-10-29T00:23:11.304Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/HomeSidebar",
+      "ts": "2026-10-29T00:23:11.352Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/HomeMain",
+      "ts": "2026-10-29T00:23:11.399Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/Assets",
+      "ts": "2026-10-29T00:23:11.446Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/CheckDesigns",
+      "ts": "2026-10-29T00:23:11.494Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/Comments",
+      "ts": "2026-10-29T00:23:11.541Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/VersionHistory",
+      "ts": "2026-10-29T00:23:11.588Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/FindReplace",
+      "ts": "2026-10-29T00:23:11.636Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Window/Variables",
+      "ts": "2026-10-29T00:23:11.684Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Bar/Presentation",
+      "ts": "2026-10-29T00:23:11.732Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/Home",
+      "ts": "2026-10-29T00:23:11.782Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/EditorDesign",
+      "ts": "2026-10-29T00:23:11.834Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/EditorPrototype",
+      "ts": "2026-10-29T00:23:11.882Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/EditorDev",
+      "ts": "2026-10-29T00:23:11.929Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/Present",
+      "ts": "2026-10-29T00:23:11.977Z"
     }
   ],
   "compiledHash": "sha256-SkbvSo4GPRiDbsraF1SR2KVmOozT63OQNtWEiJgr-DY",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 82,
+  "generation": 160,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {
     "family": "imported",
     "slug": "imported"
   },
-  "registryHash": "sha256-48CEUE9C-JPSlARhyUIra7UZFCL6dTp4pr4zqjlv33Q",
+  "registryHash": "sha256-nGBtTc4QR1cByZz6ONbGZA9qDWr9G071SYKiM_YFH78",
   "version": "1.0.0"
 }
