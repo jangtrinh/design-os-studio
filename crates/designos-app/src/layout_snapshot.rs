@@ -81,8 +81,9 @@ pub struct AllowEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub h_base: Option<f32>,
     /// With `h_base` or `name_prefix`: the entry covers only widgets whose baseline left edge lies in
-    /// `[lo, hi]`, so two legs can allow same-height widgets in different parts of one region. The band is
-    /// a column of its own: a covered widget's derived x shift counts only row-mates inside the same band.
+    /// `[lo, hi]`, so two legs can allow same-height widgets in different parts of one region. A covered
+    /// widget's derived x shift counts only row-mates inside the same band; rows, the row height check and
+    /// vertical shifts still span the whole region.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x_band: Option<[f32; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -418,7 +419,8 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
                 _ => true,
             };
             if same_target {
-                return Err(format!("allow.json[{i}] and allow.json[{j}]: equally specific entries covering case='{}' region='{}'", b.case, b.region));
+                let bands = if a.x_band.is_some() || b.x_band.is_some() { " (their x_band ranges overlap)" } else { "" };
+                return Err(format!("allow.json[{i}] and allow.json[{j}]: equally specific entries covering case='{}' region='{}'{bands}", b.case, b.region));
             }
         }
     }
@@ -859,7 +861,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             let sum_dh_below: f32 = row_dhs[(row_idx + 1)..].iter().sum();
             let gaps_above = row_idx;
             for (col_idx, w) in row.iter().enumerate() {
-                // A banded entry is a column of its own: only row-mates inside the band shift the widget sideways.
+                // A banded entry scopes the sideways shift: only row-mates inside the band move the widget.
                 let band = best_matching_entry(allow, case_id, &reg, w.name, w.b_rect).and_then(|(_, e)| e.x_band);
                 let in_band = |o: &&RowWidget<'_>| band.is_none_or(|[lo, hi]| o.b_rect[0] >= lo && o.b_rect[0] <= hi);
                 let sum_dw_left: f32 = row[..col_idx].iter().filter(in_band).map(|lw| lw.c_rect[2] - lw.b_rect[2]).sum();
@@ -2072,7 +2074,7 @@ mod tests {
         assert!(parse_allow_list(&reversed).is_err(), "a band must run from low to high");
     }
 
-    /// A banded entry is a column of its own: a widget in it takes no derived x shift from row-mates outside its band.
+    /// A banded widget takes no derived x shift from row-mates outside its band.
     #[test]
     fn a_banded_widget_ignores_width_changes_outside_its_band() {
         let allow = parse_allow_list(

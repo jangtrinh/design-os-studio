@@ -186,7 +186,7 @@
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row The band starts right of the left panel, which shares these rows under the floating panel."
+    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row. The band starts right of the left panel, which shares these rows under the floating panel."
   },
   {
     "case": "k-variables-floating",
@@ -200,7 +200,7 @@
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row The band starts right of the left panel, which shares these rows under the floating panel."
+    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row. The band starts right of the left panel, which shares these rows under the floating panel."
   },
   {
     "case": "k-variables-floating",
@@ -214,7 +214,7 @@
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field The band starts right of the left panel, whose header buttons spec E allows."
+    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field. The band starts right of the left panel, whose header buttons spec E allows."
   },
   {
     "case": "k-variables-floating",
@@ -268,7 +268,7 @@
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row The band starts right of the left panel, which shares these rows under the floating panel."
+    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row. The band starts right of the left panel, which shares these rows under the floating panel."
   },
   {
     "case": "micro-components-variables",
@@ -282,7 +282,7 @@
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row The band starts right of the left panel, which shares these rows under the floating panel."
+    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row. The band starts right of the left panel, which shares these rows under the floating panel."
   },
   {
     "case": "micro-components-variables",
@@ -296,7 +296,7 @@
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field The band starts right of the left panel, whose header buttons spec E allows."
+    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field. The band starts right of the left panel, whose header buttons spec E allows."
   },
   {
     "case": "micro-components-variables",
@@ -453,7 +453,7 @@
     "dx": -4,
     "dy": -28,
     "spec": "K",
-    "reason": "rule 5: the search text input follows the library search field: 12 taller, 4 left, same top. dy cancels the derived shift of the rows above. The range starts at 0 because this height also matches 24-high inspector widgets behind the dialog, whose rows do not grow The band starts right of the left panel, whose header buttons spec E allows."
+    "reason": "rule 5: the search text input follows the library search field: 12 taller, 4 left, same top. dy cancels the derived shift of the rows above. The range starts at 0 because this height also matches 24-high inspector widgets behind the dialog, whose rows do not grow. The band starts right of the left panel, whose header buttons spec E allows."
   },
   {
     "case": "k-libraries",
@@ -2827,7 +2827,7 @@
     "max_dw": 8,
     "max_dh": 8,
     "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held The band holds the left panel, where spec K's value inputs never sit."
+    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held. The band holds the left panel; spec K pins its own widgets in that x range by name."
   },
   {
     "case": "k-libraries",
@@ -2854,7 +2854,7 @@
     "max_dw": 8,
     "max_dh": 8,
     "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held The band holds the left panel, where spec K's value inputs never sit."
+    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held. The band holds the left panel; spec K pins its own widgets in that x range by name."
   },
   {
     "case": "k-variables-floating",
@@ -2927,7 +2927,7 @@
     "max_dw": 8,
     "max_dh": 8,
     "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held The band holds the left panel, where spec K's value inputs never sit."
+    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held. The band holds the left panel; spec K pins its own widgets in that x range by name."
   },
   {
     "case": "micro-components-variables",
@@ -3277,5 +3277,95 @@
     "max_dh": 4,
     "spec": "E",
     "reason": "rule 5 (R5): the file name hit keeps its size here; named so the 24 px button entry does not claim it, and the header row grows 4 px around the centred sidebar button"
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-coll:",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-header:",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-settings",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-add-collection",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-sidebar-toggle",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-coll:",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-header:",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-settings",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-add-collection",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-sidebar-toggle",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
   }
 ]
