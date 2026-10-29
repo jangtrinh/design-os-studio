@@ -5,7 +5,6 @@
 //! asserting native field types.
 
 use serde_json::{json, Map, Value};
-use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
@@ -753,13 +752,15 @@ pub fn turn_path(session_dir: &Path) -> PathBuf {
     session_dir.join(TURN_FILE)
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    fs::write(&tmp, bytes)?;
-    fs::rename(&tmp, path)
+fn poison(session_dir: &Path) {
+    let _ = crate::session_file_io::write_atomic(&taint_fail_path(session_dir), b"1\n", false);
+}
+
+fn fail_marker_present(session_dir: &Path) -> bool {
+    !matches!(
+        crate::session_file_io::stat(&taint_fail_path(session_dir)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound
+    )
 }
 
 /// Creates seq=0 when the file is missing. A failed write poisons the session (fail closed).
@@ -768,23 +769,28 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// card caption, not a hard security boundary.
 pub fn init_taint(session_dir: &Path) {
     let path = taint_path(session_dir);
-    if path.exists() {
-        return;
+    match crate::session_file_io::stat(&path) {
+        Ok(_) => return,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {
+            poison(session_dir);
+            return;
+        }
     }
-    if write_atomic(&path, b"{\"seq\":0}\n").is_err() {
-        let _ = fs::write(taint_fail_path(session_dir), b"1\n");
+    if crate::session_file_io::write_atomic(&path, b"{\"seq\":0}\n", false).is_err() {
+        poison(session_dir);
     }
 }
 
 pub fn read_taint_seq(session_dir: &Path) -> Result<u64, TaintRead> {
-    if taint_fail_path(session_dir).exists() {
+    if fail_marker_present(session_dir) {
         return Err(TaintRead::Poisoned);
     }
-    let path = taint_path(session_dir);
-    if !path.exists() {
-        return Ok(0);
-    }
-    let raw = fs::read_to_string(&path).map_err(|_| TaintRead::Unreadable)?;
+    let raw = match crate::session_file_io::read_to_string(&taint_path(session_dir)) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(_) => return Err(TaintRead::Unreadable),
+    };
     let mut max = 0u64;
     for line in raw.lines() {
         let line = line.trim();
@@ -811,22 +817,13 @@ pub fn record_taint(session_dir: &Path) {
     let seq = match read_taint_seq(session_dir) {
         Ok(s) => s.saturating_add(1),
         Err(_) => {
-            let _ = fs::write(taint_fail_path(session_dir), b"1\n");
+            poison(session_dir);
             return;
         }
     };
-    let path = taint_path(session_dir);
     let line = format!("{{\"seq\":{seq}}}\n");
-    match fs::OpenOptions::new().create(true).append(true).open(&path) {
-        Ok(mut f) => {
-            use std::io::Write;
-            if f.write_all(line.as_bytes()).is_err() {
-                let _ = fs::write(taint_fail_path(session_dir), b"1\n");
-            }
-        }
-        Err(_) => {
-            let _ = fs::write(taint_fail_path(session_dir), b"1\n");
-        }
+    if crate::session_file_io::append(&taint_path(session_dir), line.as_bytes(), false).is_err() {
+        poison(session_dir);
     }
 }
 
@@ -836,21 +833,21 @@ pub fn reset_turn_watermark(session_dir: &Path) {
     let seq = match read_taint_seq(session_dir) {
         Ok(s) => s,
         Err(_) => {
-            let _ = fs::write(taint_fail_path(session_dir), b"1\n");
+            poison(session_dir);
             return;
         }
     };
-    if write_atomic(&turn_path(session_dir), format!("{{\"seq\":{seq}}}\n").as_bytes()).is_err() {
-        let _ = fs::write(taint_fail_path(session_dir), b"1\n");
+    if crate::session_file_io::write_atomic(&turn_path(session_dir), format!("{{\"seq\":{seq}}}\n").as_bytes(), false).is_err() {
+        poison(session_dir);
     }
 }
 
 pub fn read_turn_seq(session_dir: &Path) -> Result<u64, TaintRead> {
-    let path = turn_path(session_dir);
-    if !path.exists() {
-        return Ok(0);
-    }
-    let raw = fs::read_to_string(&path).map_err(|_| TaintRead::Unreadable)?;
+    let raw = match crate::session_file_io::read_to_string(&turn_path(session_dir)) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(_) => return Err(TaintRead::Unreadable),
+    };
     let v: Value = serde_json::from_str(raw.trim()).map_err(|_| TaintRead::Unreadable)?;
     v.get("seq").and_then(Value::as_u64).ok_or(TaintRead::Unreadable)
 }
@@ -861,7 +858,7 @@ pub fn read_turn_seq(session_dir: &Path) -> Result<u64, TaintRead> {
 /// dest/ext tools still show a card because they are never auto-allowed. Not a hard
 /// security boundary.
 pub fn turn_is_tainted(session_dir: &Path) -> bool {
-    if taint_fail_path(session_dir).exists() {
+    if fail_marker_present(session_dir) {
         return true;
     }
     let taint = match read_taint_seq(session_dir) {
@@ -916,6 +913,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::collections::BTreeSet;
+    use std::fs;
 
     #[test]
     fn every_declared_tool_has_a_foreign_text_row() {
