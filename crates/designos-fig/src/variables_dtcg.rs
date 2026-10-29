@@ -1334,18 +1334,21 @@ fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
     let mut by_base: BTreeMap<String, Vec<&VariableCollection>> = BTreeMap::new();
     for coll in doc.variable_collections.values() {
         let (clean_coll, _) = sanitize_dtcg_segment(&coll.name);
-        by_base.entry(clean_coll).or_default().push(coll);
+        // Group names become file-name stems. Treat them case-insensitively so
+        // exports remain distinct on macOS's default case-insensitive volume.
+        by_base.entry(clean_coll.to_ascii_lowercase()).or_default().push(coll);
     }
 
     let mut used_groups: HashSet<String> = HashSet::new();
     let mut coll_group_names: BTreeMap<String, String> = BTreeMap::new();
     let mut winners: HashSet<String> = HashSet::new();
 
-    for (base, colls) in &by_base {
+    for colls in by_base.values() {
         let winner = colls.iter().find(|c| !c.is_library()).copied().unwrap_or(colls[0]);
+        let base = sanitize_dtcg_segment(&winner.name).0;
         let mut candidate = base.clone();
         let mut counter = 2usize;
-        while !used_groups.insert(candidate.clone()) {
+        while !used_groups.insert(candidate.to_ascii_lowercase()) {
             candidate = format!("{base} ({counter})");
             counter += 1;
         }
@@ -1353,7 +1356,9 @@ fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
         winners.insert(winner.id.clone());
     }
 
-    for (base, colls) in &by_base {
+    for colls in by_base.values() {
+        let winner = colls.iter().find(|c| !c.is_library()).copied().unwrap_or(colls[0]);
+        let base = sanitize_dtcg_segment(&winner.name).0;
         let mut counter = 2usize;
         for coll in colls {
             if winners.contains(&coll.id) {
@@ -1361,7 +1366,7 @@ fn compute_unique_dtcg_group_names(doc: &Document) -> BTreeMap<String, String> {
             }
             let mut candidate = format!("{base} ({counter})");
             counter += 1;
-            while !used_groups.insert(candidate.clone()) {
+            while !used_groups.insert(candidate.to_ascii_lowercase()) {
                 candidate = format!("{base} ({counter})");
                 counter += 1;
             }
@@ -4511,6 +4516,38 @@ mod tests {
         let c_nl = m_nl["collections"].as_array().unwrap();
         assert_eq!(c_nl.iter().find(|c| c["id"] == "VariableCollectionId:10:1").unwrap()["group"], "_Primitives");
         assert_eq!(c_nl.iter().find(|c| c["id"] == "VariableCollectionId:20:2").unwrap()["group"], "_Primitives (2)");
+    }
+
+    #[test]
+    fn dtcg_export_case_insensitive_collection_names_keep_unique_files_and_round_trip() {
+        let mut doc = make_1140_fixture_doc();
+        doc.variable_collections.get_mut("VariableCollectionId:10:1").unwrap().name = "Brand".into();
+        doc.variable_collections.get_mut("VariableCollectionId:20:2").unwrap().name = "brand".into();
+
+        let bundle = export_variables(&doc, VariablesFormat::Dtcg).unwrap();
+        let token_files: Vec<(String, Vec<u8>)> = bundle.files.iter().filter(|(name, _)| name.ends_with(".tokens.json")).cloned().collect();
+        let folded: BTreeSet<String> = token_files.iter().map(|(name, _)| name.to_ascii_lowercase()).collect();
+        assert_eq!(
+            folded.len(),
+            token_files.len(),
+            "DTCG files collide on case-insensitive filesystems: {:?}",
+            token_files.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
+
+        let manifest_bytes = bundle.files.iter().find(|(name, _)| name == "tokens.manifest.json").unwrap().1.clone();
+        let additional = bundle.files.iter().filter(|(name, _)| name != "tokens.manifest.json").cloned().collect();
+        let mut imported = Document::new("casefold-roundtrip");
+        let report = import_variables_bytes(
+            &mut imported,
+            &manifest_bytes,
+            Some("tokens.manifest.json"),
+            VariablesFormat::Dtcg,
+            ImportVariablesOptions { additional_files: additional, ..Default::default() },
+        )
+        .unwrap();
+        assert!(report.skipped.is_empty(), "round-trip skipped tokens: {:?}", report.skipped);
+        assert!(imported.variable_collections.contains_key("VariableCollectionId:10:1"));
+        assert!(imported.variable_collections.contains_key("VariableCollectionId:20:2"));
     }
 
     #[test]
