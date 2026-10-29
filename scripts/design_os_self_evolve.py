@@ -20,6 +20,12 @@ Orchestrates the closed-loop self-evolving design verification and pulse for `de
      The same gate also compares the non-colour tokens (radius, spacing, size) with their
      `theme.rs` constants through `scripts/non_colour_token_parity.py`.
 
+     Every `Color32` constant in `theme.rs` (188 names) must fall in exactly one class: mapped to a store key
+     (`RUST_TO_DESIGN_TOKEN_MAP`), sharing an existing key with the same value and role
+     (`RUST_COLOUR_SHARED_KEY`), pending a new key (`RUST_COLOUR_PENDING_STORE`: Studio path and full pinned
+     value, alpha included; the count may only fall) or exempt by design (`RUST_COLOUR_EXEMPT`: canvas, Dev
+     overlay, content, identity, board). `scripts/check_ds_ontology_parity.py` reuses these classes (check P3).
+
   2. G02 · `zero_fake_ui_gate`:
      Executes `python3 scripts/zero_fake_ui_gate.py --json` and verifies every invariant passes (`passed == total`).
 
