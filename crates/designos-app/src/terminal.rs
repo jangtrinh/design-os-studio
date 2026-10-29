@@ -1,12 +1,5 @@
-//! Native Embedded PTY Agent Terminal Runtime (`claude`, `codex`, `grok`, `$SHELL`)
-//! and Bidirectional Canvas <-> Terminal Spec Bridge (the Agents panel).
-//!
-//! Crafted to `es:designer` (`craft-floor.md` + `tokens.css`) and **EaseUI BrainWave 2.0**:
-//! - Zero emoji icons (`§2 Refuse by default`): uses crisp Lucide vector glyphs (`crate::icons::Icon`)
-//! - Surface steps: `#0E0E12` viewport -> `#16171B` base -> `#1F2024` raised -> `#26272C` hover
-//! - 1px hairlines (`#2A2B31`) instead of nested cards-in-cards
-//! - Concentric radii (`12px` outer surface, `6px` inner controls)
-//! - Semantic status pills (`OK #4CC58B`, `WARN #E0A53C`, `BAD #FF7A8C`, `INFO #8FB0FF`)
+//! Agents panel: a PTY for claude, codex, grok and the shell, and the canvas bridge.
+//! Chrome colours are theme aliases. Cell text, selection and the cursor keep their own values.
 
 #![allow(dead_code)]
 
@@ -27,34 +20,35 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-// EaseUI BrainWave 2.0 + es:designer Craft Floor Surface & Hairline Tokens
-pub const TERM_BG_VIEWPORT: Color32 = Color32::from_rgb(0x0E, 0x0E, 0x12);
-pub const TERM_BG_BAR: Color32 = Color32::from_rgb(0x16, 0x17, 0x1B);
-pub const TERM_BG_ELEVATED: Color32 = Color32::from_rgb(0x1F, 0x20, 0x24);
-pub const TERM_BG_HOVER: Color32 = Color32::from_rgb(0x26, 0x27, 0x2C);
-pub const TERM_BORDER: Color32 = Color32::from_rgb(0x2A, 0x2B, 0x31);
-pub const TERM_ORANGE: Color32 = Color32::from_rgb(0xFF, 0x6A, 0x3D);
-#[allow(dead_code)]
-pub const TERM_ORANGE_BG: Color32 = Color32::from_rgb(0x36, 0x1A, 0x12);
+pub const TERM_BG_VIEWPORT: Color32 = theme::BG;
+pub const TERM_BG_BAR: Color32 = theme::BG_PRIMARY;
+pub const TERM_BG_ELEVATED: Color32 = theme::BG_SECONDARY;
+pub const TERM_BG_HOVER: Color32 = theme::BG_HOVER;
+pub const TERM_BORDER: Color32 = theme::BORDER;
+pub const TERM_ORANGE: Color32 = theme::BORDER_SELECTED;
 pub const TERM_FG_DEFAULT: Color32 = Color32::from_rgb(0xE4, 0xE4, 0xE7);
 pub const TERM_SELECTION_BG: Color32 = Color32::from_rgb(0x5A, 0x78, 0x98);
 
-// Semantic Status Pill Tokens (`es:designer` tokens.css)
-pub const STATUS_OK_TEXT: Color32 = Color32::from_rgb(0x4C, 0xC5, 0x8B);
-pub const STATUS_OK_BG: Color32 = Color32::from_rgb(0x17, 0x30, 0x2A);
-pub const STATUS_OK_BORDER: Color32 = Color32::from_rgb(0x2C, 0x5F, 0x4A);
+pub const STATUS_OK_TEXT: Color32 = theme::BADGE_SUCCESS_TEXT;
+pub const STATUS_OK_BG: Color32 = theme::BG_SUCCESS_PRIMARY;
+pub const STATUS_OK_BORDER: Color32 = theme::BADGE_SUCCESS_BORDER;
 
-pub const STATUS_WARN_TEXT: Color32 = Color32::from_rgb(0xE0, 0xA5, 0x3C);
-pub const STATUS_WARN_BG: Color32 = Color32::from_rgb(0x35, 0x29, 0x1A);
-pub const STATUS_WARN_BORDER: Color32 = Color32::from_rgb(0x5C, 0x47, 0x20);
+pub const STATUS_WARN_TEXT: Color32 = theme::BADGE_WARNING_TEXT;
+pub const STATUS_WARN_BG: Color32 = theme::BG_WARNING_PRIMARY;
+pub const STATUS_WARN_BORDER: Color32 = theme::BADGE_WARNING_BORDER;
 
-pub const STATUS_BAD_TEXT: Color32 = Color32::from_rgb(0xFF, 0x7A, 0x8C);
-pub const STATUS_BAD_BG: Color32 = Color32::from_rgb(0x3B, 0x1D, 0x23);
-pub const STATUS_BAD_BORDER: Color32 = Color32::from_rgb(0x6A, 0x2E, 0x39);
+pub const STATUS_BAD_TEXT: Color32 = theme::BADGE_ERROR_TEXT;
+pub const STATUS_BAD_BG: Color32 = theme::BG_ERROR_PRIMARY;
+pub const STATUS_BAD_BORDER: Color32 = theme::BADGE_ERROR_BORDER;
 
-pub const STATUS_INFO_TEXT: Color32 = Color32::from_rgb(0x8F, 0xB0, 0xFF);
-pub const STATUS_INFO_BG: Color32 = Color32::from_rgb(0x1B, 0x26, 0x40);
-pub const STATUS_INFO_BORDER: Color32 = Color32::from_rgb(0x2F, 0x45, 0x77);
+pub const STATUS_INFO_TEXT: Color32 = theme::STATUS_INFO_TEXT;
+pub const STATUS_INFO_BG: Color32 = theme::STATUS_INFO_BG;
+pub const STATUS_INFO_BORDER: Color32 = theme::STATUS_INFO_BORDER;
+
+/// Session tab bar. Tabs, Stop, new chat and more sit in this one row.
+pub const TERMINAL_HEADER_H: f32 = 36.0;
+/// Turn receipt strip between the viewport and the composer.
+pub const TERMINAL_RECEIPT_H: f32 = 24.0;
 
 const CHAR_W: f32 = 7.8;
 const ROW_H: f32 = 16.0;
@@ -617,6 +611,8 @@ pub enum TerminalAction {
     CloseStoppedTurn { tab_id: usize, turn_start_depth: usize, run_id: Option<String> },
     /// Clears `Document.in_progress` entries owned by an agent run that finished (`agent-status.json` -> `done`) or whose PTY exited.
     ClearInProgress { run_id: Option<String>, agent: Option<String> },
+    /// Saves the permission mode used for new agent tabs.
+    SetAgentPermissionMode(crate::agent_permissions::AgentPermissionMode),
 }
 
 /// Label of a wait on a pending approval (owner status set, 2026-10-21). Producers, the Sessions row matcher and the pill share it.
@@ -1417,6 +1413,12 @@ pub struct TerminalState {
     pub chat_mode: bool,
     /// Whether the top `+` runtime selector dropdown menu (`claude`, `codex`, `grok`, `antigravity`, `shell`) is open (`DIR-29`).
     pub runtime_dropdown_open: bool,
+    /// Composer add menu (`Add selection`, `Attach PRD`, `Skills…`).
+    pub attach_menu_open: bool,
+    /// Composer permission-mode menu.
+    pub mode_menu_open: bool,
+    /// Canvas selection copied for the composer chip. Updated only when it changes.
+    pub composer_selection: crate::agent_selection_chip::SelectionSummary,
     /// Fix clicked on a tab's "failed to start" panel, applied by the surface that knows the open file.
     pub pending_start_fix: Option<FixAction>,
     /// Context that selects which starter sample prompts appear in the empty state (`#688`).
@@ -1755,6 +1757,9 @@ impl TerminalState {
             side_panel_pty_open: true,
             chat_mode: false,
             runtime_dropdown_open: false,
+            attach_menu_open: false,
+            mode_menu_open: false,
+            composer_selection: crate::agent_selection_chip::SelectionSummary::default(),
             pending_start_fix: None,
             prompt_context: crate::agent_sample_prompts::PromptContext::NoSelection,
             active_runtime: AgentCliPreset::Shell,
@@ -4720,89 +4725,6 @@ pub fn paint_custom_terminal_glyph(p: &Painter, cell_rect: Rect, ch: char, fg: C
     true
 }
 
-/// Renders Orca's Dual-Glyph Live Agent Status (`Working` 12fps `theme::INFO` spinner, `WaitingForInput`
-/// `theme::WARNING` ring, `Done` unread `theme::SUCCESS` dot, `Idle`/`Stopped`/read `theme::TEXT_SECONDARY`,
-/// `Error` `theme::DANGER`) + Provider Color Badge (`Claude` `#D97757`, `Codex` `#FAFAFA`, `Grok` `#E4E4E7`,
-/// `Antigravity` `#60A5FA`, `Shell` `>_`) inside a tab rect (`#683` §5).
-fn paint_orca_tab_status_and_provider(ui: &Ui, p: &Painter, tab: &TerminalTab, t_rect: Rect) {
-    let cy = t_rect.center().y;
-    let status_center = Pos2::new(t_rect.left() + 7.5, cy);
-    let provider_center = Pos2::new(t_rect.left() + 15.0, cy);
-
-    let effective_status = tab.effective_status();
-
-    match effective_status {
-        AgentTabStatus::Working(_) => {
-            // Orca 12fps stepped rotating `theme::INFO` arc spinner + 83ms repaint cadence
-            let step = ((ui.input(|i| i.time) * 12.0).floor() as i32).rem_euclid(12);
-            let base_angle = (step as f32) * (std::f32::consts::TAU / 12.0);
-            let arc_span = std::f32::consts::TAU * 0.68;
-            let radius = 3.2f32;
-            let spin_col = theme::INFO;
-            let segs = 7usize;
-            let mut prev = Pos2::new(status_center.x + radius * base_angle.cos(), status_center.y + radius * base_angle.sin());
-            for i in 1..=segs {
-                let a = base_angle + arc_span * (i as f32 / segs as f32);
-                let next = Pos2::new(status_center.x + radius * a.cos(), status_center.y + radius * a.sin());
-                p.line_segment([prev, next], Stroke::new(1.4, spin_col));
-                prev = next;
-            }
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(83));
-        }
-        AgentTabStatus::WaitingForInput(_) => {
-            let wait_col = theme::WARNING;
-            p.circle_stroke(status_center, 3.1, Stroke::new(1.3, wait_col));
-            p.circle_filled(status_center, 1.2, wait_col);
-        }
-        AgentTabStatus::Done if tab.unread => {
-            p.circle_filled(status_center, 2.7, theme::SUCCESS);
-        }
-        AgentTabStatus::Error(_) => {
-            p.circle_filled(status_center, 2.7, theme::DANGER);
-        }
-        // An exited tab shows a hollow ring, so it never reads as an idle tab, which has the filled dot.
-        AgentTabStatus::Done | AgentTabStatus::Idle | AgentTabStatus::Stopped if tab.exited_notice_shown => {
-            p.circle_stroke(status_center, 3.0, Stroke::new(1.3, theme::TEXT_SECONDARY));
-        }
-        AgentTabStatus::Done | AgentTabStatus::Idle => {
-            p.circle_filled(status_center, 2.7, theme::TEXT_SECONDARY);
-        }
-        AgentTabStatus::Stopped => {
-            p.circle_filled(status_center, 2.7, theme::ICON_TERTIARY);
-        }
-    }
-
-    // Provider Color Badge / Vector Glyph (`Claude` #D97757, `Codex`/`OpenCode` #FAFAFA, `Grok` #E4E4E7, `Antigravity`/`Gemini` #60A5FA, `Shell` `>_`)
-    match tab.preset {
-        AgentCliPreset::Claude => {
-            let col = Color32::from_rgb(0xD9, 0x77, 0x57);
-            p.circle_filled(provider_center, 2.3, col);
-        }
-        AgentCliPreset::Codex | AgentCliPreset::OpenCode => {
-            let col = Color32::from_rgb(0xFA, 0xFA, 0xFA);
-            p.circle_stroke(provider_center, 2.2, Stroke::new(1.2, col));
-        }
-        AgentCliPreset::Grok => {
-            let col = Color32::from_rgb(0xE4, 0xE4, 0xE7);
-            p.line_segment(
-                [Pos2::new(provider_center.x - 2.0, provider_center.y + 2.0), Pos2::new(provider_center.x + 2.0, provider_center.y - 2.0)],
-                Stroke::new(1.4, col),
-            );
-        }
-        AgentCliPreset::Antigravity | AgentCliPreset::Gemini => {
-            let col = Color32::from_rgb(0x60, 0xA5, 0xFA);
-            p.circle_filled(provider_center, 2.3, col);
-        }
-        AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => {
-            let col = Color32::from_rgb(0xA1, 0xA1, 0xAA);
-            let s = Stroke::new(1.1, col);
-            p.line_segment([Pos2::new(provider_center.x - 2.2, cy - 2.0), Pos2::new(provider_center.x - 0.2, cy)], s);
-            p.line_segment([Pos2::new(provider_center.x - 0.2, cy), Pos2::new(provider_center.x - 2.2, cy + 2.0)], s);
-            p.line_segment([Pos2::new(provider_center.x + 0.6, cy + 2.0), Pos2::new(provider_center.x + 2.6, cy + 2.0)], s);
-        }
-    }
-}
-
 /// Free-function wrapper for [`TerminalState::send_copy_for_ai`].
 #[allow(dead_code)]
 pub fn send_copy_for_ai(state: &mut TerminalState, block_markdown: &str) {
@@ -5938,6 +5860,9 @@ pub fn show_left_with_doc(
     doc: &Document,
     current_page: NodeId,
 ) -> Vec<TerminalAction> {
+    if state.composer_selection != *selection_summary {
+        state.composer_selection = selection_summary.clone();
+    }
     state.poll_pending_online_retries(file_path);
     let mut actions = state.poll_live_agent_bridge();
     crate::agent_a11y::label_agents_panel(state, ui);
@@ -5952,12 +5877,11 @@ pub fn show_left_with_doc(
         // Pure Interactive PTY Shell by Default + Top `+` Runtime Dropdown (`DIR-29`)
         p.rect_filled(rect, 0.0, TERM_BG_VIEWPORT);
 
-        let bar_h = 36.0;
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                 if rect.contains(pos) {
-                    // A press in the header or the strip under it is panel chrome: `Esc` stops the turn there, and is forwarded to the CLI in the terminal (`#684 §3.1`).
-                    let in_chrome = pos.y < rect.top() + bar_h + theme::CONTROL_DENSE;
+                    // A press in the header is panel chrome: Esc stops the turn there, and is forwarded to the CLI in the terminal.
+                    let in_chrome = pos.y < rect.top() + TERMINAL_HEADER_H;
                     state.chrome_focused = in_chrome;
                     state.viewport_focused = !in_chrome;
                 } else {
@@ -5966,265 +5890,30 @@ pub fn show_left_with_doc(
             }
         }
 
-        let bar_r = Rect::from_min_size(rect.min, Vec2::new(rect.width(), bar_h));
-        p.rect_filled(bar_r, 0.0, TERM_BG_BAR);
-        widgets::hline(&p, bar_r.left(), bar_r.right(), bar_r.bottom() - 1.0, TERM_BORDER);
+        let bar_r = crate::agent_header::paint(state, ui, rect);
 
-        let stop_left = crate::agent_stop::paint_header_stop_controls(ui, &p, state, bar_r, bar_r.right());
-
-        // The `Skills` button (`RD-4` §7) sits right of the `+` runtime selector: the tabs, `Sessions` and `+` end before it.
-        let skills_w = state.skills.chip_width(&p);
-        let controls_left = stop_left - skills_w - theme::SPACE_INLINE;
-
-        // Left-aligned session tabs + `"Sessions"` ghost button + `+` runtime dropdown button
-        let max_tabs_right = crate::agent_open_flow::max_tabs_right_for_bar(controls_left);
-        let mut x = bar_r.left() + 6.0;
-        let mut tab_to_select: Option<usize> = None;
-        let mut tab_to_close: Option<usize> = None;
-        let can_close = !state.tabs.is_empty();
-
-        for (idx, tab) in state.tabs.iter().enumerate() {
-            let tab_w = if state.tabs.len() <= 1 {
-                // Grows from 104 px to fit the whole title (`Claude Code #1`), within the room the controls leave.
-                let title_w = widgets::text_width(&p, &tab.title, &theme::font_caption_medium()) + 40.0;
-                104.0f32.max(title_w).min((max_tabs_right - x).max(64.0))
-            } else {
-                82.0f32.min(((max_tabs_right - x) / (state.tabs.len() as f32)).max(56.0))
-            };
-            if x + 48.0 > max_tabs_right {
-                break;
-            }
-            let is_active = idx == state.active_tab;
-            let t_rect = Rect::from_min_size(Pos2::new(x, bar_r.center().y - 12.0), Vec2::new(tab_w, 24.0));
-            let close_rect = Rect::from_min_size(Pos2::new(t_rect.right() - 16.0, t_rect.center().y - 6.0), Vec2::splat(12.0));
-            let t_hit_rect =
-                if can_close { Rect::from_min_max(t_rect.min, Pos2::new((close_rect.left() - 2.0).max(t_rect.left() + 16.0), t_rect.max.y)) } else { t_rect };
-            let tab_waiting = tab.needs_approval() || (is_active && !state.pending_approvals.is_empty());
-            let tab_resp = ui.interact(t_hit_rect, Id::new(("agents-left-tab-select", tab.id)), Sense::click());
-            let tab_tip = match (tab_waiting, tab.usage_tooltip_text()) {
-                (true, Some(usage)) => Some(format!("{NEEDS_APPROVAL_LABEL}\n{usage}")),
-                (true, None) => Some(NEEDS_APPROVAL_LABEL.to_string()),
-                (false, usage) => usage,
-            };
-            // The strip keeps an exited tab's width. It shows a hollow status ring and a title that is one step dimmer
-            // than an active tab's but still readable; the tooltip says it exited.
-            let tab_tip = match (tab.exited_notice_shown, tab_tip) {
-                (true, Some(tip)) => Some(format!("{}\n{tip}", tab.display_title())),
-                (true, None) => Some(tab.display_title()),
-                (false, tip) => tip,
-            };
-            let tab_resp = if let Some(tip) = tab_tip { tab_resp.on_hover_text(tip) } else { tab_resp };
-            let close_resp = if can_close { Some(ui.interact(close_rect, Id::new(("agents-left-tab-close", tab.id)), Sense::click())) } else { None };
-
-            let bg = if is_active {
-                TERM_BG_ELEVATED
-            } else if tab_resp.hovered() {
-                TERM_BG_HOVER
-            } else {
-                TERM_BG_BAR
-            };
-            p.rect_filled(t_rect, theme::cr(theme::RADIUS_CONTROL), bg);
-            if is_active {
-                p.rect_stroke(t_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
-                p.rect_filled(
-                    Rect::from_min_max(Pos2::new(t_rect.left() + 4.0, t_rect.bottom() - 2.0), Pos2::new(t_rect.right() - 4.0, t_rect.bottom())),
-                    CornerRadius::same(1),
-                    TERM_ORANGE,
-                );
-            }
-            paint_orca_tab_status_and_provider(ui, &p, tab, t_rect);
-            let text_pad_r = if can_close { 34.0 } else { 23.0 };
-            let title_str = widgets::elide(&p, &tab.title, &theme::font_caption_medium(), (tab_w - text_pad_r).max(16.0));
-            p.text(
-                Pos2::new(t_rect.left() + 21.0, t_rect.center().y),
-                Align2::LEFT_CENTER,
-                title_str,
-                theme::font_caption_medium(),
-                if is_active && !tab.exited_notice_shown { theme::TEXT } else { theme::TEXT_SECONDARY },
-            );
-            if let Some(cr) = &close_resp {
-                icons::paint(&p, Icon::Close, close_rect.center(), 9.0, if cr.hovered() { STATUS_BAD_TEXT } else { theme::ICON_TERTIARY });
-                if cr.clicked() {
-                    tab_to_close = Some(idx);
-                }
-            }
-            if tab_to_close.is_none() && tab_resp.clicked() {
-                tab_to_select = Some(idx);
-            }
-            x = t_rect.right() + 4.0;
-        }
-
-        if let Some(idx) = tab_to_select {
-            state.active_tab = idx;
-            if let Some(tab) = state.tabs.get_mut(idx) {
-                tab.unread = false;
-            }
-            state.sync_active_tab_approvals();
-            state.viewport_focused = true;
-            state.runtime_dropdown_open = false;
-            state.sessions_popover_open = false;
-            state.picker.on_close();
-            state.sessions_popover_open = false;
-            state.refresh_tab_usage(idx);
-        }
         if state.surface_visible {
             if let Some(tab) = state.active_tab_mut() {
                 tab.unread = false;
             }
         }
-        if let Some(idx) = tab_to_close {
-            state.close_tab(idx);
-        }
 
-        // `"Sessions"` ghost button (`#651` §3 rule 5 & §7) + top `+` button (`agents-runtime-add-btn`)
-        let add_x = crate::agent_open_flow::render_sessions_button_in_bar(state, ui, bar_r, x, controls_left);
-        let add_rect = Rect::from_min_size(Pos2::new(add_x, bar_r.center().y - 12.0), Vec2::new(28.0, 24.0));
-        let add_resp = ui.interact(add_rect, Id::new("agents-runtime-add-btn"), Sense::click());
-        let add_bg = if state.runtime_dropdown_open {
-            STATUS_INFO_BG
-        } else if add_resp.hovered() {
-            TERM_BG_HOVER
-        } else {
-            TERM_BG_ELEVATED
-        };
-        let add_border = if state.runtime_dropdown_open { STATUS_INFO_BORDER } else { TERM_BORDER };
-        let add_fg = if state.runtime_dropdown_open { STATUS_INFO_TEXT } else { Color32::WHITE };
-        p.rect_filled(add_rect, theme::cr(theme::RADIUS_CONTROL), add_bg);
-        p.rect_stroke(add_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, add_border), StrokeKind::Inside);
-        icons::paint(&p, Icon::Plus, Pos2::new(add_rect.left() + 10.0, add_rect.center().y), 11.0, add_fg);
-        icons::paint(&p, Icon::ChevronDown, Pos2::new(add_rect.right() - 7.0, add_rect.center().y), 8.0, add_fg);
-        widgets::record(ui, "agents-runtime-add-btn", add_rect);
-        // The menu below reads these two, not the test hook: a press on `+` is not a press outside the menu, and the
-        // press of the click that opens the menu must not close it in the pass that opens it.
-        ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-runtime-add-btn-rect"), add_rect));
-        if add_resp.clicked() {
-            state.runtime_dropdown_open = !state.runtime_dropdown_open;
-            state.resume_notice = None;
-            if state.runtime_dropdown_open {
-                state.sessions_popover_open = false;
-                let pass_nr = ui.ctx().cumulative_pass_nr();
-                ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-runtime-opened-pass"), pass_nr));
-            } else {
-                state.picker.on_close();
-            }
-        }
-
-        // `Skills` button, `CONTROL_STANDARD` (28 px) high: opens the picker of skills attached to an agent's runs, like the composer chip.
-        let skills_r = Rect::from_min_size(
-            Pos2::new(add_rect.right() + theme::SPACE_INLINE, bar_r.center().y - theme::CONTROL_STANDARD * 0.5),
-            Vec2::new(skills_w, theme::CONTROL_STANDARD),
-        );
-        state.skills.paint_chip(ui, &p, skills_r, "agents-header-skills");
-
-        // Header strip (`CONTROL_DENSE` = 24px): the live selection chip (#654) stays on the left; the live turn status (`#683` §7,
-        // running dot + text) and the active tab's verified token/cost readout (`#678` §7) sit right of it, left of `@ Mention`.
-        // The chip shrinks to the space left of them; the usage readout is dropped when the chip would get too narrow.
-        let ctx_h = theme::CONTROL_DENSE;
-        let ctx_r = Rect::from_min_size(Pos2::new(rect.left(), bar_r.bottom()), Vec2::new(rect.width(), ctx_h));
-        p.rect_filled(ctx_r, 0.0, theme::BG_PRIMARY);
-        widgets::hline(&p, ctx_r.left(), ctx_r.right(), ctx_r.bottom() - theme::BORDER_WIDTH, theme::BORDER);
-        let now_secs = crate::agent_sessions::unix_timestamp_secs();
-        let strip_left = ctx_r.left() + theme::INSET_CONTROL;
-        let (mention_btn_r, mention_clicked) = crate::agent_mention_popup::paint_terminal_mention_button(
-            ui,
-            "agent-mention-btn-left",
-            ctx_r.right() - theme::INSET_CONTROL,
-            ctx_r,
-            state.mention_popup.is_open_for_surface("agents-left-pty"),
-        );
-        if mention_clicked {
-            state.mention_popup.toggle_terminal_mode_for("agents-left-pty", doc, current_page);
-        }
-        let strip_right = (mention_btn_r.left() - theme::SPACE_INLINE).max(strip_left + theme::TARGET_MIN);
-        let mut chip_right = strip_right;
-        // One right-hand slot: a pending approval (`#656`) takes it over from the live turn status (`#683`).
-        let needs_approval = state.needs_approval();
-        let strip_status = if needs_approval {
-            Some((STATUS_WARN_TEXT, NEEDS_APPROVAL_LABEL.to_string()))
-        } else if let Some(notice) = state.active_tab().and_then(|t| t.still_running_notice.clone()) {
-            // The CLI ignored both interrupt keys (`#684 §8.1`).
-            Some((STATUS_WARN_TEXT, notice))
-        } else {
-            state.active_tab().and_then(|t| t.header_status_indicator(now_secs))
-        };
-        const DOT_DIAMETER: f32 = 6.0;
-        let text_x_off = DOT_DIAMETER + theme::INSET_CONTROL;
-        let status_font = theme::font_caption();
-        let status_w = strip_status.as_ref().map(|(_, status_txt)| {
-            let cap_w = (((ctx_r.right() - theme::INSET_CONTROL) - strip_left) * 0.4).max(text_x_off + theme::TARGET_MIN).min(strip_right - strip_left);
-            (text_x_off + widgets::text_width(&p, status_txt, &status_font)).min(cap_w)
-        });
-        // The active tab's usage readout (`#678`) takes the slot next to `@ Mention`. It yields to the chip and the turn status:
-        // when the room left would be too small to read, only the tab tooltip carries the numbers.
-        let mut status_right = strip_right;
-        let mut usage_drawn = false;
-        if let Some(usage_caption) = state.active_tab().and_then(|t| t.header_usage_caption()) {
-            let status_take = status_w.map_or(0.0, |w| w + theme::INSET_CONTROL);
-            let usage_room = strip_right - strip_left - STRIP_CHIP_MIN_W - status_take;
-            if usage_room >= STRIP_USAGE_MIN_W {
-                let mono = theme::font_mono();
-                let usage_text = widgets::elide(&p, &usage_caption, &mono, usage_room);
-                let usage_w = widgets::text_width(&p, &usage_text, &mono);
-                let usage_r = Rect::from_min_max(Pos2::new(strip_right - usage_w, ctx_r.top()), Pos2::new(strip_right, ctx_r.bottom()));
-                p.text(Pos2::new(usage_r.right(), usage_r.center().y), Align2::RIGHT_CENTER, usage_text, mono, theme::TEXT_SECONDARY);
-                let usage_resp = ui.interact(usage_r, Id::new("agents-header-usage"), Sense::hover());
-                if let Some(tip) = state.active_tab().and_then(|t| t.usage_tooltip_text()) {
-                    let _ = usage_resp.on_hover_text(tip);
-                }
-                widgets::record(ui, "agents-header-usage", usage_r);
-                status_right = usage_r.left() - theme::INSET_CONTROL;
-                usage_drawn = true;
-            }
-        }
-        if !usage_drawn {
-            ui.ctx().data_mut(|d| d.remove::<Rect>(Id::new(("test-rect", "agents-header-usage".to_string()))));
-        }
-        if let (Some((dot_col, status_txt)), Some(status_w)) = (strip_status, status_w) {
-            let status_r = Rect::from_min_max(Pos2::new(status_right - status_w, ctx_r.top()), Pos2::new(status_right, ctx_r.bottom()));
-            let status_elided = widgets::elide(&p, &status_txt, &status_font, (status_w - text_x_off).max(0.0));
-            p.circle_filled(Pos2::new(status_r.left() + DOT_DIAMETER * 0.5, status_r.center().y), DOT_DIAMETER * 0.5, dot_col);
-            let text_col = if needs_approval { STATUS_WARN_TEXT } else { theme::TEXT_SECONDARY };
-            p.text(Pos2::new(status_r.left() + text_x_off, status_r.center().y), Align2::LEFT_CENTER, status_elided, status_font, text_col);
-            widgets::record(ui, if needs_approval { "agents-needs-approval-pill" } else { "agents-header-turn-status" }, status_r);
-            chip_right = (status_r.left() - theme::INSET_CONTROL).max(strip_left + theme::TARGET_MIN);
-        } else if usage_drawn {
-            chip_right = (status_right).max(strip_left + theme::TARGET_MIN);
-        }
-        let chip_bounds = Rect::from_min_max(Pos2::new(strip_left, ctx_r.top()), Pos2::new(chip_right, ctx_r.bottom()));
-        if let Some((_chip_rect, true)) =
-            crate::agent_selection_chip::paint_selection_chip(ui, "agent-selection-chip-left", selection_summary, chip_bounds, false)
-        {
-            actions.push(TerminalAction::SendSelectionToAgent);
-        }
-
-        // Terminal-header `@`-mention picker keys are consumed before the composer and the VT100 viewport read them (`#655`).
-        if state.mention_popup.is_open_for_surface("agents-left-pty") {
-            state.mention_popup.sync_from_composer_text("", 0, doc, current_page);
-            let mut unused_text = String::new();
-            let kb_outcome = state.mention_popup.handle_keyboard(ui.ctx(), &mut unused_text, &mut state.active_mentions, doc, current_page);
-            if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = kb_outcome {
-                state.handle_terminal_mention_pick(&mention);
-            }
-        }
-
-        // Render bottom composer (`#689` §3 rule 9 & §7) first so its focused `TextEdit` consumes keys
-        // before `render_vt100_viewport` checks keyboard input.
+        // The composer is painted before the terminal so a focused field consumes keys first.
         let composer_rect = crate::agent_composer::show_composer(
             state,
             ui,
             rect,
-            ctx_r.bottom(),
+            bar_r.bottom(),
             file_path,
             crate::agent_composer::MentionScope { doc, page: current_page },
             &mut actions,
         );
 
-        // Live VT100 PTY Terminal Viewport above the composer; the turn receipt row sits between them (`#683`).
         let active_receipt =
             state.active_tab().filter(|t| !matches!(t.effective_status(), AgentTabStatus::Working(_))).and_then(|t| t.last_turn_receipt().cloned());
-        let receipt_h = if active_receipt.is_some() { 24.0 } else { 0.0 };
-        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE - receipt_h).max(ctx_r.bottom() + theme::CONTROL_MD);
-        let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), Pos2::new(rect.right(), vp_bottom));
+        let receipt_h = if active_receipt.is_some() { TERMINAL_RECEIPT_H } else { 0.0 };
+        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE - receipt_h).max(bar_r.bottom() + theme::CONTROL_MD);
+        let vp_r = Rect::from_min_max(Pos2::new(rect.left(), bar_r.bottom()), Pos2::new(rect.right(), vp_bottom));
 
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
@@ -6236,7 +5925,9 @@ pub fn show_left_with_doc(
         }
 
         render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
-        if !state.viewport_focused && !state.overlay_owns_keyboard && ui.input(|i| i.key_pressed(Key::Escape)) {
+        let chrome_owns_keys =
+            state.runtime_dropdown_open || state.attach_menu_open || state.mode_menu_open || state.sessions_popover_open || state.skills.picker_open;
+        if !state.viewport_focused && !state.overlay_owns_keyboard && !chrome_owns_keys && ui.input(|i| i.key_pressed(Key::Escape)) {
             // egui takes the caret out of the composer on a bare `Esc` before this code runs, so where the caret was a
             // frame ago counts as well: an `Esc` that leaves the composer must not also stop the turn (`#684`, `#923`).
             let composer_focused = state.composer_focused_last_frame || ui.ctx().memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input")));
@@ -6250,18 +5941,10 @@ pub fn show_left_with_doc(
             state.apply_start_fix(fix, file_path);
         }
 
-        if state.mention_popup.is_open_for_surface("agents-left-pty") {
-            let mut unused_text = String::new();
-            let show_outcome = state.mention_popup.show(ui, rect, ctx_r, &mut unused_text, &mut state.active_mentions);
-            if let crate::agent_mention_popup::MentionPopupOutcome::PickedTerminal(mention) = show_outcome {
-                state.handle_terminal_mention_pick(&mention);
-            }
-        }
-
         state.expire_resume_notice();
         // Floating `+` Runtime Selector Dropdown (`claude`, `codex`, `grok`, `antigravity`, `shell` — all skipping dangerous permissions)
         if state.runtime_dropdown_open {
-            render_runtime_dropdown_menu(state, ui, rect, bar_r.bottom() + 4.0, file_path);
+            render_runtime_dropdown_menu(state, ui, rect, bar_r.bottom() + theme::SPACE_ROW, file_path);
         }
         if state.sessions_popover_open {
             crate::agent_open_flow::render_sessions_popover(state, ui, rect, bar_r.bottom() + theme::INSET_SEGMENT, file_path);
@@ -6273,14 +5956,12 @@ pub fn show_left_with_doc(
         return actions;
     }
 
-    let panel_bg = Color32::from_rgb(0x2C, 0x2C, 0x2C);
-    p.rect_filled(rect, 0.0, panel_bg);
+    p.rect_filled(rect, 0.0, theme::BG);
 
-    // ---- A. Top Header Bar (48px, `#2C2C2C` fill, `1px` `#383838` bottom hairline)
     let header_h = 48.0;
     let header_rect = Rect::from_min_size(rect.min, Vec2::new(rect.width(), header_h));
-    p.rect_filled(header_rect, 0.0, panel_bg);
-    widgets::hline(&p, header_rect.left(), header_rect.right(), header_rect.bottom() - 1.0, Color32::from_rgb(0x38, 0x38, 0x38));
+    p.rect_filled(header_rect, 0.0, theme::BG_PRIMARY);
+    widgets::hline(&p, header_rect.left(), header_rect.right(), header_rect.bottom() - theme::BORDER_WIDTH, theme::BORDER);
 
     let back_r = Rect::from_center_size(Pos2::new(header_rect.left() + 18.0, header_rect.top() + 18.0), Vec2::splat(20.0));
     let back_resp = ui.interact(back_r, Id::new("agents-header-back"), Sense::click());
@@ -6288,7 +5969,7 @@ pub fn show_left_with_doc(
         p.rect_filled(back_r, CornerRadius::same(4), TERM_BG_HOVER);
     }
     let bc = back_r.center();
-    let chev_stroke = Stroke::new(1.5, Color32::from_rgb(0xB3, 0xB3, 0xB3));
+    let chev_stroke = Stroke::new(1.5, theme::ICON_TERTIARY);
     p.line_segment([Pos2::new(bc.x + 2.0, bc.y - 4.5), Pos2::new(bc.x - 2.5, bc.y)], chev_stroke);
     p.line_segment([Pos2::new(bc.x - 2.5, bc.y), Pos2::new(bc.x + 2.0, bc.y + 4.5)], chev_stroke);
     widgets::record(ui, "agents-header-back", back_r);
@@ -6297,14 +5978,8 @@ pub fn show_left_with_doc(
         state.chat_mode = false;
     }
 
-    p.text(Pos2::new(header_rect.left() + 34.0, header_rect.top() + 17.0), Align2::LEFT_CENTER, "New chat", theme::font_body_strong(), Color32::WHITE);
-    p.text(
-        Pos2::new(header_rect.left() + 34.0, header_rect.top() + 33.0),
-        Align2::LEFT_CENTER,
-        "Shared",
-        theme::font_caption(),
-        Color32::from_rgb(0x8C, 0x8C, 0x8C),
-    );
+    p.text(Pos2::new(header_rect.left() + 34.0, header_rect.top() + 17.0), Align2::LEFT_CENTER, "New chat", theme::font_body_strong(), theme::TEXT);
+    p.text(Pos2::new(header_rect.left() + 34.0, header_rect.top() + 33.0), Align2::LEFT_CENTER, "Shared", theme::font_caption(), theme::TEXT_SECONDARY);
     if state.needs_approval() {
         let pill_w = widgets::text_width(&p, NEEDS_APPROVAL_LABEL, &theme::font_caption_medium()) + 16.0;
         let pill_r = Rect::from_min_size(Pos2::new(header_rect.left() + 78.0, header_rect.top() + 24.0), Vec2::new(pill_w, 18.0));
@@ -6318,15 +5993,15 @@ pub fn show_left_with_doc(
     let ai_rect = Rect::from_center_size(Pos2::new(header_rect.right() - theme::SPACE_INLINE - 12.0, h_cy), Vec2::new(24.0, 18.0));
     let ai_resp = ui.interact(ai_rect, Id::new("agents-header-ai"), Sense::click());
     let ai_bg = if !state.chat_mode || state.side_panel_pty_open {
-        Color32::from_rgb(0x16, 0x35, 0x52)
+        theme::BG_SELECTED
     } else if ai_resp.hovered() {
         TERM_BG_HOVER
     } else {
-        Color32::from_rgb(0x38, 0x38, 0x38)
+        theme::BG_SECONDARY
     };
     p.rect_filled(ai_rect, CornerRadius::same(4), ai_bg);
-    p.rect_stroke(ai_rect, CornerRadius::same(4), Stroke::new(1.0, Color32::from_rgb(0x4D, 0x4D, 0x4D)), StrokeKind::Inside);
-    p.text(ai_rect.center(), Align2::CENTER_CENTER, "AI", theme::font_caption_strong(), Color32::from_rgb(0xD4, 0xD4, 0xD4));
+    p.rect_stroke(ai_rect, CornerRadius::same(4), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+    p.text(ai_rect.center(), Align2::CENTER_CENTER, "AI", theme::font_caption_strong(), theme::TEXT_SECONDARY);
     widgets::record(ui, "agents-ai-badge", ai_rect);
     widgets::record(ui, "agents-header-ai", ai_rect);
     if ai_resp.clicked() {
@@ -6339,8 +6014,8 @@ pub fn show_left_with_doc(
     // ---- B2. CLI Runtime Selector Bar (`28px`, `Claude` | `Codex` | `AGY` | `Grok` + `Shell` toggle)
     let rt_bar_h = 28.0;
     let rt_bar_r = Rect::from_min_size(Pos2::new(rect.left(), top_y), Vec2::new(rect.width(), rt_bar_h));
-    p.rect_filled(rt_bar_r, 0.0, Color32::from_rgb(0x22, 0x22, 0x22));
-    widgets::hline(&p, rt_bar_r.left(), rt_bar_r.right(), rt_bar_r.bottom() - 1.0, Color32::from_rgb(0x38, 0x38, 0x38));
+    p.rect_filled(rt_bar_r, 0.0, theme::BG_PRIMARY);
+    widgets::hline(&p, rt_bar_r.left(), rt_bar_r.right(), rt_bar_r.bottom() - theme::BORDER_WIDTH, theme::BORDER);
 
     let rt_pills: [(&str, &str, AgentCliPreset, f32, f32); 4] = [
         ("agents-runtime-claude", "Claude", AgentCliPreset::Claude, 4.0, 46.0),
@@ -6353,14 +6028,14 @@ pub fn show_left_with_doc(
         let p_resp = ui.interact(p_rect, Id::new(pill_id), Sense::click());
         let is_sel = !state.side_panel_pty_open && state.active_runtime == preset;
         let bg = if is_sel {
-            STATUS_INFO_BG
+            theme::BG_SELECTED
         } else if p_resp.hovered() {
             TERM_BG_HOVER
         } else {
-            Color32::from_rgb(0x2C, 0x2C, 0x2C)
+            theme::BG
         };
-        let border = if is_sel { STATUS_INFO_BORDER } else { Color32::from_rgb(0x38, 0x38, 0x38) };
-        let fg = if is_sel { STATUS_INFO_TEXT } else { Color32::from_rgb(0xD4, 0xD4, 0xD4) };
+        let border = if is_sel { theme::BORDER_STRONG } else { theme::BORDER };
+        let fg = if is_sel { theme::TEXT } else { theme::TEXT_SECONDARY };
         p.rect_filled(p_rect, CornerRadius::same(4), bg);
         p.rect_stroke(p_rect, CornerRadius::same(4), Stroke::new(1.0, border), StrokeKind::Inside);
         p.text(p_rect.center(), Align2::CENTER_CENTER, pill_label, theme::font_caption_strong(), fg);
@@ -6375,14 +6050,14 @@ pub fn show_left_with_doc(
     let pty_toggle_resp = ui.interact(pty_toggle_r, Id::new("agents-runtime-pty-toggle"), Sense::click());
     let pty_sel = state.side_panel_pty_open;
     let pty_bg = if pty_sel {
-        STATUS_OK_BG
+        theme::BG_SELECTED
     } else if pty_toggle_resp.hovered() {
         TERM_BG_HOVER
     } else {
-        Color32::from_rgb(0x2C, 0x2C, 0x2C)
+        theme::BG
     };
-    let pty_border = if pty_sel { STATUS_OK_BORDER } else { Color32::from_rgb(0x38, 0x38, 0x38) };
-    let pty_fg = if pty_sel { STATUS_OK_TEXT } else { Color32::from_rgb(0xB3, 0xB3, 0xB3) };
+    let pty_border = if pty_sel { theme::BORDER_STRONG } else { theme::BORDER };
+    let pty_fg = if pty_sel { theme::TEXT } else { theme::TEXT_SECONDARY };
     p.rect_filled(pty_toggle_r, CornerRadius::same(4), pty_bg);
     p.rect_stroke(pty_toggle_r, CornerRadius::same(4), Stroke::new(1.0, pty_border), StrokeKind::Inside);
     p.text(pty_toggle_r.center(), Align2::CENTER_CENTER, "Shell", theme::font_caption_strong(), pty_fg);
@@ -6398,7 +6073,7 @@ pub fn show_left_with_doc(
 
     // ---- C. Center Area (`between runtime bar and bottom composer`)
     let full_center_rect = Rect::from_min_max(Pos2::new(rect.left(), top_y), Pos2::new(rect.right(), (composer_rect.top() - 8.0).max(top_y + 32.0)));
-    let center_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
+    if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
         let on_active_claude = is_active_tab && banner_preset == AgentCliPreset::Claude;
         if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
             ui,
@@ -6412,14 +6087,7 @@ pub fn show_left_with_doc(
         ) {
             state.handle_approval_card_action(act);
         }
-        let card_h = crate::agent_approval_card::approval_card_outer_height(if on_active_claude { banner_preset } else { AgentCliPreset::Codex });
-        Rect::from_min_max(Pos2::new(full_center_rect.left(), (full_center_rect.top() + card_h).min(full_center_rect.bottom())), full_center_rect.max)
-    } else {
-        full_center_rect
-    };
-
-    // Empty state: starter prompts, with the `#652` picker on top while no session is open (`#688`).
-    crate::agent_sample_prompts::show_empty_state(state, ui, center_rect, file_path);
+    }
 
     state.skills.show_picker_popover(ui, rect, composer_rect.top());
 
@@ -6494,7 +6162,7 @@ fn extract_selected_terminal_text(screen: &vt100::Screen, sel: ((u16, u16), (u16
     strip_selection_gutter(&lines.join("\n"))
 }
 
-fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: Rect, file_path: Option<&Path>, surface_id: &'static str) {
+fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: Rect, _file_path: Option<&Path>, surface_id: &'static str) {
     if let Some(failure) = state.active_tab().and_then(|t| t.start_failure.clone()) {
         if let Some(fix) = agent_start_failure::paint(ui, viewport_rect, &failure, surface_id) {
             state.pending_start_fix = Some(fix);
@@ -6568,15 +6236,6 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     state.viewport_size = (rows, cols);
 
     if state.picker_open || state.tabs.is_empty() {
-        if !state.runtime_dropdown_open && !state.sessions_popover_open {
-            if state.tabs.is_empty() {
-                // Agents panel with no session yet: the picker stays on top and the starter prompts sit below it
-                // (`#688` §3 rule 3).
-                crate::agent_sample_prompts::show_empty_state(state, ui, viewport_rect, file_path);
-            } else {
-                crate::agent_picker::show_picker_panel(state, ui, viewport_rect, file_path);
-            }
-        }
         return;
     }
 
@@ -6585,7 +6244,9 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         state.viewport_focused = true;
     }
     // An open dialog or menu owns the keys: the terminal neither sends them to the agent nor shows its caret as active.
-    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open() && !state.overlay_owns_keyboard;
+    let chrome_owns_keys =
+        state.runtime_dropdown_open || state.attach_menu_open || state.mode_menu_open || state.sessions_popover_open || state.skills.picker_open;
+    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open() && !state.overlay_owns_keyboard && !chrome_owns_keys;
     let search_open = state.search_open;
     let search_query = state.search_query.clone();
     let search_case_sensitive = state.search_case_sensitive;
@@ -7076,7 +6737,6 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         state.search_open = false;
     }
 
-    // Orca Floating `Cmd+F` Terminal Search Bar (`TerminalSearch`: `280px × 28px`, `#171717` bg, `8px` radius)
     if state.search_open {
         let search_w = 280.0f32.min((viewport_rect.width() - 12.0).max(160.0));
         let search_h = 28.0;
@@ -7084,8 +6744,8 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
             Pos2::new((viewport_rect.right() - search_w - 8.0).max(viewport_rect.left() + 6.0), viewport_rect.top() + 8.0),
             Vec2::new(search_w, search_h),
         );
-        p.rect_filled(search_rect, CornerRadius::same(8), Color32::from_rgb(0x17, 0x17, 0x17));
-        p.rect_stroke(search_rect, CornerRadius::same(8), Stroke::new(1.0, TERM_BORDER), StrokeKind::Inside);
+        p.rect_filled(search_rect, CornerRadius::same(8), theme::BG);
+        p.rect_stroke(search_rect, CornerRadius::same(8), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_STRONG), StrokeKind::Inside);
 
         let close_r = Rect::from_center_size(Pos2::new(search_rect.right() - 14.0, search_rect.center().y), Vec2::splat(20.0));
         let close_resp = ui.interact(close_r, Id::new((surface_id, "term-search-close")), Sense::click());
@@ -7137,7 +6797,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 .id(Id::new((surface_id, "term-search-input")))
                 .hint_text(RichText::new("Find...").color(theme::TEXT_TERTIARY).font(theme::font_caption()))
                 .font(theme::font_caption())
-                .text_color(Color32::WHITE)
+                .text_color(theme::TEXT)
                 .frame(egui::Frame::NONE),
         );
     }
@@ -9278,7 +8938,7 @@ mod tests {
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
 
         let run_one_frame = |st: &mut TerminalState, sel: &[NodeId]| -> Option<String> {
-            let text_id = Id::new(("test-text", "agent-selection-chip-left".to_string()));
+            let text_id = Id::new(("test-text", "agent-selection-chip".to_string()));
             ctx.data_mut(|d| d.remove_temp::<String>(text_id));
             let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
             let _ = ctx.run_ui(raw, |ui| {
@@ -9290,8 +8950,8 @@ mod tests {
         };
 
         assert_eq!(run_one_frame(&mut st, &[]), None, "nothing selected: no chip text is painted");
-        assert_eq!(run_one_frame(&mut st, &[ids[0]]).as_deref(), Some("Page 1 · 1 selected · A"));
-        assert_eq!(run_one_frame(&mut st, &[ids[0], ids[1], ids[2]]).as_deref(), Some("Page 1 · 3 selected · A, B, +1"));
+        assert_eq!(run_one_frame(&mut st, &[ids[0]]).as_deref(), Some("A"));
+        assert_eq!(run_one_frame(&mut st, &[ids[0], ids[1], ids[2]]).as_deref(), Some("A, B, +1"));
         assert_eq!(run_one_frame(&mut st, &[]), None, "clearing the selection hides the chip again in the same frame");
 
         kill_tabs(&mut st);
@@ -9347,7 +9007,7 @@ mod tests {
                 let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
             });
         });
-        let chip_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-selection-chip-left".to_string())))).expect("chip rect recorded");
+        let chip_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-selection-chip".to_string())))).expect("chip rect recorded");
         let click_pos = chip_rect.center();
 
         // Frame 2: click the chip.
@@ -9505,9 +9165,10 @@ mod tests {
                 let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
             });
         });
-        let (left_rect, left_text) = recorded(&ctx, "agent-selection-chip-left");
-        assert!(left_rect.is_some(), "a selected layer shows the chip in the strip");
-        assert_eq!(left_text.as_deref(), Some("Page 1 · 1 selected · A"));
+        assert_eq!(recorded(&ctx, "agent-selection-chip-left"), (None, None), "the header strip no longer holds the chip");
+        let (chip_rect, chip_text) = recorded(&ctx, "agent-selection-chip");
+        assert!(chip_rect.is_some(), "a selected layer shows the chip in the composer");
+        assert_eq!(chip_text.as_deref(), Some("A"));
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);

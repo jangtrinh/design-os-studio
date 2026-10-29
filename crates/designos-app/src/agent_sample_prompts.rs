@@ -5,6 +5,8 @@
 //! sample prompt opens a session when none accepts input, appends the prompt text to that tab's
 //! composer draft and focuses the input, without sending, mutating the document, or writing to any PTY.
 
+#![allow(dead_code)]
+
 use std::path::Path;
 use std::sync::OnceLock;
 
