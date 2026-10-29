@@ -122,11 +122,11 @@ pub const BG_PRIMARY_SOLID: Color32 = rgb(0x262626);
 #[allow(dead_code)]
 pub const BG_ERROR_SOLID_HOVER: Color32 = rgb(0xB91C1C);
 #[allow(dead_code)]
-pub const UTILITY_NEUTRAL_50: Color32 = rgb(0x171717);
+pub const BADGE_NEUTRAL_BG: Color32 = rgb(0x171717);
 #[allow(dead_code)]
-pub const UTILITY_NEUTRAL_200: Color32 = rgb(0x404040);
+pub const BADGE_NEUTRAL_BORDER: Color32 = rgb(0x404040);
 #[allow(dead_code)]
-pub const UTILITY_NEUTRAL_700: Color32 = rgb(0xD4D4D4);
+pub const BADGE_NEUTRAL_TEXT: Color32 = rgb(0xD4D4D4);
 #[allow(dead_code)]
 pub const BG_SUCCESS_PRIMARY: Color32 = rgb(0x052E16);
 #[allow(dead_code)]
@@ -134,17 +134,17 @@ pub const BG_WARNING_PRIMARY: Color32 = rgb(0x422006);
 #[allow(dead_code)]
 pub const BG_ERROR_PRIMARY: Color32 = rgb(0x450A0A);
 #[allow(dead_code)]
-pub const UTILITY_GREEN_200: Color32 = rgb(0x166534);
+pub const BADGE_SUCCESS_BORDER: Color32 = rgb(0x166534);
 #[allow(dead_code)]
-pub const UTILITY_YELLOW_200: Color32 = rgb(0x854D0E);
+pub const BADGE_WARNING_BORDER: Color32 = rgb(0x854D0E);
 #[allow(dead_code)]
-pub const UTILITY_RED_200: Color32 = rgb(0x991B1B);
+pub const BADGE_ERROR_BORDER: Color32 = rgb(0x991B1B);
 #[allow(dead_code)]
-pub const UTILITY_GREEN_700: Color32 = rgb(0x86EFAC);
+pub const BADGE_SUCCESS_TEXT: Color32 = rgb(0x86EFAC);
 #[allow(dead_code)]
-pub const UTILITY_YELLOW_700: Color32 = rgb(0xFDE047);
+pub const BADGE_WARNING_TEXT: Color32 = rgb(0xFDE047);
 #[allow(dead_code)]
-pub const UTILITY_RED_700: Color32 = rgb(0xFCA5A5);
+pub const BADGE_ERROR_TEXT: Color32 = rgb(0xFCA5A5);
 #[allow(dead_code)]
 pub const BG_OVERLAY: Color32 = rgba(0x262626, 0xB3);
 #[allow(dead_code)]
@@ -158,21 +158,21 @@ pub const PROVIDER_GEMINI: Color32 = rgb(0x60A5FA);
 #[allow(dead_code)]
 pub const BG_ERROR_SOLID_PRESSED: Color32 = rgb(0x991B1B);
 #[allow(dead_code)]
-pub const UTILITY_BLUE_50: Color32 = rgb(0x172554);
+pub const TILE_DESIGN_BG: Color32 = rgb(0x172554);
 #[allow(dead_code)]
-pub const UTILITY_BLUE_600: Color32 = rgb(0x60A5FA);
+pub const TILE_DESIGN_GLYPH: Color32 = rgb(0x60A5FA);
 #[allow(dead_code)]
-pub const UTILITY_AMBER_50: Color32 = rgb(0x451A03);
+pub const TILE_BOARD_BG: Color32 = rgb(0x451A03);
 #[allow(dead_code)]
-pub const UTILITY_AMBER_600: Color32 = rgb(0xFBBF24);
+pub const TILE_BOARD_GLYPH: Color32 = rgb(0xFBBF24);
 #[allow(dead_code)]
-pub const UTILITY_GREEN_50: Color32 = rgb(0x052E16);
+pub const TILE_DECK_BG: Color32 = rgb(0x052E16);
 #[allow(dead_code)]
-pub const UTILITY_GREEN_600: Color32 = rgb(0x4ADE80);
+pub const TILE_DECK_GLYPH: Color32 = rgb(0x4ADE80);
 #[allow(dead_code)]
-pub const UTILITY_ORANGE_50: Color32 = rgb(0x431407);
+pub const TILE_SPEC_BG: Color32 = rgb(0x431407);
 #[allow(dead_code)]
-pub const UTILITY_ORANGE_600: Color32 = rgb(0xFB923C);
+pub const TILE_SPEC_GLYPH: Color32 = rgb(0xFB923C);
 #[allow(dead_code)]
 pub const DEV_READY_HOVER: Color32 = rgb(0x30B870);
 #[allow(dead_code)]
@@ -1442,18 +1442,18 @@ mod tests {
             ("C-1.18", TEXT_WHITE, BG_ERROR_SOLID_HOVER, 4.5),
             ("C-1.19", TEXT, BG_PRIMARY_SOLID, 4.5),
             ("C-1.20", TEXT_SECONDARY, BG_PRIMARY_SOLID, 4.5),
-            ("C-1.21", UTILITY_GREEN_700, BG_SUCCESS_PRIMARY, 4.5),
-            ("C-1.22", UTILITY_YELLOW_700, BG_WARNING_PRIMARY, 4.5),
-            ("C-1.23", UTILITY_RED_700, BG_ERROR_PRIMARY, 4.5),
-            ("C-1.24", UTILITY_NEUTRAL_700, UTILITY_NEUTRAL_50, 4.5),
+            ("C-1.21", BADGE_SUCCESS_TEXT, BG_SUCCESS_PRIMARY, 4.5),
+            ("C-1.22", BADGE_WARNING_TEXT, BG_WARNING_PRIMARY, 4.5),
+            ("C-1.23", BADGE_ERROR_TEXT, BG_ERROR_PRIMARY, 4.5),
+            ("C-1.24", BADGE_NEUTRAL_TEXT, BADGE_NEUTRAL_BG, 4.5),
             ("C-1.27", ICON_TERTIARY, BG_SELECTED, 3.0),
             ("C-1.28", ICON_QUATERNARY, BG_SECONDARY, 3.0),
             ("C-1.29", FOCUS_RING, BG, 3.0),
             ("C-1.30", BORDER_SELECTED, BG_SECONDARY, 3.0),
-            ("C-1.31", UTILITY_BLUE_600, UTILITY_BLUE_50, 4.5),
-            ("C-1.32", UTILITY_AMBER_600, UTILITY_AMBER_50, 4.5),
-            ("C-1.33", UTILITY_GREEN_600, UTILITY_GREEN_50, 4.5),
-            ("C-1.34", UTILITY_ORANGE_600, UTILITY_ORANGE_50, 4.5),
+            ("C-1.31", TILE_DESIGN_GLYPH, TILE_DESIGN_BG, 4.5),
+            ("C-1.32", TILE_BOARD_GLYPH, TILE_BOARD_BG, 4.5),
+            ("C-1.33", TILE_DECK_GLYPH, TILE_DECK_BG, 4.5),
+            ("C-1.34", TILE_SPEC_GLYPH, TILE_SPEC_BG, 4.5),
             ("C-1.35", TEXT_ON_BRAND, DEV_READY, 4.5),
             ("C-1.36", DEV_READY, BG, 4.5),
             ("C-1.37", BORDER_SELECTED, BG, 3.0),
