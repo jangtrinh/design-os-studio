@@ -1,12 +1,9 @@
 //! Wrapped Fill-width text must take the height of its solved width after every layout pass.
-//!
-//! The H field (`widgets::fmt_num` on `n.size.y`) and the canvas badge (`n.size.y.round()` in
-//! `canvas/draw.rs`) both read the stored size, so they cannot disagree with each other. They
-//! disagree with the drawn lines when auto layout writes a new width and keeps the old height.
-
 use super::*;
+use crate::canvas::draw::selection_size_badge;
+use crate::panels::properties::inspector_height_field;
 use crate::textmeasure;
-use crate::widgets::fmt_num;
+use crate::widgets::numeric_field_value;
 use designos_doc::{AutoLayout, FrameProps, LayoutChild, Node, Rect, TextStyle, TextWrap};
 
 const TITLE: &str = "Title";
@@ -36,11 +33,11 @@ fn hug_size(t: &TextProps) -> Vec2 {
 }
 
 fn h_field(n: &Node) -> String {
-    fmt_num(n.size.y)
+    inspector_height_field(n)
 }
 
 fn canvas_badge(n: &Node) -> String {
-    format!("{} × {}", n.size.x.round() as i64, n.size.y.round() as i64)
+    selection_size_badge(n)
 }
 
 fn text_node(d: &mut Document, parent: NodeId, content: &str, font: f32, mode: TextAutoResize, fill_width: bool, size: Vec2) -> NodeId {
@@ -118,12 +115,14 @@ fn assert_wrapped_matches_lines(f: &Fixture, id: NodeId, label: &str) {
     let need = needed_h(t, n.size.x);
     let lines = textmeasure::geometry(t, v2(n.size.x, need)).lines.len();
     assert!((n.size.y - need).abs() < 1e-3, "{label}: width {} height {} need {} lines {lines}", n.size.x, n.size.y, need);
+    assert_eq!(inspector_height_field(n), numeric_field_value(need), "{label}: H field");
+    assert_eq!(selection_size_badge(n), format!("{} × {}", n.size.x.round() as i64, need.round() as i64), "{label}: badge");
     assert!(lines >= 1, "{label}: no drawn lines");
 }
 
 fn assert_h_field_matches_badge(f: &Fixture, id: NodeId, label: &str) {
     let n = f.doc.get(id).unwrap();
-    assert_eq!(h_field(n), fmt_num(n.size.y), "{label}: H field reads n.size.y");
+    assert_eq!(h_field(n), numeric_field_value(n.size.y), "{label}: H field reads n.size.y");
     assert_eq!(canvas_badge(n), format!("{} × {}", n.size.x.round() as i64, n.size.y.round() as i64), "{label}: badge reads n.size");
 }
 

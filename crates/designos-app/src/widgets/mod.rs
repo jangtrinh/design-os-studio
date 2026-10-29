@@ -291,6 +291,11 @@ pub fn record(_ui: &Ui, _name: &str, _rect: Rect) {}
 
 pub use designos_export::util::fmt_num;
 
+/// Display string for a numeric inspector field. Same formatter `num_field` uses.
+pub fn numeric_field_value(v: f32) -> String {
+    fmt_num(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

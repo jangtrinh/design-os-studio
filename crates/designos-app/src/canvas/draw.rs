@@ -20,6 +20,11 @@ pub const FIGMA_PINK: Color32 = Color32::from_rgb(0xFF, 0x38, 0x8C);
 /// Figma UI3 export slice accent green (`#14AE5C`).
 pub const FIGMA_SLICE_GREEN: Color32 = Color32::from_rgb(0x14, 0xAE, 0x5C);
 
+/// Size badge for one selected node. Reads stored `n.size`.
+pub(crate) fn selection_size_badge(n: &Node) -> String {
+    format!("{} × {}", n.size.x.round() as i64, n.size.y.round() as i64)
+}
+
 /// Whether `n` is a Slice node (either imported `SLICE` or drawn with `Tool::Slice`).
 pub fn is_slice_node(n: &Node) -> bool {
     matches!(&n.kind, NodeKind::Unknown { type_name } if type_name.eq_ignore_ascii_case("SLICE"))
@@ -1108,7 +1113,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
                 _ => {
                     if let [one] = app.selection.as_slice() {
                         app.doc.get(*one).map(|n| {
-                            let mut base = format!("{} × {}", n.size.x.round() as i64, n.size.y.round() as i64);
+                            let mut base = selection_size_badge(n);
                             if matches!(app.canvas.inter, Interaction::Resize(_)) {
                                 if n.layout_child.min_w.is_some_and(|m| (n.size.x - m).abs() < 0.5) {
                                     base.push_str(" · Min W");

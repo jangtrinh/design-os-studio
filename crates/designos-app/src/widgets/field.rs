@@ -136,7 +136,7 @@ pub fn edit_num_text(
     pad_x: f32,
     hint: Option<(&str, Color32)>,
 ) -> Option<f32> {
-    let display = value.map(fmt_num).unwrap_or_default();
+    let display = value.map(super::numeric_field_value).unwrap_or_default();
     let mut stepped: Option<(f32, String)> = None;
     if ui.memory(|m| m.has_focus(id)) {
         let mut key_step: Option<(f32, f32)> = None;
@@ -568,7 +568,7 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
         d.insert_temp(Id::new(("field-prefix", k)), prefix);
     });
     let id = ui.id().with(("num", key));
-    let display = value.map(fmt_num).unwrap_or_default();
+    let display = value.map(super::numeric_field_value).unwrap_or_default();
     let has_prefix = !matches!(prefix, Prefix::None);
     let pw = if has_prefix { theme::FIELD_PREFIX_W } else { 0.0 };
     field_bg(ui, rect, id);
@@ -653,7 +653,7 @@ fn scrub_prefix(ui: &mut Ui, prefix: Rect, id: Id, value: Option<f32>) -> Option
     }
     if ui.rect_contains_pointer(prefix) && ui.input(|i| i.pointer.primary_clicked()) && !resp.dragged() {
         ui.memory_mut(|m| m.request_focus(id));
-        let display = value.map(fmt_num).unwrap_or_default();
+        let display = value.map(super::numeric_field_value).unwrap_or_default();
         ui.data_mut(|d| d.insert_temp(id, display.clone()));
         let mut state = TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
         state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(display.chars().count()))));

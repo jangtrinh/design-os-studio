@@ -8,7 +8,7 @@ use crate::edit::Edit;
 use crate::util::{aabb_of, rect_corners, v2};
 use designos_doc::{resolve_node, Affine, Document, LayoutDirection, NodeId, NodeKind, Rect, Sizing, TextAutoResize, TextProps, Vec2};
 
-use designos_doc::layout_solver::{compute_with_stroke, ChildIn, SizeLimits};
+use designos_doc::layout_solver::{compute_then_refit_wrapped, ChildIn, SizeLimits};
 
 /// Measured text extent when the text hugs its content (no wrapping).
 pub fn estimate_text_size(t: &TextProps) -> Vec2 {
@@ -57,45 +57,10 @@ pub fn layout_node(doc: &mut Document, ed: &mut Edit, id: NodeId) {
     layout_self(doc, ed, id);
 }
 
-/// Height of a wrapping text at `width`, from the same measure the canvas draws.
 fn wrapped_text_height(doc: &Document, id: NodeId, width: f32) -> Option<f32> {
-    let n = doc.get(id)?;
-    let NodeKind::Text(t) = &n.kind else { return None };
-    if t.auto_resize != TextAutoResize::Height {
-        return None;
-    }
-    Some(crate::textmeasure::measure(t, Some(width.max(1.0))).y)
-}
-
-/// Sets each wrapping text child's intrinsic height to the lines at its solved width.
-/// Returns whether any height changed, so the caller can solve once more.
-fn refit_wrapped_text_heights(doc: &Document, ids: &[NodeId], kids: &mut [ChildIn], rects: &[Rect]) -> bool {
-    let mut changed = false;
-    for ((id, kid), r) in ids.iter().zip(kids.iter_mut()).zip(rects) {
-        let Some(h) = wrapped_text_height(doc, *id, r.w) else { continue };
-        if (kid.size.y - h).abs() > 1e-3 {
-            kid.size.y = h;
-            changed = true;
-        }
-    }
-    changed
-}
-
-fn compute_then_refit(
-    doc: &Document,
-    al: &designos_doc::AutoLayout,
-    frame_size: Vec2,
-    own_limits: SizeLimits,
-    stroke: &designos_doc::Stroke,
-    ids: &[NodeId],
-    kids: &mut [ChildIn],
-) -> designos_doc::layout_solver::LayoutOut {
-    let out = compute_with_stroke(al, frame_size, own_limits, stroke, kids);
-    if refit_wrapped_text_heights(doc, ids, kids, &out.rects) {
-        compute_with_stroke(al, frame_size, own_limits, stroke, kids)
-    } else {
-        out
-    }
+    crate::textmeasure::install_layout_measurer();
+    let measure = designos_doc::text_measure::layout_measurer()?;
+    designos_doc::text_measure::height_resize_text_height(doc.get(id)?, width, measure.as_ref())
 }
 
 /// Solves auto-layout for `id` using its direct children's current sizes,
@@ -123,7 +88,7 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
         let (ids, mut kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|c| doc.flow_child_input(*c, horiz).map(|k| (*c, k))).unzip();
         let frame_size = doc.get(id).unwrap().size;
         let own_limits = SizeLimits::from(&doc.get(id).unwrap().layout_child);
-        let out = compute_then_refit(doc, &al, frame_size, own_limits, &stroke, &ids, &mut kids);
+        let out = compute_then_refit_wrapped(&al, frame_size, own_limits, &stroke, &ids, &mut kids, |cid, w| wrapped_text_height(doc, cid, w));
         let new_frame = out.frame;
         if (new_frame.x - frame_size.x).abs() > 1e-3 || (new_frame.y - frame_size.y).abs() > 1e-3 {
             if let Some(n) = ed.node(doc, id) {

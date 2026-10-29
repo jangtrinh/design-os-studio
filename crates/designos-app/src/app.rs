@@ -275,6 +275,7 @@ pub struct App {
 
 impl App {
     pub fn new(doc: Document) -> Self {
+        crate::textmeasure::install_layout_measurer();
         let page = doc.pages.first().copied().unwrap_or(NodeId(0));
         let load_next_id = doc.peek_next_id();
         Self {
