@@ -707,9 +707,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
             );
         }
     }
-    out.push_str(
-        "- **Structured errors:** `code`, `error_kind`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.\n\n",
-    );
+    out.push_str("- **Structured errors:** `code`, `message`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.\n\n");
 }
 
 /// Escapes markdown table characters (`|`, `<`, `>`, newlines) in schema descriptions (§8.5).
@@ -824,6 +822,15 @@ pub const GENERATED_RULES_MD: &str = include_str!("../generated/rules.md");
 mod tests {
     use super::*;
     use designos_doc::Document;
+
+    #[test]
+    fn rules_pack_names_every_error_kind() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        for kind in crate::tools::errors::ErrorKind::ALL {
+            let clause = format!("`{}` =", kind.as_str());
+            assert!(pack.contains(&clause), "rules pack must define error_kind {} as `{clause} ...`", kind.as_str());
+        }
+    }
 
     #[test]
     fn rules_pack_says_stop_and_ask_the_user_on_needs_human() {

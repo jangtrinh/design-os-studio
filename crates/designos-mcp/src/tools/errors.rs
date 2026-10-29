@@ -546,6 +546,19 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
+    /// Every kind, in declaration order. `index` below is an exhaustive match, so adding a variant
+    /// without extending this list fails to compile (and the length test fails).
+    pub const ALL: [Self; 3] = [Self::Retryable, Self::Fatal, Self::NeedsHuman];
+
+    #[cfg(test)]
+    const fn index(self) -> usize {
+        match self {
+            Self::Retryable => 0,
+            Self::Fatal => 1,
+            Self::NeedsHuman => 2,
+        }
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Retryable => "retryable",
@@ -2150,6 +2163,14 @@ mod error_kind_tests {
             | ErrorCode::UnsupportedNodeKind
             | ErrorCode::UnsupportedExtension
             | ErrorCode::UnsupportedFileType => "fatal",
+        }
+    }
+
+    #[test]
+    fn error_kind_all_lists_each_variant_once_in_order() {
+        for (i, kind) in ErrorKind::ALL.into_iter().enumerate() {
+            assert_eq!(kind.index(), i, "{kind:?} is out of order in ErrorKind::ALL");
+            assert_eq!(ErrorKind::from_wire(kind.as_str()), Some(kind));
         }
     }
 
