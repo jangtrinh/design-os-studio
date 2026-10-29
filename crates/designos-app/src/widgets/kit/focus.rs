@@ -8,7 +8,7 @@ pub enum RingTone {
     Error,
 }
 
-pub fn ring_color(tone: RingTone) -> Color32 {
+pub const fn ring_color(tone: RingTone) -> Color32 {
     match tone {
         RingTone::Brand => theme::FOCUS_RING,
         RingTone::Error => theme::FOCUS_RING_ERROR,

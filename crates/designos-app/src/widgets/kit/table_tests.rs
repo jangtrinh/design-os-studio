@@ -23,6 +23,22 @@ fn paint(cell: &serde_json::Value, key: &str, alpha: f64) -> Color32 {
     }
 }
 
+pub(super) fn parse_hex(text: &str) -> Color32 {
+    let hex = text.trim_start_matches('#');
+    let packed = u32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("stopped, bad hex {text}"));
+    if hex.len() == 6 {
+        Color32::from_rgba_premultiplied((packed >> 16) as u8, (packed >> 8) as u8, packed as u8, 255)
+    } else if hex.len() == 8 {
+        let alpha = (packed & 255) as u8;
+        let scale = u32::from(alpha);
+        let body = packed >> 8;
+        let ch = |shift: u32| (((body >> shift) & 255) * scale / 255) as u8;
+        Color32::from_rgba_premultiplied(ch(16), ch(8), ch(0), alpha)
+    } else {
+        panic!("stopped, bad hex {text}");
+    }
+}
+
 pub(super) fn parse_state(name: &str) -> State {
     match name {
         "Default" => State::Default,
@@ -54,15 +70,16 @@ pub(super) fn expect(cell: &serde_json::Value) -> (Look, Color32) {
 
 pub(super) fn actual(row: &str, state: State) -> (Look, Color32) {
     let clear = Color32::TRANSPARENT;
+    let focused = state == State::Focused;
     match row {
-        "Button/Primary" => (button_look(Hierarchy::Primary, state), button_ring(Hierarchy::Primary, state)),
-        "Button/Secondary" => (button_look(Hierarchy::Secondary, state), button_ring(Hierarchy::Secondary, state)),
-        "Button/Tertiary" => (button_look(Hierarchy::Tertiary, state), button_ring(Hierarchy::Tertiary, state)),
-        "Button/Destructive" => (button_look(Hierarchy::Destructive, state), button_ring(Hierarchy::Destructive, state)),
-        "Button/SecondaryDestructive" => (button_look(Hierarchy::SecondaryDestructive, state), button_ring(Hierarchy::SecondaryDestructive, state)),
-        "Button/Icon" => (button_look(Hierarchy::Icon, state), button_ring(Hierarchy::Icon, state)),
-        "Button/Tool" => (button_look(Hierarchy::Tool, state), button_ring(Hierarchy::Tool, state)),
-        "Button/Close" => (button_look(Hierarchy::Close, state), button_ring(Hierarchy::Close, state)),
+        "Button/Primary" => (button_look(Hierarchy::Primary, state), button_ring(Hierarchy::Primary, focused)),
+        "Button/Secondary" => (button_look(Hierarchy::Secondary, state), button_ring(Hierarchy::Secondary, focused)),
+        "Button/Tertiary" => (button_look(Hierarchy::Tertiary, state), button_ring(Hierarchy::Tertiary, focused)),
+        "Button/Destructive" => (button_look(Hierarchy::Destructive, state), button_ring(Hierarchy::Destructive, focused)),
+        "Button/SecondaryDestructive" => (button_look(Hierarchy::SecondaryDestructive, state), button_ring(Hierarchy::SecondaryDestructive, focused)),
+        "Button/Icon" => (button_look(Hierarchy::Icon, state), button_ring(Hierarchy::Icon, focused)),
+        "Button/Tool" => (button_look(Hierarchy::Tool, state), button_ring(Hierarchy::Tool, focused)),
+        "Button/Close" => (button_look(Hierarchy::Close, state), button_ring(Hierarchy::Close, focused)),
         "Input/Field" => (field_look(state, false), clear),
         "Input/PropertyField" => (property_field_look(state), clear),
         "Input/Search" => (search_look(state), clear),
@@ -72,24 +89,24 @@ pub(super) fn actual(row: &str, state: State) -> (Look, Color32) {
         "Menu/Item" => (menu_item_look(state), clear),
         "Menu/Shortcut" => (shortcut_look(state), clear),
         "Menu/Separator" => (separator_look(), clear),
-        "Tabs/Segmented" => (segmented_look(state), segmented_ring(state)),
-        "Tabs/Pill" => (tab_look(state), tab_ring(state)),
-        "Toggle/Switch" => (toggle_look(state), toggle_ring(state)),
-        "Checkbox/Box" => (checkbox_look(state), checkbox_ring(state)),
-        "Radio/Card" => (radio_card_look(state), radio_ring(state)),
+        "Tabs/Segmented" => (segmented_look(state), segmented_ring(focused)),
+        "Tabs/Pill" => (tab_look(state), tab_ring(focused)),
+        "Toggle/Switch" => (toggle_look(state), toggle_ring(focused)),
+        "Checkbox/Box" => (checkbox_look(state), checkbox_ring(focused)),
+        "Radio/Card" => (radio_card_look(state), radio_ring(focused)),
         "Badge/StatusCount" => (count_badge(Tone::Neutral), clear),
-        "Tag/Chip" => (tag_look(state), tag_ring(state)),
+        "Tag/Chip" => (tag_look(state), tag_ring(focused)),
         "Tooltip/Default" => (tooltip_look(), clear),
         "Tree/Row" => (tree_row_look(state, Surface::Primary), clear),
-        "List/Row" => (row_look(state, Surface::Primary), list_row_ring(state)),
+        "List/Row" => (row_look(state, Surface::Primary), list_row_ring(focused)),
         "Panel/Header" => (panel_header_look(), clear),
         "Section/Header" => (section_header_look(state), clear),
         "Dialog/Modal" => (modal_look(), clear),
         "Popover/Panel" => (popover_look(), clear),
         "Dialog/CommandPalette" => (command_look(), clear),
         "Toast/Default" => (toast_look(), clear),
-        "Swatch/Color" => (swatch_look(state), swatch_ring(state)),
-        "Slider/Handle" => (slider_handle_look(state), slider_ring(state)),
+        "Swatch/Color" => (swatch_look(state), swatch_ring(focused)),
+        "Slider/Handle" => (slider_handle_look(state), slider_ring(focused)),
         "Progress/Bar" => (progress_look(), clear),
         "Loading/Inline" => (loading_look(), clear),
         "EmptyState/Default" => (empty_state_look(), clear),
@@ -103,9 +120,12 @@ fn every_table_row_matches_its_look() {
     let doc = doc();
     let constants = doc["constants"].as_object().expect("constants");
     assert_eq!(constants.len(), 45, "constant table");
-    for name in constants.keys() {
-        let _ = token(name);
+    for (name, value) in constants {
+        let hex = value.as_str().expect("hex");
+        assert_eq!(token(name), parse_hex(hex), "{name}");
     }
+    assert_eq!(constants["BORDER_STRONG"].as_str(), Some("#404040"));
+    assert_eq!(theme::BORDER_STRONG, parse_hex("#404040"));
     let rows = doc["rows"].as_object().expect("rows");
     assert_eq!(rows.len(), 39, "widget rows");
     for (row, states) in rows {

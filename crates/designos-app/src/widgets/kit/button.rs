@@ -19,8 +19,11 @@ pub enum Hierarchy {
 const W: f32 = theme::BORDER_WIDTH;
 const CLEAR: Color32 = Color32::TRANSPARENT;
 
-pub fn button_look(kind: Hierarchy, state: State) -> Look {
-    let state = if state == State::Loading { State::Hover } else { state };
+pub const fn button_look(kind: Hierarchy, state: State) -> Look {
+    let state = match state {
+        State::Loading => State::Hover,
+        other => other,
+    };
     match kind {
         Hierarchy::Primary => solid(state, theme::BG_BRAND, theme::BG_BRAND_HOVER, theme::BG_BRAND_PRESSED, theme::TEXT_ON_BRAND),
         Hierarchy::Secondary => secondary(state),
@@ -33,8 +36,8 @@ pub fn button_look(kind: Hierarchy, state: State) -> Look {
     }
 }
 
-pub fn button_ring(kind: Hierarchy, state: State) -> Color32 {
-    if state != State::Focused {
+pub const fn button_ring(kind: Hierarchy, focused: bool) -> Color32 {
+    if !focused {
         return CLEAR;
     }
     let tone = match kind {
@@ -44,7 +47,7 @@ pub fn button_ring(kind: Hierarchy, state: State) -> Color32 {
     ring_color(tone)
 }
 
-fn solid(state: State, fill: Color32, hover: Color32, pressed: Color32, label: Color32) -> Look {
+const fn solid(state: State, fill: Color32, hover: Color32, pressed: Color32, label: Color32) -> Look {
     match state {
         State::Hover => look(hover, CLEAR, W, label, label),
         State::Pressed => look(pressed, CLEAR, W, label, label),
@@ -53,7 +56,7 @@ fn solid(state: State, fill: Color32, hover: Color32, pressed: Color32, label: C
     }
 }
 
-fn secondary(state: State) -> Look {
+const fn secondary(state: State) -> Look {
     let border = theme::BORDER_STRONG;
     match state {
         State::Hover => look(theme::BG_HOVER, border, W, theme::TEXT_SECONDARY_HOVER, theme::ICON_QUATERNARY_HOVER),
@@ -63,7 +66,7 @@ fn secondary(state: State) -> Look {
     }
 }
 
-fn tertiary(state: State) -> Look {
+const fn tertiary(state: State) -> Look {
     match state {
         State::Hover => look(theme::BG_HOVER, CLEAR, W, theme::TEXT_TERTIARY_HOVER, theme::ICON_QUATERNARY_HOVER),
         State::Pressed => look(theme::BG_PRESSED, CLEAR, W, theme::TEXT_TERTIARY_HOVER, theme::ICON_QUATERNARY_HOVER),
@@ -73,7 +76,7 @@ fn tertiary(state: State) -> Look {
     }
 }
 
-fn secondary_destructive(state: State) -> Look {
+const fn secondary_destructive(state: State) -> Look {
     match state {
         State::Hover => look(theme::BG_ERROR_PRIMARY, theme::BORDER_ERROR_SUBTLE, W, theme::TEXT_ERROR_HOVER, theme::TEXT_ERROR_HOVER),
         State::Pressed => look(theme::BG_ERROR_PRIMARY, theme::BORDER_ERROR, W, theme::TEXT_ERROR_HOVER, theme::TEXT_ERROR_HOVER),
@@ -82,7 +85,7 @@ fn secondary_destructive(state: State) -> Look {
     }
 }
 
-fn ghost(state: State, rest: Color32, hot: Color32, selected: Color32, full: bool) -> Look {
+const fn ghost(state: State, rest: Color32, hot: Color32, selected: Color32, full: bool) -> Look {
     match state {
         State::Hover => look(theme::BG_HOVER, CLEAR, W, CLEAR, hot),
         State::Pressed => look(theme::BG_PRESSED, CLEAR, W, CLEAR, hot),

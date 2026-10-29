@@ -5,31 +5,31 @@ use egui::Color32;
 const W: f32 = theme::BORDER_WIDTH;
 const CLEAR: Color32 = Color32::TRANSPARENT;
 
-fn focus(state: State) -> Color32 {
-    if state == State::Focused {
+const fn focus(focused: bool) -> Color32 {
+    if focused {
         theme::FOCUS_RING
     } else {
         CLEAR
     }
 }
 
-pub fn toggle_ring(state: State) -> Color32 {
-    focus(state)
+pub const fn toggle_ring(focused: bool) -> Color32 {
+    focus(focused)
 }
-pub fn checkbox_ring(state: State) -> Color32 {
-    focus(state)
+pub const fn checkbox_ring(focused: bool) -> Color32 {
+    focus(focused)
 }
-pub fn radio_ring(state: State) -> Color32 {
-    focus(state)
+pub const fn radio_ring(focused: bool) -> Color32 {
+    focus(focused)
 }
-pub fn slider_ring(state: State) -> Color32 {
-    focus(state)
+pub const fn slider_ring(focused: bool) -> Color32 {
+    focus(focused)
 }
-pub fn swatch_ring(state: State) -> Color32 {
-    focus(state)
+pub const fn swatch_ring(focused: bool) -> Color32 {
+    focus(focused)
 }
 
-pub fn toggle_look(state: State) -> Look {
+pub const fn toggle_look(state: State) -> Look {
     let track = look(theme::BG_TERTIARY, theme::BORDER, W * 0.5, CLEAR, theme::ICON_WHITE);
     match state {
         State::Disabled => disabled(track),
@@ -38,7 +38,7 @@ pub fn toggle_look(state: State) -> Look {
     }
 }
 
-pub fn checkbox_look(state: State) -> Look {
+pub const fn checkbox_look(state: State) -> Look {
     match state {
         State::Focused => look(theme::BG, theme::BORDER_STRONG, W, CLEAR, CLEAR),
         State::Disabled => disabled(look(theme::BG_TERTIARY, theme::BORDER_STRONG, W, CLEAR, CLEAR)),
@@ -47,7 +47,7 @@ pub fn checkbox_look(state: State) -> Look {
     }
 }
 
-pub fn radio_card_look(state: State) -> Look {
+pub const fn radio_card_look(state: State) -> Look {
     let resting = look(theme::BG, theme::BORDER, W, theme::TEXT_SECONDARY, theme::BORDER_STRONG);
     match state {
         State::Hover => look(theme::BG_HOVER, theme::BORDER, W, theme::TEXT_SECONDARY, theme::BORDER_STRONG),
@@ -61,15 +61,15 @@ pub fn radio_card_look(state: State) -> Look {
     }
 }
 
-pub fn slider_handle_look(state: State) -> Look {
-    let resting = look(theme::BG_PRESSED, theme::BG, W, CLEAR, theme::ICON_BRAND_PRIMARY);
+pub const fn slider_handle_look(state: State) -> Look {
+    let resting = look(theme::BG_PRESSED, theme::BG, W * 2.0, CLEAR, theme::ICON_BRAND_PRIMARY);
     match state {
         State::Disabled => disabled(resting),
         _ => resting,
     }
 }
 
-pub fn swatch_look(state: State) -> Look {
+pub const fn swatch_look(state: State) -> Look {
     match state {
         State::Selected => look(CLEAR, theme::FOCUS_RING, W * 2.0, CLEAR, CLEAR),
         _ => look(CLEAR, theme::BORDER_TRANSLUCENT, W, CLEAR, CLEAR),

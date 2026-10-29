@@ -1267,7 +1267,7 @@
    "Default": {
     "fill": "BG_PRESSED",
     "border": "BG",
-    "border_w": 1,
+    "border_w": 2,
     "text": null,
     "icon": "ICON_BRAND_PRIMARY",
     "ring": null,
@@ -1276,7 +1276,7 @@
    "Hover": {
     "fill": "BG_PRESSED",
     "border": "BG",
-    "border_w": 1,
+    "border_w": 2,
     "text": null,
     "icon": "ICON_BRAND_PRIMARY",
     "ring": null,
@@ -1285,7 +1285,7 @@
    "Pressed": {
     "fill": "BG_PRESSED",
     "border": "BG",
-    "border_w": 1,
+    "border_w": 2,
     "text": null,
     "icon": "ICON_BRAND_PRIMARY",
     "ring": null,
@@ -1294,7 +1294,7 @@
    "Focused": {
     "fill": "BG_PRESSED",
     "border": "BG",
-    "border_w": 1,
+    "border_w": 2,
     "text": null,
     "icon": "ICON_BRAND_PRIMARY",
     "ring": "FOCUS_RING",
@@ -1303,7 +1303,7 @@
    "Disabled": {
     "fill": "BG_PRESSED",
     "border": "BG",
-    "border_w": 1,
+    "border_w": 2,
     "text": null,
     "icon": "ICON_BRAND_PRIMARY",
     "ring": null,

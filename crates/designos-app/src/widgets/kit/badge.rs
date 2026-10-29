@@ -22,7 +22,7 @@ pub enum DotTone {
     Success,
 }
 
-pub fn count_badge(tone: Tone) -> Look {
+pub const fn count_badge(tone: Tone) -> Look {
     match tone {
         Tone::Neutral => look(theme::BADGE_NEUTRAL_BG, theme::BADGE_NEUTRAL_BORDER, W, theme::BADGE_NEUTRAL_TEXT, CLEAR),
         Tone::Success => look(theme::BG_SUCCESS_PRIMARY, theme::BADGE_SUCCESS_BORDER, W, theme::BADGE_SUCCESS_TEXT, CLEAR),
@@ -31,22 +31,22 @@ pub fn count_badge(tone: Tone) -> Look {
     }
 }
 
-pub fn tag_look(state: State) -> Look {
+pub const fn tag_look(state: State) -> Look {
     match state {
         State::Hover => look(theme::BG, theme::BORDER_STRONG, W, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY_HOVER),
         _ => look(theme::BG, theme::BORDER_STRONG, W, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY),
     }
 }
 
-pub fn tag_ring(state: State) -> Color32 {
-    if state == State::Focused {
+pub const fn tag_ring(focused: bool) -> Color32 {
+    if focused {
         theme::FOCUS_RING
     } else {
         CLEAR
     }
 }
 
-pub fn status_dot(tone: DotTone) -> Color32 {
+pub const fn status_dot(tone: DotTone) -> Color32 {
     match tone {
         DotTone::Info => theme::ICON_BRAND_PRIMARY,
         DotTone::Error => theme::DANGER,

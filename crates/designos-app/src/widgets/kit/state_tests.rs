@@ -60,12 +60,22 @@ fn disabled_is_half_alpha_of_default() {
         let (got, _) = actual(row, State::Disabled);
         let (base, _) = actual(row, State::Default);
         let same = ["fill", "border", "text", "icon"].iter().all(|key| disabled_cell[key] == resting[key]);
-        if same {
-            assert_eq!(got, disabled(base), "{row} disabled");
+        if row == "Checkbox/Box" {
+            assert!(!same, "Checkbox/Box disabled follows its own row");
+            assert_ne!(got, disabled(base), "Checkbox/Box disabled");
         } else {
-            assert_ne!(got, disabled(base), "{row} disabled base is not the resting cell");
-            assert_eq!(got.fill, half_color(token_fill(disabled_cell, "fill")));
-            assert_eq!(got.border, half_color(token_fill(disabled_cell, "border")));
+            assert!(same, "{row} disabled cell");
+            assert_eq!(got, disabled(base), "{row} disabled");
+        }
+        for (key, got_ch) in [("fill", got.fill), ("border", got.border), ("text", got.text), ("icon", got.icon)] {
+            let src = token_fill(disabled_cell, key);
+            if src.a() != 255 {
+                continue;
+            }
+            assert_eq!(got_ch.a(), 128, "{row} {key} alpha");
+            assert_eq!(got_ch.r(), (u16::from(src.r()) * 128 / 255) as u8, "{row} {key} red");
+            assert_eq!(got_ch.g(), (u16::from(src.g()) * 128 / 255) as u8, "{row} {key} green");
+            assert_eq!(got_ch.b(), (u16::from(src.b()) * 128 / 255) as u8, "{row} {key} blue");
         }
         if let Some(hover) = states.get("Hover").filter(|cell| !cell.is_null()) {
             if hover != disabled_cell {
@@ -113,7 +123,7 @@ fn destructive_states_differ() {
         assert_eq!(look.text, theme::TEXT_WHITE);
         assert!(contrast(look.text, look.fill) >= 4.5, "destructive label");
     }
-    assert_eq!(button_ring(Hierarchy::Destructive, State::Focused), theme::FOCUS_RING_ERROR);
+    assert_eq!(button_ring(Hierarchy::Destructive, true), theme::FOCUS_RING_ERROR);
     let secondary = |state| button_look(Hierarchy::SecondaryDestructive, state);
     assert_eq!(secondary(State::Default).fill, theme::BG);
     assert_eq!(secondary(State::Hover).fill, theme::BG_ERROR_PRIMARY);
@@ -123,13 +133,14 @@ fn destructive_states_differ() {
         let look = secondary(state);
         assert!(contrast(look.text, look.fill) >= 4.5, "secondary destructive label");
     }
-    assert_eq!(button_ring(Hierarchy::SecondaryDestructive, State::Focused), theme::FOCUS_RING_ERROR);
+    assert_eq!(button_ring(Hierarchy::SecondaryDestructive, true), theme::FOCUS_RING_ERROR);
 }
 
 #[test]
 fn menu_item_pitch_matches_size() {
     assert_eq!(menu_item_height(Size::Xs), theme::CONTROL_XS);
     assert_eq!(menu_item_height(Size::Sm), theme::CONTROL_SM);
+    assert_eq!(menu_item_height(Size::Md), theme::CONTROL_MD);
     assert_eq!(theme::CONTROL_XS, 32.0);
     assert_eq!(theme::CONTROL_SM, 36.0);
     assert_eq!(MENU_INSET, theme::INSET_FRAME);
@@ -141,15 +152,15 @@ fn menu_item_pitch_matches_size() {
 }
 
 #[test]
-fn tab_heights_follow_r10_1() {
+fn tab_heights_stay_as_today() {
+    let tabs = include_str!("tabs.rs");
+    assert!(!tabs.contains("FILE_TAB_H"));
+    assert!(!tabs.contains("BG_SECONDARY_HOVER"));
+    assert!(tabs.contains("BG_SELECTED"));
     assert_eq!(SEGMENTED_STRIP_H, theme::RIGHT_TABS_H);
-    assert_eq!(SEGMENTED_STRIP_H, 24.0);
-    assert_eq!(segment_tile_h(), 20.0);
-    assert_eq!(FILE_TAB_H, 26.0);
+    assert_eq!(segment_tile_h(), theme::RIGHT_TABS_H - theme::INSET_SEGMENT * 2.0);
     assert_eq!(FILE_TAB_BAR_H, theme::CONTROL_XS);
-    assert_eq!(FILE_TAB_BAR_H, 32.0);
-    assert_eq!(SESSION_TAB_H, 24.0);
+    assert_eq!(SESSION_TAB_H, theme::RIGHT_TABS_H);
     assert_eq!(HOME_TAB_H, theme::CONTROL_SM);
-    assert_eq!(HOME_TAB_H, 36.0);
-    assert_eq!(segmented_look(State::Selected).fill, theme::BG_SECONDARY_HOVER);
+    assert_eq!(segmented_look(State::Selected).fill, theme::BG_SELECTED);
 }

@@ -1,11 +1,19 @@
 //! Pure widget looks. Each function returns colours and a border width for one state.
 //! Drawing a frame, a focus band or a control is a later step.
-#![allow(dead_code, unused_imports)]
+#![cfg_attr(not(test), allow(dead_code, unused_imports))]
 
 use egui::Color32;
 
 #[cfg(test)]
+mod contrast_table;
+#[cfg(test)]
+mod contrast_tests;
+#[cfg(test)]
+mod focus_tests;
+#[cfg(test)]
 mod guard_tests;
+#[cfg(test)]
+mod row_tests;
 #[cfg(test)]
 mod state_tests;
 #[cfg(test)]
@@ -35,7 +43,7 @@ pub use surface::{
     command_look, menu_context_look, menu_item_height, menu_panel_look, modal_look, popover_look, toast_look, tooltip_look, MENU_INSET, MENU_RADIUS,
     PILL_RADIUS,
 };
-pub use tabs::{segment_tile_h, segmented_look, segmented_ring, tab_look, tab_ring, FILE_TAB_BAR_H, FILE_TAB_H, HOME_TAB_H, SEGMENTED_STRIP_H, SESSION_TAB_H};
+pub use tabs::{segment_tile_h, segmented_look, segmented_ring, tab_look, tab_ring, FILE_TAB_BAR_H, HOME_TAB_H, SEGMENTED_STRIP_H, SESSION_TAB_H};
 
 /// Editor step, Home and dialog body, dialog footer action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,18 +88,25 @@ pub(crate) const fn look(fill: Color32, border: Color32, border_w: f32, text: Co
 }
 
 /// Half the premultiplied alpha. Opaque 255 lands on 128, matching `theme::rgba` integer math.
-pub fn half_color(c: Color32) -> Color32 {
+pub const fn half_color(c: Color32) -> Color32 {
     let a0 = c.a();
     if a0 == 0 {
         return c;
     }
-    let a = u16::from(a0).div_ceil(2);
-    let ch = |v: u8| -> u8 { ((u16::from(v) * a) / u16::from(a0)) as u8 };
-    Color32::from_rgba_premultiplied(ch(c.r()), ch(c.g()), ch(c.b()), a as u8)
+    let a = (a0 as u16).div_ceil(2);
+    let r = ((c.r() as u16 * a) / a0 as u16) as u8;
+    let g = ((c.g() as u16 * a) / a0 as u16) as u8;
+    let b = ((c.b() as u16 * a) / a0 as u16) as u8;
+    Color32::from_rgba_premultiplied(r, g, b, a as u8)
+}
+
+/// Selected fill and border, with the hovered text and icon.
+pub const fn selected_hover(selected: Look, hot: Look) -> Look {
+    Look { text: hot.text, icon: hot.icon, ..selected }
 }
 
 /// Rule for a disabled control whose table cell is the resting cell at half alpha.
-pub fn disabled(look: Look) -> Look {
+pub const fn disabled(look: Look) -> Look {
     Look {
         fill: half_color(look.fill),
         border: half_color(look.border),
