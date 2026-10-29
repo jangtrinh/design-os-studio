@@ -183,12 +183,8 @@ fn scripted_read_loop_returns_warning() {
     let warning = third.value.get("warning").unwrap_or_else(|| panic!("missing warning: {:?}", third.value));
     assert_eq!(warning["code"], json!("LOOP_SUSPECTED"), "{:?}", third.value);
     assert_eq!(warning["safe_to_retry"], json!(false), "{:?}", third.value);
-    assert_eq!(
-        warning["next_step"],
-        json!("The same call has returned the same result 3 times. Change the arguments, read the document state, or ask the user."),
-        "{:?}",
-        third.value
-    );
+    assert_eq!(warning["next_step"], json!("Change the arguments, read the document state, or ask the user."), "{:?}", third.value);
+    assert_eq!(warning["message"], json!("The same call has returned the same result 3 times"), "{:?}", third.value);
     let mut stripped = third.value.clone();
     stripped.as_object_mut().unwrap().remove("warning");
     assert_eq!(stripped, first.value);
