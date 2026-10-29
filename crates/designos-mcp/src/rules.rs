@@ -708,7 +708,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
         }
     }
     out.push_str(
-        "- **Structured errors (E15-5):** Errors carry `code`, `error_kind` (`retryable`, `fatal`, `needs_human`), `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.\n\n",
+        "- **Structured errors:** `code`, `error_kind`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.\n\n",
     );
 }
 
