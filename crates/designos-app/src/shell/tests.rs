@@ -1167,6 +1167,7 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
 }
 
 mod agent_turn_card_scroll;
+mod app_shell;
 mod board;
 mod board_home;
 mod canvas_label_rename;
