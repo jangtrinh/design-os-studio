@@ -151,6 +151,8 @@ pub struct Session {
     file_problems: SessionFileProblems,
     close_ack_timeout: Duration,
     next_close_id: u64,
+    /// The last close was cancelled or refused by the editor: the close line it left in the log is no change to the document.
+    close_retry_safe: bool,
 }
 
 #[derive(Deserialize)]
@@ -277,6 +279,7 @@ impl Session {
             file_problems,
             close_ack_timeout: Duration::from_secs(2),
             next_close_id: 0,
+            close_retry_safe: false,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
         s.load_session_options();
@@ -317,6 +320,7 @@ impl Session {
             file_problems,
             close_ack_timeout: Duration::from_secs(2),
             next_close_id: 0,
+            close_retry_safe: false,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
         s.load_session_options();
@@ -860,8 +864,9 @@ impl Session {
     fn close_timeout_error(close_id: u64) -> ToolError {
         ToolError::new(ErrorCode::EditorNotNotified, "", "The editor did not close the tab in time.")
             .with_received(json!(close_id))
-            .with_safe_to_retry(false)
-            .with_next_step("Call designos_get_document. The tab may still be open.")
+            // The close was cancelled when the wait ended, so the editor will not act on it later: asking again is safe.
+            .with_safe_to_retry(true)
+            .with_next_step("The close was cancelled and the document stayed open. Make sure the editor is running and showing the tab, then call designos_close_document again.")
     }
 
     fn close_ack_to_result(v: Value) -> Result<Value, ToolError> {
@@ -869,7 +874,7 @@ impl Session {
             let code = v.get("code").and_then(Value::as_str).and_then(ErrorCode::from_code_str).unwrap_or(ErrorCode::UnsavedChanges);
             let msg = v.get("message").and_then(Value::as_str).unwrap_or("The editor did not close the document.");
             let mut err = ToolError::new(code, if code == ErrorCode::PathRequired { "/path" } else { "/unsaved" }, msg)
-                .with_safe_to_retry(code == ErrorCode::PathRequired);
+                .with_safe_to_retry(matches!(code, ErrorCode::PathRequired | ErrorCode::EditorNotNotified));
             // The editor's refusal carries only a code and a message, so the next step must not point at fields it lacks.
             match code {
                 ErrorCode::UnsavedChanges => {
@@ -879,6 +884,9 @@ impl Session {
                     err = err.with_next_step(
                         "The document stayed open. Make the file writable and call designos_close_document again, or pass path to a new writable file.",
                     );
+                }
+                ErrorCode::EditorNotNotified => {
+                    err = err.with_next_step("The document stayed open. Show the tab in the editor, then call designos_close_document again.");
                 }
                 ErrorCode::InternalError => {
                     err = err
@@ -1063,13 +1071,16 @@ impl Session {
         let before = self.state_tuple();
         let raw_args = args.clone();
         let mut files_created: usize = 0;
+        self.close_retry_safe = false;
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_inner(name, args, &mut files_created)));
         match outcome {
             Ok(Ok(val)) => Ok(val),
             Ok(Err(mut err)) => {
                 crate::tools::errors::contextualize_corrected_example(&mut err, &raw_args);
                 let after = self.state_tuple();
-                let safe = err.safe_to_retry && (after == before) && (files_created == 0);
+                // The close line a cancelled close leaves in the log grows the log, not the document.
+                let unchanged = (after == before) || (self.close_retry_safe && after.0 == before.0 && after.1 == before.1);
+                let safe = err.safe_to_retry && unchanged && (files_created == 0);
                 #[cfg(test)]
                 if self.verify_corrected_examples {
                     if let Some(ex) = err.corrected_example.clone() {
@@ -1316,6 +1327,12 @@ impl Session {
                     intent.close_id = Some(close_id);
                 }
                 self.publish_live_close(&intent).map_err(|e| {
+                    if live {
+                        // Nothing was told to the editor and nothing was saved or closed: the same call can be made again.
+                        return ToolError::new(ErrorCode::EditorNotNotified, "", format!("The editor could not be told to close the document: {e}"))
+                            .with_safe_to_retry(true)
+                            .with_next_step("The document stayed open. Make sure the editor is running, then call designos_close_document again.");
+                    }
                     ToolError::new(
                         ErrorCode::EditorNotNotified,
                         "",
@@ -1325,7 +1342,13 @@ impl Session {
                     .with_safe_to_retry(false)
                 })?;
                 if live {
-                    let out = self.wait_for_close_ack(close_id)?;
+                    let out = match self.wait_for_close_ack(close_id) {
+                        Ok(out) => out,
+                        Err(e) => {
+                            self.close_retry_safe = e.code == ErrorCode::EditorNotNotified && e.safe_to_retry;
+                            return Err(e);
+                        }
+                    };
                     if out.get("closed").and_then(Value::as_bool) == Some(true) {
                         self.reset_closed_session();
                     }

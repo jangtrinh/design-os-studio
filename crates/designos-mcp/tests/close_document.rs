@@ -249,7 +249,8 @@ fn live_close_without_editor_ack_is_not_closed() {
     s.call("designos_save_file", json!({"path": "design.designos"})).unwrap();
     let err = s.call("designos_close_document", json!({"unsaved": "discard"})).unwrap_err().to_json_value();
     assert_ne!(err["code"], json!("UNSAVED_CHANGES"), "timeout is not unsaved: {err}");
-    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
+    assert_eq!(err["safe_to_retry"], true, "the close was cancelled, so asking again is safe: {err}");
     assert!(err.get("closed").is_none() || err["closed"] != true, "must not claim closed: {err}");
     let cancel: Value = serde_json::from_slice(&fs::read(session_dir.join("close-cancel.json")).expect("cancel written")).unwrap();
     assert!(cancel["close_id"].as_u64().is_some(), "{cancel}");
@@ -381,4 +382,57 @@ fn live_close_fail_ack_forwards_a_known_code() {
         assert_eq!(err["safe_to_retry"], false, "{err}");
         assert!(s.call("designos_get_document", json!({})).is_ok(), "session stays open after fail");
     });
+}
+
+/// A file with no path of its own (a library file) closed with save while the editor is not answering: the
+/// document is not "untitled", so the answer is that the editor is unavailable, and asking again is safe.
+#[test]
+fn live_close_save_with_an_unreachable_editor_is_retryable_not_path_required() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 3);
+    let err = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap_err().to_json_value();
+    assert_ne!(err["code"], json!("PATH_REQUIRED"), "{err}");
+    assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
+    assert_eq!(err["safe_to_retry"], true, "{err}");
+    let next = err["next_step"].as_str().unwrap_or("");
+    assert!(next.contains("designos_close_document again") && !next.contains("valid_options"), "{err}");
+    assert!(session_dir.join("close-cancel.json").exists(), "the close is cancelled so the editor cannot act on it later");
+}
+
+/// The editor cannot be reached at all (its log is gone): the same answer, and the document stays open.
+#[test]
+fn live_close_save_that_cannot_reach_the_editor_log_is_retryable() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 4);
+    fs::remove_dir_all(&session_dir).unwrap();
+    let err = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap_err().to_json_value();
+    assert_ne!(err["code"], json!("PATH_REQUIRED"), "{err}");
+    assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
+    assert_eq!(err["safe_to_retry"], true, "{err}");
+    assert!(err["message"].as_str().unwrap_or("").contains("could not be told"), "{err}");
+}
+
+/// The editor itself answers that the tab is not the one shown: nothing changed, so it is retryable too.
+#[test]
+fn editor_ack_that_the_tab_is_not_shown_is_retryable() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 5);
+    let answer = session_dir.clone();
+    let writer = thread::spawn(move || {
+        let log = answer.join("doc-patch.jsonl");
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end {
+            if fs::read_to_string(&log).map(|r| r.contains("close_id")).unwrap_or(false) {
+                let body = json!({"close_id": 1, "ok": false, "code": "EDITOR_NOT_NOTIFIED", "message": "The close was dropped because that tab is not the one currently shown. Switch to it, then try again."});
+                fs::write(answer.join(CloseIntent::RESULT_FILE), body.to_string()).unwrap();
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    });
+    let err = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap_err().to_json_value();
+    writer.join().unwrap();
+    assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
+    assert_eq!(err["safe_to_retry"], true, "{err}");
+    assert!(err["message"].as_str().unwrap_or("").contains("not the one currently shown"), "{err}");
 }
