@@ -70,7 +70,6 @@ pub fn vline(p: &Painter, x: f32, y0: f32, y1: f32, color: Color32) {
 }
 
 /// Floating chrome draws no shadow. The arguments stay so existing callers compile.
-#[allow(dead_code)]
 pub fn shadow(_p: &Painter, _rect: Rect, _radius: u8, _offset: Vec2, _blur: f32, _color: Color32) {}
 
 /// Floating chrome draws no shadow.
@@ -152,6 +151,12 @@ pub fn icon_button(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, icon: 
 
 /// Checkerboard-backed color swatch.
 pub fn swatch(p: &Painter, rect: Rect, color: Color32) {
+    swatch_focused(p, rect, color, false);
+}
+
+/// A swatch inside a control that holds keyboard focus: the control passes its own focus, so the swatch never takes a click.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn swatch_focused(p: &Painter, rect: Rect, color: Color32, focused: bool) {
     let r = theme::cr(theme::SWATCH_RADIUS);
     p.rect_filled(rect, r, theme::CHECKER_A);
     if color.a() < 255 {
@@ -160,7 +165,7 @@ pub fn swatch(p: &Painter, rect: Rect, color: Color32) {
         p.rect_filled(Rect::from_min_size(rect.min + Vec2::new(h, h), Vec2::new(h, h)), 0.0, theme::CHECKER_B);
     }
     p.rect_filled(rect, r, color);
-    kit::swatch_ring(p, rect, false, false);
+    kit::swatch_ring(p, rect, false, focused);
 }
 
 /// Filled circle swatch with a thin translucent ring; several colours blend along the diagonal.

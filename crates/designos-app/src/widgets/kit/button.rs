@@ -153,8 +153,8 @@ pub fn button(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, kind: Hierarc
 /// Icon-only button. `Hierarchy::Primary` is the send control; panels use `Hierarchy::Icon`.
 #[allow(clippy::too_many_arguments)]
 pub fn button_icon(ui: &mut Ui, rect: Rect, key: impl Key, icon: Icon, kind: Hierarchy, size: Size, enabled: bool, selected: bool) -> Response {
-    let response = ui.interact(rect, ui.id().with(key), sense(enabled));
-    let paint = chrome(kind, &response, selected, enabled);
+    let response = ui.interact(rect, ui.id().with(key), sense(enabled && ui.is_enabled()));
+    let paint = chrome(kind, &response, selected, enabled || !ui.is_enabled());
     paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &paint);
     widgets::paint_icon_in(ui.painter(), rect, icon, icon_px(size), paint.icon);
     draw_ring(ui, rect, kind, &response);

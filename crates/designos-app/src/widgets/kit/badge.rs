@@ -1,7 +1,8 @@
 use super::focus::{keyboard_focus, paint_ring};
 use super::{look, paint_frame, Look, State};
+use crate::icons::Icon;
 use crate::theme;
-use crate::widgets::Key;
+use crate::widgets::{self, Key};
 use egui::{Color32, Painter, Pos2, Rect, Response, Sense, Ui};
 
 const W: f32 = theme::BORDER_WIDTH;
@@ -65,7 +66,7 @@ pub const fn status_color(tone: DotTone) -> Color32 {
 #[allow(dead_code)]
 pub fn count_badge(p: &Painter, rect: Rect, text: &str, tone: Tone) {
     let paint = count_badge_look(tone);
-    paint_frame(p, rect, theme::RADIUS_MARK, &paint);
+    paint_frame(p, rect, theme::radius_full(rect.height()).round() as u8, &paint);
     let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
     p.text(rect.center(), egui::Align2::CENTER_CENTER, text, font, paint.text);
 }
@@ -75,10 +76,13 @@ pub fn tag(ui: &mut Ui, rect: Rect, key: impl Key, label: &str) -> Response {
     let response = ui.interact(rect, ui.id().with(key), Sense::click());
     let hot = response.hovered() || response.is_pointer_button_down_on();
     let paint = tag_look(if hot { State::Hover } else { State::Default });
-    paint_frame(ui.painter(), rect, theme::RADIUS_MARK, &paint);
+    paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &paint);
     let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, font, paint.text);
-    paint_ring(ui.painter(), rect, theme::RADIUS_MARK as f32, tag_ring(keyboard_focus(ui, response.id)));
+    let side = theme::LAYER_ICON_SIZE;
+    let close = Rect::from_center_size(egui::pos2(rect.right() - theme::INSET_FRAME - side * 0.5, rect.center().y), egui::Vec2::splat(side));
+    widgets::paint_icon_in(ui.painter(), close, Icon::Close, theme::FONT_SIZE_TEXT_XS, paint.icon);
+    paint_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32, tag_ring(keyboard_focus(ui, response.id)));
     response
 }
 

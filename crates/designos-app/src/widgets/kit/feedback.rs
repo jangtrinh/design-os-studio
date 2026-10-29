@@ -45,27 +45,40 @@ pub const fn tile_look(kind: TileKind) -> Look {
 #[allow(dead_code)]
 pub fn progress_bar(p: &Painter, rect: Rect, fraction: f32) {
     let paint = progress_look();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_MARK), paint.fill);
+    let curve = theme::cr_pill(rect.height());
+    p.rect_filled(rect, curve, paint.fill);
     let mut done = rect;
     done.max.x = rect.min.x + rect.width() * fraction.clamp(0.0, 1.0);
     if done.width() > 0.0 {
-        p.rect_filled(done, theme::cr(theme::RADIUS_MARK), paint.icon);
+        p.rect_filled(done, curve, paint.icon);
     }
 }
 
 #[allow(dead_code)]
 pub fn loading_ring(p: &Painter, center: Pos2, radius: f32) {
     let paint = loading_look();
-    p.circle_filled(center, radius, paint.fill);
-    p.circle_stroke(center, radius, egui::Stroke::new(paint.border_w.max(theme::BORDER_WIDTH), paint.icon));
+    p.circle_stroke(center, radius, egui::Stroke::new(theme::BORDER_WIDTH, theme::BG_TERTIARY));
+    let steps = 18;
+    let sweep = std::f32::consts::PI * 1.5;
+    let start = -std::f32::consts::FRAC_PI_2;
+    let mut points = Vec::with_capacity(steps + 1);
+    for i in 0..=steps {
+        let ang = start + sweep * (i as f32 / steps as f32);
+        points.push(egui::pos2(center.x + ang.cos() * radius, center.y + ang.sin() * radius));
+    }
+    let stroke = egui::epaint::PathStroke::new(theme::BORDER_WIDTH * 2.0, paint.icon);
+    p.add(egui::Shape::Path(egui::epaint::PathShape::line(points, stroke)));
 }
 
 #[allow(dead_code)]
 pub fn empty_state(p: &Painter, rect: Rect, title: &str) {
     let paint = empty_state_look();
-    paint_frame(p, rect, theme::RADIUS_XL, &paint);
-    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium);
-    p.text(rect.center(), egui::Align2::CENTER_CENTER, title, font, paint.text);
+    let side = theme::CONTROL_XS;
+    let tile = Rect::from_center_size(egui::pos2(rect.center().x, rect.top() + side * 0.5), egui::Vec2::splat(side));
+    paint_frame(p, tile, theme::RADIUS_CONTROL, &tile_look(TileKind::Neutral));
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    let gap = theme::SPACE_FACT + theme::INSET_SEGMENT;
+    p.text(egui::pos2(rect.center().x, tile.bottom() + gap), egui::Align2::CENTER_TOP, title, font, paint.text);
 }
 
 #[allow(dead_code)]

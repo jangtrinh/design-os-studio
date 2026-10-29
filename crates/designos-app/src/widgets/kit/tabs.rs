@@ -61,11 +61,8 @@ pub const fn tab_look(state: State) -> Look {
 }
 
 #[allow(dead_code)]
-fn label_font(size: Size) -> egui::FontId {
-    match size {
-        Size::Xs => theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium),
-        Size::Sm | Size::Md => theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium),
-    }
+fn label_font() -> egui::FontId {
+    theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Semibold)
 }
 
 #[allow(dead_code)]
@@ -76,16 +73,19 @@ fn paint_cell(ui: &Ui, cell: Rect, paint: &Look, label: &str, font: egui::FontId
 }
 
 #[allow(dead_code)]
-pub fn segmented(ui: &mut Ui, rect: Rect, key: impl Key, items: &[&str], selected: usize, size: Size) -> Option<usize> {
+pub fn segmented(ui: &mut Ui, rect: Rect, key: impl Key, items: &[&str], selected: usize, _size: Size) -> Option<usize> {
     if items.is_empty() {
         return None;
     }
-    let font = label_font(size);
+    let shell = look(theme::BG_SECONDARY, CLEAR, 0.0, CLEAR, CLEAR);
+    paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &shell);
+    let font = label_font();
     let salt = ui.id().with(key);
-    let width = rect.width() / items.len() as f32;
+    let inner = rect.shrink(theme::INSET_SEGMENT);
+    let width = inner.width() / items.len() as f32;
     let mut picked = None;
     for (i, label) in items.iter().enumerate() {
-        let cell = Rect::from_min_size(egui::pos2(rect.left() + width * i as f32, rect.top()), egui::vec2(width, rect.height()));
+        let cell = Rect::from_min_size(egui::pos2(inner.left() + width * i as f32, inner.top()), egui::vec2(width, inner.height()));
         let response = ui.interact(cell, salt.with(i), Sense::click());
         let on = i == selected;
         let state = state_of(&response, on, true);
@@ -111,6 +111,6 @@ pub fn tab(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected: bool) 
     } else {
         tab_look(state)
     };
-    paint_cell(ui, rect, &paint, label, label_font(Size::Sm), tab_ring(keyboard_focus(ui, response.id)), theme::RADIUS_CONTROL);
+    paint_cell(ui, rect, &paint, label, label_font(), tab_ring(keyboard_focus(ui, response.id)), theme::RADIUS_CONTROL);
     response
 }

@@ -41,13 +41,8 @@ pub const fn select_look(state: State) -> Look {
 
 /// Field chrome. Focus widens the border; there is no hover stroke and no focus ring.
 pub fn paint_field(ui: &egui::Ui, rect: egui::Rect, id: egui::Id, size: Size, invalid: bool) {
-    let state = if !ui.is_enabled() {
-        State::Disabled
-    } else if ui.memory(|mem| mem.has_focus(id)) {
-        State::Focused
-    } else {
-        State::Default
-    };
+    // A disabled `Ui` already multiplies painter opacity. Halving here as well would dim twice.
+    let state = if ui.is_enabled() && ui.memory(|mem| mem.has_focus(id)) { State::Focused } else { State::Default };
     let radius = match size {
         Size::Xs | Size::Sm | Size::Md => theme::RADIUS_CONTROL,
     };

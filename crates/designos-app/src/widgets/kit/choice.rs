@@ -89,10 +89,20 @@ fn click(ui: &mut Ui, rect: Rect, key: impl Key, enabled: bool) -> Response {
     ui.interact(rect, ui.id().with(key), if enabled { Sense::click() } else { Sense::hover() })
 }
 
+/// Pressed is not its own look: the control keeps the value it already shows.
+fn held_value(response: &Response, value: bool, enabled: bool) -> State {
+    match state_of(response, value, enabled) {
+        State::Pressed if value => State::Selected,
+        State::Pressed => State::Default,
+        other => other,
+    }
+}
+
 pub fn checkbox(ui: &mut Ui, rect: Rect, key: impl Key, value: bool, enabled: bool) -> Response {
     let response = click(ui, rect, key, enabled);
-    let paint = checkbox_look(state_of(&response, value, enabled));
-    let box_rect = Rect::from_center_size(rect.center(), Vec2::splat(theme::LAYER_ICON_SIZE));
+    let paint = checkbox_look(held_value(&response, value, enabled));
+    let side = theme::LAYER_ICON_SIZE;
+    let box_rect = Rect::from_min_size(egui::pos2(rect.left(), rect.center().y - side * 0.5), Vec2::splat(side));
     paint_frame(ui.painter(), box_rect, theme::SPACE_FACT as u8, &paint);
     if value {
         let on = checkbox_look(State::Selected);
@@ -106,10 +116,11 @@ pub fn checkbox(ui: &mut Ui, rect: Rect, key: impl Key, value: bool, enabled: bo
 #[allow(dead_code)]
 pub fn toggle(ui: &mut Ui, rect: Rect, key: impl Key, on: bool, enabled: bool) -> Response {
     let response = click(ui, rect, key, enabled);
-    let paint = toggle_look(state_of(&response, on, enabled));
-    paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &paint);
-    let knob = rect.height() * 0.5 - theme::SPACE_FACT * 0.5;
-    let cx = if on { rect.right() - knob - theme::SPACE_FACT } else { rect.left() + knob + theme::SPACE_FACT };
+    let paint = toggle_look(held_value(&response, on, enabled));
+    let radius = theme::radius_full(rect.height()).round() as u8;
+    paint_frame(ui.painter(), rect, radius, &paint);
+    let knob = theme::radius_full(theme::LAYER_ICON_SIZE);
+    let cx = if on { rect.right() - theme::INSET_SEGMENT - knob } else { rect.left() + theme::INSET_SEGMENT + knob };
     ui.painter().circle_filled(egui::pos2(cx, rect.center().y), knob.max(0.0), paint.icon);
     paint_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32, toggle_ring(keyboard_focus(ui, response.id)));
     response
@@ -124,11 +135,14 @@ pub fn radio_card(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected:
     } else {
         radio_card_look(state)
     };
-    paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &paint);
-    let center = egui::pos2(rect.left() + theme::LAYER_ICON_SIZE, rect.center().y);
-    ui.painter().circle_stroke(center, theme::SPACE_FACT, egui::Stroke::new(theme::BORDER_WIDTH, paint.icon));
+    paint_frame(ui.painter(), rect, theme::RADIUS_XL, &paint);
+    let radio_r = theme::LAYER_ICON_SIZE * 0.5;
+    let center = egui::pos2(rect.left() + theme::INSET_PANEL + radio_r, rect.center().y);
     if selected {
-        ui.painter().circle_filled(center, theme::SPACE_FACT * 0.5, paint.mark);
+        ui.painter().circle_filled(center, radio_r, paint.icon);
+        ui.painter().circle_filled(center, theme::INSET_SEGMENT + theme::BORDER_WIDTH, paint.mark);
+    } else {
+        ui.painter().circle_stroke(center, radio_r, egui::Stroke::new(theme::BORDER_WIDTH, paint.icon));
     }
     let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium);
     ui.painter().text(egui::pos2(center.x + theme::LAYER_ICON_SIZE, rect.center().y), egui::Align2::LEFT_CENTER, label, font, paint.text);
@@ -141,7 +155,7 @@ pub fn slider_handle(ui: &mut Ui, rect: Rect, key: impl Key, enabled: bool) -> R
     let response = ui.interact(rect, ui.id().with(key), if enabled { Sense::click_and_drag() } else { Sense::hover() });
     let paint = slider_handle_look(state_of(&response, false, enabled));
     let radius = rect.width().min(rect.height()) * 0.5;
-    ui.painter().circle_filled(rect.center(), radius, paint.fill);
+    ui.painter().circle_filled(rect.center(), radius, paint.icon);
     ui.painter().circle_stroke(rect.center(), radius, egui::Stroke::new(paint.border_w, paint.border));
     paint_ring(ui.painter(), rect, radius, slider_ring(keyboard_focus(ui, response.id)));
     response

@@ -79,7 +79,7 @@ pub fn menu_row_look(disabled_row: bool, hot: bool, checked: bool) -> Look {
 
 #[allow(dead_code)]
 pub fn tree_row_bg(p: &Painter, rect: Rect, state: State, surface: Surface) {
-    paint_frame(p, rect, 0, &tree_row_look(state, surface));
+    paint_frame(p, rect, theme::RADIUS_CONTROL, &tree_row_look(state, surface));
 }
 
 #[allow(dead_code)]
@@ -91,8 +91,8 @@ pub fn list_row(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected: b
     } else {
         row_look(state, surface)
     };
-    paint_frame(ui.painter(), rect, 0, &paint);
-    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium);
+    paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &paint);
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
     ui.painter().text(egui::pos2(rect.left() + theme::INSET_FRAME, rect.center().y), egui::Align2::LEFT_CENTER, label, font, paint.text);
     paint_ring(ui.painter(), rect, 0.0, list_row_ring(keyboard_focus(ui, response.id)));
     response
@@ -102,7 +102,7 @@ pub fn list_row(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected: b
 pub fn panel_header(p: &Painter, rect: Rect, label: &str) {
     let paint = panel_header_look();
     let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
-    p.text(egui::pos2(rect.left(), rect.center().y), egui::Align2::LEFT_CENTER, label, font, paint.text);
+    p.text(egui::pos2(rect.left() + theme::INSET_PANEL, rect.center().y), egui::Align2::LEFT_CENTER, label, font, paint.text);
 }
 
 #[allow(dead_code)]

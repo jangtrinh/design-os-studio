@@ -241,7 +241,7 @@ pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
                 .fixed_pos(Pos2::new(pos.x + theme::MENU_PADDING, row_y + theme::MENU_PADDING))
                 .interactable(false)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    crate::widgets::kit::menu_frame().show(ui, |ui| {
                         ui.label(tip_text);
                     });
                 });

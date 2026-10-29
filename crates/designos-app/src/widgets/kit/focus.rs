@@ -29,8 +29,12 @@ pub(crate) fn paint_ring(p: &Painter, rect: Rect, radius: f32, color: Color32) {
     if color == Color32::TRANSPARENT {
         return;
     }
+    let widened = p.clip_rect().expand(theme::SPACE_FACT);
+    // `with_clip_rect` intersects, so it cannot grow. Set the widened rect after that call.
+    let mut p = p.with_clip_rect(widened);
+    p.set_clip_rect(widened);
     let outer = rect.expand(theme::SPACE_FACT);
-    let snapped = Rect::from_min_max(egui::pos2(snap(p, outer.min.x), snap(p, outer.min.y)), egui::pos2(snap(p, outer.max.x), snap(p, outer.max.y)));
+    let snapped = Rect::from_min_max(egui::pos2(snap(&p, outer.min.x), snap(&p, outer.min.y)), egui::pos2(snap(&p, outer.max.x), snap(&p, outer.max.y)));
     let curve = (radius + theme::SPACE_FACT).round().clamp(0.0, 255.0) as u8;
     p.rect_stroke(snapped, egui::CornerRadius::same(curve), Stroke::new(2.0, color), StrokeKind::Inside);
 }

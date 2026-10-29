@@ -11,6 +11,16 @@ mod focus_tests;
 #[cfg(test)]
 mod guard_tests;
 #[cfg(test)]
+mod painter_form_tests;
+#[cfg(test)]
+mod painter_live_tests;
+#[cfg(test)]
+mod painter_minor_tests;
+#[cfg(test)]
+mod painter_place_tests;
+#[cfg(test)]
+mod painter_shape_tests;
+#[cfg(test)]
 mod row_tests;
 #[cfg(test)]
 mod state_tests;
@@ -31,30 +41,30 @@ mod rows;
 mod surface;
 mod tabs;
 
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use badge::{count_badge, count_badge_look, status_color, status_dot, tag, tag_look, tag_ring, DotTone, Tone};
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use button::{button, button_icon, button_look, button_ring, paint_icon_bg, Hierarchy};
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use choice::{
     checkbox, checkbox_look, checkbox_ring, radio_card, radio_card_look, radio_ring, slider_handle, slider_handle_look, slider_ring, swatch_look, swatch_ring,
     swatch_ring_color, toggle, toggle_look, toggle_ring,
 };
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use feedback::{empty_state, empty_state_look, loading_look, loading_ring, progress_bar, progress_look, tile_icon, tile_look, TileKind};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use field::{field_look, paint_field, property_field_look, search_look, select_look};
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use rows::{
     divider_look, list_row, list_row_ring, menu_item_look, menu_row_look, panel_header, panel_header_look, row_look, section_header, section_header_look,
     separator_look, shortcut_look, tree_row_bg, tree_row_look,
 };
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use surface::{
-    command_bar_surface, command_look, menu_context_look, menu_item_height, menu_panel_look, menu_surface, modal_look, modal_surface, popover_look,
+    command_bar_surface, command_look, menu_context_look, menu_frame, menu_item_height, menu_panel_look, menu_surface, modal_look, modal_surface, popover_look,
     popover_surface, toast_look, toast_surface, tooltip_frame, tooltip_look, MENU_INSET, MENU_RADIUS, PILL_RADIUS,
 };
-#[allow(unused_imports)]
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use tabs::{
     segment_tile_h, segmented, segmented_look, segmented_ring, tab, tab_look, tab_ring, FILE_TAB_BAR_H, HOME_TAB_H, SEGMENTED_STRIP_H, SESSION_TAB_H,
 };
@@ -63,6 +73,7 @@ pub use tabs::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Size {
     Xs,
+    #[cfg_attr(not(test), allow(dead_code))]
     Sm,
     #[cfg_attr(not(test), allow(dead_code))]
     Md,
