@@ -3367,5 +3367,250 @@
     "anchor_y": "centre",
     "spec": "K",
     "reason": "rule 3: the floating Variables panel's sidebar rows, header and sidebar buttons keep their size and place. This pin keeps them under spec K, because the left panel's header buttons share their x range."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-workspace-header",
+    "min_dh": 2,
+    "max_dh": 4,
+    "spec": "H",
+    "reason": "R5 table 3 (Workspace header 32 to 36): Workspace header grows from 32 to 36 and stays top-aligned. The shared header row's union grows by 2."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-notifications",
+    "min_dh": 2,
+    "max_dh": 2,
+    "spec": "H",
+    "reason": "R5 table 3 (Workspace header 32 to 36): The 24 px activity button keeps its size and is centred on the taller workspace row, so it sits 2 px lower (dy). Its row range is exactly the header row union growth of 2.",
+    "dy": 2
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-import",
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "min_dw": 4.25,
+    "max_dw": 4.25,
+    "min_dh": 2,
+    "max_dh": 4,
+    "spec": "H",
+    "reason": "R5 table 3 (Header buttons 32 to 36): Import is a 36 px header button, centred in the 64 px header, right edge fixed. Width follows the 14 px label."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-new-board",
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "min_dw": 13,
+    "max_dw": 13,
+    "min_dh": 2,
+    "max_dh": 4,
+    "spec": "H",
+    "reason": "R5 table 3 (Header buttons 32 to 36): New board is a 36 px header button, centred in the 64 px header, right edge fixed. Width follows the 14 px label."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-new-file",
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "min_dw": 10.25,
+    "max_dw": 10.25,
+    "min_dh": 2,
+    "max_dh": 4,
+    "spec": "H",
+    "reason": "R5 table 3 (Header buttons 32 to 36): New file is a 36 px header button, centred in the 64 px header, right edge fixed. Width follows the 14 px label."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-search",
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": 2,
+    "spec": "H",
+    "reason": "R5 table 3 (Sidebar search 32 to 36): Search grows from 32 to 36 and moves down 4. The header row union explains 2, so the rest is dy 2."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "h_base": 32,
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": 2,
+    "spec": "H",
+    "reason": "R5 table 3 (Sidebar search 32 to 36): The search text field grows with the 36 px search control and moves down 4. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-filter",
+    "min_dw": 16,
+    "max_dw": 16,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Filter/sort pills and view toggles 28 to 36): Filter menu trigger grows from 28 to 36 and keeps its y under the 64 px header. Width follows the 14 px label. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-sort",
+    "min_dw": 19,
+    "max_dw": 19,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Filter/sort pills and view toggles 28 to 36): Sort menu trigger grows from 28 to 36 and keeps its y under the 64 px header. Width follows the 14 px label. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-view-grid",
+    "anchor_x": "right",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Filter/sort pills and view toggles 28 to 36): Grid toggle grows from 28 to 36, stays on the filter band, and keeps its right edge. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-view-list",
+    "anchor_x": "right",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Filter/sort pills and view toggles 28 to 36): List toggle grows from 28 to 36, stays on the filter band, and keeps its right edge. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-recents",
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36): Recents row grows from 28 to 36 and moves down 8 with the search block. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-templates",
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36): Templates row grows from 28 to 36 and moves down 16 with the rows above it. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-new-project",
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36, which push it down): New project stays 24 px and moves down 24 with the section heading. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-drafts",
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36): Drafts row grows from 28 to 36 and moves down 24 with the rows above it. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-all-projects",
+    "min_dh": 4,
+    "max_dh": 8,
+    "dy": -6,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36): All folders grows from 28 to 36 and moves down 32. It shares a row with the file card, whose union grows by 4. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-resources",
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -2,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36): Resources row grows from 28 to 36 and moves down 40 with the rows above it. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-project-Getting started",
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -2,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36): Project tree row grows from 28 to 36 and moves down 48. The list still scrolls. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-card-",
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": -30,
+    "spec": "H",
+    "reason": "R5 table 3 (File card meta block 58 to 62): File card grows from 198 to 202 and starts 8 px lower with the taller filter band. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-kind-",
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": -30,
+    "spec": "H",
+    "reason": "R5 table 3 (File card meta block 58 to 62): File-type mark uses the same rect as the file card: height 202, top 8 px lower. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "h_base": 24,
+    "dy": -22,
+    "spec": "H",
+    "reason": "R5 table 3 (File card meta block 58 to 62): The card star stays 24 px and moves down 8 with the card. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-starred",
+    "anchor_y": "bottom",
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": 8,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36): Starred grows from 28 to 36 and keeps its bottom edge. dy is the gate correction over the derived row sum, not the visual move."
+  },
+  {
+    "case": "h-home",
+    "region": "home",
+    "name_prefix": "home-trash",
+    "anchor_y": "bottom",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "H",
+    "reason": "R5 table 3 (Nav rows 28 to 36): Trash grows from 28 to 36 and keeps its bottom edge."
   }
 ]

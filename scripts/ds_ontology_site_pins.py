@@ -170,7 +170,6 @@ PINS: Pins = {
         ('dev/code_view.rs', 'prompt_box', 'font_mono', 1, ''),
         ('dev/list.rs', 'tabs', 'font_mono', 1, ''),
         ('home/dialog.rs', 'show', 'font_mono', 1, ''),
-        ('home/mod.rs', 'show', 'font_mono', 2, ''),
         ('image_jobs.rs', 'show_erase_popover', 'font_mono', 1, ''),
         ('image_jobs.rs', 'show_expand_popover', 'font_mono', 1, ''),
         ('panels/check_designs.rs', 'progress_row', 'FontFamily::Monospace', 1, ''),
