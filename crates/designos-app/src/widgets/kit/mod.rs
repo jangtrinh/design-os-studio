@@ -46,7 +46,7 @@ mod surface;
 mod tabs;
 
 #[cfg_attr(not(test), allow(unused_imports))]
-pub use badge::{count_badge, count_badge_look, status_color, status_dot, tag, tag_look, tag_ring, DotTone, Tone};
+pub use badge::{count_badge, count_badge_look, status_color, status_dot, status_tag, tag, tag_look, tag_ring, DotTone, Tone};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use button::{button, button_icon, button_look, button_ring, paint_icon_bg, Hierarchy};
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -58,6 +58,8 @@ pub use choice::{
 pub use feedback::{empty_state, empty_state_look, loading_look, loading_ring, progress_bar, progress_look, tile_icon, tile_look, TileKind};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use field::{field_look, paint_field, property_field_look, search_look, select_look};
+#[cfg_attr(not(test), allow(unused_imports))]
+pub use focus::{focus_ring, keyboard_focus};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use rows::{
     divider_look, list_row, list_row_ring, menu_item_look, menu_row_look, panel_header, panel_header_look, row_look, section_header, section_header_look,

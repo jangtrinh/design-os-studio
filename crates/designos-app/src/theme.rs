@@ -978,6 +978,7 @@ pub const VAR_SCROLL_THUMB: Color32 = rgb(0x737373);
 pub const VAR_SEARCH_W: f32 = 174.0;
 pub const VAR_FILTER_W: f32 = 25.0;
 pub const VAR_SIDE_ROW: f32 = CONTROL_XS;
+#[cfg_attr(not(test), allow(dead_code))] // alias of BADGE_MD; the size test still checks it
 pub const VAR_PILL_H: f32 = BADGE_MD;
 pub const VAR_ICON_X: f32 = 16.0;
 pub const VAR_NAME_X: f32 = 44.0;
@@ -986,6 +987,7 @@ pub const VAR_HEX_X: f32 = 30.0;
 pub const VAR_HEX_W: f32 = 146.0;
 pub const VAR_OPACITY_W: f32 = 62.0;
 pub const VAR_OPACITY_RIGHT: f32 = 74.0;
+#[allow(dead_code)] // legacy field height; call sites read FIELD_HEIGHT
 pub const VAR_FIELD_H: f32 = 24.0;
 pub const VAR_POPOVER_W: f32 = 264.0;
 

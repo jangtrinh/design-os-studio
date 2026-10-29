@@ -142,9 +142,7 @@ PINS: Pins = {
         ('skills/mod.rs', 'show_picker_popover', 'READY', 1, 'debt'),
         ('specs.rs', 'show_right', 'ON THIS PAGE', 1, 'debt (hidden reader)'),
     ],
-    "ns2": [
-        ('panels/check_designs.rs', 'rules_popover', 'BG_BRAND', 1, 'debt (AA/AAA active segment)'),
-    ],
+    "ns2": [],
     "ns4": [
         ('home/main_view.rs', 'thumb_area', 'Mesh::default()', 1, 'orphan file, not in the module tree (home/mod.rs declares main_view inline)'),
         ('home/mod.rs', 'thumb_area', 'Mesh::default()', 1, 'content preview (board thumbnail dots)'),

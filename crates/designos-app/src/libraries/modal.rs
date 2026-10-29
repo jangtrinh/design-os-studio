@@ -6,14 +6,16 @@ use crate::app::App;
 use crate::icons::{self, Icon};
 use crate::panels::{clipped, scrollbar, wheel_scroll};
 use crate::theme;
-use crate::widgets::{self, field};
+use crate::widgets;
 use designos_doc::*;
-use egui::{Align2, Color32, Context, Id, Key, Order, Pos2, Rect, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
+use egui::{Align2, Color32, Context, Id, Key, Order, Pos2, Rect, Sense, TextEdit, Ui, Vec2};
 
 const HEADER_H: f32 = 48.0;
-const PAD: f32 = 20.0;
+const PAD: f32 = theme::INSET_MODAL;
 const ROW_H: f32 = 60.0;
-const CHANGE_ROW_H: f32 = 20.0;
+const CHANGE_PITCH: f32 = 20.0;
+const FIELD_SLOT_H: f32 = 28.0;
+const SEARCH_SLOT_H: f32 = 24.0;
 const MAX_CHANGES_SHOWN: usize = 4;
 
 pub(super) fn kind_label(kind: LibraryAssetKind) -> &'static str {
@@ -49,11 +51,7 @@ pub(super) fn frame(ctx: &Context, id: &'static str, m: Rect, body: impl FnOnce(
         .show(ctx, |ui| {
             ui.allocate_rect(screen, Sense::hover());
             let scrim = ui.interact(screen, Id::new((id, "scrim")), Sense::click_and_drag());
-            ui.painter().rect_filled(screen, 0.0, Color32::from_black_alpha(120));
-            let p = ui.painter().clone();
-            widgets::elevation_400(&p, m, theme::RADIUS_FRAME);
-            p.rect_filled(m, theme::cr(theme::RADIUS_FRAME), theme::BG);
-            p.rect_stroke(m, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
+            crate::widgets::kit::modal_surface(ui.painter(), screen, m);
             ui.interact(m, Id::new((id, "body")), Sense::click_and_drag());
             let closed = body(ui);
             closed || scrim.clicked() && ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| !m.contains(p))
@@ -66,42 +64,26 @@ pub(super) fn header(ui: &mut Ui, m: Rect, title: &str, close_key: &'static str)
     let p = ui.painter().clone();
     p.text(Pos2::new(m.left() + PAD, m.top() + HEADER_H / 2.0), Align2::LEFT_CENTER, title, theme::font_large_strong(), theme::TEXT);
     widgets::hline(&p, m.left(), m.right(), m.top() + HEADER_H - 1.0, theme::BORDER);
-    let cb = Rect::from_center_size(Pos2::new(m.right() - 28.0, m.top() + HEADER_H / 2.0), Vec2::splat(28.0));
-    let r = ui.interact(cb, Id::new(close_key), Sense::click());
-    widgets::button_bg(&p, cb, &r, false, theme::cr(theme::RADIUS_CONTROL));
+    let side = theme::CONTROL_SM;
+    let cb = Rect::from_center_size(Pos2::new(m.right() - PAD - side / 2.0, m.top() + HEADER_H / 2.0), Vec2::splat(side));
+    let r = widgets::icon_button(ui, cb, close_key, Icon::Close, false, "");
     widgets::record(ui, close_key, cb);
-    let c = cb.center();
-    let st = Stroke::new(1.3, theme::ICON);
-    p.line_segment([c + Vec2::new(-4.5, -4.5), c + Vec2::new(4.5, 4.5)], st);
-    p.line_segment([c + Vec2::new(-4.5, 4.5), c + Vec2::new(4.5, -4.5)], st);
     r.clicked()
 }
 
 /// Text button; `primary` fills it with the brand colour.
 pub(super) fn button(ui: &mut Ui, rect: Rect, key: &str, label: &str, primary: bool, enabled: bool) -> bool {
-    let sense = if enabled { Sense::click() } else { Sense::hover() };
-    let r = ui.interact(rect, Id::new(("lib-btn", key)), sense);
-    widgets::record(ui, key, rect);
-    let p = ui.painter();
-    let radius = theme::cr_pill(rect.height());
-    let (fill, text) = match (primary, enabled) {
-        (true, true) => (
-            if r.is_pointer_button_down_on() {
-                theme::BG_BRAND_PRESSED
-            } else if r.hovered() {
-                theme::BG_BRAND_HOVER
-            } else {
-                theme::BG_BRAND
-            },
-            Color32::WHITE,
-        ),
-        (true, false) => (theme::BG_TERTIARY, theme::TEXT_DISABLED),
-        (false, true) => (if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY }, theme::TEXT),
-        (false, false) => (theme::BG_SECONDARY, theme::TEXT_DISABLED),
+    let size = if rect.height() + 0.5 >= theme::CONTROL_MD {
+        crate::widgets::kit::Size::Md
+    } else if rect.height() + 0.5 >= theme::CONTROL_SM {
+        crate::widgets::kit::Size::Sm
+    } else {
+        crate::widgets::kit::Size::Xs
     };
-    p.rect_filled(rect, radius, fill);
-    p.text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body_strong(), text);
-    enabled && r.clicked()
+    let kind = if primary { crate::widgets::kit::Hierarchy::Primary } else { crate::widgets::kit::Hierarchy::Secondary };
+    let response = crate::widgets::kit::button(ui, rect, ("lib-btn", key), label, kind, size, enabled);
+    widgets::record(ui, key, rect);
+    enabled && response.clicked()
 }
 
 /// 28x16 switch; returns the new state when clicked.
@@ -110,32 +92,26 @@ pub(super) fn toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<boo
     widgets::record(ui, &format!("lib-toggle:{key}"), rect);
     let sw = Rect::from_center_size(rect.center(), Vec2::new(28.0, 16.0));
     let p = ui.painter();
-    p.rect_filled(
-        sw,
-        theme::cr(8),
-        if on {
-            theme::BG_BRAND
-        } else if r.hovered() {
-            theme::BG_TERTIARY
-        } else {
-            theme::BG_SECONDARY
-        },
-    );
-    let kx = if on { sw.right() - 8.0 } else { sw.left() + 8.0 };
-    p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, Color32::WHITE);
+    let paint = crate::widgets::kit::toggle_look(if on { crate::widgets::kit::State::Selected } else { crate::widgets::kit::State::Default });
+    let track = theme::radius_full(sw.height()).round() as u8;
+    crate::widgets::kit::paint_frame(p, sw, track, &paint);
+    let knob = theme::radius_full(theme::LAYER_ICON_SIZE);
+    let kx = if on { sw.right() - theme::INSET_SEGMENT - knob } else { sw.left() + theme::INSET_SEGMENT + knob };
+    p.circle_filled(Pos2::new(kx, sw.center().y), knob.max(0.0), paint.icon);
     r.clicked().then_some(!on)
 }
 
 fn search_box(ui: &mut Ui, rect: Rect, id: &'static str, text: &mut String, hint: &str) {
     let eid = Id::new(id);
-    field::field_bg(ui, rect, eid);
-    icons::paint(ui.painter(), Icon::Search, Pos2::new(rect.left() + 14.0, rect.center().y), 14.0, theme::ICON_SECONDARY);
+    crate::widgets::kit::paint_field(ui, rect, eid, crate::widgets::kit::Size::Sm, false);
+    let icon = crate::widgets::kit::field_look(crate::widgets::kit::State::Default, false).icon;
+    icons::paint(ui.painter(), Icon::Search, Pos2::new(rect.left() + 14.0, rect.center().y), 14.0, icon);
     let te = TextEdit::singleline(text)
         .id(eid)
         .font(theme::font_body())
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
-        .hint_text(hint)
+        .hint_text(egui::RichText::new(hint).color(theme::TEXT_PLACEHOLDER))
         .margin(egui::Margin::symmetric(0, 0))
         .vertical_align(egui::Align::Center)
         .desired_width(rect.width() - 36.0);
@@ -143,11 +119,11 @@ fn search_box(ui: &mut Ui, rect: Rect, id: &'static str, text: &mut String, hint
     widgets::record(ui, id, rect);
 }
 
-fn change_tag(c: UpdateKind) -> (&'static str, Color32) {
+fn change_tag(c: UpdateKind) -> (&'static str, crate::widgets::kit::Tone) {
     match c {
-        UpdateKind::Added => ("New", theme::TEXT_BRAND),
-        UpdateKind::Changed => ("Changed", theme::TEXT_SECONDARY),
-        UpdateKind::Removed => ("Removed", theme::DANGER),
+        UpdateKind::Added => ("New", crate::widgets::kit::Tone::Success),
+        UpdateKind::Changed => ("Changed", crate::widgets::kit::Tone::Warning),
+        UpdateKind::Removed => ("Removed", crate::widgets::kit::Tone::Error),
     }
 }
 
@@ -213,60 +189,70 @@ fn this_file(app: &mut App, ui: &mut Ui, m: Rect, mut y: f32) -> f32 {
     widgets::record(ui, "lib-summary", Rect::from_min_size(Pos2::new(x0, y), Vec2::new(x1 - x0, 16.0)));
     y += 22.0;
     for (i, c) in changes.iter().enumerate() {
+        let cy = y + CHANGE_PITCH / 2.0;
         if i == MAX_CHANGES_SHOWN {
             p.text(
-                Pos2::new(x0 + 8.0, y + CHANGE_ROW_H / 2.0),
+                Pos2::new(x0 + 8.0, cy),
                 Align2::LEFT_CENTER,
                 format!("and {} more", changes.len() - MAX_CHANGES_SHOWN),
                 theme::font_caption(),
                 theme::TEXT_TERTIARY,
             );
-            y += CHANGE_ROW_H;
+            y += CHANGE_PITCH;
             break;
         }
-        icons::paint(&p, kind_icon(c.kind), Pos2::new(x0 + 16.0, y + CHANGE_ROW_H / 2.0), 14.0, theme::ICON_SECONDARY);
+        let row = Rect::from_center_size(Pos2::new((x0 + x1) / 2.0, cy), Vec2::new(x1 - x0, theme::BADGE_MD));
+        icons::paint(&p, kind_icon(c.kind), Pos2::new(x0 + 16.0, cy), 14.0, theme::ICON_SECONDARY);
         let s = widgets::elide(&p, &c.name, &theme::font_body(), x1 - x0 - 190.0);
-        p.text(Pos2::new(x0 + 30.0, y + CHANGE_ROW_H / 2.0), Align2::LEFT_CENTER, s, theme::font_body(), theme::TEXT);
-        let (tag, col) = change_tag(c.change);
-        p.text(Pos2::new(x1 - 8.0, y + CHANGE_ROW_H / 2.0), Align2::RIGHT_CENTER, tag, theme::font_caption(), col);
-        p.text(Pos2::new(x1 - 70.0, y + CHANGE_ROW_H / 2.0), Align2::RIGHT_CENTER, kind_label(c.kind), theme::font_caption(), theme::TEXT_TERTIARY);
-        widgets::record(ui, &format!("lib-change:{}", c.name), Rect::from_min_size(Pos2::new(x0, y), Vec2::new(x1 - x0, CHANGE_ROW_H)));
-        y += CHANGE_ROW_H;
+        p.text(Pos2::new(x0 + 30.0, cy), Align2::LEFT_CENTER, s, theme::font_body(), theme::TEXT);
+        let (tag, tone) = change_tag(c.change);
+        let chip_font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
+        let chip_w = widgets::text_width(&p, tag, &chip_font) + theme::SPACE_INLINE * 2.0;
+        let chip = Rect::from_center_size(Pos2::new(x1 - 8.0 - chip_w / 2.0, cy), Vec2::new(chip_w, theme::BADGE_MD));
+        crate::widgets::kit::status_tag(&p, chip, tag, tone);
+        p.text(Pos2::new(chip.left() - 8.0, cy), Align2::RIGHT_CENTER, kind_label(c.kind), theme::font_caption(), theme::TEXT_TERTIARY);
+        widgets::record(ui, &format!("lib-change:{}", c.name), row);
+        y += CHANGE_PITCH;
     }
-    y += 8.0;
+    y += theme::SPACE_INLINE;
 
-    // description
-    let dr = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(x1 - x0, 28.0));
+    // description. The field is taller than its slot and stays centred so the controls below keep their places.
+    let field_h = theme::CONTROL_SM;
+    let dr = Rect::from_center_size(Pos2::new((x0 + x1) / 2.0, y + FIELD_SLOT_H / 2.0), Vec2::new(x1 - x0, field_h));
     let did = Id::new("lib-desc");
-    field::field_bg(ui, dr, did);
+    crate::widgets::kit::paint_field(ui, dr, did, crate::widgets::kit::Size::Sm, false);
     let mut desc = std::mem::take(&mut app.libs.description);
     let te = TextEdit::singleline(&mut desc)
         .id(did)
         .font(theme::font_body())
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
-        .hint_text("Describe what changed (optional)")
+        .hint_text(egui::RichText::new("Describe what changed (optional)").color(theme::TEXT_PLACEHOLDER))
         .margin(egui::Margin::symmetric(8, 0))
         .vertical_align(egui::Align::Center)
         .desired_width(dr.width());
     ui.put(dr, te);
     app.libs.description = desc;
     widgets::record(ui, "lib-desc", dr);
-    y += 36.0;
+    y += FIELD_SLOT_H + theme::SPACE_INLINE;
 
     // actions
     let can_publish = publishable > 0 && (published.is_none() || !changes.is_empty());
     let label_pub = if published.is_some() { "Publish changes" } else { "Publish" };
-    let bw = if published.is_some() { 120.0 } else { 80.0 };
-    let pb = Rect::from_min_size(Pos2::new(x1 - bw, y), Vec2::new(bw, 28.0));
+    let bh = theme::CONTROL_SM;
+    let action_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    let bw = (widgets::text_width(&p, label_pub, &action_font) + theme::INSET_BUTTON * 2.0).max(if published.is_some() { 120.0 } else { 80.0 });
+    let pb = Rect::from_center_size(Pos2::new(x1 - bw / 2.0, y + FIELD_SLOT_H / 2.0), Vec2::new(bw, bh));
     if button(ui, pb, "lib-publish", label_pub, true, can_publish) {
         app.publish_file();
     }
     if published.is_some() {
         if app.libs.confirm_unpublish {
-            let cb = Rect::from_min_size(Pos2::new(pb.left() - 8.0 - 64.0, y), Vec2::new(64.0, 28.0));
-            let ub = Rect::from_min_size(Pos2::new(cb.left() - 8.0 - 100.0, y), Vec2::new(100.0, 28.0));
-            p.text(Pos2::new(x0, y + 14.0), Align2::LEFT_CENTER, "Unpublish this library?", theme::font_body(), theme::TEXT_SECONDARY);
+            let cancel_w = widgets::text_width(&p, "Cancel", &action_font) + theme::INSET_BUTTON * 2.0;
+            let unpublish_w = widgets::text_width(&p, "Unpublish", &action_font) + theme::INSET_BUTTON * 2.0;
+            let cb = Rect::from_center_size(Pos2::new(pb.left() - 8.0 - cancel_w / 2.0, y + FIELD_SLOT_H / 2.0), Vec2::new(cancel_w, bh));
+            let ub = Rect::from_center_size(Pos2::new(cb.left() - 8.0 - unpublish_w / 2.0, y + FIELD_SLOT_H / 2.0), Vec2::new(unpublish_w, bh));
+            p.text(Pos2::new(x0, y + FIELD_SLOT_H / 2.0), Align2::LEFT_CENTER, "Unpublish this library?", theme::font_body(), theme::TEXT_SECONDARY);
             if button(ui, ub, "lib-unpublish-confirm", "Unpublish", false, true) {
                 app.libs.confirm_unpublish = false;
                 app.unpublish_file();
@@ -275,13 +261,14 @@ fn this_file(app: &mut App, ui: &mut Ui, m: Rect, mut y: f32) -> f32 {
                 app.libs.confirm_unpublish = false;
             }
         } else {
-            let ub = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(88.0, 28.0));
+            let unpublish_w = (widgets::text_width(&p, "Unpublish", &action_font) + theme::INSET_BUTTON * 2.0).max(88.0);
+            let ub = Rect::from_center_size(Pos2::new(x0 + unpublish_w / 2.0, y + FIELD_SLOT_H / 2.0), Vec2::new(unpublish_w, bh));
             if button(ui, ub, "lib-unpublish", "Unpublish", false, true) {
                 app.libs.confirm_unpublish = true;
             }
         }
     }
-    y + 28.0 + 16.0
+    y + FIELD_SLOT_H + theme::SPACE_BLOCK
 }
 
 fn plural(n: usize, word: &str) -> String {
@@ -308,7 +295,7 @@ fn available(app: &mut App, ui: &mut Ui, m: Rect, top: f32) {
     let (x0, x1) = (m.left() + PAD, m.right() - PAD);
     let y = top + 14.0;
     label(&p, x0, y + 12.0, "Libraries");
-    let sr = Rect::from_min_size(Pos2::new(x1 - 220.0, y), Vec2::new(220.0, 24.0));
+    let sr = Rect::from_min_size(Pos2::new(x1 - 220.0, y), Vec2::new(220.0, theme::CONTROL_SM));
     let mut q = std::mem::take(&mut app.libs.search);
     search_box(ui, sr, "lib-search", &mut q, "Search libraries");
     app.libs.search = q;
@@ -333,7 +320,7 @@ fn available(app: &mut App, ui: &mut Ui, m: Rect, top: f32) {
             rows.push((r.id.clone(), r.name.clone(), "Not available".into(), false));
         }
     }
-    let list = Rect::from_min_max(Pos2::new(m.left(), y + 36.0), m.max);
+    let list = Rect::from_min_max(Pos2::new(m.left(), y + SEARCH_SLOT_H + theme::SPACE_GROUP), m.max);
     let content_h = rows.len() as f32 * ROW_H + 8.0;
     let mut scroll = app.libs.scroll;
     wheel_scroll(ui, list, &mut scroll, content_h);
@@ -380,7 +367,7 @@ fn available(app: &mut App, ui: &mut Ui, m: Rect, top: f32) {
             }
             if enabled && pending.iter().any(|pl| &pl.library_id == id) {
                 let w = 116.0;
-                let ur = Rect::from_center_size(Pos2::new(right - w / 2.0, row.center().y), Vec2::new(w, 22.0));
+                let ur = Rect::from_center_size(Pos2::new(right - w / 2.0, row.center().y), Vec2::new(w, theme::CONTROL_SM));
                 if button(ui, ur, &format!("lib-update:{name}"), "Update available", false, true) {
                     review = true;
                 }
@@ -436,8 +423,10 @@ pub(super) fn show_preview(app: &mut App, ctx: &Context) {
             theme::font_caption(),
             theme::TEXT_SECONDARY,
         );
-        let bw = 80.0;
-        let b = Rect::from_min_size(Pos2::new(m.right() - PAD - bw, m.bottom() - 28.0 - 16.0), Vec2::new(bw, 28.0));
+        let close_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let bw = (widgets::text_width(&p, "Close", &close_font) + theme::INSET_BUTTON * 2.0).max(80.0);
+        let bh = theme::CONTROL_MD;
+        let b = Rect::from_min_size(Pos2::new(m.right() - PAD - bw, m.bottom() - bh - 16.0), Vec2::new(bw, bh));
         closed |= button(ui, b, "library-preview-done", "Close", false, true);
         closed
     });

@@ -7,14 +7,15 @@ use crate::icons::{self, Icon};
 use crate::panels::{clipped, scrollbar, wheel_scroll};
 use crate::theme;
 use crate::widgets;
+use crate::widgets::kit::{self, Hierarchy, Size};
 use designos_doc::*;
-use egui::{Align2, Color32, Context, Id, Key, Order, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Align2, Context, Id, Key, Order, Pos2, Rect, Sense, Ui, Vec2};
 
-const PAD: f32 = 20.0;
+const PAD: f32 = theme::INSET_MODAL;
 const HEADER_H: f32 = 48.0;
 const FOOT_H: f32 = 60.0;
-const GROUP_H: f32 = 32.0;
-const ROW_H: f32 = 32.0;
+const GROUP_H: f32 = theme::CONTROL_SM;
+const ROW_H: f32 = theme::CONTROL_SM;
 
 /// The banner: "Library updates available - Review".
 pub fn show_banner(app: &mut App, ctx: &Context) {
@@ -29,22 +30,20 @@ pub fn show_banner(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("library-updates-banner")).order(Order::Tooltip).fixed_pos(r.min).constrain(false).show(ctx, |ui| {
         ui.allocate_rect(Rect::from_min_size(r.min, size), Sense::hover());
         let p = ui.painter().clone();
-        widgets::elevation_400(&p, r, theme::RADIUS_FRAME);
-        p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-        p.rect_stroke(r, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
+        crate::widgets::kit::popover_surface(&p, r);
         widgets::record(ui, "library-updates-banner", r);
         icons::paint(&p, Icon::Book, Pos2::new(r.left() + 22.0, r.center().y), 16.0, theme::ICON_SELECTED);
-        p.text(Pos2::new(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, "Library updates available", theme::font_body(), Color32::WHITE);
-        let rb = Rect::from_center_size(Pos2::new(r.right() - 76.0, r.center().y), Vec2::new(64.0, 26.0));
-        review = button(ui, rb, "library-updates-review", "Review", true, true);
-        let xb = Rect::from_center_size(Pos2::new(r.right() - 22.0, r.center().y), Vec2::splat(24.0));
-        let xr = ui.interact(xb, Id::new("library-updates-dismiss"), Sense::click());
-        widgets::button_bg(&p, xb, &xr, false, theme::cr(theme::RADIUS_CONTROL));
+        p.text(Pos2::new(r.left() + 40.0, r.center().y), Align2::LEFT_CENTER, "Library updates available", theme::font_body(), theme::TEXT);
+        let dismiss_s = theme::CONTROL_XS;
+        let xb = Rect::from_center_size(Pos2::new(r.right() - theme::SPACE_INLINE - dismiss_s / 2.0, r.center().y), Vec2::splat(dismiss_s));
+        let review_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let review_w = widgets::text_width(&p, "Review", &review_font) + theme::INSET_BUTTON * 2.0;
+        let rb = Rect::from_center_size(Pos2::new(xb.left() - theme::SPACE_INLINE - review_w / 2.0, r.center().y), Vec2::new(review_w, theme::CONTROL_XS));
+        let response = kit::button(ui, rb, "library-updates-review", "Review", Hierarchy::Primary, Size::Xs, true);
+        widgets::record(ui, "library-updates-review", rb);
+        review = response.clicked();
+        let xr = widgets::icon_button(ui, xb, "library-updates-dismiss", Icon::Close, false, "");
         widgets::record(ui, "library-updates-dismiss", xb);
-        let c = xb.center();
-        let st = Stroke::new(1.2, theme::ICON_SECONDARY);
-        p.line_segment([c + Vec2::new(-3.5, -3.5), c + Vec2::new(3.5, 3.5)], st);
-        p.line_segment([c + Vec2::new(-3.5, 3.5), c + Vec2::new(3.5, -3.5)], st);
         dismiss = xr.clicked();
     });
     if review {
@@ -57,13 +56,13 @@ pub fn show_banner(app: &mut App, ctx: &Context) {
 fn checkbox(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> bool {
     let r = ui.interact(rect, Id::new(("lib-check", key)), Sense::click());
     widgets::record(ui, &format!("lib-check:{key}"), rect);
-    let b = Rect::from_center_size(rect.center(), Vec2::splat(14.0));
-    let p = ui.painter();
+    let side = theme::LAYER_ICON_SIZE;
+    let b = Rect::from_center_size(rect.center(), Vec2::splat(side));
+    let state = if on { crate::widgets::kit::State::Selected } else { crate::widgets::kit::State::Default };
+    let paint = crate::widgets::kit::checkbox_look(state);
+    crate::widgets::kit::paint_frame(ui.painter(), b, theme::SPACE_FACT as u8, &paint);
     if on {
-        p.rect_filled(b, theme::cr(3), theme::BG_BRAND);
-        icons::paint(p, Icon::Check, b.center(), 12.0, Color32::WHITE);
-    } else {
-        p.rect_stroke(b, theme::cr(3), Stroke::new(1.0, if r.hovered() { theme::ICON_SECONDARY } else { theme::ICON_TERTIARY }), StrokeKind::Inside);
+        widgets::paint_icon_in(ui.painter(), b, Icon::Check, theme::FONT_SIZE_TEXT_XS, paint.icon);
     }
     r.clicked()
 }
@@ -136,7 +135,8 @@ pub fn show(app: &mut App, ctx: &Context) {
                     let rr = ui.interact(row, Id::new(("lib-upd-row", &g.library_id, &u.key)), Sense::click());
                     widgets::record(ui, &format!("lib-upd:{}", u.name), row);
                     if rr.hovered() && !removed {
-                        p.rect_filled(row.shrink2(Vec2::new(8.0, 1.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+                        let paint = crate::widgets::kit::row_look(crate::widgets::kit::State::Hover, crate::widgets::kit::Surface::Primary);
+                        crate::widgets::kit::paint_frame(&p, row.shrink2(Vec2::new(8.0, 1.0)), theme::RADIUS_CONTROL, &paint);
                     }
                     if !removed {
                         let cr = Rect::from_center_size(Pos2::new(row.left() + PAD + 8.0, row.center().y), Vec2::splat(24.0));
@@ -192,9 +192,12 @@ pub fn show(app: &mut App, ctx: &Context) {
             String::new()
         };
         p.text(Pos2::new(m.left() + PAD, m.bottom() - FOOT_H / 2.0), Align2::LEFT_CENTER, note, theme::font_body(), theme::TEXT_SECONDARY);
-        let by = m.bottom() - FOOT_H / 2.0 - 14.0;
-        let all_b = Rect::from_min_size(Pos2::new(m.right() - PAD - 84.0, by), Vec2::new(84.0, 28.0));
-        let sel_b = Rect::from_min_size(Pos2::new(all_b.left() - 8.0 - 128.0, by), Vec2::new(128.0, 28.0));
+        let by = m.bottom() - FOOT_H / 2.0 - theme::CONTROL_MD / 2.0;
+        let foot_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let all_w = (widgets::text_width(&p, "Update all", &foot_font) + theme::INSET_BUTTON * 2.0).max(84.0);
+        let sel_w = (widgets::text_width(&p, "Update selected", &foot_font) + theme::INSET_BUTTON * 2.0).max(128.0);
+        let all_b = Rect::from_min_size(Pos2::new(m.right() - PAD - all_w, by), Vec2::new(all_w, theme::CONTROL_MD));
+        let sel_b = Rect::from_min_size(Pos2::new(all_b.left() - 8.0 - sel_w, by), Vec2::new(sel_w, theme::CONTROL_MD));
         if button(ui, sel_b, "library-update-selected", "Update selected", false, n > 0) {
             act = Some(false);
         }

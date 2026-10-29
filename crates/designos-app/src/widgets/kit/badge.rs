@@ -63,6 +63,15 @@ pub const fn status_color(tone: DotTone) -> Color32 {
     }
 }
 
+/// Status chip. Same tinted triple as a count badge, square control radius, no close mark.
+#[allow(dead_code)]
+pub fn status_tag(p: &Painter, rect: Rect, label: &str, tone: Tone) {
+    let paint = count_badge_look(tone);
+    paint_frame(p, rect, theme::RADIUS_CONTROL, &paint);
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
+    p.text(rect.center(), egui::Align2::CENTER_CENTER, label, font, paint.text);
+}
+
 #[allow(dead_code)]
 pub fn count_badge(p: &Painter, rect: Rect, text: &str, tone: Tone) {
     let paint = count_badge_look(tone);
@@ -91,4 +100,25 @@ pub fn tag(ui: &mut Ui, rect: Rect, key: impl Key, label: &str) -> Response {
 pub fn status_dot(p: &Painter, center: Pos2, tone: DotTone) {
     let paint = look(status_color(tone), Color32::TRANSPARENT, theme::BORDER_WIDTH, Color32::TRANSPARENT, Color32::TRANSPARENT);
     p.circle_filled(center, theme::SPACE_FACT, paint.fill);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_tones_use_the_tinted_triples() {
+        let ok = count_badge_look(Tone::Success);
+        assert_eq!(ok.fill, theme::BG_SUCCESS_PRIMARY);
+        assert_eq!(ok.border, theme::BADGE_SUCCESS_BORDER);
+        assert_eq!(ok.text, theme::BADGE_SUCCESS_TEXT);
+        let warn = count_badge_look(Tone::Warning);
+        assert_eq!(warn.fill, theme::BG_WARNING_PRIMARY);
+        assert_eq!(warn.border, theme::BADGE_WARNING_BORDER);
+        assert_eq!(warn.text, theme::BADGE_WARNING_TEXT);
+        let err = count_badge_look(Tone::Error);
+        assert_eq!(err.fill, theme::BG_ERROR_PRIMARY);
+        assert_eq!(err.border, theme::BADGE_ERROR_BORDER);
+        assert_eq!(err.text, theme::BADGE_ERROR_TEXT);
+    }
 }

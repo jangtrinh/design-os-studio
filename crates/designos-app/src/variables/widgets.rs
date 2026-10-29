@@ -186,8 +186,8 @@ pub enum PickResult {
 
 const PICK_W: f32 = 248.0;
 const PICK_MAX_H: f32 = 320.0;
-const PICK_ROW: f32 = 24.0;
-const PICK_GROUP: f32 = 26.0;
+const PICK_ROW: f32 = theme::MENU_ITEM_HEIGHT;
+const PICK_GROUP: f32 = theme::CONTROL_XS;
 const PICK_HEAD: f32 = 40.0;
 
 /// Searchable variable picker floating at `pos`. `query` is the live search
@@ -246,15 +246,17 @@ pub fn picker(
     egui::Area::new(id).order(Order::Foreground).fixed_pos(tl).constrain(false).show(ctx, |ui| {
         let (full, _) = ui.allocate_exact_size(size, Sense::hover());
         let p = ui.painter().clone();
-        widgets::menu_panel(&p, full, theme::RADIUS_FRAME);
+        crate::widgets::kit::popover_surface(&p, full);
         let _ = title;
+        let search_id = id.with("q");
         let sr = Rect::from_min_size(Pos2::new(full.left() + 8.0, full.top() + 8.0), Vec2::new(full.width() - 16.0, 24.0));
-        p.rect_filled(sr, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-        crate::icons::paint(&p, crate::icons::Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 12.0, theme::ICON_TERTIARY);
+        crate::widgets::kit::paint_field(ui, sr, search_id, crate::widgets::kit::Size::Xs, false);
+        let icon = crate::widgets::kit::field_look(crate::widgets::kit::State::Default, false).icon;
+        crate::icons::paint(&p, crate::icons::Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 12.0, icon);
         let sr = Rect::from_min_max(sr.min + Vec2::new(22.0, 0.0), sr.max);
         let te = egui::TextEdit::singleline(query)
-            .id(id.with("q"))
-            .hint_text("Search")
+            .id(search_id)
+            .hint_text(egui::RichText::new("Search").color(theme::TEXT_PLACEHOLDER))
             .font(theme::font_body())
             .text_color(theme::TEXT)
             .frame(egui::Frame::NONE)
