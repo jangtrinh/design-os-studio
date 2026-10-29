@@ -1010,7 +1010,7 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         widgets::record(ui, &format!("tab-close-{tab_id}"), close_rect);
         let close_hit = Rect::from_center_size(close_rect.center(), Vec2::splat(theme::TARGET_MIN));
         if !tab.pinned {
-            widgets::record(ui, &format!("tab-close-hit-{tab_id}"), close_hit);
+            widgets::record_with(ui, || format!("tab-close-hit-{tab_id}"), close_hit);
         }
 
         // The body stops before the 24px close hit so the close wins that press.
@@ -2069,16 +2069,110 @@ mod tests {
         out
     }
 
+    /// Every colour the tab bar paints on a rectangle, a line or a dot, transparent ones left out.
+    fn painted_colours(shapes: &[egui::epaint::ClippedShape]) -> Vec<Color32> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<Color32>) {
+            match shape {
+                egui::Shape::Rect(r) => {
+                    out.push(r.fill);
+                    if r.stroke.width > 0.0 {
+                        out.push(r.stroke.color);
+                    }
+                }
+                egui::Shape::LineSegment { stroke, .. } => out.push(stroke.color),
+                egui::Shape::Circle(c) => {
+                    out.push(c.fill);
+                    if c.stroke.width > 0.0 {
+                        out.push(c.stroke.color);
+                    }
+                }
+                egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in shapes {
+            walk(&cs.shape, &mut out);
+        }
+        out.retain(|c| c.a() > 0);
+        out
+    }
+
+    /// The fills and lines the tab bar is allowed to paint: its own bar and hairline, the tab and close plates of the
+    /// widget kit, the file-type tiles, the Dev ready mark and the unsaved dot.
+    const TAB_BAR_ROLES: [Color32; 12] = [
+        theme::BG_PRIMARY,
+        theme::BORDER,
+        theme::BG_SELECTED,
+        theme::BG_HOVER,
+        theme::BG_SECONDARY_HOVER,
+        theme::BG_PRESSED,
+        theme::TILE_DESIGN_BG,
+        theme::TILE_BOARD_BG,
+        theme::TILE_DECK_BG,
+        theme::TILE_SPEC_BG,
+        theme::DEV_READY,
+        theme::ICON_BRAND_PRIMARY,
+    ];
+
+    fn assert_only_roles(shapes: &[egui::epaint::ClippedShape], what: &str) -> Vec<Color32> {
+        let painted = painted_colours(shapes);
+        let strays: Vec<_> = painted.iter().filter(|c| !TAB_BAR_ROLES.contains(c)).collect();
+        assert!(strays.is_empty(), "{what}: the tab bar paints colours outside its roles: {strays:?}");
+        painted
+    }
+
+    /// Paints the bar once to find the tab's close hit, then again with the pointer resting on it.
+    fn paint_tab_bar_hovering_close(app: &mut App, tab: usize) -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let bar = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, TOP_TAB_BAR_HEIGHT));
+        let id = app.tabs.entries[tab].id;
+        let run = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            ctx.run_ui(raw, |ui| show_top_tab_bar_ui(ui, bar, app)).shapes
+        };
+        run(app, vec![]);
+        let close = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", format!("tab-close-hit-{id}"))))).expect("close hit");
+        let at = close.center();
+        run(app, vec![egui::Event::PointerMoved(at)]);
+        run(app, vec![egui::Event::PointerMoved(at)])
+    }
+
     #[test]
     fn tab_bar_paints_only_theme_roles() {
         let mut app = make_app_with_doc("Design");
         app.home = None;
         let (_ctx, shapes) = paint_tab_bar(&mut app);
-        let rects = walk_rects(&shapes);
-        let rose = Color32::from_rgb(0xE1, 0x1D, 0x48);
-        let dev_green = Color32::from_rgb(0x1B, 0xC4, 0x7D);
-        assert!(rects.iter().all(|r| r.fill != rose && r.fill != dev_green), "tab chrome keeps a literal fill");
-        assert!(rects.iter().any(|r| (r.rect.height() - 26.0).abs() < 0.5 && r.fill == theme::BG_SELECTED), "the active file tab fills with the selected role");
+        let painted = assert_only_roles(&shapes, "at rest");
+        assert!(
+            walk_rects(&shapes).iter().any(|r| (r.rect.height() - 26.0).abs() < 0.5 && r.fill == theme::BG_SELECTED),
+            "the active file tab fills with the selected role"
+        );
+        assert!(painted.contains(&theme::BG_PRIMARY), "the bar fills with the page role");
+        assert!(!painted.contains(&theme::DEV_READY), "outside Dev mode no tab shows the ready mark");
+
+        let mut dev = make_app_with_doc("Design");
+        dev.home = None;
+        dev.ui.dev_mode = true;
+        let (_ctx, shapes) = paint_tab_bar(&mut dev);
+        let painted = assert_only_roles(&shapes, "in Dev mode");
+        assert!(painted.contains(&theme::DEV_READY), "the active tab shows the ready mark in Dev mode");
+
+        let mut hovered = make_app_with_doc("Design");
+        hovered.home = None;
+        let shapes = paint_tab_bar_hovering_close(&mut hovered, 0);
+        let painted = assert_only_roles(&shapes, "hovering the close of the active tab");
+        assert!(painted.contains(&theme::BG_PRESSED), "the close plate of the selected tab takes its hover fill");
+
+        let mut two = make_app_with_doc("Design");
+        two.home = None;
+        two.open_new_design_tab();
+        let shapes = paint_tab_bar_hovering_close(&mut two, 0);
+        let painted = assert_only_roles(&shapes, "hovering the close of a resting tab");
+        assert!(painted.contains(&theme::BG_HOVER), "the hovered tab takes the hover fill");
+        assert!(painted.contains(&theme::BG_SECONDARY_HOVER), "the close plate of a hovered tab takes its hover fill");
     }
 
     #[test]
@@ -2086,15 +2180,29 @@ mod tests {
         let mut app = make_app_with_doc("Design");
         app.home = None;
         let id = app.tabs.entries[0].id;
-        let (ctx, _) = paint_tab_bar(&mut app);
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let bar = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, TOP_TAB_BAR_HEIGHT));
+        let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+        let root = std::cell::Cell::new(egui::Id::NULL);
+        let _ = ctx.run_ui(raw, |ui| {
+            root.set(ui.id());
+            show_top_tab_bar_ui(ui, bar, &mut app)
+        });
         let named = |name: String| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name))));
         let hit = named(format!("tab-close-hit-{id}")).expect("close hit");
         let visual = named(format!("tab-close-{id}")).expect("close visual");
         let tab = named("project-tab-0".to_string()).expect("tab");
+        // The body is a widget the bar does not record under a name (a new name would change the layout gate's
+        // unnamed widgets), so its rect comes from the response egui kept for it.
+        let body = ctx.read_response(root.get().with(("project-tab", id))).expect("the tab body widget").rect;
         assert!(hit.width() + 0.5 >= theme::TARGET_MIN && hit.height() + 0.5 >= theme::TARGET_MIN);
         assert!((visual.width() - 18.0).abs() < 0.5 && (visual.height() - 18.0).abs() < 0.5, "the painted close stays 18");
         assert!((hit.center() - visual.center()).length() < 0.5, "hit and visual share a centre");
         assert!(hit.left() > tab.left() && hit.right() <= tab.right() + 0.5, "the close hit stays inside the tab");
         assert!(hit.left() < visual.left(), "the hit extends past the painted close, so the tab body stops before it");
+        assert!(body.right() < hit.left(), "the tab body hit ends at {} before the close hit starts at {}", body.right(), hit.left());
+        assert!(body.left() == tab.left() && body.height() == tab.height(), "the body keeps the tab's left edge and height");
     }
 }

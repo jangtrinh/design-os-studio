@@ -252,8 +252,8 @@ pub fn show(app: &mut App, ui: &mut Ui, screen: Rect) {
             let cr = Rect::from_min_size(Pos2::new(x, y), Vec2::new(theme::TOOL_CHEVRON_W, theme::TOOL_BUTTON));
             let hit = Rect::from_min_size(cr.min, Vec2::new(theme::TOOL_CHEVRON_W + theme::TOOL_GROUP_GAP, theme::TOOL_BUTTON));
             let cresp = ui.interact(hit, ui.id().with(("tool-chev", gi)), Sense::click());
-            widgets::record(ui, &format!("tool-chevron-{gi}"), cr);
-            widgets::record(ui, &format!("tool-chevron-hit-{gi}"), hit);
+            widgets::record_with(ui, || format!("tool-chevron-{gi}"), cr);
+            widgets::record_with(ui, || format!("tool-chevron-hit-{gi}"), hit);
             #[cfg(test)]
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("test-chevron-id", gi)), cresp.id));
             let open = app.ui.menu == Some(MenuKind::ToolGroup(gi));
@@ -744,10 +744,12 @@ mod tests {
         assert!(!press_seen(chevron, Pos2::new(300.0, 620.0), Rect::NOTHING), "a press beside the chevron is not its");
     }
 
+    const TOOLBAR_SCREEN: Vec2 = Vec2::new(1440.0, 900.0);
+
     fn paint_toolbar(app: &mut App) -> (egui::Context, Vec<egui::epaint::ClippedShape>) {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, TOOLBAR_SCREEN);
         let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
         let shapes = ctx.run_ui(raw, |ui| show(app, ui, screen)).shapes;
         (ctx, shapes)
@@ -758,14 +760,24 @@ mod tests {
         let mut app = App::new(designos_doc::Document::new("Chevron"));
         let (ctx, _) = paint_toolbar(&mut app);
         let named = |name: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string()))));
-        let hit = named("tool-chevron-hit-0").expect("chevron hit");
-        let visual = named("tool-chevron-0").expect("chevron visual");
-        assert!(hit.width() + 0.5 >= theme::TARGET_MIN, "chevron hit is at least 24 wide");
-        assert!((visual.width() - theme::TOOL_CHEVRON_W).abs() < 0.5, "the painted chevron stays 16 wide");
+        let screen = Rect::from_min_size(Pos2::ZERO, TOOLBAR_SCREEN);
         assert_eq!(toolbar_width(), 512.0);
-        if let Some(next) = named("tool-1").or_else(|| named("toolbar-actions-btn")) {
-            assert!(hit.right() <= next.left() + 0.5, "the hit does not cover the next control");
+        let mut checked = 0;
+        for (gi, group) in GROUPS.iter().enumerate() {
+            if !has_chevron(group) {
+                continue;
+            }
+            let hit = named(&format!("tool-chevron-hit-{gi}")).expect("chevron hit");
+            let visual = named(&format!("tool-chevron-{gi}")).expect("chevron visual");
+            assert!(hit.width() + 0.5 >= theme::TARGET_MIN, "chevron {gi} hit is at least 24 wide");
+            assert!((visual.width() - theme::TOOL_CHEVRON_W).abs() < 0.5, "the painted chevron {gi} stays 16 wide");
+            assert_eq!(visual, chevron_rect(screen, gi), "the layout helper and the painted chevron {gi} agree");
+            // the tool buttons are not recorded, so the next control is found from the layout the helper mirrors
+            let next = if gi + 1 < GROUPS.len() { group_button_rect(screen, gi + 1) } else { named("toolbar-actions-btn").expect("actions button") };
+            assert!(hit.right() <= next.left() + 0.5, "the hit of chevron {gi} ends at {} but the next control starts at {}", hit.right(), next.left());
+            checked += 1;
         }
+        assert!(checked >= 2, "the toolbar has chevron groups to check, found {checked}");
     }
 
     #[test]

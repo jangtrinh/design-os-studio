@@ -71,8 +71,55 @@ fn title_bar_uses_the_page_background() {
     assert!(recorded(&sim, "window-title-brand").is_some());
 }
 
+fn texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+    fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+            egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for clipped in shapes {
+        walk(&clipped.shape, &mut out);
+    }
+    out
+}
+
+fn font_of(shapes: &[egui::epaint::ClippedShape], text: &str) -> Option<egui::FontId> {
+    fn walk(shape: &egui::Shape, text: &str) -> Option<egui::FontId> {
+        match shape {
+            egui::Shape::Text(t) if t.galley.text() == text => t.galley.job.sections.first().map(|s| s.format.font_id.clone()),
+            egui::Shape::Vec(inner) => inner.iter().find_map(|s| walk(s, text)),
+            _ => None,
+        }
+    }
+    shapes.iter().find_map(|c| walk(&c.shape, text))
+}
+
 #[test]
-fn toast_rules_for_d() {
+fn the_import_toast_shows_details_once_as_a_button() {
+    let mut sim = Sim::new();
+    let report = designos_webcapture::ImportReport::default();
+    let summary = report.summary_toast();
+    assert!(summary.ends_with("Details"), "precondition: the import summary carries a Details hint, got {summary:?}");
+    sim.shell.app.web_capture_report = Some(report);
+    sim.shell.app.show_toast(summary, false);
+    sim.frame(vec![]);
+    sim.frame(vec![]);
+    let painted = texts(&sim.shapes);
+    let message = painted.iter().find(|t| t.starts_with("Imported page:")).expect("the toast message is painted");
+    assert!(!message.ends_with("Details"), "the message does not repeat the button's word, got {message:?}");
+    assert!(!message.trim_end().ends_with('\u{00b7}'), "no dangling separator is left, got {message:?}");
+    assert_eq!(painted.iter().filter(|t| t.as_str() == "Details").count(), 1, "Details is painted once, as the button label");
+    assert!(recorded(&sim, "toast-details").is_some(), "the button is there");
+    assert_eq!(font_of(&sim.shapes, "Details"), Some(theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold)), "an action label is Semibold");
+    assert_eq!(font_of(&sim.shapes, message), Some(theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium)), "the message stays Medium");
+    assert!(recorded(&sim, "toast-details-message").is_none(), "the message is not a second Details target");
+}
+
+#[test]
+fn toast_follows_the_toast_surface_rules() {
     let mut sim = Sim::new();
     sim.shell.app.show_toast_with_reveal("Exported the file", std::path::PathBuf::from("/tmp/out.designos"));
     sim.frame(vec![]);
@@ -121,18 +168,34 @@ fn left_panel_resize_hit_band_meets_the_target_floor() {
     sim.frame(vec![]);
     let band = recorded(&sim, "left-panel-resize-band").expect("resize band");
     let handle = recorded(&sim, "left-panel-resize-handle").expect("resize handle");
-    assert!((band.width() - theme::TARGET_MIN).abs() < 0.5, "band is 24 wide, got {}", band.width());
+    assert!((band.width() - theme::DRAG_DIVIDER_HIT).abs() < 0.5, "band is 24 wide, got {}", band.width());
     assert!((handle.width() - theme::PAGES_SEPARATOR_HIT).abs() < 0.5, "painted core stays 6 wide");
     assert!((band.center().x - handle.center().x).abs() < 0.5, "band is centred on the panel edge");
+    assert!(
+        band.max.x < handle.center().x + theme::DRAG_DIVIDER_HIT * 0.5,
+        "the canvas side is half open: a click 12 px right of the edge belongs to the canvas, band ends at {}",
+        band.max.x
+    );
 
-    let edge = handle.center().x;
-    let before = sim.app().ui.left_panel_width;
-    sim.mv(Pos2::new(edge - 10.0, 400.0));
-    sim.button(true);
-    sim.pos = Pos2::new(edge - 10.0, 360.0);
-    sim.frame(vec![Event::PointerMoved(sim.pos)]);
-    sim.button(false);
-    assert!((sim.app().ui.left_panel_width - before).abs() < 0.5, "a press over the scrollbar scrolls");
+    // Enough layers that the list scrolls and draws its scrollbar, which keeps its track under the band.
+    let page = sim.app().page;
+    for i in 0..40 {
+        let id = sim.shell.app.doc.alloc_id();
+        sim.shell
+            .app
+            .doc
+            .insert(page, designos_doc::Node::rectangle(id, designos_doc::Rect::new(i as f32 * 4.0, 0.0, 10.0, 10.0)))
+            .expect("page takes the rectangle");
+    }
+    sim.frame(vec![]);
+    sim.frame(vec![]);
+    let track = recorded(&sim, "scrollbar-track").expect("the layers list draws a scrollbar");
+    assert!(band.contains(track.center()) && !handle.contains(track.center()), "the track sits in the band, outside the 6 px core");
+    let (width, scrolled) = (sim.app().ui.left_panel_width, sim.app().layers.scroll);
+    // the thumb is most of the track (the list is only a little longer than its window), so the grab goes far down
+    sim.drag(track.center_top() + Vec2::new(0.0, 20.0), track.center_top() + Vec2::new(0.0, 700.0));
+    assert!(sim.app().layers.scroll > scrolled + 1.0, "a press and drag on the scrollbar track scrolls the list, offset {}", sim.app().layers.scroll);
+    assert!((sim.app().ui.left_panel_width - width).abs() < 0.5, "the same drag does not resize the panel");
 
     let edge = recorded(&sim, "left-panel-resize-handle").unwrap().center().x;
     let before = sim.app().ui.left_panel_width;
@@ -152,4 +215,25 @@ fn left_panel_resize_hit_band_meets_the_target_floor() {
     sim.button(true);
     assert!(matches!(sim.app().canvas.inter, canvas::Interaction::Guide(_)), "rulers on: the same press starts a guide");
     assert!((sim.app().ui.left_panel_width - before).abs() < 0.5, "rulers on: that press does not resize");
+}
+
+fn guide_count(sim: &Sim) -> usize {
+    sim.app().doc.guides.get(&sim.app().page).map_or(0, Vec::len)
+}
+
+#[test]
+fn a_click_without_a_drag_beside_a_ruler_leaves_no_guide() {
+    let mut sim = Sim::new();
+    sim.shell.app.ui.rulers = true;
+    sim.frame(vec![]);
+    let rect = sim.app().canvas_rect;
+    // 10 px is the ruler itself, 22 px the 4 px press band under it, and the same beside the left ruler
+    for (dx, dy) in [(100.0, 10.0), (100.0, 22.0), (10.0, 100.0), (22.0, 100.0)] {
+        sim.click(rect.min + Vec2::new(dx, dy));
+        assert_eq!(guide_count(&sim), 0, "a click at ({dx}, {dy}) from the canvas corner drops no guide");
+    }
+    // a real drag out of the band still places the guide
+    let from = rect.min + Vec2::new(100.0, 22.0);
+    sim.drag(from, from + Vec2::new(0.0, 120.0));
+    assert_eq!(guide_count(&sim), 1, "dragging out of the band into the canvas places a guide");
 }

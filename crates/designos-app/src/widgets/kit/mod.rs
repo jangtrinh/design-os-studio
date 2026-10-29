@@ -41,9 +41,6 @@ mod choice;
 mod feedback;
 mod field;
 mod focus;
-
-#[allow(unused_imports)]
-pub use focus::{focus_ring, keyboard_focus};
 mod rows;
 mod surface;
 mod tabs;
@@ -61,6 +58,7 @@ pub use choice::{
 pub use feedback::{empty_state, empty_state_look, loading_look, loading_ring, progress_bar, progress_look, tile_icon, tile_look, TileKind};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use field::{field_look, paint_field, property_field_look, search_look, select_look};
+pub use focus::{focus_ring, keyboard_focus};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use rows::{
     divider_look, list_row, list_row_ring, menu_item_look, menu_row_look, panel_header, panel_header_look, row_look, section_header, section_header_look,

@@ -1221,23 +1221,35 @@ impl Shell {
         let Some(t) = &self.app.toast else { return };
         let (text, error, reveal, enter_path) = (t.text.clone(), t.error, t.reveal.clone(), t.enter_path);
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
-        let mut slots: Vec<(&str, &str)> = Vec::new();
-        if details {
-            slots.push(("toast-details", "Details"));
-        }
-        if reveal.is_some() {
-            slots.push(("toast-reveal", REVEAL_LABEL));
+        // The import summary ends with a "Details" hint. The button below is that action, so the message drops it.
+        let message_text = if details { without_details_hint(&text) } else { text.as_str() };
+        let details_slot = details.then_some(("toast-details", "Details"));
+        let second_slot = if reveal.is_some() {
+            Some(("toast-reveal", REVEAL_LABEL))
         } else if enter_path {
-            slots.push(("toast-enter-path", "Enter a path\u{2026}"));
-        }
-        let primary_label = slots.last().map(|(_, label)| *label);
-        let extra_label = if slots.len() == 2 { Some(slots[0].1) } else { None };
+            Some(("toast-enter-path", "Enter a path\u{2026}"))
+        } else {
+            None
+        };
+        // The right-most action is the primary one; with two, Details sits to its left.
+        let (primary_meta, extra_meta) = match (details_slot, second_slot) {
+            (Some(d), Some(second)) => (Some(second), Some(d)),
+            (Some(d), None) => (Some(d), None),
+            (None, second) => (second, None),
+        };
         let toast_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium);
-        let lay = toast_layout::layout(ui.painter(), &text, &toast_font, screen, primary_label, extra_label);
+        let action_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let lay = toast_layout::layout(
+            ui.painter(),
+            message_text,
+            &toast_font,
+            &action_font,
+            screen,
+            primary_meta.map(|(_, label)| label),
+            extra_meta.map(|(_, label)| label),
+        );
         let (r, ctx) = (lay.rect, ui.ctx().clone());
         // Each action is its own small Area. The body has no widget, so the canvas under the toast still receives the pointer.
-        let primary_meta = slots.last().copied();
-        let extra_meta = if slots.len() == 2 { Some(slots[0]) } else { None };
         let primary = lay.action.zip(primary_meta).map(|((target, label), (id, name))| (toast_click_target(&ctx, id, target, name), target, label, id));
         let extra = lay.extra.zip(extra_meta).map(|((target, label), (id, name))| (toast_click_target(&ctx, id, target, name), target, label, id));
         // Painted on its own top-most layer: the full-screen Variables view is an Area above the root layer and would
@@ -1246,17 +1258,8 @@ impl Shell {
         crate::widgets::kit::toast_surface(&p, r);
         let dot = if error { theme::DANGER } else { theme::ICON_BRAND_PRIMARY };
         p.circle_filled(lay.dot, 4.0, dot);
-        let message = Rect::from_min_size(lay.text_pos, lay.text.size());
         p.galley(lay.text_pos, lay.text, theme::TEXT);
         let mut clicked: Option<&str> = None;
-        // The import summary still carries its trailing Details word. A press on that message opens the report,
-        // and the button beside it is the same action.
-        if details {
-            let message_hit = toast_click_target(&ctx, "toast-details-message", message, "Details");
-            if message_hit.clicked() {
-                clicked = Some("toast-details");
-            }
-        }
         for (button, target, label, id) in primary.into_iter().chain(extra) {
             let look = crate::widgets::kit::toast_action_look(crate::widgets::kit::state_of(&button, false, true));
             crate::widgets::kit::paint_frame(&p, target, theme::RADIUS_CONTROL, &look);
@@ -1842,7 +1845,10 @@ impl Shell {
             } else {
                 let edge = left_rect.right();
                 let half = theme::DRAG_DIVIDER_HIT * 0.5;
-                let mut band = Rect::from_min_max(Pos2::new(edge - half, left_rect.top()), Pos2::new(edge + half, left_rect.bottom()));
+                // egui's rect hit test includes the far edge. A quarter pixel keeps the canvas side half open,
+                // [R - 12, R + 12), so a click exactly 12 px right of the edge is the canvas's.
+                const HALF_OPEN_FAR_EDGE: f32 = 0.25;
+                let mut band = Rect::from_min_max(Pos2::new(edge - half, left_rect.top()), Pos2::new(edge + half - HALF_OPEN_FAR_EDGE, left_rect.bottom()));
                 if self.app.ui.rulers {
                     band.max.x = edge + theme::PAGES_SEPARATOR_HIT_HALF;
                 }
@@ -3862,6 +3868,11 @@ fn toast_click_target(ctx: &Context, id: &str, rect: Rect, name: &str) -> egui::
             response.on_hover_cursor(egui::CursorIcon::PointingHand)
         })
         .inner
+}
+
+/// An import summary without its trailing `· Details` hint.
+fn without_details_hint(text: &str) -> &str {
+    text.strip_suffix("Details").map_or(text, |rest| rest.trim_end().trim_end_matches('\u{00b7}').trim_end())
 }
 
 /// The toolbar is centered on the window (not the canvas).

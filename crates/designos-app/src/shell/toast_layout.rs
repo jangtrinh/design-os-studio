@@ -46,11 +46,20 @@ pub(super) struct ToastLayout {
     pub extra: Option<(Rect, Arc<Galley>)>,
 }
 
-/// Lays the toast out inside `screen`. Its bottom edge is `TOAST_BOTTOM` above the window's bottom.
-pub(super) fn layout(p: &Painter, text: &str, font: &FontId, screen: Rect, action_label: Option<&str>, extra_label: Option<&str>) -> ToastLayout {
+/// Lays the toast out inside `screen`. Its bottom edge is `TOAST_BOTTOM` above the window's bottom. The message uses
+/// `font` and the actions use `action_font`.
+pub(super) fn layout(
+    p: &Painter,
+    text: &str,
+    font: &FontId,
+    action_font: &FontId,
+    screen: Rect,
+    action_label: Option<&str>,
+    extra_label: Option<&str>,
+) -> ToastLayout {
     let max_w = (screen.width() - SIDE_MARGINS).clamp(MIN_WIDTH, MAX_WIDTH);
-    let action_galley = action_label.map(|label| p.layout_no_wrap(label.to_string(), font.clone(), Color32::PLACEHOLDER));
-    let extra_galley = extra_label.map(|label| p.layout_no_wrap(label.to_string(), font.clone(), Color32::PLACEHOLDER));
+    let action_galley = action_label.map(|label| p.layout_no_wrap(label.to_string(), action_font.clone(), Color32::PLACEHOLDER));
+    let extra_galley = extra_label.map(|label| p.layout_no_wrap(label.to_string(), action_font.clone(), Color32::PLACEHOLDER));
     let action_w = action_galley.as_ref().map_or(0.0, |g| g.size().x + ACTION_PADS);
     let extra_w = extra_galley.as_ref().map_or(0.0, |g| g.size().x + ACTION_PADS);
     let slots = (action_w > 0.0) as u8 + (extra_w > 0.0) as u8;

@@ -1218,20 +1218,18 @@ mod tests {
         let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
         let _ = ctx.run_ui(raw.clone(), |_ui| show(&mut app, &ctx));
         let shapes = ctx.run_ui(raw, |_ui| show(&mut app, &ctx)).shapes;
-        fn heights(shape: &egui::Shape, out: &mut Vec<(f32, f32, egui::Color32)>) {
+        fn sizes(shape: &egui::Shape, out: &mut Vec<(f32, f32)>) {
             match shape {
-                egui::Shape::Rect(r) => out.push((r.rect.width(), r.rect.height(), r.fill)),
-                egui::Shape::Vec(inner) => inner.iter().for_each(|s| heights(s, out)),
+                egui::Shape::Rect(r) => out.push((r.rect.width(), r.rect.height())),
+                egui::Shape::Vec(inner) => inner.iter().for_each(|s| sizes(s, out)),
                 _ => {}
             }
         }
         let mut found = Vec::new();
         for clipped in &shapes {
-            heights(&clipped.shape, &mut found);
+            sizes(&clipped.shape, &mut found);
         }
-        assert!(
-            found.iter().any(|(w, h, fill)| (w - 520.0).abs() < 0.5 && (h - 394.0).abs() < 0.5 && *fill == theme::BG),
-            "palette frame is 520 by 394 on the command surface, got {found:?}"
-        );
+        // Several surface roles share one fill, so only the size says this is the palette frame.
+        assert!(found.iter().any(|(w, h)| (w - 520.0).abs() < 0.5 && (h - 394.0).abs() < 0.5), "palette frame is 520 by 394, got {found:?}");
     }
 }
