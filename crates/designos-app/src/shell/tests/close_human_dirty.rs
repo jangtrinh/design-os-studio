@@ -1,6 +1,6 @@
 use super::leave_prompt::{make_two_tabs, tab_id};
 use super::live_agent_edits::finish;
-use super::unsaved_dot::{dot, edit, external_sim_with, nodes_on_disk, two_rects, wait, TmpDir, SETTLED};
+use super::unsaved_dot::{dot, edit, external_sim_with, library_sim, nodes_on_disk, two_rects, wait, TmpDir, SETTLED};
 use super::*;
 use serde_json::json;
 use std::time::Duration;
@@ -17,9 +17,77 @@ fn live_outside_autosave_off() -> (Sim, designos_mcp::server::Session, std::path
     (s, session, path, workspace, dir)
 }
 
+/// A sim on a library file (it has no `file_path`), autosave off so the agent's close is what writes.
+fn live_library_autosave_off() -> (Sim, designos_mcp::server::Session, std::path::PathBuf, TmpDir) {
+    let (s, dir) = library_sim();
+    assert!(s.app().lib_file.is_some() && s.app().file_path.is_none(), "a library file has no path");
+    let root = s.app().lib.as_ref().expect("library").root().to_path_buf();
+    crate::comments::settings::save_autosave_ai_changes(&root, false).unwrap();
+    let workspace = dir.0.join("mcp-workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
+    session.set_close_ack_timeout(Duration::from_millis(800));
+    (s, session, workspace, dir)
+}
+
+fn library_nodes_on_disk(s: &Sim, id: &str) -> usize {
+    s.app().lib.as_ref().expect("library").load_file(id).map(|d| d.nodes.len()).expect("library file loads")
+}
+
+#[test]
+fn library_file_close_save_writes_the_edit_and_closes_not_path_required() {
+    let (mut s, mut session, workspace, _dir) = live_library_autosave_off();
+    let id = s.app().lib_file.as_ref().expect("library file").id.clone();
+    let before = library_nodes_on_disk(&s, &id);
+    edit(&mut s);
+    let edited = s.app().doc.nodes.len();
+    assert!(edited > before, "the edit adds a layer");
+    assert!(s.app().has_unsaved_edits(), "human edit lights the tab");
+    assert_eq!(library_nodes_on_disk(&s, &id), before, "autosave is off: the edit is not on disk yet");
+    let out = close_while_pumping(&mut s, &mut session, json!({"unsaved": "save"})).expect("library save close");
+    assert_eq!(out["closed"], true, "{out}");
+    assert_eq!(out["saved"], true, "{out}");
+    assert_eq!(s.app().tabs.entries.len(), 0, "the tab closed");
+    assert_eq!(library_nodes_on_disk(&s, &id), edited, "the edit is in the library file");
+    finish(s, workspace);
+}
+
+#[cfg(unix)]
+#[test]
+fn library_file_read_only_close_save_is_invalid_arguments_not_path_required() {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut s, mut session, workspace, _dir) = live_library_autosave_off();
+    edit(&mut s);
+    let (lib, lf) = (s.app().lib.clone().unwrap(), s.app().lib_file.clone().unwrap());
+    let folder = crate::home::library_file_disk_path(&lib, &lf.project_id, &lf.id).parent().unwrap().to_path_buf();
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::File::create(folder.join("probe")).is_ok() {
+        restore_mode(&folder, 0o755);
+        finish(s, workspace);
+        return;
+    }
+    let tabs = s.app().tabs.entries.len();
+    let err = close_while_pumping(&mut s, &mut session, json!({"unsaved": "save"})).expect_err("read-only library save");
+    restore_mode(&folder, 0o755);
+    assert_ne!(err["code"], "PATH_REQUIRED", "a library file is not untitled: {err}");
+    assert_eq!(err["code"], "INVALID_ARGUMENTS", "{err}");
+    assert!(err["message"].as_str().unwrap_or("").contains("is read-only"), "{err}");
+    let next = err["next_step"].as_str().unwrap_or("");
+    assert!(next.contains("stayed open") && !next.contains("valid_options") && !next.contains("corrected_example") && !next.contains("`path`"), "{err}");
+    assert_eq!(s.app().tabs.entries.len(), tabs, "tab stayed open");
+    assert!(s.app().has_unsaved_edits(), "still dirty");
+    finish(s, workspace);
+}
+
 fn close_while_pumping(s: &mut Sim, session: &mut designos_mcp::server::Session, args: serde_json::Value) -> Result<serde_json::Value, serde_json::Value> {
     std::thread::scope(|scope| {
         let h = scope.spawn(|| session.call("designos_close_document", args));
+        // Until the call has answered: the call may not have written its close line when a fixed run of frames ends.
+        let end = std::time::Instant::now() + Duration::from_secs(5);
+        while !h.is_finished() && std::time::Instant::now() < end {
+            wait(s, 0.1);
+            std::thread::sleep(Duration::from_millis(5));
+        }
         wait(s, SETTLED);
         h.join().expect("close thread").map_err(|e| e.to_json_value())
     })

@@ -868,9 +868,23 @@ impl Session {
         if v.get("ok").and_then(Value::as_bool) == Some(false) {
             let code = v.get("code").and_then(Value::as_str).and_then(ErrorCode::from_code_str).unwrap_or(ErrorCode::UnsavedChanges);
             let msg = v.get("message").and_then(Value::as_str).unwrap_or("The editor did not close the document.");
-            let mut err = ToolError::new(code, "/unsaved", msg).with_safe_to_retry(false);
-            if code == ErrorCode::UnsavedChanges {
-                err = err.with_next_step("Call designos_save_file, or call designos_close_document with unsaved set to save.");
+            let mut err = ToolError::new(code, if code == ErrorCode::PathRequired { "/path" } else { "/unsaved" }, msg)
+                .with_safe_to_retry(code == ErrorCode::PathRequired);
+            // The editor's refusal carries only a code and a message, so the next step must not point at fields it lacks.
+            match code {
+                ErrorCode::UnsavedChanges => {
+                    err = err.with_next_step("Call designos_save_file, or call designos_close_document with unsaved set to save.");
+                }
+                ErrorCode::InvalidArguments => {
+                    err = err.with_next_step(
+                        "The document stayed open. Make the file writable and call designos_close_document again, or pass path to a new writable file.",
+                    );
+                }
+                ErrorCode::InternalError => {
+                    err = err
+                        .with_next_step("The document stayed open. Check the file's permissions and free disk space, then call designos_close_document again.");
+                }
+                _ => {}
             }
             return Err(err);
         }
@@ -1281,9 +1295,8 @@ impl Session {
                             Some(path) => Some(self.output_path_allow_overwrite(path, true)?.to_string_lossy().into_owned()),
                             None => self.engine.file_path.clone().filter(|s| !s.trim().is_empty()),
                         };
-                        if saved_path.is_none() {
-                            return Err(Self::path_required());
-                        }
+                        // No path is not "untitled": a library file has none either. The editor knows which it is, so it is
+                        // asked, and answers PATH_REQUIRED itself for a document that really has no file.
                     } else if self.dirty || a.path.is_some() {
                         let (path, overwrite) = match a.path.as_deref() {
                             Some(path) => (path.to_string(), true),

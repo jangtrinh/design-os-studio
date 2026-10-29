@@ -321,7 +321,7 @@ fn save_open_document_for_agent_close(app: &mut App) -> AgentCloseSave {
     if app.lib_file.is_some() {
         return match app.save_library_file_reporting() {
             Ok(()) => finish_close_save(app, app.file_path.clone()),
-            Err(e) => classify_save_message(e, app.file_path.as_deref()),
+            Err(e) => classify_library_save(&e, app.lib_file.as_ref().map(|f| f.project.as_str())),
         };
     }
     let Some(p) = app.file_path.as_ref().filter(|p| crate::io::writes_native_format(p)).cloned() else {
@@ -342,10 +342,19 @@ fn finish_close_save(app: &App, path: Option<std::path::PathBuf>) -> AgentCloseS
     }
 }
 
+/// A write that failed because the file or its folder cannot be written to: not a disk fault.
+fn is_read_only_kind(kind: std::io::ErrorKind) -> bool {
+    matches!(kind, std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem)
+}
+
+fn read_only(display: &str) -> AgentCloseSave {
+    AgentCloseSave::Failed { code: "INVALID_ARGUMENTS", message: format!("{display} is read-only. Make it writable first, or choose a new path.") }
+}
+
 fn classify_save_io(path: &std::path::Path, err: std::io::Error) -> AgentCloseSave {
     let display_path = path.display().to_string();
-    if err.kind() == std::io::ErrorKind::PermissionDenied {
-        AgentCloseSave::Failed { code: "INVALID_ARGUMENTS", message: format!("{display_path} is read-only. Make it writable first, or choose a new path.") }
+    if is_read_only_kind(err.kind()) {
+        read_only(&display_path)
     } else {
         AgentCloseSave::Failed {
             code: "INTERNAL_ERROR",
@@ -354,16 +363,17 @@ fn classify_save_io(path: &std::path::Path, err: std::io::Error) -> AgentCloseSa
     }
 }
 
-fn classify_save_message(err: String, path: Option<&std::path::Path>) -> AgentCloseSave {
-    let display = path.map(|p| p.display().to_string()).unwrap_or_else(|| "the document".into());
-    let lower = err.to_ascii_lowercase();
-    if lower.contains("read-only") || lower.contains("permission denied") {
-        AgentCloseSave::Failed { code: "INVALID_ARGUMENTS", message: format!("{display} is read-only. Make it writable first, or choose a new path.") }
-    } else {
-        AgentCloseSave::Failed {
+/// A library save failure maps like a titled file's: by the typed I/O kind, never by the text. A failure with no I/O kind (the
+/// editor is showing an old version, the file is not in the library) is not a disk fault and keeps its own text.
+fn classify_library_save(err: &crate::home::LibrarySaveError, project: Option<&str>) -> AgentCloseSave {
+    let display = project.map_or_else(|| "the library file".to_string(), |p| format!("The library file in {p}"));
+    match err.io_kind {
+        Some(kind) if is_read_only_kind(kind) => read_only(&display),
+        Some(_) => AgentCloseSave::Failed {
             code: "INTERNAL_ERROR",
-            message: format!("{display} can't be written: {err}. Check its permissions and free space, then try again."),
-        }
+            message: format!("{display} can't be written: {}. Check its permissions and free space, then try again.", err.message),
+        },
+        None => AgentCloseSave::Failed { code: "INVALID_ARGUMENTS", message: err.message.clone() },
     }
 }
 
@@ -580,4 +590,55 @@ fn toast_text(r: &LivePatchReport, committed: bool) -> Option<String> {
         1 => "Applied agent edit: 1 new layer".to_string(),
         n => format!("Applied agent edit: {n} new layers"),
     })
+}
+
+#[cfg(test)]
+mod close_save_classification_tests {
+    use super::*;
+    use crate::home::LibrarySaveError;
+    use std::io::ErrorKind;
+
+    fn failed(save: AgentCloseSave) -> (&'static str, String) {
+        match save {
+            AgentCloseSave::Failed { code, message } => (code, message),
+            AgentCloseSave::Saved => panic!("expected a failure, got Saved"),
+            AgentCloseSave::PathRequired => panic!("a library save is never PATH_REQUIRED"),
+        }
+    }
+
+    fn library(kind: Option<ErrorKind>, message: &str) -> (&'static str, String) {
+        failed(classify_library_save(&LibrarySaveError { message: message.into(), io_kind: kind }, Some("Starter")))
+    }
+
+    #[test]
+    fn library_failures_map_by_io_kind_not_by_text() {
+        for kind in [ErrorKind::PermissionDenied, ErrorKind::ReadOnlyFilesystem] {
+            let (code, message) = library(Some(kind), "Cannot save: io: whatever the OS said");
+            assert_eq!(code, "INVALID_ARGUMENTS", "{kind:?}");
+            assert!(message.contains("is read-only"), "{message}");
+        }
+        for kind in [ErrorKind::StorageFull, ErrorKind::NotFound, ErrorKind::Other] {
+            let (code, message) = library(Some(kind), "Cannot save: io: Zugriff verweigert");
+            assert_eq!(code, "INTERNAL_ERROR", "{kind:?}");
+            assert!(message.contains("can't be written"), "{message}");
+        }
+        // Text that merely contains "permission denied" (a folder name) is not a read-only file.
+        assert_eq!(library(Some(ErrorKind::StorageFull), "Cannot save: io: /permission denied/lib").0, "INTERNAL_ERROR");
+    }
+
+    #[test]
+    fn a_failure_without_an_io_kind_keeps_its_own_text() {
+        let (code, message) = library(None, "Go back to the current version before saving");
+        assert_eq!(code, "INVALID_ARGUMENTS");
+        assert_eq!(message, "Go back to the current version before saving");
+    }
+
+    #[test]
+    fn titled_file_read_only_kinds_match_the_library_ones() {
+        let path = std::path::Path::new("/x/a.designos");
+        for kind in [ErrorKind::PermissionDenied, ErrorKind::ReadOnlyFilesystem] {
+            assert_eq!(failed(classify_save_io(path, std::io::Error::from(kind))).0, "INVALID_ARGUMENTS", "{kind:?}");
+        }
+        assert_eq!(failed(classify_save_io(path, std::io::Error::from(ErrorKind::StorageFull))).0, "INTERNAL_ERROR");
+    }
 }
