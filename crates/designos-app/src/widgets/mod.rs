@@ -250,13 +250,53 @@ pub fn labelled(ui: &Ui, id: Id, role: egui::accesskit::Role, name: &str) {
     });
 }
 
-/// Test hook: remembers where a named widget was drawn so UI tests can find it.
+/// Relaxed flag turning on `record` pass listing in release builds (`--layout-json`).
+pub static RECORDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+thread_local! {
+    static CURRENT_PASS_NAMES: std::cell::RefCell<Vec<(String, Rect)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static LAST_PASS_NAMES: std::cell::RefCell<Vec<(String, Rect)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Moves the current pass's recorded `(name, rect)` pairs into `last_pass_names`.
+pub fn finish_pass_records() {
+    CURRENT_PASS_NAMES.with(|cur| {
+        LAST_PASS_NAMES.with(|last| {
+            *last.borrow_mut() = std::mem::take(&mut *cur.borrow_mut());
+        });
+    });
+}
+
+/// Returns the `(name, rect)` pairs recorded during the last completed pass.
+#[allow(dead_code)]
+pub fn last_pass_names() -> Vec<(String, Rect)> {
+    LAST_PASS_NAMES.with(|last| last.borrow().clone())
+}
+
+/// Clears any in-progress pass records and `last_pass_names` on the current thread.
+#[allow(dead_code)]
+pub fn clear_pass_records() {
+    CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().clear());
+    LAST_PASS_NAMES.with(|last| last.borrow_mut().clear());
+}
+
+/// Test hook: remembers where a named widget was drawn so UI tests and layout snapshots can find it.
 #[cfg(test)]
 pub fn record(ui: &Ui, name: &str, rect: Rect) {
     if RECORD_DISABLED.with(std::cell::Cell::get) {
         return;
     }
+    let _ = RECORDING.load(std::sync::atomic::Ordering::Relaxed);
+    let global_rect = ui.ctx().layer_transform_to_global(ui.layer_id()).map_or(rect, |t| t * rect);
     ui.ctx().data_mut(|d| d.insert_temp(Id::new(("test-rect", name.to_string())), rect));
+    CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), global_rect)));
+}
+
+/// True when [`record`] will store the widget's name and rect on this pass.
+#[cfg(test)]
+#[inline]
+pub fn recording() -> bool {
+    !RECORD_DISABLED.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]
@@ -288,7 +328,29 @@ impl Drop for RecordDisabled {
 }
 #[cfg(not(test))]
 #[inline]
-pub fn record(_ui: &Ui, _name: &str, _rect: Rect) {}
+pub fn record(ui: &Ui, name: &str, rect: Rect) {
+    if RECORDING.load(std::sync::atomic::Ordering::Relaxed) {
+        let global_rect = ui.ctx().layer_transform_to_global(ui.layer_id()).map_or(rect, |t| t * rect);
+        CURRENT_PASS_NAMES.with(|cur| cur.borrow_mut().push((name.to_string(), global_rect)));
+    }
+}
+
+/// True when [`record`] will store the widget's name and rect on this pass.
+#[cfg(not(test))]
+#[inline]
+pub fn recording() -> bool {
+    RECORDING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Like [`record`], formatting `name` lazily only when [`recording`] is active so release frames
+/// with `RECORDING = false` do not allocate.
+#[inline]
+pub fn record_with<S: AsRef<str>>(ui: &Ui, name: impl FnOnce() -> S, rect: Rect) {
+    if recording() {
+        let s = name();
+        record(ui, s.as_ref(), rect);
+    }
+}
 
 pub use designos_export::util::fmt_num;
 
@@ -331,5 +393,28 @@ mod tests {
         assert_eq!(fmt_num(-0.001), "0");
         assert_eq!(fmt_num(1.239), "1.24");
         assert_eq!(fmt_num(0.0), "0");
+    }
+
+    /// 1b: two calls are listed; none under `RecordDisabled`; the next pass starts empty.
+    #[test]
+    fn record_hook_lists_every_name_of_the_pass() {
+        clear_pass_records();
+        let ctx = egui::Context::default();
+        let r1 = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(30.0, 40.0));
+        let r2 = Rect::from_min_size(Pos2::new(50.0, 60.0), Vec2::new(70.0, 80.0));
+
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 300.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw.clone(), |ui| {
+            record(ui, "alpha", r1);
+            record(ui, "beta", r2);
+            let _disabled = RecordDisabled::begin();
+            record(ui, "ignored", r1);
+        });
+        finish_pass_records();
+        assert_eq!(last_pass_names(), vec![("alpha".to_string(), r1), ("beta".to_string(), r2)], "two calls must be listed and RecordDisabled call ignored");
+
+        let _ = ctx.run_ui(raw, |_ui| {});
+        finish_pass_records();
+        assert!(last_pass_names().is_empty(), "the next pass with no record calls must start empty");
     }
 }

@@ -1,0 +1,4 @@
+HIDIdleTime_before=2768s
+HIDIdleTime_after=3540s exit_code=
+HIDIdleTime_before_run2=3723s
+HIDIdleTime_after_run2=4423s exit_code=

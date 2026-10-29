@@ -538,6 +538,16 @@ fn version_cache() -> &'static Mutex<std::collections::HashMap<String, Option<St
     VERSION_CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
+#[cfg(test)]
+thread_local! {
+    static LAST_WARMER_RESOLVED: std::cell::RefCell<Option<Option<PathBuf>>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) fn take_last_warmer_resolved() -> Option<Option<PathBuf>> {
+    LAST_WARMER_RESOLVED.with(|slot| slot.borrow_mut().take())
+}
+
 /// Warms the installed CLI `--version` cache on a background thread so `poll_live_agent_bridge`
 /// never spawns a subprocess on the UI thread.
 pub fn warm_cli_version_cache(preset: AgentCliPreset) {
@@ -558,11 +568,16 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
     // A test never starts a real CLI, not even for `--version`: nothing in a test depends on the installed version, and a CLI
     // found on the developer's machine would run against whatever home it finds. (`version_probe_command` still gives the
     // probe a scratch home, as defense in depth.)
+    let bin = preset.binary_name();
+    let sources = crate::cli_resolve::current_search_sources(None);
+    let dirs = crate::cli_resolve::cli_search_dirs_with(&sources);
+    let resolved_bin = resolve_cli_executable(bin, &sources);
+    #[cfg(test)]
+    LAST_WARMER_RESOLVED.with(|slot| *slot.borrow_mut() = Some(resolved_bin.clone()));
     if cfg!(test) {
         return None;
     }
-    let bin = preset.binary_name();
-    let path_key = format!("{bin}:{:?}", std::env::var_os("PATH"));
+    let path_key = format!("{bin}:{dirs:?}");
     let cache = version_cache();
     if let Ok(mut guard) = cache.lock() {
         if let Some(cached) = guard.get(&path_key) {
@@ -571,7 +586,7 @@ fn probe_installed_cli_version(preset: AgentCliPreset) -> Option<String> {
         guard.insert(path_key.clone(), None);
     }
     std::thread::spawn(move || {
-        let Some(resolved_bin) = resolve_cli_executable(bin) else { return };
+        let Some(resolved_bin) = resolved_bin else { return };
         let Ok(out) = version_probe_command(&resolved_bin, preset).output() else { return };
         let combined = format!("{}\n{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
         let detected = extract_semver_token(&combined);
@@ -593,31 +608,9 @@ pub(crate) fn version_probe_command(bin: &Path, _preset: AgentCliPreset) -> std:
     cmd
 }
 
-fn resolve_cli_executable(bin: &str) -> Option<PathBuf> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(path_os) = std::env::var_os("PATH") {
-        for p in std::env::split_paths(&path_os) {
-            if !p.as_os_str().is_empty() {
-                dirs.push(p);
-            }
-        }
-    }
-    dirs.extend(crate::terminal::extra_cli_path_dirs());
-    for d in dirs {
-        let cand = d.join(bin);
-        if cand.is_file() {
-            return Some(cand);
-        }
-        if cfg!(windows) {
-            for ext in ["exe", "cmd", "bat"] {
-                let w = d.join(format!("{bin}.{ext}"));
-                if w.is_file() {
-                    return Some(w);
-                }
-            }
-        }
-    }
-    None
+pub(crate) fn resolve_cli_executable(bin: &str, sources: &crate::cli_resolve::SearchSources) -> Option<PathBuf> {
+    let dirs = crate::cli_resolve::cli_search_dirs_with(sources);
+    crate::cli_resolve::resolve_in(&dirs, bin)
 }
 
 impl SessionFailure {

@@ -29,26 +29,7 @@ fn script_empty_clipboard(app: &mut App) {
 /// that is still open for writing.
 #[cfg(unix)]
 fn stub_agent_cli_dir() -> &'static std::path::Path {
-    use std::os::unix::fs::PermissionsExt;
-    const SCRIPT: &[u8] = b"#!/bin/sh\nexec /bin/cat\n";
-    static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| {
-        let dir = std::env::temp_dir().join("designos-stub-agent-clis");
-        std::fs::create_dir_all(&dir).expect("create the stub agent CLI dir");
-        for binary in ["claude", "codex", "agy", "grok", "gemini", "opencode"] {
-            let path = dir.join(binary);
-            let is_current = std::fs::read(&path).is_ok_and(|bytes| bytes == SCRIPT)
-                && std::fs::metadata(&path).is_ok_and(|meta| meta.permissions().mode() & 0o111 == 0o111);
-            if is_current {
-                continue;
-            }
-            let staged = dir.join(format!(".{binary}.{}", std::process::id()));
-            std::fs::write(&staged, SCRIPT).expect("write a stub agent CLI");
-            std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755)).expect("make a stub agent CLI executable");
-            std::fs::rename(&staged, &path).expect("move a stub agent CLI into place");
-        }
-        dir
-    })
+    crate::cli_resolve::stub_dir()
 }
 
 struct Sim {
@@ -94,6 +75,52 @@ impl Sim {
     }
     fn with(opts: Options) -> Self {
         let mut s = Self::built(opts);
+        s.frame(vec![]);
+        s.frame(vec![]);
+        s
+    }
+    fn with_starter(opts: Options) -> Self {
+        Self::with_starter_prep(opts, |_| {}, |_| {})
+    }
+    fn with_starter_prep(mut opts: Options, prep_doc: impl FnOnce(&mut designos_doc::Document), prep_app: impl FnOnce(&mut App)) -> Self {
+        const STARTER_BYTES: &[u8] = include_bytes!("../../assets/starter/designos-studio-starter.designos");
+        designos_doc::text_measure::install(&designos_render::RenderTextMeasure);
+        let had_panel_or_file = opts.panel.is_some() || opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
+        let mut temp_doc_path = None;
+        if !opts.home && opts.file.is_none() && opts.open_id.is_none() && opts.import_capture.is_none() && opts.fixture.is_none() {
+            static STARTER_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let seq = STARTER_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let starter_str = std::str::from_utf8(STARTER_BYTES).expect("starter utf8");
+            let mut doc = designos_doc::Document::from_json(starter_str).expect("parse starter document");
+            prep_doc(&mut doc);
+            let p = std::env::temp_dir().join(format!("designos-sim-starter-{}-{seq}.designos", std::process::id()));
+            std::fs::write(&p, doc.to_json().expect("serialize prepared starter")).expect("write prepared starter");
+            opts.file = Some(p.clone());
+            temp_doc_path = Some(p);
+        }
+        let ctx = Context::default();
+        let mut shell = Shell::build(&ctx, opts);
+        if let Some(p) = temp_doc_path {
+            let _ = std::fs::remove_file(p);
+            shell.app.file_path = None;
+            let ds = shell.app.autosave.disk_state();
+            shell.app.autosave.adopt_disk_state(ds, None);
+            shell.launch_had_panel_or_file = had_panel_or_file;
+        }
+        prep_app(&mut shell.app);
+        script_empty_clipboard(&mut shell.app);
+        let mut s = Sim {
+            ctx,
+            shell,
+            t: 0.0,
+            pos: Pos2::new(700.0, 500.0),
+            mods: Modifiers::NONE,
+            cursor: egui::CursorIcon::Default,
+            shapes: Vec::new(),
+            accesskit_update: None,
+            commands: Vec::new(),
+            sent_commands: Vec::new(),
+        };
         s.frame(vec![]);
         s.frame(vec![]);
         s
@@ -222,7 +249,7 @@ impl Sim {
         #[cfg(unix)]
         {
             let mut dirs = vec![stub_agent_cli_dir().to_path_buf()];
-            dirs.extend(std::env::var_os("PATH").iter().flat_map(std::env::split_paths));
+            dirs.extend(crate::cli_resolve::host_path_dirs());
             self.shell.app.terminal.path_override = Some(std::env::join_paths(dirs).expect("a PATH made of existing dirs"));
         }
     }
@@ -1214,9 +1241,12 @@ mod agents_panel_only;
 mod agents_tab_strip;
 mod approval_banner_tab;
 mod assets_thumbs;
+#[cfg(unix)]
+mod layout_unchanged;
 mod libraries;
 mod lint;
 mod plugins;
+#[cfg(unix)]
 mod terminal_undo_chord;
 
 #[test]
@@ -1824,5 +1854,58 @@ mod agent_a11y {
             assert!(s.app().agent_a11y.queue.is_empty(), "announcer queue must stay empty when AccessKit is disabled");
             assert!(s.app().agent_a11y.shown.is_none(), "announcer shown must stay None when AccessKit is disabled");
         }
+    }
+
+    /// 8e: `Options{screenshot: Some(..)}` -> `screenshot_chrome` true, rail not opened;
+    /// `Options::default()` -> rail default applied; `Shell::draw` populates `app.ui.regions`.
+    #[test]
+    fn shell_new_uses_launch_defaults_for_its_own_mode() {
+        let tmp = std::env::temp_dir().join(format!("designos-8e-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create 8e temp dir");
+
+        let cc_shot = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let shot_opts =
+            Options { library: Some(tmp.join("lib-shot")), fixture: Some("demo".to_string()), screenshot: Some(tmp.join("out.png")), ..Options::default() };
+        let shell_shot = Shell::new(&cc_shot, shot_opts);
+        assert!(shell_shot.app.ui.screenshot_chrome, "Shell::new with screenshot: Some(..) must set screenshot_chrome = true");
+        assert_ne!(shell_shot.app.ui.rail, Some(crate::app::RailItem::Agents), "Shell::new with screenshot: Some(..) must not apply the Agents rail default");
+        assert!(shell_shot.app.tabs.always_visible);
+        assert!(shell_shot.app.ui.rulers);
+
+        let cc_live = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let live_opts = Options { library: Some(tmp.join("lib-live")), fixture: Some("demo".to_string()), ..Options::default() };
+        let mut shell_live = Shell::new(&cc_live, live_opts);
+        assert!(!shell_live.app.ui.screenshot_chrome, "Shell::new without screenshot must leave screenshot_chrome = false");
+        assert_eq!(shell_live.app.ui.rail, Some(crate::app::RailItem::Agents), "Shell::new with Options::default() must apply the Agents rail default");
+        assert!(!shell_live.app.ui.left_collapsed);
+        assert!(shell_live.app.tabs.always_visible);
+        assert!(shell_live.app.ui.rulers);
+
+        // Also verify apply_launch_defaults directly on a Shell::build instance and region population in Shell::draw.
+        let ctx_build = egui::Context::default();
+        let build_opts = Options { library: Some(tmp.join("lib-build")), fixture: Some("demo".to_string()), ..Options::default() };
+        let mut shell_build = Shell::build(&ctx_build, build_opts);
+        shell_build.apply_launch_defaults(true);
+        assert!(shell_build.app.ui.screenshot_chrome, "apply_launch_defaults(true) must set screenshot_chrome = true");
+        assert_ne!(shell_build.app.ui.rail, Some(crate::app::RailItem::Agents));
+
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() };
+        let _ = ctx_build.run_ui(raw.clone(), |ui| {
+            shell_build.draw(ui);
+        });
+        assert!(shell_build.app.ui.regions.title_bar.is_none(), "screenshot_chrome hides title_bar");
+        assert!(shell_build.app.ui.regions.tab_bar.is_some(), "tab_bar region must be populated");
+        assert!(shell_build.app.ui.regions.rail.is_some(), "rail region must be populated");
+        assert!(shell_build.app.ui.regions.left_panel.is_some(), "left_panel region must be populated");
+        assert!(shell_build.app.ui.regions.canvas.is_some(), "canvas region must be populated");
+        assert!(shell_build.app.ui.regions.right_panel.is_some(), "right_panel region must be populated");
+
+        let _ = cc_live.egui_ctx.run_ui(raw, |ui| {
+            shell_live.draw(ui);
+        });
+        assert!(shell_live.app.ui.regions.title_bar.is_some(), "non-screenshot launch draws title_bar");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

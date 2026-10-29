@@ -478,6 +478,9 @@ def purple_band_constants(theme_src: str) -> List[str]:
 
 
 _COLOUR_CONST_RE = re.compile(r"^pub const ([A-Z0-9_]+): (Color32|\[Color32; \d+\]) = (.+?);\s*$", re.M)
+# Every colour constant the file declares, however it is written; the reader above parses only the one-line
+# form with nothing after the `;`, so a declaration found here that the reader skipped is reported, not ignored.
+_COLOUR_DECL_RE = re.compile(r"^pub const ([A-Z0-9_]+)\s*:\s*\[?Color32", re.M)
 _RGB_RE = re.compile(r"rgb\(\s*0x([0-9A-Fa-f]{6})\s*\)")
 _RGBA_RE = re.compile(r"rgba\(\s*0x([0-9A-Fa-f]{6})\s*,\s*0x([0-9A-Fa-f]{2})\s*\)")
 
@@ -512,6 +515,7 @@ def check_colour_classes(theme_src: str, ds_colors: Dict[str, str]) -> Dict[str,
     `ds_colors` maps a bare `colors.<key>` key to its value, as `extract_design_token_colors` returns it.
     """
     values = parse_theme_colour_values(theme_src)
+    declared = set(_COLOUR_DECL_RE.findall(theme_src))
     classes: Dict[str, set] = {
         "mapped": set(RUST_TO_DESIGN_TOKEN_MAP),
         "shared-key": set(RUST_COLOUR_SHARED_KEY),
@@ -530,8 +534,13 @@ def check_colour_classes(theme_src: str, ds_colors: Dict[str, str]) -> Dict[str,
                 f"{name} is in no colour class: map it in RUST_TO_DESIGN_TOKEN_MAP, or declare it in "
                 "RUST_COLOUR_SHARED_KEY, RUST_COLOUR_PENDING_STORE or RUST_COLOUR_EXEMPT"
             )
+    for name in sorted(declared - set(values)):
+        problems.append(
+            f"{name} is unclassified: its declaration is not one line ending in `;` (a trailing comment or a wrapped "
+            "value), so the colour reader skipped it and no class checks it; write `pub const NAME: Color32 = rgb(0x......);` on one line"
+        )
     for cls, members in classes.items():
-        for name in sorted(members - set(values)):
+        for name in sorted(members - set(values) - declared):
             problems.append(f"{name} is declared {cls} but theme.rs has no such colour constant")
 
     def compare(name: str, key: str) -> None:
@@ -564,7 +573,7 @@ def check_colour_classes(theme_src: str, ds_colors: Dict[str, str]) -> Dict[str,
         if reason not in known_reasons:
             problems.append(f"{name}: unknown exempt reason {reason!r}")
     counts = {cls: len(members) for cls, members in classes.items()}
-    return {"counts": counts, "total": len(values), "problems": problems}
+    return {"counts": counts, "total": len(values), "declared": len(declared), "problems": problems}
 
 
 def check_rust_token_parity(record_gaps: bool = False) -> Tuple[bool, str, Dict[str, Any]]:

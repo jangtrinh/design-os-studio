@@ -2,8 +2,8 @@
 """
 DESIGN:OS Studio — design-system ontology parity gate
 
-Checks the links between the component registry, the Rust kit, the theme names and the token store
-(spec T). It reads files only: no `ui` CLI, no cargo build, so it runs in the design-gates job.
+Checks the links between the component registry, the Rust kit, the theme names and the token store.
+It reads files only: no `ui` CLI, no cargo build, so it runs in the design-gates job.
 
   P1  registry <-> Rust     every record names its `rust=` symbol; `exists` symbols resolve at HEAD, a symbol
                             that a later spec creates (`new-in-C|D|K`) is reported until that spec's PR; a
@@ -21,7 +21,7 @@ Checks the links between the component registry, the Rust kit, the theme names a
                             file exists
   P7  absences              the pinned sites of an upper-case tag, a brand-filled selected state, a chrome
                             gradient and monospace chrome text equal their pins (ds_ontology_site_pins.py)
-  P9  names (R14)           the design store holds no kit role name (needs the token contract: --contract),
+  P9  shipped names         the design store holds no kit role name (needs the token contract: --contract),
                             `Untitled UI` appears on the two credit lines only, no `UTILITY_*` constant in
                             crates/, and every registry variant axis is one of the seven Studio axes
 
@@ -54,7 +54,8 @@ from non_colour_token_parity import RUST_ONLY  # noqa: E402
 
 TIERS = ("element", "component", "composite", "region", "screen")
 TIER_RANK = {tier: rank for rank, tier in enumerate(TIERS)}
-RUST_STATUS_RE = re.compile(r"^(exists|new-in-[A-Z])$")
+# Only these three new-in statuses report instead of failing; any other status is a failure.
+RUST_STATUS_RE = re.compile(r"^(exists|new-in-[CDK])$")
 SYMBOL_RE = re.compile(r"^[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*\.rs(?:::[a-z_][a-z0-9_]*){1,2}$")
 STATE_NAMES = ("Default", "Hover", "Active", "Focus", "Disabled", "Selected")
 # C's six state names (its specimen rows) in the CLI's stored spelling.
@@ -249,7 +250,7 @@ def check_p1(ctx: Context) -> Result:
         if not symbols:
             result.problems.append(f"{rec.name}: the description names no rust= symbol")
         if not RUST_STATUS_RE.match(status):
-            result.problems.append(f"{rec.name}: rust_status={status!r} is not exists or new-in-<spec>")
+            result.problems.append(f"{rec.name}: rust_status={status!r} is not exists, new-in-C, new-in-D or new-in-K")
             continue
         if status != "exists":
             pending_by_status.setdefault(status, []).append(rec.name)
@@ -612,7 +613,7 @@ def _crate_text_files(root: Path) -> Iterable[Path]:
 
 
 def check_p9(ctx: Context) -> Result:
-    result = Result("P9", "shipped names (R14)")
+    result = Result("P9", "shipped names (the design store holds no kit role name)")
     files = _store_set_files(ctx.root)
 
     contract_path = find_contract(ctx)
@@ -679,7 +680,7 @@ def run(ctx: Context, selected: Sequence[str]) -> List[Result]:
 
 
 def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Design-system ontology parity gate (spec T)")
+    parser = argparse.ArgumentParser(description="Design-system ontology parity gate: registry, Rust kit, theme names and token store agree")
     parser.add_argument("--root", type=Path, default=SCRIPTS_DIR.parent, help="repository root (default: this checkout)")
     parser.add_argument("--only", default="", help="comma-separated check ids to run (default: all)")
     parser.add_argument("--contract", type=Path, help="token contract markdown for the P9 kit role scan")
