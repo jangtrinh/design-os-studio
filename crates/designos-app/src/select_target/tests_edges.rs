@@ -75,7 +75,7 @@ fn a_missing_id_says_no_node_has_it_and_an_expanded_one_says_it_is_per_session()
 
     doc.insert(NodeId(2), named(9, "Expanded", 0.0)).unwrap();
     let msg = resolve(&mut doc, "id:9", NodeId(7)).unwrap_err().to_string();
-    assert!(msg.contains("id 9 belongs to an expanded instance and is not stable across runs"), "{msg}");
+    assert!(msg.contains("id 9 was created in this session and is not stable across runs"), "{msg}");
 }
 
 /// Stays attached and reports no progress: an expansion that had nothing to do.
