@@ -233,9 +233,9 @@ fn this_file(app: &mut App, ui: &mut Ui, m: Rect, mut y: f32) -> f32 {
         .id(did)
         .font(theme::font_body())
         .text_color(theme::TEXT)
-        .frame(egui::Frame::NONE)
+        // egui uses `margin` only when it builds the frame itself, so the inset lives on the given frame.
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(theme::INSET_CONTROL as i8, 0)))
         .hint_text(egui::RichText::new("Describe what changed (optional)").color(theme::TEXT_PLACEHOLDER))
-        .margin(egui::Margin::symmetric(8, 0))
         .vertical_align(egui::Align::Center)
         .desired_width(dr.width());
     ui.put(dr, te);

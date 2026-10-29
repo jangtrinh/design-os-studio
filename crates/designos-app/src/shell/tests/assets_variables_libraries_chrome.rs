@@ -800,3 +800,18 @@ fn check_designs_uses_contract_roles() {
     scanning.frame(vec![]);
     assert_eq!(scanning.rect_of("check-designs-progress-bar").height(), 8.0);
 }
+
+#[test]
+fn libraries_description_hint_sits_inside_the_field() {
+    let root = temp_root("desc-hint");
+    let mut s = sim_in(&root);
+    s.shell.app.open_libraries();
+    settle(&mut s);
+    let field = s.rect_of("lib-desc");
+    let hint = texts_of(&s)
+        .into_iter()
+        .find(|t| t.galley.job.text.starts_with("Describe what changed") && field.contains(t.pos + egui::vec2(1.0, 1.0)))
+        .expect("the description hint is painted in the field");
+    assert!(hint.pos.x >= field.left() + theme::INSET_CONTROL - 0.5, "the hint starts {} px from the field edge", hint.pos.x - field.left());
+    let _ = std::fs::remove_dir_all(root);
+}
