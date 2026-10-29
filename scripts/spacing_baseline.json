@@ -167,9 +167,8 @@
       "radius_literals": 1
     },
     "home/mod.rs": {
-      "font_literals": 2,
-      "offset_literals": 153,
-      "radius_literals": 40
+      "offset_literals": 131,
+      "radius_literals": 1
     },
     "home/sidebar.rs": {
       "offset_literals": 14
@@ -355,20 +354,20 @@
   },
   "note": "Ratchet baseline for scripts/check_spacing_relationships.py. Per-file counts of literal geometry outside theme.rs. Counts may only fall: lower them with --write-baseline, which refuses to raise any entry.",
   "totals": {
-    "font_literals": 25,
+    "font_literals": 23,
     "inset_literals": 42,
     "legacy_control_refs": 83,
     "nonconcentric_pairs": 2,
-    "offset_literals": 1598,
-    "radius_literals": 217
+    "offset_literals": 1576,
+    "radius_literals": 178
   },
   "totals_excluding_own_palette": {
-    "font_literals": 4,
+    "font_literals": 2,
     "inset_literals": 42,
     "legacy_control_refs": 79,
     "nonconcentric_pairs": 1,
-    "offset_literals": 1291,
-    "radius_literals": 121
+    "offset_literals": 1269,
+    "radius_literals": 82
   },
   "version": 1
 }

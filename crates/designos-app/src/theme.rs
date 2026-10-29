@@ -954,8 +954,6 @@ pub const HOME_PAD: f32 = 32.0;
 pub const HOME_HEADER_H: f32 = 64.0;
 pub const HOME_CARD_W: f32 = 224.0;
 pub const HOME_THUMB_H: f32 = 140.0;
-/// Thumbnail plus the three text lines under it.
-pub const HOME_CARD_H: f32 = HOME_THUMB_H + 58.0;
 pub const HOME_CARD_GAP: f32 = 24.0;
 pub const HOME_FOLDER_H: f32 = 48.0;
 pub const HOME_LIST_ROW_H: f32 = 44.0;
