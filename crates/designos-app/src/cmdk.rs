@@ -337,8 +337,8 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
     let mut section_count = 0usize;
     let mut prev_sec = "";
     let mut list_y = LIST_GAP;
-    let mut spans: Vec<(f32, f32)> = Vec::with_capacity(filtered_cmds.len());
-    for (_, item) in &filtered_cmds {
+    let mut spans = [(0.0f32, 0.0f32); QUICK_COMMANDS.len()];
+    for (i, (_, item)) in filtered_cmds.iter().enumerate() {
         let sec = if q_lower.is_empty() { item.section } else { "Matching actions" };
         let span_top = list_y;
         if sec != prev_sec {
@@ -346,7 +346,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             prev_sec = sec;
             list_y += SECTION_H;
         }
-        spans.push((span_top, list_y));
+        spans[i] = (span_top, list_y);
         list_y += ROW_PITCH;
     }
 
