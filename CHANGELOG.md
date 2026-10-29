@@ -58,7 +58,6 @@ All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented 
   - Disabled controls inside a disabled panel dim once, not twice (#1139, PR #1369).
 
 ### Known issues
-- Not in 0.7.0: Codex approvals answered from the Agents panel (#930) and the Ubuntu test-memory change (#1205) were reverted before release (#1284). Codex still asks for approval in its own terminal menu, and the Ubuntu test job passes without the change.
 - Scrolling the terminal with the mouse wheel after a large agent edit is not fixed, and the terminal parts of #1173 were not smoke-tested. #1173 stays open on 0.7.1. The `changed layers` card scrolling from PR #1276 is in 0.7.0.
 - Shadow cut-out of a frame with no fill cuts the wrong region when a child is a mask, a group, or paints nothing (#1277).
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG (#1278).
