@@ -1,1 +1,211 @@
-[]
+[
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "overlay:Foreground/0",
+    "anchor_y": "bottom",
+    "min_dh": 20,
+    "max_dh": 20,
+    "spec": "J",
+    "reason": "R5: command bar stays on its bottom edge and grows 20 pt because each of the five action rows takes a 36 pt pitch."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "cmdk-modal",
+    "anchor_y": "bottom",
+    "dy": 6,
+    "min_dh": 20,
+    "max_dh": 20,
+    "spec": "J",
+    "reason": "R5: command bar stays on its bottom edge and grows 20 pt. The 6 pt offset cancels the three action rows below it that each grew by 2."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "cmdk-image-search-btn",
+    "dy": -20,
+    "spec": "J",
+    "reason": "R5: image search control rides the command bar, which grows upward from a fixed bottom edge."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "cmdk-open-terminal",
+    "dy": -20,
+    "min_dh": 2,
+    "max_dh": 2,
+    "spec": "J",
+    "reason": "R5: action row grows from 30 to 32 and moves up with the command bar."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "cmdk-populate-content",
+    "dy": -18,
+    "min_dh": 2,
+    "max_dh": 20,
+    "spec": "J",
+    "reason": "R5: action row grows from 30 to 32, moves up 16 pt, and shares a layout row with the command bar."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "cmdk-synth-spec",
+    "dy": -34,
+    "min_dh": 2,
+    "max_dh": 2,
+    "spec": "J",
+    "reason": "R5: action row grows from 30 to 32. The shift includes the command bar growth above it."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "cmdk-rename-layers",
+    "dy": -32,
+    "min_dh": 2,
+    "max_dh": 2,
+    "spec": "J",
+    "reason": "R5: action row grows from 30 to 32. The shift includes the command bar growth above it."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "h_base": 15,
+    "dy": -20,
+    "spec": "J",
+    "reason": "R5: command field text rides the command bar, which grows upward from a fixed bottom edge."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "h_base": 34,
+    "dy": -20,
+    "spec": "J",
+    "reason": "R5: command tabs ride the command bar, which grows upward from a fixed bottom edge."
+  },
+  {
+    "case": "j-cmdk",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "cmdk-translate-vi",
+    "dy": -30,
+    "min_dh": 2,
+    "max_dh": 2,
+    "spec": "J",
+    "reason": "R5: action row grows from 30 to 32. The shift includes the command bar growth above it."
+  },
+  {
+    "case": "j-comments",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "overlay:Foreground/0",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "J",
+    "reason": "R5: comment thread actions grow from 24 to 32, so the thread popover grows 8 pt from its top edge."
+  },
+  {
+    "case": "j-comments",
+    "region": "overlay:Foreground/0",
+    "h_base": 219.5,
+    "dy": -12,
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "J",
+    "reason": "R5: comment thread frame grows 8 pt with the post control."
+  },
+  {
+    "case": "j-comments",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "comment-dots",
+    "anchor_x": "right",
+    "dy": -10,
+    "min_dw": 12,
+    "max_dw": 12,
+    "min_dh": 12,
+    "max_dh": 12,
+    "spec": "J",
+    "reason": "rule 7 and R5: the comment menu control grows from 20 to 32 and its top rises 10 pt, so the 32 pt box ends where the message text starts instead of covering the first line."
+  },
+  {
+    "case": "j-comments",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "comment-reply-post",
+    "dy": -20,
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "J",
+    "reason": "R5: comment post control grows from 24 to 32."
+  },
+  {
+    "case": "j-comments",
+    "region": "right_panel",
+    "name_prefix": "comments-search",
+    "min_dh": 4,
+    "max_dh": 4,
+    "spec": "J",
+    "reason": "R5: comment search field grows from 28 to 32."
+  },
+  {
+    "case": "j-comments",
+    "region": "right_panel",
+    "h_base": 28,
+    "min_dh": 4,
+    "max_dh": 4,
+    "spec": "J",
+    "reason": "R5: the comment search text grows with the search field, from 28 to 32."
+  },
+  {
+    "case": "j-version-history",
+    "region": "right_panel",
+    "name_prefix": "history-save-button",
+    "min_dh": 4,
+    "max_dh": 4,
+    "spec": "J",
+    "reason": "R5: version history save control grows from 28 to 32."
+  },
+  {
+    "case": "j-version-history",
+    "region": "canvas",
+    "name_prefix": "history-restore",
+    "anchor_x": "right",
+    "dy": -4,
+    "min_dw": 19.25,
+    "max_dw": 19.25,
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "J",
+    "reason": "R5: restore control grows from 24 to 32, stays centred on the version bar, and keeps the gap to the back control."
+  },
+  {
+    "case": "j-version-history",
+    "region": "canvas",
+    "name_prefix": "history-back",
+    "anchor_x": "right",
+    "dy": -4,
+    "min_dw": 14.75,
+    "max_dw": 14.75,
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "J",
+    "reason": "R5: back control grows from 24 to 32 and stays centred on the version bar, with its right edge fixed."
+  },
+  {
+    "case": "micro-layer-picker",
+    "region": "overlay:Tooltip/0",
+    "name_prefix": "overlay:Tooltip/0",
+    "min_dh": 60,
+    "max_dh": 60,
+    "spec": "J",
+    "reason": "R5: layer picker grows 60 pt from its top edge because the header and each row grow to 32."
+  },
+  {
+    "case": "micro-layer-picker",
+    "region": "overlay:Tooltip/0",
+    "h_base": 266,
+    "min_dh": 60,
+    "max_dh": 60,
+    "inventory_max_delta": 9,
+    "spec": "J",
+    "reason": "R5: layer picker shell grows 60 pt with the header and nine rows. Naming the rows drops nine unnamed hits."
+  }
+]
