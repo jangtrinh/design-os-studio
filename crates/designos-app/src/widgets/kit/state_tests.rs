@@ -1,6 +1,17 @@
 use super::guard_tests::contrast;
 use super::table_tests::{actual, doc, expect, parse_state};
 use super::*;
+
+#[test]
+fn toast_action_hover_uses_the_secondary_hover_fill() {
+    let rest = toast_action_look(State::Default);
+    let hot = toast_action_look(State::Hover);
+    assert_eq!(rest.text, theme::TEXT_SECONDARY);
+    assert_eq!(rest.fill.a(), 0);
+    assert_eq!(hot.fill, theme::BG_SECONDARY_HOVER);
+    assert_ne!(hot.fill, theme::BG_HOVER);
+    assert_eq!(hot.text, theme::TEXT_SECONDARY_HOVER);
+}
 use crate::theme;
 
 #[test]

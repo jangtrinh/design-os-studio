@@ -28,6 +28,22 @@ fn list_secondary(state: State) -> (Color32, Color32, Color32) {
     }
 }
 
+#[test]
+fn command_row_splits_selected_from_hover() {
+    let selected = command_row_look(true, false);
+    assert_eq!(selected.fill, theme::BG_SELECTED);
+    assert_eq!(selected.text, theme::TEXT);
+    assert_eq!(selected.icon, theme::ICON);
+    let hot = command_row_look(false, true);
+    assert_eq!(hot.fill, theme::BG_MENU_HOVER);
+    assert_eq!(hot.text, theme::TEXT_SECONDARY);
+    assert_eq!(hot.icon, theme::ICON_TERTIARY);
+    assert_ne!(hot.fill, theme::BG_SELECTED);
+    let rest = command_row_look(false, false);
+    assert_eq!(rest.fill, Color32::TRANSPARENT);
+    assert_eq!(rest.text, theme::TEXT_SECONDARY);
+}
+
 fn tree_secondary(state: State) -> (Color32, Color32, Color32) {
     match state {
         State::Hover => (theme::BG_SECONDARY_HOVER, theme::TEXT_TERTIARY, theme::ICON_QUATERNARY),

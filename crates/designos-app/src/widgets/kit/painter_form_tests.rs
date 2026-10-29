@@ -53,6 +53,29 @@ fn tab_and_segmented_labels_match_their_rows() {
 }
 
 #[test]
+fn segmented_keeps_a_minimum_target_on_a_short_strip() {
+    let short = Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(160.0, theme::TARGET_MIN));
+    let tall = Rect::from_min_size(egui::pos2(10.0, 50.0), egui::vec2(160.0, theme::CONTROL_MD));
+    let shapes = paint(|ui| {
+        segmented(ui, short, "short", &["A", "B"], 0, Size::Xs);
+        segmented(ui, tall, "tall", &["A", "B"], 0, Size::Sm);
+    });
+    let selected_heights: Vec<f32> = shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(shape) if shape.fill == theme::BG_SELECTED => Some(shape.rect.height()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        selected_heights.iter().any(|h| (*h - theme::TARGET_MIN).abs() < 0.1),
+        "a short strip does not shrink its option below the minimum target, got {selected_heights:?}"
+    );
+    let inset_h = theme::CONTROL_MD - theme::INSET_SEGMENT * 2.0;
+    assert!(selected_heights.iter().any(|h| (*h - inset_h).abs() < 0.1), "a tall strip still insets its option, got {selected_heights:?}");
+}
+
+#[test]
 fn tree_and_list_rows_use_the_control_radius() {
     let tree = Rect::from_min_size(egui::pos2(8.0, 8.0), egui::vec2(200.0, theme::CONTROL_XS));
     let row = Rect::from_min_size(egui::pos2(8.0, 48.0), egui::vec2(200.0, theme::CONTROL_SM));

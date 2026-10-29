@@ -53,13 +53,12 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     // save button
     y += 8.0;
     let viewing = app.history.viewing.is_some();
-    let br = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, 28.0));
+    let br = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, theme::CONTROL_XS));
     if ui::button(ui, br, "history-save", "Save to version history\u{2026}", false, !viewing).clicked() {
         app.begin_save_version();
     }
-    p.rect_stroke(br, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
     widgets::record(ui, "history-save-button", br);
-    y += 28.0 + 8.0;
+    y += theme::CONTROL_XS + 8.0;
     hline(&p, rect.left() + 1.0, rect.right(), y, theme::BORDER);
     y += 1.0;
 

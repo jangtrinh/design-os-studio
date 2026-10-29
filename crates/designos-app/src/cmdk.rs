@@ -18,7 +18,7 @@ use crate::terminal::{
 use crate::theme;
 use crate::widgets;
 use designos_doc::{Command, Document, LayoutSpec, NodeId, NodeKind, NodeSpec, PaintKind};
-use egui::{Align2, Area, Color32, Context, CornerRadius, Id, Key, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
+use egui::{Align2, Area, Context, CornerRadius, Id, Key, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 
 /// Persistent UI state for the floating `Cmd+K` Agent & Design Gate Bar.
 #[derive(Clone, Debug, Default)]
@@ -265,13 +265,7 @@ const QUICK_COMMANDS: [QuickCommandItem; 12] = [
     },
 ];
 
-const CMDK_BG_SURFACE: Color32 = Color32::from_rgb(0x2C, 0x2C, 0x2C);
-const CMDK_BG_ROW_HOVER: Color32 = Color32::from_rgb(0x38, 0x38, 0x38);
-const CMDK_BORDER: Color32 = Color32::from_rgb(0x38, 0x38, 0x38);
-const CMDK_BADGE_BG: Color32 = Color32::from_rgb(0x38, 0x38, 0x38);
-const CMDK_BADGE_TEXT: Color32 = Color32::from_rgb(0xB3, 0xB3, 0xB3);
-
-/// Renders the bottom-docked 1:1 Figma UI3 `Actions (Cmd+K)` modal (`figma_ui3_actions_cmdk.png`) when `state.open` is true.
+/// Renders the bottom-docked command bar when `state.open` is true.
 pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, selection: &[NodeId]) -> Option<CmdKAction> {
     if !state.open {
         return None;
@@ -339,8 +333,8 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
     let show_audit = state.active_tab == 3;
     let audit_rows = state.last_audit.as_ref().map(|a| a.warnings.len().min(4)).unwrap_or(0);
     let audit_h = if show_audit && state.last_audit.is_some() { 48.0 + audit_rows as f32 * 26.0 } else { 0.0 };
-    // Search row (40) + Tab bar (34) + Section headers (28 each) + Rows (32 each) + audit + bottom pad (10)
-    let bar_h = 40.0 + 34.0 + (section_count as f32 * 28.0) + (filtered_cmds.len() as f32 * 32.0) + audit_h + 10.0;
+    // Search row (40) + Tab bar (34) + Section headers (28 each) + row pitch 36 + audit + bottom pad (10)
+    let bar_h = 40.0 + 34.0 + (section_count as f32 * 28.0) + (filtered_cmds.len() as f32 * 36.0) + audit_h + 10.0;
     // Bottom-docked right above the bottom floating toolbar (`screen.bottom() - 68.0`)
     let bar_pos = Pos2::new((screen.center().x - bar_w / 2.0).max(16.0), (screen.bottom() - 68.0 - bar_h).max(20.0));
 
@@ -349,15 +343,11 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
         widgets::record(ui, "cmdk-modal", rect);
         let p = ui.painter().clone();
 
-        // Outer modal: 12px radius + 1px `#383838` border + deep elevation shadow
-        widgets::elevation_400(&p, rect, theme::RADIUS_FRAME);
-        p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), CMDK_BG_SURFACE);
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, CMDK_BORDER), StrokeKind::Inside);
+        widgets::kit::command_bar_surface(&p, rect);
 
-        // 1. Top Search Row (40px) — 1:1 `figma_ui3_actions_cmdk.png`:
-        // Left search icon, clean borderless input (`Search`), right `Icon::Image` visual-search button.
+        // Search row stays 40. The field itself is borderless inside the bar.
         let input_row = Rect::from_min_size(rect.min, Vec2::new(bar_w, 40.0));
-        widgets::hline(&p, input_row.left(), input_row.right(), input_row.bottom() - 1.0, CMDK_BORDER);
+        widgets::hline(&p, input_row.left(), input_row.right(), input_row.bottom() - 1.0, theme::BORDER_MENU);
 
         icons::paint(&p, Icon::Search, Pos2::new(input_row.left() + 18.0, input_row.center().y), 15.0, theme::ICON_SECONDARY);
 
@@ -365,7 +355,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
         widgets::record(ui, "cmdk-image-search-btn", img_btn_r);
         let img_resp = ui.interact(img_btn_r, Id::new("cmdk-image-search-btn"), Sense::click());
         if img_resp.hovered() {
-            p.rect_filled(img_btn_r, CornerRadius::same(6), CMDK_BG_ROW_HOVER);
+            p.rect_filled(img_btn_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_HOVER);
         }
         icons::paint(&p, Icon::Image, img_btn_r.center(), 14.0, theme::ICON_SECONDARY);
         if img_resp.on_hover_text("Insert example card").clicked() {
@@ -378,23 +368,27 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
 
         let edit_rect =
             Rect::from_min_max(Pos2::new(input_row.left() + 34.0, input_row.top() + 8.0), Pos2::new(img_btn_r.left() - 8.0, input_row.bottom() - 8.0));
-        ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+        let input_focused = ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
             let te = egui::TextEdit::singleline(&mut state.query)
                 .frame(egui::Frame::NONE)
                 .font(theme::font_body())
                 .text_color(theme::TEXT)
-                .hint_text("Search actions or type layout prompt (↵ Local Spec · ⌃` Live Agent CLI)")
+                .hint_text(egui::RichText::new("Search actions or type layout prompt (↵ Local Spec · ⌃` Live Agent CLI)").color(theme::TEXT_PLACEHOLDER))
                 .desired_width(edit_rect.width());
             let resp = ui.add(te);
             if state.open && (state.focus_requested || !resp.has_focus()) {
                 resp.request_focus();
                 state.focus_requested = false;
             }
+            resp.has_focus()
         });
+        if input_focused.inner {
+            p.rect_stroke(edit_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH * 2.0, theme::FOCUS_RING), StrokeKind::Inside);
+        }
 
         // 2. Tab Bar (`All`, `Assets`, `Plugins & widgets`, `Design Gate`) — 34px height, 2px white underline on active tab
         let tab_row = Rect::from_min_size(Pos2::new(rect.left(), input_row.bottom()), Vec2::new(bar_w, 34.0));
-        widgets::hline(&p, tab_row.left(), tab_row.right(), tab_row.bottom() - 1.0, CMDK_BORDER);
+        widgets::hline(&p, tab_row.left(), tab_row.right(), tab_row.bottom() - 1.0, theme::BORDER_MENU);
         let mut tx = tab_row.left() + 14.0;
         let tab_tips = [
             "All actions: local layout synthesis (↵) + live Agent PTY CLI (⌃`)",
@@ -412,17 +406,11 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                 Align2::CENTER_CENTER,
                 *t_label,
                 if is_active { theme::font_body_strong() } else { theme::font_body() },
-                if is_active {
-                    Color32::WHITE
-                } else if tresp.hovered() {
-                    theme::TEXT
-                } else {
-                    theme::TEXT_SECONDARY
-                },
+                if is_active || tresp.hovered() { theme::TEXT } else { theme::TEXT_QUATERNARY },
             );
             if is_active {
                 let underline = Rect::from_min_max(Pos2::new(tr.left() + 2.0, tab_row.bottom() - 2.0), Pos2::new(tr.right() - 2.0, tab_row.bottom()));
-                p.rect_filled(underline, 0.0, Color32::WHITE);
+                p.rect_filled(underline, 0.0, theme::BORDER_SELECTED);
             }
             if tresp.clicked() {
                 state.active_tab = t_idx;
@@ -441,37 +429,34 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             let sec = if q_lower.is_empty() { item.section } else { "Matching actions" };
             if sec != current_sec {
                 current_sec = sec;
-                p.text(Pos2::new(rect.left() + 16.0, row_y + 15.0), Align2::LEFT_CENTER, sec, theme::font_caption(), theme::TEXT_SECONDARY);
+                p.text(Pos2::new(rect.left() + 16.0, row_y + 15.0), Align2::LEFT_CENTER, sec, theme::font_caption(), theme::TEXT_TERTIARY);
                 row_y += 28.0;
             }
 
-            let row_rect = Rect::from_min_size(Pos2::new(rect.left() + 8.0, row_y), Vec2::new(bar_w - 16.0, 30.0));
+            let row_rect = Rect::from_min_size(Pos2::new(rect.left() + 8.0, row_y), Vec2::new(bar_w - 16.0, theme::CONTROL_XS));
             widgets::record(ui, item.id, row_rect);
             let resp = ui.interact(row_rect, Id::new(item.id), Sense::click()).on_hover_text(item.subtitle);
             if resp.hovered() {
                 state.selected_idx = list_idx;
             }
             let is_sel = list_idx == state.selected_idx;
-            if is_sel {
-                p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), CMDK_BG_ROW_HOVER);
+            let row_paint = widgets::kit::command_row_look(is_sel, resp.hovered() && !is_sel);
+            if row_paint.fill.a() > 0 {
+                p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), row_paint.fill);
             }
 
-            icons::paint(
-                &p,
-                item.icon,
-                Pos2::new(row_rect.left() + 14.0, row_rect.center().y),
-                14.0,
-                if is_sel { Color32::WHITE } else { theme::ICON_SECONDARY },
-            );
+            icons::paint(&p, item.icon, Pos2::new(row_rect.left() + 14.0, row_rect.center().y), 14.0, row_paint.icon);
 
-            // Right-aligned rounded badge (`Development` or `AI` in `#383838` pill with `#B3B3B3` text)
-            let badge_w = widgets::text_width(&p, item.badge, &theme::font_caption()) + 12.0;
-            let badge_r = Rect::from_min_size(Pos2::new(row_rect.right() - badge_w - 8.0, row_rect.center().y - 9.0), Vec2::new(badge_w, 18.0));
-            p.rect_filled(badge_r, CornerRadius::same(4), CMDK_BADGE_BG);
-            p.text(badge_r.center(), Align2::CENTER_CENTER, item.badge, theme::font_caption(), CMDK_BADGE_TEXT);
+            let badge_font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
+            let badge_w = widgets::text_width(&p, item.badge, &badge_font) + theme::SPACE_GROUP;
+            let badge_r = Rect::from_min_size(
+                Pos2::new(row_rect.right() - badge_w - 8.0, row_rect.center().y - theme::BADGE_SM / 2.0),
+                Vec2::new(badge_w, theme::BADGE_SM),
+            );
+            widgets::kit::count_badge(&p, badge_r, item.badge, widgets::kit::Tone::Neutral);
 
             let title_str = widgets::elide(&p, item.title, &theme::font_body(), (badge_r.left() - row_rect.left() - 40.0).max(60.0));
-            p.text(Pos2::new(row_rect.left() + 32.0, row_rect.center().y), Align2::LEFT_CENTER, title_str, theme::font_body(), Color32::WHITE);
+            p.text(Pos2::new(row_rect.left() + 32.0, row_rect.center().y), Align2::LEFT_CENTER, title_str, theme::font_body(), row_paint.text);
 
             let activated = resp.clicked() || (trigger_selected && is_sel);
             if activated {
@@ -550,7 +535,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                     _ => {}
                 }
             }
-            row_y += 32.0;
+            row_y += 36.0;
         }
 
         // 4. Live Design Gate Audit Section (when Design Gate tab is active or an audit was run)

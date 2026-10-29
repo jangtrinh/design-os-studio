@@ -81,7 +81,9 @@ pub fn segmented(ui: &mut Ui, rect: Rect, key: impl Key, items: &[&str], selecte
     paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &shell);
     let font = label_font();
     let salt = ui.id().with(key);
-    let inner = rect.shrink(theme::INSET_SEGMENT);
+    // A short strip keeps the full height so each option stays a minimum target.
+    let pad = theme::INSET_SEGMENT;
+    let inner = if rect.height() - pad * 2.0 >= theme::TARGET_MIN { rect.shrink(pad) } else { rect };
     let width = inner.width() / items.len() as f32;
     let mut picked = None;
     for (i, label) in items.iter().enumerate() {
