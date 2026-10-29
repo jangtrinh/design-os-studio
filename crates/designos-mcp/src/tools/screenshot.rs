@@ -686,13 +686,7 @@ pub fn tool_descriptor() -> Value {
                 "scoped": {"type": "boolean"}
             }),
             &["target", "page_id", "bounds", "scale_requested", "scale_used", "downscaled", "width", "height", "format", "bytes", "visible"],
-        ),
-        "annotations": {
-            "readOnlyHint": true,
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false
-        }
+        )
     })
 }
 

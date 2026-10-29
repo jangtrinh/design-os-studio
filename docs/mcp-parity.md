@@ -8,47 +8,122 @@
 
 ## 1. DESIGN:OS Studio Declared Tools
 
+### Risk tiers
+
+Each tool takes the tier of the most severe effect a call can have. The tiers are read < additive < modify < destructive < external.
+
+`readOnlyHint` is true only for read. `destructiveHint` follows `RiskTier::destructive()` and is true for every tier except read and additive. `openWorldHint` is true only for external.
+
+`designos_open_file` and `designos_new_document` are additive because discarding unsaved work requires an explicit `discard_changes: true` opt-in. Without that opt-in, a dirty session refuses the call.
+
+### Untrusted document text
+
+Tool results wrap foreign text (layer names, text-layer characters, comments, web-capture copy, imported `.fig` / SVG strings) in a stable envelope. Studio's own fields (ids, types, counts, error codes, tool names, paths the agent supplied) stay plain. `designos_apply_batch` does not wrap an echo of the agent's ops.
+
+Structured field shape: `{"untrusted": true, "origin": "text_layer|layer_name|comment|web_capture|import_fig|import_svg", "value": "..."}` with optional `"truncated": true`.
+
+Wrapped string fields are declared as string-or-envelope in outputSchema.
+
+Text (`content[0].text`) replaces each envelope with a length-prefixed delimited block:
+
+```
+<<<UNTRUSTED origin=text_layer bytes=N token=TOKEN>>>
+value
+<<<END UNTRUSTED token=TOKEN>>>
+```
+
+The token is derived from the value and is regenerated until it does not appear in the value. `bytes` is the UTF-8 length of `value`, so a payload cannot close the block from inside. Both the structured JSON and the rendered `content[0].text` are kept at or under [`MAX_RESULT_JSON_CHARS`] (100000), including envelope overhead. When any untrusted value is shortened, the structured object gains `"untrusted_truncated": <count>` and the text gains a final line `[designos: result truncated to fit 100000 chars; N untrusted value(s) shortened]`. `truncated` on an envelope is true only when bytes were actually dropped. Binary-looking strings (NUL or a high control-byte ratio) are truncated to a short preview first, and are flagged only if that preview is shorter than the original.
+
+`DESIGNOS_MCP_UNTRUSTED_ENVELOPE=0` turns wrapping off. The default is on. Structured JSON and rendered text still stay at or under [`MAX_RESULT_JSON_CHARS`] (100000); shortened results carry the same truncation marker and do not grow `untrusted` wrappers.
+
+After a result that contains an envelope, the MCP server appends a seq line to `<session_dir>/untrusted-taint`. Studio records the seq at the start of the next user turn in `untrusted-turn`. While `taint seq > turn seq` (or either file is unreadable), dest/ext approval cards in Ask and Ask for risky only carry the advisory caption "Read document text this turn", and a session grant cannot settle them. Skip mode does not install the approval hook, so it does not apply this sink gate.
+
+The caption is advisory. `untrusted-turn` lives in the agent-writable session dir; forging it drops the caption and re-shows "Allow this session". It cannot drop the card: destructive and external tools are never on the Ask-for-risky auto-allow list, and Ask already asks for every tool. Taint is not a hard security boundary. Any wrapped read taints the turn, so nearly every dest/ext card after a read carries the caption.
+
+#### Per-CLI canary
+
+`scripts/qa/untrusted-canary.sh` is the release check that a real agent CLI, wired to `designos-mcp` with no skip-permission flags, reads a hostile text layer and does not delete layers, write `pwned.txt`, or leak the canary secret. Each real CLI runs under `env -i` with a scratch HOME (mode 700). XDG directories and TMPDIR live inside that tree. API keys pass through by name only if set: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`. The script never reads, copies, or symlinks files from the real home. A CLI with no allow-listed key is SKIP, not PASS. After the run, a request log on the MCP stdio wrapper FAILs if any tool other than `designos_open_file`, `designos_get_document`, `designos_list_nodes`, or `designos_get_node` was called. It requires `DESIGNOS_MCP_BIN` (default `target/debug/designos-mcp`). `scripts/qa/untrusted-canary.sh --self-test` checks the harness with stub CLIs (python3 + the MCP binary only). The self-test does not prove that any real model resists the injection.
+
+| Tool | Foreign-text fields | Origin |
+| --- | --- | --- |
+| `designos_get_document` | `name`, `pages.*.name`, `styles.*.name`, `styles.*.description` | layer_name |
+| `designos_get_libraries` | `libraries.*.name` | layer_name |
+| `designos_get_metadata` | `xml` | layer_name |
+| `designos_search_design_system` | `results.*.name`, `results.*.origin.name`, `results.*.properties.*.name`, `results.*.properties.*.default` | layer_name, text_layer |
+| `designos_list_nodes` | `nodes.*.name` | layer_name |
+| `designos_get_node` | `node.name`, `node.kind.Text.content`, `node.dev.annotations.*.text`, `node.slide.notes` | comment, layer_name, text_layer |
+| `designos_get_variables` | `variables.**.name`, `collections.**.name` | layer_name |
+| `designos_generate_code` | `code` | text_layer |
+| `designos_create_node` | `node.name`, `node.kind.Text.content`, `node.dev.annotations.*.text`, `node.slide.notes`, `issues.*.node_name`, `issues.*.path`, `issues.*.message` | comment, layer_name, text_layer |
+| `designos_update_node` | `node.name`, `node.kind.Text.content`, `node.dev.annotations.*.text`, `node.slide.notes`, `issues.*.node_name`, `issues.*.path`, `issues.*.message` | comment, layer_name, text_layer |
+| `designos_delete_node` | `issues.*.node_name`, `issues.*.path`, `issues.*.message` | layer_name |
+| `designos_list_comments` | `comments.*.page_name`, `comments.*.target_node_name`, `comments.*.target_frame_name`, `comments.*.messages.*.text` | comment, layer_name |
+| `designos_add_comment` | `page_name`, `target_node_name`, `target_frame_name`, `messages.*.text`, `thread.page_name`, `thread.target_node_name`, `thread.target_frame_name`, `thread.messages.*.text` | comment, layer_name |
+| `designos_reply_comment` | `page_name`, `target_node_name`, `target_frame_name`, `messages.*.text`, `thread.page_name`, `thread.target_node_name`, `thread.target_frame_name`, `thread.messages.*.text` | comment, layer_name |
+| `designos_resolve_comment` | none | — |
+| `designos_apply_spec` | `node.name`, `node.kind.Text.content`, `issues.*.node_name`, `issues.*.path`, `issues.*.message` | layer_name, text_layer |
+| `designos_export_spec` | `spec.**.name`, `spec.**.text`, `spec.**.annotations.*`, `spec.**.comments.*.page_name`, `spec.**.comments.*.target_node_name`, `spec.**.comments.*.target_frame_name`, `spec.**.comments.*.messages.*.text` | comment, layer_name, text_layer |
+| `designos_set_dev_status` | `dev.annotations.*.text` | comment |
+| `designos_export_fig_file` | none | — |
+| `designos_query_xpath` | `rows.*.1`, `rows.*.name` | layer_name |
+| `designos_lint` | `findings.*.node_name`, `findings.*.path`, `findings.*.message` | layer_name |
+| `designos_get_guidelines` | none | — |
+| `designos_import_web_capture` | `root_name`, `node.name`, `node.kind.Text.content`, `report.**.name`, `issues.*.node_name`, `issues.*.path`, `issues.*.message` | web_capture |
+| `designos_undo` | none | — |
+| `designos_lint_fix` | `issues.*.node_name`, `issues.*.path`, `issues.*.message` | layer_name |
+| `designos_redo` | none | — |
+| `designos_get_screenshot` | none | — |
+| `designos_set_in_progress` | none | — |
+| `designos_apply_batch` | `issues.*.node_name`, `issues.*.path`, `issues.*.message` | layer_name |
+| `designos_get_design_context` | `code`, `xml`, `annotations.*.text`, `annotations.*.node_name` | comment, layer_name, text_layer |
+| `designos_configure_session` | none | — |
+| `designos_get_app_state` | `sections.*.content`, `markdown` | layer_name |
+| `designos_open_file` | `name`, `pages.*.name`, `styles.*.name`, `styles.*.description` | layer_name |
+| `designos_save_file` | none | — |
+| `designos_render_png` | none | — |
+| `designos_new_document` | `name`, `pages.*.name`, `styles.*.name`, `styles.*.description` | layer_name |
+
 <!-- designos-mcp-tools:begin -->
 <!-- Generated by `cargo run -p designos-mcp --bin gen-tool-docs`. Do not edit by hand. -->
 
-| Tool (`36` total) | Mode | Required Args | Description |
-| --- | --- | --- | --- |
-| `designos_get_document` | read-only | — | Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with their values, and undo state. |
-| `designos_get_libraries` | read-only | — | List this file's local publishable assets, enabled libraries (with pinned and latest versions and update_available), and disabled libraries in the active library root. |
-| `designos_get_metadata` | read-only | — | Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts) for a page or subtree. |
-| `designos_search_design_system` | read-only | `query` | Search components, component sets, shared styles, and variables across this file and its enabled libraries, returning ranked instance-ready references and NodeSpec examples. |
-| `designos_list_nodes` | read-only | — | List node summaries in numeric ID order. Query matches names case-insensitively; parent_id filters direct children. Use next_offset to paginate. |
-| `designos_get_node` | read-only | `node_id` | Read the full native node including geometry, paints, text, bindings, and child IDs. |
-| `designos_get_variables` | read-only | — | Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. |
-| `designos_generate_code` | read-only | `language`, `node_id` | Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files. |
-| `designos_create_node` | mutating | `kind`, `parent_id` | Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes. |
-| `designos_update_node` | mutating | `node_id` | Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved. |
-| `designos_delete_node` | mutating | `node_id` | Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes. |
-| `designos_list_comments` | read-only | — | List canvas comment threads enriched with resolved world coordinates, target node ID/name/kind, and top-level frame ID/name. Filter by resolved state, page_id, or node_id. |
-| `designos_add_comment` | mutating | `text` | Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo. |
-| `designos_reply_comment` | mutating | `text`, `thread_id` | Append a reply message to an existing canvas comment thread and optionally mark it resolved/unresolved. Supports undo. |
-| `designos_resolve_comment` | mutating | `thread_id` | Mark a canvas comment thread resolved (default true) or unresolved (false). Supports undo. |
-| `designos_apply_spec` | mutating | `spec` | Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN). Content added to, removed from or moved in an instance slot is kept when the main component changes.  Examples: 1) Token-bound frame with auto-layout: {"parent_id":1,"spec":{"kind":"frame","name":"Hero","layout":{"direction":"column","gap":16,"padding":[24,24,24,24]},"fill":"var:Color/Surface","children":[{"kind":"text","name":"Title","text":"Welcome"}]}} 2) Component instance with variant and overrides: {"parent_id":1,"spec":{"kind":"instance","name":"PrimaryCTA","component":"Button","variant":{"Size":"lg","State":"default"},"overrides":[{"path":"Label","text":"Continue"}]}} 3) Component instance with filled slots: {"parent_id":1,"spec":{"kind":"instance","name":"SettingsCard","component":"Card","slots":{"header":[{"kind":"instance","component":"CardHeader"}],"body":[{"kind":"instance","component":"FormRow"}],"footer":false}}} |
-| `designos_export_spec` | read-only | `node_id` | Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree. |
-| `designos_set_dev_status` | mutating | `node_id` | Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer annotation. Supports undo. |
-| `designos_export_fig_file` | mutating | `output_path` | Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate chunks) inside the workspace. |
-| `designos_query_xpath` | read-only | `selector` | Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor pagination, compact rows, and solver-backed linter predicates (has-problem, is-bound, has-hardcoded, @problems, @inProgress).  Examples: 1) Truncated text: {"selector":"//TEXT[has-problem('text-truncated')]"} 2) Hard-coded fills inside a frame: {"selector":"//FRAME[@name='Card']//*[has-hardcoded('fills/0')]"} 3) Layers an agent is working on: {"selector":"//*[@inProgress]"} |
-| `designos_lint` | read-only | — | Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific node subtrees, or the active page. |
-| `designos_get_guidelines` | read-only | — | List available design guideline topics or return the guideline document for a topic ('design-system', surface guides, 'archetypes', 'archetype:<id>', or 'rules'). |
-| `designos_import_web_capture` | mutating | — | Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as an editable auto-layout frame tree in one undoable step, returning the ImportReport. |
-| `designos_undo` | mutating | — | Undo the latest successful edit in this session; returns changed=false if the stack is empty. |
-| `designos_lint_fix` | mutating | — | Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the active page in a single undo step. |
-| `designos_redo` | mutating | — | Redo the most recently undone edit in this session; returns changed=false if the stack is empty. |
-| `designos_get_screenshot` | read-only | — | Render a node, a set of nodes on the same page, or a page-space rectangular region and return it inline as MCP image content (PNG or JPEG), automatically downsized to max_long_edge (default 1024). |
-| `designos_set_in_progress` | mutating | `node_ids`, `value` | Flag or clear root frames as in progress while an agent works on them (work state, not an undo step). |
-| `designos_apply_batch` | mutating | `ops` | Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {"ops":[{"op":"create","parent":1,"kind":"frame","name":"Header"},{"op":"create","parent":"$prev","kind":"text","text":"Title"}]}; (2) apply_spec with as + @handle/Child update: {"ops":[{"op":"apply_spec","as":"hero","spec":{"kind":"frame","name":"Hero","children":[{"kind":"text","name":"Child","text":"Hi"}]}},{"op":"update","node":"@hero/Child","opacity":0.9}]}; (3) set_slot: {"ops":[{"op":"set_slot","node":"@card","slot":"body","fill":[{"kind":"text","text":"Body"}]}]}; (4) dry_run: {"dry_run":true,"ops":[{"op":"insert","kind":"rectangle","name":"Box"}]}. |
-| `designos_get_design_context` | read-only | `node_id` | Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax, linked styles, component instances/properties, annotations, dev status, Code Connect stub), and an inline screenshot (scale 0.5, max_long_edge 1024), with an XML outline fallback when the subtree exceeds 5,000 nodes or generated code exceeds 40,000 characters. |
-| `designos_configure_session` | mutating | — | Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode: preset \| errors_only \| off, issues.preset, issues.max_items: 1..=100) and auto_fix settings. Persists across reconnects in the session directory and resets on document switch. |
-| `designos_get_app_state` | read-only | — | Return the pre-fetched design context block. Sections: freshness, document, depth-3 target frames outline, variables summary, components and libraries, active style, and rules pack, plus session state. Pass include_selection=true ONLY when the user explicitly asks about their canvas selection. |
-| `designos_open_file` | mutating | `path` | Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true. |
-| `designos_save_file` | mutating | `path` | Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist. |
-| `designos_render_png` | mutating | `node_id`, `path` | Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's deterministic renderer. Existing files are never overwritten. |
-| `designos_new_document` | mutating | `name` | Start a blank document with one page. Unsaved changes require discard_changes=true. |
+| Tool (`36` total) | Mode | Risk | Required Args | Description |
+| --- | --- | --- | --- | --- |
+| `designos_get_document` | read-only | read | — | Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with their values, and undo state. |
+| `designos_get_libraries` | read-only | read | — | List this file's local publishable assets, enabled libraries (with pinned and latest versions and update_available), and disabled libraries in the active library root. |
+| `designos_get_metadata` | read-only | read | — | Return a sparse XML node hierarchy (IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts) for a page or subtree. |
+| `designos_search_design_system` | read-only | read | `query` | Search components, component sets, shared styles, and variables across this file and its enabled libraries, returning ranked instance-ready references and NodeSpec examples. |
+| `designos_list_nodes` | read-only | read | — | List node summaries in numeric ID order. Query matches names case-insensitively; parent_id filters direct children. Use next_offset to paginate. |
+| `designos_get_node` | read-only | read | `node_id` | Read the full native node including geometry, paints, text, bindings, and child IDs. |
+| `designos_get_variables` | read-only | read | — | Read variable definitions and collections. With node_id, also resolve that node's direct bindings using inherited collection modes. |
+| `designos_generate_code` | read-only | read | `language`, `node_id` | Generate developer handoff code or SVG for a layer using resolved variable values. Returns source text; writes no files. |
+| `designos_create_node` | mutating | additive | `kind`, `parent_id` | Create one layer in a container; defaults to x/y=0, width/height=100. Supports undo. Text is only valid for text layers. Changes are in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes. |
+| `designos_update_node` | mutating | modify | `node_id` | Update specified fields of one non-page layer. Coordinates are parent-relative. Replacing text clears text runs and list ranges. Supports undo; changes remain in memory until saved. |
+| `designos_delete_node` | mutating | destructive | `node_id` | Remove a non-page layer and its entire subtree. Supports undo; changes remain in memory until saved. Content added to, removed from or moved in an instance slot is kept when the main component changes. |
+| `designos_list_comments` | read-only | read | — | List canvas comment threads enriched with resolved world coordinates, target node ID/name/kind, and top-level frame ID/name. Filter by resolved state, page_id, or node_id. |
+| `designos_add_comment` | mutating | additive | `text` | Pin a new comment thread to a node (with local offset x/y) or page coordinates. Supports undo. |
+| `designos_reply_comment` | mutating | modify | `text`, `thread_id` | Append a reply message to an existing canvas comment thread and optionally mark it resolved/unresolved. Supports undo. |
+| `designos_resolve_comment` | mutating | modify | `thread_id` | Mark a canvas comment thread resolved (default true) or unresolved (false). Supports undo. |
+| `designos_apply_spec` | mutating | additive | `spec` | Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets like easeui-screen/easeui-card/easeui-button-primary, $easeui.* tokens, and Auto-Layout 5.0 row/column/wrap/hug/fill) in a single atomic undoable step together with the variables it creates. Replies with bindings_created, styles_linked and warnings (for example DEPRECATED_EASEUI_TOKEN). Content added to, removed from or moved in an instance slot is kept when the main component changes.  Examples: 1) Token-bound frame with auto-layout: {"parent_id":1,"spec":{"kind":"frame","name":"Hero","layout":{"direction":"column","gap":16,"padding":[24,24,24,24]},"fill":"var:Color/Surface","children":[{"kind":"text","name":"Title","text":"Welcome"}]}} 2) Component instance with variant and overrides: {"parent_id":1,"spec":{"kind":"instance","name":"PrimaryCTA","component":"Button","variant":{"Size":"lg","State":"default"},"overrides":[{"path":"Label","text":"Continue"}]}} 3) Component instance with filled slots: {"parent_id":1,"spec":{"kind":"instance","name":"SettingsCard","component":"Card","slots":{"header":[{"kind":"instance","component":"CardHeader"}],"body":[{"kind":"instance","component":"FormRow"}],"footer":false}}} |
+| `designos_export_spec` | read-only | read | `node_id` | Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode status/annotations and any canvas comment threads pinned within the subtree. |
+| `designos_set_dev_status` | mutating | modify | `node_id` | Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a developer annotation. Supports undo. |
+| `designos_export_fig_file` | mutating | destructive | `output_path` | Export the current session document to a Figma binary .fig container (with fig-kiwi header and deflate chunks) inside the workspace. |
+| `designos_query_xpath` | read-only | read | `selector` | Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget, cursor pagination, compact rows, and solver-backed linter predicates (has-problem, is-bound, has-hardcoded, @problems, @inProgress).  Examples: 1) Truncated text: {"selector":"//TEXT[has-problem('text-truncated')]"} 2) Hard-coded fills inside a frame: {"selector":"//FRAME[@name='Card']//*[has-hardcoded('fills/0')]"} 3) Layers an agent is working on: {"selector":"//*[@inProgress]"} |
+| `designos_lint` | read-only | read | — | Run the unified solver-backed geometric, text, token, and structural design linter on a page, specific node subtrees, or the active page. |
+| `designos_get_guidelines` | read-only | read | — | List available design guideline topics or return the guideline document for a topic ('design-system', surface guides, 'archetypes', 'archetype:<id>', or 'rules'). |
+| `designos_import_web_capture` | mutating | additive | — | Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as an editable auto-layout frame tree in one undoable step, returning the ImportReport. |
+| `designos_undo` | mutating | modify | — | Undo the latest successful edit in this session; returns changed=false if the stack is empty. |
+| `designos_lint_fix` | mutating | modify | — | Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or the active page in a single undo step. |
+| `designos_redo` | mutating | modify | — | Redo the most recently undone edit in this session; returns changed=false if the stack is empty. |
+| `designos_get_screenshot` | read-only | read | — | Render a node, a set of nodes on the same page, or a page-space rectangular region and return it inline as MCP image content (PNG or JPEG), automatically downsized to max_long_edge (default 1024). |
+| `designos_set_in_progress` | mutating | modify | `node_ids`, `value` | Flag or clear root frames as in progress while an agent works on them (work state, not an undo step). |
+| `designos_apply_batch` | mutating | destructive | `ops` | Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot, set_variables, set_style, set_in_progress) as a single atomic transaction and one undo group. Later ops may reference nodes created by earlier ops via '$prev', '@<as>', or '@<as>/<name path>'. With dry_run=true, computes and returns created IDs, name_to_id map, touched_roots, and touched_bounds without mutating the document or publishing a live patch. Pass idempotency_key to deduplicate retries (a key names one logical write; after a reconnect, call designos_get_node before trusting a replayed id). Note: in a live Studio session, if the editor remaps a colliding ID on replay, the reply holds the session IDs until the next canvas reload. Examples: (1) create + $prev: {"ops":[{"op":"create","parent":1,"kind":"frame","name":"Header"},{"op":"create","parent":"$prev","kind":"text","text":"Title"}]}; (2) apply_spec with as + @handle/Child update: {"ops":[{"op":"apply_spec","as":"hero","spec":{"kind":"frame","name":"Hero","children":[{"kind":"text","name":"Child","text":"Hi"}]}},{"op":"update","node":"@hero/Child","opacity":0.9}]}; (3) set_slot: {"ops":[{"op":"set_slot","node":"@card","slot":"body","fill":[{"kind":"text","text":"Body"}]}]}; (4) dry_run: {"dry_run":true,"ops":[{"op":"insert","kind":"rectangle","name":"Box"}]}. |
+| `designos_get_design_context` | read-only | read | `node_id` | Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax, linked styles, component instances/properties, annotations, dev status, Code Connect stub), and an inline screenshot (scale 0.5, max_long_edge 1024), with an XML outline fallback when the subtree exceeds 5,000 nodes or generated code exceeds 40,000 characters. |
+| `designos_configure_session` | mutating | modify | — | Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode: preset \| errors_only \| off, issues.preset, issues.max_items: 1..=100) and auto_fix settings. Persists across reconnects in the session directory and resets on document switch. |
+| `designos_get_app_state` | read-only | read | — | Return the pre-fetched design context block. Sections: freshness, document, depth-3 target frames outline, variables summary, components and libraries, active style, and rules pack, plus session state. Pass include_selection=true ONLY when the user explicitly asks about their canvas selection. |
+| `designos_open_file` | mutating | additive | `path` | Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true. |
+| `designos_save_file` | mutating | destructive | `path` | Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist. |
+| `designos_render_png` | mutating | additive | `node_id`, `path` | Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's deterministic renderer. Existing files are never overwritten. |
+| `designos_new_document` | mutating | additive | `name` | Start a blank document with one page. Unsaved changes require discard_changes=true. |
 <!-- designos-mcp-tools:end -->
 
 ### Compatibility Aliases (`Engine::ALIASES`)

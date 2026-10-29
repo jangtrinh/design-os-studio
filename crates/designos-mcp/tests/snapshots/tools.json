@@ -13,6 +13,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -29,6 +32,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -74,6 +80,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -118,6 +127,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -155,6 +167,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -179,6 +194,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -201,6 +219,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -245,6 +266,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -343,10 +367,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "additive"
     }
   },
   {
@@ -447,6 +474,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -498,6 +528,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "destructive"
     }
   },
   {
@@ -528,6 +561,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -579,10 +615,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "additive"
     }
   },
   {
@@ -626,6 +665,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -660,6 +702,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -711,10 +756,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "additive"
     }
   },
   {
@@ -739,6 +787,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -783,6 +834,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -810,6 +864,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "destructive"
     }
   },
   {
@@ -877,6 +934,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -931,6 +991,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -966,6 +1029,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -1005,10 +1071,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "additive"
     }
   },
   {
@@ -1025,6 +1094,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -1071,6 +1143,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -1087,6 +1162,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -1173,6 +1251,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -1214,10 +1295,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -1604,6 +1688,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "destructive"
     }
   },
   {
@@ -1646,6 +1733,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -1684,10 +1774,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -1736,6 +1829,9 @@
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
+    },
+    "_meta": {
+      "risk_tier": "read"
     }
   },
   {
@@ -1758,10 +1854,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "additive"
     }
   },
   {
@@ -1784,10 +1883,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": false,
+      "destructiveHint": true,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "destructive"
     }
   },
   {
@@ -1821,6 +1923,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "additive"
     }
   },
   {
@@ -1845,10 +1950,13 @@
       "type": "object"
     },
     "annotations": {
-      "destructiveHint": true,
+      "destructiveHint": false,
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "additive"
     }
   }
 ]

@@ -36,6 +36,9 @@ pub const SKIP_PERMISSION_CAPTION: &str = "Skip permissions";
 /// Footer permission caption while agents ask before acting, the default (`#656`, `#841`).
 pub const ASK_PERMISSION_CAPTION: &str = "Ask before acting";
 
+/// Footer permission caption while only risky designos calls ask (`#1288`).
+pub const ASK_RISKY_PERMISSION_CAPTION: &str = "Ask for risky only";
+
 /// Sign-in state reported for a CLI descriptor (`#652` §4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SignIn {
