@@ -3,11 +3,13 @@
 Usage:
   python3 C-widget-kit-specimen-spec.py board.json        # NodeSpec for `designos <file> --apply-spec board.json`
   python3 C-widget-kit-specimen-spec.py --md              # the state tables of spec C, from the same data
-  python3 C-widget-kit-specimen-spec.py --inventory       # table 3.3
-  python3 C-widget-kit-specimen-spec.py --json            # every state look as data, for the kit tests
+  python3 C-widget-kit-specimen-spec.py --inventory       # table 3.3 (the 39 widgets with a state table, then the NO_STATE rows)
+  python3 C-widget-kit-specimen-spec.py --json            # every state look as data, keyed by Studio constant names, for the kit tests
 
 Colours are named by Untitled token (Dark mode) and resolved through TOK, so the board and the spec tables
 cannot drift. Brand roles carry the R4 orange remap, aligned with specs/token-contract.md (spec A wins on conflict).
+Kit role names stay inside this script (they are the spec's kit-reference text); `--json` emits Studio constant names only
+(R14, spec T 5.4 V4), through CONST below.
 """
 import json, sys
 
@@ -401,9 +403,9 @@ W += [
          parts="Fill/Border = the card. Icon = the radio circle: a 1 px border-primary ring when off (contract BORDER_STRONG, the R10.7 exception as Checkbox), a bg-brand-solid disc when Selected, with a 6 px Neutral-950 dot (5.73:1 on the disc).",
          st=S(("bg-primary", "border-secondary", "text-secondary", "border-primary"), (P, "border-secondary", "text-secondary", "border-primary"), "n/a",
               ("ring", ("bg-primary", "border-secondary", "text-secondary", "border-primary")), "half", ("bg-primary", "border-brand", "text-primary", "bg-brand-solid", 2))),
-    dict(name="Badge/StatusCount", draw=w_badge, kit="Badge · Type=Pill color · Color=Gray · Icon=False · Size=sm (status: Color=Error|Success|Warning|Orange)", node=22406,
+    dict(name="Badge/StatusCount", draw=w_badge, kit="Badge · Type=Pill color · Color=Gray · Icon=False · Size=sm (status: Color=Error|Success|Warning)", node=22406,
          studio="home/mod.rs:1113-1115 (Trash count) · cmdk.rs:468-471 · canvas/agent_changes_chip.rs:452-457",
-         geom="height 22, pad 2/8, radius-full, text-xs medium (count digits mono, spec B)",
+         geom="height 22 (`Size=Sm`) or 24 (`Size=Md`, K's `BADGE_MD` pills; pad and type as Sm, derived), pad 2/8, radius-full, text-xs medium (count digits mono, spec B) · Studio axes (R14): `Tone=Neutral/Success/Warning/Error`, four tones (token-contract has no badge pair for the kit's fourth status colour, so it is dropped; `Tone=Brand` waits until A adds a pair with a C-1 row)",
          st=S(("utility-neutral-50", "utility-neutral-200", "utility-neutral-700", N), "n/a", "n/a", "n/a", "n/a")),
     dict(name="Tag/Chip", draw=w_tag, kit="Tag · Icon=False · Action=X close · Checkbox=False · Size=sm", node=36937,
          studio="agent_selection_chip.rs:160-200 · libraries/modal.rs:146-152 change_tag · image_jobs.rs:1242-1263 (status chip)",
@@ -483,6 +485,50 @@ W += [
          geom="1 px, border-secondary; panel edges keep their own role from spec A",
          st=S(("border-secondary", N, N, N), "n/a", "n/a", "n/a", "n/a")),
 ]
+
+# Rows of table 3.3 that have no state table (T 5.1 "no C table"): inventory only, no board cell, no --md block, no --json rows.
+NO_STATE = [
+    dict(name="Focus/Ring",
+         studio="four places today, each its own way (section 2): `widgets/field.rs:699-701` · `canvas/agent_changes_chip.rs:453-455` · `agent_picker.rs:523-525` · `agent_approval_card.rs:193-194`",
+         kit="effect style `Focus rings/focus-ring` (not a component; live-kit receipt: export of 11128:618692, section 2)",
+         geom="S4: 2 px `focus-ring` band from 2 to 4 px outside the control, outer radius = control radius + 4, the 2 px gap shows the surface · `Tone=Brand` (`FOCUS_RING`) and `Tone=Error` (`FOCUS_RING_ERROR`, destructive buttons) · no state table · `kit/focus.rs::focus_ring` (5.1)"),
+    dict(name="Icon/Glyph",
+         studio="`icons.rs:574` `paint` (the shared glyph painter; the icon set stays, R6)",
+         kit="Icons (foundations; live-kit node 3463:407484, from T 5.1); R6 keeps Studio's own set",
+         geom="16 at the xs step, 20 at sm and md (S2) · colour by role (S7): default `fg-quaternary`, hover `fg-quaternary_hover`, selected `fg-secondary_hover` · no state table · not a `kit/` symbol: the painter stays in `icons.rs`"),
+    dict(name="Status/Dot",
+         studio="`shell.rs:1136` (the toast status dot, drawn next to the shadow at `:1134`)",
+         kit="Notification featured icon, replaced by a dot (derived; node 71816)",
+         geom="8 px dot: `fg-brand-primary` (info) / `fg-error-primary` (error) / `fg-success-primary` (`Tone=Info/Error/Success`) · no state table · `kit/badge.rs::status_dot` (5.1)"),
+    dict(name="Icon/Tile",
+         studio="`home/mod.rs:2510-2524` `draw_file_type_badge` (20 px tile, one colour pair per file kind) · the empty-state file icon (`EmptyState/Default` row)",
+         kit="Featured icon (kit `Empty state` and `File type icon`; node ids not recorded here)",
+         geom="`Size=Sm` 20, `Size=Md` 32 · radius-md 8 · tile and glyph colours per `Kind=Design/Board/Deck/Spec` from token-contract N39–N46 (`TILE_DESIGN_*`, `TILE_BOARD_*`, `TILE_DECK_*`, `TILE_SPEC_*`); `Kind=Neutral` is the Empty-state tile (1 px `border-primary`) · no state table · `kit/feedback.rs::tile_icon` (new name, 5.1)"),
+]
+
+# Kit role -> Studio constant (token-contract.md (a) and its N-rows; the constant each state table reads). Each constant's value
+# must equal TOK[role] (and the contract's new value for it). Roles that no state table paints are absent.
+CONST = {
+    "bg-primary": "BG", "bg-primary_hover": "BG_HOVER", "bg-secondary": "BG_SECONDARY", "bg-secondary_hover": "BG_SELECTED",
+    "bg-tertiary": "BG_TERTIARY", "bg-quaternary": "BG_PRESSED", "bg-primary-solid": "BG_PRIMARY_SOLID", "bg-primary_alt": "BG_PRIMARY_ALT",
+    "border-primary": "BORDER_STRONG", "border-secondary": "BORDER", "border-secondary_alt": "BORDER_MENU", "border-brand": "BORDER_SELECTED",
+    "border-error": "BORDER_ERROR", "border-error_subtle": "BORDER_ERROR_SUBTLE",
+    "text-primary": "TEXT", "text-secondary": "TEXT_SECONDARY", "text-secondary_hover": "TEXT_SECONDARY_HOVER", "text-tertiary": "TEXT_TERTIARY",
+    "text-tertiary_hover": "TEXT_TERTIARY_HOVER", "text-quaternary": "TEXT_QUATERNARY", "text-white": "TEXT_WHITE", "text-placeholder": "TEXT_PLACEHOLDER",
+    "text-error-primary": "TEXT_ERROR", "text-error-primary_hover": "TEXT_ERROR_HOVER", "Neutral-950": "TEXT_ON_BRAND",
+    "fg-primary": "ICON", "fg-secondary": "ICON_SECONDARY", "fg-secondary_hover": "ICON_SECONDARY_HOVER", "fg-quaternary": "ICON_QUATERNARY",
+    "fg-quaternary_hover": "ICON_QUATERNARY_HOVER", "fg-white": "ICON_WHITE", "fg-brand-primary": "ICON_BRAND_PRIMARY",
+    "bg-brand-solid": "BG_BRAND", "bg-brand-solid_hover": "BG_BRAND_HOVER", "Orange-600": "BG_BRAND_PRESSED",
+    "bg-error-solid": "BG_ERROR_SOLID", "bg-error-solid_hover": "BG_ERROR_SOLID_HOVER", "Red-800": "BG_ERROR_SOLID_PRESSED", "bg-error-primary": "BG_ERROR_PRIMARY",
+    "focus-ring": "FOCUS_RING", "focus-ring-error": "FOCUS_RING_ERROR", "alpha-black-10": "BORDER_TRANSLUCENT",
+    "utility-neutral-50": "BADGE_NEUTRAL_BG", "utility-neutral-200": "BADGE_NEUTRAL_BORDER", "utility-neutral-700": "BADGE_NEUTRAL_TEXT",
+}
+
+
+def const(role):
+    """Studio constant of a kit role (None stays None); an unmapped role is a bug in this table, never a kit name in the output."""
+    return None if role is None else CONST[role]
+
 
 # ---------------------------------------------------------------- board and tables
 def resolve(w, state):
@@ -579,6 +625,9 @@ def inventory():
         node = f" (node {w['node']})" if w.get("node") else ""
         new = " (**new name**)" if w["name"] not in REGISTERED else ""
         out.append(f"| `{w['name']}`{new} | {w['studio']} | {w['kit']}{node} | {w['geom']} |")
+    for w in NO_STATE:
+        new = " (**new name**)" if w["name"] not in REGISTERED else ""
+        out.append(f"| `{w['name']}`{new} | {w['studio']} | {w['kit']} | {w['geom']} |")
     return "\n".join(out)
 
 
@@ -589,8 +638,8 @@ if __name__ == "__main__":
         print(markdown())
     elif sys.argv[1:] == ["--inventory"]:
         print(inventory())
-    elif sys.argv[1:] == ["--json"]:  # test data for every_table_row_matches_its_look (spec C section 10)
-        rows = {}
+    elif sys.argv[1:] == ["--json"]:  # test data for every_table_row_matches_its_look (spec C section 10): Studio constant names only (R14)
+        rows, used = {}, set()
         for w in W:
             rows[w["name"]] = {}
             for st in STATES:
@@ -600,8 +649,11 @@ if __name__ == "__main__":
                     continue
                 kind = v[0] if isinstance(v, tuple) and v[0] in ("ring", "half") else "plain"
                 fill, border, bw, txt, ic = look(v[1] if kind != "plain" else v)
-                rows[w["name"]][st] = {"fill": fill, "border": border, "border_w": bw, "text": txt, "icon": ic,
-                                       "ring": (v[2] if len(v) > 2 else "focus-ring") if kind == "ring" else None, "alpha": 0.5 if kind == "half" else 1.0}
-        print(json.dumps({"tokens": TOK, "rows": rows}, indent=1, ensure_ascii=False))
+                ring_role = (v[2] if len(v) > 2 else "focus-ring") if kind == "ring" else None
+                used.update(r for r in (fill, border, txt, ic, ring_role) if r)
+                rows[w["name"]][st] = {"fill": const(fill), "border": const(border), "border_w": bw, "text": const(txt), "icon": const(ic),
+                                       "ring": const(ring_role), "alpha": 0.5 if kind == "half" else 1.0}
+        constants = {CONST[r]: TOK[r] for r in sorted(used, key=lambda r: CONST[r])}
+        print(json.dumps({"constants": constants, "rows": rows}, indent=1, ensure_ascii=False))
     else:
         json.dump(board(), open(sys.argv[1], "w"), indent=1, ensure_ascii=False)

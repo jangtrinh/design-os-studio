@@ -85,7 +85,7 @@ Gates today: no colour-literal gate (spec A rule 13 adds `scripts/check_chrome_c
 | Canvas hover on a layer row | canvas pointer over the node | 1 px `BORDER_SELECTED` outline (border-brand `#FB923C`) | `BORDER_SELECTED` `#E36323` |
 | Filter match highlight (`find/filter.rs:58`) | default | `FIND_HIGHLIGHT` unchanged (contract row 74, Studio-only info family; the 21:35 sweep confirms it for J and E) | same |
 | Ready-for-dev icon on a page row; Dev section icon | default | `DEV_READY` `#14AE5C` (R10.4; G's `dev-accent` role) | `#1BC47D` literal |
-| Dev section count | count > 0; count 0 | C `Badge/StatusCount` with G's count-badge rule: fill `DEV_READY` at `DEV_STATUS_TINT` (22 %), label `TEXT`, mono digits (`UI_MONO_FAMILY`). Zero keeps today's behaviour (R1, plan.md C-R): the count is still painted (`left.rs:124-130` paints "0" in `TEXT_TERTIARY`), now as the gray `Badge/StatusCount` (`UTILITY_NEUTRAL_50` fill, `_200` border, `_700` label). G's Ready for dev tab badge hides at zero, as today (`dev/list.rs:46`): the two counters differ today (this one counts the current page and is always shown, that one counts every ready item) and stay different | bare text, Dev green or `TEXT_TERTIARY` |
+| Dev section count | count > 0; count 0 | C `Badge/StatusCount` with G's count-badge rule: fill `DEV_READY` at `DEV_STATUS_TINT` (22 %), label `TEXT`, mono digits (`UI_MONO_FAMILY`). Zero keeps today's behaviour (R1, plan.md C-R): the count is still painted (`left.rs:124-130` paints "0" in `TEXT_TERTIARY`), now as the gray `Badge/StatusCount` (`BADGE_NEUTRAL_BG` fill, `BADGE_NEUTRAL_BORDER` border, `BADGE_NEUTRAL_TEXT` label). G's Ready for dev tab badge hides at zero, as today (`dev/list.rs:46`): the two counters differ today (this one counts the current page and is always shown, that one counts every ready item) and stay different | bare text, Dev green or `TEXT_TERTIARY` |
 | "Mark selection ready" button | can mark; hover; cannot mark | fill `DEV_READY` at `DEV_TINT_REST`, `DEV_TINT_HOVER` on hover; label `DEV_READY`; cannot mark: fill `BG_SECONDARY`, label `TEXT_SECONDARY` | same values, literal green |
 | Layer filter field | default, focused | C `Input/Search` at `CONTROL_XS` 32: fill `BG`, 1 px `BORDER_STRONG` `#404040` (E-2: text fields join it), search icon `ICON_QUATERNARY`, typed text `TEXT`, placeholder `TEXT_PLACEHOLDER` `#737373` (R8.1 named exception), clear button glyph `ICON_QUATERNARY` → `ICON_QUATERNARY_HOVER`; focused: border 2 px `BORDER_SELECTED` and **no ring** (C S4) | `ICON_SECONDARY`, `TEXT`, hint `TEXT_TERTIARY`, `ICON_SECONDARY` → `ICON` |
 | Pages/Layers separator line | default; hover or drag | 1 px `BORDER` line; 2 px `BG_BRAND` on hover and drag (live state, as #1108 draws it, `left_sep.rs:210-216`) | same |
@@ -222,7 +222,7 @@ E-P rows (foreground on background, WCAG 2.x, the contract's luminance formula; 
 | E-P.17 | `DROP_INDICATOR` #E36323 | `BG` #0A0A0A | 3.0 | drop indicator |
 | E-P.18 | `BORDER_SELECTED` #FB923C | `BG` #0A0A0A | 3.0 | canvas-hover outline, rename field outline |
 | E-P.19 | `FOCUS_RING` #F97316 | `BG` #0A0A0A | 3.0 | separator focus ring, page-row focus ring (= C-1.29) |
-| E-P.20 | `UTILITY_NEUTRAL_700` #D4D4D4 | `UTILITY_NEUTRAL_50` #171717 | 4.5 | gray zero count (= C-1.24) |
+| E-P.20 | `BADGE_NEUTRAL_TEXT` #D4D4D4 | `BADGE_NEUTRAL_BG` #171717 | 4.5 | gray zero count (= C-1.24) |
 
 ```bash
 # from the specs folder; the contract's C-1 snippet with the id prefix and the file changed; exits 1 on a failure
@@ -404,3 +404,9 @@ None. The panel button size is decided by R5 and C's `Panel/Header`, sized local
 | E6 image-job chip called unowned | Fixed: spec I owns `image_jobs.rs`; E hosts the chip. |
 | E7 AC3 says only the Pages list changes | Fixed. AC3 lists every rule-5 change and points at the "L allow entries" table. |
 | Re-anchor to `8dfaee93` | 54 of 126 cites moved and were verified line for line; drift note above; #1108's two tests change with E. |
+
+## Changelog (T amendments, 2026-10-29)
+
+From `specs/T-design-system-ontology-registry.md` section 12, block D–K:
+
+- The `UTILITY` family names replaced by their V2 names (5.4 V2) in the Dev section count row and in contrast row E-P.20: `BADGE_NEUTRAL_BG`, `BADGE_NEUTRAL_BORDER`, `BADGE_NEUTRAL_TEXT`. No value changed.
