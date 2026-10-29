@@ -546,6 +546,7 @@ pub const LAYER_DROP_THICKNESS: f32 = 2.0;
 pub const FIND_FIELD_H: f32 = CONTROL_XS;
 pub const FIND_ROW_GAP: f32 = 8.0;
 pub const FIND_TOGGLE_SIZE: f32 = 22.0;
+#[allow(dead_code)]
 pub const FIND_BUTTON_H: f32 = 24.0;
 pub const FIND_STATUS_H: f32 = 32.0;
 pub const FIND_GROUP_ROW_H: f32 = CONTROL_XS;
@@ -718,9 +719,11 @@ pub const COMMENT_POP_W: f32 = 300.0;
 pub const COMMENT_POP_GAP: f32 = 8.0;
 pub const COMMENT_PAD: f32 = 12.0;
 pub const COMMENT_HEADER_H: f32 = 36.0;
+#[allow(dead_code)]
 pub const COMMENT_BTN_H: f32 = 24.0;
 pub const COMMENT_BOX_MIN_H: f32 = 56.0;
 pub const COMMENT_BOX_MAX_H: f32 = 160.0;
+#[allow(dead_code)]
 pub const COMMENT_ICON_BTN: f32 = 20.0;
 /// Comments panel (right side): filter row height and thread card padding.
 pub const COMMENT_PANEL_HEADER_H: f32 = 48.0;

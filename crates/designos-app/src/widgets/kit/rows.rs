@@ -53,6 +53,17 @@ pub const fn menu_item_look(state: State) -> Look {
     }
 }
 
+/// Command palette row. The selected row uses the selected surface; hover keeps the resting title.
+pub const fn command_row_look(selected: bool, hot: bool) -> Look {
+    if selected {
+        look(theme::BG_SELECTED, CLEAR, W, theme::TEXT, theme::ICON)
+    } else if hot {
+        look(theme::BG_MENU_HOVER, CLEAR, W, theme::TEXT_SECONDARY, theme::ICON_TERTIARY)
+    } else {
+        look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::ICON_TERTIARY)
+    }
+}
+
 /// Menu row paint. Hover wins the fill; a check keeps the selected mark.
 pub fn menu_row_look(disabled_row: bool, hot: bool, checked: bool) -> Look {
     if disabled_row {
