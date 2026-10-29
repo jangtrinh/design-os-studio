@@ -499,14 +499,11 @@ fn centre_x(r: &[f32; 4]) -> f32 {
 }
 
 /// Cluster paired widgets into rows by their BASELINE rects (centres within `max(4, 0.5*min(h1,h2))`, the same rule
-/// the G4/G5 shift derivation uses), then return each row's names sorted by baseline centre x and by current centre x.
+/// the G4/G5 shift derivation uses).
 ///
 /// Rows come from the baseline only: re-clustering the current rects would merge two baseline rows when controls grow
-/// taller (the threshold scales with height), which reorders widgets that never moved past each other. Sorting by centre
-/// rather than left edge keeps a control that grows sideways under an overlapping neighbour in place. For widgets that
-/// do not overlap in x, centre order equals left-edge order, so side-by-side controls stay guarded; G4/G5 pin every
-/// widget's position separately.
-fn baseline_row_name_sequences(mut items: Vec<OrderItem<'_>>) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
+/// taller (the threshold scales with height), which reorders widgets that never moved past each other.
+fn cluster_baseline_rows(mut items: Vec<OrderItem<'_>>) -> Vec<Vec<OrderItem<'_>>> {
     items.sort_by(|(ra, _, na), (rb, _, nb)| {
         let cya = ra[1] + ra[3] * 0.5;
         let cyb = rb[1] + rb[3] * 0.5;
@@ -528,15 +525,58 @@ fn baseline_row_name_sequences(mut items: Vec<OrderItem<'_>>) -> (Vec<Vec<String
             rows.push(vec![item]);
         }
     }
+    rows
+}
+
+/// Per row, the names sorted by baseline centre x and by current centre x.
+///
+/// Sorting by centre rather than left edge keeps a control that grows sideways under an overlapping neighbour in place.
+/// Equal centres break by name only: a half-point y jitter or a centred growth must not flip two widgets that share a
+/// centre. For widgets that do not overlap in x, centre order equals left-edge order, so side-by-side controls stay
+/// guarded; G4/G5 pin every widget's position separately. Cross-row x order is not compared on purpose: a region can
+/// hold several columns, and an allow entry that authorises a horizontal move is reviewed on its own.
+fn row_name_sequences(rows: &mut [Vec<OrderItem<'_>>]) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
     let mut base_rows = Vec::with_capacity(rows.len());
     let mut cur_rows = Vec::with_capacity(rows.len());
-    for mut row in rows {
-        row.sort_by(|(ra, _, na), (rb, _, nb)| centre_x(ra).total_cmp(&centre_x(rb)).then_with(|| cmp_q4(ra, rb)).then_with(|| na.cmp(nb)));
+    for row in rows.iter_mut() {
+        row.sort_by(|(ra, _, na), (rb, _, nb)| centre_x(ra).total_cmp(&centre_x(rb)).then_with(|| na.cmp(nb)));
         base_rows.push(row.iter().map(|(_, _, name)| name.to_string()).collect());
-        row.sort_by(|(_, ca, na), (_, cb, nb)| centre_x(ca).total_cmp(&centre_x(cb)).then_with(|| cmp_q4(ca, cb)).then_with(|| na.cmp(nb)));
+        row.sort_by(|(_, ca, na), (_, cb, nb)| centre_x(ca).total_cmp(&centre_x(cb)).then_with(|| na.cmp(nb)));
         cur_rows.push(row.iter().map(|(_, _, name)| name.to_string()).collect());
     }
     (base_rows, cur_rows)
+}
+
+/// Describe the first pair of widgets from DIFFERENT baseline rows whose baseline x-extents overlap and whose current
+/// centre-y order no longer matches the baseline order (a tie counts as a change).
+///
+/// An allow entry can translate a widget out of its baseline row and into another one without changing any row's
+/// sequence; this catches it. Only x-overlapping pairs are compared because a region can hold two columns (a Home
+/// sidebar next to a content area), and rows of one column that grow may legitimately pass rows of the other in y.
+fn vertical_order_violation(rows: &[Vec<OrderItem<'_>>]) -> Option<String> {
+    let cy = |r: &[f32; 4]| r[1] + r[3] * 0.5;
+    for (i, row_above) in rows.iter().enumerate() {
+        for row_below in &rows[i + 1..] {
+            for (b_up, c_up, n_up) in row_above {
+                for (b_down, c_down, n_down) in row_below {
+                    let overlap_x = b_up[0] < b_down[0] + b_down[2] && b_down[0] < b_up[0] + b_up[2];
+                    if !overlap_x || cy(b_up) >= cy(b_down) {
+                        continue;
+                    }
+                    if cy(c_up) >= cy(c_down) {
+                        return Some(format!(
+                            "'{n_up}' and '{n_down}' changed vertical order (baseline cy {} < {}, current cy {} >= {})",
+                            cy(b_up),
+                            cy(b_down),
+                            cy(c_up),
+                            cy(c_down)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Compare `cur` against `base` enforcing Rules G1–G5.
@@ -844,8 +884,9 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         }
     }
 
-    // G3 Order — Per region, pair each baseline widget with its current rect (named by name, unnamed as "_" by index)
-    // and verify that the name sequence per BASELINE row is equal when sorted by baseline and by current centre x.
+    // G3 Order — Per region, pair each baseline widget with its current rect (named by name, unnamed as "_" by index),
+    // verify that the name sequence per BASELINE row is equal when sorted by baseline and by current centre x, and
+    // that widgets in different rows whose baseline x-extents overlap keep their vertical order.
     let mut order_regions: BTreeSet<String> = base.named.values().map(|w| w.region.clone()).collect();
     order_regions.extend(base_unnamed_by_reg.keys().cloned());
     for reg in order_regions {
@@ -863,9 +904,13 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         for (b_u, c_u) in b_u_list[..shared_len].iter().zip(c_u_list[..shared_len].iter()) {
             items.push((b_u.rect, c_u.rect, "_"));
         }
-        let (base_rows, cur_rows) = baseline_row_name_sequences(items);
+        let mut rows = cluster_baseline_rows(items);
+        let (base_rows, cur_rows) = row_name_sequences(&mut rows);
         if base_rows != cur_rows {
             return Err(format!("G3 row order mismatch in case {case_id} region '{reg}': baseline={base_rows:?}, current={cur_rows:?}"));
+        }
+        if let Some(detail) = vertical_order_violation(&rows) {
+            return Err(format!("G3 row order mismatch in case {case_id} region '{reg}': {detail}"));
         }
     }
 
@@ -1818,6 +1863,109 @@ mod tests {
             err.contains(r#"current=[["tool-a2", "tool-a1"], ["tool-b1", "tool-b2"]]"#),
             "current order must be read inside the two baseline rows, got: {err}"
         );
+    }
+
+    fn named_in(region: &str, rect: [f32; 4]) -> NamedWidget {
+        NamedWidget { region: region.into(), rect, count: 1 }
+    }
+
+    /// Two widgets whose centres coincide must keep their order when one only jitters by half a point in y:
+    /// equal centres break by name, never by the y of either snapshot.
+    #[test]
+    fn equal_centres_with_half_point_y_jitter_keep_g3_order() {
+        let mut base = sample_snapshot("d-editor-default");
+        base.named.insert("chip".into(), named_in("canvas", [100.0, 100.0, 20.0, 20.0]));
+        base.named.insert("badge".into(), named_in("canvas", [105.0, 100.25, 10.0, 20.0]));
+        let mut cur = base.clone();
+        cur.named.get_mut("badge").unwrap().rect[1] = 99.75;
+
+        compare(&base, &cur, &AllowList::default(), &[]).expect("a half-point y jitter between equal centres must pass G3");
+    }
+
+    /// A control that grows evenly on both sides keeps its centre; against a neighbour with the same centre the order
+    /// must not flip because its left edge moved past the neighbour's.
+    #[test]
+    fn centred_growth_with_an_equal_centre_keeps_g3_order() {
+        let mut base = sample_snapshot("d-editor-default");
+        base.named.insert("row".into(), named_in("canvas", [100.0, 100.0, 20.0, 20.0]));
+        base.named.insert("btn".into(), named_in("canvas", [105.0, 100.0, 10.0, 20.0]));
+        let mut cur = base.clone();
+        cur.named.get_mut("btn").unwrap().rect = [99.0, 100.0, 22.0, 20.0];
+
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "d-editor-default".into(),
+            region: "canvas".into(),
+            name_prefix: Some("btn".into()),
+            anchor_x: Some(AnchorX::Centre),
+            max_dw: Some(12.0),
+            spec: "D".into(),
+            reason: "R5: button 10->22 centred".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("centred growth that keeps the centre must pass G3");
+    }
+
+    /// An allow entry may authorise a translation, but a widget that leaves its baseline row for another one,
+    /// landing level with a widget above it in the same column, changes the vertical order and fails G3.
+    #[test]
+    fn a_control_moving_into_another_row_fails_g3() {
+        let mut base = sample_snapshot("d-editor-default");
+        base.named.insert("a1".into(), named_in("canvas", [1210.0, 100.0, 28.0, 28.0]));
+        base.named.insert("a2".into(), named_in("canvas", [1250.0, 100.0, 28.0, 28.0]));
+        base.named.insert("solo".into(), named_in("canvas", [1210.0, 200.0, 28.0, 28.0]));
+        let mut cur = base.clone();
+        cur.named.get_mut("solo").unwrap().rect = [1180.0, 100.0, 28.0, 28.0];
+
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "d-editor-default".into(),
+            region: "canvas".into(),
+            name_prefix: Some("solo".into()),
+            dx: Some(-30.0),
+            dy: Some(-100.0),
+            spec: "D".into(),
+            reason: "R5: solo control moved up and left".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        let err = compare(&base, &cur, &allow, &[]).expect_err("a widget landing level with the row above it must fail G3");
+        assert!(
+            err.contains("G3 row order mismatch") && err.contains("'a1' and 'solo' changed vertical order"),
+            "must cite the vertical order change, got: {err}"
+        );
+    }
+
+    /// One region can hold two columns (Home has a sidebar and a content area): sidebar rows that grow may pass a
+    /// content row in y, because the vertical order is only kept between widgets whose x-extents overlap.
+    #[test]
+    fn sidebar_rows_growing_past_content_rows_keep_g3_order() {
+        let mut base = sample_snapshot("d-editor-default");
+        for i in 0..5 {
+            base.named.insert(format!("side-{i}"), named_in("home", [0.0, 100.0 + 40.0 * i as f32, 200.0, 32.0]));
+        }
+        // Centre y 214 sits between side-2 (196) and side-3 (236) and is more than half a row from both.
+        base.named.insert("content".into(), named_in("home", [300.0, 198.0, 200.0, 32.0]));
+        let mut cur = base.clone();
+        for i in 0..5 {
+            let w = cur.named.get_mut(&format!("side-{i}")).unwrap();
+            w.rect[1] += 8.0 * i as f32;
+            w.rect[3] = 40.0;
+        }
+
+        let allow = validate_allow_entries(vec![AllowEntry {
+            case: "d-editor-default".into(),
+            region: "home".into(),
+            name_prefix: Some("side-".into()),
+            max_dh: Some(8.0),
+            spec: "H".into(),
+            reason: "R5: sidebar rows 32->40".into(),
+            ..Default::default()
+        }])
+        .expect("valid allow list");
+
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("sidebar rows passing a content row in y must pass G3");
     }
 
     /// Test 6: An allow entry that matched nothing in a run is stale and fails with its index.
