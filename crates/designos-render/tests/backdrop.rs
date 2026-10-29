@@ -81,3 +81,18 @@ fn background_blur_on_translucent_node_itself() {
     let c = px(&pm, 15, 20);
     assert!(c[0] > 60, "{c:?}");
 }
+
+#[test]
+fn background_blur_without_a_visible_fill_leaves_backdrop_sharp() {
+    let mut t = T::new();
+    t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), BLACK);
+    t.add(None, |id| {
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.fills.clear();
+        n.effects = vec![Effect::BackgroundBlur { radius: 8.0, visible: true }];
+        n
+    });
+    let pm = t.render(60, 40);
+    assert_eq!(px(&pm, 15, 20), [0, 0, 0, 255], "a fill-less backdrop blur must not alter the backdrop");
+    assert_eq!(px(&pm, 25, 20), WHITE, "the area outside the stripe remains unchanged");
+}
