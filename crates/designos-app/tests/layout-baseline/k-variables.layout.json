@@ -540,7 +540,7 @@
       "rect": [
         298.0,
         1056.0,
-        121.25,
+        128.0,
         24.0
       ],
       "count": 1
@@ -968,9 +968,9 @@
     "vars-scope:All": {
       "region": "overlay:Middle/0",
       "rect": [
-        435.25,
+        442.0,
         1057.0,
-        28.25,
+        30.5,
         22.0
       ],
       "count": 1
@@ -978,9 +978,9 @@
     "vars-scope:Fills": {
       "region": "overlay:Middle/0",
       "rect": [
-        467.5,
+        476.75,
         1057.0,
-        34.75,
+        38.5,
         22.0
       ],
       "count": 1
@@ -988,9 +988,9 @@
     "vars-scope:Gap & Size": {
       "region": "overlay:Middle/0",
       "rect": [
-        655.25,
+        686.0,
         1057.0,
-        67.5,
+        77.75,
         22.0
       ],
       "count": 1
@@ -998,9 +998,9 @@
     "vars-scope:Radius": {
       "region": "overlay:Middle/0",
       "rect": [
-        603.0,
+        627.25,
         1057.0,
-        48.25,
+        54.75,
         22.0
       ],
       "count": 1
@@ -1008,9 +1008,9 @@
     "vars-scope:Strokes": {
       "region": "overlay:Middle/0",
       "rect": [
-        506.25,
+        519.25,
         1057.0,
-        52.25,
+        59.5,
         22.0
       ],
       "count": 1
@@ -1018,9 +1018,9 @@
     "vars-scope:Text": {
       "region": "overlay:Middle/0",
       "rect": [
-        562.5,
+        582.75,
         1057.0,
-        36.5,
+        40.75,
         22.0
       ],
       "count": 1
