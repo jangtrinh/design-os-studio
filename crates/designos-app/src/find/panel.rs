@@ -171,7 +171,12 @@ fn input(ui: &mut Ui, rect: Rect, id: egui::Id, text: &mut String, hint: &str, f
         .vertical_align(Align::Center)
         .hint_text(egui::RichText::new(hint).font(font).color(theme::TEXT_PLACEHOLDER))
         .desired_width(rect.width());
-    ui.put(rect, te)
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+        ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
+        ui.put(rect, te)
+    })
+    .inner
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {

@@ -52,27 +52,55 @@ fn tab_and_segmented_labels_match_their_rows() {
     }));
 }
 
-#[test]
-fn segmented_keeps_a_minimum_target_on_a_short_strip() {
-    let short = Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(160.0, theme::TARGET_MIN));
-    let tall = Rect::from_min_size(egui::pos2(10.0, 50.0), egui::vec2(160.0, theme::CONTROL_MD));
-    let shapes = paint(|ui| {
-        segmented(ui, short, "short", &["A", "B"], 0, Size::Xs);
-        segmented(ui, tall, "tall", &["A", "B"], 0, Size::Sm);
-    });
-    let selected_heights: Vec<f32> = shapes
+/// The strips painted by `segmented` and the rect each option's hit cell covers, read back from egui.
+fn segmented_strips(short: Rect, tall: Rect) -> (Vec<egui::epaint::ClippedShape>, Vec<Rect>) {
+    let ctx = egui::Context::default();
+    theme::install_fonts(&ctx);
+    let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))), ..Default::default() };
+    let mut ids = Vec::new();
+    let shapes = ctx
+        .run_ui(raw, |ui| {
+            for (key, rect) in [("short", short), ("tall", tall)] {
+                segmented(ui, rect, key, &["A", "B"], 0, Size::Xs);
+                for i in 0..2 {
+                    ids.push(ui.id().with(key).with(i));
+                }
+            }
+        })
+        .shapes;
+    let cells = ids.iter().map(|id| ctx.read_response(*id).expect("every option is interactive").rect).collect();
+    (shapes, cells)
+}
+
+fn tile_fills(shapes: &[egui::epaint::ClippedShape]) -> Vec<(Rect, egui::CornerRadius)> {
+    shapes
         .iter()
         .filter_map(|clipped| match &clipped.shape {
-            egui::epaint::Shape::Rect(shape) if shape.fill == theme::BG_SELECTED => Some(shape.rect.height()),
+            egui::epaint::Shape::Rect(shape) if shape.fill == theme::BG_SELECTED => Some((shape.rect, shape.corner_radius)),
             _ => None,
         })
-        .collect();
-    assert!(
-        selected_heights.iter().any(|h| (*h - theme::TARGET_MIN).abs() < 0.1),
-        "a short strip does not shrink its option below the minimum target, got {selected_heights:?}"
-    );
-    let inset_h = theme::CONTROL_MD - theme::INSET_SEGMENT * 2.0;
-    assert!(selected_heights.iter().any(|h| (*h - inset_h).abs() < 0.1), "a tall strip still insets its option, got {selected_heights:?}");
+        .collect()
+}
+
+#[test]
+fn segmented_short_strip_keeps_the_inset_tile_and_a_full_height_hit() {
+    let short = Rect::from_min_size(egui::pos2(10.0, 10.0), egui::vec2(160.0, theme::TARGET_MIN));
+    let tall = Rect::from_min_size(egui::pos2(10.0, 50.0), egui::vec2(160.0, theme::CONTROL_MD));
+    let (shapes, cells) = segmented_strips(short, tall);
+    let pad = theme::INSET_SEGMENT;
+    let tiles = tile_fills(&shapes);
+    let short_tile =
+        Rect::from_min_size(egui::pos2(short.left() + pad, short.top() + pad), egui::vec2((short.width() - pad * 2.0) / 2.0, short.height() - pad * 2.0));
+    let tall_tile =
+        Rect::from_min_size(egui::pos2(tall.left() + pad, tall.top() + pad), egui::vec2((tall.width() - pad * 2.0) / 2.0, tall.height() - pad * 2.0));
+    assert!(tiles.contains(&(short_tile, theme::cr(theme::RADIUS_SEGMENT))), "a short strip still paints the inset tile, got {tiles:?}");
+    assert!(tiles.contains(&(tall_tile, theme::cr(theme::RADIUS_SEGMENT))), "a tall strip paints the inset tile, got {tiles:?}");
+    assert_eq!(theme::RADIUS_SEGMENT as f32, theme::RADIUS_CONTROL as f32 - pad, "the tile radius stays concentric with the strip");
+    let half = short.width() / 2.0;
+    assert_eq!(cells[0], Rect::from_min_size(short.min, egui::vec2(half, short.height())), "a short strip hits on the full height column");
+    assert_eq!(cells[1], Rect::from_min_size(egui::pos2(short.left() + half, short.top()), egui::vec2(half, short.height())));
+    assert!(cells[0].height() >= theme::TARGET_MIN);
+    assert_eq!(cells[2], tall_tile, "a tall strip hits on the tile it paints");
 }
 
 #[test]

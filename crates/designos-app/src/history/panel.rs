@@ -2,12 +2,11 @@
 
 use super::day_label;
 use crate::app::App;
-use crate::comments::ui;
 use crate::home::time::relative;
 use crate::icons::Icon;
 use crate::theme;
 use crate::widgets::menu::{popup_menu, MenuItem, MenuResult};
-use crate::widgets::{self, hline};
+use crate::widgets::{self, hline, kit};
 use egui::{Align2, Id, Pos2, Rect, Sense, Ui, Vec2};
 
 const SIDE: f32 = 8.0;
@@ -54,7 +53,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     y += 8.0;
     let viewing = app.history.viewing.is_some();
     let br = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, theme::CONTROL_XS));
-    if ui::button(ui, br, "history-save", "Save to version history\u{2026}", false, !viewing).clicked() {
+    if kit::button(ui, br, "history-save", "Save to version history\u{2026}", kit::Hierarchy::Secondary, kit::Size::Xs, !viewing).clicked() {
         app.begin_save_version();
     }
     widgets::record(ui, "history-save-button", br);

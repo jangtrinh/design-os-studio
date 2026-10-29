@@ -118,12 +118,13 @@
     "region": "overlay:Foreground/0",
     "name_prefix": "comment-dots",
     "anchor_x": "right",
+    "dy": -10,
     "min_dw": 12,
     "max_dw": 12,
     "min_dh": 12,
     "max_dh": 12,
     "spec": "J",
-    "reason": "R5: comment menu control grows from 20 to 32."
+    "reason": "rule 7 and R5: the comment menu control grows from 20 to 32 and its top rises 10 pt, so the 32 pt box ends where the message text starts instead of covering the first line."
   },
   {
     "case": "j-comments",
@@ -187,16 +188,6 @@
     "max_dh": 8,
     "spec": "J",
     "reason": "R5: back control grows from 24 to 32 and stays centred on the version bar, with its right edge fixed."
-  },
-  {
-    "case": "j-plugins",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "plugin-install-new",
-    "anchor_x": "right",
-    "min_dw": 12.25,
-    "max_dw": 12.25,
-    "spec": "J",
-    "reason": "R5: install control keeps its right edge and grows with the semibold label metric shared by dialog buttons."
   },
   {
     "case": "micro-layer-picker",

@@ -199,7 +199,9 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
 
         for (idx, &id) in ids.iter().enumerate() {
             let Some(node) = app.doc.get(id) else { continue };
-            let rr = egui::Rect::from_min_size(egui::Pos2::new(r.left() + 4.0, r.top() + header_h + idx as f32 * row_h), egui::Vec2::new(w - 8.0, row_h));
+            let inset = crate::theme::INSET_FRAME;
+            let rr =
+                egui::Rect::from_min_size(egui::Pos2::new(r.left() + inset, r.top() + header_h + idx as f32 * row_h), egui::Vec2::new(w - inset * 2.0, row_h));
             let resp = ui.interact(rr, Id::new(("layer-picker-row", id)), egui::Sense::click());
             crate::widgets::record_with(ui, || format!("layer-row-{idx}"), rr);
             let hov = resp.hovered();
@@ -207,22 +209,17 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
             if hov {
                 hovered_any = Some(id);
             }
-            if sel || hov {
-                let fill = if sel { crate::theme::BG_SELECTED } else { crate::theme::BG_MENU_HOVER };
-                p.rect_filled(rr, crate::theme::cr(crate::theme::RADIUS_CONTROL), fill);
+            // The same Menu/Item look as the menu rows; a selected layer keeps the selected fill.
+            let mut paint = crate::widgets::kit::menu_row_look(false, hov, false);
+            if sel {
+                paint.fill = crate::theme::BG_SELECTED;
             }
+            crate::widgets::kit::paint_frame(p, rr, crate::theme::RADIUS_CONTROL, &paint);
             let icon = super::layers::kind_icon(&node.kind);
             let is_comp = matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
-            let icon_col = if hov || sel {
-                crate::theme::ICON
-            } else if is_comp {
-                crate::theme::COMPONENT
-            } else {
-                crate::theme::ICON_TERTIARY
-            };
+            let icon_col = if is_comp && !hov { crate::theme::COMPONENT } else { paint.icon };
             crate::icons::paint(p, icon, egui::Pos2::new(rr.left() + 12.0, rr.center().y), crate::theme::LAYER_ICON_SIZE, icon_col);
-            let text_col = if hov { crate::theme::TEXT_SECONDARY_HOVER } else { crate::theme::TEXT };
-            p.text(egui::Pos2::new(rr.left() + 26.0, rr.center().y), egui::Align2::LEFT_CENTER, &node.name, crate::theme::font_body(), text_col);
+            p.text(egui::Pos2::new(rr.left() + 26.0, rr.center().y), egui::Align2::LEFT_CENTER, &node.name, crate::theme::font_menu(), paint.text);
             if resp.clicked() {
                 picked = Some(id);
             }

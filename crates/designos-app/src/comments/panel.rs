@@ -73,7 +73,14 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         .hint_text(egui::RichText::new("Search comments").font(font.clone()).color(theme::TEXT_PLACEHOLDER))
         .desired_width(sr.width() - 36.0);
     let search_field = Rect::from_min_max(Pos2::new(sr.left() + 28.0, sr.top()), Pos2::new(sr.right() - 8.0, sr.bottom()));
-    if ui.put(search_field, te).changed() {
+    let changed = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(search_field), |ui| {
+            // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+            ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
+            ui.put(search_field, te).changed()
+        })
+        .inner;
+    if changed {
         app.comments.scroll = 0.0;
     }
     widgets::record(ui, "comments-search", sr);

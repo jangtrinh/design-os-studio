@@ -1,7 +1,6 @@
 //! Floating surfaces: command bar, dialogs, menus, Find, comments, presentation, updater.
 
 use super::*;
-use crate::util::world_aabb;
 
 fn sources() -> Vec<(&'static str, &'static str)> {
     vec![
@@ -33,8 +32,16 @@ fn sources() -> Vec<(&'static str, &'static str)> {
 
 fn present_content_line(line: &str) -> bool {
     super::chrome_census::texture_tint_line(line)
-        || (line.contains("Color32::WHITE") && line.contains("gamma_multiply"))
+        || line.contains("let tint = Color32::WHITE.gamma_multiply(")
         || (line.contains("Color32::BLACK") && line.contains("PRESENT_BEZEL"))
+}
+
+#[test]
+fn present_allowlist_names_the_content_lines_exactly() {
+    assert!(present_content_line("let tint = Color32::WHITE.gamma_multiply(alpha.clamp(0.0, 1.0));"));
+    assert!(present_content_line("pc.image(t.id(), stage, ERect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);"));
+    assert!(!present_content_line("let label = Color32::WHITE.gamma_multiply(0.5);"));
+    assert!(!present_content_line("p.rect_filled(bar, 0.0, Color32::WHITE);"));
 }
 
 fn present_chrome_sites() -> Vec<usize> {
@@ -84,68 +91,7 @@ fn cmdk_palette_uses_contract_roles() {
 }
 
 #[test]
-fn dialog_footer_buttons_are_control_md() {
-    let mut s = Sim::new();
-    s.shell.app.confirm_open_github();
-    s.frame(vec![]);
-    let ok = s.rect_of("dialog-ok");
-    let cancel = s.rect_of("dialog-cancel");
-    let src = include_str!("../../home/dialog.rs");
-    assert!(
-        (ok.height() - theme::CONTROL_MD).abs() < 0.1 && (cancel.height() - theme::CONTROL_MD).abs() < 0.1 && src.contains("theme::INSET_MODAL"),
-        "ok_h={} cancel_h={} inset={}",
-        ok.height(),
-        cancel.height(),
-        src.contains("theme::INSET_MODAL")
-    );
-}
-
-#[test]
-fn present_link_prompt_is_a_card() {
-    let mut s = Sim::with(Options { present: true, ..Default::default() });
-    s.shell.app.proto.present.as_mut().expect("presentation").pending_url = Some(("https://example.com".into(), false));
-    s.frame(vec![]);
-    let open = s.rect_of("present-url-open");
-    let cancel = s.rect_of("present-url-cancel");
-    let card_top = open.top() - 12.0;
-    let src = include_str!("../../present.rs");
-    let body = &src[src.find("fn confirm_bar").expect("confirm bar")..];
-    assert!(
-        (open.height() - theme::CONTROL_SM).abs() < 0.1
-            && (cancel.height() - theme::CONTROL_SM).abs() < 0.1
-            && (1088.0 - 88.0 - card_top).abs() < 1.0
-            && !body.contains("elevation_shadow"),
-        "open_h={} cancel_h={} card_top={card_top} shadow={}",
-        open.height(),
-        cancel.height(),
-        body.contains("elevation_shadow")
-    );
-}
-
-#[test]
-fn brand_labels_are_dark() {
-    assert_eq!(crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Primary, crate::widgets::kit::State::Default).text, theme::TEXT_ON_BRAND);
-    let mut bad = Vec::new();
-    for (name, src) in sources() {
-        let sites = if name == "present.rs" { present_chrome_sites() } else { super::chrome_census::chrome_colour_sites(src) };
-        if !sites.is_empty() {
-            bad.push(format!("{name} {sites:?}"));
-        }
-    }
-    assert!(bad.is_empty(), "{bad:?}");
-}
-
-#[test]
-fn context_menu_rows_are_32() {
-    let mut s = Sim::new();
-    let b = world_aabb(&s.app().doc, s.by_name("Welcome"));
-    s.right_click(s.screen(b.x + 40.0, b.y + 40.0));
-    let row = s.rect_of("menu-row-0-0");
-    assert!((row.height() - theme::MENU_ITEM_HEIGHT).abs() < 0.1, "row h {}", row.height());
-}
-
-#[test]
-fn find_controls_follow_r5() {
+fn find_controls_use_xs_heights() {
     let mut s = Sim::new();
     s.cmd_key(Key::F);
     assert!(s.app().find.open);
@@ -170,7 +116,7 @@ fn find_controls_follow_r5() {
 }
 
 #[test]
-fn comment_controls_follow_r5() {
+fn comment_controls_use_xs_heights() {
     let s = Sim::with(Options { fixture: Some("comments".into()), panel: Some("comments".into()), ..Default::default() });
     let search = s.rect_of("comments-search");
     let pages = s.rect_of("comments-filter-pages");
@@ -190,42 +136,9 @@ fn comment_controls_follow_r5() {
 }
 
 #[test]
-fn toast_rules_for_d() {
-    let surface = crate::widgets::kit::toast_look();
-    let rest = crate::widgets::kit::toast_action_look(crate::widgets::kit::State::Default);
-    let hot = crate::widgets::kit::toast_action_look(crate::widgets::kit::State::Hover);
-    assert_eq!(surface.fill, theme::BG_PRIMARY_ALT);
-    assert_eq!(rest.fill.a(), 0);
-    assert_eq!(hot.fill, theme::BG_SECONDARY_HOVER);
-    assert_ne!(hot.fill, theme::BG_HOVER);
-    assert_eq!(hot.text, theme::TEXT_SECONDARY_HOVER);
-}
-
-#[test]
 fn updater_stays_hidden() {
     let enabled = crate::home::updater::UPDATER_UI_ENABLED;
     assert!(!enabled, "the updater stays hidden");
     let sites = super::chrome_census::chrome_colour_sites(include_str!("../../updater.rs"));
     assert!(sites.is_empty(), "updater {sites:?}");
-}
-
-#[test]
-fn import_path_prompt_follows_dialog_rules() {
-    let mut s = Sim::new();
-    s.shell.app.open_import_path_dialog();
-    s.frame(vec![]);
-    let ok = s.rect_of("dialog-ok");
-    let cancel = s.rect_of("dialog-cancel");
-    let src = include_str!("../../home/dialog.rs");
-    assert!(
-        (ok.height() - theme::CONTROL_MD).abs() < 0.1
-            && (cancel.height() - theme::CONTROL_MD).abs() < 0.1
-            && src.contains("theme::INSET_MODAL")
-            && src.contains("theme::TEXT_PLACEHOLDER"),
-        "ok_h={} cancel_h={} inset={} placeholder={}",
-        ok.height(),
-        cancel.height(),
-        src.contains("theme::INSET_MODAL"),
-        src.contains("theme::TEXT_PLACEHOLDER")
-    );
 }

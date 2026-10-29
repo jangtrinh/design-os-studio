@@ -243,7 +243,7 @@ impl App {
 pub fn show(app: &mut App, ctx: &Context) {
     let Some(mut d) = app.dialog.take() else { return };
     let screen = ctx.content_rect();
-    let font = theme::font_body();
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular);
     let (enter, esc) = ctx.input_mut(|i| (i.consume_key(Modifiers::NONE, Key::Enter), i.consume_key(Modifiers::NONE, Key::Escape)));
 
     // ---- measure
@@ -307,6 +307,8 @@ pub fn show(app: &mut App, ctx: &Context) {
             if let Some(hint) = d.hint.as_deref() {
                 te = te.hint_text(egui::RichText::new(hint).font(font.clone()).color(theme::TEXT_PLACEHOLDER));
             }
+            // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+            ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
             let out = ui.put(r, te);
             if d.fresh {
                 out.request_focus();

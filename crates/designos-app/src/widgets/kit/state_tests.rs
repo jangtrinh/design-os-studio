@@ -1,6 +1,7 @@
 use super::guard_tests::contrast;
 use super::table_tests::{actual, doc, expect, parse_state};
 use super::*;
+use crate::theme;
 
 #[test]
 fn toast_action_hover_uses_the_secondary_hover_fill() {
@@ -12,7 +13,6 @@ fn toast_action_hover_uses_the_secondary_hover_fill() {
     assert_ne!(hot.fill, theme::BG_HOVER);
     assert_eq!(hot.text, theme::TEXT_SECONDARY_HOVER);
 }
-use crate::theme;
 
 #[test]
 fn button_looks_match_spec_c_table() {

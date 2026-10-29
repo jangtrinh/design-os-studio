@@ -25,7 +25,7 @@ pub fn show(app: &mut App, ctx: &Context) {
     let rect = Rect::from_center_size(screen.center() - Vec2::new(0.0, 24.0), Vec2::new(W, h));
     let mut submit = ctrl_enter || enter;
     let mut cancel = esc;
-    let font = theme::font_body();
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular);
     egui::Area::new(Id::new("version-save-modal")).order(Order::Foreground).fixed_pos(screen.min).interactable(true).show(ctx, |ui| {
         let scrim = ui.allocate_rect(screen, Sense::click_and_drag());
         let p = ui.painter().clone();
@@ -57,6 +57,8 @@ pub fn show(app: &mut App, ctx: &Context) {
             .hint_text(egui::RichText::new("e.g. Ready for review").font(font.clone()).color(theme::TEXT_PLACEHOLDER))
             .min_size(nr.size())
             .desired_width(nr.width());
+        // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+        ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
         let out = ui.put(nr, te);
         if m.fresh {
             out.request_focus();
@@ -71,14 +73,14 @@ pub fn show(app: &mut App, ctx: &Context) {
         widgets::record(ui, "version-description", dr);
         y += DESC_H + 16.0;
         let enabled = !m.name.trim().is_empty();
-        let sw = ui::button_width(&p, "Save").max(64.0);
+        let sw = ui::kit_button_width(&p, "Save").max(64.0);
         let save_r = Rect::from_min_size(Pos2::new(rect.right() - PAD - sw, y), Vec2::new(sw, BTN_H));
-        let cw = ui::button_width(&p, "Cancel").max(64.0);
+        let cw = ui::kit_button_width(&p, "Cancel").max(64.0);
         let cancel_r = Rect::from_min_size(Pos2::new(save_r.left() - 8.0 - cw, y), Vec2::new(cw, BTN_H));
-        if ui::button(ui, save_r, "version-save", "Save", true, enabled).clicked() {
+        if kit::button(ui, save_r, "version-save", "Save", kit::Hierarchy::Primary, kit::Size::Md, enabled).clicked() {
             submit = true;
         }
-        if ui::button(ui, cancel_r, "version-cancel", "Cancel", false, true).clicked() {
+        if kit::button(ui, cancel_r, "version-cancel", "Cancel", kit::Hierarchy::Secondary, kit::Size::Md, true).clicked() {
             cancel = true;
         }
         widgets::record(ui, "version-save", save_r);

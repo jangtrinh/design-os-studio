@@ -72,7 +72,11 @@ pub fn text_box(ui: &mut Ui, rect: Rect, id: Id, text: &mut String, hint: &str, 
         .hint_text(egui::RichText::new(hint).font(font).color(theme::TEXT_PLACEHOLDER))
         .desired_rows(1)
         .desired_width(rect.width());
-    let resp = crate::panels::clipped(ui, rect, |ui| ui.put(rect, te));
+    let resp = crate::panels::clipped(ui, rect, |ui| {
+        // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+        ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
+        ui.put(rect, te)
+    });
     if focus {
         resp.request_focus();
     }
@@ -84,14 +88,33 @@ pub fn submit_keys(ctx: &egui::Context) -> (bool, bool) {
     ctx.input_mut(|i| (i.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter), i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)))
 }
 
-/// A text button: brand-filled when `primary`, otherwise the secondary button.
+/// A text button: brand-filled when `primary`, otherwise a plain hover tile.
 pub fn button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, label: &str, primary: bool, enabled: bool) -> Response {
-    let kind = if primary { crate::widgets::kit::Hierarchy::Primary } else { crate::widgets::kit::Hierarchy::Secondary };
-    crate::widgets::kit::button(ui, rect, id, label, kind, crate::widgets::kit::Size::Xs, enabled)
+    let resp = ui.interact(rect, ui.id().with(id), if enabled { Sense::click() } else { Sense::hover() });
+    let p = ui.painter();
+    let bg = match (primary, enabled) {
+        (_, false) => theme::BG_TERTIARY,
+        (true, true) if resp.is_pointer_button_down_on() => theme::BG_BRAND_PRESSED,
+        (true, true) if resp.hovered() => theme::BG_BRAND_HOVER,
+        (true, true) => theme::BG_BRAND,
+        (false, true) if resp.hovered() => theme::BG_HOVER,
+        (false, true) => Color32::TRANSPARENT,
+    };
+    if bg != Color32::TRANSPARENT {
+        p.rect_filled(rect, theme::cr_pill(rect.height()), bg);
+    }
+    let col = if !enabled { theme::TEXT_DISABLED } else { theme::TEXT };
+    p.text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body_strong(), col);
+    resp
 }
 
 /// Width of a [`button`] for `label`.
 pub fn button_width(p: &Painter, label: &str) -> f32 {
+    widgets::text_width(p, label, &theme::font_body_strong()) + 2.0 * theme::INSET_BUTTON
+}
+
+/// Width of a kit text button (`widgets::kit::button`, text-sm semibold) for `label`.
+pub fn kit_button_width(p: &Painter, label: &str) -> f32 {
     let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
     widgets::text_width(p, label, &font) + 2.0 * theme::INSET_BUTTON
 }

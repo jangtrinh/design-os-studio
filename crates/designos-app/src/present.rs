@@ -4,7 +4,6 @@
 //! wheel and key input.
 
 use crate::app::App;
-
 use crate::proto::geom;
 use crate::proto::player::{content_extent, hit_layer, Effect, Player};
 use crate::proto::smart::{subtree_doc, SmartPlan};

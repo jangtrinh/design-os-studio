@@ -30,6 +30,8 @@ pub struct CmdKState {
     pub last_audit: Option<DesignGateReport>,
     pub status: Option<String>,
     pub focus_requested: bool,
+    /// Pixels the command list is scrolled when the window is too short to show every row.
+    pub scroll: f32,
 }
 
 /// Summary report produced by `run_design_gate_audit`.
@@ -265,6 +267,18 @@ const QUICK_COMMANDS: [QuickCommandItem; 12] = [
     },
 ];
 
+/// The search row (40) and the tab row (34): the part of the bar that never scrolls.
+const HEADER_H: f32 = 74.0;
+const SECTION_H: f32 = 28.0;
+const ROW_PITCH: f32 = 36.0;
+/// Space above the first heading, and below the last row (with the 4 above, the 10 that closes the bar).
+const LIST_GAP: f32 = 4.0;
+const LIST_END_PAD: f32 = 10.0;
+/// The bar ends this far above the bottom of the window: 8 above the floating toolbar (12 margin + 48 high).
+const DOCK_BOTTOM: f32 = 68.0;
+/// The bar never reaches closer than this to the top of the window.
+const TOP_MARGIN: f32 = 20.0;
+
 /// Renders the bottom-docked command bar when `state.open` is true.
 pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, selection: &[NodeId]) -> Option<CmdKAction> {
     if !state.open {
@@ -296,15 +310,18 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
 
     let mut trigger_selected = false;
     let mut close_requested = false;
+    let mut key_moved = false;
     ctx.input(|i| {
         if i.key_pressed(Key::Escape) {
             close_requested = true;
         }
         if i.key_pressed(Key::ArrowDown) && !filtered_cmds.is_empty() {
             state.selected_idx = (state.selected_idx + 1) % filtered_cmds.len();
+            key_moved = true;
         }
         if i.key_pressed(Key::ArrowUp) && !filtered_cmds.is_empty() {
             state.selected_idx = if state.selected_idx == 0 { filtered_cmds.len() - 1 } else { state.selected_idx - 1 };
+            key_moved = true;
         }
         if i.key_pressed(Key::Enter) {
             trigger_selected = true;
@@ -316,15 +333,21 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
         return None;
     }
 
-    // Count distinct section headers that will be rendered
+    // Where each row sits from the top of the scrolling list: `(top of its heading or of itself, top of the row)`.
     let mut section_count = 0usize;
     let mut prev_sec = "";
+    let mut list_y = LIST_GAP;
+    let mut spans: Vec<(f32, f32)> = Vec::with_capacity(filtered_cmds.len());
     for (_, item) in &filtered_cmds {
         let sec = if q_lower.is_empty() { item.section } else { "Matching actions" };
+        let span_top = list_y;
         if sec != prev_sec {
             section_count += 1;
             prev_sec = sec;
+            list_y += SECTION_H;
         }
+        spans.push((span_top, list_y));
+        list_y += ROW_PITCH;
     }
 
     if state.active_tab == 3 && state.last_audit.is_none() {
@@ -333,10 +356,12 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
     let show_audit = state.active_tab == 3;
     let audit_rows = state.last_audit.as_ref().map(|a| a.warnings.len().min(4)).unwrap_or(0);
     let audit_h = if show_audit && state.last_audit.is_some() { 48.0 + audit_rows as f32 * 26.0 } else { 0.0 };
-    // Search row (40) + Tab bar (34) + Section headers (28 each) + row pitch 36 + audit + bottom pad (10)
-    let bar_h = 40.0 + 34.0 + (section_count as f32 * 28.0) + (filtered_cmds.len() as f32 * 36.0) + audit_h + 10.0;
-    // Bottom-docked right above the bottom floating toolbar (`screen.bottom() - 68.0`)
-    let bar_pos = Pos2::new((screen.center().x - bar_w / 2.0).max(16.0), (screen.bottom() - 68.0 - bar_h).max(20.0));
+    // Sections + rows + audit + the bottom pad. A window too short for all of it scrolls the list: the bar keeps
+    // its bottom dock and never grows past the top margin, so it cannot cover the toolbar.
+    let content_h = section_count as f32 * SECTION_H + filtered_cmds.len() as f32 * ROW_PITCH + audit_h + LIST_END_PAD;
+    let dock_bottom = screen.bottom() - DOCK_BOTTOM;
+    let bar_h = (HEADER_H + content_h).min((dock_bottom - TOP_MARGIN).max(HEADER_H));
+    let bar_pos = Pos2::new((screen.center().x - bar_w / 2.0).max(16.0), dock_bottom - bar_h);
 
     Area::new(Id::new("designos-cmdk-agent-bar")).order(Order::Foreground).fixed_pos(bar_pos).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::new(bar_w, bar_h), Sense::click());
@@ -368,7 +393,9 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
 
         let edit_rect =
             Rect::from_min_max(Pos2::new(input_row.left() + 34.0, input_row.top() + 8.0), Pos2::new(img_btn_r.left() - 8.0, input_row.bottom() - 8.0));
-        let input_focused = ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+        let query_changed = ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
+            // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+            ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
             let te = egui::TextEdit::singleline(&mut state.query)
                 .frame(egui::Frame::NONE)
                 .font(theme::font_body())
@@ -380,10 +407,12 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
                 resp.request_focus();
                 state.focus_requested = false;
             }
-            resp.has_focus()
+            resp.changed()
         });
-        if input_focused.inner {
-            p.rect_stroke(edit_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH * 2.0, theme::FOCUS_RING), StrokeKind::Inside);
+        if query_changed.inner {
+            // A new query lists new rows: start again at the first match.
+            state.selected_idx = 0;
+            state.scroll = 0.0;
         }
 
         // 2. Tab Bar (`All`, `Assets`, `Plugins & widgets`, `Design Gate`) — 34px height, 2px white underline on active tab
@@ -415,6 +444,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             if tresp.clicked() {
                 state.active_tab = t_idx;
                 state.selected_idx = 0;
+                state.scroll = 0.0;
                 if t_idx == 3 && state.last_audit.is_none() {
                     state.last_audit = Some(run_design_gate_audit(doc, page, selection));
                 }
@@ -422,128 +452,152 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             tx = tr.right() + 12.0;
         }
 
-        // 3. Grouped Sections (`Recents`, `Image editing`, etc.) + Command Rows (32px height)
-        let mut row_y = tab_row.bottom() + 4.0;
-        let mut current_sec = "";
-        for (list_idx, (_, item)) in filtered_cmds.iter().enumerate() {
-            let sec = if q_lower.is_empty() { item.section } else { "Matching actions" };
-            if sec != current_sec {
-                current_sec = sec;
-                p.text(Pos2::new(rect.left() + 16.0, row_y + 15.0), Align2::LEFT_CENTER, sec, theme::font_caption(), theme::TEXT_TERTIARY);
-                row_y += 28.0;
+        // 3. Grouped Sections (`Recents`, `Image editing`, etc.) + Command Rows (32px height) in a list that scrolls
+        // when the window is too short to show them all.
+        let body = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + HEADER_H), rect.max);
+        crate::panels::wheel_scroll(ui, body, &mut state.scroll, content_h);
+        if key_moved && !filtered_cmds.is_empty() {
+            let last = filtered_cmds.len() - 1;
+            let (span_top, row_top) = spans[state.selected_idx.min(last)];
+            let top = if state.selected_idx == 0 { 0.0 } else { span_top };
+            let view = body.height();
+            if top < state.scroll {
+                state.scroll = top;
+            } else if state.selected_idx >= last {
+                state.scroll = content_h;
+            } else if row_top + ROW_PITCH > state.scroll + view {
+                state.scroll = row_top + ROW_PITCH - view;
             }
+            state.scroll = state.scroll.clamp(0.0, (content_h - view).max(0.0));
+        }
+        let list_top = body.top() - state.scroll;
+        crate::panels::clipped(ui, body, |ui| {
+            let p = ui.painter().clone();
+            let mut current_sec = "";
+            for (list_idx, (_, item)) in filtered_cmds.iter().enumerate() {
+                let sec = if q_lower.is_empty() { item.section } else { "Matching actions" };
+                let row_y = list_top + spans[list_idx].1;
+                if sec != current_sec {
+                    current_sec = sec;
+                    p.text(Pos2::new(rect.left() + 16.0, row_y - SECTION_H + 15.0), Align2::LEFT_CENTER, sec, theme::font_caption(), theme::TEXT_TERTIARY);
+                }
 
-            let row_rect = Rect::from_min_size(Pos2::new(rect.left() + 8.0, row_y), Vec2::new(bar_w - 16.0, theme::CONTROL_XS));
-            widgets::record(ui, item.id, row_rect);
-            let resp = ui.interact(row_rect, Id::new(item.id), Sense::click()).on_hover_text(item.subtitle);
-            if resp.hovered() {
-                state.selected_idx = list_idx;
-            }
-            let is_sel = list_idx == state.selected_idx;
-            let row_paint = widgets::kit::command_row_look(is_sel, resp.hovered() && !is_sel);
-            if row_paint.fill.a() > 0 {
-                p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), row_paint.fill);
-            }
+                let row_rect = Rect::from_min_size(Pos2::new(rect.left() + 8.0, row_y), Vec2::new(bar_w - 16.0, theme::CONTROL_XS));
+                widgets::record(ui, item.id, row_rect);
+                let resp = ui.interact(row_rect, Id::new(item.id), Sense::click()).on_hover_text(item.subtitle);
+                let is_sel = list_idx == state.selected_idx;
+                let row_paint = widgets::kit::command_row_look(is_sel, resp.hovered() && !is_sel);
+                if row_paint.fill.a() > 0 {
+                    p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), row_paint.fill);
+                }
 
-            icons::paint(&p, item.icon, Pos2::new(row_rect.left() + 14.0, row_rect.center().y), 14.0, row_paint.icon);
+                icons::paint(&p, item.icon, Pos2::new(row_rect.left() + 14.0, row_rect.center().y), 14.0, row_paint.icon);
 
-            let badge_font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
-            let badge_w = widgets::text_width(&p, item.badge, &badge_font) + theme::SPACE_GROUP;
-            let badge_r = Rect::from_min_size(
-                Pos2::new(row_rect.right() - badge_w - 8.0, row_rect.center().y - theme::BADGE_SM / 2.0),
-                Vec2::new(badge_w, theme::BADGE_SM),
-            );
-            widgets::kit::count_badge(&p, badge_r, item.badge, widgets::kit::Tone::Neutral);
+                let badge_font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
+                let badge_w = widgets::text_width(&p, item.badge, &badge_font) + theme::SPACE_GROUP;
+                let badge_r = Rect::from_min_size(
+                    Pos2::new(row_rect.right() - badge_w - 8.0, row_rect.center().y - theme::BADGE_SM / 2.0),
+                    Vec2::new(badge_w, theme::BADGE_SM),
+                );
+                widgets::kit::count_badge(&p, badge_r, item.badge, widgets::kit::Tone::Neutral);
 
-            let title_str = widgets::elide(&p, item.title, &theme::font_body(), (badge_r.left() - row_rect.left() - 40.0).max(60.0));
-            p.text(Pos2::new(row_rect.left() + 32.0, row_rect.center().y), Align2::LEFT_CENTER, title_str, theme::font_body(), row_paint.text);
+                let title_str = widgets::elide(&p, item.title, &theme::font_body(), (badge_r.left() - row_rect.left() - 40.0).max(60.0));
+                p.text(Pos2::new(row_rect.left() + 32.0, row_rect.center().y), Align2::LEFT_CENTER, title_str, theme::font_body(), row_paint.text);
 
-            let activated = resp.clicked() || (trigger_selected && is_sel);
-            if activated {
-                trigger_selected = false;
-                match item.id {
-                    "cmdk-synth-spec" => {
-                        let prompt = if state.query.trim().is_empty() { "pricing card" } else { state.query.trim() };
-                        let spec = synthesize_spec_from_prompt(prompt);
-                        state.status = Some(format!("Synthesized '{}' (Instant Local NodeSpec)", spec.name));
-                        state.open = false;
-                        out_action = Some(CmdKAction::ApplySpec(Box::new(spec)));
+                let activated = resp.clicked() || (trigger_selected && is_sel);
+                if activated {
+                    trigger_selected = false;
+                    match item.id {
+                        "cmdk-synth-spec" => {
+                            let prompt = if state.query.trim().is_empty() { "pricing card" } else { state.query.trim() };
+                            let spec = synthesize_spec_from_prompt(prompt);
+                            state.status = Some(format!("Synthesized '{}' (Instant Local NodeSpec)", spec.name));
+                            state.open = false;
+                            out_action = Some(CmdKAction::ApplySpec(Box::new(spec)));
+                        }
+                        // The Figma AI rows leave the palette open: the shell closes it once the operation has committed
+                        // an undo step (its search field keeps Cmd+Z). A run that changes nothing or is refused leaves no
+                        // step to undo, and the open palette lets the user pick another action.
+                        "cmdk-wire-prototype" => {
+                            queue_pending_ai_op(FigmaAiOp::MakePrototype);
+                            state.status = Some("Wired SmartAnimate prototype flows across frames".into());
+                            out_action = Some(CmdKAction::MakePrototype);
+                        }
+                        "cmdk-rename-layers" => {
+                            queue_pending_ai_op(FigmaAiOp::BoostResolution);
+                            state.status = Some("Boosted resolution, snapped integer bounds & renamed layers".into());
+                            out_action = Some(CmdKAction::BoostResolution);
+                        }
+                        "cmdk-semantic-rename" => {
+                            queue_pending_ai_op(FigmaAiOp::RenameLayers);
+                            state.status = Some("Renamed generic layers semantically".into());
+                            out_action = Some(CmdKAction::RenameLayers);
+                        }
+                        "cmdk-translate-vi" => {
+                            let mode = if q_lower.contains("en") {
+                                TextAiMode::TranslateEn
+                            } else if q_lower.contains("short") {
+                                TextAiMode::Shorten
+                            } else if q_lower.contains("polish") {
+                                TextAiMode::Polish
+                            } else {
+                                TextAiMode::TranslateVi
+                            };
+                            state.status = Some(format!("Applied {:?} across selected layers", mode));
+                            out_action = Some(CmdKAction::RewriteText(mode));
+                        }
+                        "cmdk-populate-content" => {
+                            queue_pending_ai_op(FigmaAiOp::PopulateContent);
+                            state.status = Some("Populated realistic SaaS content & metrics".into());
+                            out_action = Some(CmdKAction::PopulateContent);
+                        }
+                        "cmdk-design-gate" => {
+                            let report = run_design_gate_audit(doc, page, selection);
+                            state.status = Some(format!(
+                                "Design Gate Score: {}/100 ({} warnings across {} nodes)",
+                                report.score,
+                                report.warnings.len(),
+                                report.node_count
+                            ));
+                            state.last_audit = Some(report);
+                        }
+                        "cmdk-check-designs" => {
+                            state.open = false;
+                            out_action = Some(CmdKAction::OpenCheckDesigns);
+                        }
+                        "cmdk-open-terminal" => {
+                            state.status = Some("Opened live interactive Agent PTY CLI".into());
+                            state.open = false;
+                            out_action = Some(CmdKAction::OpenTerminal(AgentCliPreset::Claude));
+                        }
+                        "cmdk-send-selection" => {
+                            state.open = false;
+                            out_action = Some(CmdKAction::SendSelectionToTerminal);
+                        }
+                        "cmdk-open-specs" => {
+                            state.open = false;
+                            out_action = Some(CmdKAction::OpenSpecReader);
+                        }
+                        "cmdk-export-fig" => {
+                            state.open = false;
+                            out_action = Some(CmdKAction::ExportFig);
+                        }
+                        _ => {}
                     }
-                    // The Figma AI rows leave the palette open: the shell closes it once the operation has committed
-                    // an undo step (its search field keeps Cmd+Z). A run that changes nothing or is refused leaves no
-                    // step to undo, and the open palette lets the user pick another action.
-                    "cmdk-wire-prototype" => {
-                        queue_pending_ai_op(FigmaAiOp::MakePrototype);
-                        state.status = Some("Wired SmartAnimate prototype flows across frames".into());
-                        out_action = Some(CmdKAction::MakePrototype);
-                    }
-                    "cmdk-rename-layers" => {
-                        queue_pending_ai_op(FigmaAiOp::BoostResolution);
-                        state.status = Some("Boosted resolution, snapped integer bounds & renamed layers".into());
-                        out_action = Some(CmdKAction::BoostResolution);
-                    }
-                    "cmdk-semantic-rename" => {
-                        queue_pending_ai_op(FigmaAiOp::RenameLayers);
-                        state.status = Some("Renamed generic layers semantically".into());
-                        out_action = Some(CmdKAction::RenameLayers);
-                    }
-                    "cmdk-translate-vi" => {
-                        let mode = if q_lower.contains("en") {
-                            TextAiMode::TranslateEn
-                        } else if q_lower.contains("short") {
-                            TextAiMode::Shorten
-                        } else if q_lower.contains("polish") {
-                            TextAiMode::Polish
-                        } else {
-                            TextAiMode::TranslateVi
-                        };
-                        state.status = Some(format!("Applied {:?} across selected layers", mode));
-                        out_action = Some(CmdKAction::RewriteText(mode));
-                    }
-                    "cmdk-populate-content" => {
-                        queue_pending_ai_op(FigmaAiOp::PopulateContent);
-                        state.status = Some("Populated realistic SaaS content & metrics".into());
-                        out_action = Some(CmdKAction::PopulateContent);
-                    }
-                    "cmdk-design-gate" => {
-                        let report = run_design_gate_audit(doc, page, selection);
-                        state.status =
-                            Some(format!("Design Gate Score: {}/100 ({} warnings across {} nodes)", report.score, report.warnings.len(), report.node_count));
-                        state.last_audit = Some(report);
-                    }
-                    "cmdk-check-designs" => {
-                        state.open = false;
-                        out_action = Some(CmdKAction::OpenCheckDesigns);
-                    }
-                    "cmdk-open-terminal" => {
-                        state.status = Some("Opened live interactive Agent PTY CLI".into());
-                        state.open = false;
-                        out_action = Some(CmdKAction::OpenTerminal(AgentCliPreset::Claude));
-                    }
-                    "cmdk-send-selection" => {
-                        state.open = false;
-                        out_action = Some(CmdKAction::SendSelectionToTerminal);
-                    }
-                    "cmdk-open-specs" => {
-                        state.open = false;
-                        out_action = Some(CmdKAction::OpenSpecReader);
-                    }
-                    "cmdk-export-fig" => {
-                        state.open = false;
-                        out_action = Some(CmdKAction::ExportFig);
-                    }
-                    _ => {}
                 }
             }
-            row_y += 36.0;
-        }
-
-        // 4. Live Design Gate Audit Section (when Design Gate tab is active or an audit was run)
-        if show_audit {
-            if let Some(audit) = state.last_audit.clone() {
-                render_audit_section(ui, &p, rect, &mut row_y, &audit, state, &mut out_action);
+        });
+        let mut row_y = list_top + list_y;
+        crate::panels::clipped(ui, body, |ui| {
+            let p = ui.painter().clone();
+            // 4. Live Design Gate Audit Section (when Design Gate tab is active or an audit was run)
+            if show_audit {
+                if let Some(audit) = state.last_audit.clone() {
+                    render_audit_section(ui, &p, rect, &mut row_y, &audit, state, &mut out_action);
+                }
             }
-        }
+        });
+        crate::panels::scrollbar(ui, body, state.scroll, content_h);
     });
 
     out_action

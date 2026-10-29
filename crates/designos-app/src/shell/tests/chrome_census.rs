@@ -37,16 +37,18 @@ fn strip_code(src: &str) -> String {
             let prev_ok = i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
             if prev_ok {
                 let search_from = i + match_len;
-                let tail: String = chars[search_from..].iter().collect();
-                let found = tail.find(&end);
+                // Search in chars like the Python cleaner: a byte offset into the tail would skip real code after a
+                // raw string that holds multi-byte text.
+                let end_chars: Vec<char> = end.chars().collect();
+                let found = chars[search_from..].windows(end_chars.len()).position(|w| w == end_chars.as_slice());
                 let end_at = found.map(|p| search_from + p).unwrap_or(n);
-                let consumed_end = (end_at + end.chars().count()).min(n);
+                let consumed_end = (end_at + end_chars.len()).min(n);
                 let newlines = chars[i..consumed_end].iter().filter(|c| **c == '\n').count();
                 out.push_str("\"\"");
                 for _ in 0..newlines {
                     out.push('\n');
                 }
-                i = end_at + end.chars().count();
+                i = end_at + end_chars.len();
                 continue;
             }
         }
@@ -287,6 +289,17 @@ fn helper_skips_comments_and_strings() {
     assert_eq!(chrome_colour_sites(commented), Vec::<usize>::new());
     assert_eq!(chrome_colour_sites("a(Color32::WHITE, Color32::BLACK);\n"), vec![1, 1]);
     assert_eq!(chrome_colour_sites("let a = Color32::TRANSPARENT;\nlet b = Color32::from_rgb(r, g, b);\n"), Vec::<usize>::new());
+}
+
+#[test]
+fn helper_keeps_code_after_a_raw_string_with_wide_characters() {
+    // The raw string holds 20 chars of 3 bytes each; the scan must land on the char after its closing quote.
+    let src = format!("let s = r\"{}\";\nlet c = Color32::WHITE;\nfn f() {{}}\n", "\u{2026}".repeat(20));
+    assert_eq!(chrome_colour_sites(&src), vec![2]);
+    let cleaned = clean_rust(&src);
+    assert!(cleaned.contains("fn f() {}"), "code after the raw string survives: {cleaned:?}");
+    let hashed = format!("let s = r#\"{}\"#;\nlet c = Color32::BLACK;\n", "\u{00b7}".repeat(40));
+    assert_eq!(chrome_colour_sites(&hashed), vec![2]);
 }
 
 #[test]

@@ -81,14 +81,22 @@ pub fn segmented(ui: &mut Ui, rect: Rect, key: impl Key, items: &[&str], selecte
     paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &shell);
     let font = label_font();
     let salt = ui.id().with(key);
-    // A short strip keeps the full height so each option stays a minimum target.
-    let pad = theme::INSET_SEGMENT;
-    let inner = if rect.height() - pad * 2.0 >= theme::TARGET_MIN { rect.shrink(pad) } else { rect };
-    let width = inner.width() / items.len() as f32;
+    // The tile is always inset in the shell. A strip too short for a minimum target around the tile hits on the
+    // full-height column instead, so the option stays easy to press without painting flush to the shell edge.
+    let inner = rect.shrink(theme::INSET_SEGMENT);
+    let full_height_hit = inner.height() < theme::TARGET_MIN;
+    let count = items.len() as f32;
+    let width = inner.width() / count;
+    let hit_width = rect.width() / count;
     let mut picked = None;
     for (i, label) in items.iter().enumerate() {
         let cell = Rect::from_min_size(egui::pos2(inner.left() + width * i as f32, inner.top()), egui::vec2(width, inner.height()));
-        let response = ui.interact(cell, salt.with(i), Sense::click());
+        let hit = if full_height_hit {
+            Rect::from_min_size(egui::pos2(rect.left() + hit_width * i as f32, rect.top()), egui::vec2(hit_width, rect.height()))
+        } else {
+            cell
+        };
+        let response = ui.interact(hit, salt.with(i), Sense::click());
         let on = i == selected;
         let state = state_of(&response, on, true);
         let paint = if on && response.hovered() && !response.is_pointer_button_down_on() {
