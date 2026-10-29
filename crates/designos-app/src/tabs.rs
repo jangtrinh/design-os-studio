@@ -1548,10 +1548,9 @@ mod tests {
         let p2 = damaged2.add_page("P2");
         damaged2.nodes.get_mut(&p2).unwrap().children.push(designos_doc::NodeId(8888));
 
-        let mut path1 = std::env::temp_dir();
-        path1.push(format!("designos_tab_close_repaired_1_{}.designos", std::process::id()));
-        let mut path2 = std::env::temp_dir();
-        path2.push(format!("designos_tab_close_repaired_2_{}.designos", std::process::id()));
+        let temp_dir = tempfile::Builder::new().prefix("designos_tab_close_repaired-").tempdir().unwrap();
+        let path1 = temp_dir.path().join("one.designos");
+        let path2 = temp_dir.path().join("two.designos");
 
         std::fs::write(&path1, damaged1.to_json().unwrap()).unwrap();
         std::fs::write(&path2, damaged2.to_json().unwrap()).unwrap();
@@ -1589,15 +1588,12 @@ mod tests {
 
         app.new_document();
         assert!(!crate::io::has_repaired_original(&path2), "replacing active document without saving drops its repaired bytes");
-
-        std::fs::remove_file(&path1).ok();
-        std::fs::remove_file(&path2).ok();
     }
 
     /// A library with one design file whose page holds a rectangle; returns the library, the file id and the rectangle.
-    fn library_with_one_file(tag: &str) -> (designos_library::Library, std::path::PathBuf, String, NodeId) {
-        let dir = std::env::temp_dir().join(format!("designos_tab_close_lib_{tag}_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn library_with_one_file(tag: &str) -> (tempfile::TempDir, designos_library::Library, std::path::PathBuf, String, NodeId) {
+        let temp = tempfile::Builder::new().prefix(&format!("designos_tab_close_lib_{tag}-")).tempdir().unwrap();
+        let dir = temp.path().to_path_buf();
         let lib = designos_library::Library::open(&dir).unwrap();
         let project = lib.create_project("Project").unwrap();
         let mut doc = Document::new("Doc");
@@ -1605,7 +1601,7 @@ mod tests {
         let rect_id = doc.alloc_id();
         let rect = doc.insert(page, Node::rectangle(rect_id, DRect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
         let entry = lib.create_file(&project.id, None, "Doc", &doc).unwrap();
-        (lib, dir, entry.id, rect)
+        (temp, lib, dir, entry.id, rect)
     }
 
     /// Renames the rectangle and checks that the edit is not on disk yet (no autosave frame has run).
@@ -1621,7 +1617,7 @@ mod tests {
 
     #[test]
     fn closing_the_last_library_tab_saves_the_edit_and_a_closing_version() {
-        let (lib, dir, file_id, rect) = library_with_one_file("last");
+        let (_temp, lib, dir, file_id, rect) = library_with_one_file("last");
         let mut app = App::new(Document::new("Scratch"));
         app.lib = Some(lib.clone());
         app.open_library_file(&file_id);
@@ -1649,15 +1645,15 @@ mod tests {
     }
 
     /// Two library files, each with one rectangle; returns the library, its directory and both files (id, rectangle).
-    fn library_with_two_files(tag: &str) -> (designos_library::Library, std::path::PathBuf, (String, NodeId), (String, NodeId)) {
-        let (lib, dir, id_a, rect_a) = library_with_one_file(tag);
+    fn library_with_two_files(tag: &str) -> (tempfile::TempDir, designos_library::Library, std::path::PathBuf, (String, NodeId), (String, NodeId)) {
+        let (temp, lib, dir, id_a, rect_a) = library_with_one_file(tag);
         let project = lib.list_projects().remove(0);
         let mut doc = Document::new("Other");
         let page = doc.add_page("Page 1");
         let rect_id = doc.alloc_id();
         let rect_b = doc.insert(page, Node::rectangle(rect_id, DRect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
         let entry = lib.create_file(&project.id, None, "Other", &doc).unwrap();
-        (lib, dir, (id_a, rect_a), (entry.id, rect_b))
+        (temp, lib, dir, (id_a, rect_a), (entry.id, rect_b))
     }
 
     /// One `reconcile_frame`, as the shell runs every frame.
@@ -1670,8 +1666,10 @@ mod tests {
     /// The production route to two open library tabs, file B active and unedited: Home, open A from Home,
     /// the tab-bar Home click, open B from Home. Opening goes through `App::open_library_file` (what the
     /// Home screen calls) and the tab entries are created by `reconcile_frame`, never by `open_or_focus_lib_file`.
-    fn two_library_tabs_opened_from_home(tag: &str) -> (App, designos_library::Library, std::path::PathBuf, (String, NodeId), (String, NodeId)) {
-        let (lib, dir, a, b) = library_with_two_files(tag);
+    fn two_library_tabs_opened_from_home(
+        tag: &str,
+    ) -> (tempfile::TempDir, App, designos_library::Library, std::path::PathBuf, (String, NodeId), (String, NodeId)) {
+        let (temp, lib, dir, a, b) = library_with_two_files(tag);
         let mut app = App::new(Document::new("Scratch"));
         app.lib = Some(lib.clone());
         app.go_home();
@@ -1687,7 +1685,7 @@ mod tests {
         assert_eq!(app.tabs.entries.len(), 2, "both files are open in tabs");
         assert_eq!(app.tabs.active_idx, 1);
         assert_eq!(app.lib_file.as_ref().map(|f| f.id.as_str()), Some(b.0.as_str()));
-        (app, lib, dir, a, b)
+        (temp, app, lib, dir, a, b)
     }
 
     /// The file keeps its content and none of its stored versions is empty.
@@ -1700,7 +1698,7 @@ mod tests {
 
     /// Edits the active tab (file B) without letting autosave run, leaves it with `leave`, and checks the disk.
     fn leaving_the_edited_tab_saves_it(name: &str, leave: fn(&mut TabsState, &mut App)) {
-        let (mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home(&format!("park_{name}"));
+        let (_temp, mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home(&format!("park_{name}"));
         edit_unsaved(&mut app, &lib, &b.0, b.1);
 
         let mut tabs = std::mem::take(&mut app.tabs);
@@ -1729,7 +1727,7 @@ mod tests {
 
     #[test]
     fn clicking_home_stores_the_closing_version_with_the_edit() {
-        let (mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home("park_home_version");
+        let (_temp, mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home("park_home_version");
         edit_unsaved(&mut app, &lib, &b.0, b.1);
 
         let mut tabs = std::mem::take(&mut app.tabs);
@@ -1745,7 +1743,7 @@ mod tests {
 
     #[test]
     fn switching_tabs_from_home_reached_by_back_to_files_does_not_empty_the_file() {
-        let (mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home("park_back_to_files");
+        let (_temp, mut app, lib, dir, _a, b) = two_library_tabs_opened_from_home("park_back_to_files");
         edit_unsaved(&mut app, &lib, &b.0, b.1);
         app.go_home();
         assert!(disk_has_edit(&lib, &b.0), "Back to files saves the edit");
@@ -1761,7 +1759,7 @@ mod tests {
 
     #[test]
     fn clicking_home_on_a_library_tab_without_edits_does_not_empty_its_file() {
-        let (lib, dir, a, _b) = library_with_two_files("park_clean_home");
+        let (_temp, lib, dir, a, _b) = library_with_two_files("park_clean_home");
         let mut app = App::new(Document::new("Scratch"));
         app.lib = Some(lib.clone());
         app.go_home();
@@ -1780,7 +1778,7 @@ mod tests {
 
     #[test]
     fn closing_the_last_tab_of_a_repaired_library_file_saves_the_edit_and_keeps_the_backup() {
-        let (lib, dir, file_id, _rect) = library_with_one_file("repaired_last");
+        let (_temp, lib, dir, file_id, _rect) = library_with_one_file("repaired_last");
         let entry = lib.file(&file_id).unwrap();
         let disk_path = lib.path("projects").join(&entry.project).join("files").join(format!("{file_id}.designos"));
         let mut damaged = Document::new("Damaged");
@@ -1811,8 +1809,8 @@ mod tests {
     /// Two damaged library files open in two tabs: tab 0 (active) holds the second file, tab 1 the first.
     /// Built by pushing a tab entry instead of parking a document. Returns the app, the library root and
     /// the disk paths that key each file's cached pre-repair bytes.
-    fn app_with_two_repaired_library_tabs(tag: &str) -> (App, std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
-        let (lib, dir, file_id, _rect) = library_with_one_file(tag);
+    fn app_with_two_repaired_library_tabs(tag: &str) -> (tempfile::TempDir, App, std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+        let (temp, lib, dir, file_id, _rect) = library_with_one_file(tag);
         let project = lib.file(&file_id).unwrap().project;
         let other_id = lib.create_file(&project, None, "Other", &Document::new("Other")).unwrap().id;
         let disk_path_of = |id: &str| lib.path("projects").join(&project).join("files").join(format!("{id}.designos"));
@@ -1837,12 +1835,12 @@ mod tests {
         app.tabs = tabs;
         assert_eq!(app.tabs.entries.len(), 2);
         assert!(crate::io::has_repaired_original(&path_a) && crate::io::has_repaired_original(&path_b));
-        (app, dir, path_a, path_b)
+        (temp, app, dir, path_a, path_b)
     }
 
     #[test]
     fn closing_a_repaired_library_tab_without_saving_drops_its_repaired_original_bytes() {
-        let (mut app, dir, path_a, path_b) = app_with_two_repaired_library_tabs("repaired_unsaved");
+        let (_temp, mut app, dir, path_a, path_b) = app_with_two_repaired_library_tabs("repaired_unsaved");
 
         // A background tab, then the active one, closed without an edit: nothing is saved, so nothing may linger.
         assert!(app.close_tab(1));
@@ -1855,7 +1853,7 @@ mod tests {
 
     #[test]
     fn closing_other_tabs_drops_the_repaired_original_bytes_of_closed_library_tabs() {
-        let (mut app, dir, path_a, path_b) = app_with_two_repaired_library_tabs("repaired_others");
+        let (_temp, mut app, dir, path_a, path_b) = app_with_two_repaired_library_tabs("repaired_others");
         // With Home on screen no document is parked, which keeps this to the eviction.
         app.home = Some(crate::home::Home::new());
 
@@ -1871,7 +1869,7 @@ mod tests {
 
     #[test]
     fn closing_the_active_library_tab_with_other_tabs_open_saves_its_edit() {
-        let (lib, dir, file_id, rect) = library_with_one_file("active");
+        let (_temp, lib, dir, file_id, rect) = library_with_one_file("active");
         let mut app = App::new(Document::new("Scratch"));
         app.lib = Some(lib.clone());
         let mut tabs = std::mem::take(&mut app.tabs);
@@ -1891,12 +1889,13 @@ mod tests {
 
     #[test]
     fn moving_a_repaired_file_into_the_library_drops_its_repaired_original_bytes() {
-        let (lib, dir, _file_id, _rect) = library_with_one_file("moved");
+        let (_temp, lib, dir, _file_id, _rect) = library_with_one_file("moved");
         let project = lib.list_projects()[0].id.clone();
         let mut damaged = Document::new("Damaged");
         let page = damaged.add_page("P");
         damaged.nodes.get_mut(&page).unwrap().children.push(designos_doc::NodeId(9999));
-        let path = std::env::temp_dir().join(format!("designos_tab_moved_repaired_{}.designos", std::process::id()));
+        let temp_file_dir = tempfile::Builder::new().prefix("designos_tab_moved_repaired-").tempdir().unwrap();
+        let path = temp_file_dir.path().join("source.designos");
         std::fs::write(&path, damaged.to_json().unwrap()).unwrap();
         let mut app = App::new(Document::new("Scratch"));
         app.lib = Some(lib);
@@ -1910,7 +1909,6 @@ mod tests {
 
         assert!(app.file_path.is_none() && app.lib_file.is_some());
         assert!(!crate::io::has_repaired_original(&path), "the document no longer lives at the old path, so its repaired bytes are dropped");
-        let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1977,7 +1975,7 @@ mod tests {
 
     #[test]
     fn replacing_a_repaired_library_file_in_place_drops_its_repaired_original_bytes() {
-        let (lib, dir, file_id, _rect) = library_with_one_file("replace_in_place");
+        let (_temp, lib, dir, file_id, _rect) = library_with_one_file("replace_in_place");
         let project = lib.file(&file_id).unwrap().project;
         let disk_path = lib.path("projects").join(&project).join("files").join(format!("{file_id}.designos"));
         let mut damaged = Document::new("Damaged");
@@ -2016,7 +2014,7 @@ mod tests {
 
     #[test]
     fn library_tab_and_external_tab_on_same_disk_path_share_still_open_check() {
-        let (lib, dir, file_id, _rect) = library_with_one_file("shared_repair_key");
+        let (_temp, lib, dir, file_id, _rect) = library_with_one_file("shared_repair_key");
         let project = lib.file(&file_id).unwrap().project;
         let disk_path = lib.path("projects").join(&project).join("files").join(format!("{file_id}.designos"));
         let mut damaged = Document::new("Damaged");

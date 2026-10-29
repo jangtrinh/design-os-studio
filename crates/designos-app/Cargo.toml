@@ -78,3 +78,4 @@ winresource = "0.1"
 
 [dev-dependencies]
 base64 = "0.22"
+tempfile = "3.27"

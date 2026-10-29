@@ -2768,8 +2768,8 @@ mod tests {
         assert!(home.visible_files().is_empty(), "Resources must not fall back to non-resource Recents files");
 
         // Verify Act::OpenStarterSample and Act::NewDeck against a temporary Library
-        let tmp = std::env::temp_dir().join(format!("designos_home_tpl_test_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
+        let tmp_dir = tempfile::Builder::new().prefix("designos_home_tpl_test-").tempdir().unwrap();
+        let tmp = tmp_dir.path().to_path_buf();
         let mut app = App::new(designos_doc::Document::new("Init"));
         app.attach_library(tmp.clone());
         app.go_home();
@@ -2790,8 +2790,8 @@ mod tests {
 
     #[test]
     fn opening_malformed_library_file_warns_user_and_writes_backup_on_save() {
-        let tmp = std::env::temp_dir().join(format!("designos_lib_open_repair_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&tmp);
+        let tmp_dir = tempfile::Builder::new().prefix("designos_lib_open_repair-").tempdir().unwrap();
+        let tmp = tmp_dir.path().to_path_buf();
 
         let mut app = App::new(designos_doc::Document::new("Init"));
         app.attach_library(tmp.clone());
@@ -2824,7 +2824,5 @@ mod tests {
 
         app.save_library_file().expect("saving repaired library file succeeds");
         assert_eq!(std::fs::read(&bak_path).unwrap(), original_bytes, "saving a repaired library file must back up the untouched pre-repair bytes");
-
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
