@@ -137,11 +137,10 @@ fn lines(entries: &[AssetEntry], shown: &[usize], cols: Option<usize>) -> Vec<Li
     out
 }
 
+/// A page or container heading in the list. The rows do not fold, so there is no chevron.
 fn paint_group_row(p: &egui::Painter, row: Rect, name: &str, indent: f32) {
-    let chevron = Pos2::new(row.left() + theme::PANEL_PADDING_X + indent, row.center().y);
-    icons::paint(p, Icon::ChevronDown, chevron, 12.0, theme::ICON_QUATERNARY);
+    let text_x = row.left() + theme::PANEL_PADDING_X + indent;
     let font = theme::font_body();
-    let text_x = chevron.x + 14.0;
     let s = widgets::elide(p, name, &font, (row.right() - text_x - theme::PANEL_PADDING_X).max(8.0));
     p.text(Pos2::new(text_x, row.center().y), Align2::LEFT_CENTER, s, font, theme::TEXT_TERTIARY);
 }
@@ -452,7 +451,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         Vec2::new((region.width() - 2.0 * theme::INSET_PANEL - filter_btn_w - toggle_w - theme::SPACE_FACT).max(80.0), theme::FIELD_HEIGHT),
     );
     let search_id = ui.id().with("assets-search");
-    kit::paint_field(ui, sr, search_id, Size::Xs, false);
+    crate::variables::widgets::field_chrome(ui, sr, search_id, Size::Xs);
     icons::paint(&p, Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 14.0, kit::field_look(kit::State::Default, false).icon);
     let mut q = std::mem::take(&mut app.assets.query);
     let te = TextEdit::singleline(&mut q)
@@ -489,7 +488,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     }
 
     // ---- 3. UI3 Category Filter Pills: All | Local | Used in file
-    let pill_y = search_y + 34.0;
+    let pill_y = search_y + theme::FIELD_HEIGHT + 6.0;
     let mut pill_x = region.left() + theme::INSET_PANEL;
     for (idx, label) in [(0u8, "All"), (1u8, "Local"), (2u8, "Used in file")] {
         let pfont = if cat == idx { theme::font_caption_strong() } else { theme::font_caption() };

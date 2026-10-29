@@ -1,7 +1,7 @@
 //! "Library updates available" banner and the review list: a checkbox per
 //! updated asset, then "Update selected" or "Update all".
 
-use super::modal::{button, frame, header, kind_icon, kind_label, modal_rect};
+use super::modal::{button, change_tone, frame, header, kind_icon, kind_label, modal_rect, paint_change_chip};
 use crate::app::App;
 use crate::icons::{self, Icon};
 use crate::panels::{clipped, scrollbar, wheel_scroll};
@@ -53,18 +53,16 @@ pub fn show_banner(app: &mut App, ctx: &Context) {
     }
 }
 
-fn checkbox(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> bool {
-    let r = ui.interact(rect, Id::new(("lib-check", key)), Sense::click());
-    widgets::record(ui, &format!("lib-check:{key}"), rect);
-    let side = theme::LAYER_ICON_SIZE;
-    let b = Rect::from_center_size(rect.center(), Vec2::splat(side));
-    let state = if on { crate::widgets::kit::State::Selected } else { crate::widgets::kit::State::Default };
-    let paint = crate::widgets::kit::checkbox_look(state);
-    crate::widgets::kit::paint_frame(ui.painter(), b, theme::SPACE_FACT as u8, &paint);
-    if on {
-        widgets::paint_icon_in(ui.painter(), b, Icon::Check, theme::FONT_SIZE_TEXT_XS, paint.icon);
-    }
-    r.clicked()
+/// Hit rect of a checkbox whose box is centred on `centre`. The kit paints the box at the left edge of its rect, so the
+/// 24 px target starts there and reaches past the box on the right.
+fn checkbox_hit(centre: Pos2) -> Rect {
+    Rect::from_min_size(Pos2::new(centre.x - theme::LAYER_ICON_SIZE / 2.0, centre.y - theme::TARGET_MIN / 2.0), Vec2::splat(theme::TARGET_MIN))
+}
+
+fn checkbox(ui: &mut Ui, hit: Rect, key: &str, on: bool) -> bool {
+    let response = kit::checkbox(ui, hit, ("lib-check", key), on, true);
+    widgets::record(ui, &format!("lib-check:{key}"), hit);
+    response.clicked()
 }
 
 pub fn show(app: &mut App, ctx: &Context) {
@@ -113,7 +111,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                     theme::TEXT_TERTIARY,
                 );
                 if !applicable.is_empty() && hr.bottom() > list.top() && hr.top() < list.bottom() {
-                    let cr = Rect::from_center_size(Pos2::new(hr.right() - PAD - 8.0, hr.center().y), Vec2::splat(24.0));
+                    let cr = checkbox_hit(Pos2::new(hr.right() - PAD - 8.0, hr.center().y));
                     if checkbox(ui, cr, &format!("lib:{}", g.name), all_on) {
                         for u in &applicable {
                             let k = (g.library_id.clone(), u.key.clone());
@@ -132,14 +130,14 @@ pub fn show(app: &mut App, ctx: &Context) {
                     }
                     let key = (g.library_id.clone(), u.key.clone());
                     let removed = u.change == UpdateKind::Removed;
-                    let rr = ui.interact(row, Id::new(("lib-upd-row", &g.library_id, &u.key)), Sense::click());
+                    let rr = ui.interact(row, Id::new(("lib-upd-row", &g.library_id, &u.key)), Sense::CLICK);
                     widgets::record(ui, &format!("lib-upd:{}", u.name), row);
-                    if rr.hovered() && !removed {
+                    if ui.rect_contains_pointer(row) && !removed {
                         let paint = crate::widgets::kit::row_look(crate::widgets::kit::State::Hover, crate::widgets::kit::Surface::Primary);
                         crate::widgets::kit::paint_frame(&p, row.shrink2(Vec2::new(8.0, 1.0)), theme::RADIUS_CONTROL, &paint);
                     }
                     if !removed {
-                        let cr = Rect::from_center_size(Pos2::new(row.left() + PAD + 8.0, row.center().y), Vec2::splat(24.0));
+                        let cr = checkbox_hit(Pos2::new(row.left() + PAD + 8.0, row.center().y));
                         let on = app.libs.selected.contains(&key);
                         if checkbox(ui, cr, &u.name, on) || (rr.clicked() && !cr.contains(rr.interact_pointer_pos().unwrap_or(Pos2::ZERO))) {
                             toggles.push(key.clone());
@@ -155,15 +153,15 @@ pub fn show(app: &mut App, ctx: &Context) {
                     );
                     let name = widgets::elide(&p, &u.name, &theme::font_body(), row.width() - 250.0);
                     p.text(Pos2::new(row.left() + PAD + 54.0, row.center().y), Align2::LEFT_CENTER, name, theme::font_body(), col);
-                    let (tag, tcol) = match u.change {
-                        UpdateKind::Changed => ("Changed", theme::TEXT_SECONDARY),
-                        UpdateKind::Added => ("New", theme::TEXT_BRAND),
-                        UpdateKind::Removed => ("Missing from library", theme::DANGER),
+                    let tag = match u.change {
+                        UpdateKind::Changed => "Changed",
+                        UpdateKind::Added => "New",
+                        UpdateKind::Removed => "Missing from library",
                     };
-                    p.text(Pos2::new(row.right() - PAD, row.center().y), Align2::RIGHT_CENTER, tag, theme::font_caption(), tcol);
+                    let chip_left = paint_change_chip(&p, row.right() - PAD, row.center().y, tag, change_tone(u.change));
                     if !removed {
                         p.text(
-                            Pos2::new(row.right() - PAD - 70.0, row.center().y),
+                            Pos2::new(chip_left - 8.0, row.center().y),
                             Align2::RIGHT_CENTER,
                             kind_label(u.kind),
                             theme::font_caption(),

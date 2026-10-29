@@ -70,23 +70,19 @@ fn scope_all(scopes: &[String]) -> bool {
     scopes.is_empty() || scopes.iter().any(|s| s == "ALL_SCOPES")
 }
 
+/// A scope row: the kit checkbox is the focusable control, and the row takes clicks on its label.
 fn checkbox(ui: &mut Ui, row: Rect, key: &str, label: &str, checked: bool) -> bool {
-    let r = ui.interact(row, Id::new(("var-pop-check", key)), Sense::click());
-    let p = ui.painter();
-    if r.hovered() {
+    let row_hit = ui.interact(row, Id::new(("var-pop-check", key)), Sense::CLICK);
+    let p = ui.painter().clone();
+    if ui.rect_contains_pointer(row) {
         p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
-    let side = theme::LAYER_ICON_SIZE;
-    let b = Rect::from_center_size(Pos2::new(row.left() + 16.0, row.center().y), Vec2::splat(side));
-    let state = if checked { crate::widgets::kit::State::Selected } else { crate::widgets::kit::State::Default };
-    let paint = crate::widgets::kit::checkbox_look(state);
-    crate::widgets::kit::paint_frame(p, b, theme::SPACE_FACT as u8, &paint);
-    if checked {
-        widgets::paint_icon_in(p, b, Icon::Check, theme::FONT_SIZE_TEXT_XS, paint.icon);
-    }
+    let box_left = row.left() + 16.0 - theme::LAYER_ICON_SIZE / 2.0;
+    let hit = Rect::from_min_max(Pos2::new(box_left, row.top()), row.max);
+    let box_hit = crate::widgets::kit::checkbox(ui, hit, ("var-pop-box", key), checked, true);
     p.text(Pos2::new(row.left() + 32.0, row.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
     widgets::record(ui, &format!("var-pop:{key}"), row);
-    r.clicked()
+    row_hit.clicked() || box_hit.clicked()
 }
 
 pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
@@ -120,7 +116,8 @@ pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
         // header
         p.text(Pos2::new(full.left() + 16.0, full.top() + 20.0), Align2::LEFT_CENTER, "Edit variable", theme::font_body_strong(), theme::TEXT);
         let xr = Rect::from_center_size(Pos2::new(full.right() - 20.0, full.top() + 20.0), Vec2::splat(theme::CONTROL_XS));
-        if widgets::icon_button(ui, xr, "var-pop-close", Icon::Minus, false, "").clicked() {
+        widgets::record(ui, "var-pop-close", xr);
+        if widgets::icon_button(ui, xr, "var-pop-close", Icon::Close, false, "Close").clicked() {
             close = true;
         }
         widgets::hline(&p, full.left(), full.right(), full.top() + 39.0, theme::BORDER_MENU);

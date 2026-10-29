@@ -184,6 +184,18 @@ pub enum PickResult {
     Closed,
 }
 
+/// The kit switch track: a 16 px knob with a segment inset on every side, one control step wide.
+pub(crate) const SWITCH_H: f32 = theme::LAYER_ICON_SIZE + 2.0 * theme::INSET_SEGMENT;
+pub(crate) const SWITCH_W: f32 = theme::CONTROL_SM;
+
+/// Field chrome in the kit look: the border widens while the field has focus, and the keyboard ring surrounds it.
+pub(crate) fn field_chrome(ui: &Ui, rect: Rect, id: Id, size: crate::widgets::kit::Size) {
+    crate::widgets::kit::paint_field(ui, rect, id, size, false);
+    if crate::widgets::kit::keyboard_focus(ui, id) {
+        crate::widgets::kit::focus_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32);
+    }
+}
+
 const PICK_W: f32 = 248.0;
 const PICK_MAX_H: f32 = 320.0;
 const PICK_ROW: f32 = theme::MENU_ITEM_HEIGHT;
@@ -250,7 +262,7 @@ pub fn picker(
         let _ = title;
         let search_id = id.with("q");
         let sr = Rect::from_min_size(Pos2::new(full.left() + 8.0, full.top() + 8.0), Vec2::new(full.width() - 16.0, 24.0));
-        crate::widgets::kit::paint_field(ui, sr, search_id, crate::widgets::kit::Size::Xs, false);
+        field_chrome(ui, sr, search_id, crate::widgets::kit::Size::Xs);
         let icon = crate::widgets::kit::field_look(crate::widgets::kit::State::Default, false).icon;
         crate::icons::paint(&p, crate::icons::Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 12.0, icon);
         let sr = Rect::from_min_max(sr.min + Vec2::new(22.0, 0.0), sr.max);

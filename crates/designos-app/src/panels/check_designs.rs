@@ -82,9 +82,20 @@ fn rule_icon(rule: Rule) -> (Icon, Color32) {
     }
 }
 
+fn width_key(p: &egui::Painter, label: &str) -> Id {
+    Id::new(("check-designs-label-width", label, p.ctx().pixels_per_point().to_bits()))
+}
+
+/// Width of a button with `label`. A row asks for the same few labels many times a frame, so each is measured once.
 fn label_width(p: &egui::Painter, label: &str) -> f32 {
+    let key = width_key(p, label);
+    if let Some(cached) = p.ctx().data(|d| d.get_temp::<f32>(key)) {
+        return cached;
+    }
     let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
-    widgets::text_width(p, label, &font) + theme::INSET_BUTTON * 2.0
+    let width = widgets::text_width(p, label, &font) + theme::INSET_BUTTON * 2.0;
+    p.ctx().data_mut(|d| d.insert_temp(key, width));
+    width
 }
 
 /// Width of the buttons at a row's right edge: Ignore and Dismiss, plus Fix when the row has one.
@@ -327,21 +338,18 @@ fn rules_popover(ui: &mut Ui, settings: &designos_doc::CheckDesignsSettings) -> 
         let r = Rect::from_min_size(Pos2::new(rect.left() + inset, y), Vec2::new(pop_w - 2.0 * inset, row_h));
         let id_str = format!("check-designs-rule-{}", rule.figma_id());
         widgets::record(ui, &id_str, r);
-        let resp = ui.interact(r, Id::new(&id_str), Sense::click());
-        if resp.hovered() {
+        // The row takes clicks on its label; the kit checkbox is the one focusable control in it.
+        let resp = ui.interact(r, Id::new(&id_str), Sense::CLICK);
+        if ui.rect_contains_pointer(r) {
             p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         let enabled = !settings.disabled_rules.contains(rule.figma_id())
             && (*rule != Rule::HardCodedValue || !settings.disabled_rules.contains(Rule::Contrast.figma_id()));
-        let box_rect = Rect::from_center_size(Pos2::new(r.left() + POPOVER_CHECK_X, r.center().y), Vec2::splat(theme::LAYER_ICON_SIZE));
-        let box_state = if enabled { crate::widgets::kit::State::Selected } else { crate::widgets::kit::State::Default };
-        let box_paint = crate::widgets::kit::checkbox_look(box_state);
-        crate::widgets::kit::paint_frame(&p, box_rect, theme::SPACE_FACT as u8, &box_paint);
-        if enabled {
-            widgets::paint_icon_in(&p, box_rect, Icon::Check, theme::FONT_SIZE_TEXT_XS, box_paint.icon);
-        }
+        let box_left = r.left() + POPOVER_CHECK_X - theme::LAYER_ICON_SIZE / 2.0;
+        let hit = Rect::from_min_max(Pos2::new(box_left, r.top()), r.max);
+        let checkbox = crate::widgets::kit::checkbox(ui, hit, ("check-designs-rule-box", &id_str), enabled, true);
         p.text(Pos2::new(r.left() + POPOVER_LABEL_X, r.center().y), Align2::LEFT_CENTER, *label, theme::font_body(), theme::TEXT);
-        if resp.clicked() {
+        if resp.clicked() || checkbox.clicked() {
             act = Some(Act::ToggleRule(*rule, !enabled));
         }
     }
@@ -377,6 +385,9 @@ fn rules_popover(ui: &mut Ui, settings: &designos_doc::CheckDesignsSettings) -> 
         let look = crate::widgets::kit::segmented_look(tile);
         crate::widgets::kit::paint_frame(&p, btn_rect, theme::RADIUS_CONTROL, &look);
         p.text(btn_rect.center(), Align2::CENTER_CENTER, label, theme::font_caption_medium(), look.text);
+        if crate::widgets::kit::keyboard_focus(ui, resp.id) {
+            crate::widgets::kit::focus_ring(&p, btn_rect, theme::RADIUS_CONTROL as f32);
+        }
         if resp.clicked() {
             act = Some(Act::SetContrast(level));
         }
@@ -599,6 +610,22 @@ mod tests {
                 let buttons_left = PANEL_W - PAD - actions_width(p, has_fix);
                 assert!(message_right <= buttons_left, "has_fix={has_fix}: message ends at {message_right}, buttons start at {buttons_left}");
             }
+        });
+    }
+
+    /// A row asks for the same few labels many times a frame, so each width is measured once per font scale.
+    #[test]
+    fn a_button_label_is_measured_once() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let p = ui.painter();
+            let key = width_key(p, "Fix");
+            let first = label_width(p, "Fix");
+            assert!(first > theme::INSET_BUTTON * 2.0, "the label has a width");
+            assert_eq!(p.ctx().data(|d| d.get_temp::<f32>(key)), Some(first), "the width is cached");
+            p.ctx().data_mut(|d| d.insert_temp(key, 1234.0_f32));
+            assert_eq!(label_width(p, "Fix"), 1234.0, "a second ask reads the cache instead of laying out a galley");
         });
     }
 }

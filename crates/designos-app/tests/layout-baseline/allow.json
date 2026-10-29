@@ -10,7 +10,7 @@
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "Libraries control grows from 24 to 32, stays centred in the 40 header, and stays pinned to the right edge"
+    "reason": "rule 2 (R5): the Libraries button is the kit's icon button xs 32, up from 24; it stays centred in the 40 header and pinned to the right edge"
   },
   {
     "case": "k-assets",
@@ -22,7 +22,7 @@
     "max_dh": 4,
     "dy": -8,
     "spec": "K",
-    "reason": "Search field grows from 28 to 32. R5: its width shrinks because the filter and view controls beside it grow. The header growth above does not push this row"
+    "reason": "rule 2 (R5): the search field is 32 high, up from 28, and 24 narrower because the filter and view buttons beside it grow. It keeps its top: the header growth above is not passed on to it"
   },
   {
     "case": "k-assets",
@@ -35,7 +35,7 @@
     "dx": 24,
     "dy": -8,
     "spec": "K",
-    "reason": "The search text input sits inside the field and grows with it. R5: its width shrinks with the field. dx cancels that field's width being counted again to its left"
+    "reason": "rule 2 (R5): the search text input sits inside the field and follows it: 4 taller, 24 narrower. dx cancels the field's narrowing counted to its left"
   },
   {
     "case": "k-assets",
@@ -43,12 +43,12 @@
     "name_prefix": "assets-filter-btn",
     "min_dw": 8,
     "max_dw": 8,
-    "min_dh": 0,
+    "min_dh": 4,
     "max_dh": 8,
     "dx": 24,
     "dy": -10,
     "spec": "K",
-    "reason": "Filter control grows from 24 to 32 and aligns to the search row. dx cancels the search input overlapping the field width. The header growth above does not push this row"
+    "reason": "rule 2: the filter control is the kit's icon button xs 32, up from 24, aligned to the search row. dx cancels the search input overlapping the field width. It keeps its row top"
   },
   {
     "case": "k-assets",
@@ -56,20 +56,28 @@
     "name_prefix": "assets-view-",
     "min_dw": 8,
     "max_dw": 8,
-    "min_dh": 0,
+    "min_dh": 4,
     "max_dh": 8,
     "dx": 24,
     "dy": -10,
     "spec": "K",
-    "reason": "List and grid controls grow from 24 to 32 and align to the search row. dx cancels the search input overlapping the field width. The header growth above does not push this row"
+    "reason": "rule 2: the list and grid controls are the kit's icon buttons xs 32, up from 24, aligned to the search row. dx cancels the search input overlapping the field width. They keep their row top"
   },
   {
     "case": "k-assets",
     "region": "left_panel",
-    "h_base": 48,
+    "name_prefix": "assets-filter:",
     "dy": -8,
     "spec": "K",
-    "reason": "Component rows keep their 48 height and move down by the grown add-libraries control plus one grown group row. The header and search growth above that does not push them"
+    "reason": "rule 2: the filter pills keep their size and sit 6 px below the grown search field, 4 lower than before"
+  },
+  {
+    "case": "k-assets",
+    "region": "left_panel",
+    "name_prefix": "assets-created-in-file",
+    "dy": -8,
+    "spec": "K",
+    "reason": "rule 2: the created-in-file card keeps its size and moves down 4 with the filter pills above it"
   },
   {
     "case": "k-assets",
@@ -77,224 +85,224 @@
     "name_prefix": "assets-add-more-libraries",
     "min_dh": 4,
     "max_dh": 4,
-    "dy": -12,
+    "dy": -8,
     "spec": "K",
-    "reason": "Add libraries control grows from 28 to 32. The header and search growth above do not push this row"
-  },
-  {
-    "case": "k-variables",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-create",
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Create variable grows from 24 to 32 downward into the bar padding, so its top edge stays put"
-  },
-  {
-    "case": "k-variables",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-scope:",
-    "min_dh": 0,
-    "max_dh": 8,
-    "dy": 4,
-    "spec": "K",
-    "reason": "Scope chips stay 22 tall and follow the centre of the grown create control in the same bar"
-  },
-  {
-    "case": "k-variables",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-hex:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Colour value fields grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "k-variables",
-    "region": "overlay:Middle/0",
-    "h_base": 24,
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Value-field text inputs grow from 24 to 32 and stay centred on the field. Other 24 controls in this view stay put"
-  },
-  {
-    "case": "k-variables",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-num:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Number value fields grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "k-variables-floating",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-create",
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Create variable grows from 24 to 32 downward into the window padding, so its top edge stays put"
-  },
-  {
-    "case": "k-variables-floating",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-scope:",
-    "min_dh": 0,
-    "max_dh": 8,
-    "dy": 4,
-    "spec": "K",
-    "reason": "Scope chips stay 22 tall and follow the centre of the grown create control in the floating window"
-  },
-  {
-    "case": "k-variables-floating",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-hex:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Colour value fields grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "k-variables-floating",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-num:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Number value fields grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "k-variables-floating",
-    "region": "overlay:Middle/0",
-    "h_base": 24,
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Value-field text inputs grow from 24 to 32 and stay centred on the field. Other 24 controls in this window stay put"
-  },
-  {
-    "case": "k-variables-floating",
-    "region": "canvas",
-    "name_prefix": "vars-hex:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Colour value fields in the floating window grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "k-variables-floating",
-    "region": "canvas",
-    "name_prefix": "vars-num:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Number value fields in the floating window grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "k-variables-floating",
-    "region": "canvas",
-    "h_base": 24,
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Value-field text inputs on the canvas grow from 24 to 32 and stay centred on the field"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-create",
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Create variable grows from 24 to 32 downward into the bar padding, so its top edge stays put"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-scope:",
-    "min_dh": 0,
-    "max_dh": 8,
-    "dy": 4,
-    "spec": "K",
-    "reason": "Scope chips stay 22 tall and follow the centre of the grown create control in the same bar"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-hex:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Colour value fields grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "overlay:Middle/0",
-    "name_prefix": "vars-num:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Number value fields grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "overlay:Middle/0",
-    "h_base": 24,
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Value-field text inputs grow from 24 to 32 and stay centred on the field. Other 24 controls in this view stay put"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "canvas",
-    "name_prefix": "vars-hex:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Colour value fields on the canvas grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "canvas",
-    "name_prefix": "vars-num:",
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Number value fields on the canvas grow from 24 to 32 and stay centred in the 40 row"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "canvas",
-    "h_base": 24,
-    "anchor_y": "centre",
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Value-field text inputs on the canvas grow from 24 to 32 and stay centred on the field"
+    "reason": "rule 2: the add-libraries control is the kit's secondary button xs 32, up from 28, and moves down 4 with the filter pills above it"
   },
   {
     "case": "k-assets",
     "region": "left_panel",
+    "name_prefix": "asset:",
+    "dy": -4,
+    "spec": "K",
+    "reason": "rule 1: asset rows keep their 48 height; they move down 12 with the pills (+4), the grown add-libraries control (+4) and its own shift (+4)"
+  },
+  {
+    "case": "k-assets",
+    "region": "left_panel",
+    "name_prefix": "left-panel-resize-handle",
     "anchor_x": "centre",
     "anchor_y": "centre",
     "spec": "K",
-    "reason": "Unchanged assets panel widgets stay put when a control above grows inside its own row"
+    "reason": "rule 1: the panel resize handle keeps its place and size"
+  },
+  {
+    "case": "k-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-create",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: Create variable is 32 high (FIELD_HEIGHT), up from 24, and stays centred in the bottom bar"
+  },
+  {
+    "case": "k-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-hex:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "k-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-num:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "k-variables",
+    "region": "overlay:Middle/0",
+    "h_base": 24,
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field"
+  },
+  {
+    "case": "k-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-coll:",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: sidebar collection rows keep their 24 height and position"
+  },
+  {
+    "case": "k-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-group:",
+    "anchor_x": "centre",
+    "anchor_y": "centre",
+    "spec": "K",
+    "reason": "rule 3: sidebar group rows keep their 24 height and position"
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-create",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: Create variable is 32 high (FIELD_HEIGHT), up from 24, and stays centred in the bottom padding"
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-hex:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-num:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "overlay:Middle/0",
+    "h_base": 24,
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field"
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "canvas",
+    "name_prefix": "vars-hex:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: colour value fields on the canvas side of the window are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "canvas",
+    "name_prefix": "vars-num:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: number value fields on the canvas side of the window are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "k-variables-floating",
+    "region": "canvas",
+    "h_base": 24,
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: value-field text inputs on the canvas side of the window are 32 high, up from 24, and stay centred on their field"
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-create",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: Create variable is 32 high (FIELD_HEIGHT), up from 24, and stays centred in the bottom padding"
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-hex:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "name_prefix": "vars-num:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "overlay:Middle/0",
+    "h_base": 24,
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field"
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "canvas",
+    "name_prefix": "vars-hex:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: colour value fields on the canvas side of the window are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "canvas",
+    "name_prefix": "vars-num:",
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: number value fields on the canvas side of the window are 32 high, up from 24, and stay centred in the 40 row"
+  },
+  {
+    "case": "micro-components-variables",
+    "region": "canvas",
+    "h_base": 24,
+    "anchor_y": "centre",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 3: value-field text inputs on the canvas side of the window are 32 high, up from 24, and stay centred on their field"
   },
   {
     "case": "k-libraries",
@@ -304,62 +312,11 @@
     "anchor_y": "centre",
     "min_dw": 8,
     "max_dw": 8,
-    "min_dh": 0,
+    "min_dh": 8,
     "max_dh": 8,
     "dx": -14,
     "spec": "K",
-    "reason": "Dialog close control grows from 28 to 36 and stays centred in the 48 header"
-  },
-  {
-    "case": "k-libraries",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "lib-change:",
-    "anchor_x": "centre",
-    "anchor_y": "centre",
-    "min_dw": -8,
-    "max_dw": -8,
-    "min_dh": 0,
-    "max_dh": 4,
-    "spec": "K",
-    "reason": "R5: each change row grows from 20 to 24, stays centred on its 20 slot, and narrows by 8 because the modal inset is 24"
-  },
-  {
-    "case": "k-libraries",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "lib-desc",
-    "anchor_x": "centre",
-    "anchor_y": "centre",
-    "min_dw": -8,
-    "max_dw": -8,
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "R5: the description field grows from 28 to 36, stays centred on its 28 slot, and narrows by 8 with the modal inset"
-  },
-  {
-    "case": "k-libraries",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "lib-publish",
-    "anchor_x": "centre",
-    "anchor_y": "centre",
-    "dx": -4,
-    "min_dh": 0,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "Publish control grows from 28 to 36, stays centred on its 28 slot, and follows the modal right inset"
-  },
-  {
-    "case": "k-libraries",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "lib-search",
-    "anchor_x": "centre",
-    "anchor_y": "centre",
-    "dx": -4,
-    "dy": 6,
-    "min_dh": 0,
-    "max_dh": 12,
-    "spec": "K",
-    "reason": "Library search grows from 24 to 36 downward from its old top, and follows the modal right inset"
+    "reason": "rule 5: the dialog close control is the kit's icon button sm 36, up from 28; it stays centred in the 48 header and keeps the dialog's right inset"
   },
   {
     "case": "k-libraries",
@@ -369,7 +326,7 @@
     "anchor_y": "centre",
     "dx": -4,
     "spec": "K",
-    "reason": "The status label stays 20 tall and follows the modal right inset"
+    "reason": "rule 5: the status label keeps its size and follows the 24 modal inset (4 left of its old place)"
   },
   {
     "case": "k-libraries",
@@ -380,51 +337,119 @@
     "min_dw": -8,
     "max_dw": -8,
     "spec": "K",
-    "reason": "R5: the summary line narrows by 8 with the modal inset and stays on its row"
+    "reason": "rule 5 (R5): the summary line is 8 narrower for the 24 modal inset and stays on its row"
   },
   {
     "case": "k-libraries",
     "region": "overlay:Foreground/0",
-    "name_prefix": "lib-toggle:",
+    "name_prefix": "lib-change:Gradients",
     "anchor_x": "centre",
-    "anchor_y": "centre",
-    "dx": -4,
+    "min_dw": -8,
+    "max_dw": -8,
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": -14,
     "spec": "K",
-    "reason": "Library switches keep their size and follow the modal right inset"
+    "reason": "rule 5 (R5): change rows are the kit's tag chips 24 high, up from 20, and 8 narrower for the modal inset. The header row above grows 8 and the summary-to-chip gap shrinks 6, so the derived shift of 8 leaves this first row 14 higher"
+  },
+  {
+    "case": "k-libraries",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "lib-change:Shadows/Small",
+    "anchor_x": "centre",
+    "min_dw": -8,
+    "max_dw": -8,
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": -14,
+    "spec": "K",
+    "reason": "rule 5 (R5): change rows are 24 high, up from 20, and 8 narrower for the modal inset. Rows above grow 8 + 4 (+4 more for the second of these two), the gap shrinks 6, and the rail row beside the row after them absorbs its own growth: dy cancels the derived shift. One entry covers the two rows whose prefix is shared"
+  },
+  {
+    "case": "k-libraries",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "lib-change:Shadows/Large",
+    "anchor_x": "centre",
+    "min_dw": -8,
+    "max_dw": -8,
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": -10,
+    "spec": "K",
+    "reason": "rule 5 (R5): change rows are 24 high, up from 20, and 8 narrower for the modal inset. The row above shares its baseline row with the rail, which absorbs that row's growth, so this row's derived shift is 4 short of the first rows'"
+  },
+  {
+    "case": "k-libraries",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "lib-desc",
+    "anchor_x": "centre",
+    "min_dw": -8,
+    "max_dw": -8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -10,
+    "spec": "K",
+    "reason": "rule 5 (R5): the description field is 36 high (CONTROL_SM), up from 28, 8 narrower for the modal inset, and sits below the chip rows with the old 8 px gap"
+  },
+  {
+    "case": "k-libraries",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "lib-publish",
+    "anchor_x": "centre",
+    "min_dh": 8,
+    "max_dh": 26,
+    "dx": -4,
+    "dy": -10,
+    "spec": "K",
+    "reason": "rule 5: the Publish button is 36 high, up from 28, follows the modal's right inset and keeps the 8 px gap below the description. Its baseline row also holds the inspector widgets behind the dialog (32 high at the same height), so that row grows by this button's move and growth: the button itself 8, the row 26"
+  },
+  {
+    "case": "k-libraries",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "lib-search",
+    "anchor_x": "centre",
+    "min_dh": 12,
+    "max_dh": 12,
+    "dx": -4,
+    "dy": -28,
+    "spec": "K",
+    "reason": "rule 5: the library search field is 36 high, up from 24, grows downward from its old top and follows the modal's right inset. dy cancels the derived shift of the rows above, including the Publish row's growth of 26"
   },
   {
     "case": "k-libraries",
     "region": "overlay:Foreground/0",
     "h_base": 24,
     "anchor_x": "centre",
-    "anchor_y": "centre",
     "min_dh": 0,
     "max_dh": 12,
     "dx": -4,
-    "dy": 6,
+    "dy": -28,
     "spec": "K",
-    "reason": "The library search text input grows from 24 to 36 downward from its old top"
+    "reason": "rule 5: the search text input follows the library search field: 12 taller, 4 left, same top. dy cancels the derived shift of the rows above. The range starts at 0 because this height also matches 24-high inspector widgets behind the dialog, whose rows do not grow"
   },
   {
     "case": "k-libraries",
     "region": "overlay:Foreground/0",
-    "h_base": 32,
-    "anchor_x": "centre",
-    "anchor_y": "centre",
+    "name_prefix": "lib-row:",
     "min_dh": 0,
     "max_dh": 8,
+    "dy": -20,
     "spec": "K",
-    "reason": "32 controls beside a grown library field keep their own size. The shared row may grow by the field overflow"
+    "reason": "rule 5: library rows keep their 60 height and move down 34 with the larger sections above them. Their baseline row also holds the inspector widgets behind the dialog, so that row grows by 8 while the library row itself does not"
   },
   {
     "case": "k-libraries",
     "region": "overlay:Foreground/0",
+    "name_prefix": "lib-toggle:",
     "anchor_x": "centre",
-    "anchor_y": "centre",
-    "min_dh": 0,
+    "min_dw": 4,
+    "max_dw": 4,
+    "min_dh": -4,
     "max_dh": 8,
+    "dx": -8,
+    "dy": -18,
     "spec": "K",
-    "reason": "Unchanged foreground widgets stay put. A shared row may grow when a library field centred on its old slot overflows it"
+    "reason": "rule 5 (R5): the library switch is the kit's 36x20 track, replacing the 32x24 slot; it stays centred in its 60 row and keeps the dialog's right inset. The range reaches 8 because its baseline row also holds the inspector widgets behind the dialog, so that row grows by 8"
   },
   {
     "case": "j-plugins",
@@ -437,7 +462,7 @@
     "min_dh": 4,
     "max_dh": 4,
     "spec": "K",
-    "reason": "Plugin dialog close control grows from 32 by 36 and from 52 to 62.5, stays centred in the header, and stays pinned to the right edge"
+    "reason": "rule 7: the dialog close control is the kit's button sm 36 and 52 wide becomes 62.5; it stays centred in the header and pinned to the right edge"
   },
   {
     "case": "j-plugins",
@@ -447,195 +472,11 @@
     "anchor_y": "centre",
     "min_dw": 12.25,
     "max_dw": 12.25,
-    "dy": -3,
     "min_dh": 6,
     "max_dh": 6,
+    "dy": -3,
     "spec": "K",
-    "reason": "Install plugin grows from 34 to 40 and from 97.75 to 110, stays pinned to the right edge, and stays on the dialog footer"
-  },
-  {
-    "case": "j-check-designs",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "overlay:Foreground/0",
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "K",
-    "reason": "The check designs panel grows by 4 because its group header grows from 28 to 32"
-  },
-  {
-    "case": "j-check-designs",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-panel",
-    "dy": -16,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "K",
-    "reason": "The check designs panel grows by 4 because its group header grows from 28 to 32, and its top stays put under a derived shift of 16"
-  },
-  {
-    "case": "j-check-designs",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-close",
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "The close control grows from 24 to 32, stays centred in the header, and stays pinned to the right edge"
-  },
-  {
-    "case": "j-check-designs",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-rules",
-    "anchor_y": "centre",
-    "dx": -16,
-    "min_dw": 8,
-    "max_dw": 8,
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "The rules control grows from 24 to 32, stays centred in the header, and follows the grown close control"
-  },
-  {
-    "case": "j-check-designs",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-fix-all",
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": -1.25,
-    "max_dw": -1.25,
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "R5: Fix all grows from 24 to 32, narrows from 64 to 62.75, stays centred in the summary row, and stays pinned to the right edge"
-  },
-  {
-    "case": "j-check-designs",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-dismiss-",
-    "anchor_x": "right",
-    "min_dw": 8,
-    "max_dw": 8,
-    "min_dh": 8,
-    "max_dh": 8,
-    "dy": -16,
-    "spec": "K",
-    "reason": "Dismiss grows from 24 to 32, stays pinned to the right edge, and moves down 4. Rows above contribute a derived shift of 20"
-  },
-  {
-    "case": "j-check-designs",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-ignore-",
-    "dx": -16,
-    "min_dw": 8,
-    "max_dw": 8,
-    "min_dh": 8,
-    "max_dh": 8,
-    "dy": -16,
-    "spec": "K",
-    "reason": "Ignore grows from 24 to 32, follows the grown dismiss control, and moves down 4. Rows above contribute a derived shift of 20"
-  },
-  {
-    "case": "j-check-designs",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-row-",
-    "dy": -16,
-    "spec": "K",
-    "reason": "Finding rows keep their 60 height and move down 4 with the taller group header. Rows above contribute a derived shift of 20"
-  },
-  {
-    "case": "check-designs-fixed",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "overlay:Foreground/0",
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "K",
-    "reason": "The check designs panel grows by 4 because its group header grows from 28 to 32"
-  },
-  {
-    "case": "check-designs-fixed",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-panel",
-    "dy": -16,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "K",
-    "reason": "The check designs panel grows by 4 because its group header grows from 28 to 32, and its top stays put under a derived shift of 16"
-  },
-  {
-    "case": "check-designs-fixed",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-close",
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "The close control grows from 24 to 32, stays centred in the header, and stays pinned to the right edge"
-  },
-  {
-    "case": "check-designs-fixed",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-rules",
-    "anchor_y": "centre",
-    "dx": -16,
-    "min_dw": 8,
-    "max_dw": 8,
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "The rules control grows from 24 to 32, stays centred in the header, and follows the grown close control"
-  },
-  {
-    "case": "check-designs-fixed",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-fix-all",
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": -1.25,
-    "max_dw": -1.25,
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "R5: Fix all grows from 24 to 32, narrows from 64 to 62.75, stays centred in the summary row, and stays pinned to the right edge"
-  },
-  {
-    "case": "check-designs-fixed",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-dismiss-",
-    "anchor_x": "right",
-    "min_dw": 8,
-    "max_dw": 8,
-    "min_dh": 8,
-    "max_dh": 8,
-    "dy": -16,
-    "spec": "K",
-    "reason": "Dismiss grows from 24 to 32, stays pinned to the right edge, and moves down 4. Rows above contribute a derived shift of 20"
-  },
-  {
-    "case": "check-designs-fixed",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-ignore-",
-    "dx": -16,
-    "min_dw": 8,
-    "max_dw": 8,
-    "min_dh": 8,
-    "max_dh": 8,
-    "dy": -16,
-    "spec": "K",
-    "reason": "Ignore grows from 24 to 32, follows the grown dismiss control, and moves down 4. Rows above contribute a derived shift of 20"
-  },
-  {
-    "case": "check-designs-fixed",
-    "region": "overlay:Foreground/0",
-    "name_prefix": "check-designs-row-",
-    "dy": -16,
-    "spec": "K",
-    "reason": "Finding rows keep their 60 height and move down 4 with the taller group header. Rows above contribute a derived shift of 20"
+    "reason": "rule 7: Install plugin is the kit's footer button md 40, up from 34, and 97.75 wide becomes 110; it stays pinned to the right edge and on the dialog footer"
   },
   {
     "case": "plugin-install",
@@ -648,7 +489,7 @@
     "min_dh": 4,
     "max_dh": 4,
     "spec": "K",
-    "reason": "R5: Plugin dialog close control grows from 32 to 36 and from 52 to 62.5, stays centred in the header, and stays pinned to the right edge"
+    "reason": "rule 7 (R5): the dialog close control is the kit's button sm 36, up from 32, and 52 wide becomes 62.5; it stays centred in the header and pinned to the right edge"
   },
   {
     "case": "plugin-install",
@@ -657,7 +498,7 @@
     "min_dh": -2,
     "max_dh": -2,
     "spec": "K",
-    "reason": "R5: The plugin URL field shrinks from 38 to 36 and keeps its top and its width"
+    "reason": "rule 7 (R5): the URL field is the kit's field sm 36, down from 38; it keeps its top and its width"
   },
   {
     "case": "plugin-install",
@@ -667,7 +508,7 @@
     "min_dh": 6,
     "max_dh": 6,
     "spec": "K",
-    "reason": "rule 7: Cancel grows from 34 to 40 because the Plugins dialog footer buttons are md 40, keeps its width and its x, and stays pinned to the dialog's bottom padding edge"
+    "reason": "rule 7: Cancel is the kit's footer button md 40, up from 34, keeps its width and x, and stays pinned to the dialog's bottom padding edge"
   },
   {
     "case": "plugin-install",
@@ -677,6 +518,190 @@
     "min_dh": 6,
     "max_dh": 6,
     "spec": "K",
-    "reason": "rule 7: Install grows from 34 to 40 because the Plugins dialog footer buttons are md 40, keeps its width and its x, and stays pinned to the dialog's bottom padding edge"
+    "reason": "rule 7: Install is the kit's footer button md 40, up from 34, keeps its width and x, and stays pinned to the dialog's bottom padding edge"
+  },
+  {
+    "case": "j-check-designs",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "overlay:Foreground/0",
+    "min_dh": 4,
+    "max_dh": 4,
+    "spec": "K",
+    "reason": "rule 11: the panel grows by 4 because its group header is 32 high, up from 28"
+  },
+  {
+    "case": "j-check-designs",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-panel",
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": -16,
+    "spec": "K",
+    "reason": "rule 11: the panel grows by 4 because its group header is 32 high, up from 28; its top stays put under a derived shift of 16"
+  },
+  {
+    "case": "j-check-designs",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-close",
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 11: the close control is the kit's icon button xs 32, up from 24; it stays centred in the header and pinned to the right edge"
+  },
+  {
+    "case": "j-check-designs",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-rules",
+    "anchor_y": "centre",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dx": -16,
+    "spec": "K",
+    "reason": "rule 11: the rules control is the kit's icon button xs 32, up from 24; it stays centred in the header and follows the grown close control"
+  },
+  {
+    "case": "j-check-designs",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-fix-all",
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "min_dw": -1.25,
+    "max_dw": -1.25,
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 11 (R5): Fix all is the kit's primary button xs 32, up from 24, and narrows from 64 to 62.75 to fit its label; it stays centred in the summary row and pinned to the right edge"
+  },
+  {
+    "case": "j-check-designs",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-dismiss-",
+    "anchor_x": "right",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -16,
+    "spec": "K",
+    "reason": "rule 11: Dismiss is the kit's icon button xs 32, up from 24; it stays pinned to the right edge and moves down 4. Rows above contribute a derived shift of 20"
+  },
+  {
+    "case": "j-check-designs",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-ignore-",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dx": -16,
+    "dy": -16,
+    "spec": "K",
+    "reason": "rule 11: Ignore is the kit's icon button xs 32, up from 24; it follows the grown dismiss control and moves down 4. Rows above contribute a derived shift of 20"
+  },
+  {
+    "case": "j-check-designs",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-row-",
+    "dy": -16,
+    "spec": "K",
+    "reason": "rule 11: finding rows keep their 60 height and move down 4 with the taller group header. Rows above contribute a derived shift of 20"
+  },
+  {
+    "case": "check-designs-fixed",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "overlay:Foreground/0",
+    "min_dh": 4,
+    "max_dh": 4,
+    "spec": "K",
+    "reason": "rule 11: the panel grows by 4 because its group header is 32 high, up from 28"
+  },
+  {
+    "case": "check-designs-fixed",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-panel",
+    "min_dh": 4,
+    "max_dh": 4,
+    "dy": -16,
+    "spec": "K",
+    "reason": "rule 11: the panel grows by 4 because its group header is 32 high, up from 28; its top stays put under a derived shift of 16"
+  },
+  {
+    "case": "check-designs-fixed",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-close",
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 11: the close control is the kit's icon button xs 32, up from 24; it stays centred in the header and pinned to the right edge"
+  },
+  {
+    "case": "check-designs-fixed",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-rules",
+    "anchor_y": "centre",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dx": -16,
+    "spec": "K",
+    "reason": "rule 11: the rules control is the kit's icon button xs 32, up from 24; it stays centred in the header and follows the grown close control"
+  },
+  {
+    "case": "check-designs-fixed",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-fix-all",
+    "anchor_x": "right",
+    "anchor_y": "centre",
+    "min_dw": -1.25,
+    "max_dw": -1.25,
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "K",
+    "reason": "rule 11 (R5): Fix all is the kit's primary button xs 32, up from 24, and narrows from 64 to 62.75 to fit its label; it stays centred in the summary row and pinned to the right edge"
+  },
+  {
+    "case": "check-designs-fixed",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-dismiss-",
+    "anchor_x": "right",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dy": -16,
+    "spec": "K",
+    "reason": "rule 11: Dismiss is the kit's icon button xs 32, up from 24; it stays pinned to the right edge and moves down 4. Rows above contribute a derived shift of 20"
+  },
+  {
+    "case": "check-designs-fixed",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-ignore-",
+    "min_dw": 8,
+    "max_dw": 8,
+    "min_dh": 8,
+    "max_dh": 8,
+    "dx": -16,
+    "dy": -16,
+    "spec": "K",
+    "reason": "rule 11: Ignore is the kit's icon button xs 32, up from 24; it follows the grown dismiss control and moves down 4. Rows above contribute a derived shift of 20"
+  },
+  {
+    "case": "check-designs-fixed",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "check-designs-row-",
+    "dy": -16,
+    "spec": "K",
+    "reason": "rule 11: finding rows keep their 60 height and move down 4 with the taller group header. Rows above contribute a derived shift of 20"
   }
 ]

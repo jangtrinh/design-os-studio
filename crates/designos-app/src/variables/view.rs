@@ -5,7 +5,8 @@
 
 use super::library::{self, LIBRARY_TIP};
 use super::widgets::{
-    arrows_glyph, cross_glyph, filter_glyph, from_c32, hexagon, kind_glyph, kind_name, picker, pill, sliders_glyph, to_c32, PickItem, PickResult,
+    arrows_glyph, cross_glyph, filter_glyph, from_c32, hexagon, kind_glyph, kind_name, picker, pill, sliders_glyph, to_c32, PickItem, PickResult, SWITCH_H,
+    SWITCH_W,
 };
 use super::{AliasPicker, CellPicker, EditPopover, RowDrag, VarMenu, VarMenuKind};
 use crate::app::App;
@@ -401,7 +402,7 @@ fn rename_field(app: &mut App, ui: &mut Ui, rect: Rect, eid: Id, cur: &str, font
         ui.ctx().memory_mut(|m| m.request_focus(eid));
     }
     app.vars.rename_frames += 1;
-    cell_chrome(ui, rect, eid);
+    editor_chrome(ui, rect);
     let r = field::edit_text(ui, rect, eid, cur, font, theme::TEXT, pad);
     if r.is_some() || (app.vars.rename_frames > 2 && !ui.memory(|m| m.has_focus(eid))) {
         app.vars.renaming = None;
@@ -420,11 +421,22 @@ fn edit_or_show(read_only: bool, ui: &mut Ui, rect: Rect, id: Id, display: &str,
     None
 }
 
+/// A value cell paints nothing at rest, a fill under the pointer, and the kit's focused field with its ring while it is
+/// edited. A row under the pointer already shows the hover background, so the cell's own fill is the next step up.
 fn cell_chrome(ui: &Ui, rect: Rect, id: Id) {
-    crate::widgets::kit::paint_field(ui, rect, id, crate::widgets::kit::Size::Xs, false);
-    if crate::widgets::kit::keyboard_focus(ui, id) {
-        crate::widgets::kit::focus_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32);
+    if ui.memory(|m| m.has_focus(id)) {
+        editor_chrome(ui, rect);
+    } else if ui.rect_contains_pointer(rect) {
+        let hover = crate::widgets::kit::row_look(crate::widgets::kit::State::Hover, crate::widgets::kit::Surface::Secondary);
+        crate::widgets::kit::paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &hover);
     }
+}
+
+/// The focused field look around an inline editor.
+fn editor_chrome(ui: &Ui, rect: Rect) {
+    let focused = crate::widgets::kit::field_look(crate::widgets::kit::State::Focused, false);
+    crate::widgets::kit::paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &focused);
+    crate::widgets::kit::focus_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32);
 }
 
 // ------------------------------------------------------------------ sidebar
@@ -480,13 +492,13 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     let heading_rows = usize::from(!from_library.is_empty());
     for (n, id) in ids.iter().enumerate() {
         if n == own.len() && !from_library.is_empty() {
-            let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::BADGE_MD));
+            let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
             y += theme::VAR_SIDE_ROW;
             library::paint_heading(ui, row);
         }
         let c = &fr.view.collections[id];
         let read_only = c.is_library();
-        let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::BADGE_MD));
+        let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
         y += theme::VAR_SIDE_ROW;
         widgets::record(ui, &format!("vars-coll:{}", c.name), row);
         let mut resp = ui.interact(row, Id::new(("vars-coll", id)), Sense::click());
@@ -565,7 +577,7 @@ fn sidebar(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
                 }
                 hidden_below = None;
             }
-            let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::BADGE_MD));
+            let row = Rect::from_min_size(Pos2::new(left + theme::INSET_FRAME, y), Vec2::new(224.0, theme::VAR_PILL_H));
             y += theme::VAR_SIDE_ROW;
             let key = path.clone().unwrap_or_default();
             let fkey = format!("sg\0{}", folded_key(&cid, &key));
@@ -666,12 +678,12 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     search_left = search_left.max(x0 + 100.0);
     let search = Rect::from_min_size(Pos2::new(search_left, cy - 12.0), Vec2::new(theme::VAR_SEARCH_W, 24.0));
     let search_id = Id::new("vars-search");
-    cell_chrome(ui, search, search_id);
+    super::widgets::field_chrome(ui, search, search_id, crate::widgets::kit::Size::Xs);
     let search_icon = crate::widgets::kit::field_look(crate::widgets::kit::State::Default, false).icon;
     icons::paint(&p, Icon::Search, Pos2::new(search.left() + 11.0, cy), 16.0, search_icon);
     let te = egui::TextEdit::singleline(&mut app.vars.search)
         .id(search_id)
-        .hint_text("Search")
+        .hint_text(egui::RichText::new("Search").color(theme::TEXT_PLACEHOLDER))
         .font(theme::font_body())
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
@@ -743,7 +755,8 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
     let read_only = coll.is_library();
     let label = if read_only { library::NOTE } else { "Create variable" };
     let w = 34.0 + widgets::text_width(&p, label, &theme::font_body()) + 8.0;
-    let b = Rect::from_min_size(Pos2::new(x0 + 8.0, g.panel.bottom() - theme::FIELD_HEIGHT), Vec2::new(w, theme::FIELD_HEIGHT));
+    let top = g.bottom_line() + 1.0 + (theme::VAR_BOTTOM_H - 1.0 - theme::FIELD_HEIGHT) / 2.0;
+    let b = Rect::from_min_size(Pos2::new(x0 + 8.0, top), Vec2::new(w, theme::FIELD_HEIGHT));
     if read_only {
         // a library collection has no "Create variable": say why, in the space it would take
         library::paint_read_only_note(ui, b);
@@ -973,7 +986,7 @@ fn header_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &str, path: &
     let name_cell = Rect::from_min_size(r.min, Vec2::new(theme::VAR_NAME_COL, r.height()));
     let key = folded_key(coll, path);
     let resp = ui.interact(Rect::from_min_max(r.min, Pos2::new(r.right(), r.bottom())), Id::new(("vars-header", &key)), Sense::click());
-    let row_bg = if resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY };
+    let row_bg = if resp.hovered() { theme::BG_SECONDARY_HOVER } else { theme::BG_SECONDARY };
     p.rect_filled(r, 0.0, row_bg);
     let open = !app.vars.folded.contains(&key);
     let x = r.left() + 16.0 + depth as f32 * 16.0;
@@ -1285,7 +1298,7 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
         let label = tv.map(|t| t.name.clone()).unwrap_or_else(|| "Missing variable".into());
         let tw = widgets::text_width(&p, &label, &theme::font_body());
         let w = (tw + 12.0 + 12.0 + if swatch_c.is_some() { 18.0 } else { 0.0 } + 8.0 + 22.0).min(cell.width() - 16.0);
-        let pr_rect = Rect::from_min_size(Pos2::new(cell.left() + 8.0, cy - fh / 2.0), Vec2::new(w, fh));
+        let pr_rect = Rect::from_min_size(Pos2::new(cell.left() + 8.0, cy - theme::BADGE_MD / 2.0), Vec2::new(w, theme::BADGE_MD));
         widgets::record(ui, &format!("vars-alias:{}:{}", v.name, mode), pr_rect);
         let pr = pill(ui, pr_rect, id, &label, swatch_c, !ro);
         if ro {
@@ -1372,17 +1385,13 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
             }
         }
         VariableValue::Boolean(b) => {
-            let sw = Rect::from_min_size(Pos2::new(cell.left() + 16.0, cy - 8.0), Vec2::new(28.0, 16.0));
-            let resp = ui.interact(Rect::from_min_max(cell.min, Pos2::new(field_right, cell.bottom())), id.with("tog"), Sense::click());
+            let sw = Rect::from_min_size(Pos2::new(cell.left() + 16.0, cy - SWITCH_H / 2.0), Vec2::new(SWITCH_W, SWITCH_H));
+            // The cell takes clicks on its label; the kit switch is the one focusable control in it.
+            let resp = ui.interact(Rect::from_min_max(cell.min, Pos2::new(field_right, cell.bottom())), id.with("tog"), Sense::CLICK);
             widgets::record(ui, &format!("vars-bool:{}:{}", v.name, mode), sw);
-            let paint = crate::widgets::kit::toggle_look(if *b { crate::widgets::kit::State::Selected } else { crate::widgets::kit::State::Default });
-            let track = theme::radius_full(sw.height()).round() as u8;
-            crate::widgets::kit::paint_frame(&p, sw, track, &paint);
-            let knob = theme::radius_full(theme::LAYER_ICON_SIZE);
-            let kx = if *b { sw.right() - theme::INSET_SEGMENT - knob } else { sw.left() + theme::INSET_SEGMENT + knob };
-            p.circle_filled(Pos2::new(kx, sw.center().y), knob.max(0.0), paint.icon);
+            let switch = crate::widgets::kit::toggle(ui, sw, id.with("switch"), *b, true);
             p.text(Pos2::new(sw.right() + 8.0, cy), Align2::LEFT_CENTER, if *b { "True" } else { "False" }, theme::font_body(), theme::TEXT);
-            if resp.clicked() && !ro {
+            if (resp.clicked() || switch.clicked()) && !ro {
                 fr.work.set_value(&v.id, mode, VariableValue::Boolean(!b));
             }
         }

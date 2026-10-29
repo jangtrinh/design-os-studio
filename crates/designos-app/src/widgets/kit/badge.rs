@@ -64,7 +64,6 @@ pub const fn status_color(tone: DotTone) -> Color32 {
 }
 
 /// Status chip. Same tinted triple as a count badge, square control radius, no close mark.
-#[allow(dead_code)]
 pub fn status_tag(p: &Painter, rect: Rect, label: &str, tone: Tone) {
     let paint = count_badge_look(tone);
     paint_frame(p, rect, theme::RADIUS_CONTROL, &paint);
@@ -120,5 +119,45 @@ mod tests {
         assert_eq!(err.fill, theme::BG_ERROR_PRIMARY);
         assert_eq!(err.border, theme::BADGE_ERROR_BORDER);
         assert_eq!(err.text, theme::BADGE_ERROR_TEXT);
+    }
+
+    fn painted_shapes(rect: Rect, label: &str, tone: Tone) -> Vec<egui::epaint::Shape> {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 300.0))), ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| status_tag(ui.painter(), rect, label, tone));
+        out.shapes.into_iter().map(|clipped| clipped.shape).collect()
+    }
+
+    #[test]
+    fn status_tag_paints_the_tinted_triple_with_a_control_radius() {
+        let rect = Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(64.0, theme::BADGE_MD));
+        for tone in [Tone::Neutral, Tone::Success, Tone::Warning, Tone::Error] {
+            let want = count_badge_look(tone);
+            let shapes = painted_shapes(rect, "New", tone);
+            let rects: Vec<&egui::epaint::RectShape> = shapes
+                .iter()
+                .filter_map(|shape| match shape {
+                    egui::epaint::Shape::Rect(r) if r.rect == rect => Some(r),
+                    _ => None,
+                })
+                .collect();
+            let fill = rects.iter().find(|r| r.fill != Color32::TRANSPARENT).unwrap_or_else(|| panic!("{tone:?}: a fill at the chip rect"));
+            assert_eq!(fill.fill, want.fill, "{tone:?} fill");
+            assert_eq!(fill.corner_radius, theme::cr(theme::RADIUS_CONTROL), "{tone:?}: the chip uses the control radius, not a pill");
+            let stroke = rects.iter().find(|r| r.stroke.width > 0.0).unwrap_or_else(|| panic!("{tone:?}: a border at the chip rect"));
+            assert_eq!((stroke.stroke.color, stroke.stroke.width), (want.border, W), "{tone:?} border");
+            let text = shapes
+                .iter()
+                .find_map(|shape| match shape {
+                    egui::epaint::Shape::Text(t) if t.galley.text() == "New" => Some(t),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{tone:?}: the label"));
+            let section = &text.galley.job.sections[0];
+            assert_eq!(section.format.color, want.text, "{tone:?} label colour");
+            assert_eq!(section.format.font_id, theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium), "{tone:?} label font");
+            assert!(rect.contains(Rect::from_min_size(text.pos, text.galley.size()).center()), "{tone:?}: the label is centred in the chip");
+        }
     }
 }

@@ -65,7 +65,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                 ui.add_space(4.0);
                 paragraph(ui, "Plugin URL", theme::TEXT);
                 let (field, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), theme::CONTROL_SM), Sense::hover());
-                crate::widgets::kit::paint_field(ui, field, url_id, crate::widgets::kit::Size::Sm, false);
+                crate::variables::widgets::field_chrome(ui, field, url_id, crate::widgets::kit::Size::Sm);
                 let output = ui
                     .add_enabled_ui(!app.plugins.pending, |ui| {
                         ui.put(
@@ -76,7 +76,10 @@ pub fn show(app: &mut App, ctx: &Context) {
                                 .text_color(theme::TEXT)
                                 .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(10, 0)))
                                 .vertical_align(egui::Align::Center)
-                                .hint_text("https://github.com/jangtrinh/design-os-plugins/blob/main/plugins/icon-browser/manifest.json")
+                                .hint_text(
+                                    egui::RichText::new("https://github.com/jangtrinh/design-os-plugins/blob/main/plugins/icon-browser/manifest.json")
+                                        .color(theme::TEXT_PLACEHOLDER),
+                                )
                                 .desired_width(field.width())
                                 .min_size(field.size()),
                         )
