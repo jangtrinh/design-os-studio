@@ -178,31 +178,43 @@
     "case": "k-variables-floating",
     "region": "overlay:Middle/0",
     "name_prefix": "vars-hex:",
+    "x_band": [
+      300.5,
+      4000
+    ],
     "anchor_y": "centre",
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row"
+    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row The band starts right of the left panel, which shares these rows under the floating panel."
   },
   {
     "case": "k-variables-floating",
     "region": "overlay:Middle/0",
     "name_prefix": "vars-num:",
+    "x_band": [
+      300.5,
+      4000
+    ],
     "anchor_y": "centre",
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row"
+    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row The band starts right of the left panel, which shares these rows under the floating panel."
   },
   {
     "case": "k-variables-floating",
     "region": "overlay:Middle/0",
     "h_base": 24,
+    "x_band": [
+      300.5,
+      4000
+    ],
     "anchor_y": "centre",
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field"
+    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field The band starts right of the left panel, whose header buttons spec E allows."
   },
   {
     "case": "k-variables-floating",
@@ -248,31 +260,43 @@
     "case": "micro-components-variables",
     "region": "overlay:Middle/0",
     "name_prefix": "vars-hex:",
+    "x_band": [
+      300.5,
+      4000
+    ],
     "anchor_y": "centre",
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row"
+    "reason": "rule 3: colour value fields are 32 high, up from 24, and stay centred in the 40 row The band starts right of the left panel, which shares these rows under the floating panel."
   },
   {
     "case": "micro-components-variables",
     "region": "overlay:Middle/0",
     "name_prefix": "vars-num:",
+    "x_band": [
+      300.5,
+      4000
+    ],
     "anchor_y": "centre",
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row"
+    "reason": "rule 3: number value fields are 32 high, up from 24, and stay centred in the 40 row The band starts right of the left panel, which shares these rows under the floating panel."
   },
   {
     "case": "micro-components-variables",
     "region": "overlay:Middle/0",
     "h_base": 24,
+    "x_band": [
+      300.5,
+      4000
+    ],
     "anchor_y": "centre",
     "min_dh": 8,
     "max_dh": 8,
     "spec": "K",
-    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field"
+    "reason": "rule 3: value-field text inputs are 32 high, up from 24, and stay centred on their field The band starts right of the left panel, whose header buttons spec E allows."
   },
   {
     "case": "micro-components-variables",
@@ -419,13 +443,17 @@
     "case": "k-libraries",
     "region": "overlay:Foreground/0",
     "h_base": 24,
+    "x_band": [
+      300.5,
+      4000
+    ],
     "anchor_x": "centre",
     "min_dh": 0,
     "max_dh": 12,
     "dx": -4,
     "dy": -28,
     "spec": "K",
-    "reason": "rule 5: the search text input follows the library search field: 12 taller, 4 left, same top. dy cancels the derived shift of the rows above. The range starts at 0 because this height also matches 24-high inspector widgets behind the dialog, whose rows do not grow"
+    "reason": "rule 5: the search text input follows the library search field: 12 taller, 4 left, same top. dy cancels the derived shift of the rows above. The range starts at 0 because this height also matches 24-high inspector widgets behind the dialog, whose rows do not grow The band starts right of the left panel, whose header buttons spec E allows."
   },
   {
     "case": "k-libraries",
@@ -2789,13 +2817,17 @@
     "case": "k-libraries",
     "region": "overlay:Foreground/0",
     "h_base": 24,
+    "x_band": [
+      0,
+      300
+    ],
     "anchor_x": "right",
     "anchor_y": "centre",
     "min_dw": 8,
     "max_dw": 8,
     "max_dh": 8,
     "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
+    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held The band holds the left panel, where spec K's value inputs never sit."
   },
   {
     "case": "k-libraries",
@@ -2812,13 +2844,17 @@
     "case": "k-variables-floating",
     "region": "overlay:Middle/0",
     "h_base": 24,
+    "x_band": [
+      0,
+      300
+    ],
     "anchor_x": "right",
     "anchor_y": "centre",
     "min_dw": 8,
     "max_dw": 8,
     "max_dh": 8,
     "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
+    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held The band holds the left panel, where spec K's value inputs never sit."
   },
   {
     "case": "k-variables-floating",
@@ -2881,13 +2917,17 @@
     "case": "micro-components-variables",
     "region": "overlay:Middle/0",
     "h_base": 24,
+    "x_band": [
+      0,
+      300
+    ],
     "anchor_x": "right",
     "anchor_y": "centre",
     "min_dw": 8,
     "max_dw": 8,
     "max_dh": 8,
     "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
+    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held The band holds the left panel, where spec K's value inputs never sit."
   },
   {
     "case": "micro-components-variables",

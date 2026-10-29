@@ -80,6 +80,11 @@ pub struct AllowEntry {
     pub name_prefix: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub h_base: Option<f32>,
+    /// With `h_base` or `name_prefix`: the entry covers only widgets whose baseline left edge lies in
+    /// `[lo, hi]`, so two legs can allow same-height widgets in different parts of one region. The band is
+    /// a column of its own: a covered widget's derived x shift counts only row-mates inside the same band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_band: Option<[f32; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor_x: Option<AnchorX>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -376,6 +381,14 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
         if has_negative_size_delta && !has_r5_token {
             return Err(format!("allow.json[{idx}]: negative dw/dh requires R5 in reason, got {:?}", e.reason));
         }
+        if let Some([lo, hi]) = e.x_band {
+            if e.h_base.is_none() && e.name_prefix.is_none() {
+                return Err(format!("allow.json[{idx}]: x_band needs h_base or name_prefix"));
+            }
+            if lo > hi {
+                return Err(format!("allow.json[{idx}]: x_band must run from low to high, got [{lo}, {hi}]"));
+            }
+        }
     }
 
     for i in 0..entries.len() {
@@ -395,12 +408,12 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
                 2 => {
                     let pa = a.name_prefix.as_deref().unwrap_or("");
                     let pb = b.name_prefix.as_deref().unwrap_or("");
-                    pa.starts_with(pb) || pb.starts_with(pa)
+                    (pa.starts_with(pb) || pb.starts_with(pa)) && x_bands_overlap(a.x_band, b.x_band)
                 }
                 1 => {
                     let ha = a.h_base.unwrap_or(0.0);
                     let hb = b.h_base.unwrap_or(0.0);
-                    (ha - hb).abs() <= 0.5
+                    (ha - hb).abs() <= 0.5 && x_bands_overlap(a.x_band, b.x_band)
                 }
                 _ => true,
             };
@@ -427,7 +440,20 @@ fn entry_matches_widget(e: &AllowEntry, case: &str, region: &str, name: Option<&
             return false;
         }
     }
+    if let Some([lo, hi]) = e.x_band {
+        if base_rect[0] < lo || base_rect[0] > hi {
+            return false;
+        }
+    }
     true
+}
+
+/// An entry without a band covers every x, so it overlaps any other entry.
+fn x_bands_overlap(a: Option<[f32; 2]>, b: Option<[f32; 2]>) -> bool {
+    match (a, b) {
+        (Some([alo, ahi]), Some([blo, bhi])) => alo <= bhi && blo <= ahi,
+        _ => true,
+    }
 }
 
 fn best_matching_entry<'a>(allow: &'a AllowList, case: &str, region: &str, name: Option<&str>, base_rect: [f32; 4]) -> Option<(usize, &'a AllowEntry)> {
@@ -833,8 +859,11 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             let sum_dh_below: f32 = row_dhs[(row_idx + 1)..].iter().sum();
             let gaps_above = row_idx;
             for (col_idx, w) in row.iter().enumerate() {
-                let sum_dw_left: f32 = row[..col_idx].iter().map(|lw| lw.c_rect[2] - lw.b_rect[2]).sum();
-                let sum_dw_right: f32 = row[(col_idx + 1)..].iter().map(|rw| rw.c_rect[2] - rw.b_rect[2]).sum();
+                // A banded entry is a column of its own: only row-mates inside the band shift the widget sideways.
+                let band = best_matching_entry(allow, case_id, &reg, w.name, w.b_rect).and_then(|(_, e)| e.x_band);
+                let in_band = |o: &&RowWidget<'_>| band.is_none_or(|[lo, hi]| o.b_rect[0] >= lo && o.b_rect[0] <= hi);
+                let sum_dw_left: f32 = row[..col_idx].iter().filter(in_band).map(|lw| lw.c_rect[2] - lw.b_rect[2]).sum();
+                let sum_dw_right: f32 = row[(col_idx + 1)..].iter().filter(in_band).map(|rw| rw.c_rect[2] - rw.b_rect[2]).sum();
                 shifts_by_widget.insert((reg.clone(), w.label.clone()), DerivedShifts { sum_dw_left, sum_dw_right, sum_dh_above, sum_dh_below, gaps_above });
             }
         }
@@ -2019,6 +2048,49 @@ mod tests {
         cur.named.get_mut("prop-row-2").unwrap().rect = [1210.0, 140.0, 200.0, 32.0];
 
         compare_with_stale_check(&base, &cur, &allow, &[]).expect("name_prefix must beat h_base on prop-row-0");
+    }
+
+    /// Two legs may allow same-height widgets in one region when each entry names a disjoint band of baseline left edges.
+    #[test]
+    fn same_height_entries_in_disjoint_x_bands_each_cover_their_own_widgets() {
+        let banded = r#"[
+            {"case":"k","region":"overlay","h_base":24,"x_band":[0,300],"anchor_x":"right","min_dw":8,"max_dw":8,"min_dh":8,"max_dh":8,"anchor_y":"centre","spec":"E","reason":"R5: header buttons"},
+            {"case":"k","region":"overlay","h_base":24,"x_band":[390,2000],"min_dh":8,"max_dh":8,"anchor_y":"centre","spec":"K","reason":"R5: value inputs"}
+        ]"#;
+        let allow = parse_allow_list(banded).expect("disjoint x bands on one height must parse");
+        let left = best_matching_entry(&allow, "k", "overlay", None, [229.0, 105.0, 24.0, 24.0]).map(|(i, _)| i);
+        let right = best_matching_entry(&allow, "k", "overlay", None, [477.0, 220.0, 96.0, 24.0]).map(|(i, _)| i);
+        let outside = best_matching_entry(&allow, "k", "overlay", None, [340.0, 220.0, 24.0, 24.0]);
+        assert_eq!((left, right), (Some(0), Some(1)), "each widget takes the entry whose band holds its left edge");
+        assert!(outside.is_none(), "a widget between the bands takes neither entry");
+
+        let overlapping = banded.replace("[390,2000]", "[250,2000]");
+        assert!(parse_allow_list(&overlapping).is_err(), "overlapping bands on one height must fail to parse");
+        let unbanded = banded.replace(r#""x_band":[390,2000],"#, "");
+        assert!(parse_allow_list(&unbanded).is_err(), "an unbanded entry covers every x and still collides");
+        let reversed = banded.replace("[0,300]", "[300,0]");
+        assert!(parse_allow_list(&reversed).is_err(), "a band must run from low to high");
+    }
+
+    /// A banded entry is a column of its own: a widget in it takes no derived x shift from row-mates outside its band.
+    #[test]
+    fn a_banded_widget_ignores_width_changes_outside_its_band() {
+        let allow = parse_allow_list(
+            r#"[
+            {"case":"k","region":"right_panel","h_base":24,"x_band":[0,1250],"anchor_x":"right","min_dw":8,"max_dw":8,"min_dh":8,"max_dh":8,"anchor_y":"centre","spec":"E","reason":"R5: buttons"},
+            {"case":"k","region":"right_panel","h_base":24,"x_band":[1250.5,4000],"min_dh":8,"max_dh":8,"anchor_y":"centre","spec":"K","reason":"R5: inputs"}
+        ]"#,
+        )
+        .expect("disjoint bands parse");
+        let mut base = sample_snapshot("k");
+        base.named.clear();
+        base.named.insert("button".into(), NamedWidget { region: "right_panel".into(), rect: [1210.0, 60.0, 24.0, 24.0], count: 1 });
+        base.named.insert("input".into(), NamedWidget { region: "right_panel".into(), rect: [1300.0, 62.0, 96.0, 24.0], count: 1 });
+        let mut cur = base.clone();
+        // The button grows 8 with its right edge held; the input grows 8 tall, centred, at its own left edge.
+        cur.named.get_mut("button").unwrap().rect = [1202.0, 56.0, 32.0, 32.0];
+        cur.named.get_mut("input").unwrap().rect = [1300.0, 58.0, 96.0, 32.0];
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("the input's band holds no width change, so its left edge stays");
     }
 
     /// Test 7: Missing baseline file fails with the bless hint.
