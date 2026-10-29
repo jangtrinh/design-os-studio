@@ -20,6 +20,10 @@ _Declared stance for `design:os studio`. Every `/ui:*` flow and studio agent rea
 - Never ship decorative stub buttons, dead search bars or unwired menu items (gate `Z01..Z14`) — evidence: `scripts/zero_fake_ui_gate.py`
 - Never concatenate item counts into labels like `"Layers (4)"`; counts render in a separate `Badge/StatusCount` pill (`D85`) — evidence: `plans/reports/audit-261016-vsf-pcp-ui-craft.md`
 - Never let single-key canvas shortcuts fire while the embedded terminal or a text input has keyboard focus — evidence: `crates/designos-app/src/terminal.rs`
+- Never set a tag, badge or chip in all caps: only the acronyms `AI`, `API`, `CLI`, `CSS`, `MCP`, `PRD`, `SVG`, `PNG`, `JPG`, `PDF`, `URL`, `ID`, `UI`, `AA` and `AAA` are upper case there, and tabs are not covered — evidence: `scripts/check_ds_ontology_parity.py` (P7 pins every upper-case site that remains)
+- Never fill a selected tab, segment or row with the brand colour: selected is the neutral `BG_SELECTED`, and Studio orange stays for the primary action, live state and the focus ring — evidence: `scripts/check_ds_ontology_parity.py` (P7 pins the one segment that still does)
+- Never put a brand-filled primary button in a table cell, list row or row item: row actions are `Button/Secondary`, `Button/Tertiary` or `Button/Icon` — evidence: `design/component-registry.json` (the `Table/Data` and `List/Row` composition); no gate enforces it until the chrome fingerprint test lands
+- Never fill a control with a gradient (button, tab, row or bar); headers and cards are not covered — evidence: `scripts/check_ds_ontology_parity.py` (P7 pins the mesh constructors outside the canvas and board)
 
 ## Always
 
@@ -51,6 +55,8 @@ _Declared stance for `design:os studio`. Every `/ui:*` flow and studio agent rea
 - `design/design.tokens.json` — the sealed token store, re-valued to the dark roles with one changelog entry per token
 - `scripts/design_os_self_evolve.py` — G01 parity between `theme.rs` and the token store, and the Purple Ban list
 - `scripts/check_spacing_relationships.py` — the ratchet over literal geometry, with its baseline in `scripts/spacing_baseline.json`
+- `scripts/check_ds_ontology_parity.py` — the registry, Rust kit and token store parity gate, and the pinned sites of the absences above
+- `design/component-registry.json` — the closed list of 78 chrome records, element to screen, with tier, composition, tokens and Rust symbol
 - `crates/designos-app/src/home/mod.rs` — per-section Home filtering and card thumbnails
 - `crates/designos-app/src/terminal.rs` — per-file PTY agent terminal and shortcut suppression
 - `scripts/zero_fake_ui_gate.py` — `Z01..Z14` gate against dead controls
