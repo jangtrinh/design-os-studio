@@ -196,4 +196,4 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `INVALID_NAME` | `retryable` |
 | `NAME_TOO_LONG` | `retryable` |
 
-`ANOTHER_WINDOW_OWNS_SESSION` is the MCP code when a tool call is refused because another Studio window holds this file's agent session. Studio still shows `ANOTHER_WINDOW_OWNS_SESSION_MSG` as a UI status line at `crates/designos-app/src/agent_sessions.rs`. `APPROVAL_DENIED` and `APPROVAL_TIMEOUT` are catalogue codes for the approval flow (#1310); call `ToolError::approval_denied` and `ToolError::approval_timeout` when that flow lands. There is no tool-call path for those three codes on this branch yet.
+`ANOTHER_WINDOW_OWNS_SESSION` is the MCP code when a tool call is refused because another Studio window holds this file's agent session. Studio still shows `ANOTHER_WINDOW_OWNS_SESSION_MSG` as a UI status line at `crates/designos-app/src/agent_sessions.rs`. The Ask-mode approval hook deny message carries `APPROVAL_DENIED` so the agent stops. `APPROVAL_TIMEOUT` still exits 0 and lets the CLI prompt. There is no MCP tool-call path for the window lock or timeout on this branch yet.

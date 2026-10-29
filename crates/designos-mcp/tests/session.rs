@@ -346,6 +346,22 @@ fn unsupported_node_kind_and_extension_are_fatal_live() {
 }
 
 #[test]
+fn open_file_unsupported_extension_is_fatal() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    for name in ["a.txt", "a.png", "a.psd", "a"] {
+        let err = s.call("designos_open_file", json!({"path": name})).unwrap_err().to_json_value();
+        assert_eq!(err["code"], "UNSUPPORTED_EXTENSION", "{name}: {err}");
+        assert_eq!(err["error_kind"], "fatal", "{name}: {err}");
+        assert_eq!(err["safe_to_retry"], false, "{name}: {err}");
+        let step = err["next_step"].as_str().unwrap_or_default().to_lowercase();
+        assert!(step.contains("stop"), "{name}: {err}");
+        assert!(step.contains("tell the user"), "{name}: {err}");
+        assert!(step.contains(".designos"), "{name}: {err}");
+    }
+}
+
+#[test]
 fn document_invalid_is_fatal_and_not_safe_to_retry_live() {
     let dir = Workspace::new();
     let mut s = Session::new(&dir.0).unwrap();

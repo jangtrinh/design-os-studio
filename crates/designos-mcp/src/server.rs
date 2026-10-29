@@ -636,22 +636,29 @@ fn import_size_gate(len: u64) -> Result<(), ToolError> {
 }
 
 impl Session {
-    fn input_path(&self, path: &str) -> Result<PathBuf, ToolError> {
+    fn ensure_inside_workspace(&self, path: &str) -> Result<(), ToolError> {
+        let err = || ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace");
         if Path::new(path).is_absolute()
             && !Path::new(path).starts_with(&self.root)
             && Path::new(path).canonicalize().map_or(true, |c| !c.starts_with(&self.root))
         {
-            return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
+            return Err(err());
         }
         let joined = self.root.join(path);
         for anc in joined.ancestors().skip(1) {
             if let Ok(canon_anc) = anc.canonicalize() {
                 if !canon_anc.starts_with(&self.root) {
-                    return Err(ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace"));
+                    return Err(err());
                 }
                 break;
             }
         }
+        Ok(())
+    }
+
+    fn input_path(&self, path: &str) -> Result<PathBuf, ToolError> {
+        self.ensure_inside_workspace(path)?;
+        let joined = self.root.join(path);
         let canon = joined.canonicalize().map_err(|e| {
             if path.contains("..") || Path::new(path).is_absolute() {
                 ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "Path must stay inside the configured workspace")
@@ -957,6 +964,10 @@ impl Session {
                 let a: OpenArgs = parse(args)?;
                 // The path is checked first, so a path outside the workspace is refused as such and is
                 // never echoed back in the unsaved-changes hint.
+                self.ensure_inside_workspace(&a.path)?;
+                if !crate::engine::open_import_extension_ok(&a.path) {
+                    return Err(crate::engine::unsupported_open_extension(&a.path));
+                }
                 let path = self.input_path(&a.path)?;
                 if self.dirty && !a.discard_changes {
                     return Err(ToolError::new(ErrorCode::UnsavedChanges, "/discard_changes", "Unsaved changes: stop and tell the user. Do not discard them.")
