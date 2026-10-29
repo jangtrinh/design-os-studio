@@ -277,6 +277,20 @@ pub struct StubCall {
     pub args: Value,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StubErrorAction {
+    StopAndReport,
+    Continue,
+}
+
+pub fn action_on_tool_error(error: &Value) -> StubErrorAction {
+    let kind = error.get("error_kind").and_then(Value::as_str).or_else(|| error.get("error").and_then(|e| e.get("error_kind")).and_then(Value::as_str));
+    match kind {
+        Some("needs_human") => StubErrorAction::StopAndReport,
+        _ => StubErrorAction::Continue,
+    }
+}
+
 /// Starts the `designos-mcp` server described by the `mcpServers.designos` entry of `mcp_config_path` and
 /// replays every `{tool, args}` line from `script_path` against it, exactly like a model-driven agent would.
 /// The server itself writes the transcript (`DESIGNOS_MCP_TRANSCRIPT` in the config's `env`). A failing tool

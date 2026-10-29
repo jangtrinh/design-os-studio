@@ -198,6 +198,14 @@ pub fn render_parity_markdown(snapshots: &[ToolSnapshot], parity: &ParityFile) -
         out.push_str(&format!("| {} | `{}` | `{}` | {} | {} |\n", idx + 1, escape_md_cell(&row.figma_tool), escape_md_cell(&row.status), target, note,));
     }
 
+    out.push_str("\n## 3. MCP error kinds\n\n");
+    out.push_str("Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the arguments and call again. `fatal`: this call cannot succeed. `needs_human`: stop and ask the user; do not retry or work around.\n\n");
+    out.push_str("| Code | error_kind |\n");
+    out.push_str("| --- | --- |\n");
+    for code in designos_mcp::tools::errors::ErrorCode::ALL {
+        out.push_str(&format!("| `{}` | `{}` |\n", escape_md_cell(code.as_str()), escape_md_cell(code.default_kind().as_str())));
+    }
+
     out
 }
 

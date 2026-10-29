@@ -306,7 +306,7 @@ impl ErrorCode {
             Self::EditorPublishFailed => "Save the file or reopen Studio before continuing.",
             Self::PatchTooLarge => "Split the edit into smaller calls or save and reopen the document.",
             Self::HistoryDropped => "Call designos_get_document to verify state; undo is unavailable for the last edit.",
-            Self::UnsavedChanges => "Call designos_save_file first, or pass discard_changes=true to discard the unsaved changes.",
+            Self::UnsavedChanges => "Stop and tell the user: the open document has unsaved changes. Do not discard them.",
             Self::FileExists => "Pass overwrite=true or choose a new path.",
             Self::FileTooLarge => "This file is over the limit in `expected`. Open it in DESIGN:OS Studio, or use a smaller file.",
             Self::PathOutsideWorkspace => "Pass a relative path inside the active workspace.",
@@ -410,6 +410,108 @@ impl ErrorCode {
             _ => None,
         }
     }
+
+    pub const fn default_kind(self) -> ErrorKind {
+        match self {
+            Self::InvalidArguments
+            | Self::UnknownField
+            | Self::MissingField
+            | Self::ValueOutOfRange
+            | Self::TextTooLong
+            | Self::InvalidColor
+            | Self::NodeNotFound
+            | Self::NotAContainer
+            | Self::PageRootProtected
+            | Self::MoveCycle
+            | Self::InstanceCycle
+            | Self::OverrideFieldNotApplicable
+            | Self::UnknownComponent
+            | Self::AmbiguousComponent
+            | Self::UnknownVariantProperty
+            | Self::UnknownVariantValue
+            | Self::NoSuchVariant
+            | Self::UnknownOverridePath
+            | Self::AmbiguousOverridePath
+            | Self::UnknownComponentProperty
+            | Self::PropertyTypeMismatch
+            | Self::FieldNotAllowedOnInstance
+            | Self::UnknownSlot
+            | Self::SlotFillNotAllowed
+            | Self::SlotChildCount
+            | Self::InvalidSlotValue
+            | Self::SlotContainerNotFound
+            | Self::UnknownVariable
+            | Self::AmbiguousVariable
+            | Self::VariableTypeMismatch
+            | Self::VariableScopeMismatch
+            | Self::UnknownStyle
+            | Self::StyleTypeMismatch
+            | Self::UnknownVariableMode
+            | Self::BatchOpFailed
+            | Self::UnknownRef
+            | Self::DuplicateAs
+            | Self::BatchTooLarge
+            | Self::UnknownTool
+            | Self::ToolDisabled
+            | Self::FileExists
+            | Self::EditorNotNotified
+            | Self::EditorPublishFailed
+            | Self::PatchTooLarge
+            | Self::InvalidSelector
+            | Self::UnknownLanguage
+            | Self::OutsideOwnedFrames
+            | Self::InProgressTargetNotRoot
+            | Self::NodeInProgressByOtherRun
+            | Self::UnknownPreset
+            | Self::UnknownRule
+            | Self::ExactlyOneScope
+            | Self::InvalidCursor
+            | Self::UnknownTopic
+            | Self::TopicNotAvailable
+            | Self::UnknownPropertyKey
+            | Self::ExactlyOneTarget
+            | Self::InvalidRegion
+            | Self::ImageTooLarge
+            | Self::NodesOnDifferentPages
+            | Self::UnknownPrompt
+            | Self::IdempotencyKeyReused
+            | Self::IdempotencyKeyStale
+            | Self::CursorStale
+            | Self::RuleUnavailable
+            | Self::InvalidName
+            | Self::NameTooLong => ErrorKind::Retryable,
+            Self::UnsavedChanges | Self::PathOutsideWorkspace => ErrorKind::NeedsHuman,
+            Self::FileTooLarge | Self::DocumentInvalid | Self::HistoryDropped | Self::InternalError => ErrorKind::Fatal,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorKind {
+    #[default]
+    Retryable,
+    Fatal,
+    NeedsHuman,
+}
+
+impl ErrorKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Retryable => "retryable",
+            Self::Fatal => "fatal",
+            Self::NeedsHuman => "needs_human",
+        }
+    }
+
+    pub fn from_wire(s: &str) -> Option<Self> {
+        match s {
+            "retryable" => Some(Self::Retryable),
+            "fatal" => Some(Self::Fatal),
+            "needs_human" => Some(Self::NeedsHuman),
+            _ => None,
+        }
+    }
 }
 
 /// Structured error envelope returned by `Engine::call` and `Session::call` (§3.1, §4).
@@ -435,12 +537,15 @@ pub struct ToolError {
     pub failed_op: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub op: Option<String>,
+    #[serde(default)]
+    pub error_kind: ErrorKind,
     pub safe_to_retry: bool,
     pub next_step: String,
 }
 
 impl ToolError {
     pub fn new(code: ErrorCode, path: impl Into<String>, message: impl Into<String>) -> Self {
+        let error_kind = code.default_kind();
         Self {
             code,
             message: message.into(),
@@ -453,9 +558,18 @@ impl ToolError {
             cause: None,
             failed_op: None,
             op: None,
-            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge),
+            error_kind,
+            safe_to_retry: error_kind != ErrorKind::NeedsHuman && !matches!(code, ErrorCode::FileTooLarge),
             next_step: code.default_next_step().to_string(),
         }
+    }
+
+    pub fn with_error_kind(mut self, kind: ErrorKind) -> Self {
+        self.error_kind = kind;
+        if kind == ErrorKind::NeedsHuman {
+            self.safe_to_retry = false;
+        }
+        self
     }
 
     pub fn with_path(mut self, path: impl Into<String>) -> Self {
@@ -528,8 +642,9 @@ impl ToolError {
         let op_str = op.into();
         let path = if cause.path.is_empty() { format!("/ops/{failed_op}") } else { cause.path.clone() };
         let msg = format!("op #{failed_op} ({op_str}) failed: {}", cause.message);
+        let kind = cause.error_kind;
         let safe = cause.safe_to_retry;
-        Self::new(ErrorCode::BatchOpFailed, path, msg).with_failed_op(failed_op, op_str).with_cause(cause).with_safe_to_retry(safe)
+        Self::new(ErrorCode::BatchOpFailed, path, msg).with_failed_op(failed_op, op_str).with_cause(cause).with_error_kind(kind).with_safe_to_retry(safe)
     }
 
     fn build_fields_map(&self) -> Map<String, Value> {
@@ -569,6 +684,7 @@ impl ToolError {
         if let Some(op) = &self.op {
             map.insert("op".into(), json!(op));
         }
+        map.insert("error_kind".into(), json!(self.error_kind.as_str()));
         map.insert("safe_to_retry".into(), json!(self.safe_to_retry));
         map.insert("next_step".into(), json!(self.next_step));
         map
@@ -639,8 +755,13 @@ impl ToolError {
         let text = |key: &str| obj.get(key).and_then(Value::as_str);
         // Helpers repeat the code at the start of the message ("NODE_NOT_FOUND: ..."); the code has its own field.
         let message = text("message").map(|m| m.strip_prefix(code_str).and_then(|rest| rest.strip_prefix(": ")).unwrap_or(m)).unwrap_or(code_str);
-        let mut err =
-            ToolError::new(code, text("path").unwrap_or(""), message).with_safe_to_retry(obj.get("safe_to_retry").and_then(Value::as_bool).unwrap_or(true));
+        let mut err = ToolError::new(code, text("path").unwrap_or(""), message);
+        if let Some(kind) = text("error_kind").and_then(ErrorKind::from_wire) {
+            err = err.with_error_kind(kind);
+        }
+        if let Some(safe) = obj.get("safe_to_retry").and_then(Value::as_bool) {
+            err = err.with_safe_to_retry(safe);
+        }
         if let Some(next_step) = text("next_step") {
             err = err.with_next_step(next_step);
         }
@@ -1720,11 +1841,12 @@ pub fn contextualize_corrected_example(err: &mut ToolError, original_args: &Valu
 pub fn error_envelope_schema() -> Value {
     json!({
         "type": "object",
-        "required": ["code", "message", "path", "safe_to_retry", "next_step"],
+        "required": ["code", "message", "path", "error_kind", "safe_to_retry", "next_step"],
         "properties": {
             "code": { "type": "string" },
             "message": { "type": "string" },
             "path": { "type": "string" },
+            "error_kind": { "type": "string", "enum": ["retryable", "fatal", "needs_human"] },
             "received": {},
             "expected": { "type": "string" },
             "valid_options": {
@@ -1841,5 +1963,157 @@ mod plain_message_tests {
         assert_eq!(e.code, ErrorCode::InvalidArguments);
         assert_eq!(e.message, "limit must be between 1 and 500");
         assert!(e.safe_to_retry);
+    }
+}
+
+#[cfg(test)]
+mod error_kind_tests {
+    use super::*;
+
+    fn expected_kind(code: ErrorCode) -> &'static str {
+        match code {
+            ErrorCode::InvalidArguments
+            | ErrorCode::UnknownField
+            | ErrorCode::MissingField
+            | ErrorCode::ValueOutOfRange
+            | ErrorCode::TextTooLong
+            | ErrorCode::InvalidColor
+            | ErrorCode::NodeNotFound
+            | ErrorCode::NotAContainer
+            | ErrorCode::PageRootProtected
+            | ErrorCode::MoveCycle
+            | ErrorCode::InstanceCycle
+            | ErrorCode::OverrideFieldNotApplicable
+            | ErrorCode::UnknownComponent
+            | ErrorCode::AmbiguousComponent
+            | ErrorCode::UnknownVariantProperty
+            | ErrorCode::UnknownVariantValue
+            | ErrorCode::NoSuchVariant
+            | ErrorCode::UnknownOverridePath
+            | ErrorCode::AmbiguousOverridePath
+            | ErrorCode::UnknownComponentProperty
+            | ErrorCode::PropertyTypeMismatch
+            | ErrorCode::FieldNotAllowedOnInstance
+            | ErrorCode::UnknownSlot
+            | ErrorCode::SlotFillNotAllowed
+            | ErrorCode::SlotChildCount
+            | ErrorCode::InvalidSlotValue
+            | ErrorCode::SlotContainerNotFound
+            | ErrorCode::UnknownVariable
+            | ErrorCode::AmbiguousVariable
+            | ErrorCode::VariableTypeMismatch
+            | ErrorCode::VariableScopeMismatch
+            | ErrorCode::UnknownStyle
+            | ErrorCode::StyleTypeMismatch
+            | ErrorCode::UnknownVariableMode
+            | ErrorCode::BatchOpFailed
+            | ErrorCode::UnknownRef
+            | ErrorCode::DuplicateAs
+            | ErrorCode::BatchTooLarge
+            | ErrorCode::UnknownTool
+            | ErrorCode::ToolDisabled
+            | ErrorCode::FileExists
+            | ErrorCode::EditorNotNotified
+            | ErrorCode::EditorPublishFailed
+            | ErrorCode::PatchTooLarge
+            | ErrorCode::InvalidSelector
+            | ErrorCode::UnknownLanguage
+            | ErrorCode::OutsideOwnedFrames
+            | ErrorCode::InProgressTargetNotRoot
+            | ErrorCode::NodeInProgressByOtherRun
+            | ErrorCode::UnknownPreset
+            | ErrorCode::UnknownRule
+            | ErrorCode::ExactlyOneScope
+            | ErrorCode::InvalidCursor
+            | ErrorCode::UnknownTopic
+            | ErrorCode::TopicNotAvailable
+            | ErrorCode::UnknownPropertyKey
+            | ErrorCode::ExactlyOneTarget
+            | ErrorCode::InvalidRegion
+            | ErrorCode::ImageTooLarge
+            | ErrorCode::NodesOnDifferentPages
+            | ErrorCode::UnknownPrompt
+            | ErrorCode::IdempotencyKeyReused
+            | ErrorCode::IdempotencyKeyStale
+            | ErrorCode::CursorStale
+            | ErrorCode::RuleUnavailable
+            | ErrorCode::InvalidName
+            | ErrorCode::NameTooLong => "retryable",
+            ErrorCode::UnsavedChanges | ErrorCode::PathOutsideWorkspace => "needs_human",
+            ErrorCode::FileTooLarge | ErrorCode::DocumentInvalid | ErrorCode::HistoryDropped | ErrorCode::InternalError => "fatal",
+        }
+    }
+
+    #[test]
+    fn every_error_code_maps_to_exactly_one_default_kind() {
+        for code in ErrorCode::ALL {
+            let err = ToolError::new(*code, "", "m");
+            let json = err.to_json_value();
+            let kind = json["error_kind"].as_str().unwrap_or("");
+            assert_eq!(kind, expected_kind(*code), "{}", code.as_str());
+        }
+        assert_eq!(ErrorCode::ALL.len(), 73);
+    }
+
+    #[test]
+    fn error_kind_serializes_snake_case_next_to_safe_to_retry() {
+        let err = ToolError::new(ErrorCode::UnsavedChanges, "/discard_changes", "unsaved");
+        let json = err.to_json_value();
+        let envelope = &json["error"];
+        assert_eq!(envelope["code"], "UNSAVED_CHANGES");
+        assert_eq!(envelope["error_kind"], "needs_human");
+        assert_eq!(envelope["safe_to_retry"], false);
+        assert!(envelope.get("error_kind").is_some());
+        assert!(envelope.get("safe_to_retry").is_some());
+        assert_eq!(json["error_kind"], "needs_human");
+        assert_eq!(json["safe_to_retry"], false);
+    }
+
+    #[test]
+    fn argument_errors_are_retryable() {
+        for code in [ErrorCode::InvalidArguments, ErrorCode::NodeNotFound, ErrorCode::UnknownField, ErrorCode::MissingField, ErrorCode::ValueOutOfRange] {
+            let json = ToolError::new(code, "/x", "m").to_json_value();
+            assert_eq!(json["error_kind"], "retryable", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], true, "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn internal_and_unsupported_errors_are_fatal() {
+        for code in [ErrorCode::InternalError, ErrorCode::FileTooLarge, ErrorCode::DocumentInvalid, ErrorCode::HistoryDropped] {
+            let json = ToolError::new(code, "", "m").to_json_value();
+            assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn needs_human_errors_set_safe_to_retry_false() {
+        for code in [ErrorCode::UnsavedChanges, ErrorCode::PathOutsideWorkspace] {
+            let json = ToolError::new(code, "/x", "m").to_json_value();
+            assert_eq!(json["error_kind"], "needs_human", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn cause_wrapping_keeps_the_outer_kind() {
+        let inner = ToolError::new(ErrorCode::UnsavedChanges, "/inner", "inner");
+        let outer = ToolError::new(ErrorCode::InvalidArguments, "/outer", "outer").with_cause(inner);
+        let json = outer.to_json_value();
+        assert_eq!(json["error_kind"], "retryable");
+        assert_eq!(json["cause"]["error_kind"], "needs_human");
+        assert_eq!(json["cause"]["code"], "UNSAVED_CHANGES");
+    }
+
+    #[test]
+    fn batch_op_failed_kind_is_the_failing_op() {
+        let cause = ToolError::new(ErrorCode::UnsavedChanges, "/ops/0", "dirty");
+        let err = ToolError::batch_op_failed(0, "create", cause);
+        let json = err.to_json_value();
+        assert_eq!(json["code"], "BATCH_OP_FAILED");
+        assert_eq!(json["error_kind"], "needs_human");
+        assert_eq!(json["safe_to_retry"], false);
+        assert_eq!(json["cause"]["error_kind"], "needs_human");
+        assert_eq!(json["cause"]["code"], "UNSAVED_CHANGES");
     }
 }

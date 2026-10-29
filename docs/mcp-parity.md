@@ -110,3 +110,83 @@
 | 39 | `weave_find_model` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
 | 40 | `weave_run_model` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
 | 41 | `weave_get_model_run_output` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
+
+## 3. MCP error kinds
+
+Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the arguments and call again. `fatal`: this call cannot succeed. `needs_human`: stop and ask the user; do not retry or work around.
+
+| Code | error_kind |
+| --- | --- |
+| `INVALID_ARGUMENTS` | `retryable` |
+| `UNKNOWN_FIELD` | `retryable` |
+| `MISSING_FIELD` | `retryable` |
+| `VALUE_OUT_OF_RANGE` | `retryable` |
+| `TEXT_TOO_LONG` | `retryable` |
+| `INVALID_COLOR` | `retryable` |
+| `NODE_NOT_FOUND` | `retryable` |
+| `NOT_A_CONTAINER` | `retryable` |
+| `PAGE_ROOT_PROTECTED` | `retryable` |
+| `MOVE_CYCLE` | `retryable` |
+| `INSTANCE_CYCLE` | `retryable` |
+| `OVERRIDE_FIELD_NOT_APPLICABLE` | `retryable` |
+| `UNKNOWN_COMPONENT` | `retryable` |
+| `AMBIGUOUS_COMPONENT` | `retryable` |
+| `UNKNOWN_VARIANT_PROPERTY` | `retryable` |
+| `UNKNOWN_VARIANT_VALUE` | `retryable` |
+| `NO_SUCH_VARIANT` | `retryable` |
+| `UNKNOWN_OVERRIDE_PATH` | `retryable` |
+| `AMBIGUOUS_OVERRIDE_PATH` | `retryable` |
+| `UNKNOWN_COMPONENT_PROPERTY` | `retryable` |
+| `PROPERTY_TYPE_MISMATCH` | `retryable` |
+| `FIELD_NOT_ALLOWED_ON_INSTANCE` | `retryable` |
+| `UNKNOWN_SLOT` | `retryable` |
+| `SLOT_FILL_NOT_ALLOWED` | `retryable` |
+| `SLOT_CHILD_COUNT` | `retryable` |
+| `INVALID_SLOT_VALUE` | `retryable` |
+| `SLOT_CONTAINER_NOT_FOUND` | `retryable` |
+| `UNKNOWN_VARIABLE` | `retryable` |
+| `AMBIGUOUS_VARIABLE` | `retryable` |
+| `VARIABLE_TYPE_MISMATCH` | `retryable` |
+| `VARIABLE_SCOPE_MISMATCH` | `retryable` |
+| `UNKNOWN_STYLE` | `retryable` |
+| `STYLE_TYPE_MISMATCH` | `retryable` |
+| `UNKNOWN_VARIABLE_MODE` | `retryable` |
+| `BATCH_OP_FAILED` | `retryable` |
+| `UNKNOWN_REF` | `retryable` |
+| `DUPLICATE_AS` | `retryable` |
+| `BATCH_TOO_LARGE` | `retryable` |
+| `UNKNOWN_TOOL` | `retryable` |
+| `TOOL_DISABLED` | `retryable` |
+| `UNSAVED_CHANGES` | `needs_human` |
+| `PATH_OUTSIDE_WORKSPACE` | `needs_human` |
+| `FILE_EXISTS` | `retryable` |
+| `FILE_TOO_LARGE` | `fatal` |
+| `DOCUMENT_INVALID` | `fatal` |
+| `EDITOR_NOT_NOTIFIED` | `retryable` |
+| `EDITOR_PUBLISH_FAILED` | `retryable` |
+| `PATCH_TOO_LARGE` | `retryable` |
+| `HISTORY_DROPPED` | `fatal` |
+| `INTERNAL_ERROR` | `fatal` |
+| `INVALID_SELECTOR` | `retryable` |
+| `UNKNOWN_LANGUAGE` | `retryable` |
+| `OUTSIDE_OWNED_FRAMES` | `retryable` |
+| `IN_PROGRESS_TARGET_NOT_ROOT` | `retryable` |
+| `NODE_IN_PROGRESS_BY_OTHER_RUN` | `retryable` |
+| `UNKNOWN_PRESET` | `retryable` |
+| `UNKNOWN_RULE` | `retryable` |
+| `EXACTLY_ONE_SCOPE` | `retryable` |
+| `INVALID_CURSOR` | `retryable` |
+| `UNKNOWN_TOPIC` | `retryable` |
+| `TOPIC_NOT_AVAILABLE` | `retryable` |
+| `UNKNOWN_PROPERTY_KEY` | `retryable` |
+| `EXACTLY_ONE_TARGET` | `retryable` |
+| `INVALID_REGION` | `retryable` |
+| `IMAGE_TOO_LARGE` | `retryable` |
+| `NODES_ON_DIFFERENT_PAGES` | `retryable` |
+| `UNKNOWN_PROMPT` | `retryable` |
+| `IDEMPOTENCY_KEY_REUSED` | `retryable` |
+| `IDEMPOTENCY_KEY_STALE` | `retryable` |
+| `CURSOR_STALE` | `retryable` |
+| `RULE_UNAVAILABLE` | `retryable` |
+| `INVALID_NAME` | `retryable` |
+| `NAME_TOO_LONG` | `retryable` |

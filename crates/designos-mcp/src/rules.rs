@@ -708,7 +708,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
         }
     }
     out.push_str(
-        "- **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.\n\
+        "- **Structured errors (E15-5):** Error responses include `code`, `error_kind` (`retryable`, `fatal`, `needs_human`), `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.\n\
          - **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).\n\n",
     );
 }
@@ -825,6 +825,12 @@ pub const GENERATED_RULES_MD: &str = include_str!("../generated/rules.md");
 mod tests {
     use super::*;
     use designos_doc::Document;
+
+    #[test]
+    fn rules_pack_says_stop_and_ask_the_user_on_needs_human() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("stop and ask the user"), "rules pack must tell the agent to stop and ask the user on needs_human");
+    }
 
     #[test]
     fn disabling_a_tool_removes_its_section() {
