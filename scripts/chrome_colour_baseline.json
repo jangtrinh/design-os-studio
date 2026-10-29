@@ -73,9 +73,6 @@
     "panels/inspect.rs": {
       "chrome_sites": 16
     },
-    "panels/left.rs": {
-      "chrome_sites": 2
-    },
     "panels/properties.rs": {
       "chrome_sites": 20
     },

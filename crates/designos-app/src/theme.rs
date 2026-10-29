@@ -513,6 +513,7 @@ pub const LEFT_FILE_NAME_Y: f32 = 16.0;
 pub const LEFT_SUBLABEL_Y: f32 = 40.0;
 pub const LEFT_ACTION_Y: f32 = 12.0;
 pub const LEFT_SIDEBAR_BTN_RIGHT_PAD: f32 = 12.0;
+#[allow(dead_code)] // Left-panel clusters use their own pitch. This one stays at the frozen value.
 pub const PAGES_SEARCH_DX: f32 = 28.0;
 pub const PANEL_TITLE_ROW_HEIGHT: f32 = CONTROL_MD;
 pub const PANEL_ACTION_BUTTON: f32 = TARGET_MIN;

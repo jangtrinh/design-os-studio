@@ -129,7 +129,7 @@
       "offset_literals": 30
     },
     "dev/list.rs": {
-      "offset_literals": 7,
+      "offset_literals": 5,
       "radius_literals": 1
     },
     "dev/playground.rs": {
@@ -143,7 +143,7 @@
       "radius_literals": 7
     },
     "find/filter.rs": {
-      "offset_literals": 10
+      "offset_literals": 2
     },
     "find/panel.rs": {
       "offset_literals": 11
@@ -227,7 +227,7 @@
       "radius_literals": 1
     },
     "panels/left.rs": {
-      "offset_literals": 20
+      "offset_literals": 11
     },
     "panels/menus.rs": {
       "inset_literals": 1,
@@ -359,7 +359,7 @@
     "inset_literals": 42,
     "legacy_control_refs": 83,
     "nonconcentric_pairs": 2,
-    "offset_literals": 1617,
+    "offset_literals": 1598,
     "radius_literals": 217
   },
   "totals_excluding_own_palette": {
@@ -367,7 +367,7 @@
     "inset_literals": 42,
     "legacy_control_refs": 79,
     "nonconcentric_pairs": 1,
-    "offset_literals": 1310,
+    "offset_literals": 1291,
     "radius_literals": 121
   },
   "version": 1

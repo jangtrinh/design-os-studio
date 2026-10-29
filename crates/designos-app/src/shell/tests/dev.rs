@@ -704,34 +704,107 @@ fn painted_shapes(s: &Sim) -> Vec<&egui::Shape> {
     out
 }
 
+/// What one Dev tab paints: its label (the leftmost text inside the tab box) and its count badge, when it has one.
+struct TabPaint {
+    tab: Rect,
+    label: String,
+    text_left: f32,
+    text_width: f32,
+    badge: Option<Rect>,
+}
+
+fn tab_paint(s: &Sim, key: &str) -> TabPaint {
+    let tab = s.rect_of(key);
+    let shapes = painted_shapes(s);
+    let text = shapes
+        .iter()
+        .filter_map(|shape| match shape {
+            egui::Shape::Text(t) if tab.contains(t.pos) => Some(t),
+            _ => None,
+        })
+        .min_by(|a, b| a.pos.x.total_cmp(&b.pos.x))
+        .unwrap_or_else(|| panic!("nothing is painted inside {key} {tab:?}"));
+    let badge = shapes.iter().find_map(|shape| match shape {
+        egui::Shape::Rect(r) if r.rect.height() == 16.0 && tab.contains_rect(r.rect) => Some(r.rect),
+        _ => None,
+    });
+    TabPaint { tab, label: text.galley.job.text.clone(), text_left: text.pos.x, text_width: text.galley.size().x, badge }
+}
+
+/// The tab hugs its content in whole pixels, rounded up, with the same inset on both sides.
+fn assert_tab_hugs_its_content(p: &TabPaint) {
+    let content_right = p.badge.map_or(p.text_left + p.text_width.ceil(), |badge| badge.right());
+    assert!((p.text_left - p.tab.left() - theme::INSET_CONTROL).abs() < 0.01, "{:?}: {} px in from the left", p.label, p.text_left - p.tab.left());
+    assert!((p.tab.right() - content_right - theme::INSET_CONTROL).abs() < 0.01, "{:?}: {} px in from the right", p.label, p.tab.right() - content_right);
+}
+
 #[test]
 fn the_dev_tabs_hug_their_content_with_the_same_inset_on_both_sides() {
     let (mut s, _) = dev_sim();
-    run_action(&mut s, Action::MarkReadyForDev); // a status in the file: the first tab shows its count badge
-    for (key, label, has_badge) in [("dev-left-tab-ready", "Ready for dev", true), ("dev-left-tab-layers", "Layers", false)] {
-        let tab = s.rect_of(key);
-        let shapes = painted_shapes(&s);
-        let text = shapes
-            .iter()
-            .find_map(|shape| match shape {
-                egui::Shape::Text(t) if t.galley.job.text == label && tab.contains(t.pos) => Some(t),
-                _ => None,
-            })
-            .unwrap_or_else(|| panic!("{label:?} is not painted inside its tab {tab:?}"));
-        let content_right = if has_badge {
-            shapes
-                .iter()
-                .find_map(|shape| match shape {
-                    egui::Shape::Rect(r) if r.rect.height() == 16.0 && tab.contains_rect(r.rect) => Some(r.rect.right()),
-                    _ => None,
-                })
-                .expect("the count badge is painted inside the tab")
-        } else {
-            // The tab hugs its label in whole pixels, rounded up (R11).
-            text.pos.x + text.galley.size().x.ceil()
-        };
-        assert!((text.pos.x - tab.left() - theme::INSET_CONTROL).abs() < 0.01, "{label:?}: {} px in from the left", text.pos.x - tab.left());
-        assert!((tab.right() - content_right - theme::INSET_CONTROL).abs() < 0.01, "{label:?}: {} px in from the right", tab.right() - content_right);
+    // A status in the file: the strip has a count to show.
+    run_action(&mut s, Action::MarkReadyForDev);
+    // At the default panel width the strip does not fit beside the layers buttons: the count badge goes, then the label elides.
+    let ready = tab_paint(&s, "dev-left-tab-ready");
+    assert!(ready.label.starts_with("Ready") && ready.label.ends_with('\u{2026}'), "the label elides on the way out, got {:?}", ready.label);
+    assert!(ready.badge.is_none(), "the count badge is dropped before the label elides");
+    assert_tab_hugs_its_content(&ready);
+    let layers = tab_paint(&s, "dev-left-tab-layers");
+    assert_eq!(layers.label, "Layers");
+    assert!(layers.badge.is_none());
+    assert_tab_hugs_its_content(&layers);
+}
+
+#[test]
+fn a_wider_left_panel_keeps_the_full_ready_label_and_its_count_badge() {
+    let (mut s, _) = dev_sim();
+    run_action(&mut s, Action::MarkReadyForDev);
+    s.shell.app.ui.left_panel_width = 280.0;
+    frames(&mut s, 2);
+    let ready = tab_paint(&s, "dev-left-tab-ready");
+    assert_eq!(ready.label, "Ready for dev");
+    assert!(ready.badge.is_some(), "the count badge is painted when the strip fits");
+    assert_tab_hugs_its_content(&ready);
+    let layers = tab_paint(&s, "dev-left-tab-layers");
+    assert_eq!(layers.label, "Layers");
+    assert_tab_hugs_its_content(&layers);
+}
+
+#[test]
+fn the_dev_tabs_stay_clear_of_the_layers_buttons_at_every_left_panel_width() {
+    let (mut s, _) = dev_sim();
+    let page = s.app().page;
+    for _ in 0..12 {
+        let id = s.shell.app.doc.alloc_id();
+        let mut node = designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+        node.dev.status = Some(DevStatus::ReadyForDev);
+        s.shell.app.doc.insert(page, node).unwrap();
+    }
+    s.shell.app.doc.bump_mutation_epoch();
+    // The layers buttons are drawn only while the Layers tab is the active one.
+    s.shell.app.dev.left_tab = LeftTab::Layers;
+    for width in [200.0, theme::LEFT_PANEL_WIDTH, 280.0, 360.0] {
+        s.shell.app.ui.left_panel_width = width;
+        frames(&mut s, 2);
+        let ready = s.rect_of("dev-left-tab-ready");
+        let layers = s.rect_of("dev-left-tab-layers");
+        let search = s.rect_of("layers-search");
+        let collapse = s.rect_of("layers-collapse-all");
+        let buttons = collapse.union(search);
+        for (name, tab) in [("ready", ready), ("layers", layers)] {
+            assert!(!tab.intersects(buttons), "{name} tab {tab:?} paints under the layers buttons {buttons:?} at width {width}");
+            assert!(
+                tab.right() <= collapse.left() - theme::SPACE_FACT + 0.5,
+                "{name} tab ends at {} against the buttons at {} (width {width})",
+                tab.right(),
+                collapse.left()
+            );
+        }
+        assert!(ready.right() <= layers.left(), "the tabs keep their order at width {width}");
+        let ready_paint = tab_paint(&s, "dev-left-tab-ready");
+        if width <= theme::LEFT_PANEL_WIDTH {
+            assert!(ready_paint.badge.is_none(), "no room for the two-digit count at width {width}");
+        }
+        assert!(!ready_paint.label.is_empty(), "the ready tab keeps a label at width {width}");
     }
 }
 
