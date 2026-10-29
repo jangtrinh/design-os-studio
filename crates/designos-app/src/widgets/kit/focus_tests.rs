@@ -115,3 +115,37 @@ fn keyboard_focus_keeps_the_selected_state() {
     assert_eq!(saw.1, State::Selected);
     assert_eq!(segmented_ring(saw.0), theme::FOCUS_RING);
 }
+
+fn focused_shapes(draw: impl Fn(&mut egui::Ui)) -> Vec<egui::epaint::ClippedShape> {
+    let ctx = egui::Context::default();
+    theme::install_fonts(&ctx);
+    let mut shapes = Vec::new();
+    for _ in 0..3 {
+        shapes = ctx.run_ui(egui::RawInput::default(), |ui| draw(ui)).shapes;
+    }
+    shapes
+}
+
+#[test]
+fn list_row_focus_ring_uses_the_row_radius() {
+    let rect = egui::Rect::from_min_size(egui::pos2(16.0, 16.0), egui::vec2(200.0, theme::TARGET_MIN));
+    let shapes = focused_shapes(|ui| {
+        list_row(ui, rect, "row", "Page", false, true, Surface::Primary).request_focus();
+    });
+    let want = (theme::RADIUS_CONTROL as f32 + theme::SPACE_FACT).round() as u8;
+    let rings = ring_strokes(&shapes);
+    assert_eq!(rings.len(), 1, "the row paints one focus band");
+    assert_eq!(rings[0].corner_radius, egui::CornerRadius::same(want));
+}
+
+#[test]
+fn toggle_focus_ring_uses_the_pill_radius() {
+    let rect = egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(theme::CONTROL_SM, theme::TARGET_MIN - theme::SPACE_FACT));
+    let shapes = focused_shapes(|ui| {
+        toggle(ui, rect, "switch", true, true).request_focus();
+    });
+    let want = (theme::radius_full(rect.height()).round() + theme::SPACE_FACT).round() as u8;
+    let rings = ring_strokes(&shapes);
+    assert_eq!(rings.len(), 1, "the toggle paints one focus band");
+    assert_eq!(rings[0].corner_radius, egui::CornerRadius::same(want));
+}

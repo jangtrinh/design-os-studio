@@ -84,9 +84,10 @@ pub fn tree_row_bg(p: &Painter, rect: Rect, state: State, surface: Surface) {
 
 #[allow(dead_code)]
 pub fn list_row(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected: bool, enabled: bool, surface: Surface) -> Response {
-    let response = ui.interact(rect, ui.id().with(key), if enabled { Sense::click() } else { Sense::hover() });
-    let state = state_of(&response, selected, enabled);
-    let paint = if selected && enabled && response.hovered() && !response.is_pointer_button_down_on() {
+    let shown = enabled || !ui.is_enabled();
+    let response = ui.interact(rect, ui.id().with(key), if enabled && ui.is_enabled() { Sense::click() } else { Sense::hover() });
+    let state = state_of(&response, selected, shown);
+    let paint = if selected && shown && response.hovered() && !response.is_pointer_button_down_on() {
         selected_hover(row_look(State::Selected, surface), row_look(State::Hover, surface))
     } else {
         row_look(state, surface)
@@ -94,7 +95,7 @@ pub fn list_row(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected: b
     paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &paint);
     let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
     ui.painter().text(egui::pos2(rect.left() + theme::INSET_FRAME, rect.center().y), egui::Align2::LEFT_CENTER, label, font, paint.text);
-    paint_ring(ui.painter(), rect, 0.0, list_row_ring(keyboard_focus(ui, response.id)));
+    paint_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32, list_row_ring(keyboard_focus(ui, response.id)));
     response
 }
 

@@ -493,7 +493,7 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                         Icon::ChevronRight,
                         Pos2::new(rect.right() - theme::MENU_CHEVRON_PAD - theme::MENU_CHEVRON_BOX / 2.0, cy),
                         theme::MENU_CHEVRON_SIZE,
-                        hint,
+                        paint.icon,
                     );
                 } else if !it.shortcut.is_empty() {
                     p.text(Pos2::new(rect.right() - theme::MENU_SHORTCUT_PAD, cy), Align2::RIGHT_CENTER, &it.shortcut, font.clone(), hint);

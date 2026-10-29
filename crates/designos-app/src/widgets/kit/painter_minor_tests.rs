@@ -23,6 +23,90 @@ fn focus_ring_widens_the_parent_clip() {
     assert_eq!(widened, Some(clip.expand(theme::SPACE_FACT)));
 }
 
+fn paint_disabled(draw: impl Fn(&mut egui::Ui)) -> (Vec<egui::epaint::ClippedShape>, f32) {
+    let ctx = egui::Context::default();
+    theme::install_fonts(&ctx);
+    let out = ctx.run_ui(screen(), |ui| {
+        ui.add_enabled_ui(false, |ui| draw(ui));
+    });
+    (out.shapes, ctx.global_style().visuals.disabled_alpha())
+}
+
+fn mesh_color(shapes: &[egui::epaint::ClippedShape]) -> Option<egui::Color32> {
+    shapes.iter().find_map(|clipped| match &clipped.shape {
+        egui::epaint::Shape::Mesh(mesh) => mesh.vertices.first().map(|v| v.color),
+        _ => None,
+    })
+}
+
+#[test]
+fn labelled_painters_dim_once_inside_a_disabled_ui() {
+    let rect = Rect::from_min_size(egui::pos2(16.0, 16.0), egui::vec2(160.0, theme::TARGET_MIN));
+    let track = Rect::from_min_size(egui::pos2(16.0, 16.0), egui::vec2(theme::CONTROL_SM, theme::TARGET_MIN - theme::SPACE_FACT));
+    let once = |color: egui::Color32, alpha: f32| color.gamma_multiply(alpha);
+    let twice = |color: egui::Color32, alpha: f32| half_color(color).gamma_multiply(alpha);
+    let mut bad = Vec::new();
+
+    let (shapes, alpha) = paint_disabled(|ui| {
+        button(ui, rect, "go", "Go", Hierarchy::Primary, Size::Sm, false);
+    });
+    let fill = shapes.iter().find_map(|clipped| match &clipped.shape {
+        egui::epaint::Shape::Rect(shape) if shape.rect == rect && shape.fill.a() > 0 => Some(shape.fill),
+        _ => None,
+    });
+    if fill != Some(once(theme::BG_BRAND, alpha)) {
+        bad.push(format!("button {fill:?}"));
+    }
+
+    let (shapes, alpha) = paint_disabled(|ui| {
+        checkbox(ui, rect, "box", true, false);
+    });
+    let mark = mesh_color(&shapes);
+    if mark != Some(once(theme::TEXT_ON_BRAND, alpha)) {
+        bad.push(format!("checkbox {mark:?}"));
+    }
+
+    let (shapes, alpha) = paint_disabled(|ui| {
+        toggle(ui, track, "switch", true, false);
+    });
+    let knob = circles_of(&shapes);
+    if knob != Some(once(theme::ICON_WHITE, alpha)) {
+        bad.push(format!("toggle {knob:?}"));
+    }
+
+    let (shapes, alpha) = paint_disabled(|ui| {
+        radio_card(ui, rect, "mode", "Ask", false, false);
+    });
+    let stroke = shapes.iter().find_map(|clipped| match &clipped.shape {
+        egui::epaint::Shape::Rect(shape) if shape.rect == rect && shape.stroke.width > 0.0 => Some(shape.stroke.color),
+        _ => None,
+    });
+    if stroke != Some(once(theme::BORDER, alpha)) {
+        bad.push(format!("radio {stroke:?}"));
+    }
+
+    let (shapes, alpha) = paint_disabled(|ui| {
+        list_row(ui, rect, "page", "Page", true, false, Surface::Primary);
+    });
+    let row = shapes.iter().find_map(|clipped| match &clipped.shape {
+        egui::epaint::Shape::Rect(shape) if shape.rect == rect && shape.fill.a() > 0 => Some(shape.fill),
+        _ => None,
+    });
+    if row != Some(once(theme::BG_SELECTED, alpha)) {
+        bad.push(format!("row {row:?}"));
+    }
+
+    assert_ne!(once(theme::BG_BRAND, alpha), twice(theme::BG_BRAND, alpha));
+    assert!(bad.is_empty(), "{bad:?}");
+}
+
+fn circles_of(shapes: &[egui::epaint::ClippedShape]) -> Option<egui::Color32> {
+    shapes.iter().find_map(|clipped| match &clipped.shape {
+        egui::epaint::Shape::Circle(shape) => Some(shape.fill),
+        _ => None,
+    })
+}
+
 #[test]
 fn disabled_field_is_dimmed_once() {
     let ctx = egui::Context::default();
@@ -41,6 +125,16 @@ fn disabled_field_is_dimmed_once() {
     });
     assert_eq!(stroke, Some(once));
     assert_ne!(once, twice);
+}
+
+#[test]
+fn font_text_keeps_its_step_note() {
+    let src = include_str!("../../theme.rs");
+    let note = src.find("Inter at `size` in one of the three UI weights").expect("step note");
+    let allow = src.find("staged: first used by the button labels").expect("allow");
+    let font = src.find("pub fn font_text(").expect("font_text");
+    let family = src.find("fn weight_family(").expect("weight family");
+    assert!(note < font && allow < font && font < family, "the step note sits on font_text");
 }
 
 #[test]

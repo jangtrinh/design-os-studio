@@ -78,10 +78,11 @@ pub fn tag(ui: &mut Ui, rect: Rect, key: impl Key, label: &str) -> Response {
     let paint = tag_look(if hot { State::Hover } else { State::Default });
     paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &paint);
     let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
-    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, label, font, paint.text);
-    let side = theme::LAYER_ICON_SIZE;
-    let close = Rect::from_center_size(egui::pos2(rect.right() - theme::INSET_FRAME - side * 0.5, rect.center().y), egui::Vec2::splat(side));
-    widgets::paint_icon_in(ui.painter(), close, Icon::Close, theme::FONT_SIZE_TEXT_XS, paint.icon);
+    let glyph = theme::FONT_SIZE_TEXT_SM;
+    let right = theme::INSET_SEGMENT + theme::SPACE_FACT;
+    let close = Rect::from_center_size(egui::pos2(rect.right() - right - glyph * 0.5, rect.center().y), egui::Vec2::splat(glyph));
+    ui.painter().text(egui::pos2(rect.left() + theme::INSET_FRAME, rect.center().y), egui::Align2::LEFT_CENTER, label, font, paint.text);
+    widgets::paint_icon_in(ui.painter(), close, Icon::Close, glyph, paint.icon);
     paint_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32, tag_ring(keyboard_focus(ui, response.id)));
     response
 }

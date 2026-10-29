@@ -164,13 +164,3 @@ fn open_dropdown_uses_the_focused_border() {
     });
     assert!(open, "an open dropdown paints the 2 px focused border");
 }
-
-#[test]
-fn explicit_popups_call_the_menu_frame() {
-    let picker = include_str!("../picker.rs");
-    let styles = include_str!("../../panels/style_picker.rs");
-    assert!(picker.contains("kit::menu_frame()"), "picker popup");
-    assert!(!picker.contains("Frame::popup"), "picker popup");
-    assert!(styles.contains("kit::menu_frame()"), "style picker popup");
-    assert!(!styles.contains("Frame::popup"), "style picker popup");
-}

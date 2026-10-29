@@ -99,14 +99,15 @@ fn held_value(response: &Response, value: bool, enabled: bool) -> State {
 }
 
 pub fn checkbox(ui: &mut Ui, rect: Rect, key: impl Key, value: bool, enabled: bool) -> Response {
-    let response = click(ui, rect, key, enabled);
-    let paint = checkbox_look(held_value(&response, value, enabled));
+    let shown = enabled || !ui.is_enabled();
+    let response = click(ui, rect, key, enabled && ui.is_enabled());
+    let paint = checkbox_look(held_value(&response, value, shown));
     let side = theme::LAYER_ICON_SIZE;
     let box_rect = Rect::from_min_size(egui::pos2(rect.left(), rect.center().y - side * 0.5), Vec2::splat(side));
     paint_frame(ui.painter(), box_rect, theme::SPACE_FACT as u8, &paint);
     if value {
         let on = checkbox_look(State::Selected);
-        let mark = if enabled { on.icon } else { disabled(on).icon };
+        let mark = if shown { on.icon } else { disabled(on).icon };
         widgets::paint_icon_in(ui.painter(), box_rect, Icon::Check, theme::FONT_SIZE_TEXT_XS, mark);
     }
     paint_ring(ui.painter(), box_rect, theme::SPACE_FACT, checkbox_ring(keyboard_focus(ui, response.id)));
@@ -115,22 +116,24 @@ pub fn checkbox(ui: &mut Ui, rect: Rect, key: impl Key, value: bool, enabled: bo
 
 #[allow(dead_code)]
 pub fn toggle(ui: &mut Ui, rect: Rect, key: impl Key, on: bool, enabled: bool) -> Response {
-    let response = click(ui, rect, key, enabled);
-    let paint = toggle_look(held_value(&response, on, enabled));
-    let radius = theme::radius_full(rect.height()).round() as u8;
-    paint_frame(ui.painter(), rect, radius, &paint);
+    let shown = enabled || !ui.is_enabled();
+    let response = click(ui, rect, key, enabled && ui.is_enabled());
+    let paint = toggle_look(held_value(&response, on, shown));
+    let radius = theme::radius_full(rect.height()).round();
+    paint_frame(ui.painter(), rect, radius as u8, &paint);
     let knob = theme::radius_full(theme::LAYER_ICON_SIZE);
     let cx = if on { rect.right() - theme::INSET_SEGMENT - knob } else { rect.left() + theme::INSET_SEGMENT + knob };
     ui.painter().circle_filled(egui::pos2(cx, rect.center().y), knob.max(0.0), paint.icon);
-    paint_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32, toggle_ring(keyboard_focus(ui, response.id)));
+    paint_ring(ui.painter(), rect, radius, toggle_ring(keyboard_focus(ui, response.id)));
     response
 }
 
 #[allow(dead_code)]
 pub fn radio_card(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected: bool, enabled: bool) -> Response {
-    let response = click(ui, rect, key, enabled);
-    let state = state_of(&response, selected, enabled);
-    let paint = if selected && enabled && response.hovered() && !response.is_pointer_button_down_on() {
+    let shown = enabled || !ui.is_enabled();
+    let response = click(ui, rect, key, enabled && ui.is_enabled());
+    let state = state_of(&response, selected, shown);
+    let paint = if selected && shown && response.hovered() && !response.is_pointer_button_down_on() {
         selected_hover(radio_card_look(State::Selected), radio_card_look(State::Hover))
     } else {
         radio_card_look(state)

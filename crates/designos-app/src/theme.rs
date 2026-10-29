@@ -372,6 +372,10 @@ pub enum TextWeight {
 
 /// Inter at `size` in one of the three UI weights, for a text step such as `FONT_SIZE_TEXT_SM`.
 #[allow(dead_code)] // staged: first used by the button labels
+pub fn font_text(size: f32, weight: TextWeight) -> FontId {
+    FontId::new(size, weight_family(weight))
+}
+
 fn weight_family(weight: TextWeight) -> FontFamily {
     use std::sync::{Arc, OnceLock};
     match weight {
@@ -385,10 +389,6 @@ fn weight_family(weight: TextWeight) -> FontFamily {
             FontFamily::Name(NAME.get_or_init(|| Arc::from(FAMILY_STRONG)).clone())
         }
     }
-}
-
-pub fn font_text(size: f32, weight: TextWeight) -> FontId {
-    FontId::new(size, weight_family(weight))
 }
 
 /// Frame, component and section labels above top-level frames on the canvas: overlay text that keeps its

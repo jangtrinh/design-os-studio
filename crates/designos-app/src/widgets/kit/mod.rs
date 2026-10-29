@@ -15,11 +15,15 @@ mod painter_form_tests;
 #[cfg(test)]
 mod painter_live_tests;
 #[cfg(test)]
+mod painter_menu_tests;
+#[cfg(test)]
 mod painter_minor_tests;
 #[cfg(test)]
 mod painter_place_tests;
 #[cfg(test)]
 mod painter_shape_tests;
+#[cfg(test)]
+mod painter_tip_tests;
 #[cfg(test)]
 mod row_tests;
 #[cfg(test)]
@@ -61,7 +65,7 @@ pub use rows::{
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use surface::{
-    command_bar_surface, command_look, menu_context_look, menu_frame, menu_item_height, menu_panel_look, menu_surface, modal_look, modal_surface, popover_look,
+    command_bar_surface, command_look, menu_context_look, menu_item_height, menu_panel_look, menu_surface, modal_look, modal_surface, popover_look,
     popover_surface, toast_look, toast_surface, tooltip_frame, tooltip_look, MENU_INSET, MENU_RADIUS, PILL_RADIUS,
 };
 #[cfg_attr(not(test), allow(unused_imports))]

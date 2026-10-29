@@ -62,13 +62,47 @@ fn loading_ring_is_an_arc() {
     let brand = theme::ICON_BRAND_PRIMARY;
     let full = circles(&shapes).iter().any(|shape| shape.stroke.color == brand);
     let arc = shapes.iter().any(|clipped| match &clipped.shape {
-        egui::epaint::Shape::Path(path) => !path.closed && path.stroke.color == egui::epaint::ColorMode::Solid(brand),
+        egui::epaint::Shape::LineSegment { stroke, .. } => stroke.color == brand,
         _ => false,
     });
     let track = circles(&shapes).iter().any(|shape| shape.stroke.color == theme::BG_TERTIARY);
     assert!(!full, "the indicator is not a full circle");
     assert!(arc, "the indicator is an open arc");
     assert!(track, "the track is the tertiary ring");
+}
+
+fn ring_frames() -> (Vec<egui::epaint::ClippedShape>, Vec<egui::epaint::ClippedShape>, std::time::Duration) {
+    let ctx = egui::Context::default();
+    let mut frames = Vec::new();
+    let mut delay = std::time::Duration::MAX;
+    for time in [0.0, 0.4] {
+        let mut raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 700.0))), ..Default::default() };
+        raw.time = Some(time);
+        let out = ctx.run_ui(raw, |ui| loading_ring(ui.painter(), egui::pos2(48.0, 48.0), theme::LAYER_ICON_SIZE * 0.5));
+        delay = out.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+        frames.push(out.shapes);
+    }
+    (frames.remove(0), frames.remove(0), delay)
+}
+
+fn segments(shapes: &[egui::epaint::ClippedShape]) -> Vec<[egui::Pos2; 2]> {
+    shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::LineSegment { points, .. } => Some(*points),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn loading_ring_turns_on_a_two_px_track() {
+    let (early, later, delay) = ring_frames();
+    let width = circles(&early).into_iter().find(|shape| shape.stroke.color == theme::BG_TERTIARY).map(|shape| shape.stroke.width);
+    let path = early.iter().any(|clipped| matches!(&clipped.shape, egui::epaint::Shape::Path(_)));
+    let moved = segments(&early) != segments(&later);
+    let wide = width.is_some_and(|width| (width - theme::BORDER_WIDTH * 2.0).abs() < 0.01);
+    assert!(wide && delay == std::time::Duration::ZERO && !path && moved, "track {width:?}, repaint {delay:?}, path {path}, moved {moved}");
 }
 
 #[test]
@@ -90,6 +124,27 @@ fn count_badge_tag_and_progress_use_their_radii() {
         _ => false,
     });
     assert!(close, "a tag paints its close glyph");
+}
+
+#[test]
+fn tag_label_sits_clear_of_the_close_glyph() {
+    let glyph = theme::FONT_SIZE_TEXT_SM;
+    let _ = crate::lint::take_icons();
+    let shapes = paint(|ui| {
+        let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
+        let label_w = ui.painter().layout_no_wrap("Design".to_string(), font, theme::TEXT).rect.width();
+        let width = theme::INSET_FRAME + label_w + theme::SPACE_FACT + glyph + theme::INSET_SEGMENT + theme::SPACE_FACT;
+        let rect = Rect::from_min_size(egui::pos2(12.0, 12.0), egui::vec2(width, theme::BADGE_MD));
+        tag(ui, rect, "tag", "Design");
+    });
+    let close = crate::lint::take_icons().into_iter().find(|icon| icon.name == "Close").expect("close glyph");
+    assert!((close.glyph.width() - glyph).abs() < 0.51, "close glyph side {}", close.glyph.width());
+    let text = shapes.iter().find_map(|clipped| match &clipped.shape {
+        egui::epaint::Shape::Text(text) if text.galley.job.text.contains("Design") => Some(text.galley.rect.translate(text.pos.to_vec2())),
+        _ => None,
+    });
+    let text = text.expect("label");
+    assert!(text.right() <= close.glyph.left() + 0.5, "label ends at {} and the glyph starts at {}", text.right(), close.glyph.left());
 }
 
 #[test]

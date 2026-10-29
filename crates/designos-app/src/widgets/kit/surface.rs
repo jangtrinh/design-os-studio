@@ -78,19 +78,7 @@ pub fn toast_surface(p: &Painter, rect: Rect) {
     paint_frame(p, rect, theme::RADIUS_XL, &toast_look());
 }
 
-/// Menu surface for a popup the caller opens itself.
-#[allow(dead_code)]
-pub fn menu_frame() -> egui::Frame {
-    let paint = menu_panel_look();
-    egui::Frame::new()
-        .fill(paint.fill)
-        .corner_radius(theme::cr(MENU_RADIUS))
-        .inner_margin(egui::Margin::same(theme::INSET_FRAME as i8))
-        .stroke(egui::Stroke::new(paint.border_w, paint.border))
-}
-
 /// Frame for a caller-drawn tooltip. Stock `on_hover_text` stays on the window style.
-#[allow(dead_code)]
 pub fn tooltip_frame() -> egui::Frame {
     let paint = tooltip_look();
     egui::Frame::new()

@@ -57,17 +57,20 @@ pub fn progress_bar(p: &Painter, rect: Rect, fraction: f32) {
 #[allow(dead_code)]
 pub fn loading_ring(p: &Painter, center: Pos2, radius: f32) {
     let paint = loading_look();
-    p.circle_stroke(center, radius, egui::Stroke::new(theme::BORDER_WIDTH, theme::BG_TERTIARY));
+    let width = theme::BORDER_WIDTH * 2.0;
+    p.circle_stroke(center, radius, egui::Stroke::new(width, theme::BG_TERTIARY));
     let steps = 18;
     let sweep = std::f32::consts::PI * 1.5;
-    let start = -std::f32::consts::FRAC_PI_2;
-    let mut points = Vec::with_capacity(steps + 1);
-    for i in 0..=steps {
-        let ang = start + sweep * (i as f32 / steps as f32);
-        points.push(egui::pos2(center.x + ang.cos() * radius, center.y + ang.sin() * radius));
+    let start = p.ctx().input(|i| i.time) as f32;
+    p.ctx().request_repaint();
+    let stroke = egui::Stroke::new(width, paint.icon);
+    let point = |ang: f32| egui::pos2(center.x + ang.cos() * radius, center.y + ang.sin() * radius);
+    let mut prev = point(start);
+    for i in 1..=steps {
+        let next = point(start + sweep * (i as f32 / steps as f32));
+        p.line_segment([prev, next], stroke);
+        prev = next;
     }
-    let stroke = egui::epaint::PathStroke::new(theme::BORDER_WIDTH * 2.0, paint.icon);
-    p.add(egui::Shape::Path(egui::epaint::PathShape::line(points, stroke)));
 }
 
 #[allow(dead_code)]

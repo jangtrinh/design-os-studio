@@ -139,8 +139,8 @@ fn draw_ring(ui: &Ui, rect: Rect, kind: Hierarchy, response: &Response) {
 /// Labelled button. Every size uses text-sm semibold. The caller owns the rect.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn button(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, kind: Hierarchy, size: Size, enabled: bool) -> Response {
-    let response = ui.interact(rect, ui.id().with(key), sense(enabled));
-    let paint = chrome(kind, &response, false, enabled);
+    let response = ui.interact(rect, ui.id().with(key), sense(enabled && ui.is_enabled()));
+    let paint = chrome(kind, &response, false, enabled || !ui.is_enabled());
     paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &paint);
     let font = match size {
         Size::Xs | Size::Sm | Size::Md => theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold),
