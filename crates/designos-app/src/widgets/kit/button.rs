@@ -45,16 +45,6 @@ pub const fn button_look(kind: Hierarchy, state: State) -> Look {
     }
 }
 
-/// Toast action. The hover fill is the secondary hover surface, which stays visible on the toast.
-#[cfg_attr(not(test), allow(dead_code))]
-pub const fn toast_action_look(state: State) -> Look {
-    match state {
-        State::Hover | State::Pressed => look(theme::BG_SECONDARY_HOVER, CLEAR, W, theme::TEXT_SECONDARY_HOVER, theme::TEXT_SECONDARY_HOVER),
-        State::Disabled => disabled(look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY)),
-        _ => look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY),
-    }
-}
-
 pub const fn button_ring(kind: Hierarchy, focused: bool) -> Color32 {
     if !focused {
         return CLEAR;
@@ -101,6 +91,48 @@ const fn secondary_destructive(state: State) -> Look {
         State::Pressed => look(theme::BG_ERROR_PRIMARY, theme::BORDER_ERROR, W, theme::TEXT_ERROR_HOVER, theme::TEXT_ERROR_HOVER),
         State::Disabled => disabled(look(theme::BG, theme::BORDER_ERROR_SUBTLE, W, theme::TEXT_ERROR, theme::TEXT_ERROR)),
         _ => look(theme::BG, theme::BORDER_ERROR_SUBTLE, W, theme::TEXT_ERROR, theme::TEXT_ERROR),
+    }
+}
+
+/// Plate behind a close control. The glyph and the hover fill change with that plate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClosePlate {
+    Primary,
+    Hover,
+    Selected,
+}
+
+/// Close glyph over a resting, hovered or selected tab. Pressed and hovered share a fill on a selected tab.
+pub const fn close_look_over(plate: ClosePlate, state: State) -> Look {
+    let state = match state {
+        State::Loading => State::Hover,
+        other => other,
+    };
+    match plate {
+        ClosePlate::Primary => look(CLEAR, CLEAR, W, CLEAR, theme::ICON_QUATERNARY),
+        ClosePlate::Hover => match state {
+            State::Hover => look(theme::BG_SECONDARY_HOVER, CLEAR, W, CLEAR, theme::ICON_QUATERNARY_HOVER),
+            State::Pressed => look(theme::BG_PRESSED, CLEAR, W, CLEAR, theme::ICON_QUATERNARY_HOVER),
+            _ => look(CLEAR, CLEAR, W, CLEAR, theme::ICON_QUATERNARY),
+        },
+        ClosePlate::Selected => match state {
+            State::Hover | State::Pressed => look(theme::BG_PRESSED, CLEAR, W, CLEAR, theme::ICON_QUATERNARY_HOVER),
+            _ => look(CLEAR, CLEAR, W, CLEAR, theme::ICON_QUATERNARY),
+        },
+    }
+}
+
+/// Toast action: secondary text, a visible hover fill, pressed fill. Not the tertiary button ramp.
+pub const fn toast_action_look(state: State) -> Look {
+    let state = match state {
+        State::Loading => State::Hover,
+        other => other,
+    };
+    match state {
+        State::Hover => look(theme::BG_SECONDARY_HOVER, CLEAR, W, theme::TEXT_SECONDARY_HOVER, theme::TEXT_SECONDARY_HOVER),
+        State::Pressed => look(theme::BG_PRESSED, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY),
+        State::Disabled => disabled(look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY)),
+        _ => look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY),
     }
 }
 
@@ -178,4 +210,38 @@ pub fn paint_icon_bg(p: &Painter, rect: Rect, response: &Response, selected: boo
         p.rect_filled(rect, radius, paint.fill);
     }
     paint_ring(p, rect, radius.nw as f32, button_ring(Hierarchy::Icon, response.has_focus()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn close_plates_follow_the_tab_fill() {
+        let rest = close_look_over(ClosePlate::Primary, State::Default);
+        assert_eq!(rest.fill, Color32::TRANSPARENT);
+        assert_eq!(rest.icon, theme::ICON_QUATERNARY);
+        let hot = close_look_over(ClosePlate::Hover, State::Hover);
+        assert_eq!(hot.fill, theme::BG_SECONDARY_HOVER);
+        assert_eq!(hot.icon, theme::ICON_QUATERNARY_HOVER);
+        let pressed = close_look_over(ClosePlate::Selected, State::Pressed);
+        assert_eq!(pressed.fill, theme::BG_PRESSED);
+        assert_eq!(pressed.icon, theme::ICON_QUATERNARY_HOVER);
+        let active = close_look_over(ClosePlate::Selected, State::Default);
+        assert_eq!(active.fill, Color32::TRANSPARENT);
+        assert_eq!(active.icon, theme::ICON_QUATERNARY);
+    }
+
+    #[test]
+    fn toast_action_uses_the_secondary_text_ramp() {
+        let rest = toast_action_look(State::Default);
+        assert_eq!(rest.fill, Color32::TRANSPARENT);
+        assert_eq!(rest.text, theme::TEXT_SECONDARY);
+        let hot = toast_action_look(State::Hover);
+        assert_eq!(hot.fill, theme::BG_SECONDARY_HOVER);
+        assert_eq!(hot.text, theme::TEXT_SECONDARY_HOVER);
+        let down = toast_action_look(State::Pressed);
+        assert_eq!(down.fill, theme::BG_PRESSED);
+        assert_eq!(down.text, theme::TEXT_SECONDARY);
+    }
 }

@@ -524,6 +524,8 @@ pub const PAGE_ROW_TEXT_PAD: f32 = 8.0;
 pub const PAGES_MAX_VISIBLE_ROWS: usize = 5;
 pub const PAGES_SEPARATOR_HIT: f32 = 6.0;
 pub const PAGES_SEPARATOR_HIT_HALF: f32 = PAGES_SEPARATOR_HIT * 0.5;
+/// Pointer band centred on a 1px drag divider. The painted line stays 1px.
+pub const DRAG_DIVIDER_HIT: f32 = TARGET_MIN;
 pub const PAGES_SEPARATOR_HIGHLIGHT_STROKE: f32 = 2.0;
 pub const PAGES_SEPARATOR_STEP: f32 = 8.0;
 pub const PAGES_SEPARATOR_SHIFT_MULT: f32 = 5.0;
@@ -680,6 +682,7 @@ pub const MENU_CHEVRON_PAD: f32 = 8.0;
 pub const MENU_SEP_MARGIN: f32 = 8.0;
 /// Space kept between the label and a right-aligned shortcut / chevron.
 pub const MENU_LABEL_GAP: f32 = 16.0;
+#[allow(dead_code)] // Shortcuts paint TEXT_QUATERNARY. This role stays in the colour table.
 pub const MENU_SHORTCUT_HIGHLIGHT: Color32 = rgb(0xE5E5E5);
 pub const MENU_ICON_SIZE: f32 = 16.0;
 pub const MENU_CHEVRON_SIZE: f32 = 12.0;
