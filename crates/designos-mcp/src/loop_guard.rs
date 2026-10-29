@@ -162,7 +162,7 @@ impl LoopGuard {
 pub fn loop_suspected_error(k: usize) -> ToolError {
     let times = k.max(2);
     ToolError::new(ErrorCode::LoopSuspected, "", format!("The same call has returned the same result {times} times"))
-        .with_next_step(format!("The same call has returned the same result {times} times. Change the arguments, read the document state, or ask the user."))
+        .with_next_step("Change the arguments, read the document state, or ask the user.")
 }
 
 pub fn loop_suspected_warning(k: usize) -> Value {
