@@ -50,19 +50,13 @@
       "chrome_sites": 2
     },
     "libraries/modal.rs": {
-      "chrome_sites": 4
-    },
-    "libraries/review.rs": {
-      "chrome_sites": 2
+      "chrome_sites": 1
     },
     "lint.rs": {
       "chrome_sites": 1
     },
     "panels/assets.rs": {
-      "chrome_sites": 18
-    },
-    "panels/check_designs.rs": {
-      "chrome_sites": 4
+      "chrome_sites": 1
     },
     "panels/components.rs": {
       "chrome_sites": 1
@@ -85,9 +79,6 @@
     "panels/typography.rs": {
       "chrome_sites": 3
     },
-    "plugins/ui.rs": {
-      "chrome_sites": 1
-    },
     "present.rs": {
       "chrome_sites": 3
     },
@@ -99,9 +90,6 @@
     },
     "terminal.rs": {
       "chrome_sites": 50
-    },
-    "variables/view.rs": {
-      "chrome_sites": 3
     },
     "widgets/menu.rs": {
       "chrome_sites": 2
