@@ -85,3 +85,4 @@ winresource = "0.1"
 [dev-dependencies]
 base64 = "0.22"
 designos-doc = { workspace = true, features = ["fixtures"] }
+tempfile = "3.27"

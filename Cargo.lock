@@ -999,6 +999,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shell-words",
+ "tempfile",
  "toml",
  "unicode-segmentation",
  "ureq",
