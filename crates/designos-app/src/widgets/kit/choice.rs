@@ -114,10 +114,11 @@ pub fn checkbox(ui: &mut Ui, rect: Rect, key: impl Key, value: bool, enabled: bo
     response
 }
 
-#[allow(dead_code)]
 pub fn toggle(ui: &mut Ui, rect: Rect, key: impl Key, on: bool, enabled: bool) -> Response {
     let shown = enabled || !ui.is_enabled();
-    let response = click(ui, rect, key, enabled && ui.is_enabled());
+    // The track keeps its own height; a track under the pointer floor hits on a taller band around it.
+    let pad = ((theme::TARGET_MIN - rect.height()) * 0.5).max(0.0);
+    let response = click(ui, rect.expand2(egui::vec2(0.0, pad)), key, enabled && ui.is_enabled());
     let paint = toggle_look(held_value(&response, on, shown));
     let radius = theme::radius_full(rect.height()).round();
     paint_frame(ui.painter(), rect, radius as u8, &paint);

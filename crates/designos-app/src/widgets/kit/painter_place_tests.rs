@@ -76,3 +76,24 @@ fn toggle_stays_on_while_the_button_is_held() {
     }
     assert_eq!(held, vec![true, true, true, true], "an on switch keeps its fill while held");
 }
+
+#[test]
+fn a_short_switch_still_takes_a_click_inside_the_target_floor() {
+    let ctx = egui::Context::default();
+    let rect = Rect::from_min_size(egui::pos2(40.0, 40.0), egui::vec2(theme::CONTROL_SM, theme::TARGET_MIN - theme::SPACE_FACT));
+    let at = egui::pos2(rect.center().x, rect.top() - 1.5);
+    let mut clicked = false;
+    let mut hit = Rect::NOTHING;
+    let mut track = Vec::new();
+    for press in [None, Some(true), Some(false)] {
+        let out = ctx.run_ui(input(at, press), |ui| {
+            let response = toggle(ui, rect, "sw", true, true);
+            clicked |= response.clicked();
+            hit = response.rect;
+        });
+        track = brand_rects(&out.shapes);
+    }
+    assert!(hit.height() >= theme::TARGET_MIN, "the switch hits on {} px", hit.height());
+    assert!(clicked, "a click 1.5 px above the track lands inside the target floor");
+    assert!(track.iter().any(|r| (r.height() - rect.height()).abs() < 0.5), "the painted track keeps its own height: {track:?}");
+}
