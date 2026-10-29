@@ -348,7 +348,7 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 - **Session lint tuning:** Use `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false` when bulk-loading scaffolding.
 - **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.
 - **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).
-- **Loop hint:** `LOOP_SUSPECTED` (`safe_to_retry: false`) means change arguments, read the document, or ask the user. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
+- **Loop hint:** Repeat reads attach `warning: "LOOP_SUSPECTED"`; repeat writes error `LOOP_SUSPECTED` (`safe_to_retry: false`). Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
 
 ## Design Quality & Anti-Generic Rules
 

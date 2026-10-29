@@ -857,10 +857,19 @@ impl Session {
             return res;
         }
         let fingerprint = loop_guard::CallFingerprint::from_call(name, args, &res);
-        if self.loop_guard.observe(fingerprint) {
-            return Err(loop_guard::loop_suspected_error(self.loop_guard.k()));
+        match self.loop_guard.observe(fingerprint) {
+            loop_guard::LoopVerdict::None => res,
+            loop_guard::LoopVerdict::Hard => Err(loop_guard::loop_suspected_error(self.loop_guard.k())),
+            loop_guard::LoopVerdict::Advisory => match res {
+                Ok(mut value) => {
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert("warning".into(), json!("LOOP_SUSPECTED"));
+                    }
+                    Ok(value)
+                }
+                Err(err) => Err(err),
+            },
         }
-        res
     }
 
     fn call_with_safety(&mut self, name: &str, args: Value) -> Result<Value, ToolError> {

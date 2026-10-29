@@ -15,6 +15,13 @@ pub const ENV_N: &str = "DESIGNOS_LOOP_GUARD_N";
 const MAX_K: usize = 1_024;
 const MAX_N: usize = 10_000;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LoopVerdict {
+    None,
+    Advisory,
+    Hard,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CallFingerprint {
     tool: String,
@@ -92,9 +99,16 @@ impl LoopGuard {
         self.anchor_revision = Some(revision);
     }
 
-    pub fn observe(&mut self, rec: CallFingerprint) -> bool {
+    pub fn observe(&mut self, rec: CallFingerprint) -> LoopVerdict {
+        let read_only = rec.read_only;
         self.push(rec);
-        self.is_loop()
+        if !self.is_loop() {
+            LoopVerdict::None
+        } else if read_only {
+            LoopVerdict::Advisory
+        } else {
+            LoopVerdict::Hard
+        }
     }
 
     fn push(&mut self, rec: CallFingerprint) {
@@ -211,9 +225,28 @@ mod tests {
         let mut g = LoopGuard::with_thresholds(3, 20);
         let a = json!({"node_id": 7});
         let rec = fp("designos_update_node", &a, &json!({"ok": false}), Some(ErrorCode::NodeNotFound), false);
-        assert!(!g.observe(rec.clone()), "first occurrence never fires");
-        assert!(!g.observe(rec.clone()), "second of K=3 does not fire");
-        assert!(g.observe(rec), "third identical call fires");
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None, "first occurrence never fires");
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None, "second of K=3 does not fire");
+        assert_eq!(g.observe(rec), LoopVerdict::Hard, "third identical call fires");
+    }
+
+    #[test]
+    fn repeat_identical_reads_are_advisory() {
+        let mut g = LoopGuard::with_thresholds(3, 20);
+        let rec = fp("designos_get_document", &json!({}), &json!({"n": 1}), None, true);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::Advisory);
+        assert_eq!(g.observe(rec), LoopVerdict::Advisory, "later identical reads stay advisory");
+    }
+
+    #[test]
+    fn repeat_identical_write_ok_is_hard() {
+        let mut g = LoopGuard::with_thresholds(3, 20);
+        let rec = fp("designos_undo", &json!({}), &json!({"changed": false}), None, false);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec), LoopVerdict::Hard);
     }
 
     #[test]
@@ -223,9 +256,9 @@ mod tests {
         let r1 = fp("designos_get_document", &a, &json!({"n": 1}), None, true);
         let r2 = fp("designos_get_document", &a, &json!({"n": 2}), None, true);
         let r3 = fp("designos_get_document", &a, &json!({"n": 3}), None, true);
-        assert!(!g.observe(r1));
-        assert!(!g.observe(r2));
-        assert!(!g.observe(r3));
+        assert_eq!(g.observe(r1), LoopVerdict::None);
+        assert_eq!(g.observe(r2), LoopVerdict::None);
+        assert_eq!(g.observe(r3), LoopVerdict::None);
     }
 
     #[test]
@@ -237,9 +270,11 @@ mod tests {
             let fired_a = g.observe(a.clone());
             let fired_b = g.observe(b.clone());
             if cycle < 2 {
-                assert!(!fired_a && !fired_b, "cycle {} must stay silent", cycle + 1);
+                assert_eq!(fired_a, LoopVerdict::None, "cycle {} must stay silent", cycle + 1);
+                assert_eq!(fired_b, LoopVerdict::None, "cycle {} must stay silent", cycle + 1);
             } else {
-                assert!(fired_b, "Kth ping-pong cycle fires");
+                assert_eq!(fired_a, LoopVerdict::None);
+                assert_eq!(fired_b, LoopVerdict::Advisory, "Kth ping-pong cycle of two reads is advisory");
             }
         }
     }
@@ -251,9 +286,9 @@ mod tests {
         let e1 = fp_msg("designos_update_node", &args, &json!({}), Some(ErrorCode::NodeNotFound), "missing-a", false);
         let e2 = fp_msg("designos_update_node", &args, &json!({}), Some(ErrorCode::NodeNotFound), "missing-b", false);
         let e3 = fp_msg("designos_update_node", &args, &json!({}), Some(ErrorCode::NodeNotFound), "missing-c", false);
-        assert!(!g.observe(e1));
-        assert!(!g.observe(e2));
-        assert!(g.observe(e3), "same write tool, args, and error code fire even when the message text changes");
+        assert_eq!(g.observe(e1), LoopVerdict::None);
+        assert_eq!(g.observe(e2), LoopVerdict::None);
+        assert_eq!(g.observe(e3), LoopVerdict::Hard, "same write tool, args, and error code fire even when the message text changes");
     }
 
     #[test]
@@ -261,12 +296,12 @@ mod tests {
         let mut g = LoopGuard::with_thresholds(3, 20);
         let a = fp("designos_update_node", &json!({"node_id": 1}), &json!({}), Some(ErrorCode::NodeNotFound), false);
         let b = fp("designos_update_node", &json!({"node_id": 9}), &json!({"x": 1}), Some(ErrorCode::InvalidArguments), false);
-        assert!(!g.observe(a.clone()));
-        assert!(!g.observe(a.clone()));
-        assert!(!g.observe(b), "a different argument hash breaks the identical-repeat streak");
-        assert!(!g.observe(a.clone()));
-        assert!(!g.observe(a.clone()));
-        assert!(g.observe(a), "a fresh run of K identical calls still fires");
+        assert_eq!(g.observe(a.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(a.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(b), LoopVerdict::None, "a different argument hash breaks the identical-repeat streak");
+        assert_eq!(g.observe(a.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(a.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(a), LoopVerdict::Hard, "a fresh run of K identical calls still fires");
     }
 
     #[test]
@@ -274,24 +309,24 @@ mod tests {
         let mut g = LoopGuard::with_thresholds(3, 20);
         let rec = fp("designos_update_node", &json!({"node_id": 1}), &json!({}), Some(ErrorCode::NodeNotFound), false);
         g.note_revision(0);
-        assert!(!g.observe(rec.clone()));
-        assert!(!g.observe(rec.clone()));
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
         g.note_revision(1);
-        assert!(!g.observe(rec.clone()), "a revision change resets the window");
-        assert!(!g.observe(rec.clone()));
-        assert!(g.observe(rec), "K identical calls after the reset fire");
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None, "a revision change resets the window");
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec), LoopVerdict::Hard, "K identical calls after the reset fire");
     }
 
     #[test]
     fn once_fired_keeps_firing_while_the_loop_continues() {
         let mut g = LoopGuard::with_thresholds(3, 20);
         let rec = fp("designos_update_node", &json!({"node_id": 1}), &json!({}), Some(ErrorCode::NodeNotFound), false);
-        assert!(!g.observe(rec.clone()));
-        assert!(!g.observe(rec.clone()));
-        assert!(g.observe(rec.clone()));
-        assert!(g.observe(rec.clone()), "fourth identical call still fires");
-        assert!(g.observe(rec.clone()), "fifth still fires");
-        assert!(g.observe(rec), "sixth still fires");
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::Hard);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::Hard, "fourth identical call still fires");
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::Hard, "fifth still fires");
+        assert_eq!(g.observe(rec), LoopVerdict::Hard, "sixth still fires");
     }
 
     #[test]
@@ -314,8 +349,8 @@ mod tests {
         assert_eq!(g.n(), DEFAULT_N);
         let mut g = g;
         let rec = fp("designos_update_node", &json!({"node_id": 1}), &json!({}), Some(ErrorCode::NodeNotFound), false);
-        assert!(!g.observe(rec.clone()), "K=2 never fires on the first call");
-        assert!(g.observe(rec), "K=2 fires on the second identical call");
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None, "K=2 never fires on the first call");
+        assert_eq!(g.observe(rec), LoopVerdict::Hard, "K=2 fires on the second identical call");
     }
 
     #[test]
@@ -325,6 +360,17 @@ mod tests {
         assert_eq!(LoopGuard::from_overrides(Some("1"), Some("0")).k(), DEFAULT_K);
         assert_eq!(LoopGuard::from_overrides(Some("0"), None).n(), DEFAULT_N);
         assert_eq!(LoopGuard::from_overrides(Some("3"), Some("2")).n(), DEFAULT_N);
+    }
+
+    #[test]
+    fn ping_pong_ending_on_a_write_is_hard() {
+        let mut g = LoopGuard::with_thresholds(2, 20);
+        let a = fp("designos_get_document", &json!({}), &json!({"n": 1}), None, true);
+        let b = fp("designos_undo", &json!({}), &json!({"changed": false}), None, false);
+        assert_eq!(g.observe(a.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(b.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(a), LoopVerdict::None);
+        assert_eq!(g.observe(b), LoopVerdict::Hard);
     }
 
     #[test]

@@ -168,6 +168,27 @@ fn scripted_loop_returns_loop_suspected() {
 }
 
 #[test]
+fn scripted_read_loop_returns_warning() {
+    let root = temp_test_dir("loop-read-warning");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    let args = json!({});
+    let first = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!first.is_error, "{:?}", first.value);
+    assert_ne!(first.value.get("warning"), Some(&json!("LOOP_SUSPECTED")), "{:?}", first.value);
+    let second = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!second.is_error, "{:?}", second.value);
+    assert_ne!(second.value.get("warning"), Some(&json!("LOOP_SUSPECTED")), "{:?}", second.value);
+    let third = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!third.is_error, "{:?}", third.value);
+    assert_eq!(third.value.get("warning"), Some(&json!("LOOP_SUSPECTED")), "{:?}", third.value);
+    let mut stripped = third.value.clone();
+    stripped.as_object_mut().unwrap().remove("warning");
+    assert_eq!(stripped, first.value);
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn polling_a_changing_document_stays_silent() {
     let root = temp_test_dir("loop-poll");
     let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();

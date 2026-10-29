@@ -710,7 +710,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
     out.push_str(
         "- **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.\n\
          - **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).\n\
-         - **Loop hint:** `LOOP_SUSPECTED` (`safe_to_retry: false`) means change arguments, read the document, or ask the user. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
+         - **Loop hint:** Repeat reads attach `warning: \"LOOP_SUSPECTED\"`; repeat writes error `LOOP_SUSPECTED` (`safe_to_retry: false`). Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
     );
 }
 

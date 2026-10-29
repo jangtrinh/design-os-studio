@@ -32,6 +32,18 @@ fn assert_loop(err: &ToolError) {
     assert!(err.next_step.contains("read the document"), "{err:?}");
 }
 
+fn assert_loop_warning(value: &Value) {
+    assert_eq!(value.get("warning"), Some(&json!("LOOP_SUSPECTED")), "{value}");
+}
+
+fn strip_warning(value: &Value) -> Value {
+    let mut stripped = value.clone();
+    if let Some(obj) = stripped.as_object_mut() {
+        obj.remove("warning");
+    }
+    stripped
+}
+
 #[test]
 fn three_identical_failing_modifies_return_loop_suspected() {
     let (ws, mut s) = session("ac01");
@@ -120,14 +132,86 @@ fn a_document_revision_change_resets_the_window() {
 }
 
 #[test]
-fn ping_pong_of_two_reads_with_unchanged_results_fires() {
+fn ping_pong_of_two_reads_with_unchanged_results_is_advisory() {
     let (ws, mut s) = session("ac03");
     s.loop_guard = LoopGuard::from_overrides(Some("2"), None);
     let a = json!({"node_id": s.engine.doc.pages[0].0});
     let b = json!({"limit": 1});
     s.call("designos_get_node", a.clone()).unwrap();
-    s.call("designos_list_nodes", b.clone()).unwrap();
+    let first_list = s.call("designos_list_nodes", b.clone()).unwrap();
+    assert!(first_list.get("warning").is_none(), "{first_list}");
     s.call("designos_get_node", a).unwrap();
-    assert_loop(&s.call("designos_list_nodes", b).unwrap_err());
+    let warned = s.call("designos_list_nodes", b).unwrap();
+    assert_loop_warning(&warned);
+    assert_eq!(strip_warning(&warned), first_list);
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn ping_pong_ending_on_a_write_is_a_hard_error() {
+    let (ws, mut s) = session("pp-write");
+    s.loop_guard = LoopGuard::from_overrides(Some("2"), None);
+    let read = json!({});
+    let write = json!({});
+    s.call("designos_get_document", read.clone()).unwrap();
+    s.call("designos_undo", write.clone()).unwrap();
+    s.call("designos_get_document", read).unwrap();
+    assert_loop(&s.call("designos_undo", write).unwrap_err());
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn three_identical_reads_return_ok_with_loop_warning() {
+    let (ws, mut s) = session("adv-read");
+    let args = json!({});
+    let first = s.call("designos_get_document", args.clone()).unwrap();
+    assert!(first.get("warning").is_none(), "{first}");
+    let second = s.call("designos_get_document", args.clone()).unwrap();
+    assert!(second.get("warning").is_none(), "{second}");
+    let third = s.call("designos_get_document", args.clone()).unwrap();
+    assert_loop_warning(&third);
+    assert_eq!(strip_warning(&third), first);
+    let fourth = s.call("designos_get_document", args).unwrap();
+    assert_loop_warning(&fourth);
+    assert_eq!(strip_warning(&fourth), first);
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn three_identical_empty_undos_return_loop_suspected() {
+    let (ws, mut s) = session("adv-undo");
+    let args = json!({});
+    let first = s.call("designos_undo", args.clone()).unwrap();
+    assert_eq!(first["changed"], json!(false));
+    assert!(first.get("warning").is_none(), "{first}");
+    let second = s.call("designos_undo", args.clone()).unwrap();
+    assert_eq!(second["changed"], json!(false));
+    assert_loop(&s.call("designos_undo", args).unwrap_err());
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn a_revision_change_clears_the_advisory() {
+    let (ws, mut s) = session("adv-rev");
+    let args = json!({});
+    s.call("designos_get_document", args.clone()).unwrap();
+    s.call("designos_get_document", args.clone()).unwrap();
+    assert_loop_warning(&s.call("designos_get_document", args.clone()).unwrap());
+    s.engine.revision = s.engine.revision.wrapping_add(1);
+    let after = s.call("designos_get_document", args).unwrap();
+    assert!(after.get("warning").is_none(), "{after}");
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn a_different_call_clears_the_advisory() {
+    let (ws, mut s) = session("adv-diff");
+    let args = json!({});
+    s.call("designos_get_document", args.clone()).unwrap();
+    s.call("designos_get_document", args.clone()).unwrap();
+    assert_loop_warning(&s.call("designos_get_document", args.clone()).unwrap());
+    s.call("designos_list_nodes", json!({"limit": 1})).unwrap();
+    let after = s.call("designos_get_document", args).unwrap();
+    assert!(after.get("warning").is_none(), "{after}");
     let _ = fs::remove_dir_all(ws);
 }

@@ -200,7 +200,7 @@ pub fn render_parity_markdown(snapshots: &[ToolSnapshot], parity: &ParityFile) -
 
     out.push_str("\n## 3. Loop detection\n\n");
     out.push_str(
-        "`LOOP_SUSPECTED` is a named tool error (`safe_to_retry: false`) returned when this MCP session sees the same tool call, or a two-call ping-pong, produce the same result `DESIGNOS_LOOP_GUARD_K` times (default 3). The window holds `DESIGNOS_LOOP_GUARD_N` hashed records (default 20), one window per session, and is cleared on reconnect, on a document revision change, and by a successful different call. The detector never mutates the document and never kills the session.\n",
+        "`LOOP_SUSPECTED` on a repeated identical read-only call is a top-level `warning` string on the unchanged result. The same detector returns a named tool error (`safe_to_retry: false`) only for a repeated identical mutating call, a write tool failing with the same code, or a ping-pong that ends on a write. Thresholds are `DESIGNOS_LOOP_GUARD_K` (default 3) and `DESIGNOS_LOOP_GUARD_N` hashed records (default 20), one window per session, cleared on reconnect, on a document revision change, and by a different call. The detector never mutates the document and never kills the session.\n",
     );
 
     out
