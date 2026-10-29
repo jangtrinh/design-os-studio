@@ -893,8 +893,8 @@ mod sidebar {
         ver_font.size = 10.0;
         let ver_w = widgets::text_width(&p, &ver, &ver_font) + 10.0;
         let ver_r = Rect::from_center_size(Pos2::new(ws_rect.right() - ver_w * 0.5 - 4.0, ws_rect.center().y), Vec2::new(ver_w, 16.0));
-        p.rect_filled(ver_r, theme::cr_pill(ver_r.height()), theme::UTILITY_NEUTRAL_50);
-        p.text(ver_r.center(), Align2::CENTER_CENTER, ver, ver_font, theme::UTILITY_NEUTRAL_700);
+        p.rect_filled(ver_r, theme::cr_pill(ver_r.height()), theme::BADGE_NEUTRAL_BG);
+        p.text(ver_r.center(), Align2::CENTER_CENTER, ver, ver_font, theme::BADGE_NEUTRAL_TEXT);
         if ws_resp.clicked() {
             acts.push(Act::Go(Section::Recents));
         }
@@ -1110,8 +1110,8 @@ mod sidebar {
         let trash_resp = row(ui, tr, Id::new("home-trash"), Icon::Trash, "Trash", 0.0, h.section == Section::Trash && !h.searching(), false, "trash");
         if n > 0 {
             let badge_r = Rect::from_center_size(Pos2::new(tr.right() - 22.0, tr.center().y), Vec2::new(22.0, 16.0));
-            p.rect_filled(badge_r, CornerRadius::same(8), theme::UTILITY_NEUTRAL_50);
-            p.text(badge_r.center(), Align2::CENTER_CENTER, n.to_string(), theme::font_mono(), theme::UTILITY_NEUTRAL_700);
+            p.rect_filled(badge_r, CornerRadius::same(8), theme::BADGE_NEUTRAL_BG);
+            p.text(badge_r.center(), Align2::CENTER_CENTER, n.to_string(), theme::font_mono(), theme::BADGE_NEUTRAL_TEXT);
         }
         if trash_resp.clicked() {
             acts.push(Act::Go(Section::Trash));
@@ -2553,9 +2553,9 @@ mod main_view {
         let font = theme::font_caption_strong();
         let w = widgets::text_width(p, "Board", &font) + 28.0;
         let r = Rect::from_min_size(Pos2::new(area.left() + 8.0, area.bottom() - 8.0 - 20.0), Vec2::new(w, 20.0));
-        p.rect_filled(r, theme::cr(10), theme::UTILITY_NEUTRAL_50);
+        p.rect_filled(r, theme::cr(10), theme::BADGE_NEUTRAL_BG);
         icons::paint(p, Icon::Sticky, Pos2::new(r.left() + 10.0, r.center().y), 12.0, theme::ICON);
-        p.text(Pos2::new(r.left() + 19.0, r.center().y), Align2::LEFT_CENTER, "Board", font, theme::UTILITY_NEUTRAL_700);
+        p.text(Pos2::new(r.left() + 19.0, r.center().y), Align2::LEFT_CENTER, "Board", font, theme::BADGE_NEUTRAL_TEXT);
     }
 
     /// Draws the Figma UI3 File-Type Badge icon (`20x20` rounded badge: `#0D99FF` Design,

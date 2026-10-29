@@ -7,7 +7,7 @@ _78 component(s), regenerated from the registry._
 ### Badge/StatusCount
 
 Component of Studio's chrome, specified in spec C.
-tier=component; rust=kit/badge.rs::count_badge; rust_status=new-in-C; today=home/mod.rs:1113-1115; paints=BADGE_NEUTRAL_BORDER,BADGE_NEUTRAL_BG,BADGE_NEUTRAL_TEXT,BG_SUCCESS_PRIMARY,BADGE_SUCCESS_BORDER,BADGE_SUCCESS_TEXT,BG_WARNING_PRIMARY,BADGE_WARNING_BORDER,BADGE_WARNING_TEXT,BG_ERROR_PRIMARY,BADGE_ERROR_BORDER,BADGE_ERROR_TEXT; pending=BADGE_NEUTRAL_BORDER,BADGE_NEUTRAL_BG,BADGE_NEUTRAL_TEXT,BG_SUCCESS_PRIMARY,BADGE_SUCCESS_BORDER,BADGE_SUCCESS_TEXT,BG_WARNING_PRIMARY,BADGE_WARNING_BORDER,BADGE_WARNING_TEXT,BG_ERROR_PRIMARY,BADGE_ERROR_BORDER,BADGE_ERROR_TEXT; spec=C
+tier=component; rust=kit/badge.rs::count_badge; rust_status=new-in-C; today=home/mod.rs:1111-1113; paints=BADGE_NEUTRAL_BORDER,BADGE_NEUTRAL_BG,BADGE_NEUTRAL_TEXT,BG_SUCCESS_PRIMARY,BADGE_SUCCESS_BORDER,BADGE_SUCCESS_TEXT,BG_WARNING_PRIMARY,BADGE_WARNING_BORDER,BADGE_WARNING_TEXT,BG_ERROR_PRIMARY,BADGE_ERROR_BORDER,BADGE_ERROR_TEXT; pending=BADGE_NEUTRAL_BORDER,BADGE_NEUTRAL_BG,BADGE_NEUTRAL_TEXT,BG_SUCCESS_PRIMARY,BADGE_SUCCESS_BORDER,BADGE_SUCCESS_TEXT,BG_WARNING_PRIMARY,BADGE_WARNING_BORDER,BADGE_WARNING_TEXT,BG_ERROR_PRIMARY,BADGE_ERROR_BORDER,BADGE_ERROR_TEXT; spec=C
 
 - **Variants:** Size=Md, Size=Sm, State=Default, Tone=Error, Tone=Neutral, Tone=Success, Tone=Warning
 - **States:** —
@@ -35,7 +35,7 @@ tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=widgets/
 ### Button/Destructive
 
 Component of Studio's chrome, specified in spec C.
-tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=home/mod.rs:1412-1417; paints=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR,TEXT_WHITE; pending=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR; spec=C
+tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=home/mod.rs:1425-1432; paints=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR,TEXT_WHITE; pending=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR; spec=C
 
 - **Variants:** Size=Md, Size=Sm, Size=Xs, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
@@ -98,7 +98,7 @@ tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=comments
 ### Button/SecondaryDestructive
 
 Component of Studio's chrome, specified in spec C/H.
-tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=home/mod.rs:1241; paints=BG_ERROR_PRIMARY,BG,BORDER_ERROR,BORDER_ERROR_SUBTLE,FOCUS_RING_ERROR,TEXT_ERROR,TEXT_ERROR_HOVER; pending=BG_ERROR_PRIMARY,BORDER_ERROR,BORDER_ERROR_SUBTLE,FOCUS_RING_ERROR,TEXT_ERROR,TEXT_ERROR_HOVER; spec=C/H
+tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=home/mod.rs:1239; paints=BG_ERROR_PRIMARY,BG,BORDER_ERROR,BORDER_ERROR_SUBTLE,FOCUS_RING_ERROR,TEXT_ERROR,TEXT_ERROR_HOVER; pending=BG_ERROR_PRIMARY,BORDER_ERROR,BORDER_ERROR_SUBTLE,FOCUS_RING_ERROR,TEXT_ERROR,TEXT_ERROR_HOVER; spec=C/H
 
 - **Variants:** Size=Md, Size=Sm, Size=Xs, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
@@ -160,7 +160,7 @@ tier=component; rust=kit/choice.rs::checkbox; rust_status=new-in-C; today=widget
 ### Icon/Tile
 
 Component of Studio's chrome, specified in spec C/H.
-tier=component; rust=kit/feedback.rs::tile_icon; rust_status=new-in-C; today=home/mod.rs:2510-2524; paints=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_BG,TILE_SPEC_GLYPH,BORDER_STRONG,ICON_QUATERNARY; pending=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_GLYPH; spec=C/H
+tier=component; rust=kit/feedback.rs::tile_icon; rust_status=new-in-C; today=home/mod.rs:2563-2577; paints=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_BG,TILE_SPEC_GLYPH,BORDER_STRONG,ICON_QUATERNARY; pending=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_GLYPH; spec=C/H
 
 - **Variants:** Kind=Board, Kind=Deck, Kind=Design, Kind=Neutral, Kind=Spec, Size=Md, Size=Sm
 - **States:** —
@@ -223,7 +223,7 @@ tier=component; rust=kit/field.rs::paint_field; rust_status=new-in-C; today=find
 ### List/Row
 
 Component of Studio's chrome, specified in spec C.
-tier=component; rust=kit/rows.rs::list_row; rust_status=new-in-C; today=home/mod.rs:1173-1190; paints=BG,BG_HOVER,BG_SELECTED,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; pending=ICON_QUATERNARY_HOVER,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; spec=C
+tier=component; rust=kit/rows.rs::list_row; rust_status=new-in-C; today=home/mod.rs:1171-1192; paints=BG,BG_HOVER,BG_SELECTED,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; pending=ICON_QUATERNARY_HOVER,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; spec=C
 
 - **Variants:** Size=Sm, Size=Xs, State=Default, State=Focus, State=Hover, State=Selected
 - **States:** —

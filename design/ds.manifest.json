@@ -1117,17 +1117,47 @@
       "kind": "register",
       "note": "Screen/Present",
       "ts": "2026-10-29T00:57:09.740Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Destructive",
+      "ts": "2026-10-29T01:26:13.595Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/SecondaryDestructive",
+      "ts": "2026-10-29T01:26:13.649Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Badge/StatusCount",
+      "ts": "2026-10-29T01:26:13.720Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "List/Row",
+      "ts": "2026-10-29T01:26:13.786Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Icon/Tile",
+      "ts": "2026-10-29T01:26:13.858Z"
     }
   ],
   "compiledHash": "sha256-SkbvSo4GPRiDbsraF1SR2KVmOozT63OQNtWEiJgr-DY",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 160,
+  "generation": 165,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {
     "family": "imported",
     "slug": "imported"
   },
-  "registryHash": "sha256-H0FAMJ-DO1EJ5d2Rtl36D_QfA4erR_9M35SKLVimfiM",
+  "registryHash": "sha256-1MM89ZYxfiWwoaq3BAL5p0hqiLf51EebDjsjk0mNL9Q",
   "version": "1.0.0"
 }
