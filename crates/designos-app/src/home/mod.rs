@@ -1533,16 +1533,11 @@ mod main_view {
         widgets::text_width(p, label, &theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold)) + theme::SPACE_GROUP * 2.0
     }
 
-    /// The kit's focus band around `r` while the keyboard focus sits on `id`: 2 px wide, 2 px clear of the control.
+    /// The kit's focus band around `r` while the keyboard focus sits on `id`.
     fn paint_focus_ring(ui: &Ui, r: Rect, id: Id) {
-        let ring = kit::button_ring(Hierarchy::Secondary, ui.memory(|m| m.has_focus(id)));
-        if ring == Color32::TRANSPARENT {
-            return;
+        if kit::keyboard_focus(ui, id) {
+            kit::focus_ring(ui.painter(), r, f32::from(theme::RADIUS_CONTROL));
         }
-        let mut p = ui.painter().clone();
-        p.set_clip_rect(p.clip_rect().expand(theme::SPACE_FACT));
-        let band = kit::look(Color32::TRANSPARENT, ring, 2.0, Color32::TRANSPARENT, Color32::TRANSPARENT);
-        kit::paint_frame(&p, r.expand(theme::SPACE_FACT), theme::RADIUS_CONTROL + theme::SPACE_FACT as u8, &band);
     }
 
     /// A secondary button painted over a rect whose click and keyboard focus belong to `id`.
