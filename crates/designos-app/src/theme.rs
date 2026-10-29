@@ -73,8 +73,11 @@ pub const TEXT_ON_LIGHT_CANVAS: Color32 = rgb(0x0A0A0A);
 pub const SHADOW_COLOR: Color32 = rgba(0x000000, 0x00);
 pub const SHADOW_COLOR_STRONG: Color32 = rgba(0x000000, 0x00);
 /// Elevation 400: drop shadow colour, 0.5px inset ring (#ffffff59 at half coverage) and top edge.
+/// Shared helpers no longer paint the shadow or the top edge, so those two stay for the contract.
+#[allow(dead_code)]
 pub const ELEVATION_400_SHADOW: Color32 = rgba(0x000000, 0x00);
 pub const ELEVATION_400_RING: Color32 = rgb(0x262626);
+#[allow(dead_code)]
 pub const ELEVATION_400_TOP: Color32 = rgba(0xFFFFFF, 0x00);
 pub const INNER_HIGHLIGHT: Color32 = rgb(0x262626);
 pub const CHECKER_A: Color32 = rgb(0xFFFFFF);
@@ -370,12 +373,22 @@ pub enum TextWeight {
 /// Inter at `size` in one of the three UI weights, for a text step such as `FONT_SIZE_TEXT_SM`.
 #[allow(dead_code)] // staged: first used by the button labels
 pub fn font_text(size: f32, weight: TextWeight) -> FontId {
-    let family = match weight {
+    FontId::new(size, weight_family(weight))
+}
+
+fn weight_family(weight: TextWeight) -> FontFamily {
+    use std::sync::{Arc, OnceLock};
+    match weight {
         TextWeight::Regular => FontFamily::Proportional,
-        TextWeight::Medium => FontFamily::Name(FAMILY_MEDIUM.into()),
-        TextWeight::Semibold => FontFamily::Name(FAMILY_STRONG.into()),
-    };
-    FontId::new(size, family)
+        TextWeight::Medium => {
+            static NAME: OnceLock<Arc<str>> = OnceLock::new();
+            FontFamily::Name(NAME.get_or_init(|| Arc::from(FAMILY_MEDIUM)).clone())
+        }
+        TextWeight::Semibold => {
+            static NAME: OnceLock<Arc<str>> = OnceLock::new();
+            FontFamily::Name(NAME.get_or_init(|| Arc::from(FAMILY_STRONG)).clone())
+        }
+    }
 }
 
 /// Frame, component and section labels above top-level frames on the canvas: overlay text that keeps its
@@ -849,13 +862,13 @@ pub fn apply(ctx: &egui::Context) {
     let v = &mut style.visuals;
     *v = egui::Visuals::dark();
     v.panel_fill = BG;
-    v.window_fill = BG_MENU;
+    v.window_fill = BG_PRIMARY_SOLID;
     v.extreme_bg_color = BG;
     v.faint_bg_color = BG_SECONDARY;
     v.override_text_color = None;
     v.window_shadow = egui::Shadow::NONE;
     v.popup_shadow = egui::Shadow::NONE;
-    v.window_stroke = egui::Stroke::new(1.0, BORDER_MENU);
+    v.window_stroke = egui::Stroke::NONE;
     v.window_corner_radius = cr(RADIUS_CONTROL);
     v.menu_corner_radius = cr(RADIUS_CONTROL);
     v.selection.bg_fill = BG_TEXT_SELECTION;
@@ -868,18 +881,23 @@ pub fn apply(ctx: &egui::Context) {
         w.corner_radius = cr(RADIUS_CONTROL);
         w.fg_stroke = egui::Stroke::new(1.0, TEXT);
     }
-    v.widgets.inactive.bg_fill = BG_SECONDARY;
-    v.widgets.inactive.weak_bg_fill = BG_SECONDARY;
+    v.widgets.inactive.bg_fill = Color32::TRANSPARENT;
+    v.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
     v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, BORDER_STRONG);
-    v.widgets.hovered.bg_fill = BG_SECONDARY_HOVER;
-    v.widgets.hovered.weak_bg_fill = BG_SECONDARY_HOVER;
+    v.widgets.hovered.bg_fill = BG_HOVER;
+    v.widgets.hovered.weak_bg_fill = BG_HOVER;
     v.widgets.active.bg_fill = BG_PRESSED;
     v.widgets.active.weak_bg_fill = BG_PRESSED;
     style.spacing.item_spacing = egui::vec2(0.0, 0.0);
     style.spacing.button_padding = egui::vec2(0.0, 0.0);
     style.spacing.interact_size = egui::vec2(0.0, 0.0);
+    let pad = egui::Margin::symmetric(INSET_BUTTON as i8, INSET_FRAME as i8);
+    style.spacing.window_margin = pad;
+    style.spacing.menu_margin = pad;
+    style.spacing.scroll = egui::style::ScrollStyle::floating();
     style.spacing.scroll.bar_width = 6.0;
-    style.spacing.scroll.floating = true;
+    style.spacing.scroll.active_handle_opacity = 0.225;
+    style.spacing.scroll.interact_handle_opacity = 0.225;
     style.text_styles.insert(egui::TextStyle::Body, font_body());
     style.text_styles.insert(egui::TextStyle::Button, font_body());
     style.text_styles.insert(egui::TextStyle::Small, font_caption());

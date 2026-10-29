@@ -193,6 +193,8 @@ SOURCE_FILES = {
     "shell.rs": "pub fn draw_window() {}\n",
     "canvas/mod.rs": "pub fn show() {}\n",
     "home/mod.rs": "pub mod sidebar {\n    pub fn show() {}\n}\n",
+    "widgets/kit/button.rs": "pub fn button() {}\n",
+    "widgets/kit/rows.rs": "pub fn panel_header() {}\n",
 }
 
 
@@ -351,8 +353,34 @@ class P1RegistryRustTests(GateFixture):
                 self.tree(records=records)
                 self.assert_red("P1", needle=f"rust_status='{status}'")
 
-    def test_new_in_c_d_and_k_are_each_reported_not_blocking(self) -> None:
-        for status in ("new-in-C", "new-in-D", "new-in-K"):
+    def test_new_in_c_symbol_that_does_not_resolve_is_red(self) -> None:
+        records = good_records()
+        records[0] = record(
+            "Divider/Hairline",
+            "element",
+            rust=["widgets/kit/nope.rs::x"],
+            status="new-in-C",
+            tokens=["colors.border"],
+            paints=["BORDER"],
+        )
+        self.tree(records=records)
+        self.assert_red("P1", needle="widgets/kit/nope.rs::x")
+
+    def test_new_in_c_function_missing_from_an_existing_file_is_red(self) -> None:
+        records = good_records()
+        records[1] = record(
+            "Button/Primary",
+            "component",
+            rust=["kit/button.rs::not_a_button"],
+            status="new-in-C",
+            tokens=["colors.primary"],
+            paints=["BG_BRAND"],
+        )
+        self.tree(records=records)
+        self.assert_red("P1", needle="kit/button.rs::not_a_button")
+
+    def test_new_in_d_and_k_are_reported_not_blocking(self) -> None:
+        for status in ("new-in-D", "new-in-K"):
             with self.subTest(status=status):
                 records = good_records()
                 records[0] = record(

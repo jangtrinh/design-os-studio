@@ -445,7 +445,7 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                 let hit = if capped { row.intersect(band) } else { row };
                 if !hit.is_positive() {
                     if it.separator_after {
-                        hline(&p, rect.left(), rect.right(), row.bottom() + theme::MENU_SEP_MARGIN, theme::BORDER_MENU);
+                        hline(&p, rect.left(), rect.right(), row.bottom() + theme::MENU_SEP_MARGIN, theme::BORDER);
                     }
                     continue;
                 }
@@ -469,46 +469,37 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                 if (released_here || activated) && !it.disabled {
                     clicked = Some((k, i));
                 }
-                if lit {
-                    p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
-                }
-                let col = if it.disabled { theme::TEXT_DISABLED } else { theme::TEXT };
+                let paint = kit::menu_row_look(it.disabled, lit, it.checked);
+                kit::paint_frame(&p, pill, theme::RADIUS_CONTROL, &paint);
                 let cy = row.center().y;
                 if it.checked {
-                    icons::paint(&p, Icon::Check, Pos2::new(rect.left() + theme::MENU_CHECK_X + theme::MENU_CHECK_BOX / 2.0, cy), theme::MENU_ICON_SIZE, col);
+                    icons::paint(
+                        &p,
+                        Icon::Check,
+                        Pos2::new(rect.left() + theme::MENU_CHECK_X + theme::MENU_CHECK_BOX / 2.0, cy),
+                        theme::MENU_ICON_SIZE,
+                        paint.mark,
+                    );
                 }
                 if let Some(ic) = it.icon {
                     let ix = if lay.has_check { theme::MENU_ICON_X_CHECKED } else { theme::MENU_ICON_X_PLAIN };
-                    icons::paint(&p, ic, Pos2::new(rect.left() + ix + theme::MENU_ICON_BOX / 2.0, cy), theme::MENU_ICON_SIZE, col);
+                    icons::paint(&p, ic, Pos2::new(rect.left() + ix + theme::MENU_ICON_BOX / 2.0, cy), theme::MENU_ICON_SIZE, paint.icon);
                 }
-                p.text(Pos2::new(rect.left() + label_x(it, lay.has_check), cy), Align2::LEFT_CENTER, &it.label, font.clone(), col);
+                p.text(Pos2::new(rect.left() + label_x(it, lay.has_check), cy), Align2::LEFT_CENTER, &it.label, font.clone(), paint.text);
+                let hint = kit::shortcut_look(if it.disabled { kit::State::Disabled } else { kit::State::Default }).text;
                 if it.has_sub() {
-                    let c = if it.disabled {
-                        theme::TEXT_DISABLED
-                    } else if lit {
-                        theme::MENU_SHORTCUT_HIGHLIGHT
-                    } else {
-                        theme::ICON_SECONDARY
-                    };
                     icons::paint(
                         &p,
                         Icon::ChevronRight,
                         Pos2::new(rect.right() - theme::MENU_CHEVRON_PAD - theme::MENU_CHEVRON_BOX / 2.0, cy),
                         theme::MENU_CHEVRON_SIZE,
-                        c,
+                        paint.icon,
                     );
                 } else if !it.shortcut.is_empty() {
-                    let c = if it.disabled {
-                        theme::TEXT_DISABLED
-                    } else if lit {
-                        theme::MENU_SHORTCUT_HIGHLIGHT
-                    } else {
-                        theme::TEXT_SECONDARY
-                    };
-                    p.text(Pos2::new(rect.right() - theme::MENU_SHORTCUT_PAD, cy), Align2::RIGHT_CENTER, &it.shortcut, font.clone(), c);
+                    p.text(Pos2::new(rect.right() - theme::MENU_SHORTCUT_PAD, cy), Align2::RIGHT_CENTER, &it.shortcut, font.clone(), hint);
                 }
                 if it.separator_after {
-                    hline(&p, rect.left(), rect.right(), row.bottom() + theme::MENU_SEP_MARGIN, theme::BORDER_MENU);
+                    hline(&p, rect.left(), rect.right(), row.bottom() + theme::MENU_SEP_MARGIN, theme::BORDER);
                 }
             }
             if capped {
@@ -594,14 +585,13 @@ pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    if r.hovered() || open {
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
-    }
+    let focused = open || ui.memory(|mem| mem.has_focus(id));
+    let paint = kit::select_look(if focused { kit::State::Focused } else { kit::State::Default });
+    kit::paint_frame(p, rect, theme::RADIUS_CONTROL, &paint);
     let font = theme::font_menu();
     let shown = elide(p, label, &font, rect.width() - 28.0);
-    p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT);
-    icons::paint(p, Icon::ChevronDown, Pos2::new(rect.right() - 12.0, rect.center().y), 12.0, theme::ICON_SECONDARY);
+    p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, paint.text);
+    icons::paint(p, Icon::ChevronDown, Pos2::new(rect.right() - 12.0, rect.center().y), 12.0, paint.icon);
     if r.clicked() {
         ui.data_mut(|d| d.insert_temp(id, !open));
     }

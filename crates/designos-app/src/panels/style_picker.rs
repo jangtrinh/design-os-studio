@@ -202,7 +202,7 @@ pub(crate) fn delete_style_row(app: &App, sel: &[NodeId], prop: StyleProperty) -
 
 static SCREENSHOT_HOVER_TIP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-pub(super) fn set_screenshot_hover_tip(on: bool) {
+pub(crate) fn set_screenshot_hover_tip(on: bool) {
     SCREENSHOT_HOVER_TIP.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
@@ -214,7 +214,7 @@ pub(super) fn header_button(app: &mut App, ui: &mut Ui, pane: &Pane, sel: &[Node
 }
 
 /// The "Style" button at `btn` and its menu while open; the menu's right edge sits at `menu_right`.
-pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: StyleProperty, btn: Rect, menu_right: f32) {
+pub(crate) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: StyleProperty, btn: Rect, menu_right: f32) {
     let open = app.props.style_menu == Some(prop);
     let key = button_key(prop);
     widgets::record(ui, key, btn);
@@ -241,7 +241,7 @@ pub(super) fn style_button(app: &mut App, ui: &mut Ui, sel: &[NodeId], prop: Sty
                 .fixed_pos(Pos2::new(pos.x + theme::MENU_PADDING, row_y + theme::MENU_PADDING))
                 .interactable(false)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    crate::widgets::kit::tooltip_frame().show(ui, |ui| {
                         ui.label(tip_text);
                     });
                 });

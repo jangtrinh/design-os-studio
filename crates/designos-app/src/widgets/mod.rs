@@ -6,6 +6,7 @@ impl<T: std::hash::Hash + std::fmt::Debug> Key for T {}
 
 pub mod field;
 pub mod field_tab;
+pub mod kit;
 pub mod menu;
 pub mod picker;
 pub mod popover;
@@ -68,56 +69,23 @@ pub fn vline(p: &Painter, x: f32, y0: f32, y1: f32, color: Color32) {
     p.rect_filled(Rect::from_min_max(Pos2::new(x, y0), Pos2::new(x + theme::BORDER_WIDTH, y1)), 0.0, color);
 }
 
-/// Layered soft shadow (approximates a CSS box-shadow with blur).
-pub fn shadow(p: &Painter, rect: Rect, radius: u8, offset: Vec2, blur: f32, color: Color32) {
-    let steps = (blur / 1.5).ceil().max(1.0) as i32;
-    for i in (0..steps).rev() {
-        let t = i as f32 / steps as f32;
-        let grow = blur * t;
-        let a = (color.a() as f32 * (1.0 - t) * (1.0 - t) / steps as f32 * 2.0).clamp(0.0, 255.0) as u8;
-        let c = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), a);
-        p.rect_filled(rect.translate(offset).expand(grow), CornerRadius::same(radius.saturating_add(grow as u8)), c);
-    }
+/// Floating chrome draws no shadow. The arguments stay so existing callers compile.
+pub fn shadow(_p: &Painter, _rect: Rect, _radius: u8, _offset: Vec2, _blur: f32, _color: Color32) {}
+
+/// Floating chrome draws no shadow.
+pub fn elevation_shadow(_p: &Painter, _rect: Rect, _radius: u8) {}
+
+/// Floating chrome draws no shadow.
+pub fn elevation_400(_p: &Painter, _rect: Rect, _radius: u8) {}
+
+/// Menu chrome. The caller's radius is ignored; the surface uses the frame radius.
+pub fn menu_panel(p: &Painter, rect: Rect, _radius: u8) {
+    kit::menu_surface(p, rect);
 }
 
-/// Elevation 200 style shadow stack used by menus/popovers.
-pub fn elevation_shadow(p: &Painter, rect: Rect, radius: u8) {
-    shadow(p, rect, radius, Vec2::new(0.0, 3.0), 8.0, theme::SHADOW_COLOR);
-    shadow(p, rect, radius, Vec2::new(0.0, 1.0), 3.0, theme::SHADOW_COLOR_STRONG);
-}
-
-/// Elevation 400 (menus): two drop shadows plus a half-pixel inner highlight ring
-/// and a fainter top edge highlight, drawn over the panel fill by `menu_panel`.
-pub fn elevation_400(p: &Painter, rect: Rect, radius: u8) {
-    shadow(p, rect, radius, Vec2::new(0.0, 2.0), 5.0, theme::ELEVATION_400_SHADOW);
-    shadow(p, rect, radius, Vec2::new(0.0, 10.0), 16.0, theme::ELEVATION_400_SHADOW);
-}
-
-/// Panel chrome of a menu: shadow, fill, 0.5px inset ring.
-pub fn menu_panel(p: &Painter, rect: Rect, radius: u8) {
-    elevation_400(p, rect, radius);
-    p.rect_filled(rect, theme::cr(radius), theme::BG_MENU);
-    p.rect_stroke(rect, theme::cr(radius), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
-    p.line_segment(
-        [Pos2::new(rect.left() + radius as f32, rect.top() + 0.5), Pos2::new(rect.right() - radius as f32, rect.top() + 0.5)],
-        Stroke::new(1.0, theme::ELEVATION_400_TOP),
-    );
-}
-
-/// Background for icon-like buttons: hover / pressed / selected states.
+/// Icon-button fill and keyboard ring. The caller owns the corner radius and the glyph.
 pub fn button_bg(p: &Painter, rect: Rect, r: &Response, selected: bool, radius: CornerRadius) {
-    let fill = if selected {
-        theme::BG_SELECTED
-    } else if r.is_pointer_button_down_on() {
-        theme::BG_PRESSED
-    } else if r.hovered() {
-        theme::BG_HOVER
-    } else {
-        Color32::TRANSPARENT
-    };
-    if fill != Color32::TRANSPARENT {
-        p.rect_filled(rect, radius, fill);
-    }
+    kit::paint_icon_bg(p, rect, r, selected, radius);
 }
 
 /// Paints `icon` centered in `boxr` (a button or field slot). Under test the box is
@@ -174,17 +142,7 @@ pub fn field_text(p: &Painter, rect: Rect, dx: f32, pad_r: f32, s: &str, font: F
 
 /// Square icon button used throughout the panels (24px by default).
 pub fn icon_button(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, icon: Icon, selected: bool, tip: &str) -> Response {
-    let r = ui.interact(rect, ui.id().with(id), Sense::click());
-    let p = ui.painter();
-    button_bg(p, rect, &r, selected, theme::cr(theme::RADIUS_CONTROL));
-    let col = if selected {
-        theme::ICON_SELECTED
-    } else if r.hovered() {
-        theme::ICON
-    } else {
-        theme::ICON_SECONDARY
-    };
-    paint_icon_in(p, rect, icon, 16.0, col);
+    let r = kit::button_icon(ui, rect, id, icon, kit::Hierarchy::Icon, kit::Size::Xs, ui.is_enabled(), selected);
     if !tip.is_empty() {
         return r.on_hover_text(tip);
     }
@@ -193,6 +151,12 @@ pub fn icon_button(ui: &mut Ui, rect: Rect, id: impl crate::widgets::Key, icon: 
 
 /// Checkerboard-backed color swatch.
 pub fn swatch(p: &Painter, rect: Rect, color: Color32) {
+    swatch_focused(p, rect, color, false);
+}
+
+/// A swatch inside a control that holds keyboard focus: the control passes its own focus, so the swatch never takes a click.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn swatch_focused(p: &Painter, rect: Rect, color: Color32, focused: bool) {
     let r = theme::cr(theme::SWATCH_RADIUS);
     p.rect_filled(rect, r, theme::CHECKER_A);
     if color.a() < 255 {
@@ -201,7 +165,7 @@ pub fn swatch(p: &Painter, rect: Rect, color: Color32) {
         p.rect_filled(Rect::from_min_size(rect.min + Vec2::new(h, h), Vec2::new(h, h)), 0.0, theme::CHECKER_B);
     }
     p.rect_filled(rect, r, color);
-    p.rect_stroke(rect, r, Stroke::new(1.0, theme::BORDER_TRANSLUCENT), StrokeKind::Inside);
+    kit::swatch_ring(p, rect, false, focused);
 }
 
 /// Filled circle swatch with a thin translucent ring; several colours blend along the diagonal.
@@ -232,7 +196,8 @@ pub fn swatch_circle(p: &Painter, c: Pos2, r: f32, colors: &[Color32]) {
             p.add(egui::Shape::mesh(mesh));
         }
     }
-    p.circle_stroke(c, r - 0.5, Stroke::new(1.0, theme::BORDER_TRANSLUCENT));
+    let edge = kit::swatch_look(kit::State::Default);
+    p.circle_stroke(c, r - 0.5, Stroke::new(edge.border_w, edge.border));
 }
 
 /// Sets the AccessKit role and accessible name on `id` when AccessKit is active.
