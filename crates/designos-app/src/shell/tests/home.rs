@@ -269,7 +269,7 @@ fn right_click_menu_moves_a_file_to_the_trash_and_trash_restores_it() {
     assert!(s.app().home.as_ref().unwrap().menu.is_some(), "context menu open");
     // "Move to trash" is the 8th row, after three separators
     let pos = card.center();
-    let y = pos.y + theme::MENU_PADDING + 7.0 * theme::MENU_ITEM_HEIGHT + 3.0 * crate::widgets::menu::SEP_H + theme::MENU_ITEM_HEIGHT / 2.0;
+    let y = pos.y + theme::MENU_PADDING + 7.0 * theme::CONTROL_SM + 3.0 * crate::widgets::menu::SEP_H + theme::CONTROL_SM / 2.0;
     s.click(Pos2::new(pos.x + 60.0, y));
     s.frame(vec![]);
     let l = lib(&s);
@@ -928,9 +928,9 @@ fn ac10_help_open_starter_sample_creates_numbered_copies_in_current_project() {
 #[test]
 fn corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker() {
     let d = TmpDir::new();
-    *crate::home::TEST_STARTER_BYTES_OVERRIDE.lock().unwrap() = Some(b"{not valid json");
+    crate::home::TEST_STARTER_BYTES_OVERRIDE.with(|cell| cell.set(Some(b"{not valid json")));
     let s = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
-    *crate::home::TEST_STARTER_BYTES_OVERRIDE.lock().unwrap() = None;
+    crate::home::TEST_STARTER_BYTES_OVERRIDE.with(|cell| cell.set(None));
 
     let toast = s.app().toast.as_ref().expect("corrupt starter asset must show an error toast");
     assert!(toast.error);
@@ -938,4 +938,198 @@ fn corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker() {
     assert!(s.app().lib.is_some(), "library remains usable after corrupt starter asset");
     assert!(!d.0.join(".starter-seeded").exists(), "no .starter-seeded marker written when starter asset fails");
     assert!(!d.0.join(".seeded").exists(), "no .seeded marker written when fresh starter asset fails");
+}
+
+fn near(a: f32, b: f32) -> bool {
+    (a - b).abs() < 0.5
+}
+
+#[test]
+fn home_header_buttons_are_button_sm() {
+    let (s, _d) = home_sim();
+    let head = theme::HOME_HEADER_H;
+    for name in ["home-new-file", "home-import"] {
+        let r = s.rect_of(name);
+        assert!(near(r.height(), theme::CONTROL_SM), "{name} height {} want {}", r.height(), theme::CONTROL_SM);
+        let side_top = s.rect_of("home-workspace-header").top() - 10.0;
+        let cy = r.center().y;
+        assert!(near(cy, side_top + head / 2.0), "{name} centre {cy} want {}", side_top + head / 2.0);
+    }
+}
+
+#[test]
+fn home_sidebar_nav_rows_follow_home_density() {
+    let (s, _d) = home_sim();
+    for name in ["home-recents", "home-trash"] {
+        let r = s.rect_of(name);
+        assert!(near(r.height(), theme::CONTROL_SM), "{name} height {} want {}", r.height(), theme::CONTROL_SM);
+    }
+}
+
+#[test]
+fn home_filter_bar_controls_are_button_sm() {
+    let (s, _d) = home_sim();
+    for name in ["home-filter", "home-sort", "home-view-grid"] {
+        let r = s.rect_of(name);
+        assert!(near(r.height(), theme::CONTROL_SM), "{name} height {} want {}", r.height(), theme::CONTROL_SM);
+    }
+    let filter = s.rect_of("home-filter");
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
+    let side_top = s.rect_of("home-workspace-header").top() - 10.0;
+    let content_top = side_top + theme::HOME_HEADER_H + theme::CONTROL_SM + 10.0 + 1.0;
+    assert!(near(filter.top(), side_top + theme::HOME_HEADER_H + theme::SPACE_FACT), "filter {}", filter.top());
+    assert!(near(card.top(), content_top + theme::HOME_PAD), "card {} content {}", card.top(), content_top);
+}
+
+fn home_sources(rel: &str) -> &'static str {
+    match rel {
+        "mod" => include_str!("../../home/mod.rs"),
+        "thumb" => include_str!("../../home/thumb.rs"),
+        "time" => include_str!("../../home/time.rs"),
+        "session" => include_str!("../../home/session.rs"),
+        _ => unreachable!(),
+    }
+}
+
+fn sites_without_texture_tints(src: &str) -> Vec<usize> {
+    let clean = super::chrome_census::clean_rust(src);
+    let lines: Vec<&str> = clean.split('\n').collect();
+    super::chrome_census::chrome_colour_sites(src).into_iter().filter(|line| !super::chrome_census::texture_tint_line(lines[line - 1])).collect()
+}
+
+#[test]
+fn home_sources_paint_no_chrome_colour_literals() {
+    assert_eq!(sites_without_texture_tints(home_sources("mod")), Vec::<usize>::new());
+    assert_eq!(super::chrome_census::chrome_colour_sites(home_sources("thumb")), Vec::<usize>::new());
+    assert_eq!(super::chrome_census::chrome_colour_sites(home_sources("time")), Vec::<usize>::new());
+    assert_eq!(super::chrome_census::chrome_colour_sites(home_sources("session")), Vec::<usize>::new());
+}
+
+#[test]
+fn home_nav_and_list_rows_use_list_row_look() {
+    use crate::widgets::kit::{self, State, Surface};
+    let (mut s, _d) = home_sim();
+    let selected = kit::row_look(State::Selected, Surface::Primary);
+    let (rects, texts) = painted_home(&s);
+    let nav = s.rect_of("home-recents");
+    let fill = rects.iter().find(|r| r.rect == nav && r.fill == selected.fill).expect("selected nav fill");
+    assert_eq!(fill.fill, theme::BG_SELECTED);
+    assert!(rects.iter().all(|r| r.rect != nav || r.stroke.color.a() == 0), "selected nav row has no stroke");
+    let label = texts.iter().find(|(t, _)| t == "Recents").expect("Recents label");
+    assert_eq!(label.1, selected.text);
+
+    click_rect(&mut s, "home-view-list");
+    s.frame(vec![]);
+    click_rect(&mut s, "home-card-DESIGN-OS Studio Starter");
+    s.frame(vec![]);
+    let (rects, texts) = painted_home(&s);
+    let row = s.rect_of("home-card-DESIGN-OS Studio Starter");
+    assert!(near(row.height(), theme::HOME_LIST_ROW_H), "list row stays {}", row.height());
+    let row_fill = rects.iter().find(|r| r.rect == row && r.fill == selected.fill).expect("selected list fill");
+    assert_eq!(row_fill.fill, theme::BG_SELECTED);
+    assert!(rects.iter().all(|r| r.rect != row || r.stroke.color.a() == 0), "selected list row has no stroke");
+    let name = texts.iter().find(|(t, _)| t == "DESIGN-OS Studio Starter").expect("list name");
+    assert_eq!(name.1, selected.text);
+}
+
+#[test]
+fn home_thumb_stage_uses_home_thumb_bg() {
+    let src = home_sources("mod");
+    assert!(src.contains("theme::HOME_THUMB_BG"));
+    assert!(!src.contains("let _ = theme::HOME_THUMB_BG"));
+}
+
+#[test]
+fn home_empty_trash_is_destructive_secondary() {
+    use crate::home::Kind;
+    use crate::widgets::kit::{self, Hierarchy, State};
+    let (fill, border, text) = crate::home::button_colours(Kind::SecondaryDestructive);
+    let rest = kit::button_look(Hierarchy::SecondaryDestructive, State::Default);
+    assert_eq!((fill, border, text), (rest.fill, rest.border, rest.text));
+    assert_eq!(rest.fill, theme::BG);
+    assert_eq!(rest.text, theme::TEXT_ERROR);
+    let hover = kit::button_look(Hierarchy::SecondaryDestructive, State::Hover);
+    assert_eq!(hover.fill, theme::BG_ERROR_PRIMARY);
+    assert_eq!(hover.text, theme::TEXT_ERROR_HOVER);
+
+    let (mut s, _d) = home_sim();
+    let id = file_id(&s, "DESIGN-OS Studio Starter");
+    crate::home::apply(&mut s.shell.app, Act::Trash(id));
+    s.frame(vec![]);
+    click_rect(&mut s, "home-trash");
+    s.frame(vec![]);
+    let (rects, texts) = painted_home(&s);
+    let btn = s.rect_of("home-empty-trash");
+    let painted = rects.iter().find(|r| r.rect == btn && r.fill.a() == 255).expect("empty trash fill");
+    assert_eq!(painted.fill, rest.fill);
+    let label = texts.iter().find(|(t, _)| t == "Empty trash").expect("empty trash label");
+    assert_eq!(label.1, rest.text);
+}
+
+#[test]
+fn home_missing_file_uses_error_roles() {
+    let d = TmpDir::new();
+    let l = Library::open(&d.0).unwrap();
+    let p = l.create_project("Getting started").unwrap();
+    let mut doc = Document::new("Missing draft");
+    doc.add_page("Page 1");
+    let entry = l.create_file(&p.id, None, "Missing draft", &doc).unwrap();
+    std::fs::write(d.0.join(".seeded"), b"1\n").unwrap();
+    std::fs::write(d.0.join(".starter-seeded"), b"1\n").unwrap();
+    let disk_path = crate::home::library_file_disk_path(&l, &p.id, &entry.id);
+    std::fs::remove_file(&disk_path).unwrap();
+
+    let s = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
+    let (_rects, texts) = painted_home(&s);
+    let missing = texts.iter().find(|(t, _)| t.contains("File not found")).expect("missing copy");
+    assert_eq!(missing.1, theme::TEXT_ERROR);
+    let remove = s.rect_of("home-remove-Missing draft");
+    assert!(near(remove.height(), theme::CONTROL_SM), "remove height {}", remove.height());
+}
+
+#[test]
+fn home_has_no_figma_blue_or_ui3_palette() {
+    let src = home_sources("mod");
+    assert!(!src.contains("UI3_"));
+    assert!(!src.contains("PrimaryBlue"));
+    assert!(!src.contains("0x0D, 0x99, 0xFF"));
+}
+
+#[test]
+fn home_primary_button_is_brand_with_dark_label() {
+    use crate::home::Kind;
+    let (fill, _border, text) = crate::home::button_colours(Kind::Primary);
+    assert_eq!(fill, theme::BG_BRAND);
+    assert_eq!(text, theme::TEXT_ON_BRAND);
+    let (s, _d) = home_sim();
+    let _ = s.rect_of("home-new-file");
+}
+
+#[test]
+fn home_layout_regions_unchanged() {
+    let (s, _d) = home_sim();
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
+    assert!(near(card.left(), theme::HOME_SIDEBAR_W + theme::HOME_PAD), "card x {}", card.left());
+    assert!(near(card.width(), theme::HOME_CARD_W), "card w {}", card.width());
+    assert_eq!(theme::HOME_HEADER_H, 64.0);
+    assert_eq!(theme::HOME_SIDEBAR_W, 264.0);
+    let side_top = s.rect_of("home-workspace-header").top() - 10.0;
+    let filter = s.rect_of("home-filter");
+    assert!(near(filter.top(), side_top + theme::HOME_HEADER_H + theme::SPACE_FACT), "header stays 64");
+}
+
+#[test]
+fn home_breadcrumb_never_overlaps_header_buttons() {
+    let labels = vec!["Recents".to_string(), "Getting started".to_string(), "A very long nested folder name".to_string()];
+    let widths = vec![80.0, 160.0, 420.0];
+    let fitted = crate::home::fit_breadcrumb(&labels, &widths, theme::SPACE_SECTION, 16.0, 140.0);
+    assert_eq!(fitted[0], "…");
+    assert!(fitted.last().unwrap().ends_with('…') || fitted.len() < labels.len());
+
+    let (mut s, _d) = home_sim();
+    click_rect(&mut s, "home-project-Getting started");
+    s.frame(vec![]);
+    let crumb = s.rect_of("home-crumb-0");
+    let button = s.rect_of("home-new-folder");
+    assert!(crumb.right() + theme::SPACE_GROUP <= button.left() + 0.5, "crumb {} button {}", crumb.right(), button.left());
 }

@@ -1171,6 +1171,7 @@ mod board;
 mod board_home;
 mod canvas_label_rename;
 mod check_designs;
+mod chrome_census;
 mod comments;
 mod components;
 mod components_cycles;
