@@ -231,6 +231,18 @@ mod tests {
     }
 
     #[test]
+    fn a_three_streak_after_a_different_call_fires_on_the_third_repeat() {
+        // Ok reads only: a failing write would still trip write_error_k if repeat_k used take(k+1).
+        let mut g = LoopGuard::with_thresholds(3, 20);
+        let b = fp("designos_get_node", &json!({"node_id": 1}), &json!({"id": 1}), None, true);
+        let a = fp("designos_get_node", &json!({"node_id": 2}), &json!({"id": 2}), None, true);
+        assert_eq!(g.observe(b), LoopVerdict::None, "leading B never fires");
+        assert_eq!(g.observe(a.clone()), LoopVerdict::None, "first A never fires");
+        assert_eq!(g.observe(a.clone()), LoopVerdict::None, "second A of K=3 does not fire");
+        assert_eq!(g.observe(a), LoopVerdict::Advisory, "third A after B fires");
+    }
+
+    #[test]
     fn repeat_identical_reads_are_advisory() {
         let mut g = LoopGuard::with_thresholds(3, 20);
         let rec = fp("designos_get_document", &json!({}), &json!({"n": 1}), None, true);
