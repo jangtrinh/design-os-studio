@@ -173,8 +173,8 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
         return;
     }
     let w = 220.0;
-    let row_h = 26.0;
-    let header_h = 26.0;
+    let row_h = crate::theme::MENU_ITEM_HEIGHT;
+    let header_h = crate::theme::MENU_ITEM_HEIGHT;
     let h = header_h + ids.len() as f32 * row_h + 6.0;
     let screen = ctx.content_rect();
     let x = at.x.clamp(screen.left() + 4.0, (screen.right() - w - 4.0).max(screen.left() + 4.0));
@@ -187,9 +187,7 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("layer-picker-menu")).order(egui::Order::Tooltip).fixed_pos(r.min).show(ctx, |ui| {
         let (_, _) = ui.allocate_exact_size(r.size(), egui::Sense::hover());
         let p = ui.painter();
-        crate::widgets::elevation_shadow(p, r, crate::theme::RADIUS_FRAME);
-        p.rect_filled(r, crate::theme::cr(crate::theme::RADIUS_FRAME), crate::theme::BG_MENU);
-        p.rect_stroke(r, crate::theme::cr(crate::theme::RADIUS_FRAME), egui::Stroke::new(1.0, crate::theme::BORDER_MENU), egui::StrokeKind::Inside);
+        crate::widgets::kit::menu_surface(p, r);
         p.text(
             egui::Pos2::new(r.left() + 12.0, r.top() + header_h * 0.5),
             egui::Align2::LEFT_CENTER,
@@ -201,31 +199,27 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
 
         for (idx, &id) in ids.iter().enumerate() {
             let Some(node) = app.doc.get(id) else { continue };
-            let rr = egui::Rect::from_min_size(
-                egui::Pos2::new(r.left() + 4.0, r.top() + header_h + 3.0 + idx as f32 * row_h),
-                egui::Vec2::new(w - 8.0, row_h - 2.0),
-            );
+            let inset = crate::theme::INSET_FRAME;
+            let rr =
+                egui::Rect::from_min_size(egui::Pos2::new(r.left() + inset, r.top() + header_h + idx as f32 * row_h), egui::Vec2::new(w - inset * 2.0, row_h));
             let resp = ui.interact(rr, Id::new(("layer-picker-row", id)), egui::Sense::click());
+            crate::widgets::record_with(ui, || format!("layer-row-{idx}"), rr);
             let hov = resp.hovered();
             let sel = app.is_selected(id);
             if hov {
                 hovered_any = Some(id);
-                p.rect_filled(rr, crate::theme::cr(4), crate::theme::BG_MENU_SELECTED);
-            } else if sel {
-                p.rect_filled(rr, crate::theme::cr(4), crate::theme::BG_SELECTED);
             }
+            // The same Menu/Item look as the menu rows; a selected layer keeps the selected fill.
+            let mut paint = crate::widgets::kit::menu_row_look(false, hov, false);
+            if sel {
+                paint.fill = crate::theme::BG_SELECTED;
+            }
+            crate::widgets::kit::paint_frame(p, rr, crate::theme::RADIUS_CONTROL, &paint);
             let icon = super::layers::kind_icon(&node.kind);
             let is_comp = matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
-            let icon_col = if hov {
-                egui::Color32::WHITE
-            } else if is_comp {
-                crate::theme::COMPONENT
-            } else {
-                crate::theme::TEXT_SECONDARY
-            };
+            let icon_col = if is_comp && !hov { crate::theme::COMPONENT } else { paint.icon };
             crate::icons::paint(p, icon, egui::Pos2::new(rr.left() + 12.0, rr.center().y), crate::theme::LAYER_ICON_SIZE, icon_col);
-            let text_col = if hov { egui::Color32::WHITE } else { crate::theme::TEXT };
-            p.text(egui::Pos2::new(rr.left() + 26.0, rr.center().y), egui::Align2::LEFT_CENTER, &node.name, crate::theme::font_body(), text_col);
+            p.text(egui::Pos2::new(rr.left() + 26.0, rr.center().y), egui::Align2::LEFT_CENTER, &node.name, crate::theme::font_menu(), paint.text);
             if resp.clicked() {
                 picked = Some(id);
             }

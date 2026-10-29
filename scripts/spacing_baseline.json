@@ -97,20 +97,20 @@
       "offset_literals": 2
     },
     "cmdk.rs": {
-      "offset_literals": 35,
-      "radius_literals": 8
+      "offset_literals": 30,
+      "radius_literals": 6
     },
     "comments/panel.rs": {
       "offset_literals": 20
     },
     "comments/thread.rs": {
-      "offset_literals": 17
+      "offset_literals": 16
     },
     "comments/time.rs": {
       "offset_literals": 2
     },
     "comments/ui.rs": {
-      "inset_literals": 4,
+      "inset_literals": 2,
       "offset_literals": 1
     },
     "decks/demo.rs": {
@@ -156,11 +156,11 @@
       "offset_literals": 3
     },
     "history/panel.rs": {
-      "offset_literals": 23
+      "offset_literals": 22
     },
     "home/dialog.rs": {
       "inset_literals": 1,
-      "offset_literals": 9
+      "offset_literals": 8
     },
     "home/main_view.rs": {
       "offset_literals": 47,
@@ -206,8 +206,7 @@
       "radius_literals": 2
     },
     "panels/context.rs": {
-      "offset_literals": 9,
-      "radius_literals": 2
+      "offset_literals": 8
     },
     "panels/effects.rs": {
       "inset_literals": 1,
@@ -318,8 +317,7 @@
       "radius_literals": 17
     },
     "updater.rs": {
-      "offset_literals": 55,
-      "radius_literals": 14
+      "offset_literals": 51
     },
     "variables/library.rs": {
       "offset_literals": 3
@@ -358,19 +356,19 @@
   "note": "Ratchet baseline for scripts/check_spacing_relationships.py. Per-file counts of literal geometry outside theme.rs. Counts may only fall: lower them with --write-baseline, which refuses to raise any entry.",
   "totals": {
     "font_literals": 25,
-    "inset_literals": 44,
+    "inset_literals": 42,
     "legacy_control_refs": 83,
     "nonconcentric_pairs": 2,
-    "offset_literals": 1630,
-    "radius_literals": 235
+    "offset_literals": 1617,
+    "radius_literals": 217
   },
   "totals_excluding_own_palette": {
     "font_literals": 4,
-    "inset_literals": 44,
+    "inset_literals": 42,
     "legacy_control_refs": 79,
     "nonconcentric_pairs": 1,
-    "offset_literals": 1323,
-    "radius_literals": 139
+    "offset_literals": 1310,
+    "radius_literals": 121
   },
   "version": 1
 }

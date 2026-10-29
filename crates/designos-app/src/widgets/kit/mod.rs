@@ -61,8 +61,8 @@ pub use field::{field_look, paint_field, property_field_look, search_look, selec
 pub use focus::{focus_ring, keyboard_focus};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use rows::{
-    divider_look, list_row, list_row_ring, menu_item_look, menu_row_look, panel_header, panel_header_look, row_look, section_header, section_header_look,
-    separator_look, shortcut_look, tree_row_bg, tree_row_look,
+    command_row_look, divider_look, list_row, list_row_ring, menu_item_look, menu_row_look, panel_header, panel_header_look, row_look, section_header,
+    section_header_look, separator_look, shortcut_look, tree_row_bg, tree_row_look,
 };
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use surface::{

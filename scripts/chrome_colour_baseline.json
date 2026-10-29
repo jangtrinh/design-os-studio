@@ -28,9 +28,6 @@
     "canvas/tiles.rs": {
       "chrome_sites": 2
     },
-    "cmdk.rs": {
-      "chrome_sites": 9
-    },
     "dev/compare.rs": {
       "chrome_sites": 2
     },
@@ -39,12 +36,6 @@
     },
     "dev/playground.rs": {
       "chrome_sites": 4
-    },
-    "history/modal.rs": {
-      "chrome_sites": 1
-    },
-    "home/dialog.rs": {
-      "chrome_sites": 3
     },
     "home/main_view.rs": {
       "chrome_sites": 7
@@ -76,9 +67,6 @@
     "panels/components.rs": {
       "chrome_sites": 1
     },
-    "panels/context.rs": {
-      "chrome_sites": 2
-    },
     "panels/export.rs": {
       "chrome_sites": 1
     },
@@ -104,7 +92,7 @@
       "chrome_sites": 1
     },
     "present.rs": {
-      "chrome_sites": 9
+      "chrome_sites": 3
     },
     "skills/mod.rs": {
       "chrome_sites": 10
@@ -114,9 +102,6 @@
     },
     "terminal.rs": {
       "chrome_sites": 50
-    },
-    "updater.rs": {
-      "chrome_sites": 11
     },
     "variables/view.rs": {
       "chrome_sites": 3

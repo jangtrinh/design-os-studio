@@ -264,3 +264,21 @@ fn labeled_live_patch_shows_step_label_in_history_panel() {
     assert_eq!(s.app().hist.peek_undo_label(), None);
     assert_eq!(s.app().hist.peek_redo_label(), Some("Agent: run-7"));
 }
+
+#[test]
+fn banner_paints_back_to_current_in_the_frame_restore_is_clicked() {
+    let (mut s, _d) = file_sim();
+    run(&mut s, Action::ToggleVersionHistory);
+    save_version(&mut s, "Before cleanup");
+    s.frame(vec![]);
+    let row = s.rect_of("history-version-1");
+    s.click(row.center());
+    assert!(s.app().history.viewing.is_some());
+    let restore = s.rect_of("history-restore");
+    s.mv(restore.center());
+    s.button(true);
+    s.button(false);
+    let back_painted = s.shapes.iter().any(|clipped| matches!(&clipped.shape, egui::epaint::Shape::Text(text) if text.galley.text() == "Back to current"));
+    assert!(back_painted, "the click frame still paints the second button");
+    assert!(s.app().history.viewing.is_none(), "the click restored the version");
+}

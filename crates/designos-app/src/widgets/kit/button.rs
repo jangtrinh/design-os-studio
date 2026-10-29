@@ -131,6 +131,7 @@ pub const fn toast_action_look(state: State) -> Look {
     match state {
         State::Hover => look(theme::BG_SECONDARY_HOVER, CLEAR, W, theme::TEXT_SECONDARY_HOVER, theme::TEXT_SECONDARY_HOVER),
         State::Pressed => look(theme::BG_PRESSED, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY),
+        State::Disabled => disabled(look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY)),
         _ => look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY),
     }
 }
