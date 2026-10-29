@@ -136,7 +136,17 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.0. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.5. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v075"></a>
+### 0.7.5
+
+- **Colours, type and scale.** The chrome moves to a neutral dark palette with Studio orange for brand actions and an orange keyboard focus ring. Body text is 12 px with three text weights, corner radii are 6, 8, 12 and 16 px, and rows, fields and text grow only where the new scale says. Regions and panel widths stay where they were.
+- **Controls.** Buttons, fields, checkboxes, toggles, tabs, menu items, badges, tooltips and the rest paint from one shared look. A keyboard-focused control draws a 2 px focus ring in every state, menu items sit inset in their panel, and a switch shorter than 24 px takes clicks in a 24 px band.
+- **Window and left panel.** The title bar, file tabs, left rail, floating toolbar, rulers and shell menus use the new look, with a 4 px press band beside each ruler. `Pages`, the Dev section and `Layers` keep their 240 px width and section order with 32 px rows and buttons, Studio orange shows only for live state, and a click on a page row leaves the keyboard on the canvas.
+- **Popovers, dialogs and the command bar.** Command bar rows are 36 px, Enter runs the row you picked with the keyboard, and in a small window the bar scrolls its rows instead of covering the bottom toolbar. Dialogs use 14 px text, 36 px fields and 40 px buttons, and brand buttons carry a dark label on orange.
+- **Home.** Home uses the same dark palette, `+ Design file` is Studio orange with a dark label instead of blue, and the sidebar, header, filter bar, file grid and Trash stay where they were.
+- **Assets, Variables, Libraries and Check designs.** The `Assets` search field shows a focus ring only on keyboard focus, `Variables` cells draw nothing at rest and booleans are switches, `Libraries` shows `New`, `Changed` and `Missing from library` as status chips, and `Check designs` rules use checkboxes with a segmented contrast choice.
 
 <a id="new-in-v070"></a>
 ### 0.7.0
@@ -626,7 +636,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.0. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.5. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
