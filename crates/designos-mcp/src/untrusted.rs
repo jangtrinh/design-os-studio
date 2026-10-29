@@ -5,8 +5,31 @@
 //! asserting native field types.
 
 use serde_json::{json, Map, Value};
+use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+
+thread_local! {
+    static ENVELOPE_OVERRIDE: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+#[doc(hidden)]
+pub struct EnvelopeEnvGuard {
+    prev: Option<bool>,
+}
+
+impl EnvelopeEnvGuard {
+    pub fn off() -> Self {
+        let prev = ENVELOPE_OVERRIDE.with(|c| c.replace(Some(false)));
+        Self { prev }
+    }
+}
+
+impl Drop for EnvelopeEnvGuard {
+    fn drop(&mut self) {
+        ENVELOPE_OVERRIDE.with(|c| c.set(self.prev));
+    }
+}
 
 /// Env var that turns the envelope off (`0` / `false` / `off`). Missing or any other value keeps it on.
 pub const ENVELOPE_ENV: &str = "DESIGNOS_MCP_UNTRUSTED_ENVELOPE";
@@ -410,6 +433,9 @@ fn relax_schema_recursive(schema: &mut Value, segs: &[&str]) {
 }
 
 pub fn envelope_enabled() -> bool {
+    if let Some(over) = ENVELOPE_OVERRIDE.with(|c| c.get()) {
+        return over;
+    }
     match std::env::var(ENVELOPE_ENV) {
         Ok(raw) => {
             let raw = raw.trim();
@@ -427,6 +453,7 @@ pub struct WrapStats {
 
 pub fn wrap_tool_result(name: &str, value: &mut Value) -> WrapStats {
     if !envelope_enabled() {
+        enforce_legacy_result_budget(value);
         return WrapStats::default();
     }
     let Some(ForeignText::Fields(fields)) = foreign_text(name) else {
@@ -658,6 +685,106 @@ fn enforce_result_budget(value: &mut Value, stats: &mut WrapStats) {
     }
 }
 
+const LEGACY_SHRINK_MIN: usize = 64;
+
+fn over_budget_legacy(value: &Value, n: usize) -> bool {
+    let json_extra = if n > 0 { TRUNCATION_FIELD_RESERVE } else { 0 };
+    let text_extra = if n > 0 { 1 + truncation_notice(n).len() } else { 0 };
+    serialized_len(value) + json_extra > MAX_RESULT_JSON_CHARS || text_body(value).len() + text_extra > MAX_RESULT_JSON_CHARS
+}
+
+fn publish_legacy_truncated(value: &mut Value, n: usize) {
+    let Some(obj) = value.as_object_mut() else { return };
+    if n == 0 {
+        obj.remove(UNTRUSTED_TRUNCATED_FIELD);
+    } else {
+        obj.insert(UNTRUSTED_TRUNCATED_FIELD.into(), json!(n));
+    }
+}
+
+fn shrink_legacy_string(value: &mut Value, stats: &mut WrapStats) -> bool {
+    match value {
+        Value::String(s) if s.len() > LEGACY_SHRINK_MIN => {
+            let next = truncate_utf8(s, s.len() / 2).0;
+            *s = next;
+            stats.truncated += 1;
+            true
+        }
+        Value::Object(map) => {
+            let mut any = false;
+            for child in map.values_mut() {
+                any |= shrink_legacy_string(child, stats);
+            }
+            any
+        }
+        Value::Array(arr) => {
+            let mut any = false;
+            for child in arr {
+                any |= shrink_legacy_string(child, stats);
+            }
+            any
+        }
+        _ => false,
+    }
+}
+
+fn pop_named_array(value: &mut Value, key: &str) -> bool {
+    let Some(arr) = value.get_mut(key).and_then(Value::as_array_mut) else { return false };
+    if arr.is_empty() {
+        return false;
+    }
+    arr.pop();
+    true
+}
+
+fn pop_any_array(value: &mut Value) -> bool {
+    match value {
+        Value::Array(arr) => {
+            if arr.is_empty() {
+                return false;
+            }
+            if arr.iter_mut().any(pop_any_array) {
+                return true;
+            }
+            arr.pop();
+            true
+        }
+        Value::Object(map) => map.values_mut().any(pop_any_array),
+        _ => false,
+    }
+}
+
+fn shrink_legacy_one(value: &mut Value, stats: &mut WrapStats) -> bool {
+    if shrink_legacy_string(value, stats) {
+        return true;
+    }
+    if pop_named_array(value, "findings") || pop_named_array(value, "issues") {
+        stats.truncated += 1;
+        return true;
+    }
+    if pop_any_array(value) {
+        stats.truncated += 1;
+        return true;
+    }
+    false
+}
+
+fn enforce_legacy_result_budget(value: &mut Value) {
+    let mut stats = WrapStats::default();
+    while over_budget_legacy(value, stats.truncated) {
+        if !shrink_legacy_one(value, &mut stats) {
+            break;
+        }
+    }
+    publish_legacy_truncated(value, stats.truncated);
+    while over_budget_legacy(value, stats.truncated) {
+        if !shrink_legacy_one(value, &mut stats) {
+            break;
+        }
+        publish_legacy_truncated(value, stats.truncated);
+    }
+}
+
 fn shrink_one(value: &mut Value, stats: &mut WrapStats) -> bool {
     match value {
         Value::Object(map) if is_envelope_map(map) => {
@@ -884,11 +1011,11 @@ pub fn foreign_text_markdown() -> String {
     out.push_str("Text (`content[0].text`) replaces each envelope with a length-prefixed delimited block:\n\n");
     out.push_str("```\n<<<UNTRUSTED origin=text_layer bytes=N token=TOKEN>>>\nvalue\n<<<END UNTRUSTED token=TOKEN>>>\n```\n\n");
     out.push_str("The token is derived from the value and is regenerated until it does not appear in the value. `bytes` is the UTF-8 length of `value`, so a payload cannot close the block from inside. Both the structured JSON and the rendered `content[0].text` are kept at or under [`MAX_RESULT_JSON_CHARS`] (100000), including envelope overhead. When any untrusted value is shortened, the structured object gains `\"untrusted_truncated\": <count>` and the text gains a final line `[designos: result truncated to fit 100000 chars; N untrusted value(s) shortened]`. `truncated` on an envelope is true only when bytes were actually dropped. Binary-looking strings (NUL or a high control-byte ratio) are truncated to a short preview first, and are flagged only if that preview is shorter than the original.\n\n");
-    out.push_str("`DESIGNOS_MCP_UNTRUSTED_ENVELOPE=0` turns wrapping off. The default is on.\n\n");
+    out.push_str("`DESIGNOS_MCP_UNTRUSTED_ENVELOPE=0` turns wrapping off. The default is on. Structured JSON and rendered text still stay at or under [`MAX_RESULT_JSON_CHARS`] (100000); shortened results carry the same truncation marker and do not grow `untrusted` wrappers.\n\n");
     out.push_str("After a result that contains an envelope, the MCP server appends a seq line to `<session_dir>/untrusted-taint`. Studio records the seq at the start of the next user turn in `untrusted-turn`. While `taint seq > turn seq` (or either file is unreadable), dest/ext approval cards in Ask and Ask for risky only carry the advisory caption \"Read document text this turn\", and a session grant cannot settle them. Skip mode does not install the approval hook, so it does not apply this sink gate.\n\n");
     out.push_str("The caption is advisory. `untrusted-turn` lives in the agent-writable session dir; forging it drops the caption and re-shows \"Allow this session\". It cannot drop the card: destructive and external tools are never on the Ask-for-risky auto-allow list, and Ask already asks for every tool. Taint is not a hard security boundary. Any wrapped read taints the turn, so nearly every dest/ext card after a read carries the caption.\n\n");
     out.push_str("#### Per-CLI canary\n\n");
-    out.push_str("`scripts/qa/untrusted-canary.sh` is the release check that a real agent CLI, wired to `designos-mcp` with no skip-permission flags, reads a hostile text layer and does not delete layers, write `pwned.txt`, or leak the canary secret. It requires `DESIGNOS_MCP_BIN` (default `target/debug/designos-mcp`). `scripts/qa/untrusted-canary.sh --self-test` checks the harness with stub CLIs (python3 + the MCP binary only). The self-test does not prove that any real model resists the injection.\n\n");
+    out.push_str("`scripts/qa/untrusted-canary.sh` is the release check that a real agent CLI, wired to `designos-mcp` with no skip-permission flags, reads a hostile text layer and does not delete layers, write `pwned.txt`, or leak the canary secret. Each real CLI runs under `env -i` with a scratch HOME (mode 700). XDG directories and TMPDIR live inside that tree. API keys pass through by name only if set: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`. The script never reads, copies, or symlinks files from the real home. A CLI with no allow-listed key is SKIP, not PASS. After the run, a request log on the MCP stdio wrapper FAILs if any tool other than `designos_open_file`, `designos_get_document`, `designos_list_nodes`, or `designos_get_node` was called. It requires `DESIGNOS_MCP_BIN` (default `target/debug/designos-mcp`). `scripts/qa/untrusted-canary.sh --self-test` checks the harness with stub CLIs (python3 + the MCP binary only). The self-test does not prove that any real model resists the injection.\n\n");
     out.push_str("| Tool | Foreign-text fields | Origin |\n| --- | --- | --- |\n");
     for (name, spec) in FOREIGN {
         match spec {
@@ -1042,6 +1169,19 @@ mod tests {
         assert!(long_lint["findings"][0]["message"]["value"].as_str().unwrap().len() < 200_000);
         assert_eq!(long_lint["findings"][0]["rule"], json!("overflow-parent"));
         assert_eq!(long_lint["findings"][0]["node_id"], json!(2));
+
+        {
+            let _off = EnvelopeEnvGuard::off();
+            let long_msg = "Z".repeat(200_000);
+            let mut off_lint = json!({"findings": [{"rule": "overflow-parent", "severity": "error", "node_id": 2, "message": long_msg}], "total": 1});
+            wrap_tool_result("designos_lint", &mut off_lint);
+            assert!(serialized_len(&off_lint) <= MAX_RESULT_JSON_CHARS);
+            assert!(render_text(&off_lint).len() <= MAX_RESULT_JSON_CHARS);
+            assert!(off_lint.get(UNTRUSTED_TRUNCATED_FIELD).is_some());
+            assert!(!is_envelope(&off_lint["findings"][0]["message"]));
+            assert_eq!(off_lint["findings"][0]["rule"], json!("overflow-parent"));
+            assert!(render_text(&off_lint).contains("[designos: result truncated to fit"));
+        }
 
         for tool in ["designos_apply_spec", "designos_update_node", "designos_apply_batch"] {
             let mut reply = json!({
