@@ -108,11 +108,6 @@ pub fn button(ui: &mut Ui, rect: Rect, id: impl widgets::Key, label: &str, prima
     resp
 }
 
-/// Width of a [`button`] for `label`.
-pub fn button_width(p: &Painter, label: &str) -> f32 {
-    widgets::text_width(p, label, &theme::font_body_strong()) + 2.0 * theme::INSET_BUTTON
-}
-
 /// Width of a kit text button (`widgets::kit::button`, text-sm semibold) for `label`.
 pub fn kit_button_width(p: &Painter, label: &str) -> f32 {
     let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
