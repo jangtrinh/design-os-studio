@@ -112,6 +112,10 @@ pub enum ErrorCode {
     NameTooLong,
 }
 
+/// The `next_step` of a code with no text of its own. It names `valid_options` and `corrected_example`, so it is reworded on the wire
+/// when the error carries neither (see `ToolError::effective_next_step`).
+const GENERIC_RETRY_NEXT_STEP: &str = "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.";
+
 #[allow(non_upper_case_globals)]
 impl ErrorCode {
     // Backwards-compatible aliases used across tool modules
@@ -360,7 +364,7 @@ impl ErrorCode {
             Self::IdempotencyKeyStale => {
                 "Read the target nodes; this write was undone or is not in the open document. Do not send it again unless you have verified the target nodes are absent and you still want the write."
             }
-            _ => "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.",
+            _ => GENERIC_RETRY_NEXT_STEP,
         }
     }
 
@@ -746,8 +750,23 @@ impl ToolError {
         }
         map.insert("error_kind".into(), json!(self.error_kind.as_str()));
         map.insert("safe_to_retry".into(), json!(self.safe_to_retry));
-        map.insert("next_step".into(), json!(self.next_step));
+        map.insert("next_step".into(), json!(self.effective_next_step()));
         map
+    }
+
+    /// `next_step` as sent. The generic retry text names `valid_options` and `corrected_example`; it only keeps the ones this error
+    /// carries, so an agent is never pointed at a field that is not there. Any other text is sent as set.
+    fn effective_next_step(&self) -> String {
+        if self.next_step != GENERIC_RETRY_NEXT_STEP {
+            return self.next_step.clone();
+        }
+        let target = if self.path.is_empty() { "the value the message names" } else { "the value at `path`" };
+        match (!self.valid_options.is_empty(), self.corrected_example.is_some()) {
+            (true, true) => self.next_step.clone(),
+            (true, false) => format!("Adjust {target} using `valid_options` and retry."),
+            (false, true) => format!("Adjust {target} using `corrected_example` and retry."),
+            (false, false) => format!("Adjust {target} as the message says, then retry."),
+        }
     }
 
     /// Converts this `ToolError` into the JSON object used in `CallToolResult::structured_error` (§3.1, §4).
@@ -2030,6 +2049,25 @@ mod plain_message_tests {
 #[cfg(test)]
 mod error_kind_tests {
     use super::*;
+
+    /// A code with no text of its own (`ValueOutOfRange`) gets the generic retry text; it names only the hints the error carries.
+    #[test]
+    fn the_generic_next_step_names_only_the_hints_that_are_present() {
+        let step = |e: ToolError| e.to_json_value()["next_step"].as_str().unwrap().to_string();
+        let bare = step(ToolError::new(ErrorCode::ValueOutOfRange, "/scale", "scale must be 0.1 to 8"));
+        assert!(!bare.contains("valid_options") && !bare.contains("corrected_example"), "{bare}");
+        assert!(bare.contains("`path`") && bare.contains("retry"), "{bare}");
+        let opts = step(ToolError::new(ErrorCode::ValueOutOfRange, "/mode", "bad").with_valid_options(vec!["a", "b"]));
+        assert!(opts.contains("valid_options") && !opts.contains("corrected_example"), "{opts}");
+        let ex = step(ToolError::new(ErrorCode::ValueOutOfRange, "/scale", "bad").with_corrected_example(json!({"scale": 2})));
+        assert!(ex.contains("corrected_example") && !ex.contains("valid_options"), "{ex}");
+        let both = step(ToolError::new(ErrorCode::ValueOutOfRange, "/scale", "bad").with_valid_options(vec!["a"]).with_corrected_example(json!({"scale": 2})));
+        assert!(both.contains("valid_options") && both.contains("corrected_example"), "{both}");
+        let no_path = step(ToolError::new(ErrorCode::ValueOutOfRange, "", "bad"));
+        assert!(!no_path.contains("`path`"), "{no_path}");
+        let own = step(ToolError::new(ErrorCode::FileExists, "/path", "exists"));
+        assert_eq!(own, ErrorCode::FileExists.default_next_step());
+    }
 
     fn expected_kind(code: ErrorCode) -> &'static str {
         match code {

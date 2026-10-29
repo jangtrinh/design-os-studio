@@ -377,6 +377,28 @@ fn open_file_unknown_extension_with_native_design_json_opens() {
     assert_eq!(other.call("designos_get_node", json!({"node_id": id})).unwrap()["node"]["name"], "Sniffed");
 }
 
+/// A native design file with a second name (a hard link) is not read by the content sniff, because the session file reader refuses
+/// a hard link. So an unknown-extension file such as `a.dat` is `UNSUPPORTED_FILE_TYPE` and is not opened, even though its bytes are
+/// valid native JSON. The same bytes without the second name open.
+#[cfg(unix)]
+#[test]
+fn open_file_hard_linked_native_dat_is_unsupported_file_type() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    s.call("designos_save_file", json!({"path": "native.designos"})).unwrap();
+    fs::copy(dir.0.join("native.designos"), dir.0.join("plain.dat")).unwrap();
+    fs::hard_link(dir.0.join("plain.dat"), dir.0.join("linked.dat")).unwrap();
+    let mut other = Session::new(&dir.0).unwrap();
+    let err = other.call("designos_open_file", json!({"path": "linked.dat"})).unwrap_err().to_json_value();
+    assert_eq!(err["code"], "UNSUPPORTED_FILE_TYPE", "{err}");
+    assert_eq!(err["error_kind"], "fatal", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    // Removing the second name makes the same file readable again, so the refusal is about the link and not the bytes.
+    fs::remove_file(dir.0.join("plain.dat")).unwrap();
+    fs::copy(dir.0.join("native.designos"), dir.0.join("solo.dat")).unwrap();
+    other.call("designos_open_file", json!({"path": "solo.dat"})).unwrap();
+}
+
 #[test]
 fn open_file_unknown_extension_missing_file_is_not_a_file_type_error() {
     let dir = Workspace::new();
