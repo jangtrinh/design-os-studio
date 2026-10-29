@@ -153,6 +153,8 @@ pub struct Session {
     next_close_id: u64,
     /// The last close was cancelled or refused by the editor: the close line it left in the log is no change to the document.
     close_retry_safe: bool,
+    /// A live close of this session's tab succeeded: the tab is gone, so another close can only be refused.
+    live_tab_closed: bool,
 }
 
 #[derive(Deserialize)]
@@ -168,6 +170,17 @@ struct SaveArgs {
     path: Option<String>,
     #[serde(default)]
     overwrite: bool,
+}
+
+/// The first close id of a session. The high 32 bits are random (the keys of `RandomState` come from the operating system) and the
+/// low 32 count up, so two sessions, or two runs of the server, do not share an id. A result file a former session left behind
+/// therefore never matches the id of this session's close.
+fn fresh_close_id_base() -> u64 {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = RandomState::new().build_hasher();
+    hasher.write_u32(std::process::id());
+    (hasher.finish() & 0xFFFF_FFFF_0000_0000).max(1 << 32)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -278,8 +291,9 @@ impl Session {
             enabled_tools_config,
             file_problems,
             close_ack_timeout: Duration::from_secs(2),
-            next_close_id: 0,
+            next_close_id: fresh_close_id_base(),
             close_retry_safe: false,
+            live_tab_closed: false,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
         s.load_session_options();
@@ -319,8 +333,9 @@ impl Session {
             enabled_tools_config,
             file_problems,
             close_ack_timeout: Duration::from_secs(2),
-            next_close_id: 0,
+            next_close_id: fresh_close_id_base(),
             close_retry_safe: false,
+            live_tab_closed: false,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
         s.load_session_options();
@@ -826,6 +841,22 @@ impl Session {
         append_log_line(&log, &line)
     }
 
+    /// Deletes the answer and the cancel a former close left in the session folder, so that nothing of an earlier close is
+    /// read as this one's. (An answer is also only taken when its `close_id` is this close's.)
+    fn clear_close_answer_files(&mut self) {
+        let Some(dir) = self.bridge.session_dir.clone().or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
+        else {
+            return;
+        };
+        for name in [CloseIntent::RESULT_FILE, CloseIntent::CANCEL_FILE] {
+            let path = dir.join(name);
+            let removed = session_file_io::remove(&path);
+            if let Err(e) = removed {
+                self.file_problems.keep(&path, session_file_io::explain("write", &path, &e));
+            }
+        }
+    }
+
     fn wait_for_close_ack(&mut self, close_id: u64, policy: UnsavedPolicy) -> Result<Value, ToolError> {
         let dir = self
             .bridge
@@ -873,6 +904,16 @@ impl Session {
         }
     }
 
+    const TAB_CLOSED_NEXT_STEP: &'static str =
+        "That tab is already closed, so there is nothing to close. Open the document again with designos_open_file, or ask the user.";
+
+    /// A close of a tab this session already closed: no editor is asked, and the answer is not retryable.
+    fn tab_already_closed_error() -> ToolError {
+        ToolError::new(ErrorCode::EditorNotNotified, "", "The tab is already closed, so there is nothing to close.")
+            .with_safe_to_retry(false)
+            .with_next_step(Self::TAB_CLOSED_NEXT_STEP)
+    }
+
     fn close_ack_to_result(v: Value) -> Result<Value, ToolError> {
         if v.get("ok").and_then(Value::as_bool) == Some(false) {
             let code = v.get("code").and_then(Value::as_str).and_then(ErrorCode::from_code_str).unwrap_or(ErrorCode::UnsavedChanges);
@@ -888,6 +929,10 @@ impl Session {
                     err = err.with_next_step(
                         "The document stayed open. Make the file writable and call designos_close_document again, or pass path to a new writable file.",
                     );
+                }
+                ErrorCode::EditorNotNotified if v.get("reason").and_then(Value::as_str) == Some("tab_closed") => {
+                    // The tab is gone, so there is nothing to close and asking again can never work.
+                    err = err.with_safe_to_retry(false).with_next_step(Self::TAB_CLOSED_NEXT_STEP);
                 }
                 ErrorCode::EditorNotNotified => {
                     err = err.with_next_step("The document stayed open. Show the tab in the editor, then call designos_close_document again.");
@@ -1209,6 +1254,7 @@ impl Session {
                     ToolError::new(code, "/path", e).with_received(json!(a.path))
                 })?;
                 let next_rev = self.engine.revision.wrapping_add(1);
+                self.live_tab_closed = false;
                 self.engine = Engine {
                     revision: next_rev,
                     active_page_id: doc.pages.first().copied(),
@@ -1258,6 +1304,7 @@ impl Session {
                         .with_corrected_example(json!({"name": a.name, "discard_changes": true})));
                 }
                 let next_rev = self.engine.revision.wrapping_add(1);
+                self.live_tab_closed = false;
                 self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
                 self.engine.doc.name = a.name;
                 self.engine.file_path = None;
@@ -1295,6 +1342,9 @@ impl Session {
                         .with_next_step("Wait for the person at the editor, or call designos_save_file."));
                 }
                 let live = self.live_editor();
+                if live && self.live_tab_closed {
+                    return Err(Self::tab_already_closed_error());
+                }
                 if !live && self.dirty && policy == UnsavedPolicy::Fail {
                     return Err(ToolError::new(ErrorCode::UnsavedChanges, "/unsaved", "Unsaved changes. The document stayed open.")
                         .with_received(json!("fail"))
@@ -1330,6 +1380,9 @@ impl Session {
                 } else if live {
                     intent.close_id = Some(close_id);
                 }
+                if live {
+                    self.clear_close_answer_files();
+                }
                 self.publish_live_close(&intent).map_err(|e| {
                     if live {
                         // Nothing was told to the editor and nothing was saved or closed: the same call can be made again.
@@ -1355,6 +1408,7 @@ impl Session {
                     };
                     if out.get("closed").and_then(Value::as_bool) == Some(true) {
                         self.reset_closed_session();
+                        self.live_tab_closed = true;
                     }
                     return Ok(out);
                 }

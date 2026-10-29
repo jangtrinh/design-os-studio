@@ -139,6 +139,42 @@ fn human_edit_then_agent_discard_closes_and_leaves_the_file() {
     finish(s, workspace);
 }
 
+/// What a former MCP process left in the session folder: its first close, answered with success. A new process must not take it
+/// for its own answer (seen live: a read-only `close(save)` and a `close(fail)` on a dirty tab both returned `closed:true`).
+fn leave_stale_success(session_dir: &std::path::Path) {
+    let stale = json!({"close_id": 1u64, "ok": true, "closed": true, "saved": true, "unsaved": "save", "doc_revision": 3u64, "tab_id": 1u64});
+    std::fs::write(session_dir.join("close-result.json"), stale.to_string()).unwrap();
+    std::fs::write(session_dir.join("close-cancel.json"), json!({"close_id": 1u64}).to_string()).unwrap();
+}
+
+#[test]
+fn a_stale_success_answer_does_not_close_or_save_for_a_new_process() {
+    let (mut s, mut session, path, workspace, _dir) = live_outside_autosave_off();
+    let on_disk = nodes_on_disk(&path);
+    edit(&mut s);
+    leave_stale_success(&s.app().terminal.session_dir.clone());
+    let tabs = s.app().tabs.entries.len();
+    let err = close_while_pumping(&mut s, &mut session, json!({})).expect_err("fail on a dirty tab is not closed:true");
+    assert_eq!(err["code"], "UNSAVED_CHANGES", "{err}");
+    assert_eq!(s.app().tabs.entries.len(), tabs, "tab stayed open");
+    assert!(s.app().has_unsaved_edits(), "human edit still unsaved");
+    assert_eq!(nodes_on_disk(&path), on_disk, "file on disk unchanged");
+    finish(s, workspace);
+}
+
+#[test]
+fn closing_an_already_closed_tab_is_not_retryable() {
+    let (mut s, mut session, _path, workspace, _dir) = live_outside_autosave_off();
+    let first = close_while_pumping(&mut s, &mut session, json!({"unsaved": "discard"})).expect("first close");
+    assert_eq!(first["closed"], true, "{first}");
+    assert_eq!(s.app().tabs.entries.len(), 0, "the tab closed");
+    let err = close_while_pumping(&mut s, &mut session, json!({"unsaved": "discard"})).expect_err("nothing left to close");
+    assert_ne!(err["safe_to_retry"], true, "asking again can never work: {err}");
+    assert_ne!(err["code"], "PATH_REQUIRED", "{err}");
+    assert!(err["next_step"].as_str().unwrap_or("").contains("already closed"), "{err}");
+    finish(s, workspace);
+}
+
 #[test]
 fn stale_queued_close_does_not_close_a_tab_the_user_switched_back_to() {
     let (mut s, mut session, path, workspace, _dir) = live_outside_autosave_off();

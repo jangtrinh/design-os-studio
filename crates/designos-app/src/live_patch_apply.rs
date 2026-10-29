@@ -195,7 +195,21 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
     }
     let active_id = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id);
     if let Some(named) = intent.tab_id {
-        if active_id != Some(named) || app.tabs.entries.iter().all(|t| t.id != named) {
+        if app.tabs.entries.iter().all(|t| t.id != named) {
+            // The tab is gone (a person closed it): asking again can never work, and the answer says so.
+            crate::live_patch_log::write_close_result_file(
+                &app.terminal.live_patch.path,
+                &intent,
+                serde_json::json!({
+                    "ok": false,
+                    "code": "EDITOR_NOT_NOTIFIED",
+                    "reason": "tab_closed",
+                    "message": "The tab is already closed, so there is nothing to close.",
+                }),
+            );
+            return;
+        }
+        if active_id != Some(named) {
             crate::live_patch_log::write_close_result_file(
                 &app.terminal.live_patch.path,
                 &intent,
@@ -215,7 +229,8 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
             serde_json::json!({
                 "ok": false,
                 "code": "EDITOR_NOT_NOTIFIED",
-                "message": "The close was dropped because no tab was shown.",
+                "reason": "tab_closed",
+                "message": "No tab is open, so there is nothing to close.",
             }),
         );
         return;

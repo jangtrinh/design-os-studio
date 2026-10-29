@@ -89,6 +89,13 @@ the document state with designos_get_document, then ask the user." The editor's 
 and a close line that cannot be written are `true` for every policy. The close line in the edit log does not
 count as a change for this rule.
 
+An answer is only taken when its `close_id` is this close's. The id is a 32-bit random part per session plus a
+counter, so a result file a former server process left behind never matches, and `close-result.json` and
+`close-cancel.json` are deleted before each live close is published. A tab that is already closed (the editor
+answers `reason: "tab_closed"`) is `EDITOR_NOT_NOTIFIED` with `safe_to_retry: false` and `next_step` "That tab is
+already closed, so there is nothing to close. Open the document again with designos_open_file, or ask the user.";
+the "tab not shown" answer, where the tab still exists, stays retryable for every policy.
+
 ### 3.3 Catalogue
 
 `errors.rs` defines `enum ErrorCode` with a `const ALL: &[ErrorCode]` and, per code, its message
