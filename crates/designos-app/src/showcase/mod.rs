@@ -766,3 +766,9 @@ pub fn seed_library(root: &std::path::Path) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Test-only (`#1126` §3 rule 7 & rule 14): seeds `root` with the shipped starter stamped with a fixed `modified` timestamp.
+#[cfg(test)]
+pub fn seed_library_at(root: &std::path::Path, modified: u64) -> Result<(), String> {
+    crate::layout_snapshot::seed_library_at(root, modified)
+}

@@ -1,0 +1,161 @@
+=== Finding 1 (Major 1) GREEN: unnamed_rows_shift_by_cumulative_row_box_dh ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.58s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::unnamed_rows_shift_by_cumulative_row_box_dh ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3017 filtered out; finished in 0.01s
+
+=== Finding 2 (Major 2) GREEN: gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.04s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3018 filtered out; finished in 0.01s
+
+=== Finding 3 (Major 3) GREEN: inventory_max_delta_forgives_count_only_and_compares_shared_prefix ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.51s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::inventory_max_delta_forgives_count_only_and_compares_shared_prefix ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3019 filtered out; finished in 0.01s
+
+=== Finding 4 (Major 4) GREEN: stale_check_counts_covering_entries_and_runs_over_union_of_run ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.45s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3020 filtered out; finished in 0.00s
+
+=== Finding 5 (Minor 5) GREEN: overlay_names_use_areas_order_and_omit_egui_id ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 15s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::overlay_names_use_areas_order_and_omit_egui_id ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3021 filtered out; finished in 0.01s
+
+=== Finding 6 (Minor 6) GREEN: scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.04s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3022 filtered out; finished in 0.01s
+
+=== Finding 7 (Minor 7) GREEN: g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.45s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3023 filtered out; finished in 0.01s
+
+=== Finding 9 (Minor 9) GREEN: open_failed_start_fixture_does_not_block_waiting_for_exit ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.76s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3024 filtered out; finished in 0.10s
+
+=== Finding 8 (Minor 8) GREEN: agent_cases_do_not_depend_on_installed_clis ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.11s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+
+running 1 test
+
+running 1 test
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3024 filtered out; finished in 0.97s
+
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3024 filtered out; finished in 0.99s
+
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3024 filtered out; finished in 1.00s
+
+=== Finding 10 (Nit 10) GREEN: negative_dw_or_dh_requires_r5_in_reason ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.23s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3025 filtered out; finished in 0.00s
+
+=== Finding 12 (Nit 12) GREEN: g3_checks_row_name_sequence_with_underscore_for_unnamed ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.69s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::g3_checks_row_name_sequence_with_underscore_for_unnamed ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3026 filtered out; finished in 0.01s
+

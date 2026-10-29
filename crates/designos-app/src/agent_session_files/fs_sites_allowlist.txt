@@ -147,6 +147,13 @@ LINE	io/fallback_save.rs	1	let _ = std::fs::create_dir(&downloads);	creates the 
 LINE	io/fallback_save.rs	1	match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {	a probe file in the folder the user saves into
 LINE	io/fallback_save.rs	1	std::fs::remove_file(&path).ok();	a probe file in the folder the user saves into
 LINE	live_log_wake.rs	1	let now = std::fs::metadata(&path).ok().map(|m| (m.len(), m.modified().ok()));	one stat per watched file (`doc-patch.jsonl`, `live-spec.json`) on a background thread: stat only: it neither blocks nor writes; the reads of those files are routed
+LINE	agent_usage.rs	1	let canon_bin = std::fs::canonicalize(grok_bin).ok()?;	canonicalizes the resolved grok CLI binary path to verify it lies inside the hermetic stub folder, not a session file
+LINE	cli_resolve.rs	1	let canon = std::fs::canonicalize(dir).map_err(|e| format!("DESIGNOS_AGENT_CLI_DIR ({}) cannot be canonicalized: {e}", dir.display()))?;	canonicalizes the hermetic agent CLI stub folder named by DESIGNOS_AGENT_CLI_DIR at startup, not a session folder
+LINE	cli_resolve.rs	1	let canon_cand = std::fs::canonicalize(&cand).ok()?;	canonicalizes a candidate CLI binary inside the hermetic stub folder, not a session folder
+LINE	cli_resolve.rs	1	let canon_dir = std::fs::canonicalize(dir).ok()?;	canonicalizes the hermetic stub folder to verify the resolved binary stays inside it, not a session folder
+LINE	cli_resolve.rs	1	let meta = std::fs::metadata(&canon_cand).ok()?;	stats a candidate CLI binary inside the hermetic stub folder, not a session folder
+LINE	cli_resolve.rs	1	std::fs::write(&ack_path, body.as_bytes())?;	writes .designos-hermetic-active in TMPDIR during --screenshot hermetic verification, not a session folder
+LINE	layout_snapshot.rs	1	let raw = std::fs::read_to_string(baseline_path).map_err(|e| format!("failed to read layout baseline {}: {e}", baseline_path.display()))?;	reads a layout baseline JSON file from tests/layout-baseline, not a session folder
 LINE	live_patch_log.rs	1	doc_sync_path: path.with_file_name("doc-sync.designos"),	name of the patch log beside the session's files; the log and the document are opened through `open_session_file`/`read_session_file`
 LINE	live_patch_log.rs	1	fn identity(meta: &std::fs::Metadata) -> FileIdentity {	the name of a type, not a call
 LINE	live_patch_log.rs	1	path.file_name().and_then(|n| n.to_str()).unwrap_or("doc-patch.jsonl").to_string()	name of the patch log beside the session's files; the log and the document are opened through `open_session_file`/`read_session_file`
@@ -156,8 +163,9 @@ LINE	panels/properties.rs	1	match std::fs::read(&path).map_err(|_| "Cannot read 
 LINE	panels/properties.rs	1	let _ = std::fs::create_dir_all(&dir);	the output folder of the `--panel export-toast` capture preset (a screenshot run only), under the process's temporary folder
 LINE	shell.rs	1	(Some(p), _) => std::fs::read(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),	a file the user drops on the window: the user chose the path
 LINE	shell.rs	1	(Some(p), _) => std::fs::read_to_string(p).map_err(|e| format!("Cannot read {}: {e}", p.display())),	a file the user drops on the window: the user chose the path
+LINE	shell.rs	1	if let Err(e) = std::fs::write(layout_path, format!("{json}\n")) {	writes the --layout-json diagnostic snapshot at a path named on the command line, not a session folder
 LINE	shell.rs	1	let _ = std::fs::create_dir_all(&shot.path);	frames of a screenshot run (`--screenshot`), at a path named on the command line
-LINE	shell.rs	1	let _ = std::fs::create_dir_all(dir);	frames of a screenshot run (`--screenshot`), at a path named on the command line
+LINE	shell.rs	2	let _ = std::fs::create_dir_all(dir);	frames of a screenshot run (`--screenshot`), at a path named on the command line
 LINE	skills/hook_delivery.rs	1	dir.join(format!("{REPLY_FILE_PREFIX}-{tab_id}-{slot}.json"))	file name inside the hook folder of a session (`<data dir>/designos/ap/<sid>/hook-out`, `agent_hook_outputs`), which no agent write grant reaches, outside every session folder
 LINE	skills/hook_delivery.rs	1	for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {	lists the hook folder of a session (`<data dir>/designos/ap/<sid>/hook-out`, `agent_hook_outputs`), which no agent write grant reaches for the skills reply files, outside every session folder
 LINE	skills/hook_delivery.rs	1	let prefix = crate::agent_turn_status::sh_single_quote(&format!("{}/{REPLY_FILE_PREFIX}-", dir.display()));	hook command that only reads a reply file of the hook folder of a session (`<data dir>/designos/ap/<sid>/hook-out`, `agent_hook_outputs`), which no agent write grant reaches with `cat`, outside every session folder
@@ -195,10 +203,17 @@ LINE	terminal.rs	1	atomic_write_session_file(&job.session_dir.join("hooks.json")
 LINE	terminal.rs	1	atomic_write_session_file(&plugin_dir.join("mcp_config.json"), mcp_config_bytes)	routed: written through the session folder's handle
 LINE	terminal.rs	1	atomic_write_session_file(&plugin_dir.join("plugin.json"), AGY_PLUGIN_MANIFEST)?;	routed: written through the session folder's handle
 LINE	terminal.rs	1	atomic_write_session_file(&session_dir.join(".grok").join("config.toml"), toml.as_bytes())	routed: written through the session folder's handle
-LINE	terminal.rs	1	cmd.env("DESIGNOS_LIVE_DOC_PATCH", sess.session_dir.join("doc-patch.jsonl").as_os_str());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
-LINE	terminal.rs	1	cmd.env("DESIGNOS_LIVE_SPEC", fallback_dir.join("live-spec.json").as_os_str());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
-LINE	terminal.rs	1	cmd.env("DESIGNOS_SELECTION_JSON", fallback_dir.join("selection.spec.json").as_os_str());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
 LINE	terminal.rs	1	cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	for sep in ["&", "|", ";", "<", ">", "`", "$(", "\n", "\r"] {	shell metacharacter list used to reject compound custom commands, not a shell command
+LINE	terminal.rs	1	map.insert("DESIGNOS_CONTEXT_JSON".into(), fallback_dir.join("context.json").to_string_lossy().into_owned());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	map.insert("DESIGNOS_LIVE_CANVAS".into(), fallback_dir.join("canvas.designos").to_string_lossy().into_owned());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	map.insert("DESIGNOS_LIVE_DOC_PATCH".into(), fallback_dir.join("doc-patch.jsonl").to_string_lossy().into_owned());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	map.insert("DESIGNOS_LIVE_DOC_PATCH".into(), sess.session_dir.join("doc-patch.jsonl").to_string_lossy().into_owned());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	map.insert("DESIGNOS_LIVE_DOC_SYNC".into(), fallback_dir.join("doc-sync.designos").to_string_lossy().into_owned());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	map.insert("DESIGNOS_LIVE_SPEC".into(), fallback_dir.join("live-spec.json").to_string_lossy().into_owned());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	map.insert("DESIGNOS_MCP_CONFIG".into(), fallback_dir.join("mcp-config.json").to_string_lossy().into_owned());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	map.insert("DESIGNOS_SELECTION_JSON".into(), fallback_dir.join("selection.spec.json").to_string_lossy().into_owned());	path handed to the agent's own process through its environment; the writes of designos-mcp are #1068
+LINE	terminal.rs	1	return CommandBuilder::new("/bin/sh");	spawns /bin/sh -c "exit 127" when hermetic CLI resolution rejects a missing or unsafe binary, not a file write
 LINE	terminal.rs	1	crate::agent_session_files::write_session_file_verified(&session_dir.join(".gemini").join("settings.json"), &settings)?;	routed: written through the session folder's handle
 LINE	terminal.rs	1	crate::agent_session_files::write_session_file_verified(&session_dir.join(".gemini").join("trustedFolders.json"), &trusted)	routed: written through the session folder's handle
 LINE	terminal.rs	1	crate::agent_sessions::preset_from_cli_name(&entry_clone.cli).ok_or_else(|| format!("Unsupported CLI '{}' in sessions.json", entry_clone.cli))?;	text, not a file or a command
