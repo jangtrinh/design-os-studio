@@ -48,7 +48,7 @@
     "dx": 24,
     "dy": -10,
     "spec": "K",
-    "reason": "rule 2: the filter control is the kit's icon button xs 32, up from 24, aligned to the search row. dx cancels the search input overlapping the field width. It keeps its row top"
+    "reason": "rule 2: the filter control is the kit's icon button xs 32, up from 24, aligned to the search row; the range starts at 4 because that shared search row itself grows 4 while each button grows 8. dx cancels the search input overlapping the field width. It keeps its row top"
   },
   {
     "case": "k-assets",
@@ -61,7 +61,7 @@
     "dx": 24,
     "dy": -10,
     "spec": "K",
-    "reason": "rule 2: the list and grid controls are the kit's icon buttons xs 32, up from 24, aligned to the search row. dx cancels the search input overlapping the field width. They keep their row top"
+    "reason": "rule 2: the list and grid controls are the kit's icon buttons xs 32, up from 24, aligned to the search row; the range starts at 4 because that shared search row itself grows 4 while each button grows 8. dx cancels the search input overlapping the field width. They keep their row top"
   },
   {
     "case": "k-assets",
@@ -444,12 +444,12 @@
     "anchor_x": "centre",
     "min_dw": 4,
     "max_dw": 4,
-    "min_dh": -4,
+    "min_dh": 0,
     "max_dh": 8,
     "dx": -8,
-    "dy": -18,
+    "dy": -20,
     "spec": "K",
-    "reason": "rule 5 (R5): the library switch is the kit's 36x20 track, replacing the 32x24 slot; it stays centred in its 60 row and keeps the dialog's right inset. The range reaches 8 because its baseline row also holds the inspector widgets behind the dialog, so that row grows by 8"
+    "reason": "rule 5 (R5): the library switch is the kit's 36x20 track inside its 24 px hit band, replacing the 32x24 slot; the recorded rect is the band. It stays centred in its 60 row and keeps the dialog's right inset. The range reaches 8 because its baseline row also holds the inspector widgets behind the dialog, so that row grows by 8"
   },
   {
     "case": "j-plugins",

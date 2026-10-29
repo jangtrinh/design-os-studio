@@ -90,7 +90,8 @@ pub(super) fn button(ui: &mut Ui, rect: Rect, key: &str, label: &str, primary: b
 /// Kit switch on `track` (36x20); returns the new state when clicked.
 pub(super) fn toggle(ui: &mut Ui, track: Rect, key: &str, on: bool) -> Option<bool> {
     let response = crate::widgets::kit::toggle(ui, track, ("lib-toggle", key), on, true);
-    widgets::record(ui, &format!("lib-toggle:{key}"), track);
+    // Record the hit band the kit senses, not the painted track, so the layout snapshot names it.
+    widgets::record(ui, &format!("lib-toggle:{key}"), response.rect);
     response.clicked().then_some(!on)
 }
 

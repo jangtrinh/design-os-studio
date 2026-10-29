@@ -381,13 +381,25 @@ fn variables_alias_pills_keep_their_size() {
     assert_eq!(pill.height(), theme::BADGE_MD);
 }
 
+/// The switch track painted inside a recorded hit band: the band meets the pointer floor, the track keeps 36x20.
+fn painted_switch_track(s: &Sim, band: Rect) -> Rect {
+    assert!(band.height() >= theme::TARGET_MIN, "the switch hits on {} px", band.height());
+    shapes_of(s)
+        .into_iter()
+        .find_map(|shape| match shape {
+            Shape::Rect(r) if band.contains_rect(r.rect) && (r.rect.width() - band.width()).abs() < 0.5 && r.rect.height() < band.height() => Some(r.rect),
+            _ => None,
+        })
+        .expect("a painted track inside the switch band")
+}
+
 #[test]
 fn variables_boolean_cell_uses_the_kit_toggle() {
     let mut s = Sim::with(Options { panel: Some("variables".into()), ..Options::default() });
     settle(&mut s);
     let light = theme_light_mode(&s);
     let flag = s.app().doc.variables.values().find(|v| v.name == "Flags/Compact").expect("the demo boolean variable").id.clone();
-    let track = s.rect_of(&format!("vars-bool:Flags/Compact:{light}"));
+    let track = painted_switch_track(&s, s.rect_of(&format!("vars-bool:Flags/Compact:{light}")));
     assert_eq!((track.width(), track.height()), (36.0, 20.0), "the kit switch track");
     let knob = shapes_of(&s)
         .into_iter()
@@ -560,7 +572,7 @@ fn libraries_search_sits_centred_on_its_label_with_the_list_below() {
 fn libraries_toggle_uses_the_kit_toggle() {
     let (mut b, root) = updated_library_pair("toggle");
     settle(&mut b);
-    let track = b.rect_of("lib-toggle:Untitled");
+    let track = painted_switch_track(&b, b.rect_of("lib-toggle:Untitled"));
     assert_eq!((track.width(), track.height()), (36.0, 20.0), "the kit switch track");
     let knob = shapes_of(&b)
         .into_iter()

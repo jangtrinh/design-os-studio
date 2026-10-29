@@ -1388,8 +1388,8 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
             let sw = Rect::from_min_size(Pos2::new(cell.left() + 16.0, cy - SWITCH_H / 2.0), Vec2::new(SWITCH_W, SWITCH_H));
             // The cell takes clicks on its label; the kit switch is the one focusable control in it.
             let resp = ui.interact(Rect::from_min_max(cell.min, Pos2::new(field_right, cell.bottom())), id.with("tog"), Sense::CLICK);
-            widgets::record(ui, &format!("vars-bool:{}:{}", v.name, mode), sw);
             let switch = crate::widgets::kit::toggle(ui, sw, id.with("switch"), *b, true);
+            widgets::record(ui, &format!("vars-bool:{}:{}", v.name, mode), switch.rect);
             p.text(Pos2::new(sw.right() + 8.0, cy), Align2::LEFT_CENTER, if *b { "True" } else { "False" }, theme::font_body(), theme::TEXT);
             if (resp.clicked() || switch.clicked()) && !ro {
                 fr.work.set_value(&v.id, mode, VariableValue::Boolean(!b));

@@ -16,7 +16,6 @@ const fn focus(focused: bool) -> Color32 {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub const fn toggle_ring(focused: bool) -> Color32 {
     focus(focused)
 }
@@ -35,7 +34,6 @@ pub const fn swatch_ring_color(focused: bool) -> Color32 {
     focus(focused)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub const fn toggle_look(state: State) -> Look {
     let track = look(theme::BG_TERTIARY, theme::BORDER, W * 0.5, CLEAR, theme::ICON_WHITE);
     match state {
