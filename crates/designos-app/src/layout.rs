@@ -57,6 +57,47 @@ pub fn layout_node(doc: &mut Document, ed: &mut Edit, id: NodeId) {
     layout_self(doc, ed, id);
 }
 
+/// Height of a wrapping text at `width`, from the same measure the canvas draws.
+fn wrapped_text_height(doc: &Document, id: NodeId, width: f32) -> Option<f32> {
+    let n = doc.get(id)?;
+    let NodeKind::Text(t) = &n.kind else { return None };
+    if t.auto_resize != TextAutoResize::Height {
+        return None;
+    }
+    Some(crate::textmeasure::measure(t, Some(width.max(1.0))).y)
+}
+
+/// Sets each wrapping text child's intrinsic height to the lines at its solved width.
+/// Returns whether any height changed, so the caller can solve once more.
+fn refit_wrapped_text_heights(doc: &Document, ids: &[NodeId], kids: &mut [ChildIn], rects: &[Rect]) -> bool {
+    let mut changed = false;
+    for ((id, kid), r) in ids.iter().zip(kids.iter_mut()).zip(rects) {
+        let Some(h) = wrapped_text_height(doc, *id, r.w) else { continue };
+        if (kid.size.y - h).abs() > 1e-3 {
+            kid.size.y = h;
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn compute_then_refit(
+    doc: &Document,
+    al: &designos_doc::AutoLayout,
+    frame_size: Vec2,
+    own_limits: SizeLimits,
+    stroke: &designos_doc::Stroke,
+    ids: &[NodeId],
+    kids: &mut [ChildIn],
+) -> designos_doc::layout_solver::LayoutOut {
+    let out = compute_with_stroke(al, frame_size, own_limits, stroke, kids);
+    if refit_wrapped_text_heights(doc, ids, kids, &out.rects) {
+        compute_with_stroke(al, frame_size, own_limits, stroke, kids)
+    } else {
+        out
+    }
+}
+
 /// Solves auto-layout for `id` using its direct children's current sizes,
 /// recursing into a child container only if `id` changed that child's size (e.g. `Sizing::Fill`).
 /// Returns `true` if `id`'s own outer `size` changed.
@@ -76,40 +117,50 @@ fn layout_self(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
             }
         }
     }
-    // the one reading of a flow child (variable-bound sizes, content-sized axes) shared with the headless relayout
-    let (ids, kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|c| doc.flow_child_input(*c, horiz).map(|k| (*c, k))).unzip();
-    let frame_size = doc.get(id).unwrap().size;
-    let own_limits = SizeLimits::from(&doc.get(id).unwrap().layout_child);
-    let out = compute_with_stroke(&al, frame_size, own_limits, &stroke, &kids);
-    let new_frame = out.frame;
-    let frame_changed = (new_frame.x - frame_size.x).abs() > 1e-3 || (new_frame.y - frame_size.y).abs() > 1e-3;
-    if frame_changed {
-        if let Some(n) = ed.node(doc, id) {
-            n.size = new_frame;
-        }
-    }
-    for ((cid, kid), r) in ids.iter().zip(kids.iter()).zip(out.rects.iter()) {
-        let n = doc.get(*cid).unwrap();
-        let new_size = v2(r.w, r.h);
-        let size_changed = (n.size.x - new_size.x).abs() > 1e-3 || (n.size.y - new_size.y).abs() > 1e-3;
-        let pos_changed = (n.transform.tx - r.x).abs() > 1e-3 || (n.transform.ty - r.y).abs() > 1e-3;
-        let mut new_lc = n.layout_child;
-        new_lc.record_stretched(kid.size, new_size, horiz, kid.stretches_cross());
-        let lc_changed = n.layout_child != new_lc;
-        if size_changed || pos_changed || lc_changed {
-            if let Some(n) = ed.node(doc, *cid) {
-                n.transform.tx = r.x;
-                n.transform.ty = r.y;
-                n.layout_child = new_lc;
+    let mut frame_changed = false;
+    let mut recurse_width_only = false;
+    loop {
+        let (ids, mut kids): (Vec<NodeId>, Vec<ChildIn>) = children.iter().filter_map(|c| doc.flow_child_input(*c, horiz).map(|k| (*c, k))).unzip();
+        let frame_size = doc.get(id).unwrap().size;
+        let own_limits = SizeLimits::from(&doc.get(id).unwrap().layout_child);
+        let out = compute_then_refit(doc, &al, frame_size, own_limits, &stroke, &ids, &mut kids);
+        let new_frame = out.frame;
+        if (new_frame.x - frame_size.x).abs() > 1e-3 || (new_frame.y - frame_size.y).abs() > 1e-3 {
+            if let Some(n) = ed.node(doc, id) {
+                n.size = new_frame;
             }
-            if size_changed {
-                let placed = doc.get(*cid).map(|n| n.transform).unwrap_or_default();
-                set_box(doc, ed, *cid, placed, new_size);
+            frame_changed = true;
+        }
+        for ((cid, kid), r) in ids.iter().zip(kids.iter()).zip(out.rects.iter()) {
+            let n = doc.get(*cid).unwrap();
+            let new_size = v2(r.w, r.h);
+            let width_changed = (n.size.x - new_size.x).abs() > 1e-3;
+            let size_changed = width_changed || (n.size.y - new_size.y).abs() > 1e-3;
+            let pos_changed = (n.transform.tx - r.x).abs() > 1e-3 || (n.transform.ty - r.y).abs() > 1e-3;
+            let mut new_lc = n.layout_child;
+            new_lc.record_stretched(kid.size, new_size, horiz, kid.stretches_cross());
+            let lc_changed = n.layout_child != new_lc;
+            if size_changed || pos_changed || lc_changed {
+                if let Some(n) = ed.node(doc, *cid) {
+                    n.transform.tx = r.x;
+                    n.transform.ty = r.y;
+                    n.layout_child = new_lc;
+                }
+                if size_changed {
+                    let placed = doc.get(*cid).map(|n| n.transform).unwrap_or_default();
+                    set_box(doc, ed, *cid, placed, new_size);
+                }
+            }
+            if size_changed && doc.get(*cid).map(|n| n.kind.is_container()).unwrap_or(false) && (!recurse_width_only || width_changed) {
+                layout_node(doc, ed, *cid);
             }
         }
-        if size_changed && doc.get(*cid).map(|n| n.kind.is_container()).unwrap_or(false) {
-            layout_node(doc, ed, *cid);
+        let drifted =
+            ids.iter().zip(out.rects.iter()).any(|(cid, r)| doc.get(*cid).is_some_and(|n| (n.size.x - r.w).abs() > 1e-3 || (n.size.y - r.h).abs() > 1e-3));
+        if recurse_width_only || !drifted {
+            break;
         }
+        recurse_width_only = true;
     }
     frame_changed
 }
@@ -789,3 +840,5 @@ mod tests {
 
 #[cfg(test)]
 mod solver_parity_tests;
+#[cfg(test)]
+mod text_refit_tests;
