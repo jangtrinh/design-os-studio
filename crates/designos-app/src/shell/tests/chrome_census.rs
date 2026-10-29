@@ -1,50 +1,30 @@
-//! Chrome-colour census. Ports the comment/string/test blanking in
-//! `scripts/rust_literal_scan.py` and counts `Color32` constructors by hand.
+//! Chrome-colour census. Ports the Python cleaner so line numbers match it.
 
-pub(super) fn clean_rust(src: &str) -> String {
-    drop_cfg_test(&strip_code(src))
-}
-
-pub(super) fn chrome_colour_sites(src: &str) -> Vec<usize> {
-    let mut out = Vec::new();
-    for (idx, line) in clean_rust(src).split('\n').enumerate() {
-        let mut rest = line;
-        while let Some(at) = find_site(rest) {
-            out.push(idx + 1);
-            rest = &rest[at..];
-        }
-    }
-    out
-}
-
-pub(super) fn texture_tint_line(clean_line: &str) -> bool {
-    clean_line.contains("Color32::WHITE") && (clean_line.contains(".image(") || clean_line.contains("with_texture"))
-}
-
+/// Blank comments and string or char literal bodies. Every newline stays.
 fn strip_code(src: &str) -> String {
-    let b = src.as_bytes();
-    let n = b.len();
-    let mut out = String::with_capacity(n);
+    let chars: Vec<char> = src.chars().collect();
+    let n = chars.len();
+    let mut out = String::new();
     let mut i = 0;
     while i < n {
-        if b[i] == b'/' && i + 1 < n && b[i + 1] == b'/' {
-            while i < n && b[i] != b'\n' {
+        if i + 1 < n && chars[i] == '/' && chars[i + 1] == '/' {
+            while i < n && chars[i] != '\n' {
                 i += 1;
             }
             continue;
         }
-        if b[i] == b'/' && i + 1 < n && b[i + 1] == b'*' {
+        if i + 1 < n && chars[i] == '/' && chars[i + 1] == '*' {
             let mut depth = 1;
             i += 2;
             while i < n && depth > 0 {
-                if b[i] == b'/' && i + 1 < n && b[i + 1] == b'*' {
+                if i + 1 < n && chars[i] == '/' && chars[i + 1] == '*' {
                     depth += 1;
                     i += 2;
-                } else if b[i] == b'*' && i + 1 < n && b[i + 1] == b'/' {
+                } else if i + 1 < n && chars[i] == '*' && chars[i + 1] == '/' {
                     depth -= 1;
                     i += 2;
                 } else {
-                    if b[i] == b'\n' {
+                    if chars[i] == '\n' {
                         out.push('\n');
                     }
                     i += 1;
@@ -52,100 +32,105 @@ fn strip_code(src: &str) -> String {
             }
             continue;
         }
-        if let Some(raw_end) = raw_string_end(b, i) {
-            let body = &src[i..raw_end];
-            out.push_str("\"\"");
-            out.extend(std::iter::repeat_n('\n', body.matches('\n').count()));
-            i = raw_end;
-            continue;
-        }
-        if b[i] == b'"' {
-            let mut j = i + 1;
-            while j < n && b[j] != b'"' {
-                j += if b[j] == b'\\' { 2 } else { 1 };
-            }
-            let end = if j < n { j + 1 } else { n };
-            out.push_str("\"\"");
-            out.extend(std::iter::repeat_n('\n', src[i..end].matches('\n').count()));
-            i = end;
-            continue;
-        }
-        if b[i] == b'\'' {
-            if let Some(end) = char_literal_end(b, i) {
-                out.push_str("' '");
-                i = end;
+        let window: String = chars[i..].iter().take(12).collect();
+        if let Some((match_len, end)) = raw_open(&window) {
+            let prev_ok = i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_');
+            if prev_ok {
+                let search_from = i + match_len;
+                // Search in chars like the Python cleaner: a byte offset into the tail would skip real code after a
+                // raw string that holds multi-byte text.
+                let end_chars: Vec<char> = end.chars().collect();
+                let found = chars[search_from..].windows(end_chars.len()).position(|w| w == end_chars.as_slice());
+                let end_at = found.map(|p| search_from + p).unwrap_or(n);
+                let consumed_end = (end_at + end_chars.len()).min(n);
+                let newlines = chars[i..consumed_end].iter().filter(|c| **c == '\n').count();
+                out.push_str("\"\"");
+                for _ in 0..newlines {
+                    out.push('\n');
+                }
+                i = end_at + end_chars.len();
                 continue;
             }
         }
-        out.push(b[i] as char);
+        if chars[i] == '"' {
+            let mut j = i + 1;
+            while j < n && chars[j] != '"' {
+                j += if chars[j] == '\\' { 2 } else { 1 };
+            }
+            let consumed_end = (j + 1).min(n);
+            let newlines = chars[i..consumed_end].iter().filter(|c| **c == '\n').count();
+            out.push_str("\"\"");
+            for _ in 0..newlines {
+                out.push('\n');
+            }
+            i = j + 1;
+            continue;
+        }
+        if chars[i] == '\'' {
+            let window: String = chars[i..].iter().take(12).collect();
+            if let Some(len) = char_lit_len(&window) {
+                out.push_str("' '");
+                i += len;
+                continue;
+            }
+        }
+        out.push(chars[i]);
         i += 1;
     }
     out
 }
 
-fn raw_string_end(b: &[u8], i: usize) -> Option<usize> {
-    if i > 0 && is_ident(b[i - 1]) {
+/// `b?r#*"`, and the closing marker. `match_len` is in chars.
+fn raw_open(slice: &str) -> Option<(usize, String)> {
+    let chars: Vec<char> = slice.chars().collect();
+    let mut i = 0;
+    if chars.first() == Some(&'b') {
+        i = 1;
+    }
+    if chars.get(i) != Some(&'r') {
         return None;
     }
-    let window = &b[i..(i + 12).min(b.len())];
-    let mut k = 0;
-    if window.first() == Some(&b'b') {
-        k = 1;
+    i += 1;
+    let hash_at = i;
+    while chars.get(i) == Some(&'#') {
+        i += 1;
     }
-    if k >= window.len() || window[k] != b'r' {
+    if chars.get(i) != Some(&'"') {
         return None;
     }
-    k += 1;
-    let hash_from = k;
-    while k < window.len() && window[k] == b'#' {
-        k += 1;
-    }
-    if k >= window.len() || window[k] != b'"' {
-        return None;
-    }
-    let hashes = k - hash_from;
-    let mut j = i + k + 1;
-    while j < b.len() {
-        if b[j] == b'"' {
-            let mut h = 0;
-            while h < hashes && j + 1 + h < b.len() && b[j + 1 + h] == b'#' {
-                h += 1;
-            }
-            if h == hashes {
-                return Some(j + 1 + hashes);
-            }
-        }
-        j += 1;
-    }
-    Some(b.len())
+    let hashes: String = chars[hash_at..i].iter().collect();
+    i += 1;
+    Some((i, format!("\"{hashes}")))
 }
 
-fn char_literal_end(b: &[u8], i: usize) -> Option<usize> {
-    if i + 2 >= b.len() || b[i] != b'\'' {
+/// Length in chars of a `'x'` or `'\n'` literal inside a 12-char window.
+fn char_lit_len(slice: &str) -> Option<usize> {
+    let chars: Vec<char> = slice.chars().collect();
+    if chars.first() != Some(&'\'') {
         return None;
     }
-    if b[i + 1] == b'\\' {
-        let mut j = i + 2;
-        while j < b.len() && b[j] != b'\'' {
-            j += 1;
+    if chars.get(1) == Some(&'\\') && chars.len() > 2 {
+        let mut k = 3;
+        while k < chars.len() && chars[k] != '\'' {
+            k += 1;
         }
-        if j < b.len() && j - i <= 12 {
-            return Some(j + 1);
+        if k < chars.len() && chars[k] == '\'' {
+            return Some(k + 1);
         }
-        return None;
     }
-    if b[i + 1] != b'\\' && b[i + 1] != b'\'' && i + 2 < b.len() && b[i + 2] == b'\'' {
-        return Some(i + 3);
+    if let Some(&c) = chars.get(1) {
+        if c != '\\' && c != '\'' && chars.get(2) == Some(&'\'') {
+            return Some(3);
+        }
     }
     None
 }
 
+/// Blank every item annotated `#[cfg(test)]`. Line numbers stay put.
 fn drop_cfg_test(code: &str) -> String {
     let mut code = code.to_string();
     loop {
-        let Some(start) = code.find("#[cfg(test)]") else {
-            return code;
-        };
+        let Some(start) = code.find("#[cfg(test)]") else { return code };
         let bytes = code.as_bytes();
         let mut j = start + "#[cfg(test)]".len();
         let mut depth = 0i32;
@@ -155,6 +140,7 @@ fn drop_cfg_test(code: &str) -> String {
                 b'{' => {
                     depth += 1;
                     started = true;
+                    j += 1;
                 }
                 b'}' => {
                     depth -= 1;
@@ -162,129 +148,158 @@ fn drop_cfg_test(code: &str) -> String {
                         j += 1;
                         break;
                     }
+                    j += 1;
                 }
                 b';' if !started => {
                     j += 1;
                     break;
                 }
-                _ => {}
+                _ => j += 1,
             }
-            j += 1;
         }
-        let newlines = code[start..j].matches('\n').count();
-        code.replace_range(start..j, &"\n".repeat(newlines));
+        let newlines = code[start..j].bytes().filter(|b| *b == b'\n').count();
+        let mut next = String::new();
+        next.push_str(&code[..start]);
+        for _ in 0..newlines {
+            next.push('\n');
+        }
+        next.push_str(&code[j..]);
+        code = next;
     }
 }
 
-fn find_site(line: &str) -> Option<usize> {
-    let b = line.as_bytes();
-    let key = b"Color32::";
-    let mut from = 0;
-    while let Some(rel) = line[from..].find("Color32::") {
-        let at = from + rel;
-        let rest = &b[at + key.len()..];
-        if let Some(consumed) = site_after(rest) {
-            return Some(at + key.len() + consumed);
-        }
-        from = at + key.len();
-    }
-    None
+pub fn clean_rust(src: &str) -> String {
+    drop_cfg_test(&strip_code(src))
 }
 
-fn site_after(rest: &[u8]) -> Option<usize> {
-    const NAMED: [&[u8]; 10] = [b"LIGHT_GRAY", b"DARK_GRAY", b"WHITE", b"BLACK", b"GRAY", b"RED", b"GREEN", b"BLUE", b"YELLOW", b"TRANSPARENT"];
-    for name in NAMED {
+fn skip_ws(s: &str) -> &str {
+    s.trim_start_matches(|c: char| c.is_whitespace())
+}
+
+fn take_int(s: &str) -> Option<&str> {
+    let b = s.as_bytes();
+    if b.len() >= 3 && b[0] == b'0' && (b[1] == b'x' || b[1] == b'X') {
+        let mut k = 2;
+        while k < b.len() && b[k].is_ascii_hexdigit() {
+            k += 1;
+        }
+        if k > 2 {
+            Some(&s[k..])
+        } else {
+            None
+        }
+    } else {
+        let mut k = 0;
+        while k < b.len() && b[k].is_ascii_digit() {
+            k += 1;
+        }
+        if k > 0 {
+            Some(&s[k..])
+        } else {
+            None
+        }
+    }
+}
+
+fn match_call(rest: &str) -> Option<usize> {
+    const LONG: &[&str] =
+        &["from_rgba_unmultiplied(", "from_rgb_unmultiplied(", "from_rgba_premultiplied(", "from_rgb_premultiplied(", "from_rgba(", "from_rgb("];
+    for name in LONG {
+        if let Some(after) = rest.strip_prefix(name) {
+            let after_ws = skip_ws(after);
+            let after_int = take_int(after_ws)?;
+            let after_ws = skip_ws(after_int);
+            if after_ws.starts_with(',') {
+                let used = rest.len() - after_ws.len() + 1;
+                return Some(used);
+            }
+            return None;
+        }
+    }
+    if let Some(after) = rest.strip_prefix("from_gray(") {
+        let after_ws = skip_ws(after);
+        let after_int = take_int(after_ws)?;
+        let after_ws = skip_ws(after_int);
+        if after_ws.starts_with(')') {
+            let used = rest.len() - after_ws.len() + 1;
+            return Some(used);
+        }
+        return None;
+    }
+    for name in ["from_black_alpha(", "from_white_alpha("] {
         if rest.starts_with(name) {
-            let after = name.len();
-            let ident = rest.get(after).is_some_and(|c| is_ident(*c));
-            if name == b"TRANSPARENT" || ident {
-                return None;
+            return Some(name.len());
+        }
+    }
+    const NAMES: &[&str] = &["LIGHT_GRAY", "DARK_GRAY", "WHITE", "BLACK", "GRAY", "GREEN", "BLUE", "YELLOW", "RED"];
+    for name in NAMES {
+        if let Some(after) = rest.strip_prefix(name) {
+            let ident = after.chars().next().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+            if !ident {
+                return Some(name.len());
             }
-            return Some(after);
         }
-    }
-    const RGB: [&[u8]; 6] =
-        [b"from_rgba_premultiplied(", b"from_rgba_unmultiplied(", b"from_rgb_premultiplied(", b"from_rgb_unmultiplied(", b"from_rgba(", b"from_rgb("];
-    for prefix in RGB {
-        if let Some(tail) = rest.strip_prefix(prefix) {
-            let i = skip_ws(tail, 0);
-            let j = take_int(tail, i)?;
-            let k = skip_ws(tail, j);
-            if tail.get(k) == Some(&b',') {
-                return Some(prefix.len() + k + 1);
-            }
-            return None;
-        }
-    }
-    if let Some(tail) = rest.strip_prefix(b"from_gray(") {
-        let i = skip_ws(tail, 0);
-        let j = take_int(tail, i)?;
-        let k = skip_ws(tail, j);
-        if tail.get(k) == Some(&b')') {
-            return Some("from_gray(".len() + k + 1);
-        }
-        return None;
-    }
-    if rest.starts_with(b"from_black_alpha(") {
-        return Some("from_black_alpha(".len());
-    }
-    if rest.starts_with(b"from_white_alpha(") {
-        return Some("from_white_alpha(".len());
     }
     None
 }
 
-fn skip_ws(s: &[u8], mut i: usize) -> usize {
-    while i < s.len() && s[i].is_ascii_whitespace() {
-        i += 1;
+fn sites_on_line(line: &str) -> usize {
+    let mut count = 0;
+    let mut rest = line;
+    while let Some(idx) = rest.find("Color32::") {
+        let after = &rest[idx + "Color32::".len()..];
+        if let Some(used) = match_call(after) {
+            count += 1;
+            rest = &after[used..];
+        } else {
+            rest = after;
+        }
     }
-    i
+    count
 }
 
-fn take_int(s: &[u8], i: usize) -> Option<usize> {
-    if i >= s.len() {
-        return None;
-    }
-    if s[i..].starts_with(b"0x") || s[i..].starts_with(b"0X") {
-        let mut j = i + 2;
-        if j >= s.len() || !s[j].is_ascii_hexdigit() {
-            return None;
+/// 1-based line of every chrome colour site. Duplicates on one line are kept. No allowlist.
+pub fn chrome_colour_sites(src: &str) -> Vec<usize> {
+    let clean = clean_rust(src);
+    let mut out = Vec::new();
+    for (i, line) in clean.split('\n').enumerate() {
+        for _ in 0..sites_on_line(line) {
+            out.push(i + 1);
         }
-        while j < s.len() && s[j].is_ascii_hexdigit() {
-            j += 1;
-        }
-        return Some(j);
     }
-    if s[i].is_ascii_digit() {
-        let mut j = i + 1;
-        while j < s.len() && s[j].is_ascii_digit() {
-            j += 1;
-        }
-        return Some(j);
-    }
-    None
+    out
 }
 
-fn is_ident(c: u8) -> bool {
-    c.is_ascii_alphanumeric() || c == b'_'
+/// A cleaned line whose white is a texture tint, not chrome.
+pub fn texture_tint_line(clean_line: &str) -> bool {
+    clean_line.contains("Color32::WHITE") && (clean_line.contains(".image(") || clean_line.contains("with_texture"))
 }
 
 #[test]
 fn helper_blanks_only_the_cfg_test_item() {
-    let a = "#[cfg(test)]\nmod x;\nlet c = Color32::from_rgb(1, 2, 3);\n";
-    assert_eq!(chrome_colour_sites(a), vec![3]);
-    let b = "#[cfg(test)]\nmod t {\n    fn f() { let _ = Color32::RED; }\n}\nlet g = Color32::from_gray(10);\n";
-    assert_eq!(chrome_colour_sites(b), vec![5]);
+    let one = "#[cfg(test)]\nmod x;\nlet c = Color32::from_rgb(1, 2, 3);\n";
+    assert_eq!(chrome_colour_sites(one), vec![3]);
+    let two = "#[cfg(test)]\nmod t {\n    fn f() { let _ = Color32::RED; }\n}\nlet g = Color32::from_gray(10);\n";
+    assert_eq!(chrome_colour_sites(two), vec![5]);
 }
 
 #[test]
 fn helper_skips_comments_and_strings() {
-    let a = "// Color32::WHITE\nlet s = \"Color32::WHITE\";\n/* Color32::BLACK\n */ let c = 'x';\n";
-    assert_eq!(chrome_colour_sites(a), Vec::<usize>::new());
-    let b = "a(Color32::WHITE, Color32::BLACK);\n";
-    assert_eq!(chrome_colour_sites(b), vec![1, 1]);
-    assert_eq!(chrome_colour_sites("let t = Color32::TRANSPARENT;\n"), Vec::<usize>::new());
-    assert_eq!(chrome_colour_sites("let c = Color32::from_rgb(r, g, b);\n"), Vec::<usize>::new());
+    let commented = "// Color32::WHITE\nlet s = \"Color32::WHITE\";\n/* Color32::BLACK\n */ let c = 'x';\n";
+    assert_eq!(chrome_colour_sites(commented), Vec::<usize>::new());
+    assert_eq!(chrome_colour_sites("a(Color32::WHITE, Color32::BLACK);\n"), vec![1, 1]);
+    assert_eq!(chrome_colour_sites("let a = Color32::TRANSPARENT;\nlet b = Color32::from_rgb(r, g, b);\n"), Vec::<usize>::new());
+}
+
+#[test]
+fn helper_keeps_code_after_a_raw_string_with_wide_characters() {
+    // The raw string holds 20 chars of 3 bytes each; the scan must land on the char after its closing quote.
+    let src = format!("let s = r\"{}\";\nlet c = Color32::WHITE;\nfn f() {{}}\n", "\u{2026}".repeat(20));
+    assert_eq!(chrome_colour_sites(&src), vec![2]);
+    let cleaned = clean_rust(&src);
+    assert!(cleaned.contains("fn f() {}"), "code after the raw string survives: {cleaned:?}");
+    let hashed = format!("let s = r#\"{}\"#;\nlet c = Color32::BLACK;\n", "\u{00b7}".repeat(40));
+    assert_eq!(chrome_colour_sites(&hashed), vec![2]);
 }
 
 #[test]
@@ -292,8 +307,8 @@ fn helper_skips_comments_and_strings() {
 fn chrome_census_print() {
     let files = std::env::var("CHROME_CENSUS_FILES").unwrap_or_default();
     for rel in files.split_whitespace() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(rel);
-        let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {rel}: {e}"));
+        let path = format!("crates/designos-app/src/{rel}");
+        let src = std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("{path}: {err}"));
         let sites = chrome_colour_sites(&src);
         let mut uniq = sites.clone();
         uniq.sort_unstable();

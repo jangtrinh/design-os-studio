@@ -45,6 +45,16 @@ pub const fn button_look(kind: Hierarchy, state: State) -> Look {
     }
 }
 
+/// Toast action. The hover fill is the secondary hover surface, which stays visible on the toast.
+#[cfg_attr(not(test), allow(dead_code))]
+pub const fn toast_action_look(state: State) -> Look {
+    match state {
+        State::Hover | State::Pressed => look(theme::BG_SECONDARY_HOVER, CLEAR, W, theme::TEXT_SECONDARY_HOVER, theme::TEXT_SECONDARY_HOVER),
+        State::Disabled => disabled(look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY)),
+        _ => look(CLEAR, CLEAR, W, theme::TEXT_SECONDARY, theme::TEXT_SECONDARY),
+    }
+}
+
 pub const fn button_ring(kind: Hierarchy, focused: bool) -> Color32 {
     if !focused {
         return CLEAR;
