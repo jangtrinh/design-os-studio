@@ -336,6 +336,37 @@ class P1RegistryRustTests(GateFixture):
         self.tree(records=records)
         self.assert_red("P1", needle="Divider/Hairline")
 
+    def test_status_outside_exists_and_new_in_c_d_k_is_red(self) -> None:
+        for status in ("new-in-Z", "new-in-T", "new-in-A", "new-in-c", "new-in-CD", "new-in-", "pending"):
+            with self.subTest(status=status):
+                records = good_records()
+                records[0] = record(
+                    "Divider/Hairline",
+                    "element",
+                    rust=["widgets/kit/nope.rs::x"],
+                    status=status,
+                    tokens=["colors.border"],
+                    paints=["BORDER"],
+                )
+                self.tree(records=records)
+                self.assert_red("P1", needle=f"rust_status='{status}'")
+
+    def test_new_in_c_d_and_k_are_each_reported_not_blocking(self) -> None:
+        for status in ("new-in-C", "new-in-D", "new-in-K"):
+            with self.subTest(status=status):
+                records = good_records()
+                records[0] = record(
+                    "Divider/Hairline",
+                    "element",
+                    rust=["widgets/kit/nope.rs::x"],
+                    status=status,
+                    tokens=["colors.border"],
+                    paints=["BORDER"],
+                )
+                self.tree(records=records)
+                out = self.assert_green("P1")
+                self.assertIn(status, out)
+
     def test_new_symbols_are_reported_not_blocking(self) -> None:
         self.tree()
         out = self.assert_green("P1")
@@ -406,6 +437,24 @@ class P3NamesStoreRecordsTests(GateFixture):
         self.tree()
         theme = self.theme_path()
         theme.write_text(theme.read_text(encoding="utf-8") + "\npub const FOO: Color32 = rgb(0x123456);\n", encoding="utf-8")
+        self.assert_red("P3", needle="FOO")
+
+    def test_new_colour_constant_with_a_trailing_comment_is_red(self) -> None:
+        self.tree()
+        theme = self.theme_path()
+        theme.write_text(
+            theme.read_text(encoding="utf-8") + "\npub const FOO: Color32 = rgb(0x123456); // new chrome colour\n",
+            encoding="utf-8",
+        )
+        self.assert_red("P3", needle="FOO")
+
+    def test_new_colour_constant_wrapped_over_two_lines_is_red(self) -> None:
+        self.tree()
+        theme = self.theme_path()
+        theme.write_text(
+            theme.read_text(encoding="utf-8") + "\npub const FOO: Color32 =\n    rgb(0x123456);\n",
+            encoding="utf-8",
+        )
         self.assert_red("P3", needle="FOO")
 
     def test_painted_colour_neither_bound_nor_pending_is_red(self) -> None:
@@ -770,6 +819,41 @@ class ColourClassTests(unittest.TestCase):
     def test_unclassified_name_is_reported(self) -> None:
         report = dse.check_colour_classes(self.theme + "\npub const FOO: Color32 = rgb(0x123456);\n", self.store)
         self.assertTrue(any("FOO" in p for p in report["problems"]))
+
+    def test_every_declared_colour_constant_is_read_on_the_real_tree(self) -> None:
+        report = dse.check_colour_classes(self.theme, self.store)
+        self.assertEqual(report["declared"], 188)
+        self.assertEqual(report["declared"], report["total"])
+
+    def test_constant_with_a_trailing_comment_is_unclassified(self) -> None:
+        report = dse.check_colour_classes(
+            self.theme + "\npub const FOO: Color32 = rgb(0x123456); // new chrome colour\n", self.store
+        )
+        self.assertEqual(report["declared"], 189)
+        self.assertEqual(sum(1 for p in report["problems"] if "FOO" in p), 1, report["problems"])
+        self.assertTrue(any("FOO is unclassified" in p for p in report["problems"]))
+
+    def test_constant_wrapped_over_two_lines_is_unclassified(self) -> None:
+        report = dse.check_colour_classes(self.theme + "\npub const FOO: Color32 =\n    rgb(0x123456);\n", self.store)
+        self.assertEqual(sum(1 for p in report["problems"] if "FOO" in p), 1, report["problems"])
+        self.assertTrue(any("FOO is unclassified" in p for p in report["problems"]))
+
+    def test_constant_array_with_a_trailing_comment_is_unclassified(self) -> None:
+        report = dse.check_colour_classes(
+            self.theme + "\npub const FOO: [Color32; 2] = [BORDER, TEXT]; // pair\n", self.store
+        )
+        self.assertTrue(any("FOO is unclassified" in p for p in report["problems"]))
+
+    def test_classified_name_that_gains_a_trailing_comment_is_reported_once(self) -> None:
+        src = self.theme.replace(
+            "pub const BG_OVERLAY: Color32 = rgba(0x262626, 0xB3);",
+            "pub const BG_OVERLAY: Color32 = rgba(0x262626, 0xB3); // scrim",
+        )
+        self.assertNotEqual(src, self.theme)
+        report = dse.check_colour_classes(src, self.store)
+        mentions = [p for p in report["problems"] if "BG_OVERLAY" in p]
+        self.assertEqual(len(mentions), 1, mentions)
+        self.assertIn("is unclassified", mentions[0])
 
     def test_pending_pin_keeps_the_alpha(self) -> None:
         src = self.theme.replace(
