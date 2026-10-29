@@ -716,6 +716,22 @@ Third-party files keep their own licenses (full notices in [`THIRD_PARTY_LICENSE
 
 ---
 
+## Watch
+
+DESIGN:OS Studio is a high-quality, FREE Figma alternative built for AI. Source-available (PolyForm Shield). Videos from the [design:os by Jang](https://www.youtube.com/@designosbyjang) channel:
+
+<p align="left">
+  <a href="https://www.youtube.com/watch?v=V76BySt9WOs"><img src="docs/images/video/V76BySt9WOs.jpg" alt="DESIGN:OS Studio v0.6.0 — Recap (YouTube, 0:30)" width="320"></a>
+  <a href="https://www.youtube.com/watch?v=OYWsj7Jt8aw"><img src="docs/images/video/OYWsj7Jt8aw.jpg" alt="Autonomous Design Agent · Tập 03: Model + Harness và 6 trụ cột DESIGN:OS (YouTube, 8:44)" width="320"></a>
+</p>
+
+- [DESIGN:OS Studio v0.6.0 — Recap](https://www.youtube.com/watch?v=V76BySt9WOs) (0:30): 30-second recap of DESIGN:OS Studio v0.6.0: a FREE native design studio with an Agents panel and MCP server. Source-available under PolyForm Shield.
+- [Autonomous Design Agent · Tập 03: Model + Harness và 6 trụ cột DESIGN:OS](https://www.youtube.com/watch?v=OYWsj7Jt8aw) (8:44): Agent = Model + Harness: the six pillars of DESIGN:OS (single source of truth, Ontology Graph RAG, dual-layer spec, 126 CI gates, 9-verb patch, watchers). Vietnamese, with English terms.
+
+More episodes: [Autonomous Design Agent series](https://www.youtube.com/@designosbyjang/playlists) (Vietnamese, with English terms).
+
+---
+
 ## Listed on
 
 <p align="left">
