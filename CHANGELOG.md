@@ -12,7 +12,7 @@ All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented 
   - The canvas's inline auto-layout editor no longer draws a field box inside its frame (#1142, PR #1343).
 - **Type, spacing and control sizes.**
   - Body text is 12 px with three text weights (regular, medium and semibold), and captions and labels take new sizes and line heights. Corner radii are 6, 8, 12 and 16 px with nested corners concentric, and controls and badges come in fixed size steps. Rows, fields and text grow where the scale says, and regions and panel widths stay (#1143, PR #1349).
-  - Dev Mode shows a frame's status once, as the badge beside its name, and the export scale chevron has a 24 px pointer target (#1143, PR #1349).
+  - Dev Mode shows a top-level frame's status once, as the badge beside its name, and the export scale chevron has a 24 px pointer target (#1143, PR #1349).
 - **Controls.**
   - Buttons, fields, checkboxes, toggles, radio cards, tabs, rows, menu items, badges, tags, tooltips and progress controls take their colours, border, radius and focus ring from one shared look (#1139, PR #1369).
   - Menu items sit inset 8 px inside a panel with a 16 px corner radius, and the submenu chevron uses the item's icon colour (#1139, PR #1369).
@@ -21,30 +21,30 @@ All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented 
   - A switch shorter than 24 px takes clicks in a 24 px band around its track (#1155, PR #1380).
 - **Window chrome.**
   - The title bar, file tabs, left rail, floating toolbar, rulers, shell menus and toasts use the new dark look and the shared controls, with their hover, pressed, selected and focus states. Regions, widths and control order stay, and heights change only where a control or text size grew (#1119, PR #1376).
-  - The tab bar drops the rose close-button hover and the green Dev badge, and small close buttons and chevrons keep a 24 px pointer target (#1119, PR #1376).
+  - The tab bar drops the rose close-button hover, and small close buttons and chevrons keep a 24 px pointer target (#1119, PR #1376).
   - A 4 px press band beside each ruler makes the strip easier to grab. A click or release in the band without a drag drops no guide, and a guide you already grabbed and nudge inside the band is kept (#1119, PR #1376).
 - **Popovers, dialogs and the command bar.**
   - Popovers, menus, dialogs, toasts, the command bar, Find, comments and version history use the new dark look and the shared controls (#1146, PR #1375).
   - The command bar has 36 px rows with separate hover and selected looks. Enter runs the row picked with the keyboard, and hovering does not move that pick (#1146, PR #1375).
-  - The import path, save version and version history dialogs use 14 px body text, 36 px fields and 40 px footer buttons (#1146, PR #1375).
+  - The import path and save version dialogs use 14 px body text and 40 px footer buttons (#1146, PR #1375).
   - The context menu and the layer picker use 32 px rows with an 8 px inset, and Find, comments and version history use the extra-small buttons (#1146, PR #1375).
   - Brand buttons use a dark label on orange, and destructive buttons use a white label (#1146, PR #1375).
 - **Pages and Layers.**
   - The left panel (file name, `Pages`, the Dev section and `Layers`) uses the new dark look and keeps its 240 px width, its section order and every control's place (#1120, PR #1377).
   - Page rows grow to 32 px, row fills are neutral greys, and hover, selected and focus states come from the shared rows. Icon buttons in the panel grow to 32 px (#1120, PR #1377).
-  - Studio orange appears only for live state (drop targets and canvas hover), and component layers stay cyan (#1120, PR #1377).
+  - Studio orange marks live state (drop targets and canvas hover), and component layers stay cyan (#1120, PR #1377).
   - After a click on a page row, the keyboard stays on the canvas (#1120, PR #1377).
   - The Dev list and the layer filter use the same rows and controls (#1120, PR #1377).
 - **Home.**
   - Home takes its colours from the same dark palette as the editor. `+ Design file` is Studio orange with a dark label, replacing the blue (#1138, PRs #1350 and #1378).
-  - The page and sidebar use dark neutral surfaces with hairline borders. Buttons are 36 or 40 px and body text is 14 px, and inputs, menus and badges use the shared controls (#1138, PR #1378).
+  - The page and sidebar use dark neutral surfaces with hairline borders. Header and filter buttons are 36 px, and inputs, menus and badges use the shared controls (#1138, PR #1378).
   - The layout stays: the 264 px sidebar, the header with title and actions, the filter and sort bar, the file grid or list, and Trash at the bottom of the sidebar (#1138, PR #1378).
 - **Assets, Variables, Libraries and Check designs.**
   - `Assets`, `Variables`, `Libraries`, `Plugins` and `Check designs` use the new dark look and the shared controls. Regions, widths, columns and order stay (#1155, PR #1380).
-  - In `Assets`, the search field rests on the neutral border with no blue outline and shows the focus ring only on keyboard focus. The filter and view controls are 32 px icon buttons, and group rows have no chevron and take a hover fill (#1155, PR #1380).
+  - In `Assets`, the search field rests on the neutral border with no blue outline and shows the focus ring only while it has focus. The filter and view controls are 32 px icon buttons, and group rows have no chevron and take a hover fill (#1155, PR #1380).
   - In `Variables`, value cells draw nothing at rest, take a hover fill, and show a focused field with the focus ring while you edit. Booleans use the switch, alias pills are 24 px, and `Create variable` is centred in its bar. The edit popover closes with a cross and uses checkboxes (#1155, PR #1380).
-  - In `Libraries`, the dialog uses the new dialog look with a 36 px field and buttons and 8 px gaps. Change labels are status chips (`New`, `Changed` and `Missing from library`), names stop short of the update button, the update button fits its label, the switch is the shared switch, and the description hint sits inside its field (#1155, PR #1380).
-  - In `Check designs` and `Plugins`, rule rows use checkboxes, and the contrast choice is a segmented control (#1155, PR #1380).
+  - In `Libraries`, the dialog uses the new dialog look with a 36 px field and buttons and 8 px gaps. Change labels such as `New` and `Changed` are status chips, names stop short of the update button, the update button fits its label, the switch is the shared switch, and the description hint sits inside its field (#1155, PR #1380).
+  - In `Check designs`, rule rows use checkboxes, and the contrast choice is a segmented control (#1155, PR #1380).
 
 ### Fixed
 - **Popovers, dialogs and the command bar.**
@@ -53,7 +53,7 @@ All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented 
   - Placeholder text in text fields takes the placeholder grey (#1146, PR #1375).
 - **Window chrome.**
   - The import toast shows `Details` once, as a button with a semibold label, and the duplicate word in the message is gone (#1119, PR #1376).
-  - The left panel's resize band stops at its edge, so a click just past it reaches the canvas (#1119, PR #1376).
+  - A click just past the left panel's resize band reaches the canvas (#1119, PR #1376).
 - **Controls.**
   - Disabled controls inside a disabled panel dim once, not twice (#1139, PR #1369).
 
