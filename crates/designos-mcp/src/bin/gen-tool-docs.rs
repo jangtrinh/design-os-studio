@@ -205,6 +205,7 @@ pub fn render_parity_markdown(snapshots: &[ToolSnapshot], parity: &ParityFile) -
     for code in designos_mcp::tools::errors::ErrorCode::ALL {
         out.push_str(&format!("| `{}` | `{}` |\n", escape_md_cell(code.as_str()), escape_md_cell(code.default_kind().as_str())));
     }
+    out.push_str("\nStatus strings are not error kinds. \"Another window owns this file's agent session\" (`ANOTHER_WINDOW_OWNS_SESSION_MSG`) is a Studio status line shown when a session lock is held by another window. It is not an MCP `ToolError`, has no `ErrorCode` and no `error_kind`, and an agent never receives it as a tool result.\n");
 
     out
 }

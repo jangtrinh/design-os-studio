@@ -190,3 +190,5 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `RULE_UNAVAILABLE` | `retryable` |
 | `INVALID_NAME` | `retryable` |
 | `NAME_TOO_LONG` | `retryable` |
+
+Status strings are not error kinds. "Another window owns this file's agent session" (`ANOTHER_WINDOW_OWNS_SESSION_MSG`) is a Studio status line shown when a session lock is held by another window. It is not an MCP `ToolError`, has no `ErrorCode` and no `error_kind`, and an agent never receives it as a tool result.

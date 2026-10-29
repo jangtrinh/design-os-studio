@@ -324,3 +324,11 @@ fn stdio_count_follows_snapshot() {
     let snapshot: Vec<Value> = serde_json::from_str(&snapshot_raw).expect("parse tools.json");
     assert_eq!(designos_mcp::server::tools().len(), snapshot.len());
 }
+
+#[test]
+fn parity_doc_says_the_window_lock_message_is_not_an_error_kind() {
+    let doc = std::fs::read_to_string(repo_root().join("docs/mcp-parity.md")).expect("docs/mcp-parity.md");
+    assert!(doc.contains("Status strings are not error kinds"), "docs must say status strings are not error kinds");
+    assert!(doc.contains("ANOTHER_WINDOW_OWNS_SESSION_MSG"), "docs must name the window-lock status string");
+    assert!(doc.contains("no `ErrorCode` and no `error_kind`"), "docs must say the lock message has no ErrorCode or error_kind");
+}
