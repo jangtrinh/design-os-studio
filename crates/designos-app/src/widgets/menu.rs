@@ -6,7 +6,7 @@
 //! 16px from the edge, 24px chevrons 8px from the edge, 1px separators with 8px margins.
 
 use super::*;
-use egui::{Area, Key, Modifiers, Order};
+use egui::{Area, Context, Key, Modifiers, Order};
 
 #[derive(Clone, Default)]
 pub struct MenuItem {
@@ -593,10 +593,45 @@ pub fn dropdown_checked(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, 
     dropdown_items(ui, rect, key, label, &items, rect.width())
 }
 
+fn dropdown_open_key() -> Id {
+    Id::new("dropdown-menu-open-pass")
+}
+
+fn stamp_dropdown_menu_open(ctx: &Context) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(dropdown_open_key(), pass));
+}
+
+/// True when a dropdown menu was drawn open in this pass or the previous one.
+///
+/// The shortcut handler runs before the panels draw, so "open" means open in the frame that just
+/// ended. A dropdown whose host stopped drawing is not stamped again, and the next pass after that
+/// no longer counts.
+pub fn dropdown_menu_was_open(ctx: &Context) -> bool {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<u64>(dropdown_open_key())).is_some_and(|seen| seen == now || seen + 1 == now)
+}
+
 /// Like `dropdown_checked`, but with ready-made `items` (check marks, dividers) and a menu at
 /// least `min_width` wide.
 pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, items: &[MenuItem], min_width: f32) -> Option<usize> {
     let id = ui.id().with(("dd", key));
+    super::field_tab::register(ui, rect, id);
+    #[cfg(test)]
+    {
+        let pass = ui.ctx().cumulative_pass_nr();
+        ui.ctx().data_mut(|d| {
+            let last = d.get_temp::<u64>(Id::new("test-dd-pass")).unwrap_or(u64::MAX);
+            if last != pass {
+                d.insert_temp(Id::new("test-dd-list"), Vec::<(Id, Rect)>::new());
+                d.insert_temp(Id::new("test-dd-pass"), pass);
+            }
+            let list = d.get_temp_mut_or_default::<Vec<(Id, Rect)>>(Id::new("test-dd-list"));
+            if !list.iter().any(|(i, _)| *i == id) {
+                list.push((id, rect));
+            }
+        });
+    }
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let p = ui.painter();
@@ -625,7 +660,7 @@ pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
                     ui.memory_mut(|m| m.request_focus(id));
                 }
             }
-            MenuResult::Open => {}
+            MenuResult::Open => stamp_dropdown_menu_open(ui.ctx()),
         }
     }
     picked
@@ -1401,5 +1436,26 @@ mod tests {
         assert!(!s.open);
         assert!(!focus_ring_on(&s.shapes, dd_rect()), "a disabled dropdown must not paint a focus ring");
         assert!(!any_stroke_on(&s.shapes, dd_rect()), "a disabled dropdown must paint no stroke");
+    }
+
+    #[test]
+    fn a_dropdown_open_stamp_counts_this_pass_and_the_previous_then_expires() {
+        let ctx = egui::Context::default();
+        let pass = |ctx: &egui::Context, stamp: bool| {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                if stamp {
+                    stamp_dropdown_menu_open(ui.ctx());
+                }
+            });
+        };
+        pass(&ctx, false);
+        assert!(!dropdown_menu_was_open(&ctx), "nothing is open before a menu is stamped");
+        pass(&ctx, true);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!(dropdown_menu_was_open(ui.ctx()), "stamped in the previous pass");
+        });
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!(!dropdown_menu_was_open(ui.ctx()), "not stamped in the previous pass");
+        });
     }
 }
