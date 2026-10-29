@@ -253,10 +253,17 @@ fn press_band_extra() -> f32 {
 /// nudged inside the band it would otherwise be deleted on release.
 fn on_ruler_strip(rect: ERect, axis: GuideAxis, pos: Pos2, with_band: bool) -> bool {
     let (top, left) = strips(rect);
-    let reach = if with_band { press_band_extra() } else { 0.0 };
+    if with_band {
+        // Inclusive like the press band's `Rect::contains`, so a press on its far edge also drops no guide.
+        let reach = press_band_extra();
+        return match axis {
+            GuideAxis::Y => pos.y <= top.bottom() + reach,
+            GuideAxis::X => pos.x <= left.right() + reach,
+        };
+    }
     match axis {
-        GuideAxis::Y => pos.y < top.bottom() + reach,
-        GuideAxis::X => pos.x < left.right() + reach,
+        GuideAxis::Y => pos.y < top.bottom(),
+        GuideAxis::X => pos.x < left.right(),
     }
 }
 
@@ -620,7 +627,14 @@ mod tests {
     #[test]
     fn a_press_and_release_in_the_press_band_drops_no_guide() {
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
-        for at in [egui::pos2(100.0, 10.0), egui::pos2(100.0, 22.0), egui::pos2(10.0, 100.0), egui::pos2(22.0, 100.0)] {
+        for at in [
+            egui::pos2(100.0, 10.0),
+            egui::pos2(100.0, 22.0),
+            egui::pos2(100.0, 24.0),
+            egui::pos2(10.0, 100.0),
+            egui::pos2(22.0, 100.0),
+            egui::pos2(24.0, 100.0),
+        ] {
             let mut app = fresh_app();
             assert!(press_with_alt(&mut app, rect, at, false), "{at:?} starts a guide drag");
             let Interaction::Guide(mut g) = std::mem::take(&mut app.canvas.inter) else { panic!("a guide drag is open") };
