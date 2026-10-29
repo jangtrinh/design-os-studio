@@ -202,7 +202,7 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
                 serde_json::json!({
                     "ok": false,
                     "code": "EDITOR_NOT_NOTIFIED",
-                    "message": "The close was dropped because it did not name the shown tab.",
+                    "message": "The close was dropped because that tab is not the one currently shown. Switch to it, then try again.",
                 }),
             );
             return;
@@ -236,17 +236,32 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
             );
         }
         "save" => {
-            if !save_for_agent_close(app, intent.path.as_deref()) {
-                crate::live_patch_log::write_close_result_file(
-                    &log_path,
-                    &intent,
-                    serde_json::json!({
-                        "ok": false,
-                        "code": "PATH_REQUIRED",
-                        "message": "Untitled documents need a path to save",
-                    }),
-                );
-                return;
+            match save_for_agent_close(app, intent.path.as_deref()) {
+                AgentCloseSave::Saved => {}
+                AgentCloseSave::PathRequired => {
+                    crate::live_patch_log::write_close_result_file(
+                        &log_path,
+                        &intent,
+                        serde_json::json!({
+                            "ok": false,
+                            "code": "PATH_REQUIRED",
+                            "message": "Untitled documents need a path to save",
+                        }),
+                    );
+                    return;
+                }
+                AgentCloseSave::Failed { code, message } => {
+                    crate::live_patch_log::write_close_result_file(
+                        &log_path,
+                        &intent,
+                        serde_json::json!({
+                            "ok": false,
+                            "code": code,
+                            "message": message,
+                        }),
+                    );
+                    return;
+                }
             }
             let revision = app.doc.mutation_epoch();
             let saved_path = app.file_path.as_ref().map(|p| p.display().to_string());
@@ -282,39 +297,73 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
     }
 }
 
-fn save_for_agent_close(app: &mut App, path: Option<&str>) -> bool {
+enum AgentCloseSave {
+    Saved,
+    PathRequired,
+    Failed { code: &'static str, message: String },
+}
+
+fn save_for_agent_close(app: &mut App, path: Option<&str>) -> AgentCloseSave {
     if let Some(raw) = path.filter(|s| !s.is_empty()) {
         let target = std::path::PathBuf::from(raw);
         if app.file_path.as_ref() == Some(&target) {
-            app.save(false);
-            return !app.has_unsaved_edits();
+            return save_open_document_for_agent_close(app);
         }
-        match crate::io::save_path_counted(&app.doc, &target) {
-            Ok((saved, replaced)) => {
-                if replaced > 0 {
-                    app.doc.neutralize_non_finite();
-                    app.hist.neutralize_non_finite();
-                    app.changed();
-                }
-                if app.lib_file.is_none() {
-                    if let Some(old) = app.file_path.replace(saved.clone()) {
-                        app.release_repaired_original(&old, Some(&saved));
-                    }
-                    app.autosave.saved_hash = crate::home::doc_hash(&app.doc);
-                    app.autosave.seen_rev = app.canvas.tiles.rev();
-                    if crate::io::writes_native_format(&saved) {
-                        app.mark_saved();
-                    }
-                }
-                true
-            }
-            Err(_) => false,
-        }
-    } else if app.lib_file.is_some() || app.file_path.as_ref().is_some_and(|p| crate::io::writes_native_format(p)) {
-        app.save(false);
-        !app.has_unsaved_edits()
+        return match app.persist_document_to(&target) {
+            Ok(saved) => finish_close_save(app, Some(saved)),
+            Err(e) => classify_save_io(&target, e),
+        };
+    }
+    save_open_document_for_agent_close(app)
+}
+
+fn save_open_document_for_agent_close(app: &mut App) -> AgentCloseSave {
+    if app.lib_file.is_some() {
+        return match app.save_library_file_reporting() {
+            Ok(()) => finish_close_save(app, app.file_path.clone()),
+            Err(e) => classify_save_message(e, app.file_path.as_deref()),
+        };
+    }
+    let Some(p) = app.file_path.as_ref().filter(|p| crate::io::writes_native_format(p)).cloned() else {
+        return AgentCloseSave::PathRequired;
+    };
+    match app.persist_document_to(&p) {
+        Ok(saved) => finish_close_save(app, Some(saved)),
+        Err(e) => classify_save_io(&p, e),
+    }
+}
+
+fn finish_close_save(app: &App, path: Option<std::path::PathBuf>) -> AgentCloseSave {
+    if app.has_unsaved_edits() {
+        let display = path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "the document".into());
+        AgentCloseSave::Failed { code: "INTERNAL_ERROR", message: format!("{display} was written but the document is still unsaved.") }
     } else {
-        false
+        AgentCloseSave::Saved
+    }
+}
+
+fn classify_save_io(path: &std::path::Path, err: std::io::Error) -> AgentCloseSave {
+    let display_path = path.display().to_string();
+    if err.kind() == std::io::ErrorKind::PermissionDenied {
+        AgentCloseSave::Failed { code: "INVALID_ARGUMENTS", message: format!("{display_path} is read-only. Make it writable first, or choose a new path.") }
+    } else {
+        AgentCloseSave::Failed {
+            code: "INTERNAL_ERROR",
+            message: format!("{display_path} can't be written: {err}. Check its permissions and free space, then try again."),
+        }
+    }
+}
+
+fn classify_save_message(err: String, path: Option<&std::path::Path>) -> AgentCloseSave {
+    let display = path.map(|p| p.display().to_string()).unwrap_or_else(|| "the document".into());
+    let lower = err.to_ascii_lowercase();
+    if lower.contains("read-only") || lower.contains("permission denied") {
+        AgentCloseSave::Failed { code: "INVALID_ARGUMENTS", message: format!("{display} is read-only. Make it writable first, or choose a new path.") }
+    } else {
+        AgentCloseSave::Failed {
+            code: "INTERNAL_ERROR",
+            message: format!("{display} can't be written: {err}. Check its permissions and free space, then try again."),
+        }
     }
 }
 

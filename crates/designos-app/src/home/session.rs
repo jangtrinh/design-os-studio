@@ -879,6 +879,10 @@ impl App {
 
     /// Ctrl+S on a library file.
     pub fn save_library_file_with_toast(&mut self) {
+        let _ = self.save_library_file_reporting();
+    }
+
+    pub(crate) fn save_library_file_reporting(&mut self) -> Result<(), String> {
         match self.save_library_file_noticing() {
             Ok(notice) => {
                 let project = self.lib_file.as_ref().map(|f| f.project.clone()).unwrap_or_default();
@@ -886,8 +890,12 @@ impl App {
                     Some(w) => self.show_toast(format!("Saved to {project} ({w})"), true),
                     None => self.show_toast(format!("Saved to {project}"), false),
                 }
+                Ok(())
             }
-            Err(e) => self.show_toast(e, true),
+            Err(e) => {
+                self.show_toast(e.clone(), true);
+                Err(e)
+            }
         }
     }
 

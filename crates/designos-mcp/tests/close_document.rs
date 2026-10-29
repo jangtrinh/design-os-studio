@@ -342,3 +342,43 @@ fn live_close_fail_ack_is_unsaved_changes() {
         assert!(s.call("designos_get_document", json!({})).is_ok(), "session stays open after fail");
     });
 }
+
+#[test]
+fn live_close_fail_ack_forwards_a_known_code() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 5);
+    s.call("designos_save_file", json!({"path": "design.designos"})).unwrap();
+    let session_dir_for_ack = session_dir.clone();
+    thread::scope(|scope| {
+        scope.spawn(move || {
+            let deadline = Instant::now() + Duration::from_millis(500);
+            loop {
+                if let Ok(raw) = fs::read_to_string(session_dir_for_ack.join("doc-patch.jsonl")) {
+                    if let Some(line) = raw.lines().rev().find(|l| l.contains("\"close\":true")) {
+                        if let Ok(LiveLogLine::Close(intent)) = LiveLogLine::parse(line.as_bytes()) {
+                            if let Some(close_id) = intent.close_id {
+                                let ack = json!({
+                                    "close_id": close_id,
+                                    "ok": false,
+                                    "code": "INVALID_ARGUMENTS",
+                                    "message": "locked.designos is read-only. Make it writable first, or choose a new path.",
+                                });
+                                fs::write(session_dir_for_ack.join("close-result.json"), ack.to_string()).unwrap();
+                                return;
+                            }
+                        }
+                    }
+                }
+                if Instant::now() >= deadline {
+                    panic!("close line with close_id never appeared");
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let err = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap_err().to_json_value();
+        assert_eq!(err["code"], "INVALID_ARGUMENTS", "{err}");
+        assert_eq!(err["message"], "locked.designos is read-only. Make it writable first, or choose a new path.", "{err}");
+        assert_eq!(err["safe_to_retry"], false, "{err}");
+        assert!(s.call("designos_get_document", json!({})).is_ok(), "session stays open after fail");
+    });
+}

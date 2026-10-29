@@ -1,6 +1,6 @@
 use super::leave_prompt::{make_two_tabs, tab_id};
 use super::live_agent_edits::finish;
-use super::unsaved_dot::{dot, edit, external_sim_with, nodes_on_disk, two_rects, wait, SETTLED};
+use super::unsaved_dot::{dot, edit, external_sim_with, nodes_on_disk, two_rects, wait, TmpDir, SETTLED};
 use super::*;
 use serde_json::json;
 use std::time::Duration;
@@ -91,6 +91,97 @@ fn stale_queued_close_does_not_close_a_tab_the_user_switched_back_to() {
     wait(&mut s, SETTLED);
     assert_eq!(s.app().tabs.entries.len(), 2, "coming back did not apply the stale close");
     assert!(s.app().tabs.entries.iter().any(|t| t.id == first), "the named tab is still open");
+    let _ = path;
+    finish(s, workspace);
+}
+
+#[cfg(unix)]
+fn restore_mode(path: &std::path::Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
+}
+
+#[cfg(unix)]
+#[test]
+fn titled_read_only_file_close_save_is_not_path_required() {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut s, mut session, path, workspace, _dir) = live_outside_autosave_off();
+    let on_disk = std::fs::read(&path).unwrap();
+    edit(&mut s);
+    assert!(s.app().has_unsaved_edits(), "human edit lights the tab");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    if crate::io::save_path(&s.app().doc, &path).is_ok() {
+        restore_mode(&path, 0o644);
+        finish(s, workspace);
+        return;
+    }
+    let tabs = s.app().tabs.entries.len();
+    let err = close_while_pumping(&mut s, &mut session, json!({"unsaved": "save"})).expect_err("read-only save close");
+    restore_mode(&path, 0o644);
+    assert_ne!(err["code"], "PATH_REQUIRED", "read-only is not a missing path: {err}");
+    assert_eq!(err["code"], "INVALID_ARGUMENTS", "{err}");
+    let message = err["message"].as_str().unwrap_or("");
+    assert!(message.contains("is read-only"), "{err}");
+    assert!(message.contains(&path.display().to_string()) || message.contains("outside.designos"), "message names the path: {err}");
+    assert_eq!(s.app().tabs.entries.len(), tabs, "tab stayed open");
+    assert!(s.app().has_unsaved_edits(), "still dirty");
+    assert_eq!(std::fs::read(&path).unwrap(), on_disk, "file bytes unchanged");
+    finish(s, workspace);
+}
+
+#[test]
+fn untitled_close_save_without_path_is_path_required() {
+    let dir = TmpDir::new();
+    let mut s = Sim::with(Options { library: Some(dir.0.join("lib")), ..Default::default() });
+    s.shell.app.tabs.always_visible = true;
+    wait(&mut s, SETTLED);
+    crate::comments::settings::save_autosave_ai_changes(s.app().lib.as_ref().expect("library").root(), false).unwrap();
+    s.shell.app.file_path = None;
+    s.shell.app.lib_file = None;
+    edit(&mut s);
+    assert!(s.app().file_path.is_none(), "untitled");
+    assert!(s.app().has_unsaved_edits(), "dirty untitled");
+    let workspace = dir.0.join("mcp-workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut session = designos_mcp::server::Session::with_session_dir(&workspace, &s.app().terminal.session_dir).expect("mcp session");
+    session.set_close_ack_timeout(Duration::from_millis(800));
+    let tabs = s.app().tabs.entries.len();
+    let err = close_while_pumping(&mut s, &mut session, json!({"unsaved": "save"})).expect_err("untitled save needs a path");
+    assert_eq!(err["code"], "PATH_REQUIRED", "{err}");
+    assert_eq!(s.app().tabs.entries.len(), tabs, "tab stayed open");
+    assert!(s.app().has_unsaved_edits(), "still dirty");
+    finish(s, workspace);
+}
+
+#[cfg(unix)]
+#[test]
+fn close_save_into_unwritable_directory_is_not_path_required() {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut s, mut session, path, workspace, _dir) = live_outside_autosave_off();
+    edit(&mut s);
+    let locked = workspace.join("locked-dir");
+    std::fs::create_dir_all(&locked).unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+    if std::fs::File::create(locked.join("probe")).is_ok() {
+        restore_mode(&locked, 0o755);
+        finish(s, workspace);
+        return;
+    }
+    let dest = locked.join("out.designos");
+    let tabs = s.app().tabs.entries.len();
+    let err = close_while_pumping(&mut s, &mut session, json!({"unsaved": "save", "path": dest.to_string_lossy()})).expect_err("unwritable dir");
+    restore_mode(&locked, 0o755);
+    assert_ne!(err["code"], "PATH_REQUIRED", "unwritable directory is not a missing path: {err}");
+    assert_eq!(err["code"], "INVALID_ARGUMENTS", "{err}");
+    let message = err["message"].as_str().unwrap_or("");
+    assert!(message.contains("is read-only") || message.contains("can't be written"), "{err}");
+    assert!(
+        message.contains(&dest.display().to_string()) || message.contains("out.designos") || message.contains("locked-dir"),
+        "message names the path: {err}"
+    );
+    assert_eq!(s.app().tabs.entries.len(), tabs, "tab stayed open");
+    assert!(s.app().has_unsaved_edits(), "still dirty");
+    assert!(!dest.exists(), "no partial write");
     let _ = path;
     finish(s, workspace);
 }
