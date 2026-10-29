@@ -29,21 +29,20 @@ use std::path::{Path, PathBuf};
 // ─────────────────────────────────────────────────────────────────────────────
 // Linear / Confluence / `product-os-spec-driven` Editorial Palette (`es:designer`)
 // ─────────────────────────────────────────────────────────────────────────────
-const TOKEN_BG_PAGE: Color32 = Color32::from_rgb(0x14, 0x15, 0x18); // #141518 calm reader backdrop
-const TOKEN_SURFACE: Color32 = Color32::from_rgb(0x19, 0x1A, 0x1E); // #191A1E sidebar / sheet surface
-const TOKEN_SURFACE_2: Color32 = Color32::from_rgb(0x22, 0x24, 0x2A); // #22242A active row / table head
-const TOKEN_SURFACE_3: Color32 = Color32::from_rgb(0x1D, 0x1E, 0x23); // #1D1E23 subtle hover / callout
-const TOKEN_CODE_BG: Color32 = Color32::from_rgb(0x11, 0x12, 0x15); // #111215 code / wireframe block
-const TOKEN_BORDER: Color32 = Color32::from_rgb(0x28, 0x2A, 0x32); // #282A32 1px border
-const TOKEN_HAIRLINE: Color32 = Color32::from_rgb(0x22, 0x24, 0x2B); // #22242B 1px row hairline
-const TOKEN_TEXT: Color32 = Color32::from_rgb(0xED, 0xEE, 0xF0); // #EDEEF0 primary ink
-const TOKEN_TEXT_MUTED: Color32 = Color32::from_rgb(0xB8, 0xBC, 0xC4); // #B8BCC4 comfortable body prose
-const TOKEN_TEXT_SUBTLE: Color32 = Color32::from_rgb(0x7E, 0x83, 0x8E); // #7E838E eyebrows, breadcrumbs, metadata
+const TOKEN_BG_PAGE: Color32 = theme::BG;
+const TOKEN_SURFACE: Color32 = theme::BG;
+const TOKEN_SURFACE_2: Color32 = theme::BG_TERTIARY;
+const TOKEN_SURFACE_3: Color32 = theme::BG_HOVER;
+const TOKEN_CODE_BG: Color32 = theme::BG_SECONDARY;
+const TOKEN_BORDER: Color32 = theme::BORDER;
+const TOKEN_HAIRLINE: Color32 = theme::BORDER_SUBTLE;
+const TOKEN_TEXT: Color32 = theme::TEXT;
+const TOKEN_TEXT_MUTED: Color32 = theme::TEXT_SECONDARY;
+const TOKEN_TEXT_SUBTLE: Color32 = theme::TEXT_TERTIARY;
 
-// Restrained status dot colors (only 6px dots for pass/pending, never rainbow pills on IDs)
-const DOT_OK: Color32 = Color32::from_rgb(0x3E, 0xCF, 0x8E); // #3ECF8E muted emerald
-const DOT_WARN: Color32 = Color32::from_rgb(0xE5, 0xA9, 0x3B); // #E5A93B warm amber
-const DOT_NEUTRAL: Color32 = Color32::from_rgb(0x7E, 0x83, 0x8E);
+const DOT_OK: Color32 = theme::SUCCESS;
+const DOT_WARN: Color32 = theme::WARNING;
+const DOT_NEUTRAL: Color32 = theme::ICON_QUATERNARY;
 
 #[derive(Clone, Copy)]
 struct ReaderPalette {
@@ -51,41 +50,56 @@ struct ReaderPalette {
     doc_sheet: Color32,
     surface: Color32,
     surface_2: Color32,
+    surface_3: Color32,
     code_bg: Color32,
     border: Color32,
     hairline: Color32,
     text: Color32,
     text_muted: Color32,
     text_subtle: Color32,
+    dot_ok: Color32,
+    dot_warn: Color32,
+    dot_neutral: Color32,
+    highlight: Color32,
 }
 
 impl ReaderPalette {
     fn for_mode(light_mode: bool) -> Self {
         if light_mode {
             Self {
-                bg_page: Color32::from_rgb(0xF6, 0xF6, 0xF7),
-                doc_sheet: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-                surface: Color32::from_rgb(0xFA, 0xFA, 0xFB),
-                surface_2: Color32::from_rgb(0xF1, 0xF2, 0xF4),
-                code_bg: Color32::from_rgb(0xF4, 0xF4, 0xF6),
-                border: Color32::from_rgb(0xE4, 0xE5, 0xE9),
-                hairline: Color32::from_rgb(0xEC, 0xED, 0xF0),
-                text: Color32::from_rgb(0x18, 0x18, 0x1B),
-                text_muted: Color32::from_rgb(0x3F, 0x3F, 0x46),
-                text_subtle: Color32::from_rgb(0x71, 0x71, 0x7A),
+                bg_page: theme::READER_LIGHT_BG_PAGE,
+                doc_sheet: theme::READER_LIGHT_DOC_SHEET,
+                surface: theme::READER_LIGHT_SURFACE,
+                surface_2: theme::READER_LIGHT_SURFACE_2,
+                surface_3: theme::READER_LIGHT_SURFACE_3,
+                code_bg: theme::READER_LIGHT_CODE_BG,
+                border: theme::READER_LIGHT_BORDER,
+                hairline: theme::READER_LIGHT_HAIRLINE,
+                text: theme::READER_LIGHT_TEXT,
+                text_muted: theme::READER_LIGHT_TEXT_MUTED,
+                text_subtle: theme::READER_LIGHT_TEXT_SUBTLE,
+                dot_ok: theme::READER_LIGHT_DOT_OK,
+                dot_warn: theme::READER_LIGHT_DOT_WARN,
+                dot_neutral: theme::READER_LIGHT_DOT_NEUTRAL,
+                highlight: theme::READER_LIGHT_HIGHLIGHT,
             }
         } else {
             Self {
                 bg_page: TOKEN_BG_PAGE,
-                doc_sheet: Color32::from_rgb(0x17, 0x18, 0x1C),
+                doc_sheet: theme::BG_PRIMARY_ALT,
                 surface: TOKEN_SURFACE,
                 surface_2: TOKEN_SURFACE_2,
+                surface_3: TOKEN_SURFACE_3,
                 code_bg: TOKEN_CODE_BG,
                 border: TOKEN_BORDER,
                 hairline: TOKEN_HAIRLINE,
                 text: TOKEN_TEXT,
                 text_muted: TOKEN_TEXT_MUTED,
                 text_subtle: TOKEN_TEXT_SUBTLE,
+                dot_ok: DOT_OK,
+                dot_warn: DOT_WARN,
+                dot_neutral: DOT_NEUTRAL,
+                highlight: theme::BG_WARNING_PRIMARY,
             }
         }
     }
@@ -2437,7 +2451,7 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
             if selected {
                 p.rect_filled(row_r, CornerRadius::same(5), TOKEN_SURFACE_2);
                 let bar = Rect::from_min_size(Pos2::new(row_r.left(), row_r.top() + 5.0), Vec2::new(2.0, 18.0));
-                p.rect_filled(bar, CornerRadius::same(1), Color32::from_rgb(0x0D, 0x99, 0xFF));
+                p.rect_filled(bar, CornerRadius::same(1), theme::ICON_BRAND_PRIMARY);
             } else if resp.hovered() {
                 p.rect_filled(row_r, CornerRadius::same(5), TOKEN_SURFACE_3);
             }
@@ -2499,7 +2513,7 @@ pub fn show_left(app: &mut App, ui: &mut Ui, rect: Rect) {
             if active {
                 p.rect_filled(row_r, CornerRadius::same(5), TOKEN_SURFACE_2);
                 let bar = Rect::from_min_size(Pos2::new(row_r.left(), row_r.top() + 5.0), Vec2::new(2.0, 16.0));
-                p.rect_filled(bar, CornerRadius::same(1), Color32::from_rgb(0x0D, 0x99, 0xFF));
+                p.rect_filled(bar, CornerRadius::same(1), theme::ICON_BRAND_PRIMARY);
             } else if resp.hovered() {
                 p.rect_filled(row_r, CornerRadius::same(5), TOKEN_SURFACE_3);
             }
@@ -2820,7 +2834,7 @@ pub fn show_reader(app: &mut App, ui: &mut Ui, rect: Rect) {
         );
         if active {
             let ind = Rect::from_min_size(Pos2::new(tr.left() + 6.0, bar_rect.bottom() - 2.0), Vec2::new(tr.width() - 12.0, 2.0));
-            p.rect_filled(ind, CornerRadius::same(1), Color32::from_rgb(0x0D, 0x99, 0xFF));
+            p.rect_filled(ind, CornerRadius::same(1), theme::ICON_BRAND_PRIMARY);
         }
         widgets::record(ui, &format!("spec-tab:{ti}"), tr);
         if resp.clicked() {
@@ -2855,15 +2869,18 @@ pub fn show_reader(app: &mut App, ui: &mut Ui, rect: Rect) {
     p.rect_stroke(ask_rect, CornerRadius::same(99), Stroke::new(1.0, pal.border), StrokeKind::Inside);
     widgets::record(ui, "specs-ask-agent-bar", ask_rect);
 
-    icons::paint(&p, Icon::Sparkle, Pos2::new(ask_rect.left() + 16.0, ask_rect.center().y), 13.0, Color32::from_rgb(0x0D, 0x99, 0xFF));
-    let send_c = Pos2::new(ask_rect.right() - 16.0, ask_rect.center().y);
-    let send_r = Rect::from_center_size(send_c, Vec2::splat(22.0));
-    let send_resp = ui.interact(send_r, Id::new("specs-ask-agent-send"), Sense::click());
-    p.circle_filled(send_c, 10.0, if send_resp.hovered() { Color32::from_rgb(0x25, 0xA8, 0xFF) } else { Color32::from_rgb(0x0D, 0x99, 0xFF) });
-    // Vector up-arrow inside the send button
-    p.line_segment([Pos2::new(send_c.x, send_c.y + 4.5), Pos2::new(send_c.x, send_c.y - 4.5)], Stroke::new(1.6, Color32::WHITE));
-    p.line_segment([Pos2::new(send_c.x - 3.5, send_c.y - 1.0), Pos2::new(send_c.x, send_c.y - 4.5)], Stroke::new(1.6, Color32::WHITE));
-    p.line_segment([Pos2::new(send_c.x + 3.5, send_c.y - 1.0), Pos2::new(send_c.x, send_c.y - 4.5)], Stroke::new(1.6, Color32::WHITE));
+    icons::paint(&p, Icon::Sparkle, Pos2::new(ask_rect.left() + 16.0, ask_rect.center().y), 13.0, theme::ICON_QUATERNARY);
+    let send_r = Rect::from_center_size(Pos2::new(ask_rect.right() - theme::CONTROL_XS * 0.5, ask_rect.center().y), Vec2::splat(theme::CONTROL_XS));
+    let send_resp = crate::widgets::kit::button_icon(
+        ui,
+        send_r,
+        "specs-ask-agent-send",
+        Icon::ArrowUp,
+        crate::widgets::kit::Hierarchy::Primary,
+        crate::widgets::kit::Size::Xs,
+        true,
+        false,
+    );
     widgets::record(ui, "specs-ask-agent-send", send_r);
 
     let edit_rect = Rect::from_min_max(Pos2::new(ask_rect.left() + 30.0, ask_rect.top() + 5.0), Pos2::new(send_r.left() - 6.0, ask_rect.bottom() - 5.0));
@@ -2973,7 +2990,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
             }
             if is_active {
                 let bar = Rect::from_min_size(Pos2::new(tr.left(), tr.top() + 4.0), Vec2::new(2.0, 16.0));
-                p.rect_filled(bar, CornerRadius::same(1), Color32::from_rgb(0x0D, 0x99, 0xFF));
+                p.rect_filled(bar, CornerRadius::same(1), theme::ICON_BRAND_PRIMARY);
             }
             let clean = widgets::elide(&p, label, &theme::font_body(), (row_w - 14.0).max(40.0));
             p.text(
@@ -3103,14 +3120,13 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
         y += 18.0;
 
         // Button 1: Reference @spec in Agent (`hero-copy-ai` / `specs-right-ref-agent`)
-        let btn_ai = Rect::from_min_size(Pos2::new(body_rect.left() + pad_x, y), Vec2::new(row_w, 28.0));
-        let resp_ai = ui.interact(btn_ai, Id::new("hero-copy-ai"), Sense::click());
-        p.rect_filled(btn_ai, CornerRadius::same(6), if resp_ai.hovered() { TOKEN_SURFACE_2 } else { TOKEN_SURFACE_3 });
-        p.rect_stroke(btn_ai, CornerRadius::same(6), Stroke::new(1.0, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
-        let b_ai_lbl = widgets::elide(&p, "Reference @spec in Agent", &theme::font_caption_strong(), (row_w - 16.0).max(40.0));
-        p.text(btn_ai.center(), Align2::CENTER_CENTER, b_ai_lbl, theme::font_caption_strong(), TOKEN_TEXT);
+        let btn_ai = Rect::from_min_size(Pos2::new(body_rect.left() + pad_x, y), Vec2::new(row_w, theme::CONTROL_XS));
+        let ai_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let b_ai_lbl = widgets::elide(&p, "Reference @spec in Agent", &ai_font, (row_w - 2.0 * theme::INSET_CONTROL).max(40.0));
         widgets::record(ui, "hero-copy-ai", btn_ai);
         widgets::record(ui, "specs-right-ref-agent", btn_ai);
+        let resp_ai =
+            crate::widgets::kit::button(ui, btn_ai, "hero-copy-ai", &b_ai_lbl, crate::widgets::kit::Hierarchy::Secondary, crate::widgets::kit::Size::Xs, true);
         if resp_ai.clicked() {
             let active_us = pkg.stories.get(app.specs.selected_story).or_else(|| pkg.stories.first());
             let payload = if let Some(us) = active_us {
@@ -3140,7 +3156,7 @@ pub fn show_right(app: &mut App, ui: &mut Ui, rect: Rect) {
             };
             copied_payload = Some(payload);
         }
-        y += 34.0;
+        y += theme::CONTROL_XS + theme::SPACE_FACT;
 
         // Button 2: Open in Agent Chat (`spec-right-open-agent`)
         let btn_chat = Rect::from_min_size(Pos2::new(body_rect.left() + pad_x, y), Vec2::new(row_w, 28.0));
@@ -3233,12 +3249,12 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
 
         // Interactive Status Pill (`specs-status-pill`) on the right of the Eyebrow row
         let status_pill_w = 104.0;
-        let status_pill_r = Rect::from_min_size(Pos2::new(col_x + col_w - status_pill_w, y - 10.0), Vec2::new(status_pill_w, 20.0));
+        let status_pill_r = Rect::from_min_size(Pos2::new(col_x + col_w - status_pill_w, y - theme::BADGE_SM * 0.5), Vec2::new(status_pill_w, theme::BADGE_SM));
         let status_resp = ui.interact(status_pill_r, Id::new("specs-status-pill"), Sense::click());
-        p.rect_filled(status_pill_r, CornerRadius::same(99), if status_resp.hovered() { pal.surface_2 } else { pal.surface });
-        p.rect_stroke(status_pill_r, CornerRadius::same(99), Stroke::new(1.0, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
+        p.rect_filled(status_pill_r, theme::cr_pill(status_pill_r.height()), if status_resp.hovered() { pal.surface_2 } else { theme::BADGE_NEUTRAL_BG });
+        p.rect_stroke(status_pill_r, theme::cr_pill(status_pill_r.height()), Stroke::new(theme::BORDER_WIDTH, theme::BADGE_NEUTRAL_BORDER), StrokeKind::Inside);
         let status_lbl = widgets::elide(&p, &pkg.status.to_uppercase(), &theme::font_caption_strong(), status_pill_w - 12.0);
-        p.text(status_pill_r.center(), Align2::CENTER_CENTER, status_lbl, theme::font_caption_strong(), Color32::from_rgb(0x0D, 0x99, 0xFF));
+        p.text(status_pill_r.center(), Align2::CENTER_CENTER, status_lbl, theme::font_caption_strong(), theme::BADGE_NEUTRAL_TEXT);
         widgets::record(ui, "specs-status-pill", status_pill_r);
         if status_resp.clicked() {
             cycle_pkg_status = true;
@@ -3258,8 +3274,8 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
             }
         }
         let clean_title = pkg.title.replace("DESIGN:OS Studio", "design:os studio").replace("Design OS Studio", "design:os studio");
-        let h1_str = widgets::elide(&p, &format!("PRD: {clean_title}"), &FontId::proportional(22.0), col_w);
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, h1_str, FontId::proportional(22.0), pal.text);
+        let h1_str = widgets::elide(&p, &format!("PRD: {clean_title}"), &theme::font_text(theme::FONT_SIZE_TEXT_XL, theme::TextWeight::Regular), col_w);
+        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, h1_str, theme::font_text(theme::FONT_SIZE_TEXT_XL, theme::TextWeight::Regular), pal.text);
         y += 28.0;
         widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
         y += 22.0;
@@ -3270,14 +3286,20 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
                 p.circle_filled(Pos2::new(col_x + dc, y + dr), 1.1, pal.text_subtle);
             }
         }
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Problem & product outcome", FontId::proportional(16.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Problem & product outcome",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 24.0;
 
         // Highlighted thesis sentence (Figma Specs yellow highlight on annotated sentence)
         let hl_text = "Written product intent, live Canvas frames, and AI coding agents must share one Markdown container.";
         let hl_clean = widgets::elide(&p, hl_text, &theme::font_body_medium(), col_w - 12.0);
         let hl_w = widgets::text_width(&p, &hl_clean, &theme::font_body_medium()) + 10.0;
-        let hl_bg = if app.specs.light_mode { Color32::from_rgb(0xFE, 0xF0, 0x8A) } else { Color32::from_rgba_unmultiplied(0xF5, 0xC5, 0x42, 46) };
+        let hl_bg = pal.highlight;
         let hl_rect = Rect::from_min_size(Pos2::new(col_x - 4.0, y - 10.0), Vec2::new(hl_w.min(col_w), 20.0));
         p.rect_filled(hl_rect, CornerRadius::same(3), hl_bg);
         p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, hl_clean, theme::font_body_medium(), pal.text);
@@ -3287,20 +3309,26 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
         y += 18.0;
 
         // Section 2: Bidirectional Figma Canvas Flow Embed inside the Markdown Spec (`1px #0D99FF` selection frame!)
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Architecture & live canvas flow", FontId::proportional(16.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Architecture & live canvas flow",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 20.0;
 
         let embed_h = 92.0;
         let embed_rect = Rect::from_min_size(Pos2::new(col_x, y), Vec2::new(col_w, embed_h));
         let embed_resp = ui.interact(embed_rect, Id::new("spec-inline-canvas-embed"), Sense::click());
         p.rect_filled(embed_rect, CornerRadius::same(6), pal.surface);
-        p.rect_stroke(embed_rect, CornerRadius::same(6), Stroke::new(1.5, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
+        p.rect_stroke(embed_rect, CornerRadius::same(6), Stroke::new(1.5, theme::TEXT_BRAND), StrokeKind::Inside);
         p.text(
             Pos2::new(embed_rect.left() + 12.0, embed_rect.top() + 14.0),
             Align2::LEFT_CENTER,
             "LIVE CANVAS EMBED  ·  Click to focus on Canvas",
             theme::font_mono(),
-            Color32::from_rgb(0x0D, 0x99, 0xFF),
+            theme::TEXT_BRAND,
         );
         let stages = ["1. Spec (.md)", "2. Agent (@prd)", "3. NodeSpec", "4. Auto-Layout", "5. .fig v106"];
         let box_gap = 8.0;
@@ -3319,7 +3347,13 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
         y += embed_h + 26.0;
 
         // Section 3: Recent Baseline & Verification Table (Mirrors Figma Specs `prod_1.png` / `blog_4.png` rounded table)
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Baseline & verification metrics", FontId::proportional(16.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Baseline & verification metrics",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
 
         let metrics_rows = [
@@ -3350,7 +3384,13 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
         y = tbl_rect.bottom() + 28.0;
 
         // Section 4: PRD Requirements (`prd/PRD.md`)
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Product requirements (prd/PRD.md)", FontId::proportional(16.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Product requirements (prd/PRD.md)",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
 
         for req in &pkg.requirements {
@@ -3369,7 +3409,13 @@ fn render_po_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage)
         y += 18.0;
 
         // Section 5: Core Business Rules (`contract/FC-001.md`)
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Business rules (contract/FC-001.md)", FontId::proportional(16.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Business rules (contract/FC-001.md)",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
 
         for br in pkg.business_rules.iter().take(10) {
@@ -3462,8 +3508,8 @@ fn render_dev_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage
         y += 28.0;
 
         // H1 Story Title
-        let h1 = widgets::elide(&p, &format!("{}: {}", us.id, us.title), &FontId::proportional(20.0), col_w);
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, h1, FontId::proportional(20.0), pal.text);
+        let h1 = widgets::elide(&p, &format!("{}: {}", us.id, us.title), &theme::font_text(theme::FONT_SIZE_TEXT_XL, theme::TextWeight::Regular), col_w);
+        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, h1, theme::font_text(theme::FONT_SIZE_TEXT_XL, theme::TextWeight::Regular), pal.text);
         y += 24.0;
         widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
         y += 20.0;
@@ -3472,11 +3518,11 @@ fn render_dev_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage
         let bar_top = y - 4.0;
         y = draw_wrapped_prose(&p, Pos2::new(col_x + 14.0, y + 6.0), col_w - 14.0, &us.user_story_md, &theme::font_body_medium(), pal.text, 20.0);
         let bar_rect = Rect::from_min_max(Pos2::new(col_x, bar_top), Pos2::new(col_x + 2.0, y));
-        p.rect_filled(bar_rect, CornerRadius::same(1), Color32::from_rgb(0x0D, 0x99, 0xFF));
+        p.rect_filled(bar_rect, CornerRadius::same(1), theme::BORDER_SELECTED);
         y += 20.0;
 
         // 2. Interaction Flow
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Interaction flow", FontId::proportional(15.0), pal.text);
+        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Interaction flow", theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular), pal.text);
         y += 18.0;
         for (fi, step) in us.flow_steps.iter().enumerate() {
             let num = format!("{}.", fi + 1);
@@ -3487,7 +3533,13 @@ fn render_dev_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage
         y += 16.0;
 
         // 3. Acceptance Criteria Table
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Acceptance criteria", FontId::proportional(15.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Acceptance criteria",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
         for ac in &us.acceptance_criteria {
             widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
@@ -3502,7 +3554,13 @@ fn render_dev_view_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPackage
         // 4. ASCII Wireframe
         if !us.ascii_wireframe.is_empty() {
             y += 16.0;
-            p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Wireframe specification", FontId::proportional(15.0), pal.text);
+            p.text(
+                Pos2::new(col_x, y),
+                Align2::LEFT_CENTER,
+                "Wireframe specification",
+                theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+                pal.text,
+            );
             y += 16.0;
             let wf_h = us.ascii_wireframe.len() as f32 * 18.0 + 16.0;
             let wf_rect = Rect::from_min_size(Pos2::new(col_x, y), Vec2::new(col_w, wf_h));
@@ -3552,13 +3610,25 @@ fn render_qa_coverage_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPack
 
         p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "QUALITY ASSURANCE · TRACEABILITY & PARITY SCORECARD", theme::font_mono(), pal.text_subtle);
         y += 26.0;
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Verification & Traceability Matrix", FontId::proportional(20.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Verification & Traceability Matrix",
+            theme::font_text(theme::FONT_SIZE_TEXT_XL, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 24.0;
         widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
         y += 20.0;
 
         // 5-Pillar Parity Table
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "5-pillar Figma 126.9.13 parity breakdown", FontId::proportional(15.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "5-pillar Figma 126.9.13 parity breakdown",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
         for pl in &pkg.parity_scorecard.pillars {
             widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
@@ -3572,7 +3642,13 @@ fn render_qa_coverage_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPack
         }
 
         y += 22.0;
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Requirement -> Story -> Acceptance -> Scenario trace", FontId::proportional(15.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Requirement -> Story -> Acceptance -> Scenario trace",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
 
         for us in &pkg.stories {
@@ -3583,7 +3659,7 @@ fn render_qa_coverage_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &SpecPack
                 let chain = format!("{req_id} -> {}.{} -> {}", us.id, ac.id, ac.scenario);
                 let cw = widgets::text_width(&p, &chain, &theme::font_mono()) + 12.0;
                 p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, chain, theme::font_mono(), pal.text);
-                p.circle_filled(Pos2::new(col_x + col_w - 4.0, y), 3.0, DOT_OK);
+                p.circle_filled(Pos2::new(col_x + col_w - 4.0, y), 3.0, pal.dot_ok);
                 let clean = widgets::elide(&p, &ac.then, &theme::font_body(), (col_w - cw - 18.0).max(40.0));
                 p.text(Pos2::new(col_x + cw, y), Align2::LEFT_CENTER, clean, theme::font_body(), pal.text_muted);
                 y += 15.0;
@@ -3622,7 +3698,13 @@ fn render_wireframes_and_contract_tab(app: &mut App, ui: &mut Ui, rect: Rect, pk
 
         p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "DECLARATIVE BLUEPRINTS (.SPEC.JSON) & UI CONTRACT", theme::font_mono(), pal.text_subtle);
         y += 26.0;
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Canvas Blueprints & Behavioral UI Contract", FontId::proportional(20.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Canvas Blueprints & Behavioral UI Contract",
+            theme::font_text(theme::FONT_SIZE_TEXT_XL, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 24.0;
         widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
         y += 20.0;
@@ -3649,7 +3731,13 @@ fn render_wireframes_and_contract_tab(app: &mut App, ui: &mut Ui, rect: Rect, pk
             y = box_r.bottom() + 24.0;
         }
 
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Screen inventory (ux/screen-inventory.md)", FontId::proportional(15.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Screen inventory (ux/screen-inventory.md)",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
         for scr in &pkg.screens {
             widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
@@ -3664,7 +3752,13 @@ fn render_wireframes_and_contract_tab(app: &mut App, ui: &mut Ui, rect: Rect, pk
 
         // Section: UI Contract & Component Rules (`ux/ui-contract.md`)
         y += 22.0;
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "UI Contract & Component Rules (ux/ui-contract.md)", FontId::proportional(15.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "UI Contract & Component Rules (ux/ui-contract.md)",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
         for row in pkg.ui_contract.iter().take(24) {
             widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
@@ -3720,7 +3814,13 @@ fn render_gates_and_canvas_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &Spe
 
         p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "PIPELINE GATES (G1–G5) & ARCHITECTURAL DECISIONS", theme::font_mono(), pal.text_subtle);
         y += 26.0;
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Quality Gates & Decision Ledger", FontId::proportional(20.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Quality Gates & Decision Ledger",
+            theme::font_text(theme::FONT_SIZE_TEXT_XL, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 24.0;
         widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
         y += 20.0;
@@ -3728,7 +3828,7 @@ fn render_gates_and_canvas_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &Spe
         for g in &pkg.gates {
             widgets::hline(&p, col_x, col_x + col_w, y, pal.hairline);
             y += 18.0;
-            let dot = if g.status == "APPROVED" { DOT_OK } else { DOT_WARN };
+            let dot = if g.status == "APPROVED" { pal.dot_ok } else { pal.dot_warn };
             p.circle_filled(Pos2::new(col_x + 4.0, y), 3.5, dot);
             let g_lbl = format!("{} ({})  ·  {}  ·  {}", g.gate_id, g.stage, g.status, g.file_path);
             let clean = widgets::elide(&p, &g_lbl, &theme::font_body_medium(), (col_w - 110.0).max(48.0));
@@ -3749,7 +3849,13 @@ fn render_gates_and_canvas_tab(app: &mut App, ui: &mut Ui, rect: Rect, pkg: &Spe
         }
 
         y += 22.0;
-        p.text(Pos2::new(col_x, y), Align2::LEFT_CENTER, "Architectural decision records (ADRs)", FontId::proportional(15.0), pal.text);
+        p.text(
+            Pos2::new(col_x, y),
+            Align2::LEFT_CENTER,
+            "Architectural decision records (ADRs)",
+            theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Regular),
+            pal.text,
+        );
         y += 18.0;
 
         for dec in &pkg.decisions {
@@ -3820,6 +3926,42 @@ fn draw_wrapped_prose(p: &Painter, pos: Pos2, max_width: f32, text: &str, font: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reader_palette_has_no_literals_in_either_mode() {
+        let dark = ReaderPalette::for_mode(false);
+        assert_eq!(dark.bg_page, theme::BG);
+        assert_eq!(dark.doc_sheet, theme::BG_PRIMARY_ALT);
+        assert_eq!(dark.surface, theme::BG);
+        assert_eq!(dark.surface_2, theme::BG_TERTIARY);
+        assert_eq!(dark.code_bg, theme::BG_SECONDARY);
+        assert_eq!(dark.border, theme::BORDER);
+        assert_eq!(dark.hairline, theme::BORDER_SUBTLE);
+        assert_eq!(dark.text, theme::TEXT);
+        assert_eq!(dark.text_muted, theme::TEXT_SECONDARY);
+        assert_eq!(dark.text_subtle, theme::TEXT_TERTIARY);
+        assert_eq!(dark.surface_3, theme::BG_HOVER);
+        assert_eq!(dark.dot_ok, theme::SUCCESS);
+        assert_eq!(dark.dot_warn, theme::WARNING);
+        assert_eq!(dark.dot_neutral, theme::ICON_QUATERNARY);
+        assert_eq!(dark.highlight, theme::BG_WARNING_PRIMARY);
+        let light = ReaderPalette::for_mode(true);
+        assert_eq!(light.bg_page, theme::READER_LIGHT_BG_PAGE);
+        assert_eq!(light.doc_sheet, theme::READER_LIGHT_DOC_SHEET);
+        assert_eq!(light.surface, theme::READER_LIGHT_SURFACE);
+        assert_eq!(light.surface_2, theme::READER_LIGHT_SURFACE_2);
+        assert_eq!(light.code_bg, theme::READER_LIGHT_CODE_BG);
+        assert_eq!(light.border, theme::READER_LIGHT_BORDER);
+        assert_eq!(light.hairline, theme::READER_LIGHT_HAIRLINE);
+        assert_eq!(light.text, theme::READER_LIGHT_TEXT);
+        assert_eq!(light.text_muted, theme::READER_LIGHT_TEXT_MUTED);
+        assert_eq!(light.text_subtle, theme::READER_LIGHT_TEXT_SUBTLE);
+        assert_eq!(light.surface_3, theme::READER_LIGHT_SURFACE_3);
+        assert_eq!(light.dot_ok, theme::READER_LIGHT_DOT_OK);
+        assert_eq!(light.dot_warn, theme::READER_LIGHT_DOT_WARN);
+        assert_eq!(light.dot_neutral, theme::READER_LIGHT_DOT_NEUTRAL);
+        assert_eq!(light.highlight, theme::READER_LIGHT_HIGHLIGHT);
+    }
 
     #[test]
     fn loads_workspace_spec_packages_and_json_blueprints() {

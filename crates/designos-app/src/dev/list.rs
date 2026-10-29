@@ -40,41 +40,63 @@ pub fn rows(doc: &Document) -> Vec<Row> {
 pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
     let font = theme::font_body_strong();
     let mono_font = theme::font_mono();
-    let mut x = row.left() + theme::PANEL_PADDING_X;
+    let h = theme::TARGET_MIN;
+    let y = row.center().y - h * 0.5;
+    let start = row.left() + theme::PANEL_PADDING_X;
+    let search_left = row.right() - theme::PANEL_ACTION_RIGHT_PAD - theme::PANEL_ACTION_BUTTON;
+    let cluster_left = search_left - theme::PAGES_SEARCH_DX;
+    let budget = (cluster_left - theme::SPACE_FACT - start).max(0.0);
+    let gap = theme::SPACE_FACT;
     let total: usize = rows(&app.doc).iter().filter(|r| matches!(r, Row::Item { .. })).count();
-    for (i, (tab, label)) in [(LeftTab::ReadyForDev, "Ready for dev"), (LeftTab::Layers, "Layers")].into_iter().enumerate() {
-        let show_badge = tab == LeftTab::ReadyForDev && total > 0;
-        // Whole pixels, rounded up (R11): the label, the badge after it and the tab around them all sit on that width.
-        let label_w = widgets::text_width(ui.painter(), label, &font).ceil();
-        let badge_str = total.to_string();
-        let badge_w = if show_badge { (widgets::text_width(ui.painter(), &badge_str, &mono_font) + 10.0).max(18.0) } else { 0.0 };
-        // The tab hugs its content with the same control inset on both sides.
-        let w = if show_badge { label_w + 6.0 + badge_w } else { label_w } + 2.0 * theme::INSET_CONTROL;
-        let r = Rect::from_min_size(Pos2::new(x, row.center().y - 12.0), Vec2::new(w, 24.0));
+    let ready_label = "Ready for dev";
+    let layers_label = "Layers";
+    let label_w = widgets::text_width(ui.painter(), ready_label, &font).ceil();
+    let layers_w = widgets::text_width(ui.painter(), layers_label, &font).ceil() + 2.0 * theme::INSET_CONTROL;
+    let ready_budget = (budget - gap - layers_w).max(0.0);
+    let badge_str = total.to_string();
+    let badge_w = (widgets::text_width(ui.painter(), &badge_str, &mono_font) + 10.0).max(18.0);
+    let with_badge = label_w + 6.0 + badge_w + 2.0 * theme::INSET_CONTROL;
+    let bare = label_w + 2.0 * theme::INSET_CONTROL;
+    let (ready_text, show_badge, ready_w) = if total > 0 && with_badge <= ready_budget {
+        (ready_label.to_string(), true, with_badge)
+    } else if bare <= ready_budget {
+        (ready_label.to_string(), false, bare)
+    } else {
+        let room = (ready_budget - 2.0 * theme::INSET_CONTROL).max(0.0);
+        let cut = elide(ui.painter(), ready_label, &font, room);
+        let cut_w = widgets::text_width(ui.painter(), &cut, &font).ceil() + 2.0 * theme::INSET_CONTROL;
+        (cut, false, cut_w.min(ready_budget))
+    };
+    let layers_draw = layers_w.min((budget - ready_w - gap).max(0.0));
+    let specs = [(LeftTab::ReadyForDev, ready_text, ready_w, show_badge), (LeftTab::Layers, layers_label.to_string(), layers_draw, false)];
+    let mut x = start;
+    for (i, (tab, label, w, badge)) in specs.into_iter().enumerate() {
+        let r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, h));
         widgets::record(ui, if tab == LeftTab::ReadyForDev { "dev-left-tab-ready" } else { "dev-left-tab-layers" }, r);
         let resp = ui.interact(r, ui.id().with(("dev-left-tab", i)), Sense::click());
         let active = app.dev.left_tab == tab;
-        if active {
-            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        let state = if active {
+            crate::widgets::kit::State::Selected
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-        }
-        ui.painter().text(
-            Pos2::new(r.left() + theme::INSET_CONTROL, r.center().y),
-            Align2::LEFT_CENTER,
-            label,
-            font.clone(),
-            if active { theme::TEXT } else { theme::TEXT_SECONDARY },
-        );
-        if show_badge {
-            let badge_r = Rect::from_min_size(Pos2::new(r.left() + theme::INSET_CONTROL + label_w + 6.0, r.center().y - 8.0), Vec2::new(badge_w, 16.0));
-            ui.painter().rect_filled(badge_r, egui::CornerRadius::same(7), egui::Color32::from_rgba_unmultiplied(0x14, 0xAE, 0x5C, 38));
-            ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, badge_str, mono_font.clone(), egui::Color32::from_rgb(0x34, 0xD3, 0x99));
+            crate::widgets::kit::State::Hover
+        } else {
+            crate::widgets::kit::State::Default
+        };
+        let paint = crate::widgets::kit::tab_look(state);
+        crate::widgets::kit::paint_frame(ui.painter(), r, theme::RADIUS_CONTROL, &paint);
+        ui.painter().text(Pos2::new(r.left() + theme::INSET_CONTROL, r.center().y), Align2::LEFT_CENTER, &label, font.clone(), paint.text);
+        if badge {
+            let badge_r = Rect::from_min_size(
+                Pos2::new(r.left() + theme::INSET_CONTROL + label_w + 6.0, r.center().y - theme::LAYER_ICON_SIZE * 0.5),
+                Vec2::new(badge_w, theme::LAYER_ICON_SIZE),
+            );
+            ui.painter().rect_filled(badge_r, theme::cr_pill(badge_r.height()), theme::DEV_READY.gamma_multiply(super::STATUS_TINT));
+            ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, &badge_str, mono_font.clone(), theme::TEXT);
         }
         if resp.clicked() {
             app.dev.left_tab = tab;
         }
-        x += w + 4.0;
+        x += w + gap;
     }
 }
 
@@ -204,5 +226,70 @@ mod tests {
                 Row::Item { id: c, page: p3, name: "Form".into(), status: DevStatus::Changed },
             ]
         );
+    }
+
+    fn ready_app(n: usize) -> App {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page");
+        for i in 0..n {
+            let id = doc.alloc_id();
+            let mut node = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+            node.name = format!("Item {i}");
+            doc.insert(page, node).unwrap();
+            mark_ready(&doc, id, "t", None).unwrap().apply(&mut doc).unwrap();
+        }
+        App::new(doc)
+    }
+
+    fn paint_tabs(app: &mut App, row: Rect) -> (egui::Context, Vec<egui::epaint::ClippedShape>) {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0))), ..Default::default() };
+        let shapes = ctx.run_ui(raw, |ui| tabs(app, ui, row)).shapes;
+        (ctx, shapes)
+    }
+
+    fn texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<(String, egui::Color32)> {
+        shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Text(text) => Some((text.galley.text().to_string(), text.fallback_color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn count_badge_uses_the_dev_accent() {
+        let mut app = ready_app(3);
+        let row = Rect::from_min_size(Pos2::new(0.0, 40.0), Vec2::new(800.0, theme::LAYER_HEADER_HEIGHT));
+        let (_, shapes) = paint_tabs(&mut app, row);
+        let tint = theme::DEV_READY.gamma_multiply(0.22);
+        assert!(
+            shapes.iter().any(|clipped| matches!(&clipped.shape, egui::epaint::Shape::Rect(shape) if shape.fill == tint)),
+            "count fill is the dev accent at the status tint"
+        );
+        let painted = texts(&shapes);
+        assert!(painted.iter().any(|(label, color)| label == "3" && *color == theme::TEXT), "count label is primary text, got {painted:?}");
+        let mut empty = ready_app(0);
+        let (_, none) = paint_tabs(&mut empty, row);
+        assert!(texts(&none).iter().all(|(label, _)| label != "0"), "a zero count is not drawn");
+    }
+
+    #[test]
+    fn tabs_never_paint_under_the_layers_actions() {
+        let mut app = ready_app(12);
+        let row = Rect::from_min_size(Pos2::new(49.0, 80.0), Vec2::new(theme::LEFT_PANEL_WIDTH + 1.0, theme::LAYER_HEADER_HEIGHT));
+        let (ctx, shapes) = paint_tabs(&mut app, row);
+        let search_left = row.right() - theme::PANEL_ACTION_RIGHT_PAD - theme::PANEL_ACTION_BUTTON;
+        let cluster_left = search_left - theme::PAGES_SEARCH_DX;
+        let limit = cluster_left - theme::SPACE_FACT;
+        let recorded = |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string()))));
+        let ready = recorded("dev-left-tab-ready").expect("ready tab");
+        let layers = recorded("dev-left-tab-layers").expect("layers tab");
+        assert!(ready.right() <= limit + 0.5, "ready ends at {}, actions start at {limit}", ready.right());
+        assert!(layers.right() <= limit + 0.5, "layers ends at {}, actions start at {limit}", layers.right());
+        assert!(texts(&shapes).iter().any(|(label, color)| label == "Ready for dev" && *color == theme::TEXT_SECONDARY));
+        assert!(texts(&shapes).iter().all(|(label, _)| label != "12"), "the count drops before the label is cut");
     }
 }

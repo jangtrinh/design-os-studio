@@ -315,21 +315,11 @@ fn preview_texture(ctx: &Context, base_doc: &Document, id: NodeId, pg: &mut Play
 fn toggle_switch(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
     widgets::record(ui, key, rect);
     let r = ui.interact(rect, ui.id().with(("pg-tog", key)), Sense::click());
-    let sw = Rect::from_min_size(Pos2::new(rect.right() - theme::CONTROL_STANDARD, rect.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
-    let p = ui.painter();
-    p.rect_filled(
-        sw,
-        theme::cr_pill(sw.height()),
-        if on {
-            theme::BG_BRAND
-        } else if r.hovered() {
-            theme::BG_TERTIARY
-        } else {
-            theme::BG_SECONDARY
-        },
+    let sw = Rect::from_min_size(
+        Pos2::new(rect.right() - theme::CONTROL_SM, rect.center().y - theme::LINE_TEXT_SM * 0.5),
+        Vec2::new(theme::CONTROL_SM, theme::LINE_TEXT_SM),
     );
-    let kx = if on { sw.right() - theme::SPACE_INLINE } else { sw.left() + theme::SPACE_INLINE };
-    p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, Color32::WHITE);
+    super::paint_switch(ui.painter(), sw, on);
     r.clicked().then_some(!on)
 }
 
@@ -467,7 +457,7 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     let stage_h = 96.0;
     let stage_r = c.rect(PAD, 0.0, w, stage_h);
     widgets::record(ui, "dev-playground-preview", stage_r);
-    ui.painter().rect_filled(stage_r, theme::cr(theme::RADIUS_CONTROL), Color32::from_rgb(0x1E, 0x1E, 0x1E));
+    ui.painter().rect_filled(stage_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     ui.painter().rect_stroke(stage_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
 
     // Subtle 12px dot grid inside the stage so both light and dark components read cleanly.
@@ -475,7 +465,7 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
     while gx < stage_r.right() - theme::SPACE_INLINE {
         let mut gy = stage_r.top() + theme::SPACE_SECTION;
         while gy < stage_r.bottom() - theme::SPACE_INLINE {
-            ui.painter().circle_filled(Pos2::new(gx, gy), 0.75, Color32::from_white_alpha(18));
+            ui.painter().circle_filled(Pos2::new(gx, gy), 0.75, theme::PLAYGROUND_GRID_DOT);
             gy += 12.0;
         }
         gx += 12.0;
@@ -579,6 +569,29 @@ pub fn playground_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
 mod tests {
     use super::*;
     use crate::dev::Language;
+
+    #[test]
+    fn switch_hit_box_meets_the_target_floor() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let hit = Rect::from_min_size(Pos2::new(8.0, 8.0), Vec2::new(160.0, theme::CONTROL_DENSE));
+        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 120.0))), ..Default::default() };
+        let shapes = ctx
+            .run_ui(raw, |ui| {
+                toggle_switch(ui, hit, "show", true);
+            })
+            .shapes;
+        let recorded = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "show".to_string())))).expect("switch hit");
+        assert!(recorded.height() + 0.5 >= theme::TARGET_MIN, "hit height {}", recorded.height());
+        let track = shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(shape) if shape.fill == theme::BG_BRAND => Some(shape.rect),
+            _ => None,
+        });
+        let track = track.expect("on track");
+        assert!((track.width() - theme::CONTROL_SM).abs() < 0.5, "track width {}", track.width());
+        assert!((track.height() - theme::LINE_TEXT_SM).abs() < 0.5, "track height {}", track.height());
+        assert!(shapes.iter().any(|clipped| matches!(&clipped.shape, egui::epaint::Shape::Circle(shape) if shape.fill == theme::ICON_WHITE)));
+    }
 
     struct Fx {
         d: Document,

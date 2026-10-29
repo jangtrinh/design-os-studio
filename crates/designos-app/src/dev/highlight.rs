@@ -277,4 +277,73 @@ mod tests {
         assert!(!shown.contains('\t'));
         assert_eq!(line_len(&lines[0]), shown.chars().count());
     }
+
+    fn channel(v: u8) -> f32 {
+        let s = v as f32 / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f32 {
+        let lum = |c: Color32| 0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b());
+        let (hi, lo) = if lum(a) > lum(b) { (lum(a), lum(b)) } else { (lum(b), lum(a)) };
+        (hi + 0.05) / (lo + 0.05)
+    }
+
+    /// Hue in degrees. A violet keyword would land between 260 and 300.
+    fn hue(c: Color32) -> f32 {
+        let r = c.r() as f32 / 255.0;
+        let g = c.g() as f32 / 255.0;
+        let b = c.b() as f32 / 255.0;
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let d = max - min;
+        if d == 0.0 {
+            return 0.0;
+        }
+        let h = if max == r {
+            (g - b) / d
+        } else if max == g {
+            (b - r) / d + 2.0
+        } else {
+            (r - g) / d + 4.0
+        };
+        let deg = h * 60.0;
+        if deg < 0.0 {
+            deg + 360.0
+        } else {
+            deg
+        }
+    }
+
+    #[test]
+    fn token_colours_match_the_syntax_roles() {
+        let pairs = [
+            (Tok::Plain, theme::SYNTAX_PLAIN),
+            (Tok::Property, theme::SYNTAX_PROPERTY),
+            (Tok::Keyword, theme::SYNTAX_KEYWORD),
+            (Tok::Str, theme::SYNTAX_STRING),
+            (Tok::Number, theme::SYNTAX_NUMBER),
+            (Tok::Type, theme::SYNTAX_TYPE),
+            (Tok::Function, theme::SYNTAX_FUNCTION),
+            (Tok::Comment, theme::SYNTAX_COMMENT),
+            (Tok::Punct, theme::SYNTAX_PUNCT),
+        ];
+        for (tok, role) in pairs {
+            assert_eq!(color(tok), role, "{tok:?}");
+        }
+        let keyword = hue(color(Tok::Keyword));
+        assert!(!(260.0..300.0).contains(&keyword), "keyword hue {keyword} is violet");
+    }
+
+    #[test]
+    fn token_colours_reach_aa_on_the_code_fill() {
+        for tok in [Tok::Plain, Tok::Property, Tok::Keyword, Tok::Str, Tok::Number, Tok::Type, Tok::Function, Tok::Comment, Tok::Punct] {
+            let ratio = contrast(color(tok), theme::BG_SECONDARY);
+            assert!(ratio >= 4.5, "{tok:?} contrast {ratio} on the code fill");
+        }
+    }
 }
