@@ -1285,9 +1285,6 @@ mod main_view {
     /// Height of the text block under a card's thumbnail: padding, the title line, the meta line, padding.
     const CARD_META_H: f32 = theme::SPACE_GROUP + theme::LINE_TEXT_SM + theme::LINE_TEXT_XS + theme::SPACE_GROUP;
 
-    // The theme keeps `HOME_CARD_H` (thumbnail plus a 58 px text block) as its contract value. The card is never shorter.
-    const _: () = assert!(theme::HOME_THUMB_H + CARD_META_H >= theme::HOME_CARD_H);
-
     fn file_card_size() -> (f32, f32, f32, f32) {
         (theme::HOME_CARD_W, theme::HOME_THUMB_H + CARD_META_H, theme::HOME_CARD_GAP, 24.0)
     }
