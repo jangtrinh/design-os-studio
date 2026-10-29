@@ -1234,6 +1234,7 @@ mod vector;
 
 // Needs the stub agent CLIs of `Sim::use_stub_agent_clis`, which exist on unix only: on Windows the tab runs a real `claude`
 // that is not there, and dies at a moment that depends on machine load, so the terminal bytes the tests read are not stable.
+mod agent_chrome;
 #[cfg(unix)]
 mod agent_panel_keyboard;
 mod agent_picker_return;
@@ -1241,6 +1242,7 @@ mod agents_panel_only;
 mod agents_tab_strip;
 mod approval_banner_tab;
 mod assets_thumbs;
+mod chrome_census;
 #[cfg(unix)]
 mod layout_unchanged;
 mod libraries;

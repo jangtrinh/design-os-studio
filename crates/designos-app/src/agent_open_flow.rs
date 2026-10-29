@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use egui::{Align2, Color32, Id, Key, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
+use egui::{Align2, Id, Key, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
 use crate::agent_sessions::{preset_from_cli_name, save_registry, unix_timestamp_secs, SessionEntryStatus};
 use crate::icons::{self, Icon};
@@ -344,7 +344,7 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
             let step = ((ui.input(|i| i.time) * 12.0).floor() as i32).rem_euclid(12);
             let base_angle = (step as f32) * (std::f32::consts::TAU / 12.0);
             let arc_span = std::f32::consts::TAU * 0.68;
-            let spin_col = Color32::from_rgb(0xEA, 0xB3, 0x08);
+            let spin_col = theme::WARNING;
             let segs = 7usize;
             let mut prev = Pos2::new(status_center.x + STATUS_SPINNER_RADIUS * base_angle.cos(), status_center.y + STATUS_SPINNER_RADIUS * base_angle.sin());
             for i in 1..=segs {
@@ -356,12 +356,12 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(83));
         }
         SessionRowStatus::Live(AgentTabStatus::WaitingForInput(_)) => {
-            let wait_col = Color32::from_rgb(0xF9, 0x73, 0x16);
+            let wait_col = theme::ICON_BRAND_PRIMARY;
             p.circle_stroke(status_center, STATUS_WAIT_RADIUS, Stroke::new(theme::BORDER_WIDTH, wait_col));
             p.circle_filled(status_center, STATUS_WAIT_INNER_RADIUS, wait_col);
         }
         SessionRowStatus::Live(AgentTabStatus::Done | AgentTabStatus::Idle) => {
-            p.circle_filled(status_center, STATUS_DONE_RADIUS, Color32::from_rgb(0x10, 0xB9, 0x81));
+            p.circle_filled(status_center, STATUS_DONE_RADIUS, theme::SUCCESS);
         }
         SessionRowStatus::Live(AgentTabStatus::Error(_)) => {
             p.circle_filled(status_center, STATUS_DONE_RADIUS, theme::DANGER);
@@ -379,10 +379,10 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
 
     match preset.unwrap_or(AgentCliPreset::Shell) {
         AgentCliPreset::Claude => {
-            p.circle_filled(provider_center, PROVIDER_BADGE_RADIUS, Color32::from_rgb(0xD9, 0x77, 0x57));
+            p.circle_filled(provider_center, PROVIDER_BADGE_RADIUS, theme::PROVIDER_CLAUDE);
         }
         AgentCliPreset::Codex | AgentCliPreset::OpenCode => {
-            p.circle_stroke(provider_center, PROVIDER_BADGE_RADIUS, Stroke::new(theme::BORDER_WIDTH, Color32::from_rgb(0xFA, 0xFA, 0xFA)));
+            p.circle_stroke(provider_center, PROVIDER_BADGE_RADIUS, Stroke::new(theme::BORDER_WIDTH, theme::PROVIDER_CODEX));
         }
         AgentCliPreset::Grok => {
             p.line_segment(
@@ -390,14 +390,14 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
                     Pos2::new(provider_center.x - GROK_SLASH_DELTA, provider_center.y + GROK_SLASH_DELTA),
                     Pos2::new(provider_center.x + GROK_SLASH_DELTA, provider_center.y - GROK_SLASH_DELTA),
                 ],
-                Stroke::new(theme::BORDER_WIDTH, Color32::from_rgb(0xE4, 0xE4, 0xE7)),
+                Stroke::new(theme::BORDER_WIDTH, theme::PROVIDER_GROK),
             );
         }
         AgentCliPreset::Antigravity | AgentCliPreset::Gemini => {
-            p.circle_filled(provider_center, PROVIDER_BADGE_RADIUS, Color32::from_rgb(0x60, 0xA5, 0xFA));
+            p.circle_filled(provider_center, PROVIDER_BADGE_RADIUS, theme::PROVIDER_GEMINI);
         }
         AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => {
-            p.circle_filled(provider_center, PROVIDER_BADGE_RADIUS, theme::TEXT_TERTIARY);
+            p.circle_filled(provider_center, PROVIDER_BADGE_RADIUS, theme::ICON_TERTIARY);
         }
     }
 }
@@ -454,6 +454,23 @@ pub fn render_sessions_button(state: &mut TerminalState, ui: &mut Ui, btn_rect: 
     }
 }
 
+/// One footer row of the sessions popover. Returns whether it was clicked this frame.
+fn sessions_footer_item(ui: &mut Ui, p: &Painter, rect: Rect, key: &str, label: &str, caption: Option<&str>) -> bool {
+    let resp = ui.interact(rect, Id::new(key), Sense::click());
+    let paint = widgets::kit::menu_row_look(false, resp.hovered(), false);
+    if paint.fill.a() != 0 {
+        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), paint.fill);
+    }
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Regular);
+    p.text(Pos2::new(rect.left() + theme::INSET_FRAME, rect.center().y), Align2::LEFT_CENTER, label, font.clone(), paint.text);
+    if let Some(caption) = caption {
+        p.text(Pos2::new(rect.right() - theme::INSET_FRAME, rect.center().y), Align2::RIGHT_CENTER, caption, font, theme::TEXT_TERTIARY);
+    }
+    widgets::record(ui, key, rect);
+    widgets::labelled(ui, Id::new(key), egui::accesskit::Role::Button, label);
+    resp.clicked()
+}
+
 /// Renders the `"Sessions for this file"` popover (`#651` §3 rules 5-6 & §7).
 pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
     let rows = state.sessions_popover_rows();
@@ -462,18 +479,21 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
     let row_gap = theme::SPACE_FACT;
     let header_h = theme::FIELD_HEIGHT;
     let body_count = rows.len().max(1) as f32;
+    let running = crate::agent_stop::running_tab_count(state);
+    let show_stop_all = running >= 2;
+    let footer_rows = if show_stop_all { 2.0 } else { 1.0 };
+    let footer_h = theme::SPACE_ROW + footer_rows * theme::MENU_ITEM_HEIGHT;
     let pop_w = (panel_rect.width() - pad).clamp(POPOVER_MIN_W, POPOVER_MAX_W);
     let p = ui.painter().clone();
     let inner_w = (pop_w - pad * 2.0).max(POPOVER_MIN_INNER_W);
     // A failed-resume notice is wrapped, never elided: when one line is too short it takes a second and the popover grows.
     let notice = state.resume_notice.as_deref().map(|text| p.layout(text.to_string(), theme::font_caption(), theme::DANGER, inner_w - theme::INSET_CONTROL));
     let notice_h = notice.as_ref().map_or(0.0, |galley| header_h.max(galley.size().y + theme::SPACE_FACT * 2.0));
-    let pop_h = pad * 2.0 + header_h + theme::SPACE_FACT + body_count * (row_h + row_gap) + notice_h;
+    let pop_h = pad * 2.0 + header_h + theme::SPACE_FACT + body_count * (row_h + row_gap) + notice_h + footer_h;
     let pop_x = (panel_rect.right() - pop_w - theme::SPACE_ROW).max(panel_rect.left() + theme::SPACE_ROW);
     let pop_r = Rect::from_min_size(Pos2::new(pop_x, top_y), Vec2::new(pop_w, pop_h));
 
-    p.rect_filled(pop_r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-    p.rect_stroke(pop_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_MENU), StrokeKind::Inside);
+    widgets::kit::popover_surface(&p, pop_r);
     widgets::record(ui, "agents-sessions-popover", pop_r);
 
     let inner_left = pop_r.left() + pad;
@@ -509,7 +529,7 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
     }
 
     if let Some(galley) = notice {
-        let notice_r = Rect::from_min_size(Pos2::new(inner_left, pop_r.bottom() - pad - notice_h), Vec2::new(inner_w, notice_h));
+        let notice_r = Rect::from_min_size(Pos2::new(inner_left, pop_r.bottom() - pad - footer_h - notice_h), Vec2::new(inner_w, notice_h));
         let pos = Pos2::new(notice_r.left() + theme::INSET_CONTROL, notice_r.center().y - galley.size().y * 0.5);
         p.galley(pos, galley, theme::DANGER);
         widgets::record(ui, "agents-sessions-notice", notice_r);
@@ -629,6 +649,19 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         y += row_h + row_gap;
     }
 
+    let footer_top = pop_r.bottom() - pad - footer_rows * theme::MENU_ITEM_HEIGHT;
+    widgets::hline(&p, inner_left, inner_right, footer_top - theme::SPACE_ROW * 0.5, widgets::kit::separator_look().fill);
+    let mut footer_y = footer_top;
+    let mut stop_all_clicked = false;
+    if show_stop_all {
+        let stop_r = Rect::from_min_size(Pos2::new(inner_left, footer_y), Vec2::new(inner_w, theme::MENU_ITEM_HEIGHT));
+        let caption = format!("{running} running");
+        stop_all_clicked = sessions_footer_item(ui, &p, stop_r, "agents-sessions-stop-all", "Stop all", Some(&caption));
+        footer_y += theme::MENU_ITEM_HEIGHT;
+    }
+    let classic_r = Rect::from_min_size(Pos2::new(inner_left, footer_y), Vec2::new(inner_w, theme::MENU_ITEM_HEIGHT));
+    let classic_clicked = sessions_footer_item(ui, &p, classic_r, "agents-sessions-classic-chat", "Classic chat", None);
+
     if commit_rename {
         state.commit_rename_session();
     } else if cancel_rename {
@@ -639,12 +672,21 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         state.start_rename_session(id);
     } else if let Some(id) = select_tab_id {
         state.select_session_row(id, file_path);
+    } else if stop_all_clicked {
+        let _ = crate::agent_stop::stop_all(state, designos_doc::now_ms());
+        state.sessions_popover_open = false;
+        state.cancel_rename_session();
+    } else if classic_clicked {
+        state.side_panel_pty_open = false;
+        state.sessions_popover_open = false;
+        state.cancel_rename_session();
     } else if ui.input(|i| i.pointer.any_pressed()) {
         let opened_this_pass = ui.ctx().data(|d| d.get_temp::<u64>(Id::new("agents-sessions-opened-pass"))) == Some(ui.ctx().cumulative_pass_nr());
         if !opened_this_pass {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                let more_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new("agents-more-btn-rect")));
                 let sess_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new("agents-sessions-btn-rect")));
-                let in_btn = sess_btn.map(|r| r.contains(pos)).unwrap_or(false);
+                let in_btn = more_btn.map(|r| r.contains(pos)).unwrap_or(false) || sess_btn.map(|r| r.contains(pos)).unwrap_or(false);
                 if !pop_r.contains(pos) && !in_btn {
                     state.sessions_popover_open = false;
                     state.cancel_rename_session();
@@ -1544,6 +1586,34 @@ mod tests {
         });
         assert!(st.sessions_popover_open, "Opening the Sessions popover must not immediately self-close on the same pass");
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sessions_popover_footer_lists_classic_chat_and_hides_stop_all_with_no_running_tabs() {
+        let dir = temp_test_dir("popover-footer");
+        let mut st = TerminalState::new_for_session("doc-popover-footer", "Landing", Some(&dir));
+        st.sessions_popover_open = true;
+        st.side_panel_pty_open = true;
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 720.0));
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
+        });
+        let texts = painted_texts(&out);
+        assert!(texts.iter().any(|t| t == "Classic chat"), "footer lists Classic chat: {texts:?}");
+        assert!(!texts.iter().any(|t| t == "Stop all"), "Stop all stays hidden until two tabs can be stopped: {texts:?}");
+
+        let classic = ctx.data_mut(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-sessions-classic-chat".to_string())))).expect("classic chat row");
+        click_at(&ctx, screen, classic.center(), |ui| render_sessions_popover(&mut st, ui, panel_rect, 40.0, None));
+        assert!(!st.side_panel_pty_open, "Classic chat leaves the live terminal");
+        assert!(!st.sessions_popover_open, "the popover closes after the choice");
+
+        st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

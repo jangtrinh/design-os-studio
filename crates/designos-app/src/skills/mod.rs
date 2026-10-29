@@ -1289,6 +1289,25 @@ mod tests {
     }
 
     #[test]
+    fn skills_popover_title_has_no_count_pills_and_no_ready_footer() {
+        let root = temp_lib_root("popover_chrome");
+        let mut state = SkillsAttachmentState::with_library_root(root.clone());
+        state.open_picker();
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let panel_r = Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 500.0));
+            state.show_picker_popover(ui, panel_r, 480.0);
+        });
+        let texts: Vec<String> = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        assert!(texts.iter().any(|t| t == "Attach skills"), "{texts:?}");
+        assert!(!texts.iter().any(|t| t == "READY"), "the footer drops the ready badge: {texts:?}");
+        assert!(!texts.iter().any(|t| t.contains("BUILT-IN")), "the source tag moves off the row: {texts:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn run_json_not_overwritten_by_page_sync_or_picker_open() {
         let root = temp_lib_root("run_json_sync");
         let mut doc = designos_doc::Document::new("test-doc");

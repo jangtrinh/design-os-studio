@@ -59,6 +59,8 @@ pub use feedback::{empty_state, empty_state_look, loading_look, loading_ring, pr
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use field::{field_look, paint_field, property_field_look, search_look, select_look};
 #[cfg_attr(not(test), allow(unused_imports))]
+pub use focus::focus_ring;
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use rows::{
     divider_look, list_row, list_row_ring, menu_item_look, menu_row_look, panel_header, panel_header_look, row_look, section_header, section_header_look,
     separator_look, shortcut_look, tree_row_bg, tree_row_look,

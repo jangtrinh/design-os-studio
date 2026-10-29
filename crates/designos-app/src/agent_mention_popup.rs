@@ -3,7 +3,7 @@
 //! Uses only [`crate::theme`] layout, spacing, typography, and color tokens.
 
 use crate::agent_mention::{detect_at_query, Mention, MentionCandidate, MentionCategory, MentionSearchJob, DEFAULT_FRAME_BUDGET};
-use crate::icons::{self, Icon};
+use crate::icons;
 use crate::theme;
 use crate::widgets;
 use designos_doc::{Document, NodeId};
@@ -329,9 +329,7 @@ impl MentionPopupState {
         let popup_rect = Rect::from_min_size(Pos2::new(popup_x, popup_y), Vec2::new(popup_w, popup_h));
 
         let p = ui.painter().clone();
-        widgets::elevation_shadow(&p, popup_rect, theme::RADIUS_FRAME);
-        p.rect_filled(popup_rect, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-        p.rect_stroke(popup_rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_MENU), StrokeKind::Inside);
+        widgets::kit::popover_surface(&p, popup_rect);
         widgets::record(ui, "agent-mention-popup", popup_rect);
 
         let mut cur_y = popup_rect.top() + inset;
@@ -437,38 +435,6 @@ impl MentionPopupState {
 
         MentionPopupOutcome::None
     }
-}
-
-/// Paints the compact `Mention` button (`@ Mention`) in the terminal header strip (`#655` §4).
-/// Returns `(button_rect, clicked)`.
-pub fn paint_terminal_mention_button(ui: &mut Ui, id_source: &str, right_edge: f32, strip_rect: Rect, active: bool) -> (Rect, bool) {
-    let p = ui.painter().clone();
-    let font = theme::font_caption_medium();
-    let label = "@ Mention";
-    let text_w = widgets::text_width(&p, label, &font);
-    let btn_w = (text_w + theme::INSET_CONTROL * 2.0).max(theme::TARGET_MIN);
-    let btn_h = theme::CONTROL_DENSE - 4.0;
-    let btn_r = Rect::from_min_size(Pos2::new(right_edge - btn_w, strip_rect.center().y - btn_h * 0.5), Vec2::new(btn_w, btn_h));
-    let hit_r = Rect::from_center_size(btn_r.center(), Vec2::new(btn_r.width().max(theme::TARGET_MIN), strip_rect.height().max(theme::TARGET_MIN)));
-    let resp = ui.interact(hit_r, Id::new(id_source), Sense::click());
-    let bg = if active {
-        theme::BG_SELECTED
-    } else if resp.hovered() {
-        theme::BG_HOVER
-    } else {
-        theme::BG_SECONDARY
-    };
-    p.rect_filled(btn_r, theme::cr(theme::RADIUS_CONTROL), bg);
-    p.rect_stroke(
-        btn_r,
-        theme::cr(theme::RADIUS_CONTROL),
-        Stroke::new(theme::BORDER_WIDTH, if active { theme::BORDER_SELECTED } else { theme::BORDER }),
-        StrokeKind::Inside,
-    );
-    let _ = Icon::Search;
-    p.text(btn_r.center(), Align2::CENTER_CENTER, label, font, theme::TEXT);
-    widgets::record(ui, id_source, btn_r);
-    (btn_r, resp.clicked())
 }
 
 #[cfg(test)]
