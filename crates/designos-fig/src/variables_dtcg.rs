@@ -4564,6 +4564,18 @@ mod tests {
         assert!(imported.variable_collections.contains_key("VariableCollectionId:20:2"));
         assert!(imported.variables.values().any(|v| v.collection == "VariableCollectionId:10:1"));
         assert!(imported.variables.values().any(|v| v.collection == "VariableCollectionId:20:2"));
+        let local_gray = imported
+            .variables
+            .values()
+            .find(|v| v.collection == "VariableCollectionId:10:1" && v.name == "Colors/Gray (dark mode)/950")
+            .expect("local Brand token must survive round-trip");
+        let library_gray = imported
+            .variables
+            .values()
+            .find(|v| v.collection == "VariableCollectionId:20:2" && v.name == "Colors/Gray (dark mode)/950")
+            .expect("library brand token must survive round-trip");
+        assert!(matches!(local_gray.values.get("10:m1"), Some(VariableValue::Color(c)) if (c.r - 18.0 / 255.0).abs() < f32::EPSILON));
+        assert!(matches!(library_gray.values.get("20:m1"), Some(VariableValue::Color(c)) if (c.r - 10.0 / 255.0).abs() < f32::EPSILON));
     }
 
     #[test]
