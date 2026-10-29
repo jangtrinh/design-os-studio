@@ -41,7 +41,9 @@
 #
 # Environment:
 #   DESIGNOS_MCP_BIN     path to designos-mcp (default: <repo>/target/debug/designos-mcp)
-#   DESIGNOS_CANARY_DIR  work directory (optional)
+#   DESIGNOS_CANARY_DIR  work directory (optional; never deleted by this script)
+#   DESIGNOS_CANARY_KEEP=1  keep the temp dirs this script created (default: removed
+#                        on exit, on a failed run, and on INT/TERM/HUP; #1366)
 #   DESIGNOS_SESSION_DIR set by this script to $work/session so taint lands there
 
 set -eu
@@ -722,7 +724,32 @@ print_summary() {
 resolve_mcp_bin
 syntax_check
 
-work=${DESIGNOS_CANARY_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/designos-1289-canary.XXXXXX")}
+# Temp dirs this script creates are removed on every exit path (#1366). A dir the
+# caller supplied through DESIGNOS_CANARY_DIR is theirs and is left alone. A SIGKILL
+# of the script itself cannot be trapped and may leave its dirs behind.
+cleanup_dirs=""
+cleanup() {
+    status=$?
+    trap - EXIT INT TERM HUP
+    if [ "${DESIGNOS_CANARY_KEEP:-0}" != "1" ]; then
+        for d in $cleanup_dirs; do
+            [ -d "$d" ] || continue
+            chmod -R u+rwX "$d" 2>/dev/null || true
+            rm -rf "$d"
+        done
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+if [ -n "${DESIGNOS_CANARY_DIR:-}" ]; then
+    work=$DESIGNOS_CANARY_DIR
+else
+    work=$(mktemp -d "${TMPDIR:-/tmp}/designos-1289-canary.XXXXXX")
+    cleanup_dirs="$cleanup_dirs $work"
+fi
 mkdir -p "$work"
 session=$work/session
 mkdir -p "$session"
@@ -780,7 +807,9 @@ tally() {
 
 if [ "$self_test" -eq 1 ]; then
     bindir=$(mktemp -d "${TMPDIR:-/tmp}/designos-1289-stubs.XXXXXX")
+    cleanup_dirs="$cleanup_dirs $bindir"
     fake_real=$(mktemp -d "${TMPDIR:-/tmp}/designos-1289-fakehome.XXXXXX")
+    cleanup_dirs="$cleanup_dirs $fake_real"
     mkdir -p "$fake_real/.ssh"
     chmod 700 "$fake_real" "$fake_real/.ssh"
     printf '%s\n' "fake-ssh-secret" >"$fake_real/.ssh/id_test"
@@ -903,7 +932,11 @@ for cli in $clis; do
     tally
 done
 print_summary
-echo "untrusted-canary: done (workdir $work)"
+if [ "${DESIGNOS_CANARY_KEEP:-0}" = "1" ] || [ -n "${DESIGNOS_CANARY_DIR:-}" ]; then
+    echo "untrusted-canary: done (workdir $work kept)"
+else
+    echo "untrusted-canary: done (workdir $work removed on exit; DESIGNOS_CANARY_KEEP=1 keeps it)"
+fi
 
 if [ "$fail" -ne 0 ]; then
     exit 1
