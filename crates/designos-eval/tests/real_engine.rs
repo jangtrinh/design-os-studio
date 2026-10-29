@@ -174,13 +174,21 @@ fn scripted_read_loop_returns_warning() {
     let args = json!({});
     let first = client.call_tool("designos_get_document", &args).unwrap();
     assert!(!first.is_error, "{:?}", first.value);
-    assert_ne!(first.value.get("warning"), Some(&json!("LOOP_SUSPECTED")), "{:?}", first.value);
+    assert!(first.value.get("warning").is_none(), "{:?}", first.value);
     let second = client.call_tool("designos_get_document", &args).unwrap();
     assert!(!second.is_error, "{:?}", second.value);
-    assert_ne!(second.value.get("warning"), Some(&json!("LOOP_SUSPECTED")), "{:?}", second.value);
+    assert!(second.value.get("warning").is_none(), "{:?}", second.value);
     let third = client.call_tool("designos_get_document", &args).unwrap();
     assert!(!third.is_error, "{:?}", third.value);
-    assert_eq!(third.value.get("warning"), Some(&json!("LOOP_SUSPECTED")), "{:?}", third.value);
+    let warning = third.value.get("warning").unwrap_or_else(|| panic!("missing warning: {:?}", third.value));
+    assert_eq!(warning["code"], json!("LOOP_SUSPECTED"), "{:?}", third.value);
+    assert_eq!(warning["safe_to_retry"], json!(false), "{:?}", third.value);
+    assert_eq!(
+        warning["next_step"],
+        json!("The same call has returned the same result 3 times. Change the arguments, read the document state, or ask the user."),
+        "{:?}",
+        third.value
+    );
     let mut stripped = third.value.clone();
     stripped.as_object_mut().unwrap().remove("warning");
     assert_eq!(stripped, first.value);

@@ -712,7 +712,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
     out.push_str(
         "- **Structured errors:** `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.\n\
          - **Retry:** Retry a `safe_to_retry` error once after step 7. For `TOOL_DISABLED`, follow `next_step`.\n\
-         - **Loop hint:** Repeat reads attach `warning: \"LOOP_SUSPECTED\"`; repeat writes error `LOOP_SUSPECTED` (`safe_to_retry: false`). Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
+         - **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,message,next_step,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
     );
 }
 

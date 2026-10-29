@@ -100,11 +100,11 @@ impl LoopGuard {
     }
 
     pub fn observe(&mut self, rec: CallFingerprint) -> LoopVerdict {
-        let read_only = rec.read_only;
+        let successful_read = rec.read_only && rec.error_code.is_none();
         self.push(rec);
         if !self.is_loop() {
             LoopVerdict::None
-        } else if read_only {
+        } else if successful_read {
             LoopVerdict::Advisory
         } else {
             LoopVerdict::Hard
@@ -163,6 +163,16 @@ pub fn loop_suspected_error(k: usize) -> ToolError {
     let times = k.max(2);
     ToolError::new(ErrorCode::LoopSuspected, "", format!("The same call has returned the same result {times} times"))
         .with_next_step(format!("The same call has returned the same result {times} times. Change the arguments, read the document state, or ask the user."))
+}
+
+pub fn loop_suspected_warning(k: usize) -> Value {
+    let err = loop_suspected_error(k);
+    json!({
+        "code": err.code.as_str(),
+        "message": err.message,
+        "next_step": err.next_step,
+        "safe_to_retry": err.safe_to_retry,
+    })
 }
 
 fn parse_k(raw: Option<&str>) -> usize {
@@ -232,7 +242,6 @@ mod tests {
 
     #[test]
     fn a_three_streak_after_a_different_call_fires_on_the_third_repeat() {
-        // Ok reads only: a failing write would still trip write_error_k if repeat_k used take(k+1).
         let mut g = LoopGuard::with_thresholds(3, 20);
         let b = fp("designos_get_node", &json!({"node_id": 1}), &json!({"id": 1}), None, true);
         let a = fp("designos_get_node", &json!({"node_id": 2}), &json!({"id": 2}), None, true);
@@ -250,6 +259,15 @@ mod tests {
         assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
         assert_eq!(g.observe(rec.clone()), LoopVerdict::Advisory);
         assert_eq!(g.observe(rec), LoopVerdict::Advisory, "later identical reads stay advisory");
+    }
+
+    #[test]
+    fn repeat_identical_failing_reads_are_hard() {
+        let mut g = LoopGuard::with_thresholds(3, 20);
+        let rec = fp("designos_get_node", &json!({"node_id": 1}), &json!({}), Some(ErrorCode::NodeNotFound), true);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec.clone()), LoopVerdict::None);
+        assert_eq!(g.observe(rec), LoopVerdict::Hard, "a failing read-only loop is a named error, not an advisory");
     }
 
     #[test]

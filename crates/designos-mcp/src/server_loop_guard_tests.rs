@@ -32,8 +32,18 @@ fn assert_loop(err: &ToolError) {
     assert!(err.next_step.contains("read the document"), "{err:?}");
 }
 
-fn assert_loop_warning(value: &Value) {
-    assert_eq!(value.get("warning"), Some(&json!("LOOP_SUSPECTED")), "{value}");
+fn assert_loop_warning(value: &Value, k: usize) {
+    let err = crate::loop_guard::loop_suspected_error(k);
+    assert_eq!(
+        value.get("warning"),
+        Some(&json!({
+            "code": "LOOP_SUSPECTED",
+            "message": err.message,
+            "next_step": err.next_step,
+            "safe_to_retry": false,
+        })),
+        "{value}"
+    );
 }
 
 fn strip_warning(value: &Value) -> Value {
@@ -142,7 +152,7 @@ fn ping_pong_of_two_reads_with_unchanged_results_is_advisory() {
     assert!(first_list.get("warning").is_none(), "{first_list}");
     s.call("designos_get_node", a).unwrap();
     let warned = s.call("designos_list_nodes", b).unwrap();
-    assert_loop_warning(&warned);
+    assert_loop_warning(&warned, s.loop_guard.k());
     assert_eq!(strip_warning(&warned), first_list);
     let _ = fs::remove_dir_all(ws);
 }
@@ -169,10 +179,10 @@ fn three_identical_reads_return_ok_with_loop_warning() {
     let second = s.call("designos_get_document", args.clone()).unwrap();
     assert!(second.get("warning").is_none(), "{second}");
     let third = s.call("designos_get_document", args.clone()).unwrap();
-    assert_loop_warning(&third);
+    assert_loop_warning(&third, s.loop_guard.k());
     assert_eq!(strip_warning(&third), first);
     let fourth = s.call("designos_get_document", args).unwrap();
-    assert_loop_warning(&fourth);
+    assert_loop_warning(&fourth, s.loop_guard.k());
     assert_eq!(strip_warning(&fourth), first);
     let _ = fs::remove_dir_all(ws);
 }
@@ -196,7 +206,7 @@ fn a_revision_change_clears_the_advisory() {
     let args = json!({});
     s.call("designos_get_document", args.clone()).unwrap();
     s.call("designos_get_document", args.clone()).unwrap();
-    assert_loop_warning(&s.call("designos_get_document", args.clone()).unwrap());
+    assert_loop_warning(&s.call("designos_get_document", args.clone()).unwrap(), s.loop_guard.k());
     s.engine.revision = s.engine.revision.wrapping_add(1);
     let after = s.call("designos_get_document", args).unwrap();
     assert!(after.get("warning").is_none(), "{after}");
@@ -209,9 +219,63 @@ fn a_different_call_clears_the_advisory() {
     let args = json!({});
     s.call("designos_get_document", args.clone()).unwrap();
     s.call("designos_get_document", args.clone()).unwrap();
-    assert_loop_warning(&s.call("designos_get_document", args.clone()).unwrap());
+    assert_loop_warning(&s.call("designos_get_document", args.clone()).unwrap(), s.loop_guard.k());
     s.call("designos_list_nodes", json!({"limit": 1})).unwrap();
     let after = s.call("designos_get_document", args).unwrap();
     assert!(after.get("warning").is_none(), "{after}");
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn three_identical_failing_reads_return_loop_suspected() {
+    let (ws, mut s) = session("fail-read");
+    let args = json!({"node_id": 9_876_543_210u64});
+    let e1 = s.call("designos_get_node", args.clone()).unwrap_err();
+    assert_eq!(e1.code, ErrorCode::NodeNotFound);
+    let e2 = s.call("designos_get_node", args.clone()).unwrap_err();
+    assert_eq!(e2.code, ErrorCode::NodeNotFound);
+    let e3 = s.call("designos_get_node", args).unwrap_err();
+    assert_loop(&e3);
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn successful_read_loop_warning_is_a_named_object() {
+    let (ws, mut s) = session("warn-obj");
+    let args = json!({});
+    s.call("designos_get_document", args.clone()).unwrap();
+    s.call("designos_get_document", args.clone()).unwrap();
+    let third = s.call("designos_get_document", args).unwrap();
+    let err = crate::loop_guard::loop_suspected_error(s.loop_guard.k());
+    assert_eq!(
+        third.get("warning"),
+        Some(&json!({
+            "code": "LOOP_SUSPECTED",
+            "message": err.message,
+            "next_step": err.next_step,
+            "safe_to_retry": false,
+        })),
+        "{third}"
+    );
+    let _ = fs::remove_dir_all(ws);
+}
+
+#[test]
+fn identical_noop_writes_fire_on_the_kth_identical_result_after_the_first_mutating_call() {
+    let (ws, mut s) = session("noop-write");
+    let page = s.engine.doc.pages[0].0;
+    let created = s.call("designos_create_node", json!({"parent_id": page, "kind": "frame", "name": "Original"})).unwrap();
+    let node_id = created["node"]["id"].as_u64().unwrap();
+    let args = json!({"node_id": node_id, "name": "Same"});
+    let first = s.call("designos_update_node", args.clone()).unwrap();
+    assert_eq!(first["changed"], json!(true), "{first}");
+    assert!(first.get("warning").is_none(), "{first}");
+    let second = s.call("designos_update_node", args.clone()).unwrap();
+    assert_eq!(second["changed"], json!(false), "{second}");
+    assert!(second.get("warning").is_none(), "{second}");
+    let third = s.call("designos_update_node", args.clone()).unwrap();
+    assert_eq!(third["changed"], json!(false), "{third}");
+    assert!(third.get("warning").is_none(), "{third}");
+    assert_loop(&s.call("designos_update_node", args).unwrap_err());
     let _ = fs::remove_dir_all(ws);
 }

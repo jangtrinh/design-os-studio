@@ -863,11 +863,11 @@ impl Session {
             loop_guard::LoopVerdict::Advisory => match res {
                 Ok(mut value) => {
                     if let Some(obj) = value.as_object_mut() {
-                        obj.insert("warning".into(), json!("LOOP_SUSPECTED"));
+                        obj.insert("warning".into(), loop_guard::loop_suspected_warning(self.loop_guard.k()));
                     }
                     Ok(value)
                 }
-                Err(err) => Err(err),
+                Err(_) => Err(loop_guard::loop_suspected_error(self.loop_guard.k())),
             },
         }
     }
@@ -2112,6 +2112,10 @@ mod tests {
             assert!(tool.output_schema.is_some(), "tool {} must declare outputSchema", tool.name);
             let out_schema = serde_json::to_value(tool.output_schema.as_ref().unwrap()).unwrap();
             assert_eq!(out_schema["type"], "object", "tool {} outputSchema must have top-level type: object", tool.name);
+            assert!(out_schema.get("additionalProperties").is_none(), "tool {} outputSchema must not set additionalProperties", tool.name);
+            let warning = &out_schema["properties"]["warning"];
+            assert_eq!(warning["type"], "object", "tool {} must declare optional warning object", tool.name);
+            assert!(warning.get("additionalProperties").is_none(), "tool {} warning schema must not set additionalProperties", tool.name);
         }
     }
 

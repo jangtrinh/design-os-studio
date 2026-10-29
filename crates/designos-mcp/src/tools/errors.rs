@@ -1752,6 +1752,19 @@ pub fn error_envelope_schema() -> Value {
     })
 }
 
+pub fn loop_suspected_warning_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "next_step": { "type": "string" },
+            "safe_to_retry": { "type": "boolean" }
+        },
+        "required": ["code", "message", "next_step", "safe_to_retry"]
+    })
+}
+
 /// Builds a tool `outputSchema` from `properties` and `required` arrays (§4).
 /// Top-level `type` is `"object"` per MCP `2025-11-25` `Tool.outputSchema`, with `properties.error`
 /// referencing the shared error envelope and `anyOf` covering success and error shapes.
@@ -1759,6 +1772,7 @@ pub fn tool_output_schema(mut properties: Value, required: &[&str]) -> Value {
     let err_schema = error_envelope_schema();
     if let Value::Object(ref mut props_map) = properties {
         props_map.insert("error".into(), err_schema.clone());
+        props_map.insert("warning".into(), loop_suspected_warning_schema());
     }
     json!({
         "type": "object",
@@ -1850,5 +1864,24 @@ mod plain_message_tests {
         assert_eq!(e.code, ErrorCode::InvalidArguments);
         assert_eq!(e.message, "limit must be between 1 and 500");
         assert!(e.safe_to_retry);
+    }
+}
+
+#[cfg(test)]
+mod output_schema_tests {
+    use super::*;
+
+    #[test]
+    fn tool_output_schema_declares_optional_loop_warning() {
+        let schema = tool_output_schema(json!({"ok": {"type": "boolean"}}), &["ok"]);
+        assert!(schema.get("additionalProperties").is_none(), "{schema}");
+        let warning = &schema["properties"]["warning"];
+        assert_eq!(warning["type"], json!("object"), "{schema}");
+        assert!(warning.get("additionalProperties").is_none(), "{warning}");
+        for key in ["code", "message", "next_step", "safe_to_retry"] {
+            assert!(warning["properties"].get(key).is_some(), "missing {key} in {warning}");
+        }
+        let required = schema["anyOf"].as_array().unwrap();
+        assert!(required.iter().all(|alt| alt["required"].as_array().unwrap().iter().all(|r| r != "warning")), "{schema}");
     }
 }
