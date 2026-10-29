@@ -239,7 +239,8 @@ def resolve_symbol(src_root: Path, symbol: str) -> Optional[str]:
 def check_p1(ctx: Context) -> Result:
     result = Result("P1", "registry <-> Rust symbols")
     claims: Dict[str, Dict[str, Set[str]]] = {}
-    resolved, pending_by_status = 0, {}
+    resolved: Set[str] = set()
+    pending_by_status: Dict[str, List[str]] = {}
     for rec in ctx.records:
         if rec.fields is None:
             result.problems.append(f"{rec.name}: no description line (`tier=...; rust=...; rust_status=...`)")
@@ -262,7 +263,7 @@ def check_p1(ctx: Context) -> Result:
                 if reason:
                     result.problems.append(f"{rec.name}: rust={symbol} does not resolve: {reason}")
                 else:
-                    resolved += 1
+                    resolved.add(symbol)
     for symbol, families in sorted(claims.items()):
         if len(families) > 1:
             who = "; ".join(f"{fam}: {', '.join(sorted(names))}" for fam, names in sorted(families.items()))
@@ -270,7 +271,10 @@ def check_p1(ctx: Context) -> Result:
     reported = sum(len(v) for v in pending_by_status.values())
     for status, names in sorted(pending_by_status.items()):
         result.notes.append(f"report: {len(names)} record(s) with rust_status={status}: {', '.join(sorted(names))}")
-    result.summary = f"{len(ctx.records)} records, {resolved} symbols resolve, {reported} report-only (not blocking until the owning spec)"
+    result.summary = (
+        f"{len(ctx.records)} records, {len(resolved)} distinct symbols resolve, "
+        f"{reported} records report-only (new-in-*, not blocking until the owning spec)"
+    )
     return result
 
 

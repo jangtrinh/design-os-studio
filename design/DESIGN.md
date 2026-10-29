@@ -160,7 +160,7 @@ tier=component; rust=kit/choice.rs::checkbox; rust_status=new-in-C; today=widget
 ### Icon/Tile
 
 Component of Studio's chrome, specified in spec C/H.
-tier=component; rust=kit/feedback.rs::tile_icon; rust_status=new-in-C; today=home/mod.rs:2583-2601; paints=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_BG,TILE_SPEC_GLYPH,BORDER_STRONG,ICON_QUATERNARY; pending=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_GLYPH; spec=C/H
+tier=component; rust=kit/feedback.rs::tile_icon; rust_status=new-in-C; today=home/mod.rs:2510-2524; paints=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_BG,TILE_SPEC_GLYPH,BORDER_STRONG,ICON_QUATERNARY; pending=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_GLYPH; spec=C/H
 
 - **Variants:** Kind=Board, Kind=Deck, Kind=Design, Kind=Neutral, Kind=Spec, Size=Md, Size=Sm
 - **States:** —
@@ -414,7 +414,7 @@ tier=component; rust=kit/rows.rs::tree_row_bg; rust_status=new-in-C; today=panel
 ### Banner/Inline
 
 Composite of Studio's chrome, specified in spec J/I/K.
-tier=composite; rust=history/banner.rs::show; rust_status=exists; paints=BG_SECONDARY,BG_SUCCESS_PRIMARY,BG_WARNING_PRIMARY,BG_ERROR_PRIMARY,TEXT,BORDER; pending=BG_SUCCESS_PRIMARY,BG_WARNING_PRIMARY,BG_ERROR_PRIMARY; spec=J/I/K; composes=Status/Dot,Button/*
+tier=composite; rust=history/banner.rs::show,libraries/review.rs::show_banner; rust_status=exists; paints=BG_SECONDARY,BG_SUCCESS_PRIMARY,BG_WARNING_PRIMARY,BG_ERROR_PRIMARY,TEXT,BORDER; pending=BG_SUCCESS_PRIMARY,BG_WARNING_PRIMARY,BG_ERROR_PRIMARY; spec=J/I/K; composes=Status/Dot,Button/*
 
 - **Variants:** Tone=Error, Tone=Neutral, Tone=Success, Tone=Warning
 - **States:** —
