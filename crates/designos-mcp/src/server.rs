@@ -1318,11 +1318,11 @@ fn parse_unrepaired_native(raw: &str) -> Result<designos_doc::Document, String> 
 /// A file too large to sniff counts as native so the size gate reports it; a damaged native file counts as
 /// native so it is refused as `DOCUMENT_INVALID`.
 fn is_native_design_json(path: &Path) -> bool {
-    let Ok(meta) = fs::metadata(path) else { return false };
+    let Ok(meta) = session_file_io::stat(path) else { return false };
     if meta.len() > MAX_IMPORT_FILE_BYTES {
         return true;
     }
-    let Ok(raw) = fs::read_to_string(path) else { return false };
+    let Ok(raw) = session_file_io::read_to_string(path) else { return false };
     match parse_native_checked(&raw) {
         Ok(_) => true,
         Err(e) => e.starts_with(REPAIR_PREFIX),
