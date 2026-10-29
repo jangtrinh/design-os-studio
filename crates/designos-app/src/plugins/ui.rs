@@ -83,8 +83,8 @@ pub fn show(app: &mut App, ctx: &Context) {
                     })
                     .inner;
                 widgets::record(ui, "plugin-url", field);
-                // The field is 2 px shorter than the slot the paragraphs below were laid out against.
-                ui.add_space(2.0);
+                // The field is one segment inset shorter than the slot the paragraphs below were laid out against.
+                ui.add_space(theme::INSET_SEGMENT);
                 if app.plugins.fresh {
                     output.request_focus();
                     app.plugins.fresh = false;

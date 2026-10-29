@@ -658,5 +658,25 @@
     "max_dh": -2,
     "spec": "K",
     "reason": "R5: The plugin URL field shrinks from 38 to 36 and keeps its top and its width"
+  },
+  {
+    "case": "plugin-install",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "plugin-install-cancel",
+    "anchor_y": "bottom",
+    "min_dh": 6,
+    "max_dh": 6,
+    "spec": "K",
+    "reason": "rule 7: Cancel grows from 34 to 40 because the Plugins dialog footer buttons are md 40, keeps its width and its x, and stays pinned to the dialog's bottom padding edge"
+  },
+  {
+    "case": "plugin-install",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "plugin-install-submit",
+    "anchor_y": "bottom",
+    "min_dh": 6,
+    "max_dh": 6,
+    "spec": "K",
+    "reason": "rule 7: Install grows from 34 to 40 because the Plugins dialog footer buttons are md 40, keeps its width and its x, and stays pinned to the dialog's bottom padding edge"
   }
 ]
