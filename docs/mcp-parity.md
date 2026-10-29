@@ -110,3 +110,7 @@
 | 39 | `weave_find_model` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
 | 40 | `weave_run_model` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
 | 41 | `weave_get_model_run_output` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
+
+## 3. Loop detection
+
+`LOOP_SUSPECTED` is a named tool error (`safe_to_retry: false`) returned when this MCP session sees the same tool call, or a two-call ping-pong, produce the same result `DESIGNOS_LOOP_GUARD_K` times (default 3). The window holds `DESIGNOS_LOOP_GUARD_N` hashed records (default 20), one window per session, and is cleared on reconnect, on a document revision change, and by a successful different call. The detector never mutates the document and never kills the session.

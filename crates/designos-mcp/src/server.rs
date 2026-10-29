@@ -1,5 +1,6 @@
 //! Workspace-scoped file session exposed over the official MCP SDK.
 use crate::engine::{parse, Engine};
+use crate::loop_guard::{self, LoopGuard};
 use crate::session_file_io;
 use crate::session_file_problems::SessionFileProblems;
 use crate::tools::errors::{tool_output_schema, ErrorCode, ToolError};
@@ -141,6 +142,8 @@ pub struct Session {
     pub verify_corrected_examples: bool,
     /// Session-scoped idempotency ledger (`E15-6`).
     pub ledger: Ledger,
+    /// Per-session hashed call window for `LOOP_SUSPECTED` (#1290). Cleared on reconnect.
+    pub(crate) loop_guard: LoopGuard,
     /// Protocol-level `_meta` produced by the most recent `call` (e.g. `{"designos/idempotent_replay": true}`).
     pub last_call_meta: Option<serde_json::Map<String, Value>>,
     /// Per-session `designos.enabled_tools` configuration (`E15-15` §8.5).
@@ -232,6 +235,7 @@ impl Session {
             #[cfg(test)]
             verify_corrected_examples: false,
             ledger: Ledger::new(),
+            loop_guard: LoopGuard::from_env(),
             last_call_meta: None,
             enabled_tools_config,
             file_problems,
@@ -270,6 +274,7 @@ impl Session {
             #[cfg(test)]
             verify_corrected_examples: false,
             ledger: Ledger::new(),
+            loop_guard: LoopGuard::from_env(),
             last_call_meta: None,
             enabled_tools_config,
             file_problems,
@@ -477,6 +482,7 @@ impl Session {
                             }
                             let mtime_ms = mtime.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
                             self.ledger.on_canvas_reload(prev_undo_depth, &self.engine.doc, context_scoped, mtime_ms);
+                            self.loop_guard.reset();
                             self.bridge.last_canvas_mtime = Some(mtime);
                             reloaded_live_canvas = true;
                         }
@@ -810,6 +816,7 @@ impl Session {
             self.attach_session_file_warnings(&mut reply);
             reply
         });
+        let res = self.apply_loop_guard(name, &args_copy, res);
         let t_ms = t0.elapsed().as_millis() as u64;
         if let Some(t_path) = self.transcript_path.clone() {
             self.transcript_seq += 1;
@@ -845,9 +852,21 @@ impl Session {
         res
     }
 
+    fn apply_loop_guard(&mut self, name: &str, args: &Value, res: Result<Value, ToolError>) -> Result<Value, ToolError> {
+        if self.last_call_meta.as_ref().and_then(|m| m.get("designos/idempotent_replay")).and_then(Value::as_bool) == Some(true) {
+            return res;
+        }
+        let fingerprint = loop_guard::CallFingerprint::from_call(name, args, &res);
+        if self.loop_guard.observe(fingerprint) {
+            return Err(loop_guard::loop_suspected_error(self.loop_guard.k()));
+        }
+        res
+    }
+
     fn call_with_safety(&mut self, name: &str, args: Value) -> Result<Value, ToolError> {
         self.last_call_meta = None;
         self.sync_from_live_canvas_if_newer();
+        self.loop_guard.note_revision(self.engine.revision);
         if self.disabled_tools.contains(name) {
             return Err(ToolError::new(ErrorCode::ToolDisabled, "", format!("Tool `{name}` is disabled in the active tool pack"))
                 .with_received(json!(name))
@@ -2667,6 +2686,13 @@ mod tests {
         // 71. NameTooLong (output filename component > 255 bytes)
         record(s.call("designos_save_file", json!({"path": format!("{}.designos", "a".repeat(260))})).unwrap_err(), ErrorCode::NameTooLong, true);
 
+        // 72. LoopSuspected (three identical failing writes)
+        let _ = s.call("designos_get_document", json!({})).unwrap();
+        let missing = json!({"node_id": 9_876_543_210u64, "name": "loop-fixture"});
+        let _ = s.call("designos_update_node", missing.clone()).unwrap_err();
+        let _ = s.call("designos_update_node", missing.clone()).unwrap_err();
+        record(s.call("designos_update_node", missing).unwrap_err(), ErrorCode::LoopSuspected, false);
+
         for code in ErrorCode::ALL {
             assert!(seen.contains(code.as_str()), "ErrorCode::{code:?} ({}) was not covered by every_code_has_a_fixture", code.as_str());
         }
@@ -3442,3 +3468,7 @@ mod tests {
 #[cfg(test)]
 #[path = "server_idempotency_tests.rs"]
 mod idempotency_tests;
+
+#[cfg(test)]
+#[path = "server_loop_guard_tests.rs"]
+mod loop_guard_session_tests;

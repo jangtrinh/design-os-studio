@@ -104,6 +104,9 @@ pub enum ErrorCode {
     // Output filename validation codes (#1003 RT-05/RT-06) (2)
     InvalidName,
     NameTooLong,
+
+    // Loop detection (#1290) (1)
+    LoopSuspected,
 }
 
 #[allow(non_upper_case_globals)]
@@ -145,7 +148,7 @@ impl ErrorCode {
     pub const IdempotencyKeyConflict: Self = Self::IdempotencyKeyReused;
     pub const InvalidIdempotencyKey: Self = Self::InvalidArguments;
 
-    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools, the 2 idempotency codes and the 2 query codes).
+    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools, the 2 idempotency codes, the 2 query codes, the 2 output-filename codes, and `LOOP_SUSPECTED`).
     pub const ALL: &'static [ErrorCode] = &[
         Self::InvalidArguments,
         Self::UnknownField,
@@ -220,6 +223,7 @@ impl ErrorCode {
         Self::RuleUnavailable,
         Self::InvalidName,
         Self::NameTooLong,
+        Self::LoopSuspected,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -297,6 +301,7 @@ impl ErrorCode {
             Self::RuleUnavailable => "RULE_UNAVAILABLE",
             Self::InvalidName => "INVALID_NAME",
             Self::NameTooLong => "NAME_TOO_LONG",
+            Self::LoopSuspected => "LOOP_SUSPECTED",
         }
     }
 
@@ -327,6 +332,9 @@ impl ErrorCode {
             Self::IdempotencyKeyReused => "Send this payload with a new idempotency_key.",
             Self::IdempotencyKeyStale => {
                 "Read the target nodes; this write was undone or is not in the open document. Do not send it again unless you have verified the target nodes are absent and you still want the write."
+            }
+            Self::LoopSuspected => {
+                "The same call has returned the same result 3 times. Change the arguments, read the document state, or ask the user."
             }
             _ => "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.",
         }
@@ -407,6 +415,7 @@ impl ErrorCode {
             "RULE_UNAVAILABLE" => Some(Self::RuleUnavailable),
             "INVALID_NAME" => Some(Self::InvalidName),
             "NAME_TOO_LONG" => Some(Self::NameTooLong),
+            "LOOP_SUSPECTED" => Some(Self::LoopSuspected),
             _ => None,
         }
     }
@@ -453,7 +462,7 @@ impl ToolError {
             cause: None,
             failed_op: None,
             op: None,
-            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge),
+            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge | ErrorCode::LoopSuspected),
             next_step: code.default_next_step().to_string(),
         }
     }
