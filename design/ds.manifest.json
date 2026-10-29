@@ -1147,17 +1147,23 @@
       "kind": "register",
       "note": "Icon/Tile",
       "ts": "2026-10-29T01:26:13.858Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Destructive",
+      "ts": "2026-10-29T08:18:03.275Z"
     }
   ],
   "compiledHash": "sha256-SkbvSo4GPRiDbsraF1SR2KVmOozT63OQNtWEiJgr-DY",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 165,
+  "generation": 166,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {
     "family": "imported",
     "slug": "imported"
   },
-  "registryHash": "sha256-1MM89ZYxfiWwoaq3BAL5p0hqiLf51EebDjsjk0mNL9Q",
+  "registryHash": "sha256-yRR-pyuXMw_1qEIfg_H-fjbVZGgilz4qGvu2LcN-9bM",
   "version": "1.0.0"
 }

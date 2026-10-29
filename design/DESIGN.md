@@ -35,7 +35,7 @@ tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=widgets/
 ### Button/Destructive
 
 Component of Studio's chrome, specified in spec C.
-tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=home/mod.rs:1425-1432; paints=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR,TEXT_WHITE; pending=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR; spec=C
+tier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=none; paints=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR,TEXT_WHITE; pending=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR; spec=C
 
 - **Variants:** Size=Md, Size=Sm, Size=Xs, State=Active, State=Default, State=Disabled, State=Focus, State=Hover
 - **States:** —
