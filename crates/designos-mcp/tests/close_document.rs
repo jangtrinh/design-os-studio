@@ -250,13 +250,30 @@ fn live_close_without_editor_ack_is_not_closed() {
     let err = s.call("designos_close_document", json!({"unsaved": "discard"})).unwrap_err().to_json_value();
     assert_ne!(err["code"], json!("UNSAVED_CHANGES"), "timeout is not unsaved: {err}");
     assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{err}");
-    assert_eq!(err["safe_to_retry"], true, "the close was cancelled, so asking again is safe: {err}");
+    assert_eq!(err["safe_to_retry"], false, "a discard the editor may have begun is not retried blindly: {err}");
+    assert_eq!(err["next_step"], json!("Check the document state with designos_get_document, then ask the user."), "{err}");
     assert!(err.get("closed").is_none() || err["closed"] != true, "must not claim closed: {err}");
     let cancel: Value = serde_json::from_slice(&fs::read(session_dir.join("close-cancel.json")).expect("cancel written")).unwrap();
     assert!(cancel["close_id"].as_u64().is_some(), "{cancel}");
     let intent = last_close_line(&session_dir);
     assert_eq!(intent.tab_id, Some(7), "intent names the tab: {intent:?}");
     assert_eq!(intent.close_id, cancel["close_id"].as_u64());
+}
+
+/// A close the editor never answers: `save` and `fail` are cancelled and safe to ask again; `discard` is not.
+#[test]
+fn unanswered_live_close_is_retryable_for_save_and_fail_but_not_discard() {
+    for (policy, retry) in [("save", true), ("fail", true), ("discard", false)] {
+        let dir = Workspace::new();
+        let (session_dir, mut s) = live_session(&dir, 6);
+        let err = s.call("designos_close_document", json!({"unsaved": policy})).unwrap_err().to_json_value();
+        assert_eq!(err["code"], json!("EDITOR_NOT_NOTIFIED"), "{policy}: {err}");
+        assert_eq!(err["safe_to_retry"], retry, "{policy}: {err}");
+        let next = err["next_step"].as_str().unwrap_or("");
+        assert_eq!(next.contains("call designos_close_document again"), retry, "{policy}: {err}");
+        assert_eq!(next.contains("ask the user"), !retry, "{policy}: {err}");
+        assert!(session_dir.join("close-cancel.json").exists(), "{policy}: the close is cancelled either way");
+    }
 }
 
 #[test]

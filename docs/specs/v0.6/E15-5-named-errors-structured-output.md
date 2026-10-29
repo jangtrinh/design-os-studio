@@ -81,6 +81,14 @@ Examples: an invalid batch (nothing ran) → `true`; editor publish failure whos
 it (`server.rs:417-418`) → `false`, code `EDITOR_NOT_NOTIFIED`, `next_step` "Call
 designos_get_document before editing."
 
+`designos_close_document` on a live editor that never answers (#1282): the wait ends, the close is
+cancelled (`close-cancel.json`) and the call fails `EDITOR_NOT_NOTIFIED`. With `unsaved: save` or `fail`
+nothing was changed and the editor cannot act on the cancelled close later, so `safe_to_retry` is `true`
+and `next_step` says to call the tool again. With `unsaved: discard` it is `false` and `next_step` is "Check
+the document state with designos_get_document, then ask the user." The editor's own "tab not shown" answer
+and a close line that cannot be written are `true` for every policy. The close line in the edit log does not
+count as a change for this rule.
+
 ### 3.3 Catalogue
 
 `errors.rs` defines `enum ErrorCode` with a `const ALL: &[ErrorCode]` and, per code, its message

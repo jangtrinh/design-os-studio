@@ -826,13 +826,13 @@ impl Session {
         append_log_line(&log, &line)
     }
 
-    fn wait_for_close_ack(&mut self, close_id: u64) -> Result<Value, ToolError> {
+    fn wait_for_close_ack(&mut self, close_id: u64, policy: UnsavedPolicy) -> Result<Value, ToolError> {
         let dir = self
             .bridge
             .session_dir
             .clone()
             .or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
-            .ok_or_else(|| Self::close_timeout_error(close_id))?;
+            .ok_or_else(|| Self::close_timeout_error(close_id, policy))?;
         let result_path = dir.join(CloseIntent::RESULT_FILE);
         let cancel_path = dir.join(CloseIntent::CANCEL_FILE);
         let deadline = Instant::now() + self.close_ack_timeout;
@@ -846,7 +846,7 @@ impl Session {
                 if let Some(out) = self.read_close_ack(&result_path, close_id) {
                     return out;
                 }
-                return Err(Self::close_timeout_error(close_id));
+                return Err(Self::close_timeout_error(close_id, policy));
             }
             thread::sleep(Duration::from_millis(20));
         }
@@ -861,12 +861,16 @@ impl Session {
         Some(Self::close_ack_to_result(v))
     }
 
-    fn close_timeout_error(close_id: u64) -> ToolError {
-        ToolError::new(ErrorCode::EditorNotNotified, "", "The editor did not close the tab in time.")
-            .with_received(json!(close_id))
-            // The close was cancelled when the wait ended, so the editor will not act on it later: asking again is safe.
-            .with_safe_to_retry(true)
-            .with_next_step("The close was cancelled and the document stayed open. Make sure the editor is running and showing the tab, then call designos_close_document again.")
+    /// The wait ended with no answer. The close is cancelled, so the editor will not act on it later: for `save` and `fail`
+    /// asking again is safe. A `discard` the editor may already have begun is not, so the state is checked first.
+    fn close_timeout_error(close_id: u64, policy: UnsavedPolicy) -> ToolError {
+        let err = ToolError::new(ErrorCode::EditorNotNotified, "", "The editor did not close the tab in time.").with_received(json!(close_id));
+        match policy {
+            UnsavedPolicy::Discard => err.with_safe_to_retry(false).with_next_step("Check the document state with designos_get_document, then ask the user."),
+            UnsavedPolicy::Save | UnsavedPolicy::Fail => err.with_safe_to_retry(true).with_next_step(
+                "The close was cancelled and the document stayed open. Make sure the editor is running and showing the tab, then call designos_close_document again.",
+            ),
+        }
     }
 
     fn close_ack_to_result(v: Value) -> Result<Value, ToolError> {
@@ -1342,7 +1346,7 @@ impl Session {
                     .with_safe_to_retry(false)
                 })?;
                 if live {
-                    let out = match self.wait_for_close_ack(close_id) {
+                    let out = match self.wait_for_close_ack(close_id, policy) {
                         Ok(out) => out,
                         Err(e) => {
                             self.close_retry_safe = e.code == ErrorCode::EditorNotNotified && e.safe_to_retry;
