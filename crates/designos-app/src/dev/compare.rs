@@ -5,7 +5,7 @@ use crate::panels::{clipped, scrollbar, wheel_scroll};
 use crate::theme;
 use crate::widgets::{self, elide};
 use designos_doc::*;
-use egui::{Align2, Color32, Context, Id, Key, Modifiers, Order, Pos2, Rect, Sense, TextureHandle, Vec2};
+use egui::{Align2, Color32, Context, Id, Key, Modifiers, Order, Pos2, Rect, Sense, Stroke, StrokeKind, TextureHandle, Vec2};
 
 pub struct CompareView {
     pub node: NodeId,
@@ -54,6 +54,7 @@ fn pane(p: &egui::Painter, ctx: &Context, rect: Rect, title: &str, tex: Option<&
     p.text(Pos2::new(rect.left(), rect.top() + 10.0), Align2::LEFT_CENTER, title, theme::font_body_strong(), theme::TEXT);
     let area = Rect::from_min_max(Pos2::new(rect.left(), rect.top() + 24.0), rect.max);
     p.rect_filled(area, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+    p.rect_stroke(area, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     match tex {
         Some(t) => {
             let sz = t.size_vec2();
@@ -94,11 +95,10 @@ pub fn show(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("dev-compare")).order(Order::Foreground).fixed_pos(screen.min).interactable(true).show(ctx, |ui| {
         let scrim = ui.allocate_rect(screen, Sense::click_and_drag());
         let p = ui.painter().clone();
-        p.rect_filled(screen, 0.0, Color32::from_black_alpha(140));
         if scrim.clicked() && !rect.contains(scrim.interact_pointer_pos().unwrap_or(Pos2::ZERO)) {
             close = true;
         }
-        widgets::menu_panel(&p, rect, theme::RADIUS_FRAME);
+        crate::widgets::kit::modal_surface(&p, screen, rect);
         let pad = 20.0;
         let title = format!("Compare changes \u{2022} {}", v.name);
         p.text(
@@ -108,8 +108,23 @@ pub fn show(app: &mut App, ctx: &Context) {
             theme::font_large_strong(),
             theme::TEXT,
         );
-        let x = Rect::from_min_size(Pos2::new(rect.right() - 44.0, rect.top() + 14.0), Vec2::splat(28.0));
-        if widgets::icon_button(ui, x, "compare-close", crate::icons::Icon::Close, false, "Close").clicked() {
+        // Centering the icon in the header puts it on the ready section's row. One row gap lower
+        // keeps it in the header and on its own row.
+        let close_y = rect.top() + (56.0 - theme::CONTROL_SM) * 0.5 + theme::SPACE_ROW;
+        let x = Rect::from_min_size(Pos2::new(rect.right() - pad - theme::CONTROL_SM, close_y), Vec2::splat(theme::CONTROL_SM));
+        if crate::widgets::kit::button_icon(
+            ui,
+            x,
+            "compare-close",
+            crate::icons::Icon::Close,
+            crate::widgets::kit::Hierarchy::Close,
+            crate::widgets::kit::Size::Sm,
+            true,
+            false,
+        )
+        .on_hover_text("Close")
+        .clicked()
+        {
             close = true;
         }
         let top = rect.top() + 56.0;
@@ -131,7 +146,7 @@ pub fn show(app: &mut App, ctx: &Context) {
         let summary = if v.changes.is_empty() { "No changes".to_string() } else { format!("{modified} changed, {added} added, {removed} removed") };
         p.text(Pos2::new(rect.left() + pad, summary_y + 8.0), Align2::LEFT_CENTER, summary, theme::font_body_strong(), theme::TEXT);
 
-        let btn_h = 32.0;
+        let btn_h = theme::CONTROL_MD;
         let list = Rect::from_min_max(Pos2::new(rect.left() + pad, summary_y + 22.0), Pos2::new(rect.right() - pad, rect.bottom() - pad - btn_h - 12.0));
         let content_h = list_height(&v.changes);
         wheel_scroll(ui, list, &mut v.scroll, content_h);
@@ -160,9 +175,9 @@ pub fn show(app: &mut App, ctx: &Context) {
                         p.text(Pos2::new(list.left() + 22.0, y + 10.0), Align2::LEFT_CENTER, &pc.property, theme::font_caption(), theme::TEXT_SECONDARY);
                         let before = elide(&p, &pc.before, &theme::font_caption(), 150.0);
                         let after = elide(&p, &pc.after, &theme::font_caption(), 150.0);
-                        p.text(Pos2::new(list.left() + 170.0, y + 10.0), Align2::LEFT_CENTER, before, theme::font_caption(), theme::DANGER);
+                        p.text(Pos2::new(list.left() + 170.0, y + 10.0), Align2::LEFT_CENTER, before, theme::font_caption(), theme::TEXT_ERROR);
                         p.text(Pos2::new(list.left() + 330.0, y + 10.0), Align2::LEFT_CENTER, "\u{2192}", theme::font_caption(), theme::TEXT_TERTIARY);
-                        p.text(Pos2::new(list.left() + 350.0, y + 10.0), Align2::LEFT_CENTER, after, theme::font_caption(), theme::DEV_READY);
+                        p.text(Pos2::new(list.left() + 350.0, y + 10.0), Align2::LEFT_CENTER, after, theme::font_caption(), theme::TEXT_SUCCESS);
                         y += 20.0;
                     }
                     y += 6.0;
@@ -171,16 +186,24 @@ pub fn show(app: &mut App, ctx: &Context) {
         });
         scrollbar(ui, list, scroll, content_h);
 
-        let by = rect.bottom() - pad - btn_h;
-        let ok = Rect::from_min_size(Pos2::new(rect.right() - pad - 190.0, by), Vec2::new(190.0, btn_h));
-        let cl = Rect::from_min_size(Pos2::new(ok.left() - 88.0, by), Vec2::new(80.0, btn_h));
-        if crate::panels::inspect::small_button(ui, cl, "compare-done", "Close") {
+        // A bottom-pinned 40 px button sits 4 px higher at its centre than the old 32 px button
+        // and joins the row above it. Drop it by half the growth so the centre stays put.
+        let by = rect.bottom() - pad - btn_h + (theme::CONTROL_MD - theme::CONTROL_XS) * 0.5;
+        let primary_label = "Mark as ready for dev again";
+        let primary_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let primary_w = (widgets::text_width(&p, primary_label, &primary_font).ceil() + 2.0 * theme::INSET_CONTROL).max(190.0);
+        let close_w = (widgets::text_width(&p, "Close", &primary_font).ceil() + 2.0 * theme::INSET_CONTROL).max(80.0);
+        let ok = Rect::from_min_size(Pos2::new(rect.right() - pad - primary_w, by), Vec2::new(primary_w, btn_h));
+        let cl = Rect::from_min_size(Pos2::new(ok.left() - theme::SPACE_INLINE - close_w, by), Vec2::new(close_w, btn_h));
+        widgets::record(ui, "btn-\"compare-done\"", cl);
+        if crate::widgets::kit::button(ui, cl, "compare-done", "Close", crate::widgets::kit::Hierarchy::Secondary, crate::widgets::kit::Size::Md, true)
+            .clicked()
+        {
             close = true;
         }
-        let r = ui.interact(ok, Id::new("compare-remark"), Sense::click());
-        p.rect_filled(ok, theme::cr_pill(ok.height()), if r.hovered() { theme::BG_BRAND_HOVER } else { theme::BG_BRAND });
-        p.text(ok.center(), Align2::CENTER_CENTER, "Mark as ready for dev again", theme::font_body_strong(), theme::TEXT);
-        if r.clicked() {
+        if crate::widgets::kit::button(ui, ok, "compare-remark", primary_label, crate::widgets::kit::Hierarchy::Primary, crate::widgets::kit::Size::Md, true)
+            .clicked()
+        {
             remark = true;
         }
     });

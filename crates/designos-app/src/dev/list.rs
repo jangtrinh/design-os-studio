@@ -90,25 +90,23 @@ pub fn tabs(app: &mut App, ui: &mut Ui, row: Rect) {
         widgets::record(ui, if tab == LeftTab::ReadyForDev { "dev-left-tab-ready" } else { "dev-left-tab-layers" }, r);
         let resp = ui.interact(r, ui.id().with(("dev-left-tab", i)), Sense::click());
         let active = app.dev.left_tab == tab;
-        if active {
-            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        let state = if active {
+            crate::widgets::kit::State::Selected
         } else if resp.hovered() {
-            ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-        }
-        ui.painter().text(
-            Pos2::new(r.left() + theme::INSET_CONTROL, r.center().y),
-            Align2::LEFT_CENTER,
-            label,
-            font.clone(),
-            if active { theme::TEXT } else { theme::TEXT_SECONDARY },
-        );
+            crate::widgets::kit::State::Hover
+        } else {
+            crate::widgets::kit::State::Default
+        };
+        let paint = crate::widgets::kit::tab_look(state);
+        crate::widgets::kit::paint_frame(ui.painter(), r, theme::RADIUS_CONTROL, &paint);
+        ui.painter().text(Pos2::new(r.left() + theme::INSET_CONTROL, r.center().y), Align2::LEFT_CENTER, label, font.clone(), paint.text);
         if badge_here {
             let badge_r = Rect::from_min_size(
                 Pos2::new(r.left() + theme::INSET_CONTROL + label_w + TAB_BADGE_GAP, r.center().y - TAB_BADGE_H * 0.5),
                 Vec2::new(badge_w, TAB_BADGE_H),
             );
-            ui.painter().rect_filled(badge_r, egui::CornerRadius::same(7), egui::Color32::from_rgba_unmultiplied(0x14, 0xAE, 0x5C, 38));
-            ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, &badge_str, mono_font.clone(), egui::Color32::from_rgb(0x34, 0xD3, 0x99));
+            ui.painter().rect_filled(badge_r, theme::cr_pill(badge_r.height()), theme::DEV_READY.gamma_multiply(super::STATUS_TINT));
+            ui.painter().text(badge_r.center(), Align2::CENTER_CENTER, &badge_str, mono_font.clone(), theme::TEXT);
         }
         if resp.clicked() {
             app.dev.left_tab = tab;

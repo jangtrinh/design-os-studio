@@ -140,7 +140,7 @@ pub fn code_block(ui: &mut Ui, c: &mut Cur, lang: Language, code: &str) {
     let side = SideView::new(r, view, content_w);
     let (x, on_thumb) = side_scroll(ui, &side, code_key(lang, code));
 
-    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+    ui.painter().rect(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY, Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     let shown = ui.clip_rect();
     let clip = ui.painter().with_clip_rect(view.intersect(shown));
     let first = ((shown.top() - r.top() - inset) / line_h).floor().max(0.0) as usize;
@@ -178,12 +178,78 @@ pub fn prompt_box(ui: &mut Ui, c: &mut Cur, lead: &str, link: &str) {
     let mut job = LayoutJob::default();
     job.wrap.max_width = box_w - 2.0 * inset;
     job.append(&format!("{lead}\n"), 0.0, format(theme::TEXT));
-    job.append(link, 0.0, format(theme::INFO));
+    job.append(link, 0.0, format(theme::TEXT_BRAND));
     let galley = ui.painter().layout_job(job);
     let r = c.rect(PAD, 0.0, box_w, inset + galley.size().y + inset);
     widgets::record(ui, "dev-mcp-prompt", r);
-    ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    ui.painter().rect_stroke(r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_STRONG), StrokeKind::Inside);
+    ui.painter().rect(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY, Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     ui.painter().galley(r.min + Vec2::splat(inset), galley, theme::TEXT);
     c.y += r.height();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::{Pos2, RawInput, Rect, Vec2};
+
+    fn paint(draw: impl FnMut(&mut Ui)) -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(480.0, 240.0))), ..Default::default() };
+        ctx.run_ui(raw, draw).shapes
+    }
+
+    fn cur() -> Cur {
+        Cur { x0: 0.0, oy: 0.0, y: 0.0, w: 240.0 }
+    }
+
+    #[test]
+    fn prompt_box_matches_the_inspector_rules() {
+        let shapes = paint(|ui| {
+            prompt_box(ui, &mut cur(), "Use this layer", "https://example.test/layer");
+        });
+        let frame = shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(shape) if shape.fill == theme::BG_SECONDARY && shape.stroke.width > 0.0 => Some(shape),
+            _ => None,
+        });
+        let frame = frame.expect("prompt frame");
+        assert_eq!(frame.stroke.color, theme::BORDER);
+        assert!((frame.stroke.width - theme::BORDER_WIDTH).abs() < 0.01);
+        let link = shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Text(text) => text.galley.job.sections.iter().find_map(|section| {
+                let start = section.byte_range.start.0;
+                let end = section.byte_range.end.0;
+                text.galley.job.text.get(start..end).filter(|s| s.contains("https://")).map(|_| section.format.color)
+            }),
+            _ => None,
+        });
+        assert_eq!(link, Some(theme::TEXT_BRAND));
+    }
+
+    #[test]
+    fn code_block_frame_matches_the_inspector_rules() {
+        let shapes = paint(|ui| {
+            code_block(ui, &mut cur(), Language::Css, "color: red;");
+        });
+        let frame = shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(shape) if shape.fill == theme::BG_SECONDARY => Some(shape),
+            _ => None,
+        });
+        let frame = frame.expect("code frame");
+        assert_eq!(frame.stroke.color, theme::BORDER);
+        assert!((frame.stroke.width - theme::BORDER_WIDTH).abs() < 0.01);
+        assert_eq!(frame.corner_radius, theme::cr(theme::RADIUS_CONTROL));
+    }
+
+    #[test]
+    fn scroll_thumb_grab_meets_the_target_floor() {
+        let wide = "x".repeat(80);
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let raw = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(480.0, 240.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw, |ui| code_block(ui, &mut cur(), Language::Css, &wide));
+        let grab = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "dev-code-thumb-grab".to_string()))));
+        let grab = grab.expect("thumb grab");
+        assert!(grab.height() + 0.5 >= theme::TARGET_MIN, "grab height {}", grab.height());
+    }
 }
