@@ -935,8 +935,13 @@ mod tests {
         let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 600.0));
         let painted = paint_panel(&mut app, region);
         let painted_rows = (region.height() / theme::LAYER_ROW_HEIGHT).ceil() as usize + 1;
-        let names = painted.iter().filter(|t| t.size == theme::FONT_SIZE_BODY).count();
-        let labels: Vec<&Painted> = painted.iter().filter(|t| t.size == theme::FONT_SIZE_CAPTION).collect();
+        // Group the painted runs by row; in each row the left-most run is the name and the one to its right the label.
+        let mut by_row: std::collections::BTreeMap<i64, Vec<&Painted>> = std::collections::BTreeMap::new();
+        for t in &painted {
+            by_row.entry(((t.rect.center().y - region.top()) / theme::LAYER_ROW_HEIGHT).floor() as i64).or_default().push(t);
+        }
+        let names = by_row.values().filter(|row| name_and_label(row).0.is_some()).count();
+        let labels: Vec<&Painted> = by_row.values().filter_map(|row| name_and_label(row).1).collect();
         assert_eq!(names, painted_rows, "names are painted for the viewport rows only, not all 2,000");
         assert_eq!(labels.len(), painted_rows, "type labels are painted for the viewport rows only, not all 2,000");
         assert!(labels.iter().all(|t| t.text == "Rect"), "every painted label names its node type");
@@ -956,10 +961,9 @@ mod tests {
         assert!(!split_row_text(50.0, 50.0, 30.0).show_label);
     }
 
-    /// One text run the panel painted: string, font size, logical rect, colour and the clip it was drawn under.
+    /// One text run the panel painted: string, logical rect, colour and the clip it was drawn under.
     struct Painted {
         text: String,
-        size: f32,
         rect: Rect,
         color: egui::Color32,
         clip: Rect,
@@ -972,7 +976,6 @@ mod tests {
                     if let Some(section) = t.galley.job.sections.first() {
                         out.push(Painted {
                             text: t.galley.job.text.clone(),
-                            size: section.format.font_id.size,
                             rect: Rect::from_min_size(t.pos, t.galley.size()),
                             color: section.format.color,
                             clip,
@@ -995,6 +998,15 @@ mod tests {
     fn row_texts(painted: &[Painted], region: Rect, row: usize) -> Vec<&Painted> {
         let center_y = region.top() + (row as f32 + 0.5) * theme::LAYER_ROW_HEIGHT;
         painted.iter().filter(|t| (t.rect.center().y - center_y).abs() < 1.0).collect()
+    }
+
+    /// Splits the text runs of one row into the name (the left-most run) and the type label (the run to its
+    /// right, absent when the row dropped it). The two share a size, so position tells them apart.
+    fn name_and_label<'a>(row: &[&'a Painted]) -> (Option<&'a Painted>, Option<&'a Painted>) {
+        let mut runs: Vec<&Painted> = row.to_vec();
+        runs.sort_by(|a, b| a.rect.left().total_cmp(&b.rect.left()));
+        let mut runs = runs.into_iter();
+        (runs.next(), runs.next())
     }
 
     /// A page holding a chain of `depth` plain frames with one auto-layout frame named `name` at the bottom
@@ -1035,8 +1047,9 @@ mod tests {
                 let painted = paint_panel(&mut app, region);
                 let row = row_texts(&painted, region, depth);
                 let at = format!("{direction:?} frame at depth {depth}");
-                let name = row.iter().find(|t| t.size == theme::FONT_SIZE_BODY).unwrap_or_else(|| panic!("{at}: the name is not painted"));
-                check(&at, name, row.iter().find(|t| t.size == theme::FONT_SIZE_CAPTION).copied(), text_right);
+                let (name, label) = name_and_label(&row);
+                let name = name.unwrap_or_else(|| panic!("{at}: the name is not painted"));
+                check(&at, name, label, text_right);
             }
         }
     }
@@ -1087,12 +1100,14 @@ mod tests {
             let mut app = nested_auto_layout_app(depth, direction, long_name);
             let painted = paint_panel(&mut app, region);
             let texts = row_texts(&painted, region, depth);
-            let name = texts.iter().find(|t| t.size == theme::FONT_SIZE_BODY).map(|t| t.rect).expect("name painted");
-            let label = texts.iter().find(|t| t.size == theme::FONT_SIZE_CAPTION).map(|t| t.text.clone());
-            (name, label)
+            let (name, label) = name_and_label(&texts);
+            (name.map(|t| t.rect).expect("name painted"), label.map(|t| t.text.clone()))
         };
         assert_eq!(row_at(0, Horizontal).1.as_deref(), Some("Auto layout"), "a top-level row shows its type");
-        assert_eq!(row_at(3, Horizontal).1.as_deref(), Some("Auto layout"), "depth 3 (82 px) still fits the label and a readable name");
+        // At 12 px "Auto layout" is 63.94 px wide, so it needs 63.94 + TYPE_LABEL_PAD 8 + a 16 px name = 87.94 px (53.3 px, 77.3 px at
+        // the old 10 px size, which is what let depth 3 keep it): depth 2 (98 px) still fits, depth 3 (82 px) no longer does.
+        assert_eq!(row_at(2, Horizontal).1.as_deref(), Some("Auto layout"), "depth 2 (98 px) still fits the label and a readable name");
+        assert_eq!(row_at(3, Horizontal).1, None, "depth 3 leaves 82 px, less than the label plus a 16 px name");
         // Depth 4 leaves 66 px: less than "Auto layout" plus a 16 px name, so the name keeps the whole column.
         let (name, label) = row_at(4, Horizontal);
         assert_eq!(label, None);
@@ -1135,9 +1150,8 @@ mod tests {
         // Rows are listed top-first: shown instance, hidden instance, hidden rectangle.
         let colors = |row: usize| {
             let texts = row_texts(&painted, region, row);
-            let name = texts.iter().find(|t| t.size == theme::FONT_SIZE_BODY).expect("name painted").color;
-            let label = texts.iter().find(|t| t.size == theme::FONT_SIZE_CAPTION).expect("type label painted").color;
-            (name, label)
+            let (name, label) = name_and_label(&texts);
+            (name.expect("name painted").color, label.expect("type label painted").color)
         };
         assert_eq!(colors(0), (theme::TEXT_COMPONENT, theme::TEXT_COMPONENT.gamma_multiply(0.75)), "visible instance keeps the component colours");
         assert_eq!(colors(1), (theme::TEXT_TERTIARY, theme::TEXT_TERTIARY), "hidden instance greys the name and the label together");

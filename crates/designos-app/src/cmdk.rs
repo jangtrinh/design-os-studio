@@ -453,7 +453,7 @@ pub fn show(ctx: &Context, state: &mut CmdKState, doc: &Document, page: NodeId, 
             }
             let is_sel = list_idx == state.selected_idx;
             if is_sel {
-                p.rect_filled(row_rect, CornerRadius::same(6), CMDK_BG_ROW_HOVER);
+                p.rect_filled(row_rect, theme::cr(theme::RADIUS_CONTROL), CMDK_BG_ROW_HOVER);
             }
 
             icons::paint(

@@ -67,7 +67,7 @@ pub fn paint_approval_card_for_tab(
     let card_h = theme::INSET_FRAME + theme::CONTROL_DENSE + summary_and_gap + theme::SPACE_ROW + theme::CONTROL_STANDARD + theme::INSET_FRAME;
     let card_rect = Rect::from_min_size(
         Pos2::new(viewport_rect.left() + theme::SPACE_ROW, viewport_rect.top() + theme::SPACE_ROW),
-        Vec2::new((viewport_rect.width() - theme::SPACE_ROW - theme::SPACE_ROW).max(theme::CONTROL_ROW), card_h),
+        Vec2::new((viewport_rect.width() - theme::SPACE_ROW - theme::SPACE_ROW).max(theme::CONTROL_MD), card_h),
     );
     widgets::record(ui, "agent-approval-card", card_rect);
 
@@ -180,7 +180,7 @@ fn paint_card_button(
     primary: bool,
 ) -> (Rect, egui::Response) {
     let font = theme::font_body_medium();
-    let w = (widgets::text_width(p, label, &font) + theme::INSET_BUTTON + theme::INSET_BUTTON).max(theme::CONTROL_ROW);
+    let w = (widgets::text_width(p, label, &font) + theme::INSET_BUTTON + theme::INSET_BUTTON).max(theme::CONTROL_MD);
     let rect = Rect::from_min_size(Pos2::new(right_x - w, top_y), Vec2::new(w, theme::CONTROL_STANDARD));
     let resp = ui.interact(rect, Id::new(id), Sense::click());
     let fill = match (primary, resp.hovered()) {
@@ -208,7 +208,7 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
     }
     let screen = ctx.content_rect();
     let esc = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
-    let row_h = theme::CONTROL_ROW + theme::CONTROL_STANDARD;
+    let row_h = theme::CONTROL_MD + theme::CONTROL_STANDARD;
     let modal_h = theme::INSET_MODAL
         + theme::LINE_BODY
         + theme::SPACE_GROUP
@@ -273,7 +273,7 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
             );
 
             let text_x = row_r.left() + theme::INSET_FRAME;
-            let text_w = (row_r.width() - theme::INSET_FRAME - theme::INSET_FRAME).max(theme::CONTROL_ROW);
+            let text_w = (row_r.width() - theme::INSET_FRAME - theme::INSET_FRAME).max(theme::CONTROL_MD);
             let title_y = row_r.top() + theme::INSET_FRAME;
             p.text(Pos2::new(text_x, title_y), Align2::LEFT_TOP, title, theme::font_body_medium(), theme::TEXT);
 

@@ -559,11 +559,101 @@
       "kind": "register",
       "note": "Button/Secondary",
       "ts": "2026-10-28T17:11:28.546Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "10px",
+      "kind": "change-token",
+      "path": "typography.font-size-caption",
+      "reason": "Studio scale: 12px caption and label size (R5)",
+      "to": "12px",
+      "ts": "2026-10-28T18:04:18.084Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "11px",
+      "kind": "change-token",
+      "path": "typography.font-size-body",
+      "reason": "Studio scale: 12px row and body size (R5)",
+      "to": "12px",
+      "ts": "2026-10-28T18:04:18.214Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "12px",
+      "kind": "change-token",
+      "path": "typography.font-size-title",
+      "reason": "Studio scale: 14px Home and dialog text (R5)",
+      "to": "14px",
+      "ts": "2026-10-28T18:04:18.328Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "13px",
+      "kind": "change-token",
+      "path": "typography.font-size-heading",
+      "reason": "Studio scale: 14px panel title (R5)",
+      "to": "14px",
+      "ts": "2026-10-28T18:04:18.436Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "2px",
+      "kind": "change-token",
+      "path": "radius.radius-xs",
+      "reason": "Studio scale: 4px radius step",
+      "to": "4px",
+      "ts": "2026-10-28T18:04:18.549Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "4px",
+      "kind": "change-token",
+      "path": "radius.radius-sm",
+      "reason": "Studio scale: 6px radius step",
+      "to": "6px",
+      "ts": "2026-10-28T18:04:18.667Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "6px",
+      "kind": "change-token",
+      "path": "radius.radius-md",
+      "reason": "Studio scale: 8px control radius (R5)",
+      "to": "8px",
+      "ts": "2026-10-28T18:04:18.788Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "8px",
+      "kind": "change-token",
+      "path": "radius.radius-lg",
+      "reason": "Studio scale: 10px radius step",
+      "to": "10px",
+      "ts": "2026-10-28T18:04:18.916Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "10px",
+      "kind": "change-token",
+      "path": "radius.radius-xl",
+      "reason": "Studio scale: 12px card radius",
+      "to": "12px",
+      "ts": "2026-10-28T18:04:19.036Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "13px",
+      "kind": "change-token",
+      "path": "radius.radius-pill",
+      "reason": "Studio scale: full pill radius",
+      "to": "9999px",
+      "ts": "2026-10-28T18:04:19.128Z"
     }
   ],
-  "compiledHash": "sha256-_8lZw-38NH0NDbKKjZK-MzOvG-mNgxxi4BSBSr6hMQM",
+  "compiledHash": "sha256-SkbvSo4GPRiDbsraF1SR2KVmOozT63OQNtWEiJgr-DY",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 72,
+  "generation": 82,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {

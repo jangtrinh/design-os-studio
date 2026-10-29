@@ -18,11 +18,11 @@ Studio orange primary CTA button: colors.primary #E36323 fill (R4), colors.prima
   - `colors.primary-hover` → #f97316
   - `colors.ring` → #f97316
   - `duration.duration-fast` → 83ms
-  - `radius.radius-md` → 6px
+  - `radius.radius-md` → 8px
   - `spacing.space-2` → 8px
   - `spacing.space-3` → 12px
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-body` → 11px
+  - `typography.font-size-body` → 12px
 
 ### Button/Secondary
 
@@ -38,11 +38,11 @@ Neutral secondary action button: colors.secondary fill, colors.secondary-foregro
   - `colors.secondary-foreground` → #fafafa
   - `colors.secondary-hover` → #404040
   - `duration.duration-fast` → 83ms
-  - `radius.radius-md` → 6px
+  - `radius.radius-md` → 8px
   - `spacing.space-2` → 8px
   - `spacing.space-3` → 12px
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-body` → 11px
+  - `typography.font-size-body` → 12px
 
 ## content
 
@@ -59,12 +59,12 @@ Home workspace file card with live node mini-map preview, concentric 8px outer /
   - `colors.card-foreground` → #fafafa
   - `colors.muted-foreground` → #a3a3a3
   - `colors.surface-hover` → #262626
-  - `radius.radius-lg` → 8px
+  - `radius.radius-lg` → 10px
   - `spacing.space-3` → 12px
   - `spacing.space-4` → 16px
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-caption` → 10px
-  - `typography.font-size-title` → 12px
+  - `typography.font-size-caption` → 12px
+  - `typography.font-size-title` → 14px
 
 ### Card/StarterTemplate
 
@@ -79,11 +79,11 @@ Interactive starter template card in Home top tray with mini-canvas preview and 
   - `colors.card-foreground` → #fafafa
   - `colors.primary` → #e36323
   - `colors.surface-hover` → #262626
-  - `radius.radius-lg` → 8px
+  - `radius.radius-lg` → 10px
   - `spacing.space-3` → 12px
   - `spacing.space-4` → 16px
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-title` → 12px
+  - `typography.font-size-title` → 14px
 
 ## feedback
 
@@ -99,7 +99,7 @@ Pill count and semantic status badge using monospace numerals separated from sec
   - `colors.muted-foreground` → #a3a3a3
   - `colors.secondary` → #262626
   - `colors.success` → #22c55e
-  - `radius.radius-pill` → 13px
+  - `radius.radius-pill` → 9999px
   - `spacing.space-1` → 4px
   - `spacing.space-2` → 8px
   - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
@@ -121,11 +121,11 @@ Pill count and semantic status badge using monospace numerals separated from sec
   - `colors.input` → #0a0a0a
   - `colors.muted-foreground` → #a3a3a3
   - `colors.ring` → #f97316
-  - `radius.radius-sm` → 4px
+  - `radius.radius-sm` → 6px
   - `spacing.space-1` → 4px
   - `spacing.space-2` → 8px
   - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
-  - `typography.font-size-body` → 11px
+  - `typography.font-size-body` → 12px
 
 ## layout
 
@@ -144,11 +144,11 @@ Pill count and semantic status badge using monospace numerals separated from sec
   - `colors.primary` → #e36323
   - `colors.success` → #22c55e
   - `colors.warning` → #eab308
-  - `radius.radius-sm` → 4px
+  - `radius.radius-sm` → 6px
   - `spacing.ai-panel-width` → 400px
   - `spacing.space-2` → 8px
   - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
-  - `typography.font-size-body` → 11px
+  - `typography.font-size-body` → 12px
 
 ### Panel/RightInspector
 
@@ -164,13 +164,13 @@ Pill count and semantic status badge using monospace numerals separated from sec
   - `colors.component` → #06b6d4
   - `colors.success` → #22c55e
   - `colors.surface` → #171717
-  - `radius.radius-sm` → 4px
+  - `radius.radius-sm` → 6px
   - `spacing.panel-width` → 240px
   - `spacing.space-2` → 8px
   - `spacing.space-3` → 12px
   - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-body` → 11px
+  - `typography.font-size-body` → 12px
 
 ## navigation
 
@@ -188,11 +188,11 @@ Floating bottom canvas creation dock with tool triggers and #14AE5C Dev Mode tog
   - `colors.surface` → #171717
   - `colors.surface-foreground` → #fafafa
   - `colors.surface-hover` → #262626
-  - `radius.radius-lg` → 8px
+  - `radius.radius-lg` → 10px
   - `spacing.space-2` → 8px
   - `spacing.space-3` → 12px
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-body` → 11px
+  - `typography.font-size-body` → 12px
 
 ### Navigation/LeftRail
 
@@ -208,11 +208,11 @@ Home sidebar and 56px editor activity rail with 1px right border and orange acti
   - `colors.primary` → #e36323
   - `colors.surface-active` → #262626
   - `colors.surface-hover` → #262626
-  - `radius.radius-md` → 6px
+  - `radius.radius-md` → 8px
   - `spacing.rail-width` → 48px
   - `spacing.space-2` → 8px
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-body` → 11px
+  - `typography.font-size-body` → 12px
 
 ### Navigation/TopTabBar
 
@@ -227,11 +227,11 @@ Home sidebar and 56px editor activity rail with 1px right border and orange acti
   - `colors.border` → #262626
   - `colors.primary` → #e36323
   - `colors.surface` → #171717
-  - `radius.radius-sm` → 4px
+  - `radius.radius-sm` → 6px
   - `spacing.space-2` → 8px
   - `spacing.space-3` → 12px
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-body` → 11px
+  - `typography.font-size-body` → 12px
 
 ## overlay
 
@@ -248,10 +248,10 @@ Modal Cmd+K command palette overlay with fuzzy action search, keyboard shortcut 
   - `colors.popover-foreground` → #fafafa
   - `colors.primary` → #e36323
   - `colors.surface-hover` → #262626
-  - `radius.radius-xl` → 10px
+  - `radius.radius-xl` → 12px
   - `spacing.space-3` → 12px
   - `spacing.space-4` → 16px
   - `typography.font-family-mono` → Roboto Mono, SFMono-Regular, Menlo, monospace
   - `typography.font-family-sans` → Inter, -apple-system, BlinkMacSystemFont, sans-serif
-  - `typography.font-size-title` → 12px
+  - `typography.font-size-title` → 14px
 

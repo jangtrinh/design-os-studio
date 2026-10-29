@@ -1,4 +1,4 @@
-//! Full new-session CLI picker (`CONTROL_ROW` = 40 px) and compact `+` dropdown menu
+//! Full new-session CLI picker (`CONTROL_MD` = 40 px) and compact `+` dropdown menu
 //! (`CONTROL_STANDARD` = 28 px) sharing the single [`crate::agent_cli_catalog::build_picker_rows`]
 //! catalog list, plus the inline `"Other CLI…"` two-field form (`#652`).
 
@@ -268,10 +268,18 @@ fn state_pill_colors(signed_in: SignIn, installed: bool) -> (Color32, Color32, C
     }
 }
 
-/// Height of the `Other CLI…` form card: padding, the label and command fields, a caption block of two caption lines
-/// at `theme::LINE_CAPTION`, 8 px, and the button row at the 24 px target minimum. The card is the same in the full
-/// picker and in the `+` menu, and its height is a multiple of 4 px.
-const OTHER_FORM_CARD_HEIGHT: f32 = 128.0;
+/// Height of the `Other CLI…` form card, summed from its parts so it follows the caption line height: padding, the label
+/// and command fields (22 px each, `SPACE_ROW` apart), a caption block of two caption lines at `theme::LINE_CAPTION`,
+/// 8 px, the button row at the 24 px target minimum, and padding. The card is the same in the full picker and in the
+/// `+` menu, and its height is a multiple of 4 px.
+const OTHER_FORM_CARD_HEIGHT: f32 = theme::INSET_FRAME
+    + 2.0 * OTHER_FORM_FIELD_HEIGHT
+    + 2.0 * theme::SPACE_ROW
+    + OTHER_FORM_CAPTION_HEIGHT
+    + theme::SPACE_INLINE
+    + OTHER_FORM_BUTTON_HEIGHT
+    + theme::INSET_FRAME;
+const OTHER_FORM_FIELD_HEIGHT: f32 = 22.0;
 /// Room the picker and the `+` menu give the open form: the 2 px inset above the card, the card, and a 6 px margin.
 const OTHER_FORM_HEIGHT: f32 = OTHER_FORM_CARD_HEIGHT + 8.0;
 /// Two lines of the caption at its line height. The caption wraps to this block and never runs under the buttons.
@@ -282,7 +290,7 @@ const PICKER_FOOTER_HEIGHT: f32 = 22.0;
 /// Height of the picker card for `row_count` rows (header, rows, optional `"Other CLI…"` form, footer).
 fn picker_card_height(row_count: usize, other_form_open: bool) -> f32 {
     let form_h = if other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
-    theme::INSET_POPOVER * 2.0 + theme::SPACE_SECTION + row_count as f32 * (theme::CONTROL_ROW + theme::SPACE_ROW) + form_h + PICKER_FOOTER_HEIGHT
+    theme::INSET_POPOVER * 2.0 + theme::SPACE_SECTION + row_count as f32 * (theme::CONTROL_MD + theme::SPACE_ROW) + form_h + PICKER_FOOTER_HEIGHT
 }
 
 /// Height [`show_picker_panel_with_rows`] needs for `row_count` rows: the card plus its top margin, so a caller can
@@ -291,7 +299,7 @@ pub fn picker_outer_height(row_count: usize, other_form_open: bool) -> f32 {
     theme::INSET_POPOVER + picker_card_height(row_count, other_form_open)
 }
 
-/// Renders the full new-session picker panel (`CONTROL_ROW` = 40 px rows, `#652` §7).
+/// Renders the full new-session picker panel (`CONTROL_MD` = 40 px rows, `#652` §7).
 pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) {
     let rows = rows_for_state(state);
     show_picker_panel_with_rows(state, ui, rect, file_path, rows);
@@ -306,7 +314,7 @@ pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect:
 
     let p = ui.painter().clone();
     let pad = theme::INSET_POPOVER;
-    let row_h = theme::CONTROL_ROW;
+    let row_h = theme::CONTROL_MD;
     let row_gap = theme::SPACE_ROW;
     let form_h = if state.picker.other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
     let header_h = theme::SPACE_SECTION;
@@ -478,20 +486,24 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     let row_h = theme::CONTROL_STANDARD; // 28 px compact row height
     let row_gap = theme::INSET_SEGMENT;
     let header_h = 22.0;
-    let footer_h = 20.0;
+    let p = ui.painter().clone();
+    let inner_w = (menu_w - menu_edge * 2.0).max(120.0);
+    // The footer line is wrapped, never elided: a failed-resume notice that does not fit in one line takes a second
+    // one and the menu grows by it.
+    let (footer_txt, footer_col) = footer_caption(state);
+    let footer = p.layout(footer_txt.to_string(), theme::font_caption(), footer_col, inner_w - theme::SPACE_INLINE);
+    let footer_h = (footer.size().y + theme::SPACE_FACT).max(20.0);
     let resume_h = if last_resume.is_some() { row_h + row_gap } else { 0.0 };
     let form_h = if state.picker.other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
     let menu_h = header_h + resume_h + rows.len() as f32 * (row_h + row_gap) + form_h + footer_h + theme::SPACE_INLINE;
     let menu_x = (panel_rect.right() - menu_w - menu_edge).max(panel_rect.left() + menu_edge);
     let menu_r = Rect::from_min_size(Pos2::new(menu_x, top_y), Vec2::new(menu_w, menu_h));
 
-    let p = ui.painter().clone();
     p.rect_filled(menu_r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
     p.rect_stroke(menu_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_MENU), StrokeKind::Inside);
     widgets::record(ui, "agents-runtime-dropdown-menu", menu_r);
 
     let inner_left = menu_r.left() + menu_edge;
-    let inner_w = (menu_w - menu_edge * 2.0).max(120.0);
     let hdr_txt = widgets::elide(&p, "New session", &theme::font_caption_medium(), inner_w);
     let hdr_center_y = menu_r.top() + header_h * 0.5;
     p.text(Pos2::new(inner_left + theme::SPACE_FACT, hdr_center_y), Align2::LEFT_CENTER, hdr_txt, theme::font_caption_medium(), theme::TEXT_SECONDARY);
@@ -597,10 +609,10 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     }
 
     // Footer permission caption of the active mode (`#652` §3 rule 9, `#841`)
+    // The last line of the footer stays centred where the single line always sat; a second line goes above it.
     let footer_y = (menu_r.bottom() - theme::INSET_CONTROL).max(y + theme::SPACE_FACT);
-    let (footer_txt, footer_col) = footer_caption(state);
-    let perm_str = widgets::elide(&p, footer_txt, &theme::font_caption(), inner_w - theme::SPACE_INLINE);
-    p.text(Pos2::new(inner_left + theme::SPACE_FACT, footer_y), Align2::LEFT_CENTER, perm_str, theme::font_caption(), footer_col);
+    let line_h = footer.size().y / footer.rows.len().max(1) as f32;
+    p.galley(Pos2::new(inner_left + theme::SPACE_FACT, footer_y + line_h * 0.5 - footer.size().y), footer, footer_col);
 
     if !matches!(interaction, PickerInteraction::None) {
         apply_picker_interaction(state, &rows, interaction, file_path);
@@ -634,7 +646,7 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
 
     let pad = theme::INSET_FRAME;
     let field_w = (form_r.width() - pad * 2.0).max(80.0);
-    let field_h = 22.0;
+    let field_h = OTHER_FORM_FIELD_HEIGHT;
     let field_inset = Vec2::new(theme::INSET_CONTROL, theme::INSET_SEGMENT);
 
     let lbl_rect = Rect::from_min_size(Pos2::new(form_r.left() + pad, form_r.top() + pad), Vec2::new(field_w, field_h));
@@ -849,7 +861,7 @@ mod tests {
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
 
-        // 1. Render full picker (`CONTROL_ROW` = 40 px)
+        // 1. Render full picker (`CONTROL_MD` = 40 px)
         let out_full =
             ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
                 show_picker_panel(&mut st, ui, panel_rect, None);
@@ -863,7 +875,7 @@ mod tests {
         assert!(!full_all.iter().any(|t| t.contains("Skip permissions")), "a default picker must not offer Skip as the active mode (#841): {full_all:?}");
         let full_claude_rect =
             ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "picker-row-agents-dropdown-claude".to_string())))).expect("full picker claude rect");
-        assert!((full_claude_rect.height() - theme::CONTROL_ROW).abs() < 0.5, "Full picker row height must be CONTROL_ROW (40px)");
+        assert!((full_claude_rect.height() - theme::CONTROL_MD).abs() < 0.5, "Full picker row height must be CONTROL_MD (40px)");
 
         // 2. Render compact `+` menu (`CONTROL_STANDARD` = 28 px)
         st.runtime_dropdown_open = true;
