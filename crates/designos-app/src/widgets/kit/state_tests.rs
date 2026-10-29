@@ -4,6 +4,17 @@ use super::*;
 use crate::theme;
 
 #[test]
+fn toast_action_hover_uses_the_secondary_hover_fill() {
+    let rest = toast_action_look(State::Default);
+    let hot = toast_action_look(State::Hover);
+    assert_eq!(rest.text, theme::TEXT_SECONDARY);
+    assert_eq!(rest.fill.a(), 0);
+    assert_eq!(hot.fill, theme::BG_SECONDARY_HOVER);
+    assert_ne!(hot.fill, theme::BG_HOVER);
+    assert_eq!(hot.text, theme::TEXT_SECONDARY_HOVER);
+}
+
+#[test]
 fn button_looks_match_spec_c_table() {
     let doc = doc();
     let rows = doc["rows"].as_object().expect("rows");

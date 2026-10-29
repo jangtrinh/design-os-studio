@@ -25,17 +25,8 @@
     "canvas/proto.rs": {
       "chrome_sites": 4
     },
-    "canvas/rulers.rs": {
-      "chrome_sites": 1
-    },
     "canvas/tiles.rs": {
       "chrome_sites": 2
-    },
-    "cmdk.rs": {
-      "chrome_sites": 9
-    },
-    "decks/ui.rs": {
-      "chrome_sites": 1
     },
     "dev/compare.rs": {
       "chrome_sites": 2
@@ -46,17 +37,11 @@
     "dev/playground.rs": {
       "chrome_sites": 4
     },
-    "history/modal.rs": {
-      "chrome_sites": 1
-    },
-    "home/dialog.rs": {
-      "chrome_sites": 3
-    },
     "home/main_view.rs": {
       "chrome_sites": 7
     },
     "home/mod.rs": {
-      "chrome_sites": 38
+      "chrome_sites": 12
     },
     "icons.rs": {
       "chrome_sites": 1
@@ -82,9 +67,6 @@
     "panels/components.rs": {
       "chrome_sites": 1
     },
-    "panels/context.rs": {
-      "chrome_sites": 2
-    },
     "panels/export.rs": {
       "chrome_sites": 1
     },
@@ -94,22 +76,13 @@
     "panels/left.rs": {
       "chrome_sites": 2
     },
-    "panels/menus.rs": {
-      "chrome_sites": 4
-    },
     "panels/properties.rs": {
       "chrome_sites": 20
     },
     "panels/prototype.rs": {
       "chrome_sites": 10
     },
-    "panels/rail.rs": {
-      "chrome_sites": 1
-    },
     "panels/right.rs": {
-      "chrome_sites": 13
-    },
-    "panels/toolbar.rs": {
       "chrome_sites": 13
     },
     "panels/typography.rs": {
@@ -119,10 +92,7 @@
       "chrome_sites": 1
     },
     "present.rs": {
-      "chrome_sites": 9
-    },
-    "shell.rs": {
-      "chrome_sites": 12
+      "chrome_sites": 3
     },
     "skills/mod.rs": {
       "chrome_sites": 10
@@ -130,14 +100,8 @@
     "specs.rs": {
       "chrome_sites": 42
     },
-    "tabs.rs": {
-      "chrome_sites": 8
-    },
     "terminal.rs": {
       "chrome_sites": 50
-    },
-    "updater.rs": {
-      "chrome_sites": 11
     },
     "variables/view.rs": {
       "chrome_sites": 3

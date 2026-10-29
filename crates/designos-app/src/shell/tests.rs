@@ -1167,10 +1167,12 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
 }
 
 mod agent_turn_card_scroll;
+mod app_shell;
 mod board;
 mod board_home;
 mod canvas_label_rename;
 mod check_designs;
+mod chrome_census;
 mod comments;
 mod components;
 mod components_cycles;
@@ -1206,6 +1208,8 @@ mod live_patch_agent_switch;
 mod live_patch_agent_switch_edges;
 mod live_patch_agent_switch_guards;
 mod menus;
+mod overlays_chrome;
+mod overlays_chrome_layout;
 mod pages_layers_separator;
 mod palette_autofix_undo;
 mod panel_export;
@@ -1242,7 +1246,6 @@ mod agents_tab_strip;
 mod approval_banner_tab;
 mod assets_thumbs;
 mod assets_variables_libraries_chrome;
-mod chrome_census;
 #[cfg(unix)]
 mod layout_unchanged;
 mod libraries;

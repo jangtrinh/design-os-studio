@@ -13,7 +13,7 @@ use egui::{Align2, Id, Pos2, Rect, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2
 const SIDE: f32 = 12.0;
 const AVATAR: f32 = 20.0;
 const ROWS_MAX: usize = 3;
-const SEARCH_H: f32 = 28.0;
+const SEARCH_H: f32 = theme::CONTROL_XS;
 const FOOTER_H: f32 = 40.0;
 
 pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
@@ -41,28 +41,26 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     y += 1.0 + 8.0;
 
     // filters
-    let r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, theme::COMMENT_FILTER_H));
+    let filter_h = theme::COMMENT_FILTER_H;
+    let r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, filter_h));
     if let Some(i) = ui::segmented(ui, r, "cf-page", &["This page", "All pages"], app.comments.all_pages as usize) {
         app.comments.all_pages = i == 1;
         app.comments.scroll = 0.0;
     }
     widgets::record(ui, "comments-filter-pages", r);
-    y += theme::COMMENT_FILTER_H + 8.0;
-    let r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, theme::COMMENT_FILTER_H));
+    y += filter_h + 8.0;
+    let r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, filter_h));
     if let Some(i) = ui::segmented(ui, r, "cf-status", &["Open", "Resolved"], app.comments.list_resolved as usize) {
         app.comments.list_resolved = i == 1;
         app.comments.scroll = 0.0;
     }
     widgets::record(ui, "comments-filter-status", r);
-    y += theme::COMMENT_FILTER_H + 8.0;
+    y += filter_h + 8.0;
 
     // search
     let sr = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, SEARCH_H));
-    p.rect_filled(sr, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     let sid = Id::new("comments-search");
-    if ui.memory(|m| m.has_focus(sid)) {
-        p.rect_stroke(sr, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-    }
+    crate::widgets::kit::paint_field(ui, sr, sid, crate::widgets::kit::Size::Xs, false);
     crate::icons::paint(&p, Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 16.0, theme::ICON_SECONDARY);
     let font = theme::font_body();
     let te = TextEdit::singleline(&mut app.comments.search)
@@ -72,10 +70,17 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         .frame(egui::Frame::NONE)
         .margin(egui::Margin::ZERO)
         .vertical_align(egui::Align::Center)
-        .hint_text(egui::RichText::new("Search comments").font(font.clone()).color(theme::TEXT_TERTIARY))
+        .hint_text(egui::RichText::new("Search comments").font(font.clone()).color(theme::TEXT_PLACEHOLDER))
         .desired_width(sr.width() - 36.0);
     let search_field = Rect::from_min_max(Pos2::new(sr.left() + 28.0, sr.top()), Pos2::new(sr.right() - 8.0, sr.bottom()));
-    if ui.put(search_field, te).changed() {
+    let changed = ui
+        .scope_builder(egui::UiBuilder::new().max_rect(search_field), |ui| {
+            // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+            ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
+            ui.put(search_field, te).changed()
+        })
+        .inner;
+    if changed {
         app.comments.scroll = 0.0;
     }
     widgets::record(ui, "comments-search", sr);
@@ -152,11 +157,15 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                 continue;
             }
             let resp = ui.interact(r, ui.id().with(("comment-card", &c.id)), Sense::click());
-            if open.as_deref() == Some(c.id.as_str()) {
-                p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
+            let fill = if open.as_deref() == Some(c.id.as_str()) {
+                theme::BG_SELECTED
             } else if resp.hovered() {
-                p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-            }
+                theme::BG_SECONDARY_HOVER
+            } else {
+                theme::BG_SECONDARY
+            };
+            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), fill);
+            p.rect_stroke(r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
             let first = &t.messages[0];
             let ax = r.left() + theme::COMMENT_CARD_PAD;
             let ay = r.top() + theme::COMMENT_CARD_PAD;

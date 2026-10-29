@@ -524,6 +524,8 @@ pub const PAGE_ROW_TEXT_PAD: f32 = 8.0;
 pub const PAGES_MAX_VISIBLE_ROWS: usize = 5;
 pub const PAGES_SEPARATOR_HIT: f32 = 6.0;
 pub const PAGES_SEPARATOR_HIT_HALF: f32 = PAGES_SEPARATOR_HIT * 0.5;
+/// Pointer band centred on a 1px drag divider. The painted line stays 1px.
+pub const DRAG_DIVIDER_HIT: f32 = TARGET_MIN;
 pub const PAGES_SEPARATOR_HIGHLIGHT_STROKE: f32 = 2.0;
 pub const PAGES_SEPARATOR_STEP: f32 = 8.0;
 pub const PAGES_SEPARATOR_SHIFT_MULT: f32 = 5.0;
@@ -545,6 +547,7 @@ pub const LAYER_DROP_THICKNESS: f32 = 2.0;
 pub const FIND_FIELD_H: f32 = CONTROL_XS;
 pub const FIND_ROW_GAP: f32 = 8.0;
 pub const FIND_TOGGLE_SIZE: f32 = 22.0;
+#[allow(dead_code)]
 pub const FIND_BUTTON_H: f32 = 24.0;
 pub const FIND_STATUS_H: f32 = 32.0;
 pub const FIND_GROUP_ROW_H: f32 = CONTROL_XS;
@@ -679,6 +682,7 @@ pub const MENU_CHEVRON_PAD: f32 = 8.0;
 pub const MENU_SEP_MARGIN: f32 = 8.0;
 /// Space kept between the label and a right-aligned shortcut / chevron.
 pub const MENU_LABEL_GAP: f32 = 16.0;
+#[allow(dead_code)] // Shortcuts paint TEXT_QUATERNARY. This role stays in the colour table.
 pub const MENU_SHORTCUT_HIGHLIGHT: Color32 = rgb(0xE5E5E5);
 pub const MENU_ICON_SIZE: f32 = 16.0;
 pub const MENU_CHEVRON_SIZE: f32 = 12.0;
@@ -717,9 +721,11 @@ pub const COMMENT_POP_W: f32 = 300.0;
 pub const COMMENT_POP_GAP: f32 = 8.0;
 pub const COMMENT_PAD: f32 = 12.0;
 pub const COMMENT_HEADER_H: f32 = 36.0;
+#[allow(dead_code)]
 pub const COMMENT_BTN_H: f32 = 24.0;
 pub const COMMENT_BOX_MIN_H: f32 = 56.0;
 pub const COMMENT_BOX_MAX_H: f32 = 160.0;
+#[allow(dead_code)]
 pub const COMMENT_ICON_BTN: f32 = 20.0;
 /// Comments panel (right side): filter row height and thread card padding.
 pub const COMMENT_PANEL_HEADER_H: f32 = 48.0;
