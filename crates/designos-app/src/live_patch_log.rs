@@ -21,6 +21,14 @@ const HEAD_BYTES: usize = 256;
 /// Which file is at the path: inode (Unix) and creation time.
 type FileIdentity = (u64, Option<SystemTime>);
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum StaleClose {
+    #[default]
+    None,
+    Hidden,
+    Before(u64),
+}
+
 fn identity(meta: &std::fs::Metadata) -> FileIdentity {
     #[cfg(unix)]
     let ino = std::os::unix::fs::MetadataExt::ino(meta);
@@ -67,6 +75,7 @@ pub struct LivePatchLog {
     pub pending_doc: Option<Document>,
     /// The agent closed the document. Applied after held patches, never as a quit of other tabs.
     pub pending_close: Option<CloseIntent>,
+    stale_close: StaleClose,
     /// Where the agent's documents are written: `doc-sync.designos` next to the log.
     doc_sync_path: PathBuf,
     /// Edits dropped because they were made on a document the agent had already left, or on one
@@ -178,6 +187,7 @@ impl LivePatchLog {
             pending_epoch_switch: false,
             pending_doc: None,
             pending_close: None,
+            stale_close: StaleClose::None,
             wake: Default::default(),
             doc_sync_path: path.with_file_name("doc-sync.designos"),
             dropped_old_epoch: 0,
@@ -257,6 +267,9 @@ impl LivePatchLog {
     pub fn poll_with_offsets(&mut self) -> (Vec<(u64, LiveLogLine)>, Vec<String>) {
         let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
+        if self.stale_close == StaleClose::Hidden {
+            self.stale_close = StaleClose::Before(len);
+        }
         if len == self.offset && self.identity == Some(id) {
             return Default::default();
         }
@@ -270,6 +283,8 @@ impl LivePatchLog {
             self.last_polled_offsets.clear();
             self.pending_epoch_switch = false;
             self.pending_doc = None;
+            self.pending_close = None;
+            self.stale_close = StaleClose::None;
             self.dropped_old_epoch = 0;
             self.discarding = false;
             self.load_failed = false;
@@ -388,8 +403,20 @@ impl LivePatchLog {
                     self.fenced = false;
                     self.fenced_dropped = 0;
                     self.fence_notice = None;
-                    self.pending_close = Some(intent);
-                    self.discarding = true;
+                    if self.drops_stale_close(line_offset) {
+                        write_close_result_file(
+                            &self.path,
+                            &intent,
+                            serde_json::json!({
+                                "ok": false,
+                                "code": "EDITOR_NOT_NOTIFIED",
+                                "message": "The close was dropped because the tab was no longer shown.",
+                            }),
+                        );
+                    } else {
+                        self.pending_close = Some(intent);
+                        self.discarding = true;
+                    }
                 }
             }
         }
@@ -432,6 +459,39 @@ impl LivePatchLog {
     fn read_range(&self, start: u64, len: u64) -> Option<Vec<u8>> {
         read_range(&self.path, start, len)
     }
+
+    pub fn drop_close_on_hide(&mut self) -> Option<CloseIntent> {
+        self.stale_close = StaleClose::Hidden;
+        self.pending_close.take()
+    }
+
+    fn drops_stale_close(&self, line_offset: u64) -> bool {
+        match self.stale_close {
+            StaleClose::Hidden => true,
+            StaleClose::Before(before) => line_offset < before,
+            StaleClose::None => false,
+        }
+    }
+}
+
+pub(crate) fn write_close_result_file(log_path: &Path, intent: &CloseIntent, mut body: serde_json::Value) {
+    let Some(close_id) = intent.close_id else {
+        return;
+    };
+    if let Some(fields) = body.as_object_mut() {
+        fields.insert("close_id".into(), serde_json::json!(close_id));
+        if let Some(tab_id) = intent.tab_id {
+            fields.insert("tab_id".into(), serde_json::json!(tab_id));
+        }
+    }
+    let Some(dir) = log_path.parent() else {
+        return;
+    };
+    let path = dir.join(CloseIntent::RESULT_FILE);
+    let Ok(bytes) = serde_json::to_vec(&body) else {
+        return;
+    };
+    let _ = crate::agent_session_files::atomic_write_session_file(&path, &bytes);
 }
 
 /// What the user is told, once per document epoch, when an edit written by a newer build is read: what was

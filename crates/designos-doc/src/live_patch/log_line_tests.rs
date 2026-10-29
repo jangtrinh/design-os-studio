@@ -8,6 +8,11 @@ fn a_log_line_is_an_edit_or_a_document_switch() {
     assert_eq!(LiveLogLine::parse(switch.as_bytes()).unwrap(), LiveLogLine::DocEpoch(DocEpoch::of(3, b"doc")));
     let close = serde_json::to_string(&CloseIntent::of("discard", None)).unwrap();
     assert_eq!(LiveLogLine::parse(close.as_bytes()).unwrap(), LiveLogLine::Close(CloseIntent::of("discard", None)));
+    let named = CloseIntent::of("fail", None).targeting(7, 11);
+    let named_json = serde_json::to_string(&named).unwrap();
+    assert!(named_json.contains("\"tab_id\":7"), "{named_json}");
+    assert!(named_json.contains("\"close_id\":11"), "{named_json}");
+    assert_eq!(LiveLogLine::parse(named_json.as_bytes()).unwrap(), LiveLogLine::Close(named));
 }
 
 #[test]

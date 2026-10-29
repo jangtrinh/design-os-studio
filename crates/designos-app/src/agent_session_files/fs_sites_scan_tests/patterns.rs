@@ -12,6 +12,8 @@ pub(super) const SESSION_NAMES: &[&str] = &[
     "context.json",
     "doc-patch.jsonl",
     "leave-asking",
+    "close-result.json",
+    "close-cancel.json",
     "mcp-config.json",
     "mcp_config.json",
     "bootstrap.",

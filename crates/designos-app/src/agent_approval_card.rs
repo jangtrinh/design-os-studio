@@ -8,7 +8,7 @@ use crate::terminal::{AgentCliPreset, STATUS_WARN_BG, STATUS_WARN_BORDER, STATUS
 use crate::theme;
 use crate::widgets::{self, menu_panel};
 use egui::text::LayoutJob;
-use egui::{Align2, Context, Id, Key, Modifiers, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui, Vec2};
+use egui::{Align2, Color32, Context, Id, Key, Modifiers, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui, Vec2};
 use std::path::Path;
 
 /// User action taken on the in-panel approval card.
@@ -295,6 +295,8 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         }
 
         y = y - theme::SPACE_ROW + theme::SPACE_GROUP;
+        p.text(Pos2::new(inner_x, y), Align2::LEFT_TOP, "Applies to new agent tabs.", theme::font_caption(), theme::TEXT_SECONDARY);
+        y += theme::LINE_CAPTION + theme::SPACE_GROUP;
         let autosave_on = lib_root.map(crate::comments::settings::load_autosave_ai_changes).unwrap_or(true);
         let auto_r = Rect::from_min_size(Pos2::new(inner_x, y), Vec2::new(inner_w, row_h));
         let auto_resp = ui.interact(auto_r, Id::new("agent-autosave-ai"), Sense::click());
@@ -311,18 +313,24 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         p.text(
             Pos2::new(auto_r.left() + theme::INSET_FRAME, auto_r.top() + theme::INSET_FRAME + theme::LINE_BODY + theme::SPACE_FACT),
             Align2::LEFT_TOP,
-            if autosave_on { "On. Save after each agent tool batch, outside the library." } else { "Off. Edits stay unsaved until the agent or you save." },
+            if autosave_on {
+                "On. Save after each agent tool batch, outside the library. This session too."
+            } else {
+                "Off. Edits stay unsaved until the agent or you save. This session too."
+            },
             theme::font_caption(),
             theme::TEXT_SECONDARY,
         );
+        let sw = Rect::from_min_size(Pos2::new(auto_r.right() - theme::INSET_FRAME - 28.0, auto_r.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
+        p.rect_filled(sw, theme::cr_pill(sw.height()), if autosave_on { theme::BG_BRAND } else { theme::BG_SECONDARY });
+        let kx = if autosave_on { sw.right() - theme::SPACE_INLINE } else { sw.left() + theme::SPACE_INLINE };
+        p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, Color32::WHITE);
         widgets::record(ui, "agent-autosave-ai", auto_r);
         if auto_resp.clicked() {
             if let Some(root) = lib_root {
                 let _ = crate::comments::settings::save_autosave_ai_changes(root, !autosave_on);
             }
         }
-        y += row_h + theme::SPACE_GROUP;
-        p.text(Pos2::new(inner_x, y), Align2::LEFT_TOP, "Applies to new agent tabs.", theme::font_caption(), theme::TEXT_SECONDARY);
     });
 
     if let Some(new_mode) = picked_mode {
@@ -368,6 +376,8 @@ mod tests {
             assert!(texts.iter().any(|t| t == "Ask before acting (default)"), "{selected:?}: Ask carries the default mark: {texts:?}");
             assert!(texts.iter().any(|t| t == "Skip permissions"), "{selected:?}: Skip stays on offer, unmarked: {texts:?}");
             assert!(!texts.iter().any(|t| t.contains("Skip permissions (default)")), "{selected:?}: Skip is no longer the default: {texts:?}");
+            assert!(texts.iter().any(|t| t == "Applies to new agent tabs."), "{selected:?}: permission modes keep their footnote: {texts:?}");
+            assert!(texts.iter().any(|t| t.contains("This session too.")), "{selected:?}: autosave says it applies to this session: {texts:?}");
         }
     }
 }

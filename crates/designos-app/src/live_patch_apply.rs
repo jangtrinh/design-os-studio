@@ -158,12 +158,164 @@ pub fn apply_pending_live_patches(app: &mut App) {
     if dropped > 0 {
         note_dropped_edits(app, dropped);
     }
-    if let Some(_intent) = app.terminal.live_patch.pending_close.take() {
-        if let Some(id) = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id) {
+    if let Some(intent) = app.terminal.live_patch.pending_close.take() {
+        apply_close_intent(app, intent);
+    }
+    publish_live_context(app);
+}
+
+pub fn abandon_queued_close(app: &mut App) {
+    if let Some(intent) = app.terminal.live_patch.drop_close_on_hide() {
+        crate::live_patch_log::write_close_result_file(
+            &app.terminal.live_patch.path,
+            &intent,
+            serde_json::json!({
+                "ok": false,
+                "code": "EDITOR_NOT_NOTIFIED",
+                "message": "The close was dropped because the tab was no longer shown.",
+            }),
+        );
+    }
+}
+
+fn close_cancelled(app: &App, close_id: Option<u64>) -> bool {
+    let Some(id) = close_id else {
+        return false;
+    };
+    let path = app.terminal.session_dir.join(designos_doc::live_patch::CloseIntent::CANCEL_FILE);
+    let Ok(raw) = crate::agent_session_files::read_session_file(&path) else {
+        return false;
+    };
+    serde_json::from_slice::<serde_json::Value>(&raw).ok().and_then(|v| v.get("close_id").and_then(serde_json::Value::as_u64)) == Some(id)
+}
+
+fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseIntent) {
+    if close_cancelled(app, intent.close_id) {
+        return;
+    }
+    let active_id = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id);
+    if let Some(named) = intent.tab_id {
+        if active_id != Some(named) || app.tabs.entries.iter().all(|t| t.id != named) {
+            crate::live_patch_log::write_close_result_file(
+                &app.terminal.live_patch.path,
+                &intent,
+                serde_json::json!({
+                    "ok": false,
+                    "code": "EDITOR_NOT_NOTIFIED",
+                    "message": "The close was dropped because it did not name the shown tab.",
+                }),
+            );
+            return;
+        }
+    }
+    let Some(id) = intent.tab_id.or(active_id) else {
+        crate::live_patch_log::write_close_result_file(
+            &app.terminal.live_patch.path,
+            &intent,
+            serde_json::json!({
+                "ok": false,
+                "code": "EDITOR_NOT_NOTIFIED",
+                "message": "The close was dropped because no tab was shown.",
+            }),
+        );
+        return;
+    };
+    app.commit_open_edits();
+    let dirty = app.has_unsaved_edits();
+    let log_path = app.terminal.live_patch.path.clone();
+    match intent.unsaved.as_str() {
+        "fail" if dirty => {
+            crate::live_patch_log::write_close_result_file(
+                &log_path,
+                &intent,
+                serde_json::json!({
+                    "ok": false,
+                    "code": "UNSAVED_CHANGES",
+                    "message": "Unsaved changes. The document stayed open.",
+                }),
+            );
+        }
+        "save" => {
+            if !save_for_agent_close(app, intent.path.as_deref()) {
+                crate::live_patch_log::write_close_result_file(
+                    &log_path,
+                    &intent,
+                    serde_json::json!({
+                        "ok": false,
+                        "code": "PATH_REQUIRED",
+                        "message": "Untitled documents need a path to save",
+                    }),
+                );
+                return;
+            }
+            let revision = app.doc.mutation_epoch();
+            let saved_path = app.file_path.as_ref().map(|p| p.display().to_string());
+            crate::live_patch_log::write_close_result_file(
+                &log_path,
+                &intent,
+                serde_json::json!({
+                    "ok": true,
+                    "closed": true,
+                    "saved": true,
+                    "unsaved": "save",
+                    "doc_revision": revision,
+                    "path": saved_path,
+                }),
+            );
+            app.request_leave_from_agent(None, crate::home::Leave::CloseTab(id));
+        }
+        _ => {
+            let revision = app.doc.mutation_epoch();
+            crate::live_patch_log::write_close_result_file(
+                &log_path,
+                &intent,
+                serde_json::json!({
+                    "ok": true,
+                    "closed": true,
+                    "saved": false,
+                    "unsaved": intent.unsaved,
+                    "doc_revision": revision,
+                }),
+            );
             app.request_leave_from_agent(None, crate::home::Leave::CloseTab(id));
         }
     }
-    publish_live_context(app);
+}
+
+fn save_for_agent_close(app: &mut App, path: Option<&str>) -> bool {
+    if let Some(raw) = path.filter(|s| !s.is_empty()) {
+        let target = std::path::PathBuf::from(raw);
+        if app.file_path.as_ref() == Some(&target) {
+            app.save(false);
+            return !app.has_unsaved_edits();
+        }
+        match crate::io::save_path_counted(&app.doc, &target) {
+            Ok((saved, replaced)) => {
+                if replaced > 0 {
+                    app.doc.neutralize_non_finite();
+                    app.hist.neutralize_non_finite();
+                    app.changed();
+                }
+                if app.lib_file.is_none() {
+                    if let Some(old) = app.file_path.replace(saved.clone()) {
+                        app.release_repaired_original(&old, Some(&saved));
+                    }
+                    app.autosave.saved_hash = crate::home::doc_hash(&app.doc);
+                    app.autosave.seen_rev = app.canvas.tiles.rev();
+                    if crate::io::writes_native_format(&saved) {
+                        app.mark_saved();
+                    }
+                }
+                true
+            }
+            Err(_) => false,
+        }
+    } else if app.lib_file.is_some() || app.file_path.as_ref().is_some_and(|p| crate::io::writes_native_format(p)) {
+        app.save(false);
+        !app.has_unsaved_edits()
+    } else {
+        false
+    }
 }
 
 fn maybe_autosave_ai_changes(app: &mut App) {

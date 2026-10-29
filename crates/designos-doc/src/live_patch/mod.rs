@@ -101,11 +101,24 @@ pub struct CloseIntent {
     pub unsaved: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub close_id: Option<u64>,
 }
 
 impl CloseIntent {
+    pub const RESULT_FILE: &'static str = "close-result.json";
+    pub const CANCEL_FILE: &'static str = "close-cancel.json";
+
     pub fn of(unsaved: impl Into<String>, path: Option<String>) -> Self {
-        Self { v: LIVE_PATCH_VERSION, close: true, unsaved: unsaved.into(), path }
+        Self { v: LIVE_PATCH_VERSION, close: true, unsaved: unsaved.into(), path, tab_id: None, close_id: None }
+    }
+
+    pub fn targeting(mut self, tab_id: u64, close_id: u64) -> Self {
+        self.tab_id = Some(tab_id);
+        self.close_id = Some(close_id);
+        self
     }
 }
 

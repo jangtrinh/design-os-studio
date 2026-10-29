@@ -2,12 +2,15 @@
 //!
 //! Dirty and clean × save / discard / fail / missing / invalid × titled / untitled × path / no path.
 
+use designos_doc::live_patch::{CloseIntent, LiveLogLine};
 use designos_mcp::server::Session;
 use serde_json::{json, Value};
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+    thread,
+    time::{Duration, Instant},
 };
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -201,4 +204,141 @@ fn close_discard_untitled_closes_without_writing() {
     assert_eq!(out["closed"], true, "{out}");
     let entries: Vec<_> = fs::read_dir(&dir.0).unwrap().filter_map(|e| e.ok()).collect();
     assert!(!entries.iter().any(|e| e.path().extension().is_some_and(|x| x == "designos")), "discard of untitled wrote a file: {entries:?}");
+}
+
+fn live_session(dir: &Workspace, tab_id: u64) -> (PathBuf, Session) {
+    let session_dir = dir.0.join(format!("win-tab-{tab_id}"));
+    fs::create_dir_all(&session_dir).unwrap();
+    let mut s = Session::with_session_dir(&dir.0, &session_dir).unwrap();
+    s.set_close_ack_timeout(Duration::from_millis(80));
+    (session_dir, s)
+}
+
+fn last_close_line(session_dir: &Path) -> CloseIntent {
+    let raw = fs::read_to_string(session_dir.join("doc-patch.jsonl")).expect("close line written");
+    let line = raw.lines().rev().find(|l| !l.trim().is_empty()).expect("a log line");
+    match LiveLogLine::parse(line.as_bytes()).expect("parse close line") {
+        LiveLogLine::Close(intent) => intent,
+        other => panic!("expected close, got {other:?}"),
+    }
+}
+
+#[test]
+fn save_file_reports_doc_revision() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let out = s.call("designos_save_file", json!({"path": "design.designos"})).unwrap();
+    assert_eq!(out["saved"], true, "{out}");
+    assert!(out["doc_revision"].as_u64().is_some(), "save result must name doc_revision: {out}");
+}
+
+#[test]
+fn close_save_reports_doc_revision() {
+    let dir = Workspace::new();
+    let mut s = titled_dirty(&dir);
+    let out = s.call("designos_close_document", json!({"unsaved": "save"})).unwrap();
+    assert_eq!(out["closed"], true, "{out}");
+    assert_eq!(out["saved"], true, "{out}");
+    assert!(out["doc_revision"].as_u64().is_some(), "close-save result must name doc_revision: {out}");
+}
+
+#[test]
+fn live_close_without_editor_ack_is_not_closed() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 7);
+    s.call("designos_save_file", json!({"path": "design.designos"})).unwrap();
+    let err = s.call("designos_close_document", json!({"unsaved": "discard"})).unwrap_err().to_json_value();
+    assert_ne!(err["code"], json!("UNSAVED_CHANGES"), "timeout is not unsaved: {err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert!(err.get("closed").is_none() || err["closed"] != true, "must not claim closed: {err}");
+    let cancel: Value = serde_json::from_slice(&fs::read(session_dir.join("close-cancel.json")).expect("cancel written")).unwrap();
+    assert!(cancel["close_id"].as_u64().is_some(), "{cancel}");
+    let intent = last_close_line(&session_dir);
+    assert_eq!(intent.tab_id, Some(7), "intent names the tab: {intent:?}");
+    assert_eq!(intent.close_id, cancel["close_id"].as_u64());
+}
+
+#[test]
+fn live_close_with_editor_ack_is_closed() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 3);
+    s.call("designos_save_file", json!({"path": "design.designos"})).unwrap();
+    let session_dir_for_ack = session_dir.clone();
+    thread::scope(|scope| {
+        scope.spawn(move || {
+            let deadline = Instant::now() + Duration::from_millis(500);
+            loop {
+                if let Ok(raw) = fs::read_to_string(session_dir_for_ack.join("doc-patch.jsonl")) {
+                    if let Some(line) = raw.lines().rev().find(|l| l.contains("\"close\":true")) {
+                        if let Ok(LiveLogLine::Close(intent)) = LiveLogLine::parse(line.as_bytes()) {
+                            if let Some(close_id) = intent.close_id {
+                                let ack = json!({
+                                    "close_id": close_id,
+                                    "ok": true,
+                                    "closed": true,
+                                    "saved": false,
+                                    "unsaved": "discard",
+                                    "doc_revision": 99u64,
+                                    "tab_id": 3u64,
+                                });
+                                fs::write(session_dir_for_ack.join("close-result.json"), ack.to_string()).unwrap();
+                                return;
+                            }
+                        }
+                    }
+                }
+                if Instant::now() >= deadline {
+                    panic!("close line with close_id never appeared");
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let out = s.call("designos_close_document", json!({"unsaved": "discard"})).expect("acked close");
+        assert_eq!(out["closed"], true, "{out}");
+        assert_eq!(out.get("queued").and_then(Value::as_bool), None, "acked close is not queued: {out}");
+        assert_eq!(out["doc_revision"], 99, "revision comes from the editor ack: {out}");
+        assert_eq!(out["tab_id"], 3, "{out}");
+        let intent = last_close_line(&session_dir);
+        assert_eq!(intent.tab_id, Some(3));
+        assert!(intent.close_id.is_some(), "{intent:?}");
+    });
+}
+
+#[test]
+fn live_close_fail_ack_is_unsaved_changes() {
+    let dir = Workspace::new();
+    let (session_dir, mut s) = live_session(&dir, 4);
+    let session_dir_for_ack = session_dir.clone();
+    thread::scope(|scope| {
+        scope.spawn(move || {
+            let deadline = Instant::now() + Duration::from_millis(500);
+            loop {
+                if let Ok(raw) = fs::read_to_string(session_dir_for_ack.join("doc-patch.jsonl")) {
+                    if let Some(line) = raw.lines().rev().find(|l| l.contains("\"close\":true")) {
+                        if let Ok(LiveLogLine::Close(intent)) = LiveLogLine::parse(line.as_bytes()) {
+                            if let Some(close_id) = intent.close_id {
+                                let ack = json!({
+                                    "close_id": close_id,
+                                    "ok": false,
+                                    "code": "UNSAVED_CHANGES",
+                                    "message": "Unsaved changes. The document stayed open.",
+                                });
+                                fs::write(session_dir_for_ack.join("close-result.json"), ack.to_string()).unwrap();
+                                return;
+                            }
+                        }
+                    }
+                }
+                if Instant::now() >= deadline {
+                    panic!("close line with close_id never appeared");
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let err = s.call("designos_close_document", json!({})).unwrap_err().to_json_value();
+        assert_eq!(err["code"], "UNSAVED_CHANGES", "{err}");
+        assert_eq!(err["safe_to_retry"], false, "{err}");
+        assert!(err.get("closed").is_none() || err["closed"] != true, "{err}");
+        assert!(s.call("designos_get_document", json!({})).is_ok(), "session stays open after fail");
+    });
 }
