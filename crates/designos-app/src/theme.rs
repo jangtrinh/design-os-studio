@@ -991,6 +991,7 @@ pub const VAR_HEX_X: f32 = 30.0;
 pub const VAR_HEX_W: f32 = 146.0;
 pub const VAR_OPACITY_W: f32 = 62.0;
 pub const VAR_OPACITY_RIGHT: f32 = 74.0;
+#[allow(dead_code)] // legacy field height; call sites read FIELD_HEIGHT
 pub const VAR_FIELD_H: f32 = 24.0;
 pub const VAR_POPOVER_W: f32 = 264.0;
 

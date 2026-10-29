@@ -16,7 +16,6 @@ const fn focus(focused: bool) -> Color32 {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub const fn toggle_ring(focused: bool) -> Color32 {
     focus(focused)
 }
@@ -35,7 +34,6 @@ pub const fn swatch_ring_color(focused: bool) -> Color32 {
     focus(focused)
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 pub const fn toggle_look(state: State) -> Look {
     let track = look(theme::BG_TERTIARY, theme::BORDER, W * 0.5, CLEAR, theme::ICON_WHITE);
     match state {
@@ -114,10 +112,11 @@ pub fn checkbox(ui: &mut Ui, rect: Rect, key: impl Key, value: bool, enabled: bo
     response
 }
 
-#[allow(dead_code)]
 pub fn toggle(ui: &mut Ui, rect: Rect, key: impl Key, on: bool, enabled: bool) -> Response {
     let shown = enabled || !ui.is_enabled();
-    let response = click(ui, rect, key, enabled && ui.is_enabled());
+    // The track keeps its own height; a track under the pointer floor hits on a taller band around it.
+    let pad = ((theme::TARGET_MIN - rect.height()) * 0.5).max(0.0);
+    let response = click(ui, rect.expand2(egui::vec2(0.0, pad)), key, enabled && ui.is_enabled());
     let paint = toggle_look(held_value(&response, on, shown));
     let radius = theme::radius_full(rect.height()).round();
     paint_frame(ui.painter(), rect, radius as u8, &paint);

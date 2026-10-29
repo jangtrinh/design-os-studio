@@ -46,7 +46,7 @@ mod surface;
 mod tabs;
 
 #[cfg_attr(not(test), allow(unused_imports))]
-pub use badge::{count_badge, count_badge_look, status_color, status_dot, tag, tag_look, tag_ring, DotTone, Tone};
+pub use badge::{count_badge, count_badge_look, status_color, status_dot, status_tag, tag, tag_look, tag_ring, DotTone, Tone};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use button::{button, button_icon, button_look, button_ring, close_look_over, paint_icon_bg, toast_action_look, ClosePlate, Hierarchy};
 #[cfg_attr(not(test), allow(unused_imports))]

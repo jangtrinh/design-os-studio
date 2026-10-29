@@ -1246,6 +1246,7 @@ mod agents_panel_only;
 mod agents_tab_strip;
 mod approval_banner_tab;
 mod assets_thumbs;
+mod assets_variables_libraries_chrome;
 #[cfg(unix)]
 mod layout_unchanged;
 mod libraries;
