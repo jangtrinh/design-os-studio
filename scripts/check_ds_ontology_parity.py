@@ -21,7 +21,7 @@ It reads files only: no `ui` CLI, no cargo build, so it runs in the design-gates
                             file exists
   P7  absences              the pinned sites of an upper-case tag, a brand-filled selected state, a chrome
                             gradient and monospace chrome text equal their pins (ds_ontology_site_pins.py)
-  P9  shipped names         the design store holds no kit role or kit set name (needs the token contract: --contract),
+  P9  shipped names         the design store holds no kit role name (needs the token contract: --contract),
                             `Untitled UI` appears on the two credit lines only, no `UTILITY_*` constant in
                             crates/, and every registry variant axis is one of the seven Studio axes
 
@@ -613,7 +613,7 @@ def _crate_text_files(root: Path) -> Iterable[Path]:
 
 
 def check_p9(ctx: Context) -> Result:
-    result = Result("P9", "shipped names (the design store holds no kit role or kit set name)")
+    result = Result("P9", "shipped names (the design store holds no kit role name)")
     files = _store_set_files(ctx.root)
 
     contract_path = find_contract(ctx)
