@@ -232,7 +232,7 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Purpose:** Start a blank document with one page.
 - **Args:** required: `name` (optional: `discard_changes`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNSAVED_CHANGES`, `TEXT_TOO_LONG`
-- **Example:** `{"name":"Fintech Workspace","discard_changes":true}`
+- **Example:** `{"name":"Fintech Workspace"}`
 
 ## Declarative `NodeSpec` Reference (Generated from Schema)
 

@@ -1467,8 +1467,8 @@ pub fn tools() -> Vec<Tool> {
     for (name, description, properties, required, out_props, out_req) in [
         (
             "designos_open_file",
-            "Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true.",
-            json!({"path":{"type":"string"},"discard_changes":{"type":"boolean","default":false}}),
+            "Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them.",
+            json!({"path":{"type":"string"},"discard_changes":{"type":"boolean","default":false,"description":"Set discard_changes=true only when the user has explicitly confirmed, in this conversation, that the unsaved changes may be thrown away. Never set it on your own to get past an unsaved-changes refusal; stop and ask the user instead."}}),
             vec!["path"],
             json!({
                 "name": {"type": "string"},
@@ -1513,8 +1513,8 @@ pub fn tools() -> Vec<Tool> {
         ),
         (
             "designos_new_document",
-            "Start a blank document with one page. Unsaved changes require discard_changes=true.",
-            json!({"name":{"type":"string","minLength":1,"maxLength":1024},"discard_changes":{"type":"boolean","default":false}}),
+            "Start a blank document with one page. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them.",
+            json!({"name":{"type":"string","minLength":1,"maxLength":1024},"discard_changes":{"type":"boolean","default":false,"description":"Set discard_changes=true only when the user has explicitly confirmed, in this conversation, that the unsaved changes may be thrown away. Never set it on your own to get past an unsaved-changes refusal; stop and ask the user instead."}}),
             vec!["name"],
             json!({
                 "name": {"type": "string"},

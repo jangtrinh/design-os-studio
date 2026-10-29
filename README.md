@@ -488,10 +488,10 @@ Once installed, your agent loads `skills/design-os-studio/SKILL.md` when your re
 | `designos_get_design_context` | read-only | `node_id` | Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax, linked styles, component instances/properties, annotations, dev status, Code Connect stub), and an inline screenshot (scale 0.5, max_long_edge 1024), with an XML outline fallback when the subtree exceeds 5,000 nodes or generated code exceeds 40,000 characters. |
 | `designos_configure_session` | mutating | — | Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode: preset \| errors_only \| off, issues.preset, issues.max_items: 1..=100) and auto_fix settings. Persists across reconnects in the session directory and resets on document switch. |
 | `designos_get_app_state` | read-only | — | Return the pre-fetched design context block. Sections: freshness, document, depth-3 target frames outline, variables summary, components and libraries, active style, and rules pack, plus session state. Pass include_selection=true ONLY when the user explicitly asks about their canvas selection. |
-| `designos_open_file` | mutating | `path` | Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true. |
+| `designos_open_file` | mutating | `path` | Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them. |
 | `designos_save_file` | mutating | `path` | Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist. |
 | `designos_render_png` | mutating | `node_id`, `path` | Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's deterministic renderer. Existing files are never overwritten. |
-| `designos_new_document` | mutating | `name` | Start a blank document with one page. Unsaved changes require discard_changes=true. |
+| `designos_new_document` | mutating | `name` | Start a blank document with one page. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them. |
 <!-- designos-mcp-tools:end -->
 
 ---

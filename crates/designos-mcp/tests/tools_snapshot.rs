@@ -341,3 +341,16 @@ fn parity_doc_lists_window_lock_and_approval_as_needs_human() {
     assert!(!doc.contains("no `ErrorCode` and no `error_kind`"), "AC-09 is no longer partial: the window lock is a real error kind");
     assert!(!doc.contains("AC-09 is partial"), "docs must not say AC-09 is partial");
 }
+
+#[test]
+fn discard_changes_requires_explicit_user_confirmation_in_description_and_schema() {
+    let tools = designos_mcp::server::tools();
+    for name in ["designos_open_file", "designos_new_document"] {
+        let tool = tools.iter().find(|t| t.name.as_ref() == name).unwrap_or_else(|| panic!("{name} declared"));
+        let desc = tool.description.as_deref().unwrap_or_default();
+        assert!(desc.contains("explicit confirmation"), "{name} description must say discard_changes needs the user's explicit confirmation: {desc}");
+        let schema = Value::Object((*tool.input_schema).clone());
+        let prop = schema["properties"]["discard_changes"]["description"].as_str().unwrap_or_default();
+        assert!(prop.contains("explicitly confirmed"), "{name} discard_changes schema must require the user's explicit confirmation: {prop}");
+    }
+}

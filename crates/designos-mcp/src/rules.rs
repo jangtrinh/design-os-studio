@@ -603,7 +603,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_open_file" => r#"{"path":"design.designos","discard_changes":false}"#,
         "designos_save_file" => r#"{"path":"design.designos","overwrite":true}"#,
         "designos_render_png" => r#"{"node_id":2,"path":"preview.png","scale":2.0}"#,
-        "designos_new_document" => r#"{"name":"Fintech Workspace","discard_changes":true}"#,
+        "designos_new_document" => r#"{"name":"Fintech Workspace"}"#,
         "designos_search_design_system" => r#"{"query":"button","kinds":["component"],"limit":10}"#,
         "designos_get_design_context" => r#"{"node_id":2,"language":"css"}"#,
         "designos_lint_fix" => r#"{"page_id":1,"rules":["default-layer-name"]}"#,
