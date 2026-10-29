@@ -128,14 +128,14 @@ fn seg_text(ui: &mut Ui, pane: &Pane, x: f32, key: &str, labels: &[&str], select
         let resp = ui.interact(r, ui.id().with(("segt", key, i)), Sense::click());
         let sel = selected == Some(i);
         let bg = if sel {
-            theme::BG_TERTIARY
+            theme::BG_SELECTED
         } else if resp.hovered() {
-            theme::BG_TERTIARY.gamma_multiply(0.6)
+            theme::BG_SECONDARY_HOVER
         } else {
             theme::BG_SECONDARY
         };
         ui.painter().rect_filled(r, radius, bg);
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, *label, theme::font_body_strong(), if sel { theme::ICON } else { theme::ICON_SECONDARY });
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, *label, theme::font_body(), if sel { theme::TEXT } else { theme::TEXT_SECONDARY });
         if i > 0 {
             widgets::vline(ui.painter(), r.left(), r.top(), r.bottom(), theme::BG);
         }
@@ -179,10 +179,15 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     // "More type settings" toggle sits in the title row (the title was drawn by the caller).
     let mb = pane.rect(theme::SECTION_TRAILING_X, -theme::SECTION_TITLE_HEIGHT + 8.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     let mr = ui.interact(mb, ui.id().with("typo-more-btn"), Sense::click());
-    if mr.hovered() || more {
-        ui.painter().rect_filled(mb, theme::cr(theme::RADIUS_CONTROL), if more { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-    }
-    ui.painter().text(mb.center(), Align2::CENTER_CENTER, "\u{2026}", theme::font_body_strong(), if more { theme::ICON } else { theme::ICON_SECONDARY });
+    crate::widgets::kit::paint_icon_bg(ui.painter(), mb, &mr, more, theme::cr(theme::RADIUS_CONTROL));
+    let more_ink = if more {
+        theme::ICON_SECONDARY
+    } else if mr.hovered() {
+        theme::ICON_QUATERNARY_HOVER
+    } else {
+        theme::ICON_QUATERNARY
+    };
+    ui.painter().text(mb.center(), Align2::CENTER_CENTER, "\u{2026}", theme::font_body_strong(), more_ink);
     mr.clone().on_hover_text("More type settings");
     if mr.clicked() {
         ui.data_mut(|d| d.insert_temp(more_id, !more));
@@ -334,7 +339,7 @@ fn color_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], sum: &
         (None, _) => {
             widgets::swatch(ui.painter(), sw, Color32::TRANSPARENT);
             field::field_bg(ui, hex_r, ui.id().with("text-mixed"));
-            ui.painter().text(Pos2::new(hex_r.left() + 8.0, hex_r.center().y), Align2::LEFT_CENTER, "Mixed", theme::font_body(), theme::TEXT);
+            ui.painter().text(Pos2::new(hex_r.left() + 8.0, hex_r.center().y), Align2::LEFT_CENTER, "Mixed", theme::font_body(), theme::TEXT_TERTIARY);
         }
         _ => {
             widgets::swatch(ui.painter(), sw, Color32::TRANSPARENT);
@@ -373,14 +378,13 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
     let open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
     let r = ui.interact(rect, id, Sense::click());
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    if r.hovered() || open {
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
-    }
+    let paint = crate::widgets::kit::select_look(if open { crate::widgets::kit::State::Focused } else { crate::widgets::kit::State::Default });
+    crate::widgets::kit::paint_frame(p, rect, theme::RADIUS_CONTROL, &paint);
     let font = theme::font_body();
     let shown = widgets::elide(p, label, &font, rect.width() - 28.0);
-    p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT);
-    crate::icons::paint(p, crate::icons::Icon::ChevronDown, Pos2::new(rect.right() - 12.0, rect.center().y), 12.0, theme::ICON_SECONDARY);
+    let label_color = if label == "Mixed" { theme::TEXT_TERTIARY } else { paint.text };
+    p.text(Pos2::new(rect.left() + theme::FIELD_PREFIX_X, rect.center().y), Align2::LEFT_CENTER, shown, font, label_color);
+    crate::icons::paint(p, crate::icons::Icon::ChevronDown, Pos2::new(rect.right() - 12.0, rect.center().y), 12.0, paint.icon);
     if r.clicked() {
         ui.data_mut(|d| {
             d.insert_temp(open_id, !open);
@@ -512,14 +516,14 @@ fn seg_rect(ui: &mut Ui, rect: Rect, key: &str, labels: &[&str], selected: Optio
         let resp = ui.interact(r, ui.id().with(("segr", key, i)), Sense::click());
         let sel = selected == Some(i);
         let bg = if sel {
-            theme::BG_TERTIARY
+            theme::BG_SELECTED
         } else if resp.hovered() {
-            theme::BG_TERTIARY.gamma_multiply(0.6)
+            theme::BG_SECONDARY_HOVER
         } else {
             theme::BG_SECONDARY
         };
         ui.painter().rect_filled(r, radius, bg);
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, *label, theme::font_body_strong(), if sel { theme::ICON } else { theme::ICON_SECONDARY });
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, *label, theme::font_body(), if sel { theme::TEXT } else { theme::TEXT_SECONDARY });
         if i > 0 {
             widgets::vline(ui.painter(), r.left(), r.top(), r.bottom(), theme::BG);
         }
@@ -530,13 +534,13 @@ fn seg_rect(ui: &mut Ui, rect: Rect, key: &str, labels: &[&str], selected: Optio
     out
 }
 
-/// A labelled row of the Details popover (32px pitch). `dim` greys the label (feature missing in the font).
+/// A labelled row of the Details popover. The pitch is the popover row, and the control fills it.
 fn detail_row(ui: &mut Ui, body: Rect, y: f32, label: &str, dim: bool, control: impl FnOnce(&mut Ui, Rect)) {
-    let line = Rect::from_min_size(Pos2::new(body.left(), body.top() + 8.0 + y), Vec2::new(body.width(), 24.0));
+    let line = Rect::from_min_size(Pos2::new(body.left(), body.top() + 8.0 + y), Vec2::new(body.width(), theme::FIELD_HEIGHT));
     let font = theme::font_body();
     let color = if dim { theme::TEXT_TERTIARY } else { theme::TEXT_SECONDARY };
     widgets::text_on_baseline(ui.painter(), body.left() + DETAIL_LABEL_X, widgets::centered_baseline(line, &font), label, font, color);
-    control(ui, Rect::from_min_size(Pos2::new(body.left() + DETAIL_CONTROL_X, line.top()), Vec2::new(DETAIL_CONTROL_W, 24.0)));
+    control(ui, Rect::from_min_size(Pos2::new(body.left() + DETAIL_CONTROL_X, line.top()), Vec2::new(DETAIL_CONTROL_W, theme::FIELD_HEIGHT)));
 }
 
 /// OpenType feature tags of the face a style resolves to, cached per font generation.
@@ -628,8 +632,10 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
 
         // ---- 1. 3-Tab Segmented Control: [ Basic | Details | Variable ]
         let tab_y = next();
-        let tabs_r =
-            Rect::from_min_size(Pos2::new(body.left() + DETAIL_LABEL_X, body.top() + 8.0 + tab_y), Vec2::new(body.width() - DETAIL_LABEL_X * 2.0, 24.0));
+        let tabs_r = Rect::from_min_size(
+            Pos2::new(body.left() + DETAIL_LABEL_X, body.top() + 8.0 + tab_y + (widgets::popover::ROW_H - theme::RIGHT_TABS_H) * 0.5),
+            Vec2::new(body.width() - DETAIL_LABEL_X * 2.0, theme::RIGHT_TABS_H),
+        );
         widgets::record(ui, "det-tabs", tabs_r);
         if let Some(t_idx) = seg_rect(ui, tabs_r, "det-tabs", &["Basic", "Details", "Variable"], Some(active_tab)) {
             active_tab = t_idx;
@@ -640,10 +646,10 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
         let ag_top_offset = y.get();
         y.set(ag_top_offset + 76.0);
         let ag_rect = Rect::from_min_size(Pos2::new(body.left() + DETAIL_LABEL_X, body.top() + 8.0 + ag_top_offset), Vec2::new(68.0, 68.0));
-        ui.painter().rect_filled(ag_rect, theme::cr(theme::RADIUS_CONTROL), Color32::from_rgb(0x1E, 0x1E, 0x1E));
+        ui.painter().rect_filled(ag_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         ui.painter().rect_stroke(ag_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
         // Blue typographic cap-height & baseline metric guides (`#0D99FF`)
-        let guide_col = Color32::from_rgba_unmultiplied(0x0D, 0x99, 0xFF, 110);
+        let guide_col = theme::TYPE_PREVIEW_BASELINE;
         widgets::hline(ui.painter(), ag_rect.left() + 6.0, ag_rect.right() - 6.0, ag_rect.top() + 21.0, guide_col);
         widgets::hline(ui.painter(), ag_rect.left() + 6.0, ag_rect.right() - 6.0, ag_rect.bottom() - 19.0, guide_col);
         let preview_glyph = match sum.case.unwrap_or(t.style.case) {
@@ -769,24 +775,21 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
                         let tag = format!("ss{set:02}");
                         let on = val(&tag) == Some(1);
                         let x = body.left() + DETAIL_LABEL_X + i as f32 * (SET_CHIP_W + SET_CHIP_GAP);
-                        let r = Rect::from_min_size(Pos2::new(x, body.top() + 8.0 + line_y), Vec2::new(SET_CHIP_W, 24.0));
+                        let r = Rect::from_min_size(
+                            Pos2::new(x, body.top() + 8.0 + line_y + (widgets::popover::ROW_H - theme::RIGHT_TABS_H) * 0.5),
+                            Vec2::new(SET_CHIP_W, theme::RIGHT_TABS_H),
+                        );
                         widgets::record(ui, &format!("det-ss-{set}"), r);
                         let resp = ui.interact(r, ui.id().with(("det-ss", row, i)), Sense::click());
-                        let bg = if on {
-                            theme::BG_SELECTED
+                        let chip = if on {
+                            crate::widgets::kit::look(theme::BG_SELECTED, Color32::TRANSPARENT, 0.0, theme::TEXT, theme::ICON_QUATERNARY)
                         } else if resp.hovered() {
-                            theme::BG_TERTIARY
+                            crate::widgets::kit::look(theme::BG_SECONDARY_HOVER, Color32::TRANSPARENT, 0.0, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY)
                         } else {
-                            theme::BG_SECONDARY
+                            crate::widgets::kit::look(theme::BG_SECONDARY, Color32::TRANSPARENT, 0.0, theme::TEXT_SECONDARY, theme::ICON_QUATERNARY)
                         };
-                        ui.painter().rect_filled(r, theme::cr(theme::RADIUS_CONTROL), bg);
-                        ui.painter().text(
-                            r.center(),
-                            Align2::CENTER_CENTER,
-                            format!("{set}"),
-                            theme::font_body(),
-                            if on { Color32::WHITE } else { theme::TEXT_SECONDARY },
-                        );
+                        crate::widgets::kit::paint_frame(ui.painter(), r, theme::RADIUS_CONTROL, &chip);
+                        ui.painter().text(r.center(), Align2::CENTER_CENTER, format!("{set}"), theme::font_body(), chip.text);
                         resp.clone().on_hover_text(format!("Stylistic set {set}"));
                         if resp.clicked() {
                             set_features(app, &ids, vec![(tag.as_str(), (!on).then_some(1))]);

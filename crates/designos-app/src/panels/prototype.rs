@@ -52,16 +52,21 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 }
 
 fn show_prototype_settings_btn(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
-    let btn_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 28.0);
+    let btn_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::CONTROL_XS);
     record(ui, "proto-show-settings", btn_r);
-    let resp = ui.interact(btn_r, ui.id().with("proto-show-settings"), Sense::click());
-    ui.painter().rect_filled(btn_r, theme::cr(6), if resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) });
-    ui.painter().rect_stroke(btn_r, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-    ui.painter().text(btn_r.center(), Align2::CENTER_CENTER, "Show prototype settings", theme::font_body_strong(), Color32::WHITE);
+    let resp = crate::widgets::kit::button(
+        ui,
+        btn_r,
+        "proto-show-settings",
+        "Show prototype settings",
+        crate::widgets::kit::Hierarchy::Secondary,
+        crate::widgets::kit::Size::Xs,
+        true,
+    );
     if resp.clicked() {
         app.selection.clear();
     }
-    pane.y += 34.0;
+    pane.y += theme::CONTROL_XS + (theme::SPACE_INLINE - theme::INSET_SEGMENT);
 }
 
 fn prototype_guide_cards(ui: &mut Ui, pane: &mut Pane) {
@@ -84,7 +89,7 @@ fn prototype_guide_cards(ui: &mut Ui, pane: &mut Pane) {
         pane.y += 8.0;
         let hdr_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 22.0);
         record(ui, key, hdr_r);
-        ui.painter().text(Pos2::new(hdr_r.left(), hdr_r.center().y), Align2::LEFT_CENTER, heading, theme::font_body_strong(), Color32::WHITE);
+        ui.painter().text(Pos2::new(hdr_r.left(), hdr_r.center().y), Align2::LEFT_CENTER, heading, theme::font_large_strong(), theme::TEXT);
         let close_r = Rect::from_min_size(Pos2::new(hdr_r.right() - 20.0, hdr_r.center().y - 10.0), Vec2::splat(20.0));
         record(ui, &format!("{key}-dismiss"), close_r);
         if widgets::icon_button(ui, close_r, (key, "dismiss"), Icon::Close, false, "Dismiss tip").clicked() {
@@ -92,14 +97,9 @@ fn prototype_guide_cards(ui: &mut Ui, pane: &mut Pane) {
         }
         pane.y += 24.0;
         let text_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 48.0);
-        let galley = ui.painter().layout(
-            body_text.to_string(),
-            theme::font_body(),
-            Color32::from_rgb(0xB3, 0xB3, 0xB3),
-            text_r.width(),
-        );
+        let galley = ui.painter().layout(body_text.to_string(), theme::font_body(), theme::TEXT_TERTIARY, text_r.width());
         let h = galley.size().y;
-        ui.painter().galley(text_r.min, galley, Color32::from_rgb(0xB3, 0xB3, 0xB3));
+        ui.painter().galley(text_r.min, galley, theme::TEXT_TERTIARY);
         pane.y += h + 12.0;
         section_sep(ui, pane, false);
     }
@@ -702,7 +702,7 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                     // a tiny overlay thumbnail inside the cell
                     let thumb = Rect::from_center_size(c.center(), Vec2::new(8.0, 8.0));
                     let off = Vec2::new((cx as f32 - 1.0) * 5.0, (ry as f32 - 1.0) * 5.0);
-                    ui.painter().rect_filled(thumb.translate(off), 1.0, if sel { Color32::WHITE } else { theme::ICON_SECONDARY });
+                    ui.painter().rect_filled(thumb.translate(off), 1.0, if sel { theme::ICON_WHITE } else { theme::ICON_SECONDARY });
                     if resp.on_hover_text(proto::position_name(*pos)).clicked() {
                         *position = *pos;
                     }
@@ -724,13 +724,13 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                     theme::BG_SECONDARY
                 },
             );
-            ui.painter().text(mb.center(), Align2::CENTER_CENTER, "Manual", theme::font_caption(), if msel { Color32::WHITE } else { theme::TEXT_SECONDARY });
+            ui.painter().text(mb.center(), Align2::CENTER_CENTER, "Manual", theme::font_caption(), if msel { theme::TEXT } else { theme::TEXT_SECONDARY });
             if mr.clicked() {
                 *position = OverlayPosition::Manual;
             }
             pane.y += 3.0 * 28.0 + 8.0;
             if *position == OverlayPosition::Manual {
-                let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, 24.0));
+                let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, theme::FIELD_HEIGHT));
                 let y = x.translate(Vec2::new(60.0, 0.0));
                 if let Some(v) = field::num_field(ui, x, ("pop-ox", ai), Prefix::Text("X"), Some(offset.x), "") {
                     offset.x = v;
@@ -747,12 +747,11 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                 *background = if v { Some(Color::rgba(0, 0, 0, 102)) } else { None };
             }
             if let Some(bg) = *background {
-                let hex = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(72.0, 24.0));
-                let op = Rect::from_min_size(hex.right_top() + Vec2::new(8.0, 0.0), Vec2::new(48.0, 24.0));
-                widgets::swatch(
-                    ui.painter(),
-                    Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, pane.oy + pane.y + 4.0), Vec2::splat(16.0)),
-                    Color32::from_rgba_unmultiplied((bg.r * 255.0) as u8, (bg.g * 255.0) as u8, (bg.b * 255.0) as u8, (bg.a * 255.0) as u8),
+                let hex = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(72.0, theme::FIELD_HEIGHT));
+                let op = Rect::from_min_size(hex.right_top() + Vec2::new(8.0, 0.0), Vec2::new(48.0, theme::FIELD_HEIGHT));
+                let sw = Rect::from_min_size(
+                    Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, pane.oy + pane.y + (theme::FIELD_HEIGHT - theme::SWATCH_SIZE) * 0.5),
+                    Vec2::splat(theme::SWATCH_SIZE),
                 );
                 if let Some(s) = field::text_input(ui, hex, ("pop-bg-hex", ai), &bg.to_hex()) {
                     if let Some(c) = Color::from_hex(&s) {
@@ -762,6 +761,13 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
                 if let Some(v) = field::num_field(ui, op, ("pop-bg-op", ai), Prefix::None, Some((bg.a * 100.0).round()), "%") {
                     *background = Some(Color { a: (v / 100.0).clamp(0.0, 1.0), ..bg });
                 }
+                let hex_focus = ui.memory(|m| m.has_focus(ui.id().with(("txt", ("pop-bg-hex", ai)))));
+                widgets::swatch_focused(
+                    ui.painter(),
+                    sw,
+                    Color32::from_rgba_unmultiplied((bg.r * 255.0) as u8, (bg.g * 255.0) as u8, (bg.b * 255.0) as u8, (bg.a * 255.0) as u8),
+                    hex_focus,
+                );
                 next_row(pane);
             }
         }
@@ -776,7 +782,7 @@ pub(super) fn action_params(app: &mut App, ui: &mut Ui, pane: &mut Pane, node: N
             if let Some(d) = dest_dropdown(ui, pane, &app.doc, &format!("scroll-{key}"), "Scroll to", *dest, &opts) {
                 *dest = d;
             }
-            let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, 24.0));
+            let x = Rect::from_min_size(Pos2::new(pane.x0 + theme::SECTION_CONTENT_X + LABEL_W, pane.oy + pane.y), Vec2::new(52.0, theme::FIELD_HEIGHT));
             let y = x.translate(Vec2::new(60.0, 0.0));
             ui.painter().text(
                 Pos2::new(pane.x0 + theme::SECTION_CONTENT_X, x.center().y),
@@ -845,7 +851,7 @@ fn transition_ui(ui: &mut Ui, pane: &mut Pane, tr: &mut Option<Transition>) {
                     theme::BG_SECONDARY
                 },
             );
-            ui.painter().text(b.center(), Align2::CENTER_CENTER, glyph, theme::font_body(), if sel { Color32::WHITE } else { theme::TEXT_SECONDARY });
+            ui.painter().text(b.center(), Align2::CENTER_CENTER, glyph, theme::font_body(), if sel { theme::TEXT } else { theme::TEXT_SECONDARY });
             if resp.on_hover_text(proto::direction_name(dir)).clicked() {
                 t.kind = proto::with_direction(t.kind, dir);
             }

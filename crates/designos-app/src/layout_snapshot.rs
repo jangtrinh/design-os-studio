@@ -80,6 +80,12 @@ pub struct AllowEntry {
     pub name_prefix: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub h_base: Option<f32>,
+    /// Baseline width. Set with `h_base` so two height entries can name different widgets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w_base: Option<f32>,
+    /// Baseline top. Set with `h_base` and `w_base` to pick one widget in a row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y_base: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor_x: Option<AnchorX>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -322,10 +328,18 @@ pub fn parse_allow_list(json: &str) -> Result<AllowList, String> {
 fn entry_specificity(e: &AllowEntry) -> u8 {
     if e.name_prefix.is_some() {
         2
-    } else if e.h_base.is_some() {
+    } else if e.h_base.is_some() || e.w_base.is_some() || e.y_base.is_some() {
         1
     } else {
         0
+    }
+}
+
+fn opt_close(a: Option<f32>, b: Option<f32>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => (x - y).abs() <= 0.5,
+        (None, None) => true,
+        _ => false,
     }
 }
 
@@ -371,6 +385,9 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
         check_delta("dx", e.dx)?;
         check_delta("dy", e.dy)?;
         check_delta("gap_dy", e.gap_dy)?;
+        check_delta("w_base", e.w_base)?;
+        check_delta("y_base", e.y_base)?;
+        check_delta("h_base", e.h_base)?;
         let has_negative_size_delta = [e.min_dw, e.max_dw, e.min_dh, e.max_dh].into_iter().flatten().any(|v| v < 0.0);
         let has_r5_token = e.reason.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|tok| tok == "R5");
         if has_negative_size_delta && !has_r5_token {
@@ -397,11 +414,7 @@ pub fn validate_allow_entries(entries: Vec<AllowEntry>) -> Result<AllowList, Str
                     let pb = b.name_prefix.as_deref().unwrap_or("");
                     pa.starts_with(pb) || pb.starts_with(pa)
                 }
-                1 => {
-                    let ha = a.h_base.unwrap_or(0.0);
-                    let hb = b.h_base.unwrap_or(0.0);
-                    (ha - hb).abs() <= 0.5
-                }
+                1 => opt_close(a.h_base, b.h_base) && opt_close(a.w_base, b.w_base) && opt_close(a.y_base, b.y_base),
                 _ => true,
             };
             if same_target {
@@ -424,6 +437,16 @@ fn entry_matches_widget(e: &AllowEntry, case: &str, region: &str, name: Option<&
         }
     } else if let Some(hb) = e.h_base {
         if (base_rect[3] - hb).abs() > 0.5 {
+            return false;
+        }
+    }
+    if let Some(wb) = e.w_base {
+        if (base_rect[2] - wb).abs() > 0.5 {
+            return false;
+        }
+    }
+    if let Some(yb) = e.y_base {
+        if (base_rect[1] - yb).abs() > 0.5 {
             return false;
         }
     }
@@ -489,6 +512,17 @@ fn widget_satisfies_allow_bounds(e: &AllowEntry, base: [f32; 4], cur: [f32; 4], 
 
 fn rects_differ_beyond_half_pt(a: [f32; 4], b: [f32; 4]) -> bool {
     !rects_match_within_half_pt(a, b)
+}
+
+/// A named field that crosses the panel clip also leaves a shorter interact rect with the
+/// same column. That echo is the field itself, not a second control.
+fn is_vertical_clip_of(rect: [f32; 4], named: [f32; 4]) -> bool {
+    let same_x = (rect[0] - named[0]).abs() <= 0.5;
+    let same_w = (rect[2] - named[2]).abs() <= 0.5;
+    let shorter = rect[3] + 0.5 < named[3];
+    let inside_y = rect[1] >= named[1] - 0.5 && rect[1] + rect[3] <= named[1] + named[3] + 0.5;
+    let shares_edge = (rect[1] - named[1]).abs() <= 0.5 || ((rect[1] + rect[3]) - (named[1] + named[3])).abs() <= 0.5;
+    same_x && same_w && shorter && inside_y && shares_edge
 }
 
 /// Compare `cur` against `base` enforcing Rules G1–G5.
@@ -645,6 +679,32 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                 report.matched_allow_indices.insert(idx);
             }
         }
+    }
+
+    // Drop unnamed echoes of a named field (the clip intersection) from both sides together
+    // so later rows stay paired by index.
+    let regs: Vec<String> = all_unnamed_regs.iter().cloned().collect();
+    for reg in regs {
+        let b_named: Vec<[f32; 4]> = base.named.values().filter(|w| w.region == reg).map(|w| w.rect).collect();
+        let c_named: Vec<[f32; 4]> = cur.named.values().filter(|w| w.region == reg).map(|w| w.rect).collect();
+        let b_list = base_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
+        let c_list = cur_unnamed_by_reg.get(&reg).cloned().unwrap_or_default();
+        let n = b_list.len().min(c_list.len());
+        let mut b_keep = Vec::with_capacity(b_list.len());
+        let mut c_keep = Vec::with_capacity(c_list.len());
+        for i in 0..n {
+            let b_clip = b_named.iter().any(|nr| is_vertical_clip_of(b_list[i].rect, *nr));
+            let c_clip = c_named.iter().any(|nr| is_vertical_clip_of(c_list[i].rect, *nr));
+            if b_clip && c_clip {
+                continue;
+            }
+            b_keep.push(b_list[i]);
+            c_keep.push(c_list[i]);
+        }
+        b_keep.extend_from_slice(&b_list[n..]);
+        c_keep.extend_from_slice(&c_list[n..]);
+        base_unnamed_by_reg.insert(reg.clone(), b_keep);
+        cur_unnamed_by_reg.insert(reg, c_keep);
     }
 
     // Build per-region G3 rows (named + unnamed widgets), range-check each row's own `dh`, and compute derived shifts for all anchors.
@@ -1766,6 +1826,33 @@ mod tests {
         cur.named.get_mut("prop-row-2").unwrap().rect = [1210.0, 140.0, 200.0, 32.0];
 
         compare_with_stale_check(&base, &cur, &allow, &[]).expect("name_prefix must beat h_base on prop-row-0");
+    }
+
+    /// Width and top filters let one row grow while the field beside it stays put.
+    #[test]
+    fn width_and_top_filters_keep_a_neighbour_still() {
+        let distinct = r#"[
+            {"case":"f-picker","region":"right_panel","h_base":32,"w_base":22,"max_dw":2,"spec":"F","reason":"slots grow by 2"},
+            {"case":"f-picker","region":"right_panel","h_base":32,"w_base":24,"y_base":495,"dx":-8,"spec":"F","reason":"prefix stays put"}
+        ]"#;
+        let allow = parse_allow_list(distinct).expect("different width filters on one height must parse");
+
+        let sense = vec!["click".to_string(), "focus".to_string()];
+        let mut base = sample_snapshot("f-picker");
+        base.unnamed = vec![
+            UnnamedWidget { region: "right_panel".into(), rect: [1376.0, 495.0, 22.0, 32.0], sense: sense.clone() },
+            UnnamedWidget { region: "right_panel".into(), rect: [1398.0, 495.0, 22.0, 32.0], sense: sense.clone() },
+            UnnamedWidget { region: "right_panel".into(), rect: [1420.0, 495.0, 22.0, 32.0], sense: sense.clone() },
+            UnnamedWidget { region: "right_panel".into(), rect: [1442.0, 495.0, 22.0, 32.0], sense },
+            UnnamedWidget { region: "right_panel".into(), rect: [1472.0, 495.0, 24.0, 32.0], sense: vec!["drag".into()] },
+            UnnamedWidget { region: "right_panel".into(), rect: [1376.0, 561.0, 24.0, 32.0], sense: vec!["click".into(), "focus".into()] },
+        ];
+        let mut cur = base.clone();
+        cur.unnamed[0].rect = [1376.0, 495.0, 24.0, 32.0];
+        cur.unnamed[1].rect = [1400.0, 495.0, 24.0, 32.0];
+        cur.unnamed[2].rect = [1424.0, 495.0, 24.0, 32.0];
+        cur.unnamed[3].rect = [1448.0, 495.0, 24.0, 32.0];
+        compare_with_stale_check(&base, &cur, &allow, &[]).expect("grown slots must not push the field beside them");
     }
 
     /// Test 7: Missing baseline file fails with the bless hint.

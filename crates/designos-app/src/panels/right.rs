@@ -25,8 +25,8 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     let left = rect.left();
 
     // User avatar pill + chevron on top-left of right inspector header.
-    let top_btn_h = theme::RIGHT_BTN_SIZE.min(24.0);
-    let av_r = Rect::from_min_size(Pos2::new(left + 8.0, rect.top() + theme::RIGHT_BTN_Y), Vec2::new(38.0, top_btn_h));
+    let top_btn_h = theme::RIGHT_BTN_SIZE;
+    let av_r = Rect::from_min_size(Pos2::new(left + theme::INSET_CONTROL, rect.top() + theme::RIGHT_BTN_Y), Vec2::new(38.0, top_btn_h));
     let av_center = Pos2::new(left + 21.0, av_r.center().y);
     crate::widgets::record(ui, "right-top-avatar", av_r);
     let av_resp = ui.interact(av_r, ui.id().with("right-top-avatar"), Sense::click());
@@ -34,9 +34,9 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         p.rect_filled(av_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
     let active_user = std::env::var("USER").unwrap_or_else(|_| "jangtrinh".into());
-    let initial = active_user.chars().next().map(|c| c.to_ascii_uppercase().to_string()).unwrap_or_else(|| "J".to_string());
-    p.circle_filled(av_center, 10.0, egui::Color32::from_rgb(0xF5, 0x9E, 0x0B));
-    p.text(av_center, Align2::CENTER_CENTER, initial, theme::font_caption_strong(), egui::Color32::WHITE);
+    let initial = crate::comments::model::initial(&active_user);
+    p.circle_filled(av_center, 10.0, crate::comments::ui::avatar_color(&active_user));
+    p.text(av_center, Align2::CENTER_CENTER, initial, theme::font_caption_strong(), theme::TEXT_ON_BRAND);
     icons::paint(&p, Icon::ChevronDown, Pos2::new(av_center.x + 17.0, av_center.y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
     if av_resp.on_hover_text(format!("Active user: {active_user}")).clicked() {
         let doc_title = if app.doc.name.is_empty() { "Untitled" } else { &app.doc.name };
@@ -45,27 +45,34 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         app.show_toast(stats, false);
     }
 
-    // Present button + chevron (24px height, aligned with Share button).
-    let pb = Rect::from_min_size(Pos2::new(right - theme::RIGHT_PRESENT_FROM_RIGHT - 46.0, rect.top() + theme::RIGHT_BTN_Y), Vec2::splat(top_btn_h));
+    // Present, its chevron, and Share. Share is 60 wide (the old 56 px inset plus one step)
+    // and keeps an 8 px gap; the chevron's click target is the 24 px slot beside Present.
+    let share_w = theme::RIGHT_PRESENT_FROM_RIGHT + theme::SPACE_FACT;
+    let share_r = Rect::from_min_size(Pos2::new(right - theme::INSET_CONTROL - share_w, rect.top() + theme::RIGHT_BTN_Y), Vec2::new(share_w, top_btn_h));
+    let chevron_right = share_r.left() - theme::INSET_CONTROL;
+    let cb = Rect::from_min_max(
+        Pos2::new(chevron_right - theme::RIGHT_PRESENT_CHEVRON_W, rect.top() + theme::RIGHT_BTN_Y),
+        Pos2::new(chevron_right, rect.top() + theme::RIGHT_BTN_Y + top_btn_h),
+    );
+    let pb = Rect::from_min_size(Pos2::new(cb.left() - top_btn_h, cb.top()), Vec2::splat(top_btn_h));
+    let hit = Rect::from_min_size(pb.right_top(), Vec2::new(theme::TARGET_MIN, top_btn_h));
     let pr = ui.interact(pb, ui.id().with("present"), Sense::click());
-    widgets::button_bg(&p, pb, &pr, false, theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL));
-    icons::paint(&p, Icon::Play, pb.center(), 14.0, theme::ICON);
-    let cb = Rect::from_min_size(pb.right_top(), Vec2::new(theme::RIGHT_PRESENT_CHEVRON_W, top_btn_h));
-    let cr = ui.interact(cb, ui.id().with("present-chev"), Sense::click());
-    widgets::button_bg(&p, cb, &cr, false, theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0));
-    icons::paint(&p, Icon::ChevronDown, cb.center(), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
+    crate::widgets::kit::paint_icon_bg(&p, pb, &pr, false, theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL));
+    let present_glyph = if pr.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY };
+    icons::paint(&p, Icon::Play, pb.center(), theme::LAYER_ICON_SIZE, present_glyph);
+    let cr = ui.interact(hit, ui.id().with("present-chev"), Sense::click());
+    crate::widgets::kit::paint_icon_bg(&p, cb, &cr, false, theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0));
+    let chevron_glyph = if cr.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY };
+    icons::paint(&p, Icon::ChevronDown, cb.center(), theme::CHEVRON_SMALL, chevron_glyph);
     crate::widgets::record(ui, "present-button", pb);
     crate::widgets::record(ui, "present-chevron", cb);
+    crate::widgets::record(ui, "present-chevron-hit", hit);
     if pr.clicked() || cr.clicked() {
         app.start_present();
     }
 
-    // Share button at far right (aligned on the same y = RIGHT_BTN_Y and 24px height as Present).
-    let share_r = Rect::from_min_size(Pos2::new(right - theme::RIGHT_PRESENT_FROM_RIGHT, rect.top() + theme::RIGHT_BTN_Y), Vec2::new(48.0, top_btn_h));
-    let share_resp = ui.interact(share_r, ui.id().with("share-btn"), Sense::click());
-    let share_col = if app.ui.dev_mode { egui::Color32::from_rgb(0x1B, 0xC4, 0x7D) } else { egui::Color32::from_rgb(0x0D, 0x99, 0xFF) };
-    p.rect_filled(share_r, egui::CornerRadius::same(6), if share_resp.hovered() { share_col.gamma_multiply(1.1) } else { share_col });
-    p.text(share_r.center(), Align2::CENTER_CENTER, "Share", theme::font_body_strong(), egui::Color32::WHITE);
+    let share_resp =
+        crate::widgets::kit::button(ui, share_r, "share-btn", "Share", crate::widgets::kit::Hierarchy::Primary, crate::widgets::kit::Size::Xs, true);
     crate::widgets::record(ui, "share-button", share_r);
     crate::widgets::record(ui, "right-top-share", share_r);
     if share_resp.clicked() {
@@ -115,26 +122,25 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         let w = widgets::text_width(&p, label, &font) + theme::RIGHT_TAB_PAD_X * 2.0;
         let r = Rect::from_min_size(Pos2::new(x, ty), Vec2::new(w, theme::RIGHT_TABS_H));
         widgets::record(ui, &format!("right-tab-{label}"), r);
-        let resp = ui.interact(r, ui.id().with(("tab", label)), Sense::click());
-        if sel {
-            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-        } else if resp.hovered() {
-            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-        }
-        p.text(r.center(), Align2::CENTER_CENTER, label, font, if sel { theme::TEXT } else { theme::TEXT_SECONDARY });
+        let resp = crate::widgets::kit::tab(ui, r, ("tab", label), label, sel);
         if resp.clicked() {
             app.ui.right_tab = Some(tab);
         }
-        x += w + 4.0;
+        x += w + theme::SPACE_FACT;
     }
 
     // Zoom dropdown.
     let zr = Rect::from_min_size(Pos2::new(right - theme::RIGHT_ZOOM_FROM_RIGHT, ty), Vec2::new(theme::RIGHT_ZOOM_W, theme::RIGHT_TABS_H));
     let zresp = ui.interact(zr, ui.id().with("zoom"), Sense::click());
     let open = app.ui.menu == Some(MenuKind::Zoom);
-    widgets::button_bg(&p, zr, &zresp, open, theme::cr(theme::RADIUS_CONTROL));
+    if open {
+        let paint = crate::widgets::kit::select_look(crate::widgets::kit::State::Focused);
+        crate::widgets::kit::paint_frame(&p, zr, theme::RADIUS_CONTROL, &paint);
+    } else {
+        widgets::button_bg(&p, zr, &zresp, false, theme::cr(theme::RADIUS_CONTROL));
+    }
     p.text(Pos2::new(zr.left() + 8.0, zr.center().y), Align2::LEFT_CENTER, format!("{}%", (app.view.zoom * 100.0).round()), theme::font_body(), theme::TEXT);
-    icons::paint(&p, Icon::ChevronDown, Pos2::new(zr.right() - 10.0, zr.center().y), theme::CHEVRON_SMALL, theme::ICON_SECONDARY);
+    icons::paint(&p, Icon::ChevronDown, Pos2::new(zr.right() - 10.0, zr.center().y), theme::CHEVRON_SMALL, theme::ICON_QUATERNARY);
     if zresp.clicked() {
         app.ui.menu = if open { None } else { Some(MenuKind::Zoom) };
         app.ui.menu_anchor = Some(zr);
@@ -164,16 +170,17 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     hp.rect_filled(footer_r, 0.0, theme::BG);
     widgets::hline(hp, rect.left() + 1.0, right, footer_top, theme::BORDER);
     let help_center = Pos2::new(rect.right() - 20.0, footer_r.center().y);
-    let help_r = Rect::from_center_size(help_center, Vec2::splat(28.0));
-    let help_resp = ui.interact(help_r, ui.id().with("right-help-btn"), Sense::click());
-    let hp = ui.painter();
-    hp.circle_filled(
-        help_center,
-        14.0,
-        if help_resp.hovered() { egui::Color32::from_rgb(0x38, 0x38, 0x38) } else { egui::Color32::from_rgb(0x2C, 0x2C, 0x2C) },
+    let help_r = Rect::from_center_size(help_center, Vec2::splat(theme::RIGHT_BTN_SIZE));
+    let help_resp = crate::widgets::kit::button_icon(
+        ui,
+        help_r,
+        "right-help-btn",
+        Icon::Help,
+        crate::widgets::kit::Hierarchy::Icon,
+        crate::widgets::kit::Size::Xs,
+        true,
+        false,
     );
-    hp.circle_stroke(help_center, 14.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(0x38, 0x38, 0x38)));
-    icons::paint(hp, Icon::Help, help_center, 14.0, egui::Color32::from_rgb(0xB3, 0xB3, 0xB3));
     crate::widgets::record(ui, "help-button", help_r);
     if help_resp.on_hover_text("Keyboard shortcuts & help").clicked() {
         app.show_shortcuts();
@@ -199,8 +206,8 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
         let row_r = Rect::from_min_size(Pos2::new(region.left() + pad, y), Vec2::new(w, 40.0));
         widgets::record(ui, &format!("dev-plugin-builtin-{idx}"), row_r);
         let resp = ui.interact(row_r, ui.id().with(("dev-plugin-builtin", idx)), Sense::click());
-        p.rect_filled(row_r, theme::cr(6), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-        icons::paint(&p, Icon::Dev, Pos2::new(row_r.left() + 14.0, row_r.center().y), 14.0, egui::Color32::from_rgb(0x1B, 0xC4, 0x7D));
+        p.rect_filled(row_r, theme::cr(theme::RADIUS_SEGMENT), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        icons::paint(&p, Icon::Dev, Pos2::new(row_r.left() + 14.0, row_r.center().y), 14.0, theme::DEV_READY);
         p.text(Pos2::new(row_r.left() + 28.0, row_r.top() + 13.0), Align2::LEFT_CENTER, *title, theme::font_body_strong(), theme::TEXT);
         p.text(Pos2::new(row_r.left() + 28.0, row_r.top() + 28.0), Align2::LEFT_CENTER, *subtitle, theme::font_caption(), theme::TEXT_SECONDARY);
         if resp.clicked() {
@@ -253,7 +260,7 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
         let row_r = Rect::from_min_size(Pos2::new(region.left() + pad, y), Vec2::new(w, 32.0));
         widgets::record(ui, &format!("dev-plugin-installed-{i}"), row_r);
         let resp = ui.interact(row_r, ui.id().with(("dev-plugin-inst", &plug.id)), Sense::click());
-        p.rect_filled(row_r, theme::cr(6), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        p.rect_filled(row_r, theme::cr(theme::RADIUS_SEGMENT), if resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
         p.text(Pos2::new(row_r.left() + 10.0, row_r.center().y), Align2::LEFT_CENTER, &plug.name, theme::font_body(), theme::TEXT);
         if resp.clicked() {
             let ctx = ui.ctx().clone();
@@ -268,12 +275,14 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
     let open_r = Rect::from_min_size(Pos2::new(region.left() + pad, y), Vec2::new(w, 28.0));
     widgets::record(ui, "dev-plugins-open-modal", open_r);
     let open_resp = ui.interact(open_r, ui.id().with("dev-plugins-open-modal"), Sense::click());
-    p.rect_filled(
-        open_r,
-        theme::cr(6),
-        if open_resp.hovered() { egui::Color32::from_rgb(0x1B, 0xC4, 0x7D).gamma_multiply(1.1) } else { egui::Color32::from_rgb(0x1B, 0xC4, 0x7D) },
+    p.rect_filled(open_r, theme::cr(theme::RADIUS_CONTROL), if open_resp.hovered() { theme::DEV_READY_HOVER } else { theme::DEV_READY });
+    p.text(
+        open_r.center(),
+        Align2::CENTER_CENTER,
+        "Manage & Run Plugins\u{2026}",
+        theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold),
+        theme::TEXT_ON_BRAND,
     );
-    p.text(open_r.center(), Align2::CENTER_CENTER, "Manage & Run Plugins\u{2026}", theme::font_body_strong(), egui::Color32::WHITE);
     if open_resp.clicked() {
         app.open_plugins();
     }
@@ -282,8 +291,16 @@ fn show_dev_plugins_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
     let mcp_r = Rect::from_min_size(Pos2::new(region.left() + pad, y), Vec2::new(w, 28.0));
     widgets::record(ui, "dev-plugins-copy-mcp", mcp_r);
     let mcp_resp = ui.interact(mcp_r, ui.id().with("dev-plugins-copy-mcp"), Sense::click());
-    p.rect_filled(mcp_r, theme::cr(6), if mcp_resp.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-    p.text(mcp_r.center(), Align2::CENTER_CENTER, "Copy MCP Config", theme::font_body_strong(), theme::TEXT);
+    let mcp_state = if mcp_resp.is_pointer_button_down_on() {
+        crate::widgets::kit::State::Pressed
+    } else if mcp_resp.hovered() {
+        crate::widgets::kit::State::Hover
+    } else {
+        crate::widgets::kit::State::Default
+    };
+    let mcp_paint = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Secondary, mcp_state);
+    crate::widgets::kit::paint_frame(&p, mcp_r, theme::RADIUS_CONTROL, &mcp_paint);
+    p.text(mcp_r.center(), Align2::CENTER_CENTER, "Copy MCP Config", theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold), mcp_paint.text);
     if mcp_resp.clicked() {
         let mcp_json = "{\n  \"mcpServers\": {\n    \"designos-mcp\": {\n      \"command\": \"designos-mcp\",\n      \"args\": [\"--stdio\"]\n    }\n  }\n}";
         ui.ctx().copy_text(mcp_json.to_string());
@@ -360,7 +377,7 @@ fn show_frame_presets_inspector(app: &mut App, ui: &mut Ui, region: Rect) {
 fn frame_preset_row(ui: &mut Ui, p: &egui::Painter, row: Rect, preset: &FramePreset) -> bool {
     let resp = ui.interact(row, ui.id().with(("frame-preset", preset.name)), Sense::click());
     if resp.hovered() {
-        p.rect_filled(row, theme::cr(4), theme::BG_SECONDARY);
+        p.rect_filled(row, theme::cr(theme::SPACE_FACT as u8), theme::BG_SECONDARY);
     }
     let size = format!("{}×{}", preset.width as i32, preset.height as i32);
     let (name_font, size_font) = (theme::font_body(), theme::font_caption());
@@ -756,5 +773,122 @@ mod tests {
         }
         assert!(cramped.is_empty(), "name and size label need at least 8 px between them, the rows below have less: {cramped:?}");
         assert!(elided >= 1, "the longest watch names do not fit the 240 px inspector next to their size and must be elided");
+    }
+
+    fn run_panel(dev_mode: bool) -> (egui::Context, egui::FullOutput) {
+        let mut doc = Document::new("TestDoc");
+        let _ = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.ui.dev_mode = dev_mode;
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 800.0));
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
+            show(&mut app, ui, screen);
+        });
+        (ctx, out)
+    }
+
+    fn named(ctx: &egui::Context, name: &str) -> Rect {
+        ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("missing recorded rect {name}"))
+    }
+
+    fn share_label_is_on_brand(out: &egui::FullOutput) -> bool {
+        out.shapes.iter().any(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Text(text) if text.galley.job.text == "Share" => {
+                text.galley.job.sections.first().is_some_and(|section| section.format.color == theme::TEXT_ON_BRAND)
+            }
+            _ => false,
+        })
+    }
+
+    #[test]
+    fn share_is_the_brand_primary_with_a_dark_label() {
+        for dev_mode in [false, true] {
+            let (ctx, out) = run_panel(dev_mode);
+            let share = named(&ctx, "share-button");
+            let fill = out.shapes.iter().any(|clipped| match &clipped.shape {
+                egui::epaint::Shape::Rect(shape) => shape.fill == theme::BG_BRAND && shape.rect == share,
+                _ => false,
+            });
+            assert!(fill, "dev_mode={dev_mode}: Share fill is the brand primary");
+            assert!(share_label_is_on_brand(&out), "dev_mode={dev_mode}: Share label is the dark on-brand text");
+        }
+    }
+
+    #[test]
+    fn present_chevron_hit_box_meets_the_target_floor() {
+        assert_eq!(theme::RIGHT_PRESENT_CHEVRON_W, 16.0);
+        assert_eq!(theme::RIGHT_PRESENT_FROM_RIGHT, 56.0);
+        let (ctx, _) = run_panel(false);
+        let present = named(&ctx, "present-button");
+        let visual = named(&ctx, "present-chevron");
+        let hit = named(&ctx, "present-chevron-hit");
+        let share = named(&ctx, "share-button");
+        assert!(hit.width() + 0.01 >= theme::TARGET_MIN, "hit {} is below the target floor", hit.width());
+        assert!((hit.height() - theme::RIGHT_BTN_SIZE).abs() < 0.5, "hit height {}", hit.height());
+        assert!((hit.left() - present.right()).abs() < 0.5, "hit starts at the present button");
+        assert!(hit.right() <= share.left() + 0.5, "hit ends before Share");
+        assert!(!area_overlap(hit, present) && !area_overlap(hit, share), "hit overlaps a neighbour");
+        assert!((visual.width() - theme::RIGHT_PRESENT_CHEVRON_W).abs() < 0.5, "visual chevron width {}", visual.width());
+    }
+
+    #[test]
+    fn header_controls_are_xs_tall_and_do_not_overlap() {
+        let (ctx, out) = run_panel(false);
+        let panel = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 800.0));
+        let mut rects = Vec::new();
+        for name in ["right-top-avatar", "present-button", "present-chevron", "share-button"] {
+            let rect = named(&ctx, name);
+            assert!((rect.top() - (panel.top() + theme::RIGHT_BTN_Y)).abs() < 0.5, "{name} top {}", rect.top());
+            assert!((rect.height() - theme::RIGHT_BTN_SIZE).abs() < 0.5, "{name} height {}", rect.height());
+            rects.push(rect);
+        }
+        let share = named(&ctx, "share-button");
+        assert!((panel.right() - share.right() - theme::INSET_CONTROL).abs() < 0.5, "Share ends {} px from the right edge", panel.right() - share.right());
+        let tab = named(&ctx, "right-tab-Design");
+        assert!((tab.top() - (panel.top() + theme::RIGHT_TABS_Y)).abs() < 0.5, "tab strip y {}", tab.top());
+        let zoom = Rect::from_min_size(
+            Pos2::new(panel.right() - theme::RIGHT_ZOOM_FROM_RIGHT, panel.top() + theme::RIGHT_TABS_Y),
+            Vec2::new(theme::RIGHT_ZOOM_W, theme::RIGHT_TABS_H),
+        );
+        assert!((zoom.height() - theme::CONTROL_DENSE).abs() < 0.5);
+        let zoom_label = out.shapes.iter().any(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Text(text) if text.galley.job.text.contains('%') => {
+                let text_rect = Rect::from_min_size(text.pos, text.galley.size());
+                zoom.top() <= text_rect.center().y && text_rect.center().y <= zoom.bottom()
+            }
+            _ => false,
+        });
+        assert!(zoom_label, "zoom control is 24 tall");
+        for (i, a) in rects.iter().enumerate() {
+            for b in rects.iter().skip(i + 1) {
+                assert!(!area_overlap(*a, *b), "header controls overlap: {a:?} {b:?}");
+            }
+        }
+    }
+
+    fn area_overlap(a: Rect, b: Rect) -> bool {
+        a.min.x.max(b.min.x) < a.max.x.min(b.max.x) && a.min.y.max(b.min.y) < a.max.y.min(b.max.y)
+    }
+
+    #[test]
+    fn avatar_uses_identity_colours_and_a_dark_initial() {
+        let user = std::env::var("USER").unwrap_or_else(|_| "jangtrinh".into());
+        let disc = crate::comments::ui::avatar_color(&user);
+        let initial = crate::comments::model::initial(&user);
+        let (_, out) = run_panel(false);
+        let circle = out.shapes.iter().any(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Circle(shape) => shape.fill == disc,
+            _ => false,
+        });
+        assert!(circle, "avatar disc is the identity colour for {user}");
+        let dark = out.shapes.iter().any(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Text(text) if text.galley.job.text == initial => {
+                text.galley.job.sections.first().is_some_and(|section| section.format.color == theme::TEXT_ON_BRAND)
+            }
+            _ => false,
+        });
+        assert!(dark, "avatar initial is the dark on-brand text");
     }
 }

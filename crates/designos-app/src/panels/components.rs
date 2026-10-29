@@ -65,25 +65,25 @@ fn is_dropdown_open(ui: &Ui, key: impl crate::widgets::Key) -> bool {
     ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false)
 }
 
-/// 28x16 switch; returns the new state when clicked.
+/// Track sits at the left of the row. The hit target stays the whole row.
 fn toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
     let r = ui.interact(rect, ui.id().with(("tog", key)), Sense::click());
     widgets::record(ui, &format!("toggle:{key}"), rect);
-    let sw = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
-    let p = ui.painter();
-    p.rect_filled(
-        sw,
-        theme::cr(8),
-        if on {
-            theme::BG_BRAND
-        } else if r.hovered() {
-            theme::BG_TERTIARY
-        } else {
-            theme::BG_SECONDARY
-        },
-    );
-    let kx = if on { sw.right() - theme::SPACE_INLINE } else { sw.left() + theme::SPACE_INLINE };
-    p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, egui::Color32::WHITE);
+    let track_w = theme::TARGET_MIN + theme::SPACE_GROUP;
+    let track_h = theme::TARGET_MIN - theme::SPACE_FACT;
+    let sw = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - track_h * 0.5), Vec2::new(track_w, track_h));
+    let state = if on {
+        crate::widgets::kit::State::Selected
+    } else if r.hovered() {
+        crate::widgets::kit::State::Hover
+    } else {
+        crate::widgets::kit::State::Default
+    };
+    let paint = crate::widgets::kit::toggle_look(state);
+    crate::widgets::kit::paint_frame(ui.painter(), sw, theme::radius_full(track_h).round() as u8, &paint);
+    let knob = theme::radius_full(theme::LAYER_ICON_SIZE);
+    let cx = if on { sw.right() - theme::INSET_SEGMENT - knob } else { sw.left() + theme::INSET_SEGMENT + knob };
+    ui.painter().circle_filled(Pos2::new(cx, sw.center().y), knob, paint.icon);
     r.clicked().then_some(!on)
 }
 

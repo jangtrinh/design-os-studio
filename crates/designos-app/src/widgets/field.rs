@@ -587,7 +587,7 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
                 rect.width() - theme::FIELD_PREFIX_X - theme::FIELD_PREFIX_ICON - theme::BORDER_WIDTH,
                 s,
                 theme::font_body(),
-                theme::TEXT_SECONDARY,
+                theme::TEXT_TERTIARY,
             );
             let prefix_right = painted.right() - rect.left();
             if prefix_right > theme::FIELD_PREFIX_W {
@@ -599,7 +599,7 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
                 Pos2::new(rect.left() + theme::FIELD_PREFIX_X, rect.center().y - theme::FIELD_PREFIX_GLYPH / 2.0),
                 Vec2::splat(theme::FIELD_PREFIX_GLYPH),
             );
-            super::paint_icon_in(&p, slot, i, theme::FIELD_PREFIX_GLYPH, theme::TEXT_SECONDARY);
+            super::paint_icon_in(&p, slot, i, theme::FIELD_PREFIX_GLYPH, theme::TEXT_TERTIARY);
         }
     }
     let scrubbed = if has_prefix { scrub_prefix(ui, Rect::from_min_size(rect.min, egui::vec2(pw, rect.height())), id, value) } else { None };
@@ -628,7 +628,7 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
         super::text_width(&p, suffix.trim_start(), &font) + if suffix.starts_with(' ') { theme::FIELD_SUFFIX_GAP } else { 0.0 }
     };
     let text_rect = Rect::from_min_max(Pos2::new(rect.left() + pw, rect.top()), Pos2::new((rect.right() - suffix_w).max(rect.left() + pw), rect.bottom()));
-    let hint = Some(("Mixed", theme::TEXT_SECONDARY));
+    let hint = Some(("Mixed", theme::TEXT_TERTIARY));
     let pad = if has_prefix { 0.0 } else { theme::FIELD_PLAIN_X };
     let is_percent_field = suffix.contains('%');
     let committed = edit_num_text(ui, text_rect, id, value, is_percent_field, font.clone(), theme::TEXT, pad, hint);

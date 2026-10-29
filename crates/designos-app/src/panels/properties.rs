@@ -210,8 +210,8 @@ pub(super) fn title(ui: &mut Ui, pane: &mut Pane, text: &str, action: Option<Ico
         Pos2::new(row.left() + theme::SECTION_CONTENT_X, row.center().y),
         Align2::LEFT_CENTER,
         text,
-        theme::font_body_strong(),
-        if dim { theme::TEXT_SECONDARY } else { theme::TEXT },
+        theme::font_large_strong(),
+        if dim { theme::TEXT_TERTIARY } else { theme::TEXT },
     );
     let mut clicked = false;
     if let Some(ic) = action {
@@ -302,7 +302,7 @@ pub(super) fn sublabel(ui: &Ui, pane: &mut Pane, text: &str) {
         pane.y += theme::SPACE_GROUP - theme::SPACE_ROW;
     }
     let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::LABEL_BOX_H);
-    ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, text, theme::font_caption_medium(), theme::TEXT_SECONDARY);
+    ui.painter().text(Pos2::new(r.left(), r.center().y), Align2::LEFT_CENTER, text, theme::font_caption_medium(), theme::TEXT_TERTIARY);
     pane.y += theme::LABEL_BOX_H + theme::SPACE_FACT;
 }
 
@@ -319,30 +319,39 @@ pub(super) fn segmented(ui: &mut Ui, pane: &Pane, x: f32, key: &str, items: &[Ic
 fn segmented_marks(ui: &mut Ui, pane: &Pane, x: f32, key: &str, items: &[Icon], marked: &[usize]) -> Option<usize> {
     let mut out = None;
     let n = items.len();
-    let seg_w = if n == 4 { 22.0 } else { theme::SEGMENT_W };
+    if n == 0 {
+        return None;
+    }
+    let seg_w = if n == 4 { theme::TARGET_MIN } else { theme::SEGMENT_W };
+    let track_h = theme::RIGHT_TABS_H;
+    let y_off = (theme::FIELD_HEIGHT - track_h) * 0.5;
+    let track = pane.rect(x, y_off, seg_w * n as f32, track_h);
+    ui.painter().rect_filled(track, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
     for (i, icon) in items.iter().enumerate() {
-        let r = pane.rect(x + i as f32 * seg_w, 0.0, seg_w, theme::FIELD_HEIGHT);
-        let radius = match (i == 0, i + 1 == n) {
-            (true, true) => theme::cr(theme::RADIUS_CONTROL),
-            (true, false) => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
-            (false, true) => theme::cr_each(0, theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, 0),
-            _ => theme::cr(0),
-        };
-        let resp = ui.interact(r, ui.id().with(("seg", key, i)), Sense::click());
+        // The click target stays the full field row. The painted strip is centred inside it.
+        let hit = pane.rect(x + i as f32 * seg_w, 0.0, seg_w, theme::FIELD_HEIGHT);
+        #[cfg(test)]
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("test-rect", format!("seg:{key}:{i}"))), hit));
+        let resp = ui.interact(hit, ui.id().with(("seg", key, i)), Sense::click());
         let sel = marked.contains(&i);
-        let bg = if sel {
-            theme::BG_TERTIARY
-        } else if resp.hovered() {
-            theme::BG_TERTIARY.gamma_multiply(0.6)
-        } else {
-            theme::BG_SECONDARY
-        };
-        ui.painter().rect_filled(r, radius, bg);
-        icons::paint(ui.painter(), *icon, r.center(), 16.0, if sel { theme::ICON } else { theme::ICON_SECONDARY });
-        if i > 0 {
-            // 1px gap between neighbouring segments.
-            widgets::vline(ui.painter(), r.left(), r.top(), r.bottom(), theme::BG);
+        let slot = pane.rect(x + i as f32 * seg_w, y_off, seg_w, track_h);
+        let left_pad = if i == 0 { theme::INSET_SEGMENT } else { theme::INSET_SEGMENT * 0.5 };
+        let right_pad = if i + 1 == n { theme::INSET_SEGMENT } else { theme::INSET_SEGMENT * 0.5 };
+        if sel {
+            let tile = Rect::from_min_max(
+                Pos2::new(slot.left() + left_pad, slot.top() + theme::INSET_SEGMENT),
+                Pos2::new(slot.right() - right_pad, slot.bottom() - theme::INSET_SEGMENT),
+            );
+            ui.painter().rect_filled(tile, theme::cr(theme::RADIUS_SEGMENT), theme::BG_SELECTED);
         }
+        let glyph = if sel {
+            theme::ICON_SECONDARY
+        } else if resp.hovered() {
+            theme::ICON_QUATERNARY_HOVER
+        } else {
+            theme::ICON_QUATERNARY
+        };
+        icons::paint(ui.painter(), *icon, slot.center(), theme::LAYER_ICON_SIZE, glyph);
         if resp.clicked() {
             out = Some(i);
         }
@@ -352,18 +361,27 @@ fn segmented_marks(ui: &mut Ui, pane: &Pane, x: f32, key: &str, items: &[Icon], 
 
 pub(super) fn checkbox(ui: &mut Ui, pane: &mut Pane, key: &str, label: &str, value: bool) -> Option<bool> {
     let r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
-    let resp = ui.interact(r, ui.id().with(("chk", key)), Sense::click());
-    let b = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 7.0), Vec2::splat(14.0));
-    let p = ui.painter();
-    if value {
-        p.rect_filled(b, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);
-        icons::paint(p, Icon::Check, b.center(), 12.0, theme::TEXT);
-    } else {
-        p.rect_stroke(b, theme::cr(theme::RADIUS_MARK), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
-    }
-    p.text(Pos2::new(b.right() + 8.0, r.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
+    let resp = crate::widgets::kit::checkbox(ui, r, ("chk", key), value, true);
+    let side = theme::LAYER_ICON_SIZE;
+    ui.painter().text(Pos2::new(r.left() + side + theme::SPACE_INLINE, r.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
     pane.y += theme::FIELD_HEIGHT + 4.0;
     resp.clicked().then_some(!value)
+}
+
+fn paint_property_group(ui: &Ui, rect: Rect, focused: bool) {
+    let state = if focused { crate::widgets::kit::State::Focused } else { crate::widgets::kit::State::Default };
+    let look = crate::widgets::kit::property_field_look(state);
+    crate::widgets::kit::paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &look);
+}
+
+fn hit_square(center: Pos2) -> Rect {
+    Rect::from_center_size(center, Vec2::splat(theme::TARGET_MIN))
+}
+
+/// Stores a rect for the hit-area test. Unlike `widgets::record`, this does not name the
+/// widget in the layout snapshot, so the click stays in the unnamed list at its real rect.
+fn remember_for_test(ui: &Ui, name: &str, rect: Rect) {
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("test-rect", name.to_string())), rect));
 }
 
 /// Common value of `f` over all selected nodes, or None if they differ.
@@ -411,22 +429,18 @@ fn page_section(app: &mut App, ui: &mut Ui, pane: &mut Pane) {
     let hex_id = ui.id().with(("txt", "page-hex"));
     let op_id = ui.id().with(("num", "page-op"));
     let focused = ui.memory(|m| m.has_focus(hex_id) || m.has_focus(op_id));
-    {
-        let p = ui.painter();
-        p.rect_filled(g, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-        if focused {
-            p.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-        } else if ui.rect_contains_pointer(g) {
-            p.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
-        }
-    }
+    paint_property_group(ui, g, focused);
     let sw = Rect::from_center_size(Pos2::new(g.left() + theme::PAGE_SWATCH_CX, g.center().y), Vec2::splat(theme::PAGE_SWATCH));
-    let swr = ui.interact(sw.expand(2.0), ui.id().with("page-swatch"), Sense::click());
-    widgets::swatch(ui.painter(), sw, to_c32(bg, 1.0));
+    let hit = hit_square(sw.center());
+    widgets::record(ui, "page-swatch", sw);
+    remember_for_test(ui, "page-swatch-hit", hit);
+    let swr = ui.interact(hit, ui.id().with("page-swatch"), Sense::click());
+    widgets::swatch_focused(ui.painter(), sw, to_c32(bg, 1.0), focused);
     if swr.clicked() || settings {
         open_picker(app, PickTarget::PageBg, to_c32(bg, 1.0), sw, vec![app.page]);
     }
     let hex_r = Rect::from_min_max(Pos2::new(g.left() + theme::PAGE_HEX_X, g.top()), Pos2::new(g.left() + theme::PAGE_DIVIDER_X, g.bottom()));
+    remember_for_test(ui, "page-hex", hex_r);
     if let Some(s) = field::edit_hex_text(ui, hex_r, hex_id, &bg.to_hex(), theme::font_body(), theme::TEXT, 0.0) {
         if let Some(c) = Color::from_hex(&s) {
             let page = app.page;
@@ -522,7 +536,7 @@ fn paint_colors(p: &Paint) -> Vec<Color32> {
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
         | PaintKind::DiamondGradient { stops, .. } => stops.iter().map(|g| to_c32(g.color, p.opacity)).collect(),
-        PaintKind::Image { .. } => vec![Color32::GRAY],
+        PaintKind::Image { .. } => vec![theme::SWATCH_PLACEHOLDER],
     }
 }
 
@@ -653,7 +667,7 @@ fn styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[NodeId]) {
             } else {
                 let Some(Style::Fill(paints)) = app.doc.styles.get(&e.key).cloned() else { continue };
                 let c = Pos2::new(r.left() + theme::STYLE_SWATCH_CX + indent, r.center().y);
-                let cols = paints.first().map(paint_colors).filter(|c| !c.is_empty()).unwrap_or_else(|| vec![Color32::GRAY]);
+                let cols = paints.first().map(paint_colors).filter(|c| !c.is_empty()).unwrap_or_else(|| vec![theme::SWATCH_PLACEHOLDER]);
                 widgets::swatch_circle(ui.painter(), c, theme::STYLE_SWATCH / 2.0, &cols);
                 let nm = widgets::elide(ui.painter(), &e.leaf, &theme::font_body(), 130.0 - indent);
                 ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X + indent, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
@@ -722,7 +736,7 @@ fn library_styles_list(app: &mut App, ui: &mut Ui, pane: &mut Pane, target: &[No
                 match &s.style {
                     Style::Fill(paints) => {
                         let c = Pos2::new(r.left() + theme::STYLE_SWATCH_CX, r.center().y);
-                        let cols = paints.first().map(paint_colors).filter(|c| !c.is_empty()).unwrap_or_else(|| vec![Color32::GRAY]);
+                        let cols = paints.first().map(paint_colors).filter(|c| !c.is_empty()).unwrap_or_else(|| vec![theme::SWATCH_PLACEHOLDER]);
                         widgets::swatch_circle(ui.painter(), c, theme::STYLE_SWATCH / 2.0, &cols);
                         let nm = widgets::elide(ui.painter(), &leaf, &theme::font_body(), 130.0);
                         ui.painter().text(Pos2::new(r.left() + theme::STYLE_LABEL_X, r.center().y), Align2::LEFT_CENTER, nm, theme::font_body(), theme::TEXT);
@@ -793,12 +807,15 @@ fn selection_colors_section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[
     title(ui, pane, "Selection colors", None, false);
     for (i, c) in cols.iter().enumerate() {
         let sw = pane.rect(theme::SWATCH_ROW_X, 4.0, theme::SWATCH_SIZE, theme::SWATCH_SIZE);
+        let hit = hit_square(sw.center());
         let hex_r = pane.rect(theme::SWATCH_ROW_X + theme::SWATCH_SIZE + 8.0, 0.0, 96.0, theme::FIELD_HEIGHT);
         let op_r = pane.rect(theme::SWATCH_ROW_X + theme::SWATCH_SIZE + 8.0 + 100.0, 0.0, 52.0, theme::FIELD_HEIGHT);
         widgets::record(ui, &format!("selsw:{i}"), sw);
+        widgets::record(ui, &format!("selsw-hit:{i}"), hit);
         widgets::record(ui, &format!("selhex:{i}"), hex_r);
-        let swr = ui.interact(sw, ui.id().with(("selsw", i)), Sense::click());
-        widgets::swatch(ui.painter(), sw, to_c32(*c, 1.0));
+        let hex_focus = ui.memory(|m| m.has_focus(ui.id().with(("txt", ("selhex", i)))));
+        let swr = ui.interact(hit, ui.id().with(("selsw", i)), Sense::click());
+        widgets::swatch_focused(ui.painter(), sw, to_c32(*c, 1.0), hex_focus);
         let hex_str = c.to_hex();
         if swr.clicked() {
             let rgb = crate::styles::rgb_key(c);
@@ -868,21 +885,25 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
     pane.y += theme::FIELD_HEIGHT + 8.0;
     if is_frame && !multi {
-        let slides_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 26.0);
+        let slides_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::CONTROL_XS);
         widgets::record(ui, "copy-to-figma-slides-btn", slides_r);
         widgets::record(ui, "copy-to-slides", slides_r);
-        let slides_resp = ui.interact(slides_r, ui.id().with("copy-to-figma-slides"), Sense::click());
-        let slides_bg = if slides_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) };
-        ui.painter().rect_filled(slides_r, theme::cr(6), slides_bg);
-        ui.painter().rect_stroke(slides_r, theme::cr(6), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-        ui.painter().text(slides_r.center(), Align2::CENTER_CENTER, "Copy to Slide Deck", theme::font_caption(), theme::TEXT);
+        let slides_resp = crate::widgets::kit::button(
+            ui,
+            slides_r,
+            "copy-to-figma-slides",
+            "Copy to Slide Deck",
+            crate::widgets::kit::Hierarchy::Secondary,
+            crate::widgets::kit::Size::Xs,
+            true,
+        );
         if slides_resp.on_hover_text("Copy selected frame to Slide Deck").clicked() {
             if let Some(s) = app.copy_selection() {
                 ui.ctx().copy_text(s);
             }
             app.show_toast("Copied selection to Slide Deck", false);
         }
-        pane.y += 32.0;
+        pane.y += 38.0;
     }
     section_sep(ui, pane, false);
     if !multi {
@@ -1331,17 +1352,21 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
     row_end(pane);
     if a.layout_version < 1 {
         pane.y += 4.0;
-        let up_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 24.0);
+        let up_r = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::CONTROL_XS);
         widgets::record(ui, "al-upgrade-v1", up_r);
-        let resp = ui.interact(up_r, ui.id().with("al-upgrade-v1"), Sense::click());
-        let bg = if resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) };
-        ui.painter().rect_filled(up_r, theme::cr(theme::RADIUS_CONTROL), bg);
-        ui.painter().rect_stroke(up_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-        ui.painter().text(up_r.center(), Align2::CENTER_CENTER, "Update auto layout", theme::font_caption(), theme::TEXT);
+        let resp = crate::widgets::kit::button(
+            ui,
+            up_r,
+            "al-upgrade-v1",
+            "Update auto layout",
+            crate::widgets::kit::Hierarchy::Secondary,
+            crate::widgets::kit::Size::Xs,
+            true,
+        );
         if resp.on_hover_text("Upgrade to Auto layout v1 (borders inside the box)").clicked() {
             app.upgrade_auto_layout_version();
         }
-        pane.y += 26.0;
+        pane.y += 34.0;
     }
     pane.y += 4.0;
 }
@@ -1548,8 +1573,8 @@ fn paint_preview(p: &Paint) -> Color32 {
         PaintKind::LinearGradient { stops, .. }
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
-        | PaintKind::DiamondGradient { stops, .. } => stops.first().map(|s| to_c32(s.color, p.opacity)).unwrap_or(Color32::GRAY),
-        PaintKind::Image { .. } => Color32::from_gray(150),
+        | PaintKind::DiamondGradient { stops, .. } => stops.first().map(|s| to_c32(s.color, p.opacity)).unwrap_or(theme::SWATCH_PLACEHOLDER),
+        PaintKind::Image { .. } => theme::SWATCH_PLACEHOLDER,
     }
 }
 
@@ -1606,7 +1631,10 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         let ai_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 1.0 + 4.0 - 28.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         let eye_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 1.0 + 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         let minus_r = pane.rect(theme::SECTION_TRAILING_X, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        let hit = hit_square(sw.center());
         widgets::record(ui, &format!("sw:{stroke}:{i}"), sw);
+        widgets::record(ui, &format!("sw-hit:{stroke}:{i}"), hit);
+        widgets::record(ui, &format!("sw-hex:{stroke}:{i}"), hex_r);
         // Group chrome: one rounded field with a hairline between hex and opacity.
         let hex_id = ui.id().with(("txt", ("hex", key)));
         let op_id = ui.id().with(("num", ("op", key)));
@@ -1614,18 +1642,10 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         if focused {
             app.props.selected_property = Some(prop);
         }
-        {
-            let pt = ui.painter();
-            if app.props.selected_property == Some(prop) {
-                pt.rect_stroke(row_r, theme::cr(4), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-            }
-            pt.rect_filled(g, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-            if focused {
-                pt.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-            } else if ui.rect_contains_pointer(g) {
-                pt.rect_stroke(g, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
-            }
+        if app.props.selected_property == Some(prop) {
+            ui.painter().rect_stroke(row_r, theme::cr(theme::SPACE_FACT as u8), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
         }
+        paint_property_group(ui, g, focused);
         if let Some(drag_prop) = app.props.drag_property {
             let drag_src = match (stroke, drag_prop) {
                 (false, SelectedProperty::Fill(s)) => Some(s),
@@ -1643,8 +1663,12 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
                 }
             }
         }
-        let swr = ui.interact(sw.expand(2.0), ui.id().with(("sw", key)), Sense::click());
-        widgets::picker::paint_swatch(ui.painter(), sw, p);
+        let swr = ui.interact(hit, ui.id().with(("sw", key)), Sense::click());
+        if matches!(p.kind, PaintKind::Solid(_)) {
+            widgets::swatch_focused(ui.painter(), sw, paint_preview(p), focused);
+        } else {
+            widgets::picker::paint_swatch(ui.painter(), sw, p);
+        }
         let var_key = format!("{}/{i}", if stroke { "strokes" } else { "fills" });
         let bound = var_bind::pill_field(app, ui, Rect::from_min_max(hex_r.min, Pos2::new(g.right(), hex_r.bottom())), sel, &[var_key.as_str()]);
         if !bound {
@@ -2229,9 +2253,9 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
     egui::Area::new(egui::Id::new("gradient-handles")).order(egui::Order::Foreground).fixed_pos(canvas.min).interactable(true).show(ctx, |ui| {
         let p = ui.painter().with_clip_rect(canvas);
         let stroke = |w: f32, c: Color32| Stroke::new(w, c);
-        p.line_segment([pts[0].1, pts[1].1], stroke(3.0, Color32::from_black_alpha(0x66)));
-        p.line_segment([pts[0].1, pts[1].1], stroke(1.5, Color32::WHITE));
-        p.line_segment([pts[0].1, pts[2].1], stroke(1.0, Color32::from_white_alpha(0xB2)));
+        p.line_segment([pts[0].1, pts[1].1], stroke(3.0, theme::CONTENT_HANDLE_CASING));
+        p.line_segment([pts[0].1, pts[1].1], stroke(1.5, theme::CONTENT_HANDLE_FILL));
+        p.line_segment([pts[0].1, pts[2].1], stroke(1.0, theme::CONTENT_HANDLE_AXIS));
         let stops = widgets::picker::stops_of(&pk.paint.kind).cloned().unwrap_or_default();
         let shift = ui.input(|inp| inp.modifiers.shift);
         let alt = ui.input(|inp| inp.modifiers.alt);
@@ -2266,8 +2290,8 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
                 None
             };
             let rad = if *i == 2 { 4.0 } else { 6.5 };
-            p.circle_filled(*c, rad + 1.5, Color32::from_black_alpha(0x4D));
-            p.circle_filled(*c, rad, Color32::WHITE);
+            p.circle_filled(*c, rad + 1.5, theme::CONTENT_HANDLE_RING);
+            p.circle_filled(*c, rad, theme::CONTENT_HANDLE_FILL);
             if let Some(f) = fill {
                 p.circle_filled(*c, rad - 2.0, f);
             }
@@ -2296,11 +2320,15 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
                 }
             }
             let sel = pk.state.sel == si;
-            p.rect_filled(Rect::from_center_size(c, Vec2::splat(10.0)), theme::cr(3), if sel { Color32::WHITE } else { Color32::from_white_alpha(0xCC) });
+            p.rect_filled(
+                Rect::from_center_size(c, Vec2::splat(10.0)),
+                theme::cr(3),
+                if sel { theme::CONTENT_HANDLE_FILL } else { theme::CONTENT_HANDLE_STOP_IDLE },
+            );
             if sel {
                 p.rect_stroke(Rect::from_center_size(c, Vec2::splat(12.0)), theme::cr(3), Stroke::new(1.5, theme::BORDER_SELECTED), StrokeKind::Outside);
             }
-            p.rect_filled(Rect::from_center_size(c, Vec2::splat(6.0)), theme::cr(2), to_c32(s.color, 1.0));
+            p.rect_filled(Rect::from_center_size(c, Vec2::splat(6.0)), theme::cr(theme::RADIUS_MARK), to_c32(s.color, 1.0));
         }
 
         // Click on the gradient line between stops to insert a new interpolated stop.
@@ -2470,7 +2498,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                     }
                 });
             }
-            let c = app.doc.get(id).and_then(|n| n.fills.first()).map(paint_preview).unwrap_or(Color32::GRAY);
+            let c = app.doc.get(id).and_then(|n| n.fills.first()).map(paint_preview).unwrap_or(theme::SWATCH_PLACEHOLDER);
             open_picker(app, PickTarget::Fill(0), c, sw, vec![id]);
         }
         "fill-picker-libraries" => {
@@ -2487,7 +2515,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                     }
                 }
             }
-            let c = app.doc.get(id).and_then(|n| n.fills.first()).map(paint_preview).unwrap_or(Color32::GRAY);
+            let c = app.doc.get(id).and_then(|n| n.fills.first()).map(paint_preview).unwrap_or(theme::SWATCH_PLACEHOLDER);
             open_picker(app, PickTarget::Fill(0), c, sw, vec![id]);
             if let Some(pk) = app.props.picker.as_mut() {
                 pk.state.tab = widgets::picker::Tab::Libraries;
@@ -2859,5 +2887,210 @@ mod tests {
         let n2 = app2.doc.get(cid2).unwrap();
         assert_eq!(n2.size, v2(30.0, 100.0));
         assert_eq!(n2.layout_child.align_self, AlignSelf::Auto);
+    }
+
+    fn recorded(ctx: &egui::Context, name: &str) -> Option<Rect> {
+        ctx.data(|d| d.get_temp(egui::Id::new(("test-rect", name.to_string()))))
+    }
+
+    fn must_record(ctx: &egui::Context, name: &str) -> Rect {
+        recorded(ctx, name).unwrap_or_else(|| panic!("missing recorded rect {name}"))
+    }
+
+    fn area_overlap(a: Rect, b: Rect) -> bool {
+        a.min.x.max(b.min.x) < a.max.x.min(b.max.x) && a.min.y.max(b.min.y) < a.max.y.min(b.max.y)
+    }
+
+    fn run_properties(app: &mut App) -> (egui::Context, egui::FullOutput) {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 1600.0));
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(region), ..Default::default() }, |ui| show(app, ui, region));
+        (ctx, out)
+    }
+
+    fn frame_with_flow(app: &mut App, page: NodeId) -> NodeId {
+        let fid = app.doc.alloc_id();
+        let mut frame = Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+        frame.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout { direction: LayoutDirection::Horizontal, ..Default::default() }),
+            ..Default::default()
+        });
+        frame.fills = vec![Paint::solid(Color::rgb(0x11, 0x22, 0x33))];
+        app.doc.insert(page, frame).unwrap();
+        fid
+    }
+
+    #[test]
+    fn segmented_hit_areas_meet_the_target_floor() {
+        let mut doc = Document::new("test");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        let fid = frame_with_flow(&mut app, page);
+        app.selection = vec![fid];
+        let (ctx, _) = run_properties(&mut app);
+        let mut three = Vec::new();
+        for i in 0..3 {
+            three.push(must_record(&ctx, &format!("seg:al-main:{i}")));
+        }
+        let mut four = Vec::new();
+        for i in 0..4 {
+            four.push(must_record(&ctx, &format!("seg:al-dir:{i}")));
+        }
+        for r in three.iter().chain(four.iter()) {
+            assert!(r.width() + 0.5 >= theme::TARGET_MIN && r.height() + 0.5 >= theme::TARGET_MIN, "segment {r:?} is below the target floor");
+        }
+        let group = Rect::from_min_max(four[0].min, four[3].max);
+        assert!((group.width() - 96.0).abs() < 0.5, "4-item group is {} wide", group.width());
+        let gap = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{:?}", "al-gap")))));
+        let gap = gap.unwrap_or_else(|| panic!("missing Gap field"));
+        assert!(!area_overlap(group, gap), "4-item group {group:?} overlaps the Gap field {gap:?}");
+    }
+
+    #[test]
+    fn swatch_hit_areas_meet_the_target_floor() {
+        let mut doc = Document::new("test");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        let (ctx, _) = run_properties(&mut app);
+        let page_hit = must_record(&ctx, "page-swatch-hit");
+        let page_sw = must_record(&ctx, "page-swatch");
+        assert!(page_hit.width() + 0.5 >= theme::TARGET_MIN && page_hit.height() + 0.5 >= theme::TARGET_MIN, "page hit {page_hit:?}");
+        assert!((page_hit.center() - page_sw.center()).length() < 0.5, "page hit and swatch centres differ");
+        let page_hex = must_record(&ctx, "page-hex");
+        assert!(!area_overlap(page_hit, page_hex), "page hit overlaps the hex field");
+
+        let fid = frame_with_flow(&mut app, page);
+        let cid = app.doc.alloc_id();
+        let mut child = Node::rectangle(cid, designos_doc::Rect::new(8.0, 8.0, 40.0, 20.0));
+        child.fills = vec![Paint::solid(Color::rgb(0xCC, 0x33, 0x44))];
+        app.doc.insert(fid, child).unwrap();
+        app.selection = vec![fid];
+        let (ctx, _) = run_properties(&mut app);
+        let sw_hit = must_record(&ctx, "sw-hit:false:0");
+        let sw = must_record(&ctx, "sw:false:0");
+        assert!(sw_hit.width() + 0.5 >= theme::TARGET_MIN && sw_hit.height() + 0.5 >= theme::TARGET_MIN, "paint hit {sw_hit:?}");
+        assert!((sw_hit.center() - sw.center()).length() < 0.5, "paint hit and swatch centres differ");
+        let sw_hex = must_record(&ctx, "sw-hex:false:0");
+        assert!(!area_overlap(sw_hit, sw_hex), "paint hit overlaps the hex field");
+        let sel_hit = must_record(&ctx, "selsw-hit:0");
+        let sel = must_record(&ctx, "selsw:0");
+        let sel_hex = must_record(&ctx, "selhex:0");
+        assert!(sel_hit.width() + 0.5 >= theme::TARGET_MIN && sel_hit.height() + 0.5 >= theme::TARGET_MIN, "selection hit {sel_hit:?}");
+        assert!((sel_hit.center() - sel.center()).length() < 0.5, "selection hit and swatch centres differ");
+        assert!(!area_overlap(sel_hit, sel_hex), "selection hit overlaps the hex field");
+    }
+
+    fn mixed_colors(out: &egui::FullOutput) -> Vec<egui::Color32> {
+        let mut colors = Vec::new();
+        for clipped in &out.shapes {
+            if let egui::epaint::Shape::Text(text) = &clipped.shape {
+                if text.galley.job.text == "Mixed" {
+                    if let Some(section) = text.galley.job.sections.first() {
+                        colors.push(section.format.color);
+                    }
+                }
+            }
+        }
+        colors
+    }
+
+    #[test]
+    fn mixed_values_use_text_tertiary() {
+        let mut doc = Document::new("test");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        let mut ids = Vec::new();
+        for (i, (x, size, blend)) in [(10.0, 12.0, BlendMode::Multiply), (40.0, 28.0, BlendMode::Screen)].into_iter().enumerate() {
+            let id = app.doc.alloc_id();
+            let style = TextStyle { font_size: size, ..Default::default() };
+            let mut n = Node::text(id, designos_doc::Rect::new(x, 10.0, 80.0, 24.0), format!("Hi{i}"), style);
+            n.effects.push(Effect::DropShadow {
+                color: Color::rgba(0, 0, 0, 64),
+                offset: designos_doc::Vec2::new(0.0, 4.0),
+                radius: 4.0,
+                spread: 0.0,
+                visible: true,
+                show_behind: false,
+                blend,
+            });
+            app.doc.insert(page, n).unwrap();
+            ids.push(id);
+        }
+        app.selection = ids.clone();
+        app.props.pop = Some(crate::panels::effects::PopState {
+            kind: crate::panels::effects::PopKind::Effect(0),
+            anchor: Rect::from_min_size(Pos2::new(160.0, 200.0), Vec2::splat(theme::PANEL_ACTION_BUTTON)),
+            ids: ids.clone(),
+        });
+        // The popover's first frame only measures itself, so its text is not in the output.
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 1600.0));
+        let input = || egui::RawInput { screen_rect: Some(region), ..Default::default() };
+        let _ = ctx.run_ui(input(), |ui| show(&mut app, ui, region));
+        let out = ctx.run_ui(input(), |ui| show(&mut app, ui, region));
+        let colors = mixed_colors(&out);
+        assert!(colors.len() >= 3, "expected Mixed on X, font size and shadow blend, found {} pop_open={}", colors.len(), app.props.pop.is_some());
+        assert!(colors.iter().all(|c| *c == theme::TEXT_TERTIARY), "Mixed colours {colors:?}");
+    }
+
+    #[test]
+    fn field_rows_use_the_field_height() {
+        assert_eq!(theme::FIELD_HEIGHT, theme::CONTROL_XS);
+        let mut doc = Document::new("test");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        let fid = frame_with_flow(&mut app, page);
+        app.selection = vec![fid];
+        let (ctx, _) = run_properties(&mut app);
+        let x = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{:?}", "x"))))).unwrap_or_else(|| panic!("missing X field"));
+        let y = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{:?}", "y"))))).unwrap_or_else(|| panic!("missing Y field"));
+        assert!((x.height() - theme::FIELD_HEIGHT).abs() < 0.5, "X row is {} tall", x.height());
+        assert!((y.height() - theme::FIELD_HEIGHT).abs() < 0.5, "Y row is {} tall", y.height());
+    }
+
+    /// A pair keeps each value on its own prefix. The shorter prefix stays on the 24 px line.
+    #[test]
+    fn paired_prefixes_keep_each_value_on_its_own_start() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let h = theme::FIELD_HEIGHT;
+        let w = theme::FIELD_WIDTH_HALF;
+        let pairs = [("CS", "RS"), ("\u{2194}", "\u{2195}")];
+        for (left_prefix, right_prefix) in pairs {
+            let left = Rect::from_min_size(Pos2::new(17.0, 10.0), Vec2::new(w, h));
+            let right = Rect::from_min_size(Pos2::new(113.0, 10.0), Vec2::new(w, h));
+            let mut runs = Vec::new();
+            for _ in 0..2 {
+                let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    field::num_field(ui, left, "pair-left", Prefix::Text(left_prefix), Some(1.0), "");
+                    field::num_field(ui, right, "pair-right", Prefix::Text(right_prefix), Some(1.0), "");
+                });
+                runs.clear();
+                for clipped in &out.shapes {
+                    if let egui::Shape::Text(t) = &clipped.shape {
+                        runs.push((t.galley.text().to_string(), t.pos.x, t.pos.x + t.galley.size().x));
+                    }
+                }
+            }
+            let inset = |field: Rect, prefix: &str| -> f32 {
+                let value = runs
+                    .iter()
+                    .find(|r| r.0 == "1" && r.1 >= field.left() && r.1 <= field.right())
+                    .unwrap_or_else(|| panic!("value for {prefix:?} missing: {runs:?}"));
+                let painted = runs.iter().find(|r| r.0 == prefix).unwrap_or_else(|| panic!("prefix {prefix:?} missing: {runs:?}"));
+                assert!(painted.2 <= value.1, "prefix {prefix:?} overlaps its value");
+                value.1 - field.left()
+            };
+            let left_inset = inset(left, left_prefix);
+            let right_inset = inset(right, right_prefix);
+            let shorter = left_inset.min(right_inset);
+            assert!(
+                (shorter - theme::FIELD_PREFIX_W).abs() < 0.5,
+                "{left_prefix:?}/{right_prefix:?} pulled the shorter value off the 24 px line ({left_inset}, {right_inset})"
+            );
+        }
     }
 }
