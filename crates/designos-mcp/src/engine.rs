@@ -1677,7 +1677,7 @@ pub(crate) fn validate_existing_output_target(
             )
             .with_received(json!(display_path)));
         }
-        if is_readonly {
+        if is_readonly && !cfg!(target_os = "macos") {
             return Err(ToolError::new(
                 ErrorCode::InvalidArguments,
                 ptr,
@@ -1698,24 +1698,39 @@ pub(crate) fn write_checked_output_file(
     supports_overwrite: bool,
 ) -> Result<(), ToolError> {
     use std::io::Write;
-    let map_io_err = |e: std::io::Error| match crate::session_file_io::refusal_of(&e) {
-        Some(crate::session_file_io::Refusal::Link) => {
-            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
-                .with_received(json!(display_path))
+    let map_io_err = |e: std::io::Error| {
+        #[cfg(unix)]
+        if e.raw_os_error() == Some(libc::ELOOP) {
+            return ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+                .with_received(json!(display_path));
         }
-        Some(crate::session_file_io::Refusal::SecondName) => {
-            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a second name (a hard link). Delete it, then try again."))
-                .with_received(json!(display_path))
+        #[cfg(unix)]
+        if e.raw_os_error() == Some(libc::EMLINK) {
+            return ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a second name (a hard link). Delete it, then try again."))
+                .with_received(json!(display_path));
         }
-        Some(crate::session_file_io::Refusal::NotPlainFile) => {
-            ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
-                .with_received(json!(display_path))
+        match crate::session_file_io::refusal_of(&e) {
+            Some(crate::session_file_io::Refusal::Link) => {
+                ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is a link, not a file. Delete the link, then try again."))
+                    .with_received(json!(display_path))
+            }
+            Some(crate::session_file_io::Refusal::SecondName) => {
+                ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} has a second name (a hard link). Delete it, then try again."))
+                    .with_received(json!(display_path))
+            }
+            Some(crate::session_file_io::Refusal::NotPlainFile) => {
+                ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
+                    .with_received(json!(display_path))
+            }
+            None => {
+                let (code, message) = if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    (ErrorCode::InvalidArguments, format!("{display_path} is read-only. Make it writable first, or choose a new path."))
+                } else {
+                    (ErrorCode::InternalError, format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."))
+                };
+                ToolError::new(code, ptr, message)
+            }
         }
-        None => ToolError::new(
-            ErrorCode::InternalError,
-            ptr,
-            format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."),
-        ),
     };
     if !overwrite {
         let mut opts = std::fs::OpenOptions::new();
@@ -1782,7 +1797,7 @@ pub(crate) fn write_checked_output_file(
             )
             .with_received(json!(display_path)));
         }
-        if m.permissions().readonly() {
+        if m.permissions().readonly() && !cfg!(target_os = "macos") {
             return Err(ToolError::new(
                 ErrorCode::InvalidArguments,
                 ptr,
@@ -1792,35 +1807,16 @@ pub(crate) fn write_checked_output_file(
         }
     }
 
-    static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let dir = resolved.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| std::path::Path::new("."));
-    let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp = dir.join(format!("{OUTPUT_TEMP_PREFIX}{}-{seq}.tmp", std::process::id()));
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.custom_flags(libc::O_NOFOLLOW);
-        if old.is_some() {
-            opts.mode(0o600);
-        }
-    }
-    let mut file = opts.open(&tmp).map_err(&map_io_err)?;
-    let write_res = (|| -> std::io::Result<()> {
-        if let Some(ref old) = old {
-            file.set_permissions(old.permissions())?;
-        }
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&tmp, resolved)
-    })();
-    if let Err(e) = write_res {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(map_io_err(e));
-    }
-    Ok(())
+    // The shared writer carries the platform-specific metadata contract used by Studio saves.
+    // In particular, macOS copies ACLs and extended attributes to the replacement before rename.
+    designos_library::write_atomic_no_follow(resolved, bytes).map_err(|err| match err {
+        designos_library::LibraryError::Io(io) => map_io_err(io),
+        other => ToolError::new(
+            ErrorCode::InternalError,
+            ptr,
+            format!("{display_path} can't be written: {other}. Check its permissions and free space, then try again."),
+        ),
+    })
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

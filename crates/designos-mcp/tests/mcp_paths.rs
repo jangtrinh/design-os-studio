@@ -761,6 +761,69 @@ fn new_files_respect_umask_0644_and_255_byte_names_work_in_both_modes() {
     assert_eq!(sha256_file(&canary), canary_hash);
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn save_file_overwrite_preserves_macos_metadata() {
+    let ws = TempDir::new("ws-save-xattr");
+    let mut s = Session::new(&ws.0).unwrap();
+    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
+    s.call("designos_create_node", json!({"parent_id": page_id, "kind": "rectangle"})).unwrap();
+    s.call("designos_save_file", json!({"path": "document.designos"})).unwrap();
+
+    let file = ws.0.join("document.designos");
+    let attr_name = "com.designos.mcp-save-test";
+    let status = std::process::Command::new("/usr/bin/xattr").args(["-w", attr_name, "preserve-this", file.to_str().unwrap()]).status().unwrap();
+    assert!(status.success(), "xattr -w failed");
+
+    let user_out = std::process::Command::new("/usr/bin/id").arg("-un").output().unwrap();
+    assert!(user_out.status.success());
+    let user = String::from_utf8(user_out.stdout).unwrap().trim().to_string();
+    let acl_rule = format!("user:{user} allow write");
+    let status = std::process::Command::new("/bin/chmod").args(["+a", &acl_rule, file.to_str().unwrap()]).status().unwrap();
+    assert!(status.success(), "chmod +a failed");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+
+    s.call("designos_create_node", json!({"parent_id": page_id, "kind": "ellipse"})).unwrap();
+    s.call("designos_save_file", json!({"path": "document.designos", "overwrite": true})).unwrap();
+
+    let out = std::process::Command::new("/usr/bin/xattr").args(["-p", attr_name, file.to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success(), "xattr must survive MCP overwrite: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "preserve-this");
+
+    let ls = std::process::Command::new("/bin/ls").args(["-le", file.to_str().unwrap()]).output().unwrap();
+    assert!(ls.status.success(), "ls -le failed");
+    let ls_text = String::from_utf8_lossy(&ls.stdout);
+    assert!(ls_text.contains(&acl_rule), "write ACL must survive MCP overwrite: {ls_text}");
+    assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o644, "mode must survive MCP overwrite");
+    let _ = std::process::Command::new("/bin/chmod").args(["-N", file.to_str().unwrap()]).status();
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn save_file_overwrite_allows_acl_write_on_readonly_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let ws = TempDir::new("ws-save-acl-readonly");
+    let mut s = Session::new(&ws.0).unwrap();
+    let page_id = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].as_u64().unwrap();
+    s.call("designos_save_file", json!({"path": "document.designos"})).unwrap();
+
+    let file = ws.0.join("document.designos");
+    let user_out = std::process::Command::new("/usr/bin/id").arg("-un").output().unwrap();
+    assert!(user_out.status.success());
+    let user = String::from_utf8(user_out.stdout).unwrap().trim().to_string();
+    let acl_rule = format!("user:{user} allow write");
+    let status = std::process::Command::new("/bin/chmod").args(["+a", &acl_rule, file.to_str().unwrap()]).status().unwrap();
+    assert!(status.success(), "chmod +a failed");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o444)).unwrap();
+
+    s.call("designos_create_node", json!({"parent_id": page_id, "kind": "ellipse"})).unwrap();
+    s.call("designos_save_file", json!({"path": "document.designos", "overwrite": true})).unwrap();
+
+    assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o444, "mode must survive ACL-authorized overwrite");
+    let _ = std::process::Command::new("/bin/chmod").args(["-N", file.to_str().unwrap()]).status();
+}
+
 #[test]
 fn in_workspace_absolute_paths_via_symlink_and_var_alias_are_accepted() {
     let base = TempDir::new("ws-r2-alias");

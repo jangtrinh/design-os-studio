@@ -128,6 +128,12 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(designos_fonts::write_atomic(path, bytes)?)
 }
 
+/// Writes a direct file entry atomically without following a symlink at the final path component.
+/// Preserves the shared writer's mode, ACL and extended-attribute behavior.
+pub fn write_atomic_no_follow(path: &Path, bytes: &[u8]) -> Result<()> {
+    Ok(designos_fonts::write_atomic_no_follow(path, bytes)?)
+}
+
 /// Loads a document from any importable file: `.designos` / `.json` (native or
 /// Figma REST), `.fig` or `.svg`.
 pub fn load_external(path: &Path) -> Result<Document> {

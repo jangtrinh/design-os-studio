@@ -1056,6 +1056,7 @@ version = "0.7.5"
 dependencies = [
  "designos-doc",
  "dirs",
+ "libc",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

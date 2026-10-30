@@ -210,6 +210,52 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     write_via_tmp(&target, dir, prefix, bytes, existing)
 }
 
+/// Replaces a direct file entry without following a symlink at the final path component.
+///
+/// This variant is for callers that treat the path itself as a security boundary. It keeps the
+/// existing file descriptor open while preparing the replacement, so macOS ACLs and extended
+/// attributes are copied from the file that was checked. The final rename replaces whatever is
+/// currently at `path` and never follows a symlink swapped in after the check.
+pub fn write_atomic_no_follow(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let existing = match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("{} is a link, not a file", path.display())));
+        }
+        Ok(meta) => {
+            if meta.is_dir() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
+            }
+            if !meta.is_file() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+            }
+            #[cfg(unix)]
+            if std::os::unix::fs::MetadataExt::nlink(&meta) > 1 {
+                return Err(std::io::Error::from_raw_os_error(libc::EMLINK));
+            }
+            #[cfg(not(target_os = "macos"))]
+            if meta.permissions().readonly() {
+                return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("{} is read-only or not writable", path.display())));
+            }
+            let (file, opened_meta) = open_writable_regular(path, true)?;
+            #[cfg(not(target_os = "macos"))]
+            let _ = file;
+            Some(ExistingTarget {
+                #[cfg(target_os = "macos")]
+                file,
+                meta: opened_meta,
+            })
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let prefix = tmp_prefix(&name);
+    sweep_stale_temps(dir, prefix);
+    write_via_tmp(path, dir, prefix, bytes, existing)
+}
+
 /// Truncates `name` on a UTF-8 char boundary so appending `.{pid}-{seq}.tmp` never exceeds
 /// the 255-byte / 255-char filesystem filename limit (`ENAMETOOLONG`).
 fn tmp_prefix(name: &str) -> &str {
@@ -287,7 +333,7 @@ struct ExistingTarget {
 }
 
 #[cfg(unix)]
-fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::io::{Error, ErrorKind};
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::OpenOptionsExt;
@@ -304,11 +350,14 @@ fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs
         fn fcntl(fd: i32, cmd: i32, ...) -> i32;
     }
 
-    let file = match std::fs::OpenOptions::new().write(true).custom_flags(O_NONBLOCK).open(path) {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).custom_flags(O_NONBLOCK | if no_follow { libc::O_NOFOLLOW } else { 0 });
+    let file = match opts.open(path) {
         Ok(f) => f,
         Err(e) if e.raw_os_error() == Some(ENXIO) => {
             return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
         }
+        Err(e) if no_follow && matches!(e.raw_os_error(), Some(libc::ELOOP | libc::EMLINK)) => return Err(e),
         Err(e) => {
             return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())));
         }
@@ -319,6 +368,10 @@ fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs
     }
     if !meta.is_file() {
         return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+    }
+    #[cfg(unix)]
+    if no_follow && std::os::unix::fs::MetadataExt::nlink(&meta) > 1 {
+        return Err(Error::from_raw_os_error(libc::EMLINK));
     }
     let fd = file.as_raw_fd();
     let flags = unsafe { fcntl(fd, F_GETFL) };
@@ -331,8 +384,8 @@ fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs
     Ok((file, meta))
 }
 
-#[cfg(not(unix))]
-fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+#[cfg(all(not(unix), not(windows)))]
+fn open_writable_regular(path: &Path, _no_follow: bool) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     use std::io::{Error, ErrorKind};
     let file = std::fs::OpenOptions::new()
         .write(true)
@@ -343,6 +396,27 @@ fn open_writable_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs
         return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
     }
     if !meta.is_file() {
+        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
+    }
+    Ok((file, meta))
+}
+
+#[cfg(windows)]
+fn open_writable_regular(path: &Path, no_follow: bool) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
+    use std::io::{Error, ErrorKind};
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .custom_flags(if no_follow { FILE_FLAG_OPEN_REPARSE_POINT } else { 0 })
+        .open(path)
+        .map_err(|e| Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: {e}", path.display())))?;
+    let meta = file.metadata()?;
+    if meta.file_type().is_dir() {
+        return Err(Error::new(ErrorKind::InvalidInput, format!("{} is a directory", path.display())));
+    }
+    if !meta.is_file() || (no_follow && meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0) {
         return Err(Error::new(ErrorKind::InvalidInput, format!("{} is not a regular file", path.display())));
     }
     Ok((file, meta))
@@ -372,7 +446,7 @@ fn resolve_save_target(path: &Path) -> std::io::Result<(PathBuf, Option<Existing
                 if meta.permissions().readonly() {
                     return Err(Error::new(ErrorKind::PermissionDenied, format!("{} is read-only or not writable: permission denied", cur.display())));
                 }
-                let (file, opened_meta) = open_writable_regular(&cur)?;
+                let (file, opened_meta) = open_writable_regular(&cur, false)?;
                 #[cfg(not(target_os = "macos"))]
                 let _ = file;
                 let real = std::fs::canonicalize(&cur).unwrap_or(cur);
