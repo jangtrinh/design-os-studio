@@ -32,7 +32,7 @@ fn board_text_props(v: &Value, base: TextProps) -> TextProps {
             t.style.font_family = f.to_string();
         }
         if let Some(w) = fnum(st, "fontWeight") {
-            t.style.font_weight = w as u16;
+            t.style.set_font_weight(w as u16);
         }
         match fstr(st, "textAlignHorizontal") {
             Some("CENTER") => t.style.align_h = TextAlignH::Center,
