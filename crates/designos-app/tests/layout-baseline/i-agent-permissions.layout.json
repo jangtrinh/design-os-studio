@@ -69,7 +69,17 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        546.0,
+        510.0,
+        312.0,
+        68.0
+      ],
+      "count": 1
+    },
+    "agent-perm-ask-risky": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        644.0,
+        582.0,
         312.0,
         68.0
       ],
@@ -79,7 +89,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        474.0,
+        438.0,
         312.0,
         68.0
       ],
@@ -89,9 +99,9 @@
       "region": "overlay:Foreground/0",
       "rect": [
         620.0,
-        420.0,
+        384.0,
         360.0,
-        248.0
+        320.0
       ],
       "count": 1
     },
@@ -382,6 +392,16 @@
         1056.0,
         28.0,
         28.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-band": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        438.0,
+        32.0,
+        15.0,
+        1056.0
       ],
       "count": 1
     },
@@ -1515,6 +1535,16 @@
       ],
       "count": 1
     },
+    "tab-close-hit-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        307.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "tab-unsaved-dot-1": {
       "region": "overlay:Foreground/0",
       "rect": [
@@ -1601,6 +1631,56 @@
         808.0,
         1036.0,
         16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        584.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        640.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        696.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        752.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        808.0,
+        1036.0,
+        24.0,
         32.0
       ],
       "count": 1
@@ -1708,7 +1788,7 @@
       "rect": [
         92.0,
         3.0,
-        216.0,
+        213.0,
         26.0
       ],
       "sense": [
