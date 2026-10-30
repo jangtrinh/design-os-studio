@@ -161,15 +161,19 @@ fn source_line(doc: &Document, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
         let label_pos = Pos2::new(row.left(), row.center().y - label.size().y * 0.5);
         let label_right = label_pos.x + label.size().x;
         ui.painter().galley(label_pos, label, theme::TEXT_SECONDARY);
-        let icon = Rect::from_min_size(Pos2::new(label_right + 6.0, row.center().y - 8.0), Vec2::splat(16.0));
-        widgets::paint_icon_in(ui.painter(), icon, Icon::Component, 16.0, theme::TEXT_SECONDARY);
+        let icon = Rect::from_min_size(
+            Pos2::new(label_right + theme::INSTANCE_SOURCE_ICON_GAP, row.center().y - theme::SPACE_INLINE),
+            Vec2::splat(theme::LAYER_ICON_SIZE),
+        );
+        widgets::paint_icon_in(ui.painter(), icon, Icon::Component, theme::LAYER_ICON_SIZE, theme::TEXT_SECONDARY);
     }
-    pane.y += 28.0;
+    pane.y += theme::INSTANCE_SOURCE_STEP;
 }
 
 fn description_text(doc: &Document, comp: NodeId) -> Option<String> {
     let node = doc.get(comp)?;
-    let parent = node.parent.and_then(|parent| doc.get(parent)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))).map(|p| p.component.description.as_str());
+    let parent =
+        node.parent.and_then(|parent| doc.get(parent)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))).map(|p| p.component.description.as_str());
     resolve_description(&node.component.description, parent)
 }
 
@@ -184,14 +188,18 @@ fn truncate_to_width(line: &str, max_w: f32, measure: impl Fn(&str) -> f32) -> S
     let mut result = format!("{stem}…");
     while measure(&result) > max_w && !stem.is_empty() {
         stem.pop();
-        while stem.ends_with(' ') { stem.pop(); }
+        while stem.ends_with(' ') {
+            stem.pop();
+        }
         result = format!("{stem}…");
     }
     result
 }
 
 fn truncate_description_lines(lines: &[String], max_w: f32, measure: impl Fn(&str) -> f32) -> (Vec<String>, bool) {
-    if lines.len() <= 2 { return (lines.to_vec(), false); }
+    if lines.len() <= 2 {
+        return (lines.to_vec(), false);
+    }
     let mut result = lines[..2].to_vec();
     let last = result.last_mut().expect("two description lines");
     *last = truncate_to_width(last, max_w, measure);
@@ -207,16 +215,21 @@ fn description_row(ui: &mut Ui, pane: &mut Pane, text: &str) {
     widgets::record(ui, "instance-description", row);
     let galley = ui.painter().layout(text.to_owned(), theme::font_body(), theme::TEXT, row.width());
     let lines: Vec<String> = galley.rows.iter().map(|line| line.text().to_string()).collect();
-    let (shown, truncated) = truncate_description_lines(&lines, row.width(), |line| {
-        ui.painter().layout_no_wrap(line.to_owned(), theme::font_body(), theme::TEXT).size().x
-    });
+    let (shown, truncated) =
+        truncate_description_lines(&lines, row.width(), |line| ui.painter().layout_no_wrap(line.to_owned(), theme::font_body(), theme::TEXT).size().x);
     for (index, line) in shown.iter().enumerate() {
         ui.painter().text(Pos2::new(row.left(), row.top() + index as f32 * theme::LINE_BODY), Align2::LEFT_TOP, line, theme::font_body(), theme::TEXT);
     }
     if truncated || description_clipped(galley.rows.len(), theme::LINE_BODY, 40.0) {
         ui.interact(row, ui.id().with("instance-description"), Sense::hover()).on_hover_text(text);
     }
-    pane.y += 48.0;
+    pane.y += theme::INSTANCE_DESCRIPTION_STEP;
+}
+
+fn instance_boolean_toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> egui::Response {
+    let track = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
+    widgets::record(ui, &format!("toggle:{key}"), rect);
+    crate::widgets::kit::toggle(ui, track, key, on, true)
 }
 
 fn has_changes(app: &App, inst: NodeId) -> bool {
@@ -266,8 +279,10 @@ mod props_panel_tests {
     #[test]
     fn property_sort_is_stable_within_each_kind() {
         let mut defs = vec![
-            def("text", PropKind::Text), def("bool-a", PropKind::Boolean),
-            def("variant-a", PropKind::Variant { options: vec![] }), def("bool-b", PropKind::Boolean),
+            def("text", PropKind::Text),
+            def("bool-a", PropKind::Boolean),
+            def("variant-a", PropKind::Variant { options: vec![] }),
+            def("bool-b", PropKind::Boolean),
             def("variant-b", PropKind::Variant { options: vec![] }),
         ];
         sort_props_by_kind(&mut defs);
@@ -305,6 +320,90 @@ mod props_panel_tests {
         assert!(description_clipped(3, 18.0, 40.0));
         assert!(description_clipped(2, 22.0, 40.0));
     }
+
+    #[test]
+    fn instance_boolean_toggle_shows_focus_ring_on_tab() {
+        fn ring_strokes(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::epaint::RectShape> {
+            shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::epaint::Shape::Rect(shape) if shape.stroke.color == theme::FOCUS_RING && shape.stroke.width == 2.0 => Some(shape.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        let rect = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(92.0, theme::FIELD_HEIGHT));
+        let track = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
+
+        let unfocused_ctx = egui::Context::default();
+        theme::install_fonts(&unfocused_ctx);
+        let mut unfocused_shapes = Vec::new();
+        for _ in 0..3 {
+            unfocused_shapes = unfocused_ctx
+                .run_ui(egui::RawInput::default(), |ui| {
+                    instance_boolean_toggle(ui, rect, "instance-bool", false);
+                })
+                .shapes;
+        }
+        assert!(ring_strokes(&unfocused_shapes).is_empty(), "unfocused toggle has no focus ring");
+
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let first_id = std::cell::Cell::new(egui::Id::NULL);
+        let toggle_id = std::cell::Cell::new(egui::Id::NULL);
+        let frame = |input: egui::RawInput| {
+            ctx.run_ui(input, |ui| {
+                ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle")));
+                instance_boolean_toggle(ui, rect, "instance-bool", false);
+            })
+        };
+
+        // Request focus on frame one, then let egui register and retain the widget for two frames.
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            let response = ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle"))).inner;
+            first_id.set(response.id);
+            response.request_focus();
+            toggle_id.set(instance_boolean_toggle(ui, rect, "instance-bool", false).id);
+        });
+        frame(egui::RawInput::default());
+        frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "the first widget holds focus before Tab");
+
+        let before_tab = frame(egui::RawInput::default());
+        assert!(ring_strokes(&before_tab.shapes).is_empty(), "toggle has no focus ring before Tab");
+        let tab =
+            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: true, repeat: false, modifiers: egui::Modifiers::default() };
+        let release =
+            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: false, repeat: false, modifiers: egui::Modifiers::default() };
+        frame(egui::RawInput { events: vec![tab, release], ..Default::default() });
+        let focused = frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(toggle_id.get())), "Tab moves focus to the toggle");
+        let rings = ring_strokes(&focused.shapes);
+        assert_eq!(rings.len(), 1, "focused toggle has exactly one focus ring");
+        assert_eq!(rings[0].rect, track.expand(theme::SPACE_FACT));
+        assert_eq!(rings[0].stroke.color, theme::FOCUS_RING);
+        assert_eq!(rings[0].stroke.width, 2.0);
+
+        let shift_tab = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: Some(egui::Key::Tab),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers { shift: true, ..Default::default() },
+        };
+        let shift_release = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: Some(egui::Key::Tab),
+            pressed: false,
+            repeat: false,
+            modifiers: egui::Modifiers { shift: true, ..Default::default() },
+        };
+        frame(egui::RawInput { events: vec![shift_tab, shift_release], ..Default::default() });
+        let returned = frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "Shift+Tab returns focus to the first widget");
+        assert!(ring_strokes(&returned.shapes).is_empty(), "toggle ring disappears after Shift+Tab");
+    }
 }
 
 fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
@@ -338,9 +437,7 @@ fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
         widgets::record(ui, &key, ctl);
         match (&def.kind, &value) {
             (PropKind::Boolean, PropValue::Bool(b)) => {
-                let track = Rect::from_min_size(Pos2::new(ctl.left(), ctl.center().y - 8.0), Vec2::new(28.0, 16.0));
-                widgets::record(ui, &format!("toggle:{key}"), ctl);
-                if crate::widgets::kit::toggle(ui, track, &key, *b, true).clicked() {
+                if instance_boolean_toggle(ui, ctl, &key, *b).clicked() {
                     let v = !*b;
                     app.set_instance_prop(inst, &def.name, Some(PropValue::Bool(v)));
                 }
