@@ -254,21 +254,183 @@ fn the_unsaved_changes_hint_names_the_real_next_step_and_only_a_workspace_path()
     let err = s.call("designos_open_file", json!({"path": "first.designos"})).unwrap_err().to_json_value();
 
     assert_eq!(err["code"], "UNSAVED_CHANGES", "{err}");
+    assert_eq!(err["error_kind"], "needs_human", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
     assert_eq!(err["path"], "/discard_changes", "{err}");
     let message = err["message"].as_str().unwrap();
     let next_step = err["next_step"].as_str().unwrap();
     for text in [message, next_step] {
-        assert!(text.contains("designos_save_file"), "names the tool that saves: {text}");
-        assert!(text.contains("discard_changes=true"), "names the parameter that exists: {text}");
         assert!(!text.contains("force"), "no parameter that does not exist: {text}");
         assert!(!text.contains(".designos/.designos"), "no doubled extension: {text}");
     }
-    assert_eq!(err["corrected_example"], json!({"path": "first.designos", "discard_changes": true}), "{err}");
+    assert!(next_step.to_lowercase().contains("stop"), "next_step tells the agent to stop: {next_step}");
+    assert!(next_step.to_lowercase().contains("user"), "next_step tells the agent to tell the user: {next_step}");
+    assert!(!next_step.contains("discard_changes=true"), "next_step must not invite discard: {next_step}");
+    let example = err["corrected_example"].as_object().expect("corrected_example object");
+    assert_ne!(example.get("discard_changes"), Some(&json!(true)), "corrected_example must not set discard_changes:true: {err}");
+    assert_eq!(example.get("path"), Some(&json!("first.designos")), "{err}");
 
     let new_doc = s.call("designos_new_document", json!({"name": "Fresh"})).unwrap_err().to_json_value();
     assert_eq!(new_doc["code"], "UNSAVED_CHANGES", "{new_doc}");
+    assert_eq!(new_doc["error_kind"], "needs_human", "{new_doc}");
+    assert_eq!(new_doc["safe_to_retry"], false, "{new_doc}");
     assert!(!new_doc["next_step"].as_str().unwrap().contains("force"), "{new_doc}");
-    assert!(new_doc["next_step"].as_str().unwrap().contains("discard_changes=true"), "{new_doc}");
+    assert!(!new_doc["next_step"].as_str().unwrap().contains("discard_changes=true"), "{new_doc}");
+    let new_ex = new_doc["corrected_example"].as_object().expect("new_document corrected_example");
+    assert_ne!(new_ex.get("discard_changes"), Some(&json!(true)), "{new_doc}");
+}
+
+#[test]
+fn unsaved_changes_is_needs_human_and_does_not_invite_discard() {
+    let dir = Workspace::new();
+    let mut s = unsaved_session(&dir);
+
+    let open_err = s.call("designos_open_file", json!({"path": "first.designos"})).unwrap_err();
+    let open = open_err.to_json_value();
+    assert_eq!(open["error_kind"], "needs_human", "{open}");
+    assert_eq!(open["safe_to_retry"], false, "{open}");
+    assert_eq!(open["error"]["error_kind"], "needs_human", "{open}");
+    let open_ex = serde_json::to_string(&open["corrected_example"]).unwrap();
+    assert!(!open_ex.contains("discard_changes"), "open_file example must omit discard_changes: {open_ex}");
+
+    let new_err = s.call("designos_new_document", json!({"name": "Fresh"})).unwrap_err();
+    let new_doc = new_err.to_json_value();
+    assert_eq!(new_doc["error_kind"], "needs_human", "{new_doc}");
+    assert_eq!(new_doc["safe_to_retry"], false, "{new_doc}");
+    let new_ex = serde_json::to_string(&new_doc["corrected_example"]).unwrap();
+    assert!(!new_ex.contains("discard_changes"), "new_document example must omit discard_changes: {new_ex}");
+}
+
+#[test]
+fn discard_changes_true_still_replaces_a_dirty_document() {
+    let dir = Workspace::new();
+    let mut s = unsaved_session(&dir);
+    s.call("designos_open_file", json!({"path": "first.designos", "discard_changes": true})).unwrap();
+    let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].clone();
+    s.call("designos_create_node", json!({"parent_id": page, "kind": "frame", "name": "Again"})).unwrap();
+    s.call("designos_new_document", json!({"name": "Fresh", "discard_changes": true})).unwrap();
+    let doc = s.call("designos_get_document", json!({})).unwrap();
+    assert_eq!(doc["name"], "Fresh", "{doc}");
+}
+
+#[test]
+fn path_outside_workspace_is_needs_human_and_not_safe_to_retry() {
+    let dir = Workspace::new();
+    let mut s = unsaved_session(&dir);
+    let err = s.call("designos_open_file", json!({"path": "/etc/passwd"})).unwrap_err().to_json_value();
+    assert_eq!(err["code"], "PATH_OUTSIDE_WORKSPACE", "{err}");
+    assert_eq!(err["error_kind"], "needs_human", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    let step = err["next_step"].as_str().unwrap().to_lowercase();
+    assert!(step.contains("stop"), "{err}");
+    assert!(step.contains("ask") || step.contains("tell the user"), "{err}");
+    assert!(!step.contains("relative path"), "{err}");
+    assert!(err.get("corrected_example").is_none(), "PATH_OUTSIDE_WORKSPACE must not offer a workaround example: {err}");
+}
+
+#[test]
+fn unsupported_node_kind_and_extension_are_fatal_live() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].clone();
+
+    let kind_err = s.call("designos_create_node", json!({"parent_id": page, "kind": "group"})).unwrap_err().to_json_value();
+    assert_eq!(kind_err["code"], "UNSUPPORTED_NODE_KIND", "{kind_err}");
+    assert_eq!(kind_err["error_kind"], "fatal", "{kind_err}");
+    assert_eq!(kind_err["safe_to_retry"], false, "{kind_err}");
+
+    let ext_err = s.call("designos_save_file", json!({"path": "wrong.txt"})).unwrap_err().to_json_value();
+    assert_eq!(ext_err["code"], "UNSUPPORTED_EXTENSION", "{ext_err}");
+    assert_eq!(ext_err["error_kind"], "fatal", "{ext_err}");
+    assert_eq!(ext_err["safe_to_retry"], false, "{ext_err}");
+}
+
+#[test]
+fn open_file_unknown_extension_that_is_not_design_json_is_unsupported_file_type() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    for (name, body) in [("a.txt", "hello"), ("a.png", "\u{89}PNG"), ("a.psd", "8BPS"), ("a", "plain"), ("b.txt", "{\"not\":\"a design\"}")] {
+        fs::write(dir.0.join(name), body).unwrap();
+        let err = s.call("designos_open_file", json!({"path": name})).unwrap_err().to_json_value();
+        assert_eq!(err["code"], "UNSUPPORTED_FILE_TYPE", "{name}: {err}");
+        assert_eq!(err["error_kind"], "fatal", "{name}: {err}");
+        assert_eq!(err["safe_to_retry"], false, "{name}: {err}");
+        let step = err["next_step"].as_str().unwrap_or_default().to_lowercase();
+        assert!(step.contains("stop") && step.contains("tell the user"), "{name}: {err}");
+        for ext in [".designos", ".fig", ".svg", ".json", ".webcapture"] {
+            assert!(step.contains(ext), "{name} lacks {ext}: {err}");
+        }
+    }
+}
+
+#[test]
+fn open_file_unknown_extension_with_native_design_json_opens() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].clone();
+    let node = s.call("designos_create_node", json!({"parent_id": page, "kind": "frame", "name": "Sniffed"})).unwrap();
+    s.call("designos_save_file", json!({"path": "native.designos"})).unwrap();
+    fs::copy(dir.0.join("native.designos"), dir.0.join("a.txt")).unwrap();
+    let mut other = Session::new(&dir.0).unwrap();
+    other.call("designos_open_file", json!({"path": "a.txt"})).unwrap();
+    let id = node["node"]["id"].clone();
+    assert_eq!(other.call("designos_get_node", json!({"node_id": id})).unwrap()["node"]["name"], "Sniffed");
+}
+
+/// A native design file with a second name (a hard link) is not read by the content sniff, because the session file reader refuses
+/// a hard link. So an unknown-extension file such as `a.dat` is `UNSUPPORTED_FILE_TYPE` and is not opened, even though its bytes are
+/// valid native JSON. The same bytes without the second name open.
+#[cfg(unix)]
+#[test]
+fn open_file_hard_linked_native_dat_is_unsupported_file_type() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    s.call("designos_save_file", json!({"path": "native.designos"})).unwrap();
+    fs::copy(dir.0.join("native.designos"), dir.0.join("plain.dat")).unwrap();
+    fs::hard_link(dir.0.join("plain.dat"), dir.0.join("linked.dat")).unwrap();
+    let mut other = Session::new(&dir.0).unwrap();
+    let err = other.call("designos_open_file", json!({"path": "linked.dat"})).unwrap_err().to_json_value();
+    assert_eq!(err["code"], "UNSUPPORTED_FILE_TYPE", "{err}");
+    assert_eq!(err["error_kind"], "fatal", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    // Removing the second name makes the same file readable again, so the refusal is about the link and not the bytes.
+    fs::remove_file(dir.0.join("plain.dat")).unwrap();
+    fs::copy(dir.0.join("native.designos"), dir.0.join("solo.dat")).unwrap();
+    other.call("designos_open_file", json!({"path": "solo.dat"})).unwrap();
+}
+
+#[test]
+fn open_file_unknown_extension_missing_file_is_not_a_file_type_error() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let err = s.call("designos_open_file", json!({"path": "missing.txt"})).unwrap_err().to_json_value();
+    assert_ne!(err["code"], "UNSUPPORTED_FILE_TYPE", "{err}");
+}
+
+#[test]
+fn unsupported_node_kind_is_fatal_but_keeps_its_corrected_example() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["id"].clone();
+    let err = s.call("designos_create_node", json!({"parent_id": page, "kind": "not_a_kind"})).unwrap_err().to_json_value();
+    assert_eq!(err["code"], "UNSUPPORTED_NODE_KIND", "{err}");
+    assert_eq!(err["error_kind"], "fatal", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert_eq!(err["corrected_example"]["kind"], "frame", "{err}");
+}
+
+#[test]
+fn document_invalid_is_fatal_and_not_safe_to_retry_live() {
+    let dir = Workspace::new();
+    let mut s = Session::new(&dir.0).unwrap();
+    fs::write(dir.0.join("corrupt.designos"), "not a design file").unwrap();
+    let err = s.call("designos_open_file", json!({"path": "corrupt.designos", "discard_changes": true})).unwrap_err().to_json_value();
+    assert_eq!(err["code"], "DOCUMENT_INVALID", "{err}");
+    assert_eq!(err["error_kind"], "fatal", "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
+    let step = err["next_step"].as_str().unwrap().to_lowercase();
+    assert!(!step.contains("adjust the value"), "{err}");
+    assert!(!step.contains("and retry"), "{err}");
 }
 
 #[test]

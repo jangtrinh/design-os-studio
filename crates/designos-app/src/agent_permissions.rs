@@ -255,6 +255,11 @@ pub fn build_resume_command_for_mode(
     })
 }
 
+pub(crate) fn approval_denied_hook_message() -> String {
+    let err = designos_mcp::tools::errors::ToolError::approval_denied();
+    format!("{} ({}, safe_to_retry: false): Denied in design:os studio. {}", err.code.as_str(), err.error_kind.as_str(), err.next_step)
+}
+
 /// Generates the POSIX `sh` script Studio installs in the session's private channel folder
 /// ([`crate::agent_approval_channel`]) for Claude Code's `PermissionRequest` hook in `Ask` mode.
 ///
@@ -268,6 +273,7 @@ pub fn approval_hook_script(channel_dir: &Path, status_file: Option<&Path>) -> S
     let channel_dir_escaped = quote(channel_dir);
     let status_assignment = status_file.map(|file| format!("STATUS_FILE='{}'\n", quote(file))).unwrap_or_default();
     let status_write = if status_file.is_some() { "{ printf '{\"state\":\"waiting\"}\\n' > \"$STATUS_FILE\"; } 2>/dev/null || true\n" } else { "" };
+    let deny_message_json = serde_json::to_string(&approval_denied_hook_message()).expect("approval deny message is JSON");
     // The system's commands go first on `PATH`, so a command of the same name in an earlier entry never decides anything
     // here. The rest of the inherited `PATH` stays after them: a system without `od` or `awk` in those folders (NixOS) still
     // finds them. The script Studio writes on Windows (Git Bash) leaves `PATH` alone: Git Bash already leads it with its own
@@ -384,7 +390,7 @@ while [ "$ELAPSED_MS" -lt "$TIMEOUT_MS" ]; do
                 exit 0
                 ;;
             deny)
-                printf '{{"hookSpecificOutput":{{"hookEventName":"PermissionRequest","decision":{{"behavior":"deny","message":"Denied in design:os studio"}}}}}}\n'
+                printf '{{"hookSpecificOutput":{{"hookEventName":"PermissionRequest","decision":{{"behavior":"deny","message":{deny_message_json}}}}}}}\n'
                 exit 0
                 ;;
             *)
@@ -1056,7 +1062,16 @@ mod tests {
         let parsed = decision_of(&out.stdout);
         assert_eq!(parsed["hookSpecificOutput"]["hookEventName"], "PermissionRequest");
         assert_eq!(parsed["hookSpecificOutput"]["decision"]["behavior"], "deny");
-        assert!(!parsed["hookSpecificOutput"]["decision"]["message"].as_str().unwrap_or_default().is_empty());
+        let message = parsed["hookSpecificOutput"]["decision"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("Denied in design:os studio"), "{message}");
+        assert!(message.contains("APPROVAL_DENIED"), "{message}");
+        let lower = message.to_lowercase();
+        assert!(lower.contains("needs_human"), "{message}");
+        assert!(lower.contains("safe_to_retry: false"), "{message}");
+        assert!(lower.contains("stop") && lower.contains("tell the user"), "{message}");
+        let err = designos_mcp::tools::errors::ToolError::approval_denied();
+        assert!(message.contains(err.code.as_str()), "{message}");
+        assert!(message.contains(&err.next_step), "{message}");
     }
 
     #[test]
@@ -1065,6 +1080,15 @@ mod tests {
         let out = fx.start(300, &bash_payload("echo hi")).wait_with_output().unwrap();
         assert!(out.status.success());
         assert!(out.stdout.is_empty(), "Timeout must print nothing to stdout: {:?}", String::from_utf8_lossy(&out.stdout));
+    }
+
+    #[test]
+    fn hook_script_timeout_exits_zero_so_the_cli_prompts() {
+        let fx = Fixture::new("timeout-exit");
+        let out = fx.start(300, &bash_payload("echo hi")).wait_with_output().unwrap();
+        assert_eq!(out.status.code(), Some(0), "the hook must exit 0 on timeout");
+        assert!(out.stdout.is_empty(), "{:?}", String::from_utf8_lossy(&out.stdout));
+        assert!(!String::from_utf8_lossy(&out.stdout).contains("APPROVAL_TIMEOUT"));
     }
 
     #[test]

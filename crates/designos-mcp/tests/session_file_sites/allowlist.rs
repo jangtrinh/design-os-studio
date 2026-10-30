@@ -16,6 +16,7 @@ pub const FS_CALLS: &[Allowed] = &[
     Allowed { file: "src/engine.rs", func: Some("write_checked_output_file"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("new"), why: WORKSPACE_ROOT },
     Allowed { file: "src/server.rs", func: Some("with_session_dir"), why: WORKSPACE_ROOT },
+    Allowed { file: "src/server.rs", func: Some("ensure_inside_workspace"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("input_path"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("output_path_allow_overwrite"), why: WORKSPACE_PATH },
     Allowed { file: "src/server.rs", func: Some("png_output_path"), why: WORKSPACE_PATH },

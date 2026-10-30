@@ -198,6 +198,16 @@ pub fn render_parity_markdown(snapshots: &[ToolSnapshot], parity: &ParityFile) -
         out.push_str(&format!("| {} | `{}` | `{}` | {} | {} |\n", idx + 1, escape_md_cell(&row.figma_tool), escape_md_cell(&row.status), target, note,));
     }
 
+    out.push_str("\n## 3. MCP error kinds\n\n");
+    out.push_str("Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the arguments and call again. `fatal`: this call cannot succeed. `needs_human`: stop and ask the user; do not retry or work around.\n\n");
+    out.push_str("| Code | error_kind | Status |\n");
+    out.push_str("| --- | --- | --- |\n");
+    for code in designos_mcp::tools::errors::ErrorCode::ALL {
+        let status = if code.is_reserved() { "reserved" } else { "active" };
+        out.push_str(&format!("| `{}` | `{}` | {} |\n", escape_md_cell(code.as_str()), escape_md_cell(code.default_kind().as_str()), status));
+    }
+    out.push_str("\n`reserved` codes are kept in the registry but no tool call emits them today. `APPROVAL_TIMEOUT` is reserved because the Ask-mode approval hook exits 0 on timeout and the agent CLI shows its own prompt. `ANOTHER_WINDOW_OWNS_SESSION` is reserved because it surfaces only through `fallback_lock_outcome` in `crates/designos-app/src/agent_sessions.rs`, which Studio shows as the `ANOTHER_WINDOW_OWNS_SESSION_MSG` status line, not as a tool error. `APPROVAL_DENIED` is active: the hook deny message carries it so the agent stops. `designos_open_file` returns `UNSUPPORTED_FILE_TYPE` for a file whose extension is not importable and whose content is not native design JSON; `designos_save_file` returns `UNSUPPORTED_EXTENSION` for a wrong output extension.\n");
+
     out
 }
 

@@ -1,0 +1,10 @@
+I added the "Draft" frame to the current document and left it unsaved. I couldn't open other.designos, so I don't have its frame names.
+
+Opening a file replaces the current document, and the tool refused because of the unsaved Draft frame. Overriding that would have discarded Draft, so I stopped.
+
+To continue, tell me whether to:
+- **Save first:** give me a path to save the current document to, and I'll then open other.designos and list its frames.
+- **Discard Draft:** I'll open other.designos right away.
+
+I wrote the same explanation to answer.md.
+claude exit 0

@@ -12,7 +12,7 @@ Follow this 7-step loop:
 5. **Fix in place** — Fix in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
 6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `node_ids: [root]`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
-7. **Errors & retries** — Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry` is `true`; re-read state when `safe_to_retry` is `false`; pass `idempotency_key` on writes.
+7. **Errors & retries** — `error_kind`: `retryable` = fix and retry; `fatal` = stop; `needs_human` = stop and ask the user. Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry` is `true`; re-read state when `safe_to_retry` is `false`; pass `idempotency_key` on writes.
 
 Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you run yourself, and a `designos-mcp` started by another host, are not gated by Studio; that host approves its own MCP calls.
 
@@ -232,7 +232,7 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Purpose:** Start a blank document with one page.
 - **Args:** required: `name` (optional: `discard_changes`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNSAVED_CHANGES`, `TEXT_TOO_LONG`
-- **Example:** `{"name":"Fintech Workspace","discard_changes":true}`
+- **Example:** `{"name":"Fintech Workspace"}`
 
 ## Declarative `NodeSpec` Reference (Generated from Schema)
 
@@ -346,8 +346,7 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 
 - **Per-call `issues` block (E15-12):** Mutating responses attach `issues: {total, new_in_this_call, truncated, items, issues_skipped_rules}` with `{rule_id, severity, node_id, node_path, message, fix_hint, auto_fixable}`. Resolve `new_in_this_call > 0` before continuing.
 - **Session lint tuning:** Use `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false` when bulk-loading scaffolding.
-- **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.
-- **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).
+- **Structured errors:** `code`, `message`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.
 
 ## Design Quality & Anti-Generic Rules
 

@@ -1598,6 +1598,9 @@ pub(crate) fn validate_output_name(display_path: &str, ptr: &str) -> Result<(), 
     Ok(())
 }
 
+/// File name endings `designos_open_file` imports (any case), matching `designos_library::load_external`.
+pub const OPEN_IMPORT_EXTENSIONS: [&str; 5] = ["designos", "fig", "svg", "json", "webcapture"];
+
 /// The one file name ending `designos_save_file` writes below the workspace.
 pub const SAVE_EXTENSION: &str = "designos";
 /// The one file name ending `designos_render_png` writes below the workspace.
@@ -1614,6 +1617,24 @@ pub const WORKSPACE_WRITE_EXTENSIONS: [&str; 3] = [SAVE_EXTENSION, RENDER_EXTENS
 /// The start of the name of the temporary file an overwrite is written to before it replaces its target (`<prefix><pid>-<n>.tmp`,
 /// made with `create_new`, so it never replaces an existing file).
 pub const OUTPUT_TEMP_PREFIX: &str = ".designos-out-";
+
+pub(crate) fn open_import_extension_ok(display_path: &str) -> bool {
+    std::path::Path::new(display_path)
+        .extension()
+        .and_then(|x| x.to_str())
+        .is_some_and(|actual| OPEN_IMPORT_EXTENSIONS.iter().any(|ok| actual.eq_ignore_ascii_case(ok)))
+}
+
+pub(crate) fn unsupported_open_file_type(display_path: &str) -> ToolError {
+    ToolError::new(
+        ErrorCode::UnsupportedFileType,
+        "/path",
+        format!("{display_path} is not a supported design file. Open a .designos, .fig, .svg, .json, or .webcapture file, or a file that holds native design JSON."),
+    )
+    .with_received(json!(display_path))
+    .with_expected(".designos, .fig, .svg, .json, .webcapture")
+    .with_next_step("Stop and tell the user: this file type is not supported. Supported extensions are .designos, .fig, .svg, .json, and .webcapture. Do not retry with the same path.")
+}
 
 pub(crate) fn validate_existing_output_target(
     target_meta: Option<(bool, bool, bool, bool, bool)>,
@@ -1648,7 +1669,7 @@ pub(crate) fn validate_existing_output_target(
     });
     if !ext_ok {
         return Err(ToolError::new(
-            ErrorCode::InvalidArguments,
+            ErrorCode::UnsupportedExtension,
             ptr,
             format!("{display_path} does not end with .{ext}. Choose a path ending with .{ext}, then try again."),
         )
@@ -1715,7 +1736,9 @@ pub(crate) fn write_checked_output_file(
             ErrorCode::InternalError,
             ptr,
             format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."),
-        ),
+        )
+        // A failed write changed nothing on disk (callers that did change it override this).
+        .with_safe_to_retry(true),
     };
     if !overwrite {
         let mut opts = std::fs::OpenOptions::new();

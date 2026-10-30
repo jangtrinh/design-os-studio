@@ -603,7 +603,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_open_file" => r#"{"path":"design.designos","discard_changes":false}"#,
         "designos_save_file" => r#"{"path":"design.designos","overwrite":true}"#,
         "designos_render_png" => r#"{"node_id":2,"path":"preview.png","scale":2.0}"#,
-        "designos_new_document" => r#"{"name":"Fintech Workspace","discard_changes":true}"#,
+        "designos_new_document" => r#"{"name":"Fintech Workspace"}"#,
         "designos_search_design_system" => r#"{"query":"button","kinds":["component"],"limit":10}"#,
         "designos_get_design_context" => r#"{"node_id":2,"language":"css"}"#,
         "designos_lint_fix" => r#"{"page_id":1,"rules":["default-layer-name"]}"#,
@@ -707,10 +707,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
             );
         }
     }
-    out.push_str(
-        "- **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.\n\
-         - **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).\n\n",
-    );
+    out.push_str("- **Structured errors:** `code`, `message`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.\n\n");
 }
 
 /// Escapes markdown table characters (`|`, `<`, `>`, newlines) in schema descriptions (§8.5).
@@ -825,6 +822,21 @@ pub const GENERATED_RULES_MD: &str = include_str!("../generated/rules.md");
 mod tests {
     use super::*;
     use designos_doc::Document;
+
+    #[test]
+    fn rules_pack_names_every_error_kind() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        for kind in crate::tools::errors::ErrorKind::ALL {
+            let clause = format!("`{}` =", kind.as_str());
+            assert!(pack.contains(&clause), "rules pack must define error_kind {} as `{clause} ...`", kind.as_str());
+        }
+    }
+
+    #[test]
+    fn rules_pack_says_stop_and_ask_the_user_on_needs_human() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("stop and ask the user"), "rules pack must tell the agent to stop and ask the user on needs_human");
+    }
 
     #[test]
     fn disabling_a_tool_removes_its_section() {

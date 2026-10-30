@@ -196,7 +196,7 @@ fn export_fig_validates_extension_case_insensitively() {
 
     for bad in ["out.txt", "out.designos", "out"] {
         let err = s.call("designos_export_fig_file", json!({"output_path": bad})).expect_err("non-.fig extension must be refused");
-        assert_eq!(err.code, ErrorCode::InvalidArguments, "{bad}: {err}");
+        assert_eq!(err.code, ErrorCode::UnsupportedExtension, "{bad}: {err}");
     }
 
     for good in ["UPPER.FIG", "Mixed.Fig"] {
@@ -848,11 +848,11 @@ fn trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first() 
     assert!(!trailing_engine.with_file_name("engine.fig").exists());
 
     let save_ext = s.call("designos_save_file", json!({"path": "wrong.txt"})).expect_err("save_file must refuse wrong extension");
-    assert_eq!(save_ext.code, ErrorCode::InvalidArguments);
+    assert_eq!(save_ext.code, ErrorCode::UnsupportedExtension);
     assert_eq!(save_ext.message, "wrong.txt does not end with .designos. Choose a path ending with .designos, then try again.");
 
     let png_ext = s.call("designos_render_png", json!({"path": "wrong.txt", "node_id": rect_id})).expect_err("render_png must refuse wrong extension");
-    assert_eq!(png_ext.code, ErrorCode::InvalidArguments);
+    assert_eq!(png_ext.code, ErrorCode::UnsupportedExtension);
     assert_eq!(png_ext.message, "wrong.txt does not end with .png. Choose a path ending with .png, then try again.");
 
     for bidi_mark in ["lrm\u{200E}x.fig", "rlm\u{200F}x.fig", "alm\u{061C}x.fig"] {
