@@ -144,6 +144,8 @@ pub fn composer_pill(state: &mut TerminalState) -> (String, Option<AgentCliPrese
     if state.picker.pill_cache_current() {
         return (state.picker.pill_label_cache.clone(), state.picker.pill_preset_cache);
     }
+    // Starting the probe cycle writes seed probes, so it comes first: the generation read next is the one the rows are built from.
+    state.picker.ensure_probed();
     let generation = state.picker.cache.generation();
     let rows = rows_for_state(state);
     let found = rows.iter().find_map(|row| match &row.kind {
