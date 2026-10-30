@@ -374,28 +374,40 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         let auto_fill = if auto_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY };
         p.rect_filled(auto_r, theme::cr(theme::RADIUS_CONTROL), auto_fill);
         p.rect_stroke(auto_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
-        p.text(
-            Pos2::new(auto_r.left() + theme::INSET_FRAME, auto_r.top() + theme::INSET_FRAME),
-            Align2::LEFT_TOP,
-            "Auto-save changes made by AI",
-            theme::font_body_medium(),
-            theme::TEXT,
+        let text_x = auto_r.left() + theme::INSET_FRAME;
+        let switch_rect = Rect::from_min_size(
+            Pos2::new(auto_r.right() - theme::INSET_FRAME - theme::BADGE_LG, auto_r.center().y - theme::LAYER_ICON_SIZE * 0.5),
+            Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE),
         );
-        p.text(
-            Pos2::new(auto_r.left() + theme::INSET_FRAME, auto_r.top() + theme::INSET_FRAME + theme::LINE_BODY + theme::SPACE_FACT),
-            Align2::LEFT_TOP,
-            if autosave_on {
-                "On. Save after each agent tool batch, outside the library. This session too."
-            } else {
-                "Off. Edits stay unsaved until the agent or you save. This session too."
-            },
-            theme::font_caption(),
-            theme::TEXT_SECONDARY,
-        );
-        let sw = Rect::from_min_size(Pos2::new(auto_r.right() - theme::INSET_FRAME - 28.0, auto_r.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
-        p.rect_filled(sw, theme::cr_pill(sw.height()), if autosave_on { theme::BG_BRAND } else { theme::BG_SECONDARY });
-        let kx = if autosave_on { sw.right() - theme::SPACE_INLINE } else { sw.left() + theme::SPACE_INLINE };
-        p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, theme::ICON_WHITE);
+        let caption_w = switch_rect.left() - theme::SPACE_INLINE - text_x;
+        let title_y = auto_r.top() + theme::INSET_FRAME;
+        p.text(Pos2::new(text_x, title_y), Align2::LEFT_TOP, "Auto-save changes made by AI", theme::font_body_medium(), theme::TEXT);
+        let caption = if autosave_on {
+            "On. Save after each agent tool batch, outside the library. This session too."
+        } else {
+            "Off. Edits stay unsaved until the agent or you save. This session too."
+        };
+        let mut job = LayoutJob::simple(caption.to_string(), theme::font_caption(), theme::TEXT_SECONDARY, caption_w);
+        job.wrap.max_width = caption_w;
+        job.wrap.max_rows = 2;
+        job.wrap.break_anywhere = false;
+        job.wrap.overflow_character = Some('…');
+        if let Some(sec) = job.sections.first_mut() {
+            sec.format =
+                TextFormat { font_id: theme::font_caption(), color: theme::TEXT_SECONDARY, line_height: Some(theme::LINE_CAPTION), ..Default::default() };
+        }
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        p.galley(Pos2::new(text_x, title_y + theme::LINE_BODY + theme::SPACE_FACT), galley, theme::TEXT_SECONDARY);
+        let sw = switch_rect;
+        let fill = if autosave_on { theme::BG_BRAND } else { theme::BG_PRESSED };
+        p.rect_filled(sw, theme::cr_pill(sw.height()), fill);
+        if !autosave_on {
+            p.rect_stroke(sw, theme::cr_pill(sw.height()), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_STRONG), StrokeKind::Inside);
+        }
+        let knob_r = theme::LAYER_ICON_SIZE * 0.5 - theme::INSET_SEGMENT;
+        let kx = if autosave_on { sw.right() - theme::INSET_SEGMENT - knob_r } else { sw.left() + theme::INSET_SEGMENT + knob_r };
+        p.circle_filled(Pos2::new(kx, sw.center().y), knob_r, theme::ICON_WHITE);
+        widgets::record(ui, "agent-autosave-switch", switch_rect);
         widgets::record(ui, "agent-autosave-ai", auto_r);
         if auto_resp.clicked() {
             if let Some(root) = lib_root {
@@ -420,6 +432,51 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui::epaint::{RectShape, Shape};
+
+    fn painted_rects(shapes: &[egui::epaint::ClippedShape]) -> Vec<(Rect, egui::Color32, Stroke)> {
+        fn walk(shape: &Shape, out: &mut Vec<(Rect, egui::Color32, Stroke)>) {
+            match shape {
+                Shape::Vec(shapes) => shapes.iter().for_each(|shape| walk(shape, out)),
+                Shape::Rect(RectShape { rect, fill, stroke, .. }) => out.push((*rect, *fill, *stroke)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    fn autosave_frame(on: bool) -> (Vec<crate::lint::TextRun>, Vec<(Rect, egui::Color32, Stroke)>, std::path::PathBuf) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!("designos-autosave-card-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir_all(&root).expect("could not create autosave test directory");
+        crate::comments::settings::save_autosave_ai_changes(&root, on).expect("could not save autosave test setting");
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        ctx.all_styles_mut(|s| s.animation_time = 0.0);
+        let mut open = true;
+        let mut mode = AgentPermissionMode::Ask;
+        let mut output = None;
+        for frame in 0..4 {
+            output = Some(ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
+                    time: Some(frame as f64 * 0.1),
+                    ..Default::default()
+                },
+                |_ui| {
+                    let _ = paint_permissions_modal(&ctx, &mut open, &mut mode, Some(&root));
+                },
+            ));
+        }
+        let output = output.expect("autosave modal did not produce a frame");
+        (crate::lint::scan_shapes(&output.shapes).0, painted_rects(&output.shapes), root)
+    }
 
     fn modal_texts(mode: AgentPermissionMode) -> Vec<String> {
         let ctx = Context::default();
@@ -504,5 +561,69 @@ mod tests {
         }
         assert!(texts.iter().any(|t| t == "Revoke"), "{texts:?}");
         assert!(texts.iter().any(|t| t.contains("designos_update_node")), "{texts:?}");
+    }
+
+    #[test]
+    fn autosave_row_caption_wraps_inside_its_column_and_clear_of_the_switch() {
+        for on in [true, false] {
+            let (texts, rects, root) = autosave_frame(on);
+            let prefix = if on { "On." } else { "Off." };
+            let caption = texts.iter().find(|text| text.text.starts_with(prefix)).expect("autosave caption was not painted");
+            let title = texts.iter().find(|text| text.text == "Auto-save changes made by AI").expect("autosave title was not painted");
+            let switch = rects
+                .iter()
+                .find(|(r, _, _)| (r.width() - theme::BADGE_LG).abs() < 0.5 && (r.height() - theme::LAYER_ICON_SIZE).abs() < 0.5)
+                .expect("autosave switch was not painted")
+                .0;
+            let row = rects
+                .iter()
+                .find(|(r, _, _)| {
+                    (r.height() - (theme::CONTROL_MD + theme::CONTROL_STANDARD)).abs() < 0.5
+                        && (r.width() - (theme::PERMISSIONS_MODAL_WIDTH - theme::INSET_MODAL - theme::INSET_MODAL)).abs() < 0.5
+                        && r.contains(caption.rect.center())
+                })
+                .expect("autosave row containing the caption was not painted")
+                .0;
+            assert!(caption.rect.right() <= switch.left() - theme::SPACE_INLINE + 0.5, "autosave caption overlaps the switch");
+            assert!(row.contains(caption.rect.min) && row.contains(caption.rect.max), "autosave caption extends outside its row");
+            assert!(caption.text.lines().count() <= 2, "autosave caption wraps to more than two lines");
+            assert!(texts.iter().all(|text| !text.rect.intersects(switch)), "autosave text overlaps the switch");
+            assert!(row.contains(switch.min) && row.contains(switch.max), "autosave switch extends outside its row");
+            assert!(row.contains(title.rect.min) && row.contains(title.rect.max), "autosave title extends outside its row");
+            assert!(caption.text.contains("This session too."), "autosave caption omits its session note");
+            std::fs::remove_dir_all(root).expect("could not remove autosave test directory");
+        }
+    }
+
+    #[test]
+    fn autosave_row_off_track_is_visible_against_the_row_and_the_modal() {
+        let (_, off_rects, off_root) = autosave_frame(false);
+        let switch_off = off_rects
+            .iter()
+            .find(|(r, _, _)| (r.width() - theme::BADGE_LG).abs() < 0.5 && (r.height() - theme::LAYER_ICON_SIZE).abs() < 0.5)
+            .expect("off autosave switch was not painted");
+        assert_eq!(switch_off.1, theme::BG_PRESSED, "off autosave switch does not use the exact opaque pressed fill");
+        assert_ne!(switch_off.1, theme::BG_TERTIARY, "off autosave switch matches the tertiary background");
+        assert_ne!(switch_off.1, theme::BG_SECONDARY, "off autosave switch matches the secondary background");
+        let luma = |c: egui::Color32| (u16::from(c.r()) * 299 + u16::from(c.g()) * 587 + u16::from(c.b()) * 114) / 1000;
+        assert!(luma(switch_off.1).abs_diff(luma(theme::BG_TERTIARY)) >= 0x10, "off autosave switch lacks contrast against the row");
+        assert!(
+            off_rects.iter().any(|(r, _, stroke)| {
+                stroke.color == theme::BORDER_STRONG
+                    && stroke.width > 0.0
+                    && switch_off.0.expand(theme::BORDER_WIDTH).contains_rect(*r)
+                    && r.contains_rect(switch_off.0.shrink(theme::BORDER_WIDTH))
+            }),
+            "off autosave switch has no visible strong border"
+        );
+        std::fs::remove_dir_all(off_root).expect("could not remove off autosave test directory");
+
+        let (_, on_rects, on_root) = autosave_frame(true);
+        let switch_on = on_rects
+            .iter()
+            .find(|(r, _, _)| (r.width() - theme::BADGE_LG).abs() < 0.5 && (r.height() - theme::LAYER_ICON_SIZE).abs() < 0.5)
+            .expect("on autosave switch was not painted");
+        assert_eq!(switch_on.1, theme::BG_BRAND, "on autosave switch does not use the brand fill");
+        std::fs::remove_dir_all(on_root).expect("could not remove on autosave test directory");
     }
 }
