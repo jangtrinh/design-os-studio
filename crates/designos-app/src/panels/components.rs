@@ -122,7 +122,7 @@ fn instance_header(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     }
     pane.y += theme::FIELD_HEIGHT + 8.0;
     if let Some(comp) = comp {
-        source_line(&app.doc, ui, pane, inst, comp);
+        source_line(&app.doc, ui, pane, inst);
         if let Some(description) = description_text(&app.doc, comp) {
             description_row(ui, pane, &description);
         }
@@ -151,7 +151,7 @@ fn instance_header(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     }
 }
 
-fn source_line(doc: &Document, ui: &mut Ui, pane: &mut Pane, inst: NodeId, _comp: NodeId) {
+fn source_line(doc: &Document, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 20.0);
     if let Some(info) = library_instance_info(doc, inst) {
         crate::libraries::instance_library_row(ui, row, &info);
@@ -178,12 +178,22 @@ fn resolve_description(own: &str, parent: Option<&str>) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-fn truncate_description_lines(lines: &[String]) -> (Vec<String>, bool) {
+fn truncate_to_width(line: &str, max_w: f32, measure: impl Fn(&str) -> f32) -> String {
+    let mut stem = line.trim_end().to_string();
+    let mut result = format!("{stem}…");
+    while measure(&result) > max_w && !stem.is_empty() {
+        stem.pop();
+        while stem.ends_with(' ') { stem.pop(); }
+        result = format!("{stem}…");
+    }
+    result
+}
+
+fn truncate_description_lines(lines: &[String], max_w: f32, measure: impl Fn(&str) -> f32) -> (Vec<String>, bool) {
     if lines.len() <= 2 { return (lines.to_vec(), false); }
     let mut result = lines[..2].to_vec();
     let last = result.last_mut().expect("two description lines");
-    while last.ends_with(' ') { last.pop(); }
-    last.push('…');
+    *last = truncate_to_width(last, max_w, measure);
     (result, true)
 }
 
@@ -191,7 +201,9 @@ fn description_row(ui: &mut Ui, pane: &mut Pane, text: &str) {
     let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 40.0);
     let galley = ui.painter().layout(text.to_owned(), theme::font_body(), theme::TEXT, row.width());
     let lines: Vec<String> = galley.rows.iter().map(|line| line.text().to_string()).collect();
-    let (shown, truncated) = truncate_description_lines(&lines);
+    let (shown, truncated) = truncate_description_lines(&lines, row.width(), |line| {
+        ui.painter().layout_no_wrap(line.to_owned(), theme::font_body(), theme::TEXT).size().x
+    });
     for (index, line) in shown.iter().enumerate() {
         ui.painter().text(Pos2::new(row.left(), row.top() + index as f32 * theme::LINE_BODY), Align2::LEFT_TOP, line, theme::font_body(), theme::TEXT);
     }
@@ -267,10 +279,17 @@ mod props_panel_tests {
 
     #[test]
     fn description_truncation_keeps_two_lines_and_marks_last_line() {
-        let (lines, truncated) = truncate_description_lines(&["first".into(), "second".into(), "third".into()]);
+        let (lines, truncated) = truncate_description_lines(&["first".into(), "second".into(), "third".into()], 100.0, |line| line.chars().count() as f32);
         assert!(truncated);
         assert_eq!(lines, vec!["first".to_string(), "second…".to_string()]);
-        assert_eq!(truncate_description_lines(&["one".into()]), (vec!["one".into()], false));
+        assert_eq!(truncate_description_lines(&["one".into()], 100.0, |line| line.chars().count() as f32), (vec!["one".into()], false));
+    }
+
+    #[test]
+    fn description_truncation_shrinks_to_fit_width() {
+        let truncated = truncate_to_width("second   ", 60.0, |line| line.chars().count() as f32 * 10.0);
+        assert_eq!(truncated, "secon…");
+        assert!(truncated.chars().count() as f32 * 10.0 <= 60.0);
     }
 }
 
