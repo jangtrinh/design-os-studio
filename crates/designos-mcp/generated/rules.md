@@ -10,7 +10,7 @@
 5. **Fix in place** — Update with (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
 6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
-7. **Errors & retries** — `error_kind`: `retryable` = fix and retry once; `fatal` = stop; `needs_human` = stop and ask the user. Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry`; else re-read state; pass `idempotency_key` on writes.
+7. **Errors & retries** — `error_kind`: `retryable` = fix and retry once; `fatal` = stop; `needs_human` = stop and ask the user; do not retry or work around. Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry`; else re-read state; pass `idempotency_key` on writes.
 
 Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 
@@ -35,7 +35,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"node_id":1,"depth":3}`
 
 ### `designos_search_design_system`
-- **Purpose:** Search components, component sets, shared styles, and variables across this file and its...
+- **Purpose:** Search components, component sets, shared styles, and variables across this file and...
 - **Args:** required: `query` (optional: `kinds`, `limit`, `property`)
 - **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"query":"button","kinds":["component"],"limit":10}`
@@ -107,19 +107,19 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"thread_id":"t1","resolved":true}`
 
 ### `designos_apply_spec`
-- **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0...
+- **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave...
 - **Args:** required: `spec` (optional: `diff_image`, `idempotency_key`, `lint`, `parent_id`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
 - **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","children":[{"kind":"text","name":"Label","text":"Net Revenue"},{"kind":"text","name":"Value","text":"$148,920"}]}}`
 
 ### `designos_export_spec`
-- **Purpose:** Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev...
+- **Purpose:** Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with...
 - **Args:** required: `node_id`
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`
 - **Example:** `{"node_id":2}`
 
 ### `designos_set_dev_status`
-- **Purpose:** Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or append a...
+- **Purpose:** Set a layer's Dev Mode handoff status ('ready', 'completed', or 'clear') and/or...
 - **Args:** required: `node_id` (optional: `annotation`, `idempotency_key`, `status`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `TEXT_TOO_LONG`
 - **Example:** `{"node_id":2,"status":"ready","annotation":"Semantic tokens"}`
@@ -137,7 +137,7 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
 
 ### `designos_lint`
-- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a...
+- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on...
 - **Args:** required: none (optional: `cursor`, `include_ignored`, `limit`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"preset":"agent","limit":100}`
@@ -149,13 +149,13 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"topic":"design-system","platform":"web"}`
 
 ### `designos_import_web_capture`
-- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as...
+- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page...
 - **Args:** required: none (optional: `capture`, `infer_block_auto_layout`, `page_id`, `path`, `x`, `y`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `NODE_NOT_FOUND`
 - **Example:** `{"path":"capture.webcapture.json","page_id":1}`
 
 ### `designos_undo`
-- **Purpose:** Undo the latest successful edit in this session; returns changed=false if the stack is...
+- **Purpose:** Undo the latest successful edit in this session; returns changed=false if the stack...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`, `HISTORY_DROPPED`
 - **Example:** `{}`
@@ -167,19 +167,19 @@ Ask covers Studio Agents-panel tabs; CLI `designos-mcp` is not Studio-gated.
 - **Example:** `{"page_id":1,"rules":["default-layer-name"]}`
 
 ### `designos_redo`
-- **Purpose:** Redo the most recently undone edit in this session; returns changed=false if the stack...
+- **Purpose:** Redo the most recently undone edit in this session; returns changed=false if the...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`, `HISTORY_DROPPED`
 - **Example:** `{}`
 
 ### `designos_get_screenshot`
-- **Purpose:** Render a node, a set of nodes on the same page, or a page-space rectangular region and...
+- **Purpose:** Render a node, a set of nodes on the same page, or a page-space rectangular region...
 - **Args:** required: none (optional: `format`, `max_long_edge`, `node_id`, `node_ids`, `quality`, `region`, `scale`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"node_id":2,"scale":2.0}`
 
 ### `designos_set_in_progress`
-- **Purpose:** Flag or clear root frames as in progress while an agent works on them (work state, not...
+- **Purpose:** Flag or clear root frames as in progress while an agent works on them (work state,...
 - **Args:** required: `node_ids`, `value` (optional: `force`, `idempotency_key`, `stale_after_s`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `IN_PROGRESS_TARGET_NOT_ROOT`, `NODE_IN_PROGRESS_BY_OTHER_RUN`
 - **Example:** `{"node_ids":[2],"value":true}`
