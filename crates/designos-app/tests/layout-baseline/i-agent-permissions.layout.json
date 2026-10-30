@@ -55,16 +55,6 @@
     }
   ],
   "named": {
-    "agent-autosave-ai": {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        644.0,
-        616.0,
-        312.0,
-        68.0
-      ],
-      "count": 1
-    },
     "agent-mention-btn-left": {
       "region": "overlay:Foreground/0",
       "rect": [
@@ -79,7 +69,17 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        506.0,
+        510.0,
+        312.0,
+        68.0
+      ],
+      "count": 1
+    },
+    "agent-perm-ask-risky": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        644.0,
+        582.0,
         312.0,
         68.0
       ],
@@ -89,7 +89,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        434.0,
+        438.0,
         312.0,
         68.0
       ],
@@ -99,9 +99,9 @@
       "region": "overlay:Foreground/0",
       "rect": [
         620.0,
-        380.0,
+        384.0,
         360.0,
-        328.0
+        320.0
       ],
       "count": 1
     },
