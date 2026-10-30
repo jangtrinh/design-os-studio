@@ -240,6 +240,9 @@ pub enum PermissionMode {
     /// Ask for approval using the CLI's default interactive mode (default in Studio).
     #[default]
     Ask,
+    /// Read and additive designos tools run. Modify, destructive, and external tools ask.
+    /// A modify call can be allowed for this session. Unknown tools ask.
+    AskRisky,
 }
 
 /// An agent CLI a sample-prompt click can start (`#688`).
@@ -384,15 +387,15 @@ impl AgentCliPreset {
     pub fn permission_flags(self, mode: PermissionMode) -> &'static [&'static str] {
         match (self, mode) {
             (AgentCliPreset::Claude, PermissionMode::Skip) => &["--dangerously-skip-permissions"],
-            (AgentCliPreset::Claude, PermissionMode::Ask) => &[],
+            (AgentCliPreset::Claude, PermissionMode::Ask | PermissionMode::AskRisky) => &[],
             (AgentCliPreset::Codex, PermissionMode::Skip) => &["--dangerously-bypass-approvals-and-sandbox"],
-            (AgentCliPreset::Codex, PermissionMode::Ask) => &[],
+            (AgentCliPreset::Codex, PermissionMode::Ask | PermissionMode::AskRisky) => &[],
             (AgentCliPreset::Grok, PermissionMode::Skip) => &["--always-approve"],
-            (AgentCliPreset::Grok, PermissionMode::Ask) => &[],
+            (AgentCliPreset::Grok, PermissionMode::Ask | PermissionMode::AskRisky) => &[],
             (AgentCliPreset::Antigravity, PermissionMode::Skip) => &["--dangerously-skip-permissions"],
-            (AgentCliPreset::Antigravity, PermissionMode::Ask) => &[],
+            (AgentCliPreset::Antigravity, PermissionMode::Ask | PermissionMode::AskRisky) => &[],
             (AgentCliPreset::Gemini, PermissionMode::Skip) => &["--approval-mode", "yolo"],
-            (AgentCliPreset::Gemini, PermissionMode::Ask) => &["--approval-mode", "default"],
+            (AgentCliPreset::Gemini, PermissionMode::Ask | PermissionMode::AskRisky) => &["--approval-mode", "default"],
             (AgentCliPreset::OpenCode | AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp, _) => &[],
         }
     }
@@ -403,19 +406,19 @@ impl AgentCliPreset {
             (AgentCliPreset::Claude, PermissionMode::Skip) => {
                 "claude --dangerously-skip-permissions --mcp-config \"$DESIGNOS_MCP_CONFIG\" --settings \"$DESIGNOS_SESSION_DIR/hooks.json\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
-            (AgentCliPreset::Claude, PermissionMode::Ask) => {
+            (AgentCliPreset::Claude, PermissionMode::Ask | PermissionMode::AskRisky) => {
                 "claude --mcp-config \"$DESIGNOS_CLAUDE_MCP_CONFIG\" --settings \"$DESIGNOS_CLAUDE_SETTINGS\" --setting-sources user --plugin-dir \"$DESIGNOS_CLAUDE_PLUGIN\" --append-system-prompt \"You are inside DESIGN:OS Studio bound exclusively to file '$DESIGNOS_DOC_NAME' (session $DESIGNOS_SESSION_DIR). Use the pre-fetched bootstrap context (or call designos_get_app_state) for the current selected page, frames, tokens, and components, and deliver all designs onto that file and page via designos-mcp tools (designos_apply_spec, designos_create_node, designos_update_node) or by writing NodeSpec JSON to $DESIGNOS_LIVE_SPEC.\""
             }
             (AgentCliPreset::Codex, PermissionMode::Skip) => concat!("codex --dangerously-bypass-approvals-and-sandbox", codex_mcp_overrides!()),
-            (AgentCliPreset::Codex, PermissionMode::Ask) => concat!("codex", codex_mcp_overrides!()),
+            (AgentCliPreset::Codex, PermissionMode::Ask | PermissionMode::AskRisky) => concat!("codex", codex_mcp_overrides!()),
             (AgentCliPreset::Grok, PermissionMode::Skip) => "grok --always-approve --cwd \"$DESIGNOS_SESSION_DIR\"",
-            (AgentCliPreset::Grok, PermissionMode::Ask) => "grok --cwd \"$DESIGNOS_SESSION_DIR\"",
+            (AgentCliPreset::Grok, PermissionMode::Ask | PermissionMode::AskRisky) => "grok --cwd \"$DESIGNOS_SESSION_DIR\"",
             (AgentCliPreset::Antigravity, PermissionMode::Skip) => "agy --dangerously-skip-permissions --add-dir \"$DESIGNOS_SESSION_DIR\"",
-            (AgentCliPreset::Antigravity, PermissionMode::Ask) => "agy --add-dir \"$DESIGNOS_SESSION_DIR\"",
+            (AgentCliPreset::Antigravity, PermissionMode::Ask | PermissionMode::AskRisky) => "agy --add-dir \"$DESIGNOS_SESSION_DIR\"",
             // `gemini` reads `<session_dir>/.gemini/settings.json` from its cwd (written by
             // `write_gemini_session_config`) and never touches `~/.gemini/settings.json`.
             (AgentCliPreset::Gemini, PermissionMode::Skip) => "gemini --approval-mode yolo --include-directories \"$DESIGNOS_SESSION_DIR\"",
-            (AgentCliPreset::Gemini, PermissionMode::Ask) => "gemini --approval-mode default --include-directories \"$DESIGNOS_SESSION_DIR\"",
+            (AgentCliPreset::Gemini, PermissionMode::Ask | PermissionMode::AskRisky) => "gemini --approval-mode default --include-directories \"$DESIGNOS_SESSION_DIR\"",
             // `opencode` starts in `session_dir` (`opencode <project>`).
             (AgentCliPreset::OpenCode, _) => "opencode \"$DESIGNOS_SESSION_DIR\"",
             (AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp, _) => "",
@@ -801,7 +804,7 @@ impl TerminalTab {
         if !self.pending_approvals.is_empty() {
             return true;
         }
-        self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask
+        matches!(self.permission_mode, crate::agent_permissions::AgentPermissionMode::Ask | crate::agent_permissions::AgentPermissionMode::AskRisky)
             && matches!(self.preset, AgentCliPreset::Codex | AgentCliPreset::Grok | AgentCliPreset::Antigravity | AgentCliPreset::Gemini)
             && self.agent_status.lock().ok().is_some_and(|g| matches!(*g, AgentTabStatus::WaitingForInput(_)))
     }
@@ -1512,6 +1515,9 @@ pub struct TerminalState {
     pub permission_mode: crate::agent_permissions::AgentPermissionMode,
     /// Queued in-panel approval requests read from the active tab's private approvals folder (`#656`).
     pub pending_approvals: Vec<crate::agent_permissions::ApprovalRequest>,
+    /// Modify grants for this window. Another window has its own store. Never written into the session folder.
+    pub session_grants: crate::agent_permissions::GrantStore,
+    pub auto_allow_log: crate::agent_permissions::AutoAllowLog,
     /// Latch ensuring at most one OS notification per waiting episode (`#656`).
     pub notification_latch: crate::agent_permissions::NotificationLatch,
     /// Pluggable OS notification sender (`#656`).
@@ -1709,6 +1715,7 @@ impl TerminalState {
         let hook_paths = crate::agent_hook_outputs::HookPaths::locate(&session_dir);
         let turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(hook_paths.turn_marks());
         let event_stream = crate::agent_turn_status::AgentEventStream::bind(hook_paths.events());
+        let auto_allow_log = crate::agent_permissions::AutoAllowLog::bind(&session_dir);
         #[cfg(test)]
         let notifier = crate::agent_notify::AgentNotifier::with_sink(Arc::new(crate::agent_notify::StubNotificationSink::new()));
         #[cfg(not(test))]
@@ -1798,6 +1805,8 @@ impl TerminalState {
             status_changes: Vec::new(),
             permission_mode: crate::agent_permissions::AgentPermissionMode::default(),
             pending_approvals: Vec::new(),
+            session_grants: crate::agent_permissions::GrantStore::default(),
+            auto_allow_log,
             notification_latch: crate::agent_permissions::NotificationLatch::default(),
             approval_notifier,
             last_agent_status_done: false,
@@ -1906,11 +1915,15 @@ impl TerminalState {
         }
     }
 
-    /// Handles a click on the in-panel approval card (`Approve`, `Deny`, `Show prompt`, or `Open tab`).
+    /// Handles a click on the in-panel approval card (`Approve`, `Allow this session`, `Deny`, `Show prompt`, or `Open tab`).
     pub fn handle_approval_card_action(&mut self, action: crate::agent_approval_card::CardAction) {
         match action {
             crate::agent_approval_card::CardAction::Approve(id) => {
                 self.answer_pending_approval(&id, crate::agent_permissions::ApprovalDecision::Allow);
+            }
+            crate::agent_approval_card::CardAction::AllowSession(id) => {
+                self.remember_modify_grant(&id);
+                self.answer_pending_scoped(&id, crate::agent_permissions::AnswerScope::Session);
             }
             crate::agent_approval_card::CardAction::Deny(id) => {
                 self.answer_pending_approval(&id, crate::agent_permissions::ApprovalDecision::Deny);
@@ -1935,18 +1948,59 @@ impl TerminalState {
         }
     }
 
+    fn remember_modify_grant(&mut self, request_id: &str) {
+        let Some(req) = self.pending_approvals.iter().find(|req| req.id == request_id).cloned() else {
+            return;
+        };
+        let mode = self.active_tab().map(|tab| tab.permission_mode).unwrap_or(self.permission_mode);
+        if !crate::agent_permissions::offer_session_grant(mode, &req) {
+            return;
+        }
+        let now = crate::agent_sessions::unix_timestamp_secs();
+        let _ = self.session_grants.insert(&self.session_id, &req.tool_name, &req.target, now);
+    }
+
+    fn answer_pending_scoped(&mut self, request_id: &str, scope: crate::agent_permissions::AnswerScope) {
+        if let Some(tab) = self.active_tab_mut() {
+            if let Some(dir) = tab.approvals_dir.as_ref().filter(|dir| dir.join(format!("{request_id}.request.json")).exists()) {
+                if let Err(e) =
+                    crate::agent_permissions::write_scoped_approval_answer_in_dir(dir, request_id, crate::agent_permissions::ApprovalDecision::Allow, scope)
+                {
+                    eprintln!("design:os studio: could not write the approval answer for request {request_id}: {e}");
+                }
+            }
+            tab.pending_approvals.retain(|req| req.id != request_id);
+        }
+        self.pending_approvals.retain(|req| req.id != request_id);
+        if self.pending_approvals.is_empty() {
+            if let Some(tab) = self.active_tab() {
+                if let Ok(mut st) = tab.agent_status.lock() {
+                    if matches!(*st, AgentTabStatus::WaitingForInput(_)) {
+                        *st = AgentTabStatus::Idle;
+                    }
+                }
+            }
+            self.notification_latch.reset();
+        }
+    }
+
+    pub fn revoke_session_grant(&mut self, tool_name: &str, target: &str) -> bool {
+        self.session_grants.revoke(&self.session_id, tool_name, target)
+    }
+
     /// Populates the approval card state for the `--panel agents-approval-*` screenshot fixtures (`#656`, `#1195`).
-    pub fn open_approval_fixture(&mut self, preset_slug: &str, file_path: Option<&Path>) {
-        self.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+    pub fn open_approval_fixture(&mut self, preset_slug: &str, file_path: Option<&Path>, mode: crate::agent_permissions::AgentPermissionMode) {
+        self.permission_mode = mode;
         self.ensure_default_tab(file_path);
         if let Some(tab) = self.active_tab_mut() {
-            tab.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+            tab.permission_mode = mode;
         }
         let now = crate::agent_sessions::unix_timestamp_secs();
         let Some(approvals_dir) = self.active_tab().and_then(|tab| tab.approvals_dir.clone()) else {
             return;
         };
         let _ = crate::agent_approval_channel::create_private_dir_all(&approvals_dir);
+        let risky = mode == crate::agent_permissions::AgentPermissionMode::AskRisky;
         match preset_slug {
             "agents-approval-command" => {
                 if let Some(tab) = self.active_tab_mut() {
@@ -1955,8 +2009,9 @@ impl TerminalState {
                 }
                 let req = serde_json::json!({
                     "id": "1001-Bash",
-                    "tool_name": "Bash",
+                    "tool_name": if risky { "designos_update_node" } else { "Bash" },
                     "summary": "cargo test -p designos-app --bin designos",
+                    "target": if risky { "node_id:12:34" } else { "" },
                     "timestamp": now,
                 });
                 let _ = std::fs::write(approvals_dir.join("1001-Bash.request.json"), req.to_string());
@@ -2029,6 +2084,64 @@ impl TerminalState {
         }
     }
 
+    pub fn seed_screenshot_cli_probes(&mut self) {
+        use crate::agent_cli_catalog::{CliProbe, SignIn};
+        for (preset, version) in [
+            (AgentCliPreset::Claude, "2.1.302"),
+            (AgentCliPreset::Codex, "0.163.0"),
+            (AgentCliPreset::Grok, "1.0.62"),
+            (AgentCliPreset::Gemini, "0.38.2"),
+            (AgentCliPreset::Antigravity, "1.0"),
+        ] {
+            self.picker.cache.set_probe(preset, CliProbe { installed: true, version: Some(version.into()), signed_in: SignIn::Yes });
+        }
+        self.picker.probe_started = true;
+    }
+
+    pub fn open_ask_risky_screenshot_fixture(&mut self, _file_path: Option<&Path>) {
+        self.permission_mode = crate::agent_permissions::AgentPermissionMode::AskRisky;
+        self.seed_screenshot_cli_probes();
+        self.picker_open = true;
+        let now_secs = crate::agent_sessions::unix_timestamp_secs();
+        let _ = self.session_grants.insert(&self.session_id, "designos_update_node", "node_id:12:34", now_secs);
+        let now = std::time::Instant::now();
+        self.active_turn_ledger_mut().record_auto_allow(vec![
+            crate::agent_permissions::AutoAllowRow {
+                timestamp: now_secs,
+                tool_name: "designos_get_document".into(),
+                target: String::new(),
+                reason: crate::agent_permissions::AutoAllowReason::Tier,
+                kind: crate::agent_permissions::AutoAllowKind::Informational,
+                tab: None,
+            },
+            crate::agent_permissions::AutoAllowRow {
+                timestamp: now_secs,
+                tool_name: "designos_create_node".into(),
+                target: "node_id:1:2".into(),
+                reason: crate::agent_permissions::AutoAllowReason::Tier,
+                kind: crate::agent_permissions::AutoAllowKind::Revertable,
+                tab: None,
+            },
+        ]);
+        self.active_turn_ledger_mut().ingest_marks(
+            [
+                crate::agent_turn_marks::TurnMarkLine {
+                    v: crate::agent_turn_marks::TURN_MARK_VERSION,
+                    turn_mark: crate::agent_turn_marks::TurnPhase::Start,
+                    cli: Some("claude".into()),
+                    patch_bytes: 0,
+                },
+                crate::agent_turn_marks::TurnMarkLine {
+                    v: crate::agent_turn_marks::TURN_MARK_VERSION,
+                    turn_mark: crate::agent_turn_marks::TurnPhase::End,
+                    cli: Some("claude".into()),
+                    patch_bytes: 0,
+                },
+            ],
+            now,
+        );
+    }
+
     /// Returns the turn ledger for `tab_idx` (or the fallback ledger when no tabs are spawned).
     pub fn ledger_for_tab(&self, tab_idx: usize) -> &crate::agent_turn_ledger::AgentTurnLedger {
         self.tabs.get(tab_idx).map_or(&self.turn_ledger, |t| &t.turn_ledger)
@@ -2047,6 +2160,27 @@ impl TerminalState {
     pub fn active_turn_ledger(&self) -> &crate::agent_turn_ledger::AgentTurnLedger {
         let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
         self.ledger_for_tab(idx)
+    }
+
+    pub fn poll_auto_allow_into_active(&mut self) {
+        let rows = self.auto_allow_log.poll();
+        self.distribute_auto_allow_rows(rows);
+    }
+
+    pub fn poll_auto_allow_into_tab(&mut self, _tab_idx: usize) {
+        let rows = self.auto_allow_log.poll();
+        self.distribute_auto_allow_rows(rows);
+    }
+
+    fn distribute_auto_allow_rows(&mut self, rows: Vec<crate::agent_permissions::AutoAllowRow>) {
+        if rows.is_empty() {
+            return;
+        }
+        let fallback = self.active_tab.min(self.tabs.len().saturating_sub(1));
+        for row in rows {
+            let idx = row.tab.and_then(|id| self.tabs.iter().position(|tab| tab.id as u64 == id)).unwrap_or(fallback);
+            self.ledger_for_tab_mut(idx).record_auto_allow(vec![row]);
+        }
     }
 
     /// Mutable access to the active tab's turn ledger (or the fallback ledger when no tabs are spawned).
@@ -2181,6 +2315,7 @@ impl TerminalState {
     }
 
     fn update_session_dir_paths(&mut self, session_dir: PathBuf) {
+        let session_changed = self.session_dir != session_dir;
         // Skills replies written into the folder being left go with it. Tabs that still wait to deliver rewrite theirs, into the new
         // folder, on the next `sync_hook_reply`.
         for (tab_id, chunks) in std::mem::take(&mut self.reply_skills) {
@@ -2208,12 +2343,16 @@ impl TerminalState {
         self.live_patch = crate::live_patch_log::LivePatchLog::bind(self.session_dir.join("doc-patch.jsonl"));
         self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(self.hook_paths().turn_marks());
         self.event_stream = crate::agent_turn_status::AgentEventStream::bind(self.hook_paths().events());
+        self.auto_allow_log = crate::agent_permissions::AutoAllowLog::bind(&self.session_dir);
         self.last_synced_key = None;
         self.last_bootstrap_key = None;
         self.bootstrap_markdown = None;
         self.bootstrap_job = None;
         self.bootstrap_generation.store(0, std::sync::atomic::Ordering::SeqCst);
         self.pending_approvals.clear();
+        if session_changed {
+            self.session_grants.clear();
+        }
         for tab in &mut self.tabs {
             tab.approvals_dir = crate::agent_approval_channel::tab_approvals_dir(&self.session_dir, tab.id);
             tab.pending_approvals.clear();
@@ -2228,6 +2367,9 @@ impl TerminalState {
         let clean = session_id.trim();
         if clean.is_empty() {
             return;
+        }
+        if self.session_id != clean {
+            self.session_grants.clear();
         }
         if matches!(self.key, crate::agent_sessions::SessionKey::LibraryFile { .. }) {
             self.session_id = clean.to_string();
@@ -2827,7 +2969,8 @@ impl TerminalState {
                 run_id: self.active_run_id.clone(),
                 bootstrap_run_id: self.run_id,
                 agent_runtime: self.active_mcp_runtime_name().to_string(),
-                ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
+                ask_mode: self.permission_mode.installs_approval_hook(),
+                ask_risky: self.permission_mode.auto_allows_safe_tiers(),
                 unread_probe: Some(self.live_patch.unread_probe()),
                 exact_project_config: None,
             });
@@ -2923,7 +3066,8 @@ impl TerminalState {
             run_id: self.active_run_id.clone(),
             bootstrap_run_id: self.run_id,
             agent_runtime: self.active_mcp_runtime_name().to_string(),
-            ask_mode: self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask,
+            ask_mode: self.permission_mode.installs_approval_hook(),
+            ask_risky: self.permission_mode.auto_allows_safe_tiers(),
             unread_probe: None,
             exact_project_config: exact,
         };
@@ -3100,6 +3244,7 @@ impl TerminalState {
             Self::withdraw_tab_approvals(tab);
         }
         self.pending_approvals.clear();
+        self.session_grants.clear();
         let mut reg_dirty = false;
         let now = crate::agent_sessions::unix_timestamp_secs();
         for mut tab in self.tabs.drain(..) {
@@ -3412,7 +3557,10 @@ impl TerminalState {
                 // Antigravity has no permission hook. A Gemini tab with no hooks file is not on this list: its waits start from the
                 // dialog on its screen (`gemini_dialog`), never from words in its output.
                 tab.pty_waiting_heuristic.store(
-                    self.permission_mode == crate::agent_permissions::AgentPermissionMode::Ask && preset == AgentCliPreset::Antigravity,
+                    matches!(
+                        self.permission_mode,
+                        crate::agent_permissions::AgentPermissionMode::Ask | crate::agent_permissions::AgentPermissionMode::AskRisky
+                    ) && preset == AgentCliPreset::Antigravity,
                     std::sync::atomic::Ordering::Release,
                 );
                 tab.gemini.hooks = env.gemini_system_defaults.is_some();
@@ -3620,6 +3768,7 @@ impl TerminalState {
             } else if self.tabs.is_empty() {
                 self.active_tab = 0;
                 self.picker_open = true;
+                self.session_grants.clear();
             }
             self.sync_active_tab_approvals();
         }
@@ -3667,15 +3816,14 @@ impl TerminalState {
             }
         }
 
+        self.poll_auto_allow_into_active();
         // Channel 2a: turn-marks.jsonl (written by CLI session hooks before/after agent turns).
         let expected_marks_path = self.hook_paths().turn_marks();
         if self.turn_marks.path() != expected_marks_path {
             self.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
         }
         let marks = self.turn_marks.poll();
-        if !marks.is_empty() {
-            self.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
-        }
+        self.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
 
         // Channel 2b: doc-patch.jsonl (written by designos-mcp tools). Edits and document switches
         // share this one log, so their order is the log's order.
@@ -3776,7 +3924,10 @@ impl TerminalState {
                 let covered_by_approval_latch = matches!(effect.notify, Some(crate::agent_notify::NotifyKind::NeedsApproval))
                     && tab_idx == self.active_tab
                     && !self.window_focused
-                    && self.tabs[tab_idx].permission_mode == crate::agent_permissions::AgentPermissionMode::Ask;
+                    && matches!(
+                        self.tabs[tab_idx].permission_mode,
+                        crate::agent_permissions::AgentPermissionMode::Ask | crate::agent_permissions::AgentPermissionMode::AskRisky
+                    );
                 if let Some(notify_kind) = effect.notify.filter(|_| !covered_by_approval_latch) {
                     let tab_id = self.tabs[tab_idx].id;
                     let tab_title = self.tabs[tab_idx].title.clone();
@@ -3810,6 +3961,12 @@ impl TerminalState {
                     }
                 })
                 .collect();
+            for (idx, polled) in next_per_tab.iter_mut().enumerate() {
+                let dir = self.tabs[idx].approvals_dir.clone();
+                if let Some(dir) = dir.as_deref() {
+                    crate::agent_permissions::settle_granted_requests(&mut self.session_grants, &self.session_id, dir, polled, now_secs);
+                }
+            }
 
             for (idx, tab) in self.tabs.iter_mut().enumerate() {
                 let had_pending = !tab.pending_approvals.is_empty();
@@ -5419,7 +5576,7 @@ fn write_session_agent_files_noting(job: &crate::agent_session_files::SnapshotJo
     // approval handler for its own. When the folder is not there (no private data folder, or it cannot be made private)
     // nothing is installed: Claude starts with the inline settings `{}` and asks in its own terminal prompt.
     let approve_script_path = private_dir.as_deref().and_then(|dir| {
-        match crate::agent_permissions::install_hook_script(dir, hook_paths.as_ref().map(|paths| paths.status()).as_deref()) {
+        match crate::agent_permissions::install_hook_script(dir, hook_paths.as_ref().map(|paths| paths.status()).as_deref(), job.ask_risky) {
             Ok(path) => Some(path),
             Err(e) => {
                 eprintln!("design:os studio: in-panel approvals are off for this session, Claude will ask in its terminal: {e}");
@@ -6209,11 +6366,13 @@ pub fn show_left_with_doc(
 
         // Render bottom composer (`#689` §3 rule 9 & §7) first so its focused `TextEdit` consumes keys
         // before `render_vt100_viewport` checks keyboard input.
+        let grant_h = paint_session_grants(state, ui, ctx_r.bottom(), rect);
+        let content_top = ctx_r.bottom() + grant_h;
         let composer_rect = crate::agent_composer::show_composer(
             state,
             ui,
             rect,
-            ctx_r.bottom(),
+            content_top,
             file_path,
             crate::agent_composer::MentionScope { doc, page: current_page },
             &mut actions,
@@ -6223,8 +6382,8 @@ pub fn show_left_with_doc(
         let active_receipt =
             state.active_tab().filter(|t| !matches!(t.effective_status(), AgentTabStatus::Working(_))).and_then(|t| t.last_turn_receipt().cloned());
         let receipt_h = if active_receipt.is_some() { 24.0 } else { 0.0 };
-        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE - receipt_h).max(ctx_r.bottom() + theme::CONTROL_MD);
-        let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), Pos2::new(rect.right(), vp_bottom));
+        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE - receipt_h).max(content_top + theme::CONTROL_MD);
+        let vp_r = Rect::from_min_max(Pos2::new(rect.left(), content_top), Pos2::new(rect.right(), vp_bottom));
 
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
@@ -6393,6 +6552,8 @@ pub fn show_left_with_doc(
     top_y = rt_bar_r.bottom();
 
     // ---- D. Bottom Docked Composer Box (`#689` §7)
+    let grant_h = paint_session_grants(state, ui, top_y, rect);
+    top_y += grant_h;
     let composer_rect =
         crate::agent_composer::show_composer(state, ui, rect, top_y, file_path, crate::agent_composer::MentionScope { doc, page: current_page }, &mut actions);
 
@@ -6400,6 +6561,7 @@ pub fn show_left_with_doc(
     let full_center_rect = Rect::from_min_max(Pos2::new(rect.left(), top_y), Pos2::new(rect.right(), (composer_rect.top() - 8.0).max(top_y + 32.0)));
     let center_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
         let on_active_claude = is_active_tab && banner_preset == AgentCliPreset::Claude;
+        let card_mode = state.tabs.iter().find(|tab| tab.id == target_tab_id).map(|tab| tab.permission_mode).unwrap_or(state.permission_mode);
         if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
             ui,
             full_center_rect,
@@ -6409,6 +6571,7 @@ pub fn show_left_with_doc(
             on_active_claude,
             total_pending,
             "agents-left-chat",
+            card_mode,
         ) {
             state.handle_approval_card_action(act);
         }
@@ -6433,6 +6596,16 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
 /// Renders the one-line "Worked for" receipt row (`#683` §3.4, §5):
 /// 24px row height, 8px horizontal padding, `theme::font_caption()` in `theme::TEXT_SECONDARY` (`#A1A1AA`),
 /// numbers in `theme::font_mono()`. Clicking the receipt row toggles the per-turn summary (`#677`).
+fn paint_session_grants(state: &mut TerminalState, ui: &mut Ui, top: f32, panel: Rect) -> f32 {
+    let now = crate::agent_sessions::unix_timestamp_secs();
+    let grants = state.session_grants.list(&state.session_id, now);
+    let (height, revoke) = crate::agent_approval_card::paint_grant_strip(ui, Pos2::new(panel.left(), top), panel.width(), &grants);
+    if let Some(revoke) = revoke {
+        state.revoke_session_grant(&revoke.tool_name, &revoke.target);
+    }
+    height
+}
+
 fn paint_turn_receipt_row(
     state: &mut TerminalState,
     actions: &mut Vec<TerminalAction>,
@@ -6532,6 +6705,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
     let mut card_activated = false;
     let viewport_rect = if let Some((target_tab_id, banner_preset, reqs, is_active_tab, total_pending)) = state.approval_banner_target() {
         let in_active_terminal = is_active_tab && state.side_panel_pty_open && !state.picker_open;
+        let card_mode = state.tabs.iter().find(|tab| tab.id == target_tab_id).map(|tab| tab.permission_mode).unwrap_or(state.permission_mode);
         if let Some(act) = crate::agent_approval_card::paint_approval_card_for_tab(
             ui,
             viewport_rect,
@@ -6541,6 +6715,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
             in_active_terminal,
             total_pending,
             surface_id,
+            card_mode,
         ) {
             card_activated = true;
             state.handle_approval_card_action(act);
@@ -10173,6 +10348,7 @@ mod tests {
             tool_name: "Bash".into(),
             input_summary: "cargo test".into(),
             timestamp: 1,
+            target: String::new(),
         });
         assert_eq!(st.tabs[idx].header_status_indicator(0).map(|(_, t)| t).as_deref(), Some("Needs approval"));
 
@@ -11413,7 +11589,7 @@ mod tests {
 
         let mut st = ScopedTerminalState::default();
         st.bind_session(&format!("656-status-{}", std::process::id()));
-        st.open_approval_fixture("agents-approval-command", None);
+        st.open_approval_fixture("agents-approval-command", None, crate::agent_permissions::AgentPermissionMode::Ask);
         assert!(st.needs_approval());
         let tab_status = st.active_tab().unwrap().agent_status.lock().unwrap().clone();
         assert_eq!(tab_status, AgentTabStatus::WaitingForInput(Some("Needs approval".into())));
@@ -11541,7 +11717,7 @@ mod tests {
             crate::theme::apply(&ctx);
             let mut st = ScopedTerminalState::default();
             st.bind_session(&format!("656-lint-{preset_slug}-{}", std::process::id()));
-            st.open_approval_fixture(preset_slug, None);
+            st.open_approval_fixture(preset_slug, None, crate::agent_permissions::AgentPermissionMode::Ask);
 
             crate::lint::take_icons();
             let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(300.0, 800.0));
@@ -11676,7 +11852,14 @@ mod tests {
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(300.0, 800.0));
         let mut card_act = None;
         let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-            card_act = crate::agent_approval_card::paint_approval_card(ui, panel_rect, AgentCliPreset::Claude, &[], "test-empty-claude");
+            card_act = crate::agent_approval_card::paint_approval_card(
+                ui,
+                panel_rect,
+                AgentCliPreset::Claude,
+                &[],
+                "test-empty-claude",
+                crate::agent_permissions::AgentPermissionMode::Ask,
+            );
         });
         assert!(card_act.is_none());
         let (texts, _) = crate::lint::scan_shapes(&out.shapes);

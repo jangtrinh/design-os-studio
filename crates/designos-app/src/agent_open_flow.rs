@@ -975,6 +975,7 @@ mod tests {
             tool_name: "Bash".into(),
             input_summary: "cargo test".into(),
             timestamp: 1,
+            target: String::new(),
         });
         assert_eq!(st.sessions_popover_rows()[0].status.label(), "Needs approval");
 

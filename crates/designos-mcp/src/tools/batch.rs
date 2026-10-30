@@ -167,13 +167,7 @@ pub fn tool_descriptor() -> Value {
             },
             "examples": examples
         },
-        "outputSchema": tool_output_schema_from_object(success_schema),
-        "annotations": {
-            "readOnlyHint": false,
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false
-        }
+        "outputSchema": tool_output_schema_from_object(success_schema)
     })
 }
 

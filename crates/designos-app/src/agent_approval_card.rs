@@ -15,9 +15,18 @@ use std::path::Path;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CardAction {
     Approve(String),
+    /// Allow this modify call, and remember the same tool and target for this window.
+    AllowSession(String),
     Deny(String),
     ShowPrompt,
     OpenTab(usize),
+}
+
+/// A Revoke click on one remembered grant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrantRevoke {
+    pub tool_name: String,
+    pub target: String,
 }
 
 /// Height occupied by the approval card (including its top and bottom `SPACE_ROW` viewport margins).
@@ -42,8 +51,9 @@ pub fn paint_approval_card(
     preset: AgentCliPreset,
     requests: &[ApprovalRequest],
     surface_id: &'static str,
+    mode: AgentPermissionMode,
 ) -> Option<CardAction> {
-    paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), surface_id)
+    paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), surface_id, mode)
 }
 
 /// Paints the in-panel approval card for `tab_id` (`#656`, `#1195`).
@@ -57,6 +67,7 @@ pub fn paint_approval_card_for_tab(
     in_active_terminal: bool,
     total_pending: usize,
     surface_id: &'static str,
+    mode: AgentPermissionMode,
 ) -> Option<CardAction> {
     let first_req = requests.first();
     if (preset == AgentCliPreset::Claude || matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)) && first_req.is_none() {
@@ -134,12 +145,28 @@ pub fn paint_approval_card_for_tab(
         let req_id = req.id.clone();
         let (approve_r, approve_resp) =
             paint_card_button(ui, &p, (surface_id, "agent-approval-approve"), "agent-approval-approve", action_r.right(), action_r.top(), "Approve", true);
-        let deny_right = approve_r.left() - theme::SPACE_ROW;
+        let mut next_right = approve_r.left() - theme::SPACE_ROW;
+        if agent_permissions::offer_session_grant(mode, req) {
+            let (session_r, session_resp) = paint_card_button(
+                ui,
+                &p,
+                (surface_id, "agent-approval-allow-session"),
+                "agent-approval-allow-session",
+                next_right,
+                action_r.top(),
+                "Allow this session",
+                false,
+            );
+            next_right = session_r.left() - theme::SPACE_ROW;
+            if session_resp.clicked() {
+                out = Some(CardAction::AllowSession(req_id.clone()));
+            }
+        }
         let (_deny_r, deny_resp) =
-            paint_card_button(ui, &p, (surface_id, "agent-approval-deny"), "agent-approval-deny", deny_right, action_r.top(), "Deny", false);
+            paint_card_button(ui, &p, (surface_id, "agent-approval-deny"), "agent-approval-deny", next_right, action_r.top(), "Deny", false);
         if approve_resp.clicked() {
             out = Some(CardAction::Approve(req_id));
-        } else if deny_resp.clicked() {
+        } else if out.is_none() && deny_resp.clicked() {
             out = Some(CardAction::Deny(req_id));
         }
     } else if in_active_terminal {
@@ -166,6 +193,42 @@ pub fn paint_approval_card_for_tab(
         }
     }
     out
+}
+
+/// Lists remembered grants for this window. Returns the strip height and a Revoke click, if any.
+pub fn paint_grant_strip(ui: &mut Ui, origin: Pos2, width: f32, grants: &[agent_permissions::SessionGrant]) -> (f32, Option<GrantRevoke>) {
+    if grants.is_empty() || width <= 0.0 {
+        return (0.0, None);
+    }
+    let row_h = theme::TARGET_MIN;
+    let height = grants.len() as f32 * row_h;
+    let p = ui.painter().clone();
+    let strip = Rect::from_min_size(origin, Vec2::new(width, height));
+    p.rect_filled(strip, 0.0, theme::BG_PRIMARY);
+    widgets::hline(&p, strip.left(), strip.right(), strip.bottom() - theme::BORDER_WIDTH, theme::BORDER);
+    widgets::record(ui, "agent-grant-strip", strip);
+    let mut revoke = None;
+    for (idx, grant) in grants.iter().enumerate() {
+        let font = theme::font_caption();
+        let row = Rect::from_min_size(Pos2::new(origin.x, origin.y + idx as f32 * row_h), Vec2::new(width, row_h));
+        let btn_w = (widgets::text_width(&p, "Revoke", &font) + theme::INSET_BUTTON + theme::INSET_BUTTON).max(theme::CONTROL_MD);
+        let btn_h = (row_h - theme::SPACE_ROW).max(theme::LINE_CAPTION);
+        let btn = Rect::from_min_size(Pos2::new(row.right() - theme::INSET_CONTROL - btn_w, row.center().y - btn_h * 0.5), Vec2::new(btn_w, btn_h));
+        let resp = ui.interact(btn, Id::new(("agent-grant-revoke", idx, grant.tool_name.clone(), grant.target.clone())), Sense::click());
+        let fill = if resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY };
+        p.rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), fill);
+        p.rect_stroke(btn, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+        p.text(btn.center(), Align2::CENTER_CENTER, "Revoke", font.clone(), theme::TEXT);
+        widgets::record(ui, "agent-grant-revoke", btn);
+        let text_w = (btn.left() - row.left() - theme::INSET_CONTROL - theme::SPACE_INLINE).max(theme::TARGET_MIN);
+        let label = format!("{} {}", grant.tool_name, grant.target);
+        let elided = widgets::elide(&p, &label, &font, text_w);
+        p.text(Pos2::new(row.left() + theme::INSET_CONTROL, row.center().y), Align2::LEFT_CENTER, elided, font, theme::TEXT_SECONDARY);
+        if resp.clicked() && revoke.is_none() {
+            revoke = Some(GrantRevoke { tool_name: grant.tool_name.clone(), target: grant.target.clone() });
+        }
+    }
+    (height, revoke)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -215,6 +278,8 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         + row_h
         + theme::SPACE_ROW
         + row_h
+        + theme::SPACE_ROW
+        + row_h
         + theme::SPACE_GROUP
         + theme::LINE_CAPTION
         + theme::INSET_MODAL;
@@ -250,6 +315,12 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
                 "agent-perm-ask",
                 "Ask before acting (default)",
                 "Launch CLIs without skip flags and surface tool approvals in the Agents panel.",
+            ),
+            (
+                AgentPermissionMode::AskRisky,
+                "agent-perm-ask-risky",
+                "Ask for risky only",
+                "Reads and additions run. A change on one target can be allowed for this session. Deletes always ask.",
             ),
         ];
 
@@ -334,11 +405,65 @@ mod tests {
     /// Ask is the default (`#841`), so the modal marks Ask and never calls Skip the default, whichever mode is selected.
     #[test]
     fn the_permissions_modal_marks_ask_as_the_default() {
-        for selected in [AgentPermissionMode::Ask, AgentPermissionMode::Skip] {
+        for selected in [AgentPermissionMode::Ask, AgentPermissionMode::Skip, AgentPermissionMode::AskRisky] {
             let texts = modal_texts(selected);
             assert!(texts.iter().any(|t| t == "Ask before acting (default)"), "{selected:?}: Ask carries the default mark: {texts:?}");
             assert!(texts.iter().any(|t| t == "Skip permissions"), "{selected:?}: Skip stays on offer, unmarked: {texts:?}");
+            assert!(texts.iter().any(|t| t == "Ask for risky only"), "{selected:?}: the third mode is on the selector: {texts:?}");
             assert!(!texts.iter().any(|t| t.contains("Skip permissions (default)")), "{selected:?}: Skip is no longer the default: {texts:?}");
         }
+    }
+
+    fn card_texts(preset: AgentCliPreset, requests: &[ApprovalRequest], mode: AgentPermissionMode) -> Vec<String> {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+                let panel = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(420.0, 800.0));
+                let _ = paint_approval_card(ui, panel, preset, requests, "test-card", mode);
+            });
+            texts = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        }
+        texts
+    }
+
+    fn request(tool: &str, target: &str) -> ApprovalRequest {
+        ApprovalRequest { id: "req-1".into(), tool_name: tool.into(), input_summary: "node 2".into(), timestamp: 1, target: target.into() }
+    }
+
+    #[test]
+    fn the_session_button_is_only_offered_for_a_modify_with_a_target() {
+        let modify = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "node_id:2")], AgentPermissionMode::AskRisky);
+        assert!(modify.iter().any(|t| t == "Allow this session"), "{modify:?}");
+        assert!(modify.iter().any(|t| t == "Approve"), "{modify:?}");
+        let delete = card_texts(AgentCliPreset::Claude, &[request("designos_delete_node", "node_id:3")], AgentPermissionMode::AskRisky);
+        assert!(!delete.iter().any(|t| t == "Allow this session"), "{delete:?}");
+        assert!(delete.iter().any(|t| t == "Deny"), "{delete:?}");
+        let no_target = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "")], AgentPermissionMode::Ask);
+        assert!(!no_target.iter().any(|t| t == "Allow this session"), "{no_target:?}");
+    }
+
+    #[test]
+    fn the_grant_strip_lists_a_grant_and_a_revoke_control() {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let grant = agent_permissions::SessionGrant {
+            session_id: "s".into(),
+            tool_name: "designos_update_node".into(),
+            target: "node_id:2".into(),
+            last_used_secs: 10,
+        };
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), ..Default::default() }, |ui| {
+                let _ = paint_grant_strip(ui, Pos2::ZERO, 360.0, std::slice::from_ref(&grant));
+            });
+            texts = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        }
+        assert!(texts.iter().any(|t| t == "Revoke"), "{texts:?}");
+        assert!(texts.iter().any(|t| t.contains("designos_update_node")), "{texts:?}");
     }
 }

@@ -410,11 +410,24 @@ impl Shell {
                 app.find.show_replace = true;
             }
         }
+        let screenshot_ask_risky = opts.screenshot_ask_risky();
+        let screenshot_mode =
+            if screenshot_ask_risky { crate::agent_permissions::AgentPermissionMode::AskRisky } else { crate::agent_permissions::AgentPermissionMode::Ask };
         match opts.panel.as_deref() {
             Some("agents" | "agents-picker") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.open_for_agent_use(app.file_path.as_deref());
+                if screenshot_ask_risky {
+                    app.terminal.permission_mode = screenshot_mode;
+                    app.terminal.seed_screenshot_cli_probes();
+                }
+            }
+            Some("agents-ask-risky") => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.open_for_agent_use(app.file_path.as_deref());
+                app.terminal.open_ask_risky_screenshot_fixture(app.file_path.as_deref());
             }
             Some("agents-chat") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -440,8 +453,15 @@ impl Shell {
             Some("agent-permissions") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
-                app.terminal.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
+                app.terminal.permission_mode = screenshot_mode;
                 app.terminal.ensure_default_tab(app.file_path.as_deref());
+                if screenshot_ask_risky {
+                    app.terminal.permission_mode = screenshot_mode;
+                    if let Some(tab) = app.terminal.active_tab_mut() {
+                        tab.permission_mode = screenshot_mode;
+                    }
+                    app.terminal.seed_screenshot_cli_probes();
+                }
                 app.ui.permissions_modal_open = true;
             }
             Some(
@@ -450,7 +470,10 @@ impl Shell {
             ) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
-                app.terminal.open_approval_fixture(p, app.file_path.as_deref());
+                app.terminal.open_approval_fixture(p, app.file_path.as_deref(), screenshot_mode);
+                if screenshot_ask_risky {
+                    app.terminal.seed_screenshot_cli_probes();
+                }
             }
             Some(p @ ("agents-turn-card" | "agents-turn-card-collapsed" | "agents-turn-card-small")) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);

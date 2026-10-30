@@ -87,14 +87,13 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
 /// user is mid-edit. Runs every frame. What the log held for the previous document was already
 /// dropped when the switch was read (`LivePatchLog::ingest`); the toast says how many.
 pub fn apply_pending_live_patches(app: &mut App) {
+    app.terminal.poll_auto_allow_into_active();
     let expected_marks_path = app.terminal.hook_paths().turn_marks();
     if app.terminal.turn_marks.path() != expected_marks_path {
         app.terminal.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
     }
     let marks = app.terminal.turn_marks.poll();
-    if !marks.is_empty() {
-        app.terminal.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
-    }
+    app.terminal.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
     if user_edit_in_progress(app) {
         return;
     }
