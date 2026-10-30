@@ -2825,8 +2825,25 @@ fn assemble_staged_document(tokens: Vec<ParsedToken>, is_replace: bool, skipped:
             coll_by_group_name.insert(clean, c.id.clone());
         }
     }
+    // A hand-authored manifest may assign one alias group to multiple collections.
+    // Resolve that ambiguity deterministically: local collections win over library
+    // collections, then collection ID provides a stable tie-break. Report every
+    // duplicate group so callers can surface the lossy alias choice.
+    let mut explicit_group_candidates: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (cid, group) in explicit_group_by_coll {
-        coll_by_group_name.insert(group, cid);
+        explicit_group_candidates.entry(group).or_default().push(cid);
+    }
+    for (group, mut candidates) in explicit_group_candidates {
+        candidates.sort_by(|a, b| {
+            let a_library = doc.variable_collections.get(a).is_some_and(VariableCollection::is_library);
+            let b_library = doc.variable_collections.get(b).is_some_and(VariableCollection::is_library);
+            a_library.cmp(&b_library).then_with(|| a.cmp(b))
+        });
+        let winner = candidates[0].clone();
+        if candidates.len() > 1 {
+            skipped.push(SkippedVariable { path: group.clone(), reason: format!("duplicate manifest group '{group}' (selected collection '{winner}')") });
+        }
+        coll_by_group_name.insert(group, winner);
     }
     for v in doc.variables.values() {
         by_coll_and_name.insert((v.collection.clone(), v.name.clone()), v.id.clone());
@@ -4693,6 +4710,48 @@ mod tests {
             "collection name is not an alias key when a manifest group was carried: {:?}",
             name_rep.skipped
         );
+    }
+
+    #[test]
+    fn duplicate_manifest_group_alias_is_deterministic_and_warned() {
+        let manifest = r##"{
+            "schema": "designos-dtcg-manifest",
+            "format": "dtcg",
+            "collections": [
+                {"id":"VariableCollectionId:10:1","name":"Local","group":"G","default_mode":"10:m1","modes":[{"id":"10:m1","name":"Default","file":"local.tokens.json"}]},
+                {"id":"VariableCollectionId:20:2","name":"Library","group":"G","source_library_key":"lib","default_mode":"20:m1","modes":[{"id":"20:m1","name":"Default","file":"library.tokens.json"}]},
+                {"id":"VariableCollectionId:30:3","name":"Consumer","group":"Consumer","default_mode":"30:m1","modes":[{"id":"30:m1","name":"Default","file":"consumer.tokens.json"}]}
+            ]
+        }"##;
+        let local = r##"{"G":{"a":{"$type":"color","$value":"#ff0000","$extensions":{"org.designos":{"id":"VariableID:local:a","collection_id":"VariableCollectionId:10:1"}}}}}"##;
+        let library = r##"{"G":{"a":{"$type":"color","$value":"#0000ff","$extensions":{"org.designos":{"id":"VariableID:lib:a","collection_id":"VariableCollectionId:20:2"}}}}}"##;
+        let consumer = r##"{"Consumer":{"alias":{"$type":"color","$value":"{G.a}","$extensions":{"org.designos":{"id":"VariableID:consumer:alias","collection_id":"VariableCollectionId:30:3"}}}}}"##;
+        let mut targets = BTreeSet::new();
+        for _ in 0..64 {
+            let mut doc = Document::new("duplicate-group");
+            let report = import_variables_bytes(
+                &mut doc,
+                manifest.as_bytes(),
+                Some("tokens.manifest.json"),
+                VariablesFormat::Dtcg,
+                ImportVariablesOptions {
+                    additional_files: vec![
+                        ("local.tokens.json".into(), local.as_bytes().to_vec()),
+                        ("library.tokens.json".into(), library.as_bytes().to_vec()),
+                        ("consumer.tokens.json".into(), consumer.as_bytes().to_vec()),
+                    ],
+                    ..Default::default()
+                },
+            )
+            .expect("duplicate-group manifest imports");
+            let target = match doc.variables["VariableID:consumer:alias"].values.get("30:m1").expect("alias value") {
+                VariableValue::Alias(id) => id.clone(),
+                other => panic!("expected alias, got {other:?}"),
+            };
+            targets.insert(target);
+            assert!(report.skipped.iter().any(|s| s.reason.contains("duplicate manifest group 'G'")), "missing duplicate-group warning: {:?}", report.skipped);
+        }
+        assert_eq!(targets, BTreeSet::from(["VariableID:local:a".to_string()]));
     }
 
     fn collect_dtcg_alias_refs(v: &Value, out: &mut Vec<String>) {
