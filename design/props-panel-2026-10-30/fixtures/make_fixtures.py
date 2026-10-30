@@ -30,7 +30,8 @@ def build(fname,label,defs,values,variants,long_text=None):
         comps.append(variant_comp(cid,vn,[text(f"21:{n+1}","Label",long_text or "Button",refs={"characters":"Label#1:0"} if any(k.startswith("Label") for k,_,_,_ in defs) else None)],fill))
         meta[cid]={"key":f"k{n}","name":vn,"description":"","componentSetId":"20:0"}
     cset={"id":"20:0","name":"Button","type":"COMPONENT_SET","visible":True,"absoluteBoundingBox":{"x":0,"y":240,"width":400,"height":200},
-      "size":{"x":400,"y":200},"relativeTransform":[[1,0,0],[0,1,240]],"fills":[],"effects":[],"componentPropertyDefinitions":pdefs,"children":comps}
+      "size":{"x":400,"y":200},"relativeTransform":[[1,0,0],[0,1,240]],"fills":[],"effects":[],"componentPropertyDefinitions":pdefs,"children":comps,
+      "description":"Primary action button. Reference: ui-kit/components/Button.tsx and the full spec for the primary action across the product."}
     inst={"id":"1:2","name":"Button","type":"INSTANCE","visible":True,"componentId":"20:1","cornerRadius":8,
       "absoluteBoundingBox":{"x":60,"y":60,"width":112,"height":40},"size":{"x":112,"y":40},"relativeTransform":[[1,0,60],[0,1,60]],
       "fills":[{"type":"SOLID","color":col(37,99,235),"opacity":1,"visible":True}],"effects":[],
@@ -83,3 +84,11 @@ for n in doc["document"]["children"][0]["children"]:
     if n["type"]=="COMPONENT_SET": n["componentPropertyDefinitions"]={}
     if n["id"]=="1:1": n["children"][0]["componentProperties"]={}
 json.dump(doc,open("props-D-no-props.json","w"),indent=1)
+# NOTE: the REST importer reads a description from the node itself ("description"/"symbolDescription"), not from the top-level components/componentSets metadata maps, so the fixtures put it on the COMPONENT_SET node too.
+# E: like A, but neither the component nor its set has a description (spec D5/AC16: description row omitted)
+doc=json.load(open("props-A-reference-order.json"))
+for k in doc["componentSets"]: doc["componentSets"][k]["description"]=""
+for n in doc["document"]["children"][0]["children"]:
+    if n["type"]=="COMPONENT_SET": n["description"]=""
+for k in doc["components"]: doc["components"][k]["description"]=""
+json.dump(doc,open("props-E-empty-description.json","w"),indent=1)

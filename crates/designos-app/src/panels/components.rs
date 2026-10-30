@@ -153,6 +153,7 @@ fn instance_header(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
 
 fn source_line(doc: &Document, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 20.0);
+    widgets::record(ui, "instance-source", row);
     if let Some(info) = library_instance_info(doc, inst) {
         crate::libraries::instance_library_row(ui, row, &info);
     } else {
@@ -197,8 +198,13 @@ fn truncate_description_lines(lines: &[String], max_w: f32, measure: impl Fn(&st
     (result, true)
 }
 
+fn description_clipped(wrapped_lines: usize, line_h: f32, row_h: f32) -> bool {
+    wrapped_lines > 2 || wrapped_lines as f32 * line_h > row_h + 0.5
+}
+
 fn description_row(ui: &mut Ui, pane: &mut Pane, text: &str) {
     let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 40.0);
+    widgets::record(ui, "instance-description", row);
     let galley = ui.painter().layout(text.to_owned(), theme::font_body(), theme::TEXT, row.width());
     let lines: Vec<String> = galley.rows.iter().map(|line| line.text().to_string()).collect();
     let (shown, truncated) = truncate_description_lines(&lines, row.width(), |line| {
@@ -207,7 +213,7 @@ fn description_row(ui: &mut Ui, pane: &mut Pane, text: &str) {
     for (index, line) in shown.iter().enumerate() {
         ui.painter().text(Pos2::new(row.left(), row.top() + index as f32 * theme::LINE_BODY), Align2::LEFT_TOP, line, theme::font_body(), theme::TEXT);
     }
-    if truncated {
+    if truncated || description_clipped(galley.rows.len(), theme::LINE_BODY, 40.0) {
         ui.interact(row, ui.id().with("instance-description"), Sense::hover()).on_hover_text(text);
     }
     pane.y += 48.0;
@@ -290,6 +296,14 @@ mod props_panel_tests {
         let truncated = truncate_to_width("second   ", 60.0, |line| line.chars().count() as f32 * 10.0);
         assert_eq!(truncated, "secon…");
         assert!(truncated.chars().count() as f32 * 10.0 <= 60.0);
+    }
+
+    #[test]
+    fn description_clipping_accounts_for_row_height() {
+        assert!(!description_clipped(1, 18.0, 40.0));
+        assert!(!description_clipped(2, 18.0, 40.0));
+        assert!(description_clipped(3, 18.0, 40.0));
+        assert!(description_clipped(2, 22.0, 40.0));
     }
 }
 

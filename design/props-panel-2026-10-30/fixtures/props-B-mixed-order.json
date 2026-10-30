@@ -579,7 +579,8 @@
          }
         ]
        }
-      ]
+      ],
+      "description": "Primary action button. Reference: ui-kit/components/Button.tsx and the full spec for the primary action across the product."
      }
     ]
    }
