@@ -3612,5 +3612,87 @@
     "max_dh": 8,
     "spec": "H",
     "reason": "R5 table 3 (Nav rows 28 to 36): Trash grows from 28 to 36 and keeps its bottom edge."
+  },
+  {
+    "case": "ai-image-expand",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "overlay:Foreground/0",
+    "anchor_y": "top",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "I",
+    "reason": "rule 4 (R5): the Expand popover buttons are the kit button xs, 32 high, up from 24, so the popover grows by 8"
+  },
+  {
+    "case": "ai-image-erase",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "overlay:Foreground/0",
+    "anchor_y": "top",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "I",
+    "reason": "rule 4 (R5): the Erase popover buttons are the kit button xs, 32 high, up from 24, so the popover grows by 8"
+  },
+  {
+    "case": "ai-image-expand",
+    "region": "overlay:Foreground/0",
+    "anchor_y": "top",
+    "min_dh": 0,
+    "max_dh": 8,
+    "spec": "I",
+    "reason": "rule 4 (R5): the rows of the Expand popover keep their place while the buttons at its foot grow to the kit button xs, 32 high"
+  },
+  {
+    "case": "ai-image-erase",
+    "region": "overlay:Foreground/0",
+    "anchor_y": "top",
+    "min_dh": 0,
+    "max_dh": 8,
+    "spec": "I",
+    "reason": "rule 4 (R5): the rows of the Erase popover keep their place while the buttons at its foot grow to the kit button xs, 32 high"
+  },
+  {
+    "case": "ai-image-expand",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "ai-expand-cancel",
+    "anchor_y": "top",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "I",
+    "reason": "rule 4 (R5): Cancel is the kit button xs, 32 high, up from 24, and keeps its top edge; the popover frame growing by 8 pushes nothing, so the derived shift is cancelled",
+    "dy": -8
+  },
+  {
+    "case": "ai-image-expand",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "ai-expand-run",
+    "anchor_y": "top",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "I",
+    "reason": "rule 4 (R5): Expand is the kit button xs, 32 high, up from 24, and keeps its top edge; the popover frame growing by 8 pushes nothing, so the derived shift is cancelled",
+    "dy": -8
+  },
+  {
+    "case": "ai-image-erase",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "ai-erase-cancel",
+    "anchor_y": "top",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "I",
+    "reason": "rule 4 (R5): Cancel is the kit button xs, 32 high, up from 24, and keeps its top edge; the popover frame growing by 8 pushes nothing, so the derived shift is cancelled",
+    "dy": -8
+  },
+  {
+    "case": "ai-image-erase",
+    "region": "overlay:Foreground/0",
+    "name_prefix": "ai-erase-run",
+    "anchor_y": "top",
+    "min_dh": 8,
+    "max_dh": 8,
+    "spec": "I",
+    "reason": "rule 4 (R5): Erase is the kit button xs, 32 high, up from 24, and keeps its top edge; the popover frame growing by 8 pushes nothing, so the derived shift is cancelled",
+    "dy": -8
   }
 ]
