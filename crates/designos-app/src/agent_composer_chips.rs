@@ -74,6 +74,9 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         }
     }
     let skills_n = state.skills.selected_names.len();
+    if skills_n == 0 {
+        ui.ctx().data_mut(|d| d.insert_temp(crate::skills::picker_anchor_id(), None::<Rect>));
+    }
     if skills_n > 0 {
         let w = widths[slot];
         slot += 1;
@@ -87,6 +90,7 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
             rect,
             TagSpec { id: "agents-composer-chip-skills", label: &label, error: bad, dismiss: Some("Detach skills"), tip: Some(&tip), name: None },
         );
+        ui.ctx().data_mut(|d| d.insert_temp(crate::skills::picker_anchor_id(), Some(rect)));
         out.skills_clear = hit.dismiss;
         out.skills_open = hit.body && !hit.dismiss;
     }

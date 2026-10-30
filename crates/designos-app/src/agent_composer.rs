@@ -1051,7 +1051,11 @@ pub fn show_composer(
             state.skills.set_selected_skills(Vec::new());
         }
         if chips.skills_open {
-            state.skills.open_picker();
+            if state.skills.picker_open {
+                state.skills.picker_open = false;
+            } else {
+                state.skills.open_picker();
+            }
         }
         if let Some(rm_id) = chips.drop_layer {
             state.active_composer_mut().chips.retain(|c| c.node_id != rm_id);

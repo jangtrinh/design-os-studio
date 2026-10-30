@@ -52,7 +52,7 @@ pub(super) fn attach_menu(ui: &mut Ui, anchor: Rect, prd_on: bool, skills_n: usi
             });
         }
     }
-    let stay = pick.is_none() && !close_menu(ui, rect, ATTACH_PASS);
+    let stay = pick.is_none() && !close_menu(ui, rect, anchor, ATTACH_PASS);
     (pick, stay)
 }
 
@@ -83,7 +83,7 @@ pub(super) fn mode_menu(ui: &mut Ui, anchor: Rect, current: PermissionMode) -> (
         theme::font_caption(),
         theme::TEXT_TERTIARY,
     );
-    let stay = pick.is_none() && !close_menu(ui, rect, MODE_PASS);
+    let stay = pick.is_none() && !close_menu(ui, rect, anchor, MODE_PASS);
     (pick, stay)
 }
 
@@ -138,7 +138,9 @@ pub(super) fn stamp_pass(ui: &Ui, id: &str) {
     ui.ctx().data_mut(|d| d.insert_temp(Id::new(id), pass));
 }
 
-fn close_menu(ui: &Ui, rect: Rect, pass_id: &str) -> bool {
+/// True when `Esc` or a press outside the menu and its `anchor` asks it to close. A press on the anchor is left to the anchor's own
+/// click, which toggles the menu: closing here as well would let that click open it again.
+fn close_menu(ui: &Ui, rect: Rect, anchor: Rect, pass_id: &str) -> bool {
     if ui.input(|i| i.key_pressed(Key::Escape)) {
         return true;
     }
@@ -148,7 +150,7 @@ fn close_menu(ui: &Ui, rect: Rect, pass_id: &str) -> bool {
     }
     if ui.input(|i| i.pointer.any_pressed()) {
         if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-            return !rect.contains(pos);
+            return !rect.contains(pos) && !anchor.contains(pos);
         }
     }
     false

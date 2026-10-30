@@ -400,3 +400,172 @@ fn sign_in_shows_only_on_a_row_known_signed_out_and_runs_the_cli_login() {
     assert!(titles.iter().any(|t| t.contains("auth login")), "a plain command tab runs the CLI's own sign-in: {titles:?}");
     finish(s);
 }
+
+/// A running stub Claude tab, mid-turn, with the terminal holding the keyboard.
+fn working_session() -> Sim {
+    let mut s = session_sim();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+    frames(&mut s, 2);
+    s
+}
+
+fn pty_bytes_since(s: &Sim, before: usize) -> Vec<u8> {
+    s.shell.app.terminal.tabs[0].written_bytes[before..].to_vec()
+}
+
+fn turn_is_working(s: &Sim) -> bool {
+    matches!(*s.shell.app.terminal.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Working(_))
+}
+
+/// A point in the terminal viewport that no menu covers.
+fn viewport_point(s: &Sim) -> egui::Pos2 {
+    let vp = recorded(s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    egui::pos2(vp.center().x, vp.top() + 40.0)
+}
+
+#[test]
+fn attach_and_mode_menus_own_the_keyboard() {
+    type Open = fn(&crate::terminal::TerminalState) -> bool;
+    let menus: [(&str, Open, bool); 3] = [
+        ("agents-composer-add-btn", |t| t.attach_menu_open, true),
+        ("agents-composer-mode-btn", |t| t.mode_menu_open, true),
+        ("agents-composer-agent-pill", |t| t.runtime_dropdown_open, false),
+    ];
+    for (anchor, is_open, takes_enter) in menus {
+        let mut s = working_session();
+        let a = recorded(&s, anchor).unwrap_or_else(|| panic!("{anchor} is drawn"));
+        s.click(a.center());
+        frames(&mut s, 2);
+        assert!(is_open(&s.shell.app.terminal), "{anchor} opens its menu");
+        assert!(s.shell.app.terminal.overlay_owns_keyboard, "{anchor}: an open menu owns the keyboard");
+
+        // The terminal would take these keys if the menu did not own them.
+        s.shell.app.terminal.viewport_focused = true;
+        let before = s.shell.app.terminal.tabs[0].written_bytes.len();
+        s.key(Key::ArrowDown);
+        s.key(Key::ArrowUp);
+        if takes_enter {
+            s.key(Key::Enter);
+        }
+        assert!(pty_bytes_since(&s, before).is_empty(), "{anchor}: arrows and Enter go to the menu, not the PTY: {:?}", pty_bytes_since(&s, before));
+        assert!(is_open(&s.shell.app.terminal), "{anchor}: the menu is still open");
+
+        // Esc closes the menu and stops nothing.
+        s.shell.app.terminal.viewport_focused = true;
+        s.key(Key::Escape);
+        frames(&mut s, 2);
+        assert!(!is_open(&s.shell.app.terminal), "{anchor}: Esc closes the menu");
+        assert!(pty_bytes_since(&s, before).is_empty(), "{anchor}: Esc writes no byte to the PTY: {:?}", pty_bytes_since(&s, before));
+        assert!(turn_is_working(&s), "{anchor}: Esc did not stop the running turn");
+
+        // A press outside closes it.
+        s.click(a.center());
+        frames(&mut s, 2);
+        assert!(is_open(&s.shell.app.terminal), "{anchor}: reopened");
+        s.click(viewport_point(&s));
+        frames(&mut s, 2);
+        assert!(!is_open(&s.shell.app.terminal), "{anchor}: a press outside closes the menu");
+
+        // Control: with the menu closed, the keys reach the terminal again.
+        let before = s.shell.app.terminal.tabs[0].written_bytes.len();
+        s.type_text("z");
+        frames(&mut s, 2);
+        assert!(String::from_utf8_lossy(&pty_bytes_since(&s, before)).contains('z'), "{anchor}: the terminal hears typing again");
+        finish(s);
+    }
+}
+
+#[test]
+fn skills_popover_closes_on_esc_and_an_outside_press_and_returns_the_keyboard() {
+    let mut s = working_session();
+    s.shell.app.terminal.skills.open_picker();
+    frames(&mut s, 3);
+    assert!(recorded(&s, "agents-skills-picker-popover").is_some(), "the popover is drawn");
+    assert!(s.shell.app.terminal.overlay_owns_keyboard, "an open popover owns the keyboard");
+
+    s.shell.app.terminal.viewport_focused = true;
+    let before = s.shell.app.terminal.tabs[0].written_bytes.len();
+    s.key(Key::Escape);
+    frames(&mut s, 2);
+    assert!(!s.shell.app.terminal.skills.picker_open, "Esc closes the popover");
+    assert!(pty_bytes_since(&s, before).is_empty(), "Esc writes no byte to the PTY: {:?}", pty_bytes_since(&s, before));
+    assert!(turn_is_working(&s), "Esc did not stop the running turn");
+
+    s.shell.app.terminal.skills.open_picker();
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.skills.picker_open, "reopened");
+    s.click(viewport_point(&s));
+    frames(&mut s, 2);
+    assert!(!s.shell.app.terminal.skills.picker_open, "a press outside closes the popover");
+
+    let before = s.shell.app.terminal.tabs[0].written_bytes.len();
+    s.type_text("z");
+    frames(&mut s, 2);
+    assert!(String::from_utf8_lossy(&pty_bytes_since(&s, before)).contains('z'), "the terminal hears typing again");
+    finish(s);
+}
+
+#[test]
+fn the_skills_popover_opened_by_a_click_survives_that_click() {
+    let mut s = session_sim();
+    let add = recorded(&s, "agents-composer-add-btn").unwrap();
+    s.click(add.center());
+    frames(&mut s, 2);
+    let skills = recorded(&s, "agents-composer-skills-item").expect("the Skills… item");
+    s.mv(skills.center());
+    s.one_frame().press().release().send();
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.skills.picker_open, "the press that picks Skills… is not an outside press");
+    finish(s);
+}
+
+#[test]
+fn the_skills_chip_opens_and_closes_the_popover() {
+    let mut s = session_sim();
+    s.shell.app.terminal.skills.set_selected_skills(vec!["design-system-rhythm".into()]);
+    frames(&mut s, 3);
+    let chip = recorded(&s, "agents-composer-chip-skills").expect("the skills chip");
+    let _release = {
+        s.ctx.data_mut(|d| d.remove_by_type::<Rect>());
+        crate::widgets::RecordDisabled::begin()
+    };
+    s.click(chip.center());
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.skills.picker_open, "the chip opens the popover");
+    s.click(chip.center());
+    frames(&mut s, 2);
+    assert!(!s.shell.app.terminal.skills.picker_open, "the chip, its own anchor, closes it");
+    finish(s);
+}
+
+#[test]
+fn a_composer_menu_closes_from_its_own_anchor() {
+    type Open = fn(&crate::terminal::TerminalState) -> bool;
+    let menus: [(&str, Open); 3] = [
+        ("agents-composer-add-btn", |t| t.attach_menu_open),
+        ("agents-composer-mode-btn", |t| t.mode_menu_open),
+        ("agents-composer-agent-pill", |t| t.runtime_dropdown_open),
+    ];
+    for (anchor, is_open) in menus {
+        let mut s = new_chat_sim();
+        let a = recorded(&s, anchor).unwrap_or_else(|| panic!("{anchor} is drawn"));
+        s.click(a.center());
+        frames(&mut s, 2);
+        assert!(is_open(&s.shell.app.terminal), "{anchor}: the first press opens the menu");
+        s.click(a.center());
+        frames(&mut s, 2);
+        assert!(!is_open(&s.shell.app.terminal), "{anchor}: the second press closes it");
+
+        // A slow frame hands over the press and the release together, with no rects stored, as in a release build.
+        s.ctx.data_mut(|d| d.remove_by_type::<Rect>());
+        let _release = crate::widgets::RecordDisabled::begin();
+        s.mv(a.center());
+        s.one_frame().press().release().send();
+        frames(&mut s, 2);
+        assert!(is_open(&s.shell.app.terminal), "{anchor}: opens in one frame");
+        s.one_frame().press().release().send();
+        frames(&mut s, 2);
+        assert!(!is_open(&s.shell.app.terminal), "{anchor}: closes in one frame");
+        finish(s);
+    }
+}

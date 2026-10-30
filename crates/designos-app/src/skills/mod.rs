@@ -21,6 +21,7 @@
 pub(crate) mod delivery;
 pub(crate) mod hook_delivery;
 mod picker_popover;
+pub(crate) use picker_popover::picker_anchor_id;
 pub(crate) mod pills;
 pub mod run_record;
 
@@ -474,6 +475,8 @@ pub struct SkillsAttachmentState {
     pub entries: Vec<SkillEntry>,
     pub selected_names: Vec<String>,
     pub picker_open: bool,
+    /// True once the open popover was drawn in an earlier pass: the pass that opens it ignores the press that picked its item.
+    picker_drawn: bool,
     pub scroll_offset: f32,
     watcher_dirty: Arc<AtomicBool>,
     watcher_stop: Arc<AtomicBool>,
@@ -513,7 +516,16 @@ impl SkillsAttachmentState {
         let selected_names = app_settings::load_default_skills(&library_root);
         let watcher_dirty = Arc::new(AtomicBool::new(false));
         let watcher_stop = Arc::new(AtomicBool::new(false));
-        let mut st = Self { library_root, entries: Vec::new(), selected_names, picker_open: false, scroll_offset: 0.0, watcher_dirty, watcher_stop };
+        let mut st = Self {
+            library_root,
+            entries: Vec::new(),
+            selected_names,
+            picker_open: false,
+            picker_drawn: false,
+            scroll_offset: 0.0,
+            watcher_dirty,
+            watcher_stop,
+        };
         st.reload_all();
         st.spawn_background_watcher();
         st

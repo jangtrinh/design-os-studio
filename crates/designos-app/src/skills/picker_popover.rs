@@ -4,11 +4,31 @@ use super::{SkillsAttachmentState, MAX_COMBINED_TOKENS, MAX_SKILLS_PER_RUN};
 use crate::icons::Icon;
 use crate::theme;
 use crate::widgets::{self, kit};
-use egui::{Align2, Id, Pos2, Rect, Sense, Ui, UiBuilder, Vec2};
+use egui::{Align2, Id, Key, Pos2, Rect, Sense, Ui, UiBuilder, Vec2};
 
 /// A budget line shows once the run is within 10 % of a limit.
 const BUDGET_NEAR_TOKENS: usize = MAX_COMBINED_TOKENS / 10 * 9;
 const ROW_H: f32 = theme::CONTROL_MD + theme::SPACE_ROW;
+
+/// Where the composer's skills chip sits, `None` without one. A press on the chip is not an outside press: the chip opens and closes the popover itself.
+pub(crate) fn picker_anchor_id() -> Id {
+    Id::new("agents-skills-picker-anchor-rect")
+}
+
+/// True when `Esc` or a press outside the popover and its chip asks it to close.
+fn dismissed(ui: &Ui, popover: Rect) -> bool {
+    if ui.input(|i| i.key_pressed(Key::Escape)) {
+        return true;
+    }
+    if !ui.input(|i| i.pointer.any_pressed()) {
+        return false;
+    }
+    let Some(pos) = ui.input(|i| i.pointer.interact_pos()) else {
+        return false;
+    };
+    let on_chip = ui.ctx().data(|d| d.get_temp::<Option<Rect>>(picker_anchor_id())).flatten().is_some_and(|chip| chip.contains(pos));
+    !popover.contains(pos) && !on_chip
+}
 
 /// `7300` as `7,300`.
 fn thousands(n: usize) -> String {
@@ -39,10 +59,10 @@ impl SkillsAttachmentState {
     /// agent with its next send (`delivery`), not when they are ticked.
     pub fn show_picker_popover(&mut self, ui: &mut Ui, panel_rect: Rect, anchor_bottom_y: f32) {
         if !self.picker_open {
+            self.picker_drawn = false;
             return;
         }
         self.poll_watcher(Some(ui.ctx()));
-        widgets::popup_open::mark_open(ui.ctx());
 
         let budget = self.budget_line();
         let header_h = theme::MENU_ITEM_HEIGHT;
@@ -55,6 +75,16 @@ impl SkillsAttachmentState {
         let pop_y = (anchor_bottom_y - pop_h - theme::SPACE_INLINE).max(panel_rect.top() + theme::CONTROL_MD);
         let pop_r = Rect::from_min_size(Pos2::new(pop_x, pop_y), Vec2::new(pop_w, pop_h));
         let inner = pop_r.shrink(pad);
+
+        // It closes on `Esc` and on a press outside, which is what lets it count as an open popup that owns the keyboard. The pass
+        // that opened it is skipped: the press that picked its item reaches it in that very pass.
+        if self.picker_drawn && dismissed(ui, pop_r) {
+            self.picker_open = false;
+            self.picker_drawn = false;
+            return;
+        }
+        self.picker_drawn = true;
+        widgets::popup_open::mark_open(ui.ctx());
 
         let p = ui.painter().clone();
         kit::popover_surface(&p, pop_r);
