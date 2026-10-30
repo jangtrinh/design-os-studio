@@ -396,7 +396,7 @@ pub fn paint_header_stop_controls(ui: &mut Ui, p: &Painter, state: &mut Terminal
 
     if active_running {
         let label = state.tabs.get(state.active_tab).and_then(|t| t.stop_state.as_ref()).map_or("Stop", StopState::button_label);
-        let btn_w = theme::CONTROL_ROW + theme::SPACE_SECTION;
+        let btn_w = theme::CONTROL_MD + theme::SPACE_SECTION;
         let stop_rect = Rect::from_min_size(Pos2::new(cursor_right - btn_w, btn_y), Vec2::new(btn_w, btn_h));
         let resp = ui.interact(stop_rect, Id::new("agents-header-stop-btn"), Sense::click());
         let bg = if !active_stopping && resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY };
@@ -420,7 +420,7 @@ pub fn paint_header_stop_controls(ui: &mut Ui, p: &Painter, state: &mut Terminal
     }
 
     if running_count >= 2 {
-        let btn_w = theme::CONTROL_ROW + theme::SPACE_SECTION + theme::SPACE_INLINE;
+        let btn_w = theme::CONTROL_MD + theme::SPACE_SECTION + theme::SPACE_INLINE;
         let right_x = if active_running { cursor_right - theme::SPACE_INLINE } else { cursor_right };
         let all_rect = Rect::from_min_size(Pos2::new(right_x - btn_w, btn_y), Vec2::new(btn_w, btn_h));
         let resp = ui.interact(all_rect, Id::new("agents-header-stop-all-btn"), Sense::click());

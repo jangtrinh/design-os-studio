@@ -125,7 +125,7 @@
       "id": "editor-present",
       "name": "Editor \u2014 Interactive Prototype Presentation Player",
       "mode": "screen",
-      "artifact": "crates/designos-app/src/proto/present.rs",
+      "artifact": "crates/designos-app/src/present.rs",
       "states": [
         "default",
         "loading",

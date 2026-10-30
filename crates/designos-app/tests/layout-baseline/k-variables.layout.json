@@ -1,0 +1,1606 @@
+{
+  "schema": 1,
+  "case": "k-variables",
+  "size": [
+    1600,
+    1088
+  ],
+  "scale": 1.0,
+  "regions": {
+    "canvas": null,
+    "home": null,
+    "left_panel": null,
+    "notes": null,
+    "present": null,
+    "rail": [
+      0.0,
+      32.0,
+      49.0,
+      1056.0
+    ],
+    "right_panel": null,
+    "tab_bar": [
+      0.0,
+      0.0,
+      1600.0,
+      32.0
+    ],
+    "title_bar": null,
+    "variables_full": [
+      49.0,
+      32.0,
+      1551.0,
+      1056.0
+    ]
+  },
+  "overlays": [
+    {
+      "name": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        32.0,
+        1551.0,
+        1056.0
+      ]
+    }
+  ],
+  "named": {
+    "project-tab-0": {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "project-tab-id-1": {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "rail-Agents": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        144.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Assets": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        200.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-File": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        88.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Plugins": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        384.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Tools": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        256.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Variables": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        328.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-help": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        1048.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "rail-menu": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        40.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tab-bar-brand": {
+      "region": "tab_bar",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "tab-bar-home": {
+      "region": "tab_bar",
+      "rect": [
+        8.0,
+        4.0,
+        72.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-bar-new": {
+      "region": "tab_bar",
+      "rect": [
+        337.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-close-1": {
+      "region": "tab_bar",
+      "rect": [
+        310.0,
+        7.0,
+        18.0,
+        18.0
+      ],
+      "count": 1
+    },
+    "tab-unsaved-dot-1": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "vars-add-collection": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        257.0,
+        89.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-add-mode": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1053.0,
+        81.0,
+        39.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/1000:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        204.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/1000:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        204.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/100:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        245.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/100:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        245.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/800:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        286.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/800:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        286.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Radius/4:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        655.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Radius/4:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        655.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Radius/Circle:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        614.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Radius/Circle:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        614.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Size/Small:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        368.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Size/Small:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        368.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Space/0:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        491.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Space/0:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        491.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Space/2:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        532.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Space/2:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        532.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Space/8:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        450.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Space/8:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        450.0,
+        280.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter colours": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        445.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter dividers": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        509.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter platform colours": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        157.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter primitives": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        477.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter progress and icons": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        413.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter roles": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        285.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter shape and size": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        125.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter spacing": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        317.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter spacing extra": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        189.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter spacing tokens": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        221.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter surfaces": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        253.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter theme": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        381.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter theme compact": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        349.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-collapse": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1498.0,
+        44.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-create": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        298.0,
+        1056.0,
+        128.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-filter": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1462.0,
+        44.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:All": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        590.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Colour": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        622.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Colour/Grey": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        654.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Radius": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        750.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Size": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        686.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Space": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        718.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-header:Colour": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        326.0,
+        130.0,
+        156.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-header:Colour/Grey": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        342.0,
+        171.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-header:Radius": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        326.0,
+        581.0,
+        156.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-header:Size": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        326.0,
+        335.0,
+        156.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-header:Space": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        326.0,
+        417.0,
+        156.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/1000:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        521.0,
+        212.0,
+        146.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/1000:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        802.0,
+        212.0,
+        146.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/100:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        521.0,
+        253.0,
+        146.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/100:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        802.0,
+        253.0,
+        146.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/800:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        521.0,
+        294.0,
+        146.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/800:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        802.0,
+        294.0,
+        146.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hscrollbar": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        300.0,
+        1039.0,
+        1290.0,
+        7.0
+      ],
+      "count": 1
+    },
+    "vars-mode:Dark": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        780.0,
+        89.0,
+        264.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-mode:Light": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        499.0,
+        89.0,
+        264.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Radius/4:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        499.0,
+        663.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Radius/4:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        780.0,
+        663.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Radius/Circle:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        499.0,
+        622.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Radius/Circle:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        780.0,
+        622.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Size/Small:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        499.0,
+        376.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Size/Small:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        780.0,
+        376.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Space/0:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        499.0,
+        499.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Space/0:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        780.0,
+        499.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Space/2:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        499.0,
+        540.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Space/2:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        780.0,
+        540.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Space/8:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        499.0,
+        458.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Space/8:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        780.0,
+        458.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-row:Colour/Grey/100": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        245.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Colour/Grey/1000": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        204.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Colour/Grey/800": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        286.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Radius/4": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        655.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Radius/Circle": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        614.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Size/Small": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        368.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Space/0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        491.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Space/2": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        532.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Space/8": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        450.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-scope:All": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        442.0,
+        1057.0,
+        30.5,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Fills": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        476.75,
+        1057.0,
+        38.5,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Gap & Size": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        686.0,
+        1057.0,
+        77.75,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Radius": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        627.25,
+        1057.0,
+        54.75,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Strokes": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        519.25,
+        1057.0,
+        59.5,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Text": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        582.75,
+        1057.0,
+        40.75,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-search": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1287.0,
+        44.0,
+        174.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-settings": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        230.0,
+        89.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-sidebar-toggle": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        253.0,
+        44.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/1000:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        508.0,
+        216.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/1000:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        789.0,
+        216.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/100:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        508.0,
+        257.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/100:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        789.0,
+        257.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/800:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        508.0,
+        298.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/800:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        789.0,
+        298.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-title": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        306.0,
+        44.0,
+        965.0,
+        24.0
+      ],
+      "count": 1
+    }
+  },
+  "unnamed": [
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        32.0,
+        1551.0,
+        1056.0
+      ],
+      "sense": [
+        "click"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        32.0,
+        1551.0,
+        1056.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1311.0,
+        43.0,
+        150.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        491.0,
+        81.0,
+        280.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        772.0,
+        81.0,
+        280.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        122.0,
+        1310.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        163.0,
+        1310.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        527.0,
+        212.0,
+        140.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        808.0,
+        212.0,
+        140.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        506.0,
+        214.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        787.0,
+        214.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        527.0,
+        253.0,
+        140.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        808.0,
+        253.0,
+        140.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        506.0,
+        255.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        787.0,
+        255.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        527.0,
+        294.0,
+        140.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        808.0,
+        294.0,
+        140.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        506.0,
+        296.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        787.0,
+        296.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        327.0,
+        1310.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        507.0,
+        376.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        788.0,
+        376.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        409.0,
+        1310.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        507.0,
+        458.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        788.0,
+        458.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        507.0,
+        499.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        788.0,
+        499.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        507.0,
+        540.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        788.0,
+        540.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        290.0,
+        573.0,
+        1310.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        507.0,
+        622.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        788.0,
+        622.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        507.0,
+        663.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        788.0,
+        663.0,
+        132.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        216.0,
+        26.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    }
+  ],
+  "scroll": []
+}

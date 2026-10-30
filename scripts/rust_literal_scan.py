@@ -17,6 +17,10 @@ Categories counted per file:
   nonconcentric_pairs  a rect derived with `.shrink(k)` / `.expand(-k)` or built
                      with `Rect::from_*(.. outer.left() + k ..)` from an outer rect, both painted with a resolvable radius, where
                      `inner != max(outer - k, 0)` and `k < outer`
+  legacy_control_refs  a use of the legacy control heights `CONTROL_DENSE` or
+                     `CONTROL_STANDARD` (code only, whole names): their sites mix
+                     buttons, chips and hit boxes, so each surface re-points the
+                     ones it owns and the count may only fall
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ CATEGORIES = (
     "radius_literals",
     "font_literals",
     "nonconcentric_pairs",
+    "legacy_control_refs",
 )
 
 NUM = r"(\d+(?:\.\d+)?)(?:_?(?:f32|f64|u8|i8|u16|i16|usize))?"
@@ -47,6 +52,7 @@ _INCR_RE = re.compile(
     + r"(?![\w.])"
 )
 _SIZE_FIELD_RE = re.compile(r"\.size\s*=\s*" + NUM + r"(?![\w.])")
+_LEGACY_CONTROL_RE = re.compile(r"\bCONTROL_(?:DENSE|STANDARD)\b")
 
 
 def strip_code(src: str) -> str:
@@ -189,6 +195,7 @@ def scan_counts(code: str) -> Dict[str, List[int]]:
         sites["offset_literals"] += [ln] * len(_OFFSET_RE.findall(text))
         sites["offset_literals"] += [ln] * len(_INCR_RE.findall(text))
         sites["font_literals"] += [ln] * len(_SIZE_FIELD_RE.findall(text))
+        sites["legacy_control_refs"] += [ln] * len(_LEGACY_CONTROL_RE.findall(text))
     for m in re.finditer(r"add_space\(", code):
         a, _ = balanced_args(code, m.end() - 1)
         if a and (literal_value(a[0]) or 0) > 0:

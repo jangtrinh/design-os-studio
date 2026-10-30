@@ -483,9 +483,8 @@ pub fn extra_cli_path_dirs() -> Vec<PathBuf> {
 
 /// Checks if `bin` exists as an executable file in `PATH` (or common user/system CLI directories, or as an explicit path).
 pub fn runtime_binary_available(bin: &str) -> bool {
-    let path_os = std::env::var_os("PATH");
-    let include_default_dirs = !path_os.as_ref().is_some_and(|p| p.is_empty());
-    runtime_binary_available_in(bin, path_os.as_deref(), include_default_dirs)
+    let include_default_dirs = !crate::cli_resolve::host_path_is_empty();
+    runtime_binary_available_in(bin, None, include_default_dirs)
 }
 
 fn runtime_binary_available_in(bin: &str, path_os: Option<&std::ffi::OsStr>, include_default_dirs: bool) -> bool {
@@ -494,27 +493,33 @@ fn runtime_binary_available_in(bin: &str, path_os: Option<&std::ffi::OsStr>, inc
         return false;
     }
     let explicit = Path::new(trimmed);
+    if path_os.is_none() {
+        if let Some(ref hdir) = crate::cli_resolve::hermetic_agent_cli_dir() {
+            if explicit.components().count() > 1 {
+                return false;
+            }
+            return crate::cli_resolve::resolve_in_hermetic(hdir, trimmed).is_some();
+        }
+    }
     if explicit.components().count() > 1 {
         return explicit.is_file();
     }
 
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    if let Some(p_os) = path_os {
-        for p in std::env::split_paths(p_os) {
-            if !p.as_os_str().is_empty() {
-                dirs.push(p);
-            }
+    let dirs = if let Some(p_os) = path_os {
+        let mut dirs = crate::cli_resolve::split_non_empty_paths(p_os);
+        if include_default_dirs {
+            dirs.extend(extra_cli_path_dirs());
         }
-    }
-    if include_default_dirs {
-        dirs.extend(extra_cli_path_dirs());
-    }
+        dirs
+    } else {
+        let mut sources = crate::cli_resolve::current_search_sources(None);
+        if !include_default_dirs {
+            sources.extra.clear();
+        }
+        crate::cli_resolve::cli_search_dirs_with(&sources)
+    };
 
-    dirs.into_iter().any(|d| {
-        d.join(trimmed).is_file()
-            || (cfg!(windows)
-                && (d.join(format!("{trimmed}.exe")).is_file() || d.join(format!("{trimmed}.cmd")).is_file() || d.join(format!("{trimmed}.bat")).is_file()))
-    })
+    crate::cli_resolve::resolve_in(&dirs, trimmed).is_some()
 }
 
 /// Per-file isolated session environment paths and active document/page metadata.
@@ -848,23 +853,7 @@ impl TerminalTab {
             None => {
                 let shell_bin = default_shell_program();
                 match preset {
-                    AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => {
-                        let mut c = CommandBuilder::new(&shell_bin);
-                        if cfg!(test) {
-                            if shell_bin.ends_with("zsh") {
-                                c.arg("-d");
-                                c.arg("-f");
-                                #[cfg(test)]
-                                isolate_zsh_from_home(&mut c);
-                            } else if shell_bin.ends_with("bash") || shell_bin.ends_with("bash.exe") {
-                                c.arg("--norc");
-                                c.arg("--noprofile");
-                            }
-                        } else if !cfg!(windows) {
-                            c.arg("-l");
-                        }
-                        c
-                    }
+                    AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp => build_shell_preset_cmd(&shell_bin),
                     AgentCliPreset::Claude
                     | AgentCliPreset::Codex
                     | AgentCliPreset::Antigravity
@@ -874,7 +863,8 @@ impl TerminalTab {
                         #[cfg(test)]
                         let launch_cmd = if session.and_then(|s| s.path_override.as_ref()).is_none()
                             && std::env::var_os("DESIGNOS_QA_DIR").is_none()
-                            && !std::env::var_os("PATH").is_some_and(|p| p.is_empty())
+                            && crate::cli_resolve::hermetic_agent_cli_dir().is_none()
+                            && !crate::cli_resolve::host_path_is_empty()
                         {
                             "sh -c 'sleep 5'"
                         } else {
@@ -882,7 +872,7 @@ impl TerminalTab {
                         };
                         #[cfg(not(test))]
                         let launch_cmd = fallback_agent_launch_command(preset);
-                        build_agent_shell_cmd(&shell_bin, launch_cmd)
+                        build_agent_shell_cmd_checked_for_tab(&shell_bin, launch_cmd, preset, file_path, session)?
                     }
                 }
             }
@@ -2077,7 +2067,7 @@ impl TerminalState {
         if let Some(ref p) = self.path_override {
             return runtime_binary_available_in(preset.binary_name(), Some(p.as_os_str()), false);
         }
-        preset.is_installed() || self.path_prepend.iter().any(|d| d.join(preset.binary_name()).is_file())
+        preset_reachable_with_prepend(preset, &self.path_prepend)
     }
 
     /// OpenCode is not in the picker's probed catalog, so its presence is checked on PATH once per probe cycle
@@ -2947,19 +2937,9 @@ impl TerminalState {
     }
 
     /// Screenshot fixture (`--panel agents-start-failure`): opens an Antigravity tab on a real
-    /// `agy` invocation that exits at once with a usage error, then waits for the failure panel.
+    /// `agy` invocation that exits at once with a usage error; the gate's 2 s `is_alive` poll waits for exit.
     pub fn open_failed_start_fixture(&mut self, file_path: Option<&Path>) {
-        if self.spawn_tab_running(AgentCliPreset::Antigravity, file_path, Some(START_FAILURE_FIXTURE_COMMAND)).is_err() {
-            return;
-        }
-        let deadline = std::time::Instant::now() + agent_start_failure::START_FAILURE_WINDOW;
-        while std::time::Instant::now() < deadline {
-            let _ = self.poll_live_agent_bridge();
-            if self.active_tab().is_some_and(|t| t.start_failure.is_some()) {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(30));
-        }
+        let _ = self.spawn_tab_running(AgentCliPreset::Antigravity, file_path, Some(START_FAILURE_FIXTURE_COMMAND));
     }
 
     /// Test helper: polls the bridge until the active tab records a start failure or `budget` passes.
@@ -3274,7 +3254,13 @@ impl TerminalState {
         self.next_tab_id = id + 1;
         self.provision_session_agent_files(file_path);
         let env = self.session_env();
-        let mut cmd = build_agent_shell_cmd(&default_shell_program(), command);
+        let mut cmd = match build_agent_shell_cmd_checked_for_tab(&default_shell_program(), command, AgentCliPreset::Claude, file_path, Some(&env)) {
+            Ok(cmd) => cmd,
+            Err(e) => {
+                self.status_msg = Some(format!("PTY error: {e}"));
+                return Err(e);
+            }
+        };
         #[cfg(test)]
         isolate_zsh_from_home(&mut cmd);
         cmd.cwd(&self.session_dir);
@@ -3388,16 +3374,24 @@ impl TerminalState {
         env.tab_session_uuid = session_uuid.clone();
         // A Gemini tab in Ask mode reads its status hooks from a private file, written before the tab starts.
         env.gemini_system_defaults = crate::gemini_status_hooks::prepare_for_tab(&self.session_dir, id, mode, preset).map(|path| path.display().to_string());
-        let cmd_override = command.map(|c| {
-            let cmd = build_agent_shell_cmd(&default_shell_program(), c);
-            #[cfg(test)]
-            let cmd = {
-                let mut cmd = cmd;
-                isolate_zsh_from_home(&mut cmd);
-                cmd
-            };
-            cmd
-        });
+        let cmd_override = match command {
+            Some(c) => match build_agent_shell_cmd_checked_for_tab(&default_shell_program(), c, preset, file_path, Some(&env)) {
+                Ok(cmd) => {
+                    #[cfg(test)]
+                    let cmd = {
+                        let mut cmd = cmd;
+                        isolate_zsh_from_home(&mut cmd);
+                        cmd
+                    };
+                    Some(cmd)
+                }
+                Err(e) => {
+                    self.status_msg = Some(format!("PTY error: {e}"));
+                    return Err(e);
+                }
+            },
+            None => None,
+        };
         let (init_rows, init_cols) = self.viewport_size;
         match TerminalTab::spawn_with_session_cmd(id, preset, init_rows, init_cols, file_path, Some(&env), cmd_override) {
             Ok(mut tab) => {
@@ -3500,8 +3494,10 @@ impl TerminalState {
             }
             AgentCliPreset::Grok => {
                 if let Some(sid) = tab.session_uuid.clone() {
-                    let grok_bin = crate::agent_usage::resolve_grok_binary(&self.path_prepend);
-                    tab.usage.trigger_grok_usage(grok_bin, sid, crate::agent_usage::GROK_USAGE_TIMEOUT, Some(self.session_dir.clone()));
+                    let sources = crate::cli_resolve::search_sources_with_prepend(&self.path_prepend);
+                    if let Some(grok_bin) = crate::agent_usage::resolve_grok_binary(&sources) {
+                        tab.usage.trigger_grok_usage(grok_bin, sid, crate::agent_usage::GROK_USAGE_TIMEOUT, Some(self.session_dir.clone()));
+                    }
                 }
             }
             AgentCliPreset::Codex
@@ -3977,14 +3973,14 @@ impl TerminalState {
                             if let Some(ref p) = path_override {
                                 runtime_binary_available_in(tab.spawn_preset.binary_name(), Some(p.as_os_str()), false)
                             } else {
-                                tab.spawn_preset.is_installed()
+                                preset_reachable_with_prepend(tab.spawn_preset, &self.path_prepend)
                             }
                         }
                         #[cfg(not(test))]
                         {
-                            tab.spawn_preset.is_installed()
+                            preset_reachable_with_prepend(tab.spawn_preset, &self.path_prepend)
                         }
-                    } || self.path_prepend.iter().any(|d| d.join(tab.spawn_preset.binary_name()).is_file());
+                    };
                     let mut diag = agent_start_failure::diagnose(tab.spawn_preset, installed, exit_code, &output);
                     if tab.is_resumed && !matches!(diag.fix, FixAction::OpenInstallPage(_) | FixAction::RunLogin(_)) {
                         diag.fix = FixAction::StartNewSession(tab.spawn_preset);
@@ -4861,6 +4857,214 @@ fn isolate_zsh_from_home(cmd: &mut CommandBuilder) {
     cmd.env("ZDOTDIR", &zdotdir);
 }
 
+fn build_shell_preset_cmd(shell_bin: &str) -> CommandBuilder {
+    build_shell_preset_cmd_in(shell_bin, crate::cli_resolve::hermetic_agent_cli_dir().as_deref())
+}
+
+pub(crate) fn build_shell_preset_cmd_in(shell_bin: &str, hermetic_dir: Option<&Path>) -> CommandBuilder {
+    if hermetic_dir.is_some() {
+        return CommandBuilder::new("/bin/sh");
+    }
+    let mut c = CommandBuilder::new(shell_bin);
+    if cfg!(test) {
+        if shell_bin.ends_with("zsh") {
+            c.arg("-d");
+            c.arg("-f");
+            #[cfg(test)]
+            isolate_zsh_from_home(&mut c);
+        } else if shell_bin.ends_with("bash") || shell_bin.ends_with("bash.exe") {
+            c.arg("--norc");
+            c.arg("--noprofile");
+        }
+    } else if !cfg!(windows) {
+        c.arg("-l");
+    }
+    c
+}
+
+fn preset_reachable_with_prepend(preset: AgentCliPreset, path_prepend: &[PathBuf]) -> bool {
+    if preset.is_installed() {
+        return true;
+    }
+    if path_prepend.is_empty() {
+        return false;
+    }
+    let sources = crate::cli_resolve::search_sources_with_prepend(path_prepend);
+    let dirs = crate::cli_resolve::cli_search_dirs_with(&sources);
+    crate::cli_resolve::resolve_in(&dirs, preset.binary_name()).is_some()
+}
+
+fn build_agent_shell_cmd_checked_for_tab(
+    shell_bin: &str,
+    agent_cli: &str,
+    preset: AgentCliPreset,
+    file_path: Option<&Path>,
+    session: Option<&SessionEnv>,
+) -> Result<CommandBuilder, String> {
+    if crate::cli_resolve::hermetic_mode_active() && crate::cli_resolve::hermetic_agent_cli_dir().is_none() {
+        return Err("hermetic mode: startup-validated DESIGNOS_AGENT_CLI_DIR is missing".to_string());
+    }
+    build_agent_shell_cmd_with_session_in(shell_bin, agent_cli, crate::cli_resolve::hermetic_agent_cli_dir().as_deref(), preset, file_path, session)
+}
+
+pub(crate) fn build_agent_shell_cmd_in(shell_bin: &str, agent_cli: &str, hermetic_dir: Option<&Path>) -> Result<CommandBuilder, String> {
+    build_agent_shell_cmd_with_session_in(shell_bin, agent_cli, hermetic_dir, AgentCliPreset::Claude, None, None)
+}
+
+fn build_agent_shell_cmd_with_session_in(
+    shell_bin: &str,
+    agent_cli: &str,
+    hermetic_dir: Option<&Path>,
+    preset: AgentCliPreset,
+    file_path: Option<&Path>,
+    session: Option<&SessionEnv>,
+) -> Result<CommandBuilder, String> {
+    if let Some(dir) = hermetic_dir {
+        let canon_dir = match crate::cli_resolve::hermetic_agent_cli_dir() {
+            Some(pinned) if pinned == dir => pinned,
+            _ => dir
+                .to_str()
+                .ok_or_else(|| "hermetic mode: non-UTF-8 hermetic dir".to_string())
+                .and_then(crate::cli_resolve::validate_and_canonicalize_hermetic_dir)?,
+        };
+        let trimmed = agent_cli.trim_start();
+        let body = trimmed.strip_prefix("exec ").map(str::trim_start).unwrap_or(trimmed);
+        if body.is_empty() {
+            return Err(format!("hermetic mode: refused command {agent_cli}"));
+        }
+        for sep in ["&", "|", ";", "<", ">", "`", "$(", "\n", "\r"] {
+            if body.contains(sep) {
+                return Err(format!("hermetic mode: refused command {agent_cli}"));
+            }
+        }
+        let words = shell_words::split(body).map_err(|e| format!("hermetic mode: refused command {agent_cli} ({e})"))?;
+        let Some((first_word, rest_words)) = words.split_first() else {
+            return Err(format!("hermetic mode: refused command {agent_cli}"));
+        };
+        let is_bare_name = !first_word.is_empty() && !first_word.contains('/') && !first_word.contains('\\') && !first_word.contains('$');
+        if !is_bare_name {
+            return Err(format!("hermetic mode: refused command {first_word}"));
+        }
+        let Some(resolved) = crate::cli_resolve::resolve_in_hermetic(&canon_dir, first_word) else {
+            return Err(format!("hermetic mode: refused command {first_word}"));
+        };
+        let env_map = tab_designos_env_map(preset, file_path, session);
+        let mut expanded_args = Vec::with_capacity(rest_words.len());
+        for word in rest_words {
+            let expanded = expand_hermetic_designos_vars(word, &env_map).map_err(|reason| format!("hermetic mode: refused command {agent_cli} ({reason})"))?;
+            expanded_args.push(expanded);
+        }
+        let mut c = CommandBuilder::new(resolved);
+        c.args(expanded_args);
+        return Ok(c);
+    }
+    Ok(build_agent_shell_cmd(shell_bin, agent_cli))
+}
+
+fn tab_designos_env_map(preset: AgentCliPreset, file_path: Option<&Path>, session: Option<&SessionEnv>) -> std::collections::BTreeMap<String, String> {
+    let mut map = std::collections::BTreeMap::new();
+    let fallback_dir = crate::agent_session_files::ephemeral_session_dir(&tab_session_id(&format!("p{}", std::process::id()), 1));
+    map.insert("DESIGNOS_SESSION_DIR".into(), fallback_dir.to_string_lossy().into_owned());
+    map.insert("DESIGNOS_MCP_CONFIG".into(), fallback_dir.join("mcp-config.json").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_LIVE_DOC_SYNC".into(), fallback_dir.join("doc-sync.designos").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_LIVE_DOC_PATCH".into(), fallback_dir.join("doc-patch.jsonl").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_LIVE_CANVAS".into(), fallback_dir.join("canvas.designos").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_CONTEXT_JSON".into(), fallback_dir.join("context.json").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_TARGET_PAGE_ID".into(), "0".into());
+    map.insert("DESIGNOS_TARGET_PAGE_NAME".into(), "Page 1".into());
+    map.insert("DESIGNOS_DOC_NAME".into(), "Untitled".into());
+
+    // 1. Parent `DESIGNOS_*` environment variables first.
+    for (k, v) in std::env::vars_os() {
+        if let (Some(ks), Some(vs)) = (k.to_str(), v.to_str()) {
+            if ks.starts_with("DESIGNOS_") {
+                map.insert(ks.to_string(), vs.to_string());
+            }
+        }
+    }
+
+    // 2. Values forced by `configure_pty_env` regardless of parent environment.
+    map.insert("DESIGNOS_AGENT_RUNTIME".into(), preset.binary_name().into());
+    map.insert("DESIGNOS_IN_PROGRESS_STALE_MINUTES".into(), designos_doc::in_progress_stale_minutes().to_string());
+    map.insert("DESIGNOS_AGENT_RUN_ID".into(), format!("p{}-tab-1-1-1", std::process::id()));
+    map.insert("DESIGNOS_LIVE_SPEC".into(), fallback_dir.join("live-spec.json").to_string_lossy().into_owned());
+    map.insert("DESIGNOS_SELECTION_JSON".into(), fallback_dir.join("selection.spec.json").to_string_lossy().into_owned());
+    if let Ok(exe) = std::env::current_exe() {
+        map.insert("DESIGNOS_BIN".into(), exe.to_string_lossy().into_owned());
+    }
+    map.insert("DESIGNOS_MCP_BIN".into(), designos_mcp_binary().to_string_lossy().into_owned());
+    if let Some(fp) = file_path {
+        map.insert("DESIGNOS_FILE".into(), fp.to_string_lossy().into_owned());
+    }
+    map.insert("DESIGNOS_WORKSPACE".into(), session_workspace_dir(file_path).to_string_lossy().into_owned());
+
+    // 3. Per-tab session overlay.
+    if let Some(sess) = session {
+        map.insert("DESIGNOS_SESSION_DIR".into(), sess.session_dir.to_string_lossy().into_owned());
+        map.insert("DESIGNOS_AGENT_RUN_ID".into(), sess.run_id.clone());
+        map.insert("DESIGNOS_MCP_CONFIG".into(), sess.mcp_config_path.to_string_lossy().into_owned());
+        map.insert("DESIGNOS_LIVE_SPEC".into(), sess.live_spec_path.to_string_lossy().into_owned());
+        map.insert("DESIGNOS_LIVE_DOC_SYNC".into(), sess.live_doc_sync_path.to_string_lossy().into_owned());
+        map.insert("DESIGNOS_LIVE_DOC_PATCH".into(), sess.session_dir.join("doc-patch.jsonl").to_string_lossy().into_owned());
+        map.insert("DESIGNOS_LIVE_CANVAS".into(), sess.live_canvas_path.to_string_lossy().into_owned());
+        map.insert("DESIGNOS_CONTEXT_JSON".into(), sess.context_json_path.to_string_lossy().into_owned());
+        map.insert("DESIGNOS_SELECTION_JSON".into(), sess.selection_spec_path.to_string_lossy().into_owned());
+        map.insert("DESIGNOS_TARGET_PAGE_ID".into(), sess.current_page_id.to_string());
+        map.insert("DESIGNOS_TARGET_PAGE_NAME".into(), sess.current_page_name.clone());
+        map.insert("DESIGNOS_DOC_NAME".into(), sess.doc_name.clone());
+        if let Some(tab_uuid) = sess.tab_session_uuid.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            map.insert("DESIGNOS_TAB_SESSION_UUID".into(), tab_uuid.to_string());
+        }
+    }
+    map
+}
+
+fn expand_hermetic_designos_vars(arg: &str, env: &std::collections::BTreeMap<String, String>) -> Result<String, String> {
+    let mut out = String::with_capacity(arg.len());
+    let bytes = arg.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'$' {
+            let rest = &arg[i + 1..];
+            if let Some(after_brace) = rest.strip_prefix('{') {
+                let Some(end) = after_brace.find('}') else {
+                    return Err(format!("hermetic mode: unclosed variable expansion in {arg}"));
+                };
+                let name = &after_brace[..end];
+                if !is_valid_designos_var_name(name) {
+                    return Err(format!("hermetic mode: refused variable expansion ${{{name}}}"));
+                }
+                if let Some(val) = env.get(name) {
+                    out.push_str(val);
+                }
+                i += 1 + 1 + end + 1;
+            } else {
+                let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(rest.len());
+                let name = &rest[..end];
+                if !is_valid_designos_var_name(name) {
+                    return Err(format!("hermetic mode: refused variable expansion ${name}"));
+                }
+                if let Some(val) = env.get(name) {
+                    out.push_str(val);
+                }
+                i += 1 + end;
+            }
+        } else {
+            let ch = arg[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    Ok(out)
+}
+
+fn is_valid_designos_var_name(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix("DESIGNOS_") else {
+        return false;
+    };
+    !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 fn build_agent_shell_cmd(shell_bin: &str, agent_cli: &str) -> CommandBuilder {
     let mut c = CommandBuilder::new(shell_bin);
     if cfg!(windows) && !shell_bin.ends_with("bash.exe") && !shell_bin.ends_with("sh.exe") {
@@ -5466,10 +5670,18 @@ pub fn configure_pty_env(cmd: &mut CommandBuilder, preset: AgentCliPreset, file_
 /// `DESIGNOS_MCP_CONFIG`, `DESIGNOS_LIVE_SPEC`, `DESIGNOS_LIVE_DOC_SYNC`, `DESIGNOS_LIVE_CANVAS`, `DESIGNOS_CONTEXT_JSON`,
 /// `DESIGNOS_SELECTION_JSON`, `DESIGNOS_TARGET_PAGE_ID`, `DESIGNOS_TARGET_PAGE_NAME`, `DESIGNOS_DOC_NAME`).
 pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCliPreset, file_path: Option<&Path>, session: Option<&SessionEnv>) {
+    configure_pty_env_with_session_and_hermetic(cmd, preset, file_path, session, crate::cli_resolve::hermetic_agent_cli_dir().as_deref());
+}
+
+pub fn configure_pty_env_with_session_and_hermetic(
+    cmd: &mut CommandBuilder,
+    preset: AgentCliPreset,
+    file_path: Option<&Path>,
+    session: Option<&SessionEnv>,
+    hermetic_dir: Option<&Path>,
+) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
-    cmd.env("DESIGNOS_AGENT_RUNTIME", preset.binary_name());
-    cmd.env("DESIGNOS_IN_PROGRESS_STALE_MINUTES", designos_doc::in_progress_stale_minutes().to_string());
     if preset == AgentCliPreset::Grok {
         // Grok starts repo-local MCP servers, hooks and skills only in a trusted folder. The tab's
         // cwd is Studio's own session dir, so skip the prompt for this process instead of writing
@@ -5501,20 +5713,7 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
             None => cmd.env_remove(name),
         }
     }
-
     if let Some(sess) = session {
-        cmd.env("DESIGNOS_SESSION_DIR", sess.session_dir.as_os_str());
-        cmd.env("DESIGNOS_AGENT_RUN_ID", &sess.run_id);
-        cmd.env("DESIGNOS_MCP_CONFIG", sess.mcp_config_path.as_os_str());
-        cmd.env("DESIGNOS_LIVE_SPEC", sess.live_spec_path.as_os_str());
-        cmd.env("DESIGNOS_LIVE_DOC_SYNC", sess.live_doc_sync_path.as_os_str());
-        cmd.env("DESIGNOS_LIVE_DOC_PATCH", sess.session_dir.join("doc-patch.jsonl").as_os_str());
-        cmd.env("DESIGNOS_LIVE_CANVAS", sess.live_canvas_path.as_os_str());
-        cmd.env("DESIGNOS_CONTEXT_JSON", sess.context_json_path.as_os_str());
-        cmd.env("DESIGNOS_SELECTION_JSON", sess.selection_spec_path.as_os_str());
-        cmd.env("DESIGNOS_TARGET_PAGE_ID", sess.current_page_id.to_string());
-        cmd.env("DESIGNOS_TARGET_PAGE_NAME", &sess.current_page_name);
-        cmd.env("DESIGNOS_DOC_NAME", &sess.doc_name);
         if preset == AgentCliPreset::Gemini {
             cmd.env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", sess.session_dir.join(".gemini").join("trustedFolders.json").as_os_str());
             // The variable is Gemini's own, so a value the user or an admin set stays when Studio has no file to name.
@@ -5522,26 +5721,21 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
                 cmd.env(crate::gemini_status_hooks::SYSTEM_DEFAULTS_ENV, defaults);
             }
         }
-        if let Some(tab_uuid) = sess.tab_session_uuid.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            cmd.env("DESIGNOS_TAB_SESSION_UUID", tab_uuid);
-        }
-    } else {
-        cmd.env("DESIGNOS_AGENT_RUN_ID", format!("p{}-tab-1-1-1", std::process::id()));
-        let fallback_dir = crate::agent_session_files::ephemeral_session_dir(&tab_session_id(&format!("p{}", std::process::id()), 1));
-        cmd.env("DESIGNOS_LIVE_SPEC", fallback_dir.join("live-spec.json").as_os_str());
-        cmd.env("DESIGNOS_SELECTION_JSON", fallback_dir.join("selection.spec.json").as_os_str());
     }
-
-    if let Ok(exe) = std::env::current_exe() {
-        cmd.env("DESIGNOS_BIN", exe.as_os_str());
+    for (k, v) in tab_designos_env_map(preset, file_path, session) {
+        cmd.env(k, v);
     }
-    cmd.env("DESIGNOS_MCP_BIN", designos_mcp_binary().as_os_str());
-    if let Some(fp) = file_path {
-        cmd.env("DESIGNOS_FILE", fp.as_os_str());
-    }
-    cmd.env("DESIGNOS_WORKSPACE", session_workspace_dir(file_path).as_os_str());
     if cmd.get_cwd().is_none() {
         cmd.cwd(resolve_pty_cwd(preset, session.map(|sess| sess.session_dir.as_path()), session_workspace_dir(file_path)));
+    }
+
+    if let Some(dir) = hermetic_dir {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let hermetic_path = format!("{}{sep}/usr/bin{sep}/bin", dir.display());
+        cmd.env("PATH", hermetic_path);
+        cmd.env_remove("BASH_ENV");
+        cmd.env_remove("ENV");
+        return;
     }
 
     #[cfg(test)]
@@ -5555,10 +5749,10 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
     #[cfg(test)]
     if !matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
         let prepend = session.map(|s| s.path_prepend.as_slice()).unwrap_or_default();
-        cmd.env("PATH", crate::test_agent_path::test_agent_path(prepend, std::env::var_os("PATH")));
+        cmd.env("PATH", crate::test_agent_path::test_agent_path(prepend, crate::cli_resolve::host_path_os()));
         return;
     }
-    if std::env::var_os("PATH").is_some_and(|p| p.is_empty()) {
+    if crate::cli_resolve::host_path_is_empty() {
         cmd.env("PATH", "");
         return;
     }
@@ -5571,7 +5765,7 @@ pub fn configure_pty_env_with_session(cmd: &mut CommandBuilder, preset: AgentCli
     }
     extra_paths.extend(extra_cli_path_dirs().into_iter().map(|p| p.to_string_lossy().into_owned()));
 
-    let current_path = std::env::var("PATH").unwrap_or_default();
+    let current_path = crate::cli_resolve::host_path_raw();
     let sep = if cfg!(windows) { ";" } else { ":" };
     let combined = if current_path.is_empty() { extra_paths.join(sep) } else { format!("{}{sep}{current_path}", extra_paths.join(sep)) };
     cmd.env("PATH", combined);
@@ -6029,7 +6223,7 @@ pub fn show_left_with_doc(
         let active_receipt =
             state.active_tab().filter(|t| !matches!(t.effective_status(), AgentTabStatus::Working(_))).and_then(|t| t.last_turn_receipt().cloned());
         let receipt_h = if active_receipt.is_some() { 24.0 } else { 0.0 };
-        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE - receipt_h).max(ctx_r.bottom() + theme::CONTROL_ROW);
+        let vp_bottom = (composer_rect.top() - theme::SPACE_INLINE - receipt_h).max(ctx_r.bottom() + theme::CONTROL_MD);
         let vp_r = Rect::from_min_max(Pos2::new(rect.left(), ctx_r.bottom()), Pos2::new(rect.right(), vp_bottom));
 
         if ui.input(|i| i.pointer.any_pressed()) {
@@ -7001,6 +7195,16 @@ fn ansi_256_to_color32(idx: u8) -> Color32 {
             let gray = 8 + (idx - 232) * 10;
             Color32::from_rgb(gray, gray, gray)
         }
+    }
+}
+
+/// Pins the picker's cached probes so exactly `installed` count as installed CLIs, whatever the host machine has.
+#[cfg(test)]
+pub(crate) fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[AgentCliPreset]) {
+    for preset in crate::agent_cli_catalog::CATALOG_PRESETS {
+        let probe =
+            crate::agent_cli_catalog::CliProbe { installed: installed.contains(&preset), version: None, signed_in: crate::agent_cli_catalog::SignIn::Unknown };
+        st.picker.cache.set_probe(preset, probe);
     }
 }
 
@@ -9634,7 +9838,9 @@ mod tests {
     /// user's `~/.gemini` (Gemini's project registry and login live there). The placeholder key only satisfies the auth check
     /// that comes before the listing: nothing logs in, and no model is called.
     fn gemini_mcp_list_command(session_dir: &Path, trusted_path: &Path) -> std::process::Command {
-        let mut list_cmd = std::process::Command::new("gemini");
+        let bin =
+            crate::cli_resolve::resolve_in(&crate::cli_resolve::cli_search_dirs(None), "gemini").unwrap_or_else(|| std::ffi::OsString::from("gemini").into());
+        let mut list_cmd = std::process::Command::new(bin);
         list_cmd.args(["mcp", "list"]).current_dir(session_dir).env("GEMINI_CLI_TRUSTED_FOLDERS_PATH", trusted_path);
         crate::scratch_cli_home::isolate_cli_homes(&mut list_cmd);
         list_cmd.env("GEMINI_API_KEY", "placeholder-not-a-key");
@@ -10730,8 +10936,8 @@ mod tests {
     #[test]
     fn theme_has_info_success_warning_in_token_parity() {
         assert_eq!(theme::INFO, Color32::from_rgb(0x0D, 0x99, 0xFF));
-        assert_eq!(theme::SUCCESS, Color32::from_rgb(0x14, 0xAE, 0x5C));
-        assert_eq!(theme::WARNING, Color32::from_rgb(0xF5, 0x9E, 0x0B));
+        assert_eq!(theme::SUCCESS, Color32::from_rgb(0x22, 0xC5, 0x5E));
+        assert_eq!(theme::WARNING, Color32::from_rgb(0xEA, 0xB3, 0x08));
 
         let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let script = manifest_dir.join("../../scripts/design_os_self_evolve.py");
@@ -10744,8 +10950,8 @@ mod tests {
         let tokens_raw = std::fs::read_to_string(&tokens_path).expect("read design.tokens.json");
         let tokens_json: serde_json::Value = serde_json::from_str(&tokens_raw).expect("parse design.tokens.json");
         assert_eq!(tokens_json["colors"]["info"]["$value"].as_str(), Some("#0d99ff"));
-        assert_eq!(tokens_json["colors"]["success"]["$value"].as_str(), Some("#14ae5c"));
-        assert_eq!(tokens_json["colors"]["warning"]["$value"].as_str(), Some("#f59e0b"));
+        assert_eq!(tokens_json["colors"]["success"]["$value"].as_str(), Some("#22c55e"));
+        assert_eq!(tokens_json["colors"]["warning"]["$value"].as_str(), Some("#eab308"));
     }
 
     #[test]
@@ -12453,18 +12659,6 @@ mod tests {
         assert!(st.tabs[0].composer.draft.is_empty(), "the draft is moved, not copied: the exited tab keeps nothing");
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&stub_dir);
-    }
-
-    /// Pins the picker's cached probes so exactly `installed` count as installed CLIs, whatever the host machine has.
-    fn pin_installed_catalog_clis(st: &mut TerminalState, installed: &[AgentCliPreset]) {
-        for preset in crate::agent_cli_catalog::CATALOG_PRESETS {
-            let probe = crate::agent_cli_catalog::CliProbe {
-                installed: installed.contains(&preset),
-                version: None,
-                signed_in: crate::agent_cli_catalog::SignIn::Unknown,
-            };
-            st.picker.cache.set_probe(preset, probe);
-        }
     }
 
     fn install_stub_claude(tag: &str) -> PathBuf {

@@ -29,7 +29,7 @@ use egui::Color32;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Horizontal gap (`40 px`) between a busy frame and its copy placed in free space (`§3.3`, `§13`).
-pub const FREE_SPOT_GAP: f32 = theme::CONTROL_ROW;
+pub const FREE_SPOT_GAP: f32 = theme::CONTROL_MD;
 
 /// Key identifying an active agent run on a frame (`#572` run id or `#592` in-progress session key).
 pub type RunKey = String;

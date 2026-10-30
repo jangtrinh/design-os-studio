@@ -1,0 +1,68 @@
+=== Major 1 GREEN ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.69s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::row_own_dh_is_range_checked_against_covering_entry ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.09s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::equally_specific_entries_fail_to_parse ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.01s
+
+=== Minor 1 GREEN ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.12s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.01s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.65s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::derived_shift_covers_left_right_and_bottom_anchors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.02s
+
+=== Item 3 GREEN ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.1 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.42s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-828070ebe052a02f)
+
+running 1 test
+test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3028 filtered out; finished in 0.12s
+

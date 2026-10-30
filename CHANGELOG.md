@@ -2,6 +2,84 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.5] - 2026-10-30
+
+**UI revamp, slice 1** ([milestone v0.7.5](https://github.com/jangtrinh/design-os-studio/milestone/57)): Studio gets a new dark look, painted from one shared set of controls. Colours, type, spacing, corner radii and control sizes follow one scale across Home, the window chrome, the left panel, popovers, dialogs, the command bar, `Assets`, `Variables`, `Libraries` and `Check designs`. Regions, panel widths and the order of controls stay where they were, and rows, buttons and text grow only where the new scale says so.
+
+### Changed
+- **Colours.**
+  - Studio's chrome moves to a neutral dark palette: a near-black background, dark grey surfaces and dividers, Studio orange for brand actions, and an orange keyboard focus ring (#1142, PR #1343).
+  - The canvas's inline auto-layout editor no longer draws a field box inside its frame (#1142, PR #1343).
+- **Type, spacing and control sizes.**
+  - Body text is 12 px with three text weights (regular, medium and semibold), and captions and labels take new sizes and line heights. Corner radii are 6, 8, 12 and 16 px with nested corners concentric, and controls and badges come in fixed size steps. Rows, fields and text grow where the scale says, and regions and panel widths stay (#1143, PR #1349).
+  - Dev Mode shows a top-level frame's status once, as the badge beside its name, and the export scale chevron has a 24 px pointer target (#1143, PR #1349).
+- **Controls.**
+  - Buttons, fields, checkboxes, toggles, radio cards, tabs, rows, menu items, badges, tags, tooltips and progress controls take their colours, border, radius and focus ring from one shared look (#1139, PR #1369).
+  - Menu items sit inset 8 px inside a panel with a 16 px corner radius, and the submenu chevron uses the item's icon colour (#1139, PR #1369).
+  - A keyboard-focused control draws a 2 px focus ring, 2 px outside its edge, in every state and following the control's shape (#1139, PR #1369).
+  - Popover checkboxes stay at the row's left edge. Colour swatches show the focus ring of the control that holds focus and never take the row's click (#1139, PR #1369).
+  - A switch shorter than 24 px takes clicks in a 24 px band around its track (#1155, PR #1380).
+- **Window chrome.**
+  - The title bar, file tabs, left rail, floating toolbar, rulers, shell menus and toasts use the new dark look and the shared controls, with their hover, pressed, selected and focus states. Regions, widths and control order stay, and heights change only where a control or text size grew (#1119, PR #1376).
+  - The tab bar drops the rose close-button hover, and small close buttons and chevrons keep a 24 px pointer target (#1119, PR #1376).
+  - A 4 px press band beside each ruler makes the strip easier to grab. A click or release in the band without a drag drops no guide, and a guide you already grabbed and nudge inside the band is kept (#1119, PR #1376).
+- **Popovers, dialogs and the command bar.**
+  - Popovers, menus, dialogs, toasts, the command bar, Find, comments and version history use the new dark look and the shared controls (#1146, PR #1375).
+  - The command bar has 36 px rows with separate hover and selected looks. Enter runs the row picked with the keyboard, and hovering does not move that pick (#1146, PR #1375).
+  - The import path and save version dialogs use 14 px body text and 40 px footer buttons (#1146, PR #1375).
+  - The context menu and the layer picker use 32 px rows with an 8 px inset, and Find, comments and version history use the extra-small buttons (#1146, PR #1375).
+  - Brand buttons use a dark label on orange, and destructive buttons use a white label (#1146, PR #1375).
+- **Pages and Layers.**
+  - The left panel (file name, `Pages`, the Dev section and `Layers`) uses the new dark look and keeps its 240 px width, its section order and every control's place (#1120, PR #1377).
+  - Page rows grow to 32 px, row fills are neutral greys, and hover, selected and focus states come from the shared rows. Icon buttons in the panel grow to 32 px (#1120, PR #1377).
+  - Studio orange marks live state (drop targets and canvas hover), and component layers stay cyan (#1120, PR #1377).
+  - After a click on a page row, the keyboard stays on the canvas (#1120, PR #1377).
+  - The Dev list and the layer filter use the same rows and controls (#1120, PR #1377).
+- **Home.**
+  - Home takes its colours from the same dark palette as the editor. `+ Design file` is Studio orange with a dark label, replacing the blue (#1138, PRs #1350 and #1378).
+  - The page and sidebar use dark neutral surfaces with hairline borders. Header and filter buttons are 36 px, and inputs, menus and badges use the shared controls (#1138, PR #1378).
+  - The layout stays: the 264 px sidebar, the header with title and actions, the filter and sort bar, the file grid or list, and Trash at the bottom of the sidebar (#1138, PR #1378).
+- **Assets, Variables, Libraries and Check designs.**
+  - `Assets`, `Variables`, `Libraries`, `Plugins` and `Check designs` use the new dark look and the shared controls. Regions, widths, columns and order stay (#1155, PR #1380).
+  - In `Assets`, the search field rests on the neutral border with no blue outline and shows the focus ring only while it has focus. The filter and view controls are 32 px icon buttons, and group rows have no chevron and take a hover fill (#1155, PR #1380).
+  - In `Variables`, value cells draw nothing at rest, take a hover fill, and show a focused field with the focus ring while you edit. Booleans use the switch, alias pills are 24 px, and `Create variable` is centred in its bar. The edit popover closes with a cross and uses checkboxes (#1155, PR #1380).
+  - In `Libraries`, the dialog uses the new dialog look with a 36 px field and buttons and 8 px gaps. Change labels such as `New` and `Changed` are status chips, names stop short of the update button, the update button fits its label, the switch is the shared switch, and the description hint sits inside its field (#1155, PR #1380).
+  - In `Check designs`, rule rows use checkboxes, and the contrast choice is a segmented control (#1155, PR #1380).
+
+### Fixed
+- **Popovers, dialogs and the command bar.**
+  - In a small window the command bar stops 8 px above the bottom toolbar and scrolls its rows instead of covering the toolbar (#1146, PR #1375).
+  - The comment menu button no longer covers the first line of a message (#1146, PR #1375).
+  - Placeholder text in text fields takes the placeholder grey (#1146, PR #1375).
+- **Window chrome.**
+  - The import toast shows `Details` once, as a button with a semibold label, and the duplicate word in the message is gone (#1119, PR #1376).
+  - A click just past the left panel's resize band reaches the canvas (#1119, PR #1376).
+- **Controls.**
+  - Disabled controls inside a disabled panel dim once, not twice (#1139, PR #1369).
+
+### Known issues
+- Scrolling the terminal with the mouse wheel after a large agent edit is not fixed, and the terminal parts of #1173 were not smoke-tested. #1173 stays open on 0.7.1. The `changed layers` card scrolling from PR #1276 is in 0.7.0.
+- Shadow cut-out of a frame with no fill cuts the wrong region when a child is a mask, a group, or paints nothing (#1277).
+- A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG (#1278).
+- Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 (#1279).
+- Esc on the Other CLI menu or form also reaches Codex and puts it in rewind mode (#1097).
+- A document with no path gives `designos-mcp` the whole disk as its workspace (#1074). In Ask mode each `designos-mcp` call asks first.
+- A prompt that contains `No, suggest changes` can hold the automatic Enter, and refuse sends, in a Gemini Ask tab until the line scrolls off (#1066).
+- Antigravity, Gemini CLI and Grok start MCP servers from copies of the session config that an agent can write, so a server command added there could run outside any sandbox (#1048). It needs an agent that can already write its session folder without asking, such as Codex under your own `workspace-write` setting. Studio checks and rewrites these copies when a tab starts. It does not stop an agent that writes later, and Grok may read an edited MCP config while a session runs [unverified: from Grok's source, not run]. Studio moves aside the sources that Grok's and Antigravity's docs and source name, and a later version of either CLI may read more. Workaround: in a window where an agent can write without asking, do not run a Grok or Antigravity tab in Ask mode. Planned for a later release: run Grok and Antigravity from a folder only that tab can write.
+- Gemini CLI in Ask mode reads `tools.allowed` and other settings from `.gemini/settings.json` in the session folder, which an agent can write (#1047). Some keys there skip Gemini's confirmation prompt, and `hooks` and `tools.discoveryCommand` run a command when the next Gemini tab starts. Gemini 0.35 has no switch that ignores workspace settings for one run. Studio rewrites the file when a tab starts, and an Ask-mode Gemini tab refuses to start when the rewrite fails, so a read-only `.gemini` no longer keeps an agent's file. Planned fix: #1059.
+- Ask covers agent tabs started from Studio. The `designos` CLI, which you run yourself, and a `designos-mcp` started by another host are not gated by Ask: that host approves its own MCP calls (#1101). A real MCP-level approval gate is planned for a later release.
+- Codex, Grok, Antigravity and Gemini CLI ask for approval in their own terminal menu, and the panel shows `Open tab`; Approve and Deny in the panel exist for Claude only (#930). Clicking an option in Codex's own approval menu does nothing, so use the arrow keys and Enter (#1096).
+- Gemini CLI and Grok in Ask mode: the status line may not show a waiting state for every approval prompt. For Gemini, the state comes from the confirmation dialog on the tab's screen or from Gemini's `ToolPermission` notification. The `ask_user` and `exit_plan_mode` dialogs draw no `No, suggest changes` option, and a panel narrower than 29 columns hides a cut label, so a wait there starts only from a hook record. The screen check is on for Gemini 0.35.x and 0.65.x, read from source only. For another Gemini version, a No answer leaves `Needs approval` standing until you type a prompt. Where Studio writes no Gemini hooks file (Windows, or Gemini already has system defaults), a wait starts only from the screen. For Grok, the state comes from its `permission_prompt` notification, and Studio never checked that payload against a real Grok [unverified]. No real Gemini or Grok approval prompt was run.
+- Export Frame as `.spec.json` writes into `designos_specs` in the temporary folder when Studio finds no source tree, by path, so an agent that can write the temporary folder could plant a link at the file name. It needs you to run the export (#1073).
+- The Windows test suite is advisory for 0.7.5. Releases are verified on macOS, and known Windows test failures are tracked in #1158.
+- Windows (releases are verified on macOS only):
+  - Stop on Windows is not checked by any test. The Stop tests fail there because their Python stub imports `tty`, which Python does not provide on Windows (#1066).
+  - Palette auto-fix undo is unverified on Windows: eight tests show different auto-layout sizes after one undo, and the cause is not known (#1066).
+  - The link checks for session files are not race-free on Windows (#1061, #1068), an Ask-mode Grok or Antigravity tab refuses an entry that is not Studio's instead of moving it (#1069), and no hooks file is written for Gemini, so its `Needs approval` comes from the screen only (#1058, #1066).
+  - Windows was not built or run by hand for these changes.
+- Not checked against a live model turn: the Ask-mode Claude launch (skill from a private plugin, Studio's hooks and MCP config from private copies), the Gemini approval state, and the Ask-mode Grok and Antigravity checks were tested with stubs and source reading, not with a real Claude, Gemini, Grok or Antigravity turn.
+- Of the 38 GUI fixes from 0.6.1 listed in #1102, 16 were re-checked by tests. The rest are not re-tested yet, and U-17 (a new design file is named "Untitled") is still open (#1102).
+
 ## [0.7.0] - 2026-10-28
 
 **Effects, styles and export** ([milestone v0.7.0](https://github.com/jangtrinh/design-os-studio/milestone/69)): Studio adds blend modes on drop and inner shadows, matches Figma's shadow cut-outs on fill-less frames and PNG/SVG export bounds, caps the `Effects` `+` menu per type without trimming imported effects, adds style deletion, `/` folder grouping and rename, style descriptions with hover tooltips, and local text alignment with paragraph indent, list spacing and leading trim on text styles, refines the icon-only left rail, resizable `Pages` / `Layers` split and scrollable `changed layers` card, and shows where exported files went without overwriting existing files.

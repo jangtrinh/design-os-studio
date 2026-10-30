@@ -1,24 +1,100 @@
 {
   "components": [
     {
-      "category": "feedback",
-      "description": "Pill count and semantic status badge using monospace numerals separated from section headers (D85)",
-      "markup": "<span class=\"badge-status-count\">12</span>\n",
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/badge.rs::count_badge; rust_status=new-in-C; today=home/mod.rs:1111-1113; paints=BADGE_NEUTRAL_BORDER,BADGE_NEUTRAL_BG,BADGE_NEUTRAL_TEXT,BG_SUCCESS_PRIMARY,BADGE_SUCCESS_BORDER,BADGE_SUCCESS_TEXT,BG_WARNING_PRIMARY,BADGE_WARNING_BORDER,BADGE_WARNING_TEXT,BG_ERROR_PRIMARY,BADGE_ERROR_BORDER,BADGE_ERROR_TEXT; pending=BADGE_NEUTRAL_BORDER,BADGE_NEUTRAL_BG,BADGE_NEUTRAL_TEXT,BG_SUCCESS_PRIMARY,BADGE_SUCCESS_BORDER,BADGE_SUCCESS_TEXT,BG_WARNING_PRIMARY,BADGE_WARNING_BORDER,BADGE_WARNING_TEXT,BG_ERROR_PRIMARY,BADGE_ERROR_BORDER,BADGE_ERROR_TEXT; spec=C",
+      "markup": "<div data-ds=\"Badge/StatusCount\"></div>\n",
       "name": "Badge/StatusCount",
       "scope": "local",
       "tokensUsed": [
-        "colors.secondary",
-        "colors.muted-foreground",
-        "colors.component",
-        "colors.success",
-        "spacing.space-1",
-        "spacing.space-2",
         "radius.radius-pill",
-        "typography.font-family-mono",
-        "typography.font-size-small"
+        "typography.font-size-caption"
+      ],
+      "variants": [
+        "Size=Sm",
+        "Size=Md",
+        "Tone=Neutral",
+        "Tone=Success",
+        "Tone=Warning",
+        "Tone=Error",
+        "State=Default"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec J/I/K.\ntier=composite; rust=history/banner.rs::show,libraries/review.rs::show_banner; rust_status=exists; paints=BG_SECONDARY,BG_SUCCESS_PRIMARY,BG_WARNING_PRIMARY,BG_ERROR_PRIMARY,TEXT,BORDER; pending=BG_SUCCESS_PRIMARY,BG_WARNING_PRIMARY,BG_ERROR_PRIMARY; spec=J/I/K; composes=Status/Dot,Button/*",
+      "markup": "<div data-ds=\"Banner/Inline\"><div data-ds=\"Status/Dot\"></div><div data-ds=\"Button/*\"></div></div>\n",
+      "name": "Banner/Inline",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-foreground",
+        "colors.border",
+        "colors.surface"
       ],
       "variants": [
         "Tone=Neutral",
+        "Tone=Success",
+        "Tone=Warning",
+        "Tone=Error"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec D.\ntier=composite; rust=panels/toolbar.rs::contextual_bar; rust_status=new-in-D; today=panels/toolbar.rs:160-189; paints=BG_TOOLBAR,INNER_HIGHLIGHT,BORDER; pending=INNER_HIGHLIGHT; spec=D; composes=Button/Icon,Button/Tertiary,Divider/Hairline",
+      "markup": "<div data-ds=\"Bar/Contextual\"><div data-ds=\"Button/Icon\"></div><div data-ds=\"Button/Tertiary\"></div><div data-ds=\"Divider/Hairline\"></div></div>\n",
+      "name": "Bar/Contextual",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.border"
+      ]
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec J.\ntier=region; rust=present.rs::show; rust_status=exists; spec=J; composes=Button/*,Tooltip/Default,Divider/Hairline",
+      "markup": "<div data-ds=\"Bar/Presentation\"><div data-ds=\"Button/*\"></div><div data-ds=\"Tooltip/Default\"></div><div data-ds=\"Divider/Hairline\"></div></div>\n",
+      "name": "Bar/Presentation",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=widgets/popover.rs:40-43; paints=BG,BG_HOVER,BG_PRESSED,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING; pending=ICON_QUATERNARY_HOVER; spec=C",
+      "markup": "<div data-ds=\"Button/Close\"></div>\n",
+      "name": "Button/Close",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-hover",
+        "colors.neutral",
+        "colors.ring",
+        "colors.secondary-active",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "State=Default",
+        "State=Hover",
+        "State=Active",
+        "State=Focus"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=none; paints=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR,TEXT_WHITE; pending=BG_ERROR_SOLID_PRESSED,BG_ERROR_SOLID_HOVER,FOCUS_RING_ERROR; spec=C",
+      "markup": "<div data-ds=\"Button/Destructive\"></div>\n",
+      "name": "Button/Destructive",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.destructive",
+        "colors.destructive-foreground",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "Size=Md",
         "State=Default",
         "State=Hover",
         "State=Active",
@@ -27,26 +103,49 @@
       ]
     },
     {
-      "category": "action",
-      "description": "Brand orange primary CTA button (#E36323 fill, #09090B label, 28px min height, 6px radius)",
-      "markup": "<button class=\"btn-primary\" type=\"button\">Create New File</button>\n",
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=widgets/mod.rs::icon_button; paints=BG,BG_HOVER,BG_PRESSED,BG_SELECTED,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,ICON_SECONDARY_HOVER,FOCUS_RING; pending=ICON_QUATERNARY_HOVER,ICON_SECONDARY_HOVER; spec=C",
+      "markup": "<div data-ds=\"Button/Icon\"></div>\n",
+      "name": "Button/Icon",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-active",
+        "colors.bg-hover",
+        "colors.neutral",
+        "colors.ring",
+        "colors.secondary-active",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "State=Selected",
+        "State=Default",
+        "State=Hover",
+        "State=Active",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=home/dialog.rs:367-386 and four more (C 3.3); paints=TEXT_ON_BRAND,BG_BRAND_PRESSED,BG_BRAND,BG_BRAND_HOVER,FOCUS_RING; spec=C",
+      "markup": "<div data-ds=\"Button/Primary\"></div>\n",
       "name": "Button/Primary",
       "scope": "local",
       "tokensUsed": [
         "colors.primary",
+        "colors.primary-active",
         "colors.primary-foreground",
         "colors.primary-hover",
-        "colors.primary-active",
         "colors.ring",
-        "spacing.space-3",
-        "spacing.space-2",
-        "radius.radius-md",
-        "typography.font-family-sans",
-        "typography.font-size-body",
-        "duration.duration-fast"
+        "radius.radius-md"
       ],
       "variants": [
-        "Size=28px",
+        "Size=Xs",
+        "Size=Sm",
+        "Size=Md",
         "State=Default",
         "State=Hover",
         "State=Active",
@@ -55,26 +154,24 @@
       ]
     },
     {
-      "category": "action",
-      "description": "Elevated zinc secondary action button (#27272A fill, #F5F5F7 label, 1px #27272A border)",
-      "markup": "<button class=\"btn-secondary\" type=\"button\">Import File</button>\n",
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=comments/ui.rs:92-108 and three more; paints=BG,BG_HOVER,BG_PRESSED,BORDER_STRONG,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; pending=ICON_QUATERNARY_HOVER,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; spec=C",
+      "markup": "<div data-ds=\"Button/Secondary\"></div>\n",
       "name": "Button/Secondary",
       "scope": "local",
       "tokensUsed": [
-        "colors.secondary",
-        "colors.secondary-foreground",
-        "colors.secondary-hover",
+        "colors.bg",
+        "colors.bg-hover",
+        "colors.border-strong",
+        "colors.neutral",
+        "colors.ring",
         "colors.secondary-active",
-        "colors.border",
-        "spacing.space-3",
-        "spacing.space-2",
-        "radius.radius-md",
-        "typography.font-family-sans",
-        "typography.font-size-body",
-        "duration.duration-fast"
+        "radius.radius-md"
       ],
       "variants": [
-        "Tone=Zinc",
+        "Size=Xs",
+        "Size=Sm",
+        "Size=Md",
         "State=Default",
         "State=Hover",
         "State=Active",
@@ -83,221 +180,811 @@
       ]
     },
     {
-      "category": "content",
-      "description": "Home workspace file card with live node mini-map preview, concentric 8px outer / 4px inner radius, and context actions",
-      "markup": "<article class=\"card-file-thumbnail\"><header class=\"thumb-preview\"><code>.fig</code></header><p class=\"thumb-meta\">Design System v2</p></article>\n",
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/H.\ntier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=home/mod.rs:1239; paints=BG_ERROR_PRIMARY,BG,BORDER_ERROR,BORDER_ERROR_SUBTLE,FOCUS_RING_ERROR,TEXT_ERROR,TEXT_ERROR_HOVER; pending=BG_ERROR_PRIMARY,BORDER_ERROR,BORDER_ERROR_SUBTLE,FOCUS_RING_ERROR,TEXT_ERROR,TEXT_ERROR_HOVER; spec=C/H",
+      "markup": "<div data-ds=\"Button/SecondaryDestructive\"></div>\n",
+      "name": "Button/SecondaryDestructive",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "Size=Md",
+        "State=Default",
+        "State=Hover",
+        "State=Active",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=home/dialog.rs:401-410; paints=BG,BG_HOVER,BG_PRESSED,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_TERTIARY,TEXT_TERTIARY_HOVER; pending=ICON_QUATERNARY_HOVER,TEXT_TERTIARY_HOVER; spec=C",
+      "markup": "<div data-ds=\"Button/Tertiary\"></div>\n",
+      "name": "Button/Tertiary",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-hover",
+        "colors.muted-foreground",
+        "colors.neutral",
+        "colors.ring",
+        "colors.secondary-active",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "Size=Md",
+        "State=Default",
+        "State=Hover",
+        "State=Active",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/D.\ntier=component; rust=kit/button.rs::button; rust_status=new-in-C; today=panels/toolbar.rs:209-227; paints=BG,BG_HOVER,BG_PRESSED,BG_SELECTED,ICON,ICON_QUATERNARY_HOVER,ICON_SECONDARY_HOVER,FOCUS_RING; pending=ICON,ICON_QUATERNARY_HOVER,ICON_SECONDARY_HOVER; spec=C/D",
+      "markup": "<div data-ds=\"Button/Tool\"></div>\n",
+      "name": "Button/Tool",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-active",
+        "colors.bg-hover",
+        "colors.ring",
+        "colors.secondary-active",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "State=Selected",
+        "State=Default",
+        "State=Hover",
+        "State=Active",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec I.\ntier=composite; rust=agent_turn_card.rs::show; rust_status=exists; paints=BG_SECONDARY,BORDER; spec=I; composes=Status/Dot,Badge/StatusCount",
+      "markup": "<div data-ds=\"Card/AgentTurn\"><div data-ds=\"Status/Dot\"></div><div data-ds=\"Badge/StatusCount\"></div></div>\n",
+      "name": "Card/AgentTurn",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border",
+        "colors.card"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec I.\ntier=composite; rust=agent_approval_card.rs::paint_approval_card; rust_status=exists; paints=BG_SECONDARY,BORDER; spec=I; composes=Badge/StatusCount,Button/*,Radio/Card",
+      "markup": "<div data-ds=\"Card/Approval\"><div data-ds=\"Badge/StatusCount\"></div><div data-ds=\"Button/*\"></div><div data-ds=\"Radio/Card\"></div></div>\n",
+      "name": "Card/Approval",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border",
+        "colors.card",
+        "radius.radius-xl"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec H.\ntier=composite; rust=home/mod.rs::main_view::card; rust_status=exists; paints=BG_SECONDARY,TEXT,TEXT_TERTIARY,BG_SECONDARY_HOVER,BORDER,BORDER_SELECTED,HOME_THUMB_BG; spec=H; composes=Icon/Tile,Badge/StatusCount",
+      "markup": "<div data-ds=\"Card/FileThumbnail\"><div data-ds=\"Icon/Tile\"></div><div data-ds=\"Badge/StatusCount\"></div></div>\n",
       "name": "Card/FileThumbnail",
       "scope": "local",
       "tokensUsed": [
+        "colors.border",
+        "colors.border-focus",
         "colors.card",
         "colors.card-foreground",
-        "colors.surface-hover",
-        "colors.border",
         "colors.muted-foreground",
-        "spacing.space-3",
-        "spacing.space-4",
-        "radius.radius-lg",
-        "typography.font-family-sans",
-        "typography.font-size-title",
-        "typography.font-size-caption"
-      ],
-      "variants": [
-        "View=Grid",
-        "State=Default",
-        "State=Hover",
-        "State=Active",
-        "State=Focus",
-        "State=Disabled"
+        "colors.secondary",
+        "colors.surface-hover"
       ]
     },
     {
-      "category": "content",
-      "description": "Interactive starter template card in Home top tray with mini-canvas preview and one-click document seeding",
-      "markup": "<article class=\"card-starter-template\"><header class=\"tpl-preview\"><code>1600x1000</code></header><p class=\"tpl-title\">SaaS Analytics Dashboard</p></article>\n",
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec K.\ntier=composite; rust=panels/assets.rs::library_card; rust_status=new-in-K; today=panels/assets.rs:542-552; paints=BG_SECONDARY,BORDER; spec=K; composes=Tag/Chip,Toggle/Switch",
+      "markup": "<div data-ds=\"Card/Library\"><div data-ds=\"Tag/Chip\"></div><div data-ds=\"Toggle/Switch\"></div></div>\n",
+      "name": "Card/Library",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border",
+        "colors.card"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec H.\ntier=composite; rust=home/mod.rs::main_view::templates_view; rust_status=exists; paints=BG_SECONDARY,TEXT,BORDER; spec=H; composes=Button/Secondary",
+      "markup": "<div data-ds=\"Card/StarterTemplate\"><div data-ds=\"Button/Secondary\"></div></div>\n",
       "name": "Card/StarterTemplate",
       "scope": "local",
       "tokensUsed": [
-        "colors.card",
-        "colors.card-foreground",
-        "colors.surface-hover",
         "colors.border",
+        "colors.card",
+        "colors.card-foreground"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/choice.rs::checkbox; rust_status=new-in-C; today=widgets/popover.rs::check; paints=TEXT_ON_BRAND,BG_BRAND,BG,BG_TERTIARY,BORDER_STRONG,FOCUS_RING; spec=C",
+      "markup": "<div data-ds=\"Checkbox/Box\"></div>\n",
+      "name": "Checkbox/Box",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.border-strong",
         "colors.primary",
-        "spacing.space-3",
-        "spacing.space-4",
-        "radius.radius-lg",
-        "typography.font-family-sans",
-        "typography.font-size-title"
+        "colors.primary-foreground",
+        "colors.ring",
+        "colors.secondary",
+        "radius.radius-xs"
       ],
       "variants": [
-        "Tray=Home",
+        "State=Selected",
         "State=Default",
         "State=Hover",
-        "State=Active",
         "State=Focus",
         "State=Disabled"
       ]
     },
     {
-      "category": "overlay",
-      "description": "Modal Cmd+K command palette overlay with fuzzy action search, keyboard shortcut badges, and focus trap",
-      "markup": "<div class=\"dialog-command-palette\" role=\"dialog\" aria-label=\"Command palette\"><input class=\"cmd-input\" type=\"search\" aria-label=\"Search commands and layers\" placeholder=\"Search commands...\" /><ul class=\"cmd-list\"><li>Rename Layers</li></ul></div>\n",
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec G.\ntier=composite; rust=dev/code_view.rs::code_block; rust_status=exists; paints=BG_SECONDARY,BORDER; spec=G",
+      "markup": "<div data-ds=\"Code/Block\"></div>\n",
+      "name": "Code/Block",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border",
+        "colors.surface",
+        "typography.font-family-mono"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C/J/D.\ntier=composite; rust=kit/surface.rs::command_bar_surface; rust_status=new-in-C; today=cmdk.rs::show; panels/menus.rs:907-1085; paints=BG_MENU,BORDER_MENU,ICON_QUATERNARY,TEXT,TEXT_TERTIARY; pending=BORDER_MENU; spec=C/J/D; flow=modal-cmdk; composes=Input/Search,Tabs/Segmented,Menu/Item,Badge/StatusCount,Menu/Shortcut",
+      "markup": "<div data-ds=\"Dialog/CommandPalette\"><div data-ds=\"Input/Search\"></div><div data-ds=\"Tabs/Segmented\"></div><div data-ds=\"Menu/Item\"></div><div data-ds=\"Badge/StatusCount\"></div><div data-ds=\"Menu/Shortcut\"></div></div>\n",
       "name": "Dialog/CommandPalette",
       "scope": "local",
       "tokensUsed": [
+        "colors.muted-foreground",
+        "colors.neutral",
         "colors.popover",
         "colors.popover-foreground",
-        "colors.surface-hover",
-        "colors.border-strong",
-        "colors.primary",
-        "spacing.space-3",
-        "spacing.space-4",
-        "radius.radius-xl",
-        "typography.font-family-sans",
-        "typography.font-family-mono",
-        "typography.font-size-title"
+        "radius.radius-xl"
       ],
       "variants": [
-        "Mode=CmdK",
+        "Kind=CmdK",
+        "Kind=Actions",
+        "State=Default"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C/J.\ntier=composite; rust=kit/surface.rs::modal_surface; rust_status=new-in-C; today=home/dialog.rs::show; paints=BG,ICON_QUATERNARY,TEXT,BG_OVERLAY,TEXT_TERTIARY,RADIUS_FRAME; pending=BG_OVERLAY,RADIUS_FRAME; spec=C/J; flow=modal-assets-libraries,modal-plugins; composes=Panel/Header,Button/Close,Button/*,Divider/Hairline",
+      "markup": "<div data-ds=\"Dialog/Modal\"><div data-ds=\"Panel/Header\"></div><div data-ds=\"Button/Close\"></div><div data-ds=\"Button/*\"></div><div data-ds=\"Divider/Hairline\"></div></div>\n",
+      "name": "Dialog/Modal",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-foreground",
+        "colors.muted-foreground",
+        "colors.neutral"
+      ],
+      "variants": [
+        "Kind=Libraries",
+        "Kind=Plugins",
+        "State=Default"
+      ]
+    },
+    {
+      "category": "element",
+      "description": "Element of Studio's chrome, specified in spec C.\ntier=element; rust=widgets/mod.rs::hline,widgets/mod.rs::vline; rust_status=exists; paints=BORDER; spec=C",
+      "markup": "<div data-ds=\"Divider/Hairline\"></div>\n",
+      "name": "Divider/Hairline",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C.\ntier=composite; rust=kit/feedback.rs::empty_state; rust_status=new-in-C; today=home/mod.rs::main_view::empty_state; paints=BORDER_STRONG,ICON_QUATERNARY,TEXT,TEXT_TERTIARY; spec=C; composes=Icon/Tile,Button/Secondary",
+      "markup": "<div data-ds=\"EmptyState/Default\"><div data-ds=\"Icon/Tile\"></div><div data-ds=\"Button/Secondary\"></div></div>\n",
+      "name": "EmptyState/Default",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-foreground",
+        "colors.border-strong",
+        "colors.muted-foreground",
+        "colors.neutral",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "element",
+      "description": "Element of Studio's chrome, specified in spec C.\ntier=element; rust=kit/focus.rs::focus_ring; rust_status=new-in-C; paints=FOCUS_RING,FOCUS_RING_ERROR; pending=FOCUS_RING_ERROR; spec=C",
+      "markup": "<div data-ds=\"Focus/Ring\"></div>\n",
+      "name": "Focus/Ring",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.ring"
+      ],
+      "variants": [
+        "Tone=Brand",
+        "Tone=Error"
+      ]
+    },
+    {
+      "category": "element",
+      "description": "Element of Studio's chrome, specified in spec C.\ntier=element; rust=icons.rs::paint; rust_status=exists; paints=ICON_QUATERNARY,ICON_QUATERNARY_HOVER,ICON_SECONDARY_HOVER; pending=ICON_QUATERNARY_HOVER,ICON_SECONDARY_HOVER; spec=C",
+      "markup": "<div data-ds=\"Icon/Glyph\"></div>\n",
+      "name": "Icon/Glyph",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.neutral"
+      ],
+      "variants": [
+        "Size=Sm",
+        "Size=Md",
         "State=Default",
         "State=Hover",
-        "State=Active",
+        "State=Selected"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/H.\ntier=component; rust=kit/feedback.rs::tile_icon; rust_status=new-in-C; today=home/mod.rs:2563-2577; paints=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_BG,TILE_SPEC_GLYPH,BORDER_STRONG,ICON_QUATERNARY; pending=TILE_DESIGN_BG,TILE_DESIGN_GLYPH,TILE_BOARD_BG,TILE_BOARD_GLYPH,TILE_DECK_BG,TILE_DECK_GLYPH,TILE_SPEC_GLYPH; spec=C/H",
+      "markup": "<div data-ds=\"Icon/Tile\"></div>\n",
+      "name": "Icon/Tile",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.accent",
+        "colors.border-strong",
+        "colors.neutral",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Kind=Design",
+        "Kind=Board",
+        "Kind=Deck",
+        "Kind=Spec",
+        "Kind=Neutral",
+        "Size=Sm",
+        "Size=Md"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec I.\ntier=composite; rust=agent_composer.rs::show_composer; rust_status=exists; paints=BG_SECONDARY,BORDER,FOCUS_RING; spec=I; composes=Tag/Chip,Button/Icon,Button/Primary",
+      "markup": "<div data-ds=\"Input/Composer\"><div data-ds=\"Tag/Chip\"></div><div data-ds=\"Button/Icon\"></div><div data-ds=\"Button/Primary\"></div></div>\n",
+      "name": "Input/Composer",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border",
+        "colors.ring",
+        "colors.surface"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/field.rs::paint_field; rust_status=new-in-C; today=widgets/field.rs::field_bg; paints=BG,BORDER_SELECTED,BORDER_STRONG,ICON_QUATERNARY,TEXT,TEXT_PLACEHOLDER; pending=TEXT_PLACEHOLDER; spec=C",
+      "markup": "<div data-ds=\"Input/Field\"></div>\n",
+      "name": "Input/Field",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-foreground",
+        "colors.border-focus",
+        "colors.border-strong",
+        "colors.input",
+        "colors.neutral",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "State=Default",
+        "State=Hover",
         "State=Focus",
         "State=Disabled"
       ]
     },
     {
-      "category": "form",
-      "description": "24px height numeric/text scrubbable inspector input with muted prefix label and #E36323 focus ring",
-      "markup": "<label class=\"input-property-field\"><span class=\"prop-prefix\">X</span><input type=\"text\" aria-label=\"Property value\" value=\"128\" /></label>\n",
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/F.\ntier=component; rust=widgets/field.rs::num_field; rust_status=exists; paints=BG,BORDER_SELECTED,BORDER_STRONG,TEXT,TEXT_TERTIARY; spec=C/F",
+      "markup": "<div data-ds=\"Input/PropertyField\"></div>\n",
       "name": "Input/PropertyField",
       "scope": "local",
       "tokensUsed": [
-        "colors.input",
         "colors.bg-foreground",
-        "colors.muted-foreground",
-        "colors.border-subtle",
         "colors.border-focus",
-        "colors.ring",
-        "spacing.space-1",
-        "spacing.space-2",
-        "radius.radius-sm",
-        "typography.font-family-mono",
-        "typography.font-size-body"
+        "colors.border-strong",
+        "colors.input",
+        "colors.muted-foreground",
+        "radius.radius-md",
+        "typography.font-family-mono"
       ],
       "variants": [
+        "Size=Xs",
         "Axis=Scrub",
         "State=Default",
         "State=Hover",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/field.rs::paint_field; rust_status=new-in-C; today=find/filter.rs::show_field; paints=BG,BORDER_SELECTED,BORDER_STRONG,ICON_QUATERNARY,TEXT_PLACEHOLDER,TEXT; pending=TEXT_PLACEHOLDER; spec=C",
+      "markup": "<div data-ds=\"Input/Search\"></div>\n",
+      "name": "Input/Search",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-foreground",
+        "colors.border-focus",
+        "colors.border-strong",
+        "colors.input",
+        "colors.neutral",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "Size=Md",
+        "State=Default",
+        "State=Hover",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/rows.rs::list_row; rust_status=new-in-C; today=home/mod.rs:1171-1192; paints=BG,BG_HOVER,BG_SELECTED,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; pending=ICON_QUATERNARY_HOVER,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; spec=C",
+      "markup": "<div data-ds=\"List/Row\"></div>\n",
+      "name": "List/Row",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-active",
+        "colors.bg-hover",
+        "colors.neutral",
+        "colors.ring",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "State=Selected",
+        "State=Default",
+        "State=Hover",
+        "State=Focus"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/I.\ntier=component; rust=kit/feedback.rs::loading_ring; rust_status=new-in-C; today=image_jobs.rs::layer_row_progress_chip; paints=BG_SECONDARY,BORDER,ICON_BRAND_PRIMARY,TEXT_SECONDARY,BG_TERTIARY; pending=ICON_BRAND_PRIMARY,TEXT_SECONDARY; spec=C/I",
+      "markup": "<div data-ds=\"Loading/Inline\"></div>\n",
+      "name": "Loading/Inline",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border",
+        "colors.secondary",
+        "colors.surface",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C/J.\ntier=composite; rust=panels/context.rs::show; rust_status=exists; paints=BG_MENU,BORDER_MENU,ICON_QUATERNARY,TEXT_SECONDARY,RADIUS_FRAME; pending=BORDER_MENU,TEXT_SECONDARY,RADIUS_FRAME; spec=C/J; composes=Menu/Item,Menu/Separator,Menu/Shortcut",
+      "markup": "<div data-ds=\"Menu/Context\"><div data-ds=\"Menu/Item\"></div><div data-ds=\"Menu/Separator\"></div><div data-ds=\"Menu/Shortcut\"></div></div>\n",
+      "name": "Menu/Context",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.neutral",
+        "colors.popover",
+        "spacing.space-2"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=widgets/menu.rs::popup_tree; rust_status=exists; today=widgets/menu.rs:430-505; paints=BG_HOVER,ICON_BRAND_PRIMARY,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; pending=ICON_BRAND_PRIMARY,ICON_QUATERNARY_HOVER,TEXT_SECONDARY,TEXT_SECONDARY_HOVER; spec=C",
+      "markup": "<div data-ds=\"Menu/Item\"></div>\n",
+      "name": "Menu/Item",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-hover",
+        "colors.neutral",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "State=Selected",
+        "State=Default",
+        "State=Hover",
         "State=Active",
         "State=Focus",
         "State=Disabled"
       ]
     },
     {
-      "category": "navigation",
-      "description": "Floating bottom canvas creation dock with tool triggers and #14AE5C Dev Mode toggle",
-      "markup": "<div class=\"bottom-canvas-toolbar\" role=\"toolbar\" aria-label=\"Canvas tools\"><button class=\"tool active\" type=\"button\">Move (V)</button><button class=\"tool\" type=\"button\">Frame (F)</button><button class=\"dev-mode\" type=\"button\">Dev Mode</button></div>\n",
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C/J.\ntier=composite; rust=kit/surface.rs::menu_surface; rust_status=new-in-C; today=widgets/mod.rs::menu_panel; paints=BG_MENU,BORDER_MENU,ICON_QUATERNARY,TEXT_SECONDARY,RADIUS_FRAME; pending=BORDER_MENU,TEXT_SECONDARY,RADIUS_FRAME; spec=C/J; composes=Menu/Item,Menu/Separator,Menu/Shortcut",
+      "markup": "<div data-ds=\"Menu/Panel\"><div data-ds=\"Menu/Item\"></div><div data-ds=\"Menu/Separator\"></div><div data-ds=\"Menu/Shortcut\"></div></div>\n",
+      "name": "Menu/Panel",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.neutral",
+        "colors.popover",
+        "spacing.space-2"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "element",
+      "description": "Element of Studio's chrome, specified in spec C.\ntier=element; rust=widgets/menu.rs::popup_tree; rust_status=exists; today=widgets/menu.rs:441,504; paints=BORDER; spec=C",
+      "markup": "<div data-ds=\"Menu/Separator\"></div>\n",
+      "name": "Menu/Separator",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "element",
+      "description": "Element of Studio's chrome, specified in spec C.\ntier=element; rust=widgets/menu.rs::popup_tree; rust_status=exists; today=widgets/menu.rs:492-501; paints=TEXT_QUATERNARY; pending=TEXT_QUATERNARY; spec=C",
+      "markup": "<div data-ds=\"Menu/Shortcut\"></div>\n",
+      "name": "Menu/Shortcut",
+      "scope": "local",
+      "tokensUsed": [
+        "typography.font-size-caption"
+      ],
+      "variants": [
+        "State=Default",
+        "State=Hover",
+        "State=Active",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec D.\ntier=region; rust=panels/toolbar.rs::show; rust_status=exists; spec=D; composes=Button/Tool,Tabs/Segmented,Bar/Contextual,Button/Secondary",
+      "markup": "<div data-ds=\"Navigation/BottomCanvasToolbar\"><div data-ds=\"Button/Tool\"></div><div data-ds=\"Tabs/Segmented\"></div><div data-ds=\"Bar/Contextual\"></div><div data-ds=\"Button/Secondary\"></div></div>\n",
       "name": "Navigation/BottomCanvasToolbar",
       "scope": "local",
-      "tokensUsed": [
-        "colors.surface",
-        "colors.surface-foreground",
-        "colors.surface-hover",
-        "colors.primary",
-        "colors.success",
-        "colors.border",
-        "spacing.space-2",
-        "spacing.space-3",
-        "radius.radius-lg",
-        "typography.font-family-sans",
-        "typography.font-size-body"
-      ],
-      "variants": [
-        "Dock=Canvas",
-        "State=Default",
-        "State=Hover",
-        "State=Active",
-        "State=Focus",
-        "State=Disabled"
-      ]
+      "tokensUsed": []
     },
     {
-      "category": "navigation",
-      "description": "Home sidebar and 56px editor activity rail with 1px right border and orange active indicator",
-      "markup": "<nav class=\"left-rail\" aria-label=\"Workspace navigation\"><button class=\"rail-item active\" type=\"button\">Recents</button><button class=\"rail-item\" type=\"button\">Drafts</button></nav>\n",
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec D.\ntier=region; rust=panels/rail.rs::show; rust_status=exists; spec=D; composes=Button/Icon,Button/Tool,Tooltip/Default",
+      "markup": "<div data-ds=\"Navigation/LeftRail\"><div data-ds=\"Button/Icon\"></div><div data-ds=\"Button/Tool\"></div><div data-ds=\"Tooltip/Default\"></div></div>\n",
       "name": "Navigation/LeftRail",
       "scope": "local",
-      "tokensUsed": [
-        "colors.bg",
-        "colors.bg-foreground",
-        "colors.surface-hover",
-        "colors.surface-active",
-        "colors.border",
-        "colors.primary",
-        "spacing.rail-width",
-        "spacing.space-2",
-        "radius.radius-md",
-        "typography.font-family-sans",
-        "typography.font-size-body"
-      ],
+      "tokensUsed": [],
       "variants": [
-        "Rail=56px",
-        "State=Default",
-        "State=Hover",
-        "State=Active",
-        "State=Focus",
-        "State=Disabled"
+        "Rail=48px"
       ]
     },
     {
-      "category": "navigation",
-      "description": "36px multi-document workspace top tab bar with Home button, document tabs, and window controls",
-      "markup": "<header class=\"top-tab-bar\"><button class=\"tab-home\" type=\"button\">Home</button><span class=\"tab-active\">Untitled</span></header>\n",
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec D.\ntier=region; rust=canvas/rulers.rs::strips; rust_status=exists; spec=D; composes=Divider/Hairline",
+      "markup": "<div data-ds=\"Navigation/Rulers\"><div data-ds=\"Divider/Hairline\"></div></div>\n",
+      "name": "Navigation/Rulers",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec D.\ntier=region; rust=shell.rs::title_bar; rust_status=new-in-D; today=shell.rs:1536-1562 (inside draw_window); spec=D; composes=Icon/Glyph,Divider/Hairline",
+      "markup": "<div data-ds=\"Navigation/TitleBar\"><div data-ds=\"Icon/Glyph\"></div><div data-ds=\"Divider/Hairline\"></div></div>\n",
+      "name": "Navigation/TitleBar",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec D.\ntier=region; rust=tabs.rs::show_top_tab_bar; rust_status=exists; spec=D; composes=Tabs/Pill,Button/Icon,Menu/Panel",
+      "markup": "<div data-ds=\"Navigation/TopTabBar\"><div data-ds=\"Tabs/Pill\"></div><div data-ds=\"Button/Icon\"></div><div data-ds=\"Menu/Panel\"></div></div>\n",
       "name": "Navigation/TopTabBar",
       "scope": "local",
-      "tokensUsed": [
-        "colors.bg",
-        "colors.bg-foreground",
-        "colors.surface",
-        "colors.border",
-        "colors.primary",
-        "spacing.space-2",
-        "spacing.space-3",
-        "radius.radius-sm",
-        "typography.font-family-sans",
-        "typography.font-size-body"
-      ],
+      "tokensUsed": [],
       "variants": [
-        "Bar=36px",
-        "State=Default",
-        "State=Hover",
-        "State=Active",
-        "State=Focus",
-        "State=Disabled"
+        "Bar=32px"
       ]
     },
     {
-      "category": "layout",
-      "description": "400px resizable per-file embedded VTE PTY terminal panel with Orca Ghostty palette, procedural box-drawing, and 3-tier live status dots",
-      "markup": "<aside class=\"panel-agent-terminal\" aria-label=\"Agent terminal\"><header class=\"term-tabs\"><span class=\"dot-live\"></span> Claude Code</header><pre class=\"term-grid\">$ design-os status</pre></aside>\n",
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec I.\ntier=region; rust=terminal.rs::show_left_with_doc; rust_status=exists; spec=I; flow=panel-agents-terminal; composes=Tabs/Pill,Button/*,Tag/Chip,Card/Approval,Card/AgentTurn,Input/Composer,Input/Search,Banner/Inline",
+      "markup": "<div data-ds=\"Panel/AgentTerminal\"><div data-ds=\"Tabs/Pill\"></div><div data-ds=\"Button/*\"></div><div data-ds=\"Tag/Chip\"></div><div data-ds=\"Card/Approval\"></div><div data-ds=\"Card/AgentTurn\"></div><div data-ds=\"Input/Composer\"></div><div data-ds=\"Input/Search\"></div><div data-ds=\"Banner/Inline\"></div></div>\n",
       "name": "Panel/AgentTerminal",
       "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec K.\ntier=region; rust=panels/assets.rs::show; rust_status=exists; spec=K; composes=Panel/Header,Input/Search,Card/Library,List/Row,Badge/StatusCount",
+      "markup": "<div data-ds=\"Panel/Assets\"><div data-ds=\"Panel/Header\"></div><div data-ds=\"Input/Search\"></div><div data-ds=\"Card/Library\"></div><div data-ds=\"List/Row\"></div><div data-ds=\"Badge/StatusCount\"></div></div>\n",
+      "name": "Panel/Assets",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec K.\ntier=region; rust=panels/check_designs.rs::show; rust_status=exists; spec=K; composes=Panel/Header,Button/*,Badge/StatusCount,Tabs/Segmented,Progress/Bar,EmptyState/Default",
+      "markup": "<div data-ds=\"Panel/CheckDesigns\"><div data-ds=\"Panel/Header\"></div><div data-ds=\"Button/*\"></div><div data-ds=\"Badge/StatusCount\"></div><div data-ds=\"Tabs/Segmented\"></div><div data-ds=\"Progress/Bar\"></div><div data-ds=\"EmptyState/Default\"></div></div>\n",
+      "name": "Panel/CheckDesigns",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec J.\ntier=region; rust=comments/panel.rs::show; rust_status=exists; spec=J; composes=Tabs/Segmented,Input/Search,Popover/Panel",
+      "markup": "<div data-ds=\"Panel/Comments\"><div data-ds=\"Tabs/Segmented\"></div><div data-ds=\"Input/Search\"></div><div data-ds=\"Popover/Panel\"></div></div>\n",
+      "name": "Panel/Comments",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec F/G.\ntier=region; rust=panels/inspect.rs::show,dev/list.rs::show; rust_status=exists; spec=F/G; composes=Section/Header,Badge/StatusCount,Code/Block,Button/Primary,Tabs/Pill,Tree/Row",
+      "markup": "<div data-ds=\"Panel/DevInspect\"><div data-ds=\"Section/Header\"></div><div data-ds=\"Badge/StatusCount\"></div><div data-ds=\"Code/Block\"></div><div data-ds=\"Button/Primary\"></div><div data-ds=\"Tabs/Pill\"></div><div data-ds=\"Tree/Row\"></div></div>\n",
+      "name": "Panel/DevInspect",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec J.\ntier=region; rust=find/panel.rs::show; rust_status=exists; spec=J; composes=Input/Search,Input/Field,Button/Secondary,Button/Icon",
+      "markup": "<div data-ds=\"Panel/FindReplace\"><div data-ds=\"Input/Search\"></div><div data-ds=\"Input/Field\"></div><div data-ds=\"Button/Secondary\"></div><div data-ds=\"Button/Icon\"></div></div>\n",
+      "name": "Panel/FindReplace",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C/E.\ntier=composite; rust=kit/rows.rs::panel_header; rust_status=new-in-C; today=panels/left.rs::section_title; paints=ICON_QUATERNARY,TEXT; spec=C/E; composes=Button/Icon,Badge/StatusCount",
+      "markup": "<div data-ds=\"Panel/Header\"><div data-ds=\"Button/Icon\"></div><div data-ds=\"Badge/StatusCount\"></div></div>\n",
+      "name": "Panel/Header",
+      "scope": "local",
       "tokensUsed": [
-        "colors.canvas",
-        "colors.canvas-foreground",
-        "colors.bg",
-        "colors.border",
-        "colors.primary",
-        "colors.success",
-        "colors.warning",
-        "spacing.ai-panel-width",
-        "spacing.space-2",
-        "radius.radius-sm",
-        "typography.font-family-mono",
-        "typography.font-size-body"
+        "colors.bg-foreground",
+        "colors.neutral",
+        "typography.font-size-heading"
       ],
       "variants": [
-        "Pty=Live",
+        "State=Default"
+      ]
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec H.\ntier=region; rust=home/mod.rs::main_view::show; rust_status=exists; spec=H; composes=Button/*,Card/FileThumbnail,Card/StarterTemplate,List/Row,EmptyState/Default,Icon/Tile",
+      "markup": "<div data-ds=\"Panel/HomeMain\"><div data-ds=\"Button/*\"></div><div data-ds=\"Card/FileThumbnail\"></div><div data-ds=\"Card/StarterTemplate\"></div><div data-ds=\"List/Row\"></div><div data-ds=\"EmptyState/Default\"></div><div data-ds=\"Icon/Tile\"></div></div>\n",
+      "name": "Panel/HomeMain",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec H.\ntier=region; rust=home/mod.rs::sidebar::show; rust_status=exists; spec=H; composes=Input/Search,List/Row,Badge/StatusCount",
+      "markup": "<div data-ds=\"Panel/HomeSidebar\"><div data-ds=\"Input/Search\"></div><div data-ds=\"List/Row\"></div><div data-ds=\"Badge/StatusCount\"></div></div>\n",
+      "name": "Panel/HomeSidebar",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec E.\ntier=region; rust=panels/left.rs::show,panels/layers.rs::show; rust_status=exists; spec=E; composes=Panel/Header,List/Row,Tree/Row,Input/Search,Menu/Panel,Badge/StatusCount",
+      "markup": "<div data-ds=\"Panel/LeftLayers\"><div data-ds=\"Panel/Header\"></div><div data-ds=\"List/Row\"></div><div data-ds=\"Tree/Row\"></div><div data-ds=\"Input/Search\"></div><div data-ds=\"Menu/Panel\"></div><div data-ds=\"Badge/StatusCount\"></div></div>\n",
+      "name": "Panel/LeftLayers",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec F.\ntier=region; rust=panels/right.rs::show; rust_status=exists; spec=F; composes=Tabs/Pill,Section/Header,Input/PropertyField,Select/Trigger,Tabs/Segmented,Checkbox/Box,Popover/ColorPicker,Button/*",
+      "markup": "<div data-ds=\"Panel/RightInspector\"><div data-ds=\"Tabs/Pill\"></div><div data-ds=\"Section/Header\"></div><div data-ds=\"Input/PropertyField\"></div><div data-ds=\"Select/Trigger\"></div><div data-ds=\"Tabs/Segmented\"></div><div data-ds=\"Checkbox/Box\"></div><div data-ds=\"Popover/ColorPicker\"></div><div data-ds=\"Button/*\"></div></div>\n",
+      "name": "Panel/RightInspector",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec G.\ntier=region; rust=specs.rs::show_reader; rust_status=exists; today=hidden: specs_reader_open = false; spec=G; flow=panel-specs-reader; composes=Section/Header",
+      "markup": "<div data-ds=\"Panel/SpecReader\"><div data-ds=\"Section/Header\"></div></div>\n",
+      "name": "Panel/SpecReader",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec J.\ntier=region; rust=history/panel.rs::show; rust_status=exists; spec=J; composes=List/Row,Banner/Inline",
+      "markup": "<div data-ds=\"Panel/VersionHistory\"><div data-ds=\"List/Row\"></div><div data-ds=\"Banner/Inline\"></div></div>\n",
+      "name": "Panel/VersionHistory",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec F.\ntier=composite; rust=widgets/picker.rs::show; rust_status=exists; paints=BG_MENU,BORDER_MENU,RADIUS_FRAME; pending=BORDER_MENU,RADIUS_FRAME; spec=F; composes=Swatch/Color,Slider/Handle,Input/PropertyField,Select/Trigger",
+      "markup": "<div data-ds=\"Popover/ColorPicker\"><div data-ds=\"Swatch/Color\"></div><div data-ds=\"Slider/Handle\"></div><div data-ds=\"Input/PropertyField\"></div><div data-ds=\"Select/Trigger\"></div></div>\n",
+      "name": "Popover/ColorPicker",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.popover"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C.\ntier=composite; rust=kit/surface.rs::popover_surface; rust_status=new-in-C; today=widgets/popover.rs::show; paints=BG_MENU,BORDER_MENU,ICON_QUATERNARY,TEXT,RADIUS_FRAME; pending=BORDER_MENU,RADIUS_FRAME; spec=C; composes=Panel/Header,Menu/Item,List/Row",
+      "markup": "<div data-ds=\"Popover/Panel\"><div data-ds=\"Panel/Header\"></div><div data-ds=\"Menu/Item\"></div><div data-ds=\"List/Row\"></div></div>\n",
+      "name": "Popover/Panel",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.neutral",
+        "colors.popover",
+        "colors.popover-foreground"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/K.\ntier=component; rust=kit/feedback.rs::progress_bar; rust_status=new-in-C; today=panels/check_designs.rs::progress_row; paints=BG_PRESSED,ICON_BRAND_PRIMARY,TEXT_SECONDARY; pending=ICON_BRAND_PRIMARY,TEXT_SECONDARY; spec=C/K",
+      "markup": "<div data-ds=\"Progress/Bar\"></div>\n",
+      "name": "Progress/Bar",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.secondary-active",
+        "radius.radius-pill"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/I.\ntier=component; rust=kit/choice.rs::radio_card; rust_status=new-in-C; today=agent_approval_card.rs:256-286; paints=BG_BRAND,BG,BG_HOVER,BORDER_SELECTED,BORDER_STRONG,BORDER,FOCUS_RING,TEXT,TEXT_SECONDARY,TEXT_ON_BRAND; pending=TEXT_SECONDARY; spec=C/I",
+      "markup": "<div data-ds=\"Radio/Card\"></div>\n",
+      "name": "Radio/Card",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-foreground",
+        "colors.bg-hover",
+        "colors.border",
+        "colors.border-focus",
+        "colors.border-strong",
+        "colors.primary",
+        "colors.primary-foreground",
+        "colors.ring",
+        "radius.radius-xl"
+      ],
+      "variants": [
+        "State=Selected",
+        "State=Default",
+        "State=Hover",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "screen",
+      "description": "Screen of Studio's chrome, specified in spec D.\ntier=screen; rust=shell.rs::draw_window; rust_status=exists; spec=D; flow=editor-canvas; composes=Navigation/TitleBar,Navigation/TopTabBar,Navigation/LeftRail,Panel/LeftLayers,Navigation/Rulers,Navigation/BottomCanvasToolbar,Panel/RightInspector,Menu/Panel,Dialog/CommandPalette,Toast/Default",
+      "markup": "<div data-ds=\"Screen/EditorDesign\"><div data-ds=\"Navigation/TitleBar\"></div><div data-ds=\"Navigation/TopTabBar\"></div><div data-ds=\"Navigation/LeftRail\"></div><div data-ds=\"Panel/LeftLayers\"></div><div data-ds=\"Navigation/Rulers\"></div><div data-ds=\"Navigation/BottomCanvasToolbar\"></div><div data-ds=\"Panel/RightInspector\"></div><div data-ds=\"Menu/Panel\"></div><div data-ds=\"Dialog/CommandPalette\"></div><div data-ds=\"Toast/Default\"></div></div>\n",
+      "name": "Screen/EditorDesign",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "screen",
+      "description": "Screen of Studio's chrome, specified in spec G.\ntier=screen; rust=shell.rs::draw_window; rust_status=exists; spec=G; flow=editor-devmode; composes=Navigation/TitleBar,Navigation/TopTabBar,Navigation/LeftRail,Panel/LeftLayers,Navigation/Rulers,Navigation/BottomCanvasToolbar,Panel/RightInspector,Panel/DevInspect,Menu/Panel,Dialog/CommandPalette,Toast/Default",
+      "markup": "<div data-ds=\"Screen/EditorDev\"><div data-ds=\"Navigation/TitleBar\"></div><div data-ds=\"Navigation/TopTabBar\"></div><div data-ds=\"Navigation/LeftRail\"></div><div data-ds=\"Panel/LeftLayers\"></div><div data-ds=\"Navigation/Rulers\"></div><div data-ds=\"Navigation/BottomCanvasToolbar\"></div><div data-ds=\"Panel/RightInspector\"></div><div data-ds=\"Panel/DevInspect\"></div><div data-ds=\"Menu/Panel\"></div><div data-ds=\"Dialog/CommandPalette\"></div><div data-ds=\"Toast/Default\"></div></div>\n",
+      "name": "Screen/EditorDev",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "screen",
+      "description": "Screen of Studio's chrome, specified in spec F.\ntier=screen; rust=shell.rs::draw_window; rust_status=exists; spec=F; flow=editor-prototype; composes=Navigation/TitleBar,Navigation/TopTabBar,Navigation/LeftRail,Panel/LeftLayers,Navigation/Rulers,Navigation/BottomCanvasToolbar,Panel/RightInspector,Menu/Panel,Dialog/CommandPalette,Toast/Default",
+      "markup": "<div data-ds=\"Screen/EditorPrototype\"><div data-ds=\"Navigation/TitleBar\"></div><div data-ds=\"Navigation/TopTabBar\"></div><div data-ds=\"Navigation/LeftRail\"></div><div data-ds=\"Panel/LeftLayers\"></div><div data-ds=\"Navigation/Rulers\"></div><div data-ds=\"Navigation/BottomCanvasToolbar\"></div><div data-ds=\"Panel/RightInspector\"></div><div data-ds=\"Menu/Panel\"></div><div data-ds=\"Dialog/CommandPalette\"></div><div data-ds=\"Toast/Default\"></div></div>\n",
+      "name": "Screen/EditorPrototype",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "screen",
+      "description": "Screen of Studio's chrome, specified in spec H.\ntier=screen; rust=shell.rs::home_frame; rust_status=exists; spec=H; flow=home-recents,home-templates,home-all-folders,home-resources,home-drafts,home-trash; composes=Navigation/TitleBar,Navigation/TopTabBar,Panel/HomeSidebar,Panel/HomeMain,Dialog/Modal,Toast/Default",
+      "markup": "<div data-ds=\"Screen/Home\"><div data-ds=\"Navigation/TitleBar\"></div><div data-ds=\"Navigation/TopTabBar\"></div><div data-ds=\"Panel/HomeSidebar\"></div><div data-ds=\"Panel/HomeMain\"></div><div data-ds=\"Dialog/Modal\"></div><div data-ds=\"Toast/Default\"></div></div>\n",
+      "name": "Screen/Home",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "screen",
+      "description": "Screen of Studio's chrome, specified in spec J.\ntier=screen; rust=shell.rs::draw_window; rust_status=exists; spec=J; flow=editor-present; composes=Bar/Presentation",
+      "markup": "<div data-ds=\"Screen/Present\"><div data-ds=\"Bar/Presentation\"></div></div>\n",
+      "name": "Screen/Present",
+      "scope": "local",
+      "tokensUsed": []
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C/F.\ntier=composite; rust=kit/rows.rs::section_header; rust_status=new-in-C; today=panels/properties.rs::title; paints=BORDER,ICON_QUATERNARY,TEXT,TEXT_TERTIARY; spec=C/F; composes=Button/Icon,Divider/Hairline",
+      "markup": "<div data-ds=\"Section/Header\"><div data-ds=\"Button/Icon\"></div><div data-ds=\"Divider/Hairline\"></div></div>\n",
+      "name": "Section/Header",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-foreground",
+        "colors.border",
+        "colors.muted-foreground",
+        "colors.neutral"
+      ],
+      "variants": [
+        "State=Default",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=widgets/menu.rs::dropdown; rust_status=exists; today=widgets/menu.rs:571-606; paints=BG,BORDER_SELECTED,BORDER_STRONG,ICON_QUATERNARY,TEXT; spec=C",
+      "markup": "<div data-ds=\"Select/Trigger\"></div>\n",
+      "name": "Select/Trigger",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-foreground",
+        "colors.border-focus",
+        "colors.border-strong",
+        "colors.input",
+        "colors.neutral",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "Size=Sm",
+        "State=Open",
+        "State=Default",
+        "State=Hover",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/choice.rs::slider_handle; rust_status=new-in-C; paints=BG,BG_PRESSED,ICON_BRAND_PRIMARY,FOCUS_RING; pending=ICON_BRAND_PRIMARY; spec=C",
+      "markup": "<div data-ds=\"Slider/Handle\"></div>\n",
+      "name": "Slider/Handle",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.ring",
+        "colors.secondary-active",
+        "radius.radius-pill"
+      ],
+      "variants": [
         "State=Default",
         "State=Hover",
         "State=Active",
@@ -306,34 +993,191 @@
       ]
     },
     {
-      "category": "layout",
-      "description": "240px right properties and Dev Mode inspector with 28px header tabs, collapsible property sections, and dedicated 36px status footer",
-      "markup": "<aside class=\"panel-right-inspector\" aria-label=\"Properties inspector\"><header class=\"inspector-tabs\">Design | Prototype | Inspect</header><p class=\"inspector-body\"><code>W 1600 · H 1000</code></p><footer class=\"inspector-footer\">Ready</footer></aside>\n",
-      "name": "Panel/RightInspector",
+      "category": "element",
+      "description": "Element of Studio's chrome, specified in spec C/J.\ntier=element; rust=kit/badge.rs::status_dot; rust_status=new-in-C; today=shell.rs::toast (:1136); paints=ICON_BRAND_PRIMARY,DANGER,SUCCESS; pending=ICON_BRAND_PRIMARY,DANGER; spec=C/J",
+      "markup": "<div data-ds=\"Status/Dot\"></div>\n",
+      "name": "Status/Dot",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.success"
+      ],
+      "variants": [
+        "Tone=Info",
+        "Tone=Error",
+        "Tone=Success"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/F.\ntier=component; rust=kit/choice.rs::swatch_ring; rust_status=new-in-C; today=widgets/mod.rs::swatch; paints=BORDER_TRANSLUCENT,FOCUS_RING; pending=BORDER_TRANSLUCENT; spec=C/F",
+      "markup": "<div data-ds=\"Swatch/Color\"></div>\n",
+      "name": "Swatch/Color",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.ring"
+      ],
+      "variants": [
+        "State=Selected",
+        "State=Default",
+        "State=Hover",
+        "State=Focus"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec K.\ntier=composite; rust=variables/view.rs::table; rust_status=exists; paints=BG_PRIMARY,BG_HOVER,BORDER; spec=K; composes=List/Row,Input/PropertyField,Badge/StatusCount,Toggle/Switch",
+      "markup": "<div data-ds=\"Table/Data\"><div data-ds=\"List/Row\"></div><div data-ds=\"Input/PropertyField\"></div><div data-ds=\"Badge/StatusCount\"></div><div data-ds=\"Toggle/Switch\"></div></div>\n",
+      "name": "Table/Data",
       "scope": "local",
       "tokensUsed": [
         "colors.bg",
-        "colors.bg-foreground",
-        "colors.surface",
-        "colors.border",
-        "colors.component",
-        "colors.success",
-        "spacing.panel-width",
-        "spacing.space-2",
-        "spacing.space-3",
-        "radius.radius-sm",
-        "typography.font-family-sans",
-        "typography.font-family-mono",
-        "typography.font-size-body"
+        "colors.bg-hover",
+        "colors.border"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/tabs.rs::tab; rust_status=new-in-C; today=panels/right.rs:103-127; paints=BG,BG_HOVER,BG_SELECTED,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_QUATERNARY,TEXT_SECONDARY; pending=ICON_QUATERNARY_HOVER,TEXT_QUATERNARY,TEXT_SECONDARY; spec=C",
+      "markup": "<div data-ds=\"Tabs/Pill\"></div>\n",
+      "name": "Tabs/Pill",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-active",
+        "colors.bg-hover",
+        "colors.neutral",
+        "colors.ring",
+        "radius.radius-md"
       ],
       "variants": [
-        "Tab=Design",
+        "State=Selected",
         "State=Default",
         "State=Hover",
-        "State=Active",
         "State=Focus",
         "State=Disabled"
       ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C.\ntier=composite; rust=kit/tabs.rs::segmented; rust_status=new-in-C; today=comments/ui.rs:133-152; paints=BG,BG_SELECTED,BORDER_STRONG,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,ICON_SECONDARY,FOCUS_RING,TEXT_QUATERNARY,TEXT_SECONDARY; pending=ICON_QUATERNARY_HOVER,ICON_SECONDARY,TEXT_QUATERNARY,TEXT_SECONDARY; spec=C; composes=Tabs/Pill",
+      "markup": "<div data-ds=\"Tabs/Segmented\"><div data-ds=\"Tabs/Pill\"></div></div>\n",
+      "name": "Tabs/Segmented",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.bg-active",
+        "colors.border-strong",
+        "colors.neutral",
+        "colors.ring",
+        "radius.radius-md",
+        "radius.radius-sm"
+      ],
+      "variants": [
+        "State=Selected",
+        "State=Default",
+        "State=Hover",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/badge.rs::tag; rust_status=new-in-C; today=agent_selection_chip.rs:160-200; paints=BG,BORDER_STRONG,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_SECONDARY; pending=ICON_QUATERNARY_HOVER,TEXT_SECONDARY; spec=C",
+      "markup": "<div data-ds=\"Tag/Chip\"></div>\n",
+      "name": "Tag/Chip",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg",
+        "colors.border-strong",
+        "colors.neutral",
+        "colors.ring",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Sm",
+        "State=Default",
+        "State=Hover",
+        "State=Focus"
+      ]
+    },
+    {
+      "category": "composite",
+      "description": "Composite of Studio's chrome, specified in spec C/D/J.\ntier=composite; rust=kit/surface.rs::toast_surface; rust_status=new-in-C; today=shell.rs::toast; paints=BG_PRIMARY_ALT,BORDER_MENU,ICON_BRAND_PRIMARY,TEXT,DANGER,SUCCESS,BG_SECONDARY_HOVER; pending=BG_PRIMARY_ALT,BORDER_MENU,ICON_BRAND_PRIMARY,DANGER; spec=C/D/J; composes=Status/Dot,Button/Tertiary",
+      "markup": "<div data-ds=\"Toast/Default\"><div data-ds=\"Status/Dot\"></div><div data-ds=\"Button/Tertiary\"></div></div>\n",
+      "name": "Toast/Default",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-foreground",
+        "colors.success",
+        "colors.surface-hover",
+        "radius.radius-xl"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=kit/choice.rs::toggle; rust_status=new-in-C; today=panels/components.rs::toggle; paints=BG_BRAND,BG_TERTIARY,BORDER,ICON_WHITE,FOCUS_RING; pending=ICON_WHITE; spec=C",
+      "markup": "<div data-ds=\"Toggle/Switch\"></div>\n",
+      "name": "Toggle/Switch",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.border",
+        "colors.primary",
+        "colors.ring",
+        "colors.secondary",
+        "radius.radius-pill"
+      ],
+      "variants": [
+        "State=Selected",
+        "State=Default",
+        "State=Hover",
+        "State=Focus",
+        "State=Disabled"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C.\ntier=component; rust=theme.rs::apply; rust_status=exists; paints=BG_PRIMARY_SOLID,TEXT,TEXT_SECONDARY; pending=BG_PRIMARY_SOLID,TEXT_SECONDARY; spec=C",
+      "markup": "<div data-ds=\"Tooltip/Default\"></div>\n",
+      "name": "Tooltip/Default",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-foreground",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "State=Default"
+      ]
+    },
+    {
+      "category": "component",
+      "description": "Component of Studio's chrome, specified in spec C/E.\ntier=component; rust=kit/rows.rs::tree_row_bg; rust_status=new-in-C; today=panels/layers.rs:516-596; paints=BG_HOVER,BG_SELECTED,ICON_QUATERNARY,TEXT_TERTIARY; spec=C/E",
+      "markup": "<div data-ds=\"Tree/Row\"></div>\n",
+      "name": "Tree/Row",
+      "scope": "local",
+      "tokensUsed": [
+        "colors.bg-active",
+        "colors.bg-hover",
+        "colors.muted-foreground",
+        "colors.neutral",
+        "radius.radius-md"
+      ],
+      "variants": [
+        "Size=Xs",
+        "State=Selected",
+        "State=Default",
+        "State=Hover"
+      ]
+    },
+    {
+      "category": "region",
+      "description": "Region of Studio's chrome, specified in spec K.\ntier=region; rust=variables/view.rs::show; rust_status=exists; spec=K; flow=modal-variables; composes=Table/Data,Popover/Panel,Menu/Item",
+      "markup": "<div data-ds=\"Window/Variables\"><div data-ds=\"Table/Data\"></div><div data-ds=\"Popover/Panel\"></div><div data-ds=\"Menu/Item\"></div></div>\n",
+      "name": "Window/Variables",
+      "scope": "local",
+      "tokensUsed": []
     }
   ],
   "version": "0.1.0"

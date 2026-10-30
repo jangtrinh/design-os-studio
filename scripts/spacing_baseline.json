@@ -1,5 +1,46 @@
 {
+  "categories": [
+    "offset_literals",
+    "inset_literals",
+    "radius_literals",
+    "font_literals",
+    "nonconcentric_pairs",
+    "legacy_control_refs"
+  ],
   "files": {
+    "agent_approval_card.rs": {
+      "legacy_control_refs": 16
+    },
+    "agent_composer.rs": {
+      "legacy_control_refs": 11
+    },
+    "agent_mention_popup.rs": {
+      "legacy_control_refs": 4
+    },
+    "agent_open_flow.rs": {
+      "legacy_control_refs": 4
+    },
+    "agent_picker.rs": {
+      "legacy_control_refs": 3
+    },
+    "agent_sample_prompts.rs": {
+      "legacy_control_refs": 3
+    },
+    "agent_selection_chip.rs": {
+      "legacy_control_refs": 1
+    },
+    "agent_session_failure.rs": {
+      "legacy_control_refs": 6
+    },
+    "agent_start_failure.rs": {
+      "legacy_control_refs": 1
+    },
+    "agent_stop.rs": {
+      "legacy_control_refs": 1
+    },
+    "agent_turn_card.rs": {
+      "legacy_control_refs": 13
+    },
     "app.rs": {
       "offset_literals": 2
     },
@@ -14,12 +55,21 @@
       "inset_literals": 3,
       "offset_literals": 12
     },
+    "canvas/agent_banner.rs": {
+      "legacy_control_refs": 1
+    },
+    "canvas/agent_changes_chip.rs": {
+      "legacy_control_refs": 1
+    },
+    "canvas/agent_overlay.rs": {
+      "legacy_control_refs": 1
+    },
     "canvas/create.rs": {
       "offset_literals": 6
     },
     "canvas/draw.rs": {
       "inset_literals": 4,
-      "offset_literals": 15,
+      "offset_literals": 13,
       "radius_literals": 13
     },
     "canvas/hit.rs": {
@@ -47,20 +97,20 @@
       "offset_literals": 2
     },
     "cmdk.rs": {
-      "offset_literals": 35,
-      "radius_literals": 9
+      "offset_literals": 30,
+      "radius_literals": 6
     },
     "comments/panel.rs": {
       "offset_literals": 20
     },
     "comments/thread.rs": {
-      "offset_literals": 17
+      "offset_literals": 16
     },
     "comments/time.rs": {
       "offset_literals": 2
     },
     "comments/ui.rs": {
-      "inset_literals": 4,
+      "inset_literals": 2,
       "offset_literals": 1
     },
     "decks/demo.rs": {
@@ -79,18 +129,21 @@
       "offset_literals": 30
     },
     "dev/list.rs": {
-      "offset_literals": 9,
+      "offset_literals": 5,
       "radius_literals": 1
+    },
+    "dev/playground.rs": {
+      "legacy_control_refs": 6
     },
     "dev/preset.rs": {
       "offset_literals": 1
     },
     "dev/sections.rs": {
-      "offset_literals": 64,
+      "offset_literals": 61,
       "radius_literals": 7
     },
     "find/filter.rs": {
-      "offset_literals": 10
+      "offset_literals": 2
     },
     "find/panel.rs": {
       "offset_literals": 11
@@ -103,20 +156,19 @@
       "offset_literals": 3
     },
     "history/panel.rs": {
-      "offset_literals": 23
+      "offset_literals": 22
     },
     "home/dialog.rs": {
       "inset_literals": 1,
-      "offset_literals": 10
+      "offset_literals": 8
     },
     "home/main_view.rs": {
       "offset_literals": 47,
       "radius_literals": 1
     },
     "home/mod.rs": {
-      "font_literals": 2,
-      "offset_literals": 162,
-      "radius_literals": 43
+      "offset_literals": 131,
+      "radius_literals": 1
     },
     "home/sidebar.rs": {
       "offset_literals": 14
@@ -128,13 +180,10 @@
       "offset_literals": 3
     },
     "libraries/modal.rs": {
-      "inset_literals": 1,
-      "offset_literals": 35,
-      "radius_literals": 1
+      "offset_literals": 26
     },
     "libraries/review.rs": {
-      "offset_literals": 8,
-      "radius_literals": 2
+      "offset_literals": 6
     },
     "lint.rs": {
       "inset_literals": 2,
@@ -142,29 +191,28 @@
     },
     "panels/assets.rs": {
       "inset_literals": 2,
-      "offset_literals": 29
+      "offset_literals": 28
     },
     "panels/check_designs.rs": {
-      "offset_literals": 11
+      "offset_literals": 1
     },
     "panels/components.rs": {
       "offset_literals": 9,
       "radius_literals": 2
     },
     "panels/context.rs": {
-      "offset_literals": 9,
-      "radius_literals": 2
+      "offset_literals": 8
     },
     "panels/effects.rs": {
       "inset_literals": 1,
       "offset_literals": 9
     },
     "panels/export.rs": {
-      "offset_literals": 9
+      "offset_literals": 7
     },
     "panels/inspect.rs": {
-      "offset_literals": 54,
-      "radius_literals": 4
+      "offset_literals": 48,
+      "radius_literals": 2
     },
     "panels/layers.rs": {
       "offset_literals": 11
@@ -174,12 +222,11 @@
       "radius_literals": 1
     },
     "panels/left.rs": {
-      "offset_literals": 21
+      "offset_literals": 11
     },
     "panels/menus.rs": {
       "inset_literals": 1,
-      "offset_literals": 26,
-      "radius_literals": 2
+      "offset_literals": 26
     },
     "panels/mod.rs": {
       "offset_literals": 3,
@@ -188,7 +235,7 @@
     "panels/properties.rs": {
       "inset_literals": 2,
       "offset_literals": 37,
-      "radius_literals": 10
+      "radius_literals": 9
     },
     "panels/proto_actions.rs": {
       "offset_literals": 11
@@ -198,7 +245,7 @@
       "radius_literals": 8
     },
     "panels/rail.rs": {
-      "offset_literals": 4
+      "offset_literals": 1
     },
     "panels/right.rs": {
       "offset_literals": 21,
@@ -211,9 +258,8 @@
       "offset_literals": 4
     },
     "panels/toolbar.rs": {
-      "inset_literals": 3,
-      "offset_literals": 15,
-      "radius_literals": 4
+      "inset_literals": 2,
+      "offset_literals": 8
     },
     "panels/typography.rs": {
       "font_literals": 1,
@@ -222,22 +268,21 @@
       "radius_literals": 1
     },
     "panels/var_bind.rs": {
-      "offset_literals": 7
+      "offset_literals": 6
     },
     "panels/vertex.rs": {
       "offset_literals": 3
     },
     "plugins/ui.rs": {
       "inset_literals": 2,
-      "offset_literals": 25
+      "offset_literals": 24
     },
     "present.rs": {
       "offset_literals": 48
     },
     "shell.rs": {
-      "nonconcentric_pairs": 2,
-      "offset_literals": 48,
-      "radius_literals": 6
+      "offset_literals": 36,
+      "radius_literals": 1
     },
     "showcase/kit.rs": {
       "offset_literals": 3
@@ -248,6 +293,9 @@
     "showcase/web.rs": {
       "offset_literals": 1
     },
+    "skills/mod.rs": {
+      "legacy_control_refs": 3
+    },
     "specs.rs": {
       "font_literals": 20,
       "nonconcentric_pairs": 1,
@@ -255,30 +303,27 @@
       "radius_literals": 79
     },
     "tabs.rs": {
-      "offset_literals": 30,
-      "radius_literals": 6
+      "offset_literals": 27
     },
     "terminal.rs": {
       "font_literals": 1,
-      "nonconcentric_pairs": 1,
-      "offset_literals": 180,
-      "radius_literals": 43
+      "legacy_control_refs": 4,
+      "offset_literals": 68,
+      "radius_literals": 17
     },
     "updater.rs": {
-      "offset_literals": 55,
-      "radius_literals": 14
+      "offset_literals": 51
     },
     "variables/library.rs": {
       "offset_literals": 3
     },
     "variables/popover.rs": {
-      "offset_literals": 38,
-      "radius_literals": 2
+      "offset_literals": 35
     },
     "variables/view.rs": {
       "inset_literals": 4,
-      "offset_literals": 49,
-      "radius_literals": 3
+      "offset_literals": 46,
+      "radius_literals": 2
     },
     "variables/widgets.rs": {
       "inset_literals": 1,
@@ -292,32 +337,31 @@
       "offset_literals": 11,
       "radius_literals": 1
     },
-    "widgets/mod.rs": {
-      "offset_literals": 2
-    },
     "widgets/picker.rs": {
       "inset_literals": 3,
       "offset_literals": 47,
       "radius_literals": 6
     },
     "widgets/popover.rs": {
-      "offset_literals": 7
+      "offset_literals": 6
     }
   },
   "note": "Ratchet baseline for scripts/check_spacing_relationships.py. Per-file counts of literal geometry outside theme.rs. Counts may only fall: lower them with --write-baseline, which refuses to raise any entry.",
   "totals": {
-    "font_literals": 25,
-    "inset_literals": 45,
-    "nonconcentric_pairs": 5,
-    "offset_literals": 1807,
-    "radius_literals": 285
+    "font_literals": 23,
+    "inset_literals": 41,
+    "legacy_control_refs": 79,
+    "nonconcentric_pairs": 2,
+    "offset_literals": 1557,
+    "radius_literals": 172
   },
   "totals_excluding_own_palette": {
-    "font_literals": 4,
-    "inset_literals": 45,
-    "nonconcentric_pairs": 3,
-    "offset_literals": 1388,
-    "radius_literals": 163
+    "font_literals": 2,
+    "inset_literals": 41,
+    "legacy_control_refs": 75,
+    "nonconcentric_pairs": 1,
+    "offset_literals": 1250,
+    "radius_literals": 76
   },
   "version": 1
 }

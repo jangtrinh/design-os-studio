@@ -1,4 +1,4 @@
-//! Inspector popovers (effect settings, stroke settings): a 13px-radius elevation-400 panel
+//! Inspector popovers (effect settings, stroke settings): a frame-radius panel
 //! with a title row and close button, placed left of the inspector next to the row that
 //! opened it, like the colour picker.
 
@@ -24,9 +24,7 @@ pub fn show(ctx: &egui::Context, id: Id, anchor: Rect, region: Rect, w: f32, h: 
         ui.allocate_rect(rect, Sense::hover());
         {
             let p = ui.painter();
-            elevation_400(p, rect, theme::RADIUS_FRAME);
-            p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), theme::BG);
-            p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
+            kit::popover_surface(p, rect);
             let font = theme::font_body_strong();
             let tr = Rect::from_min_size(rect.min, Vec2::new(w, HEADER_H));
             text_on_baseline(p, rect.left() + LABEL_X, centered_baseline(tr, &font), title, font, theme::TEXT);
@@ -66,17 +64,9 @@ pub fn height(rows: usize) -> f32 {
     HEADER_H + 8.0 + rows as f32 * ROW_H + 8.0
 }
 
-/// Check box with a label (14px box, brand fill when on). Returns the new value on click.
+/// Check box. Returns the new value on click. The hit rect stays `r`.
 pub fn check(ui: &mut Ui, r: Rect, key: impl Key, value: bool) -> Option<bool> {
-    let resp = ui.interact(r, ui.id().with(("pop-check", key)), Sense::click());
-    let b = Rect::from_min_size(Pos2::new(r.left(), r.center().y - 7.0), Vec2::splat(14.0));
-    let p = ui.painter();
-    if value {
-        p.rect_filled(b, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);
-        paint_icon_in(p, b, Icon::Check, 12.0, theme::TEXT);
-    } else {
-        p.rect_stroke(b, theme::cr(theme::RADIUS_MARK), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Inside);
-    }
+    let resp = kit::checkbox(ui, r, ("pop-check", key), value, true);
     resp.clicked().then_some(!value)
 }
 

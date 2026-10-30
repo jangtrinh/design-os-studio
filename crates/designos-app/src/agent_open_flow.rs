@@ -402,9 +402,12 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
     }
 }
 
-const SESSIONS_BTN_W: f32 = 64.0;
+/// The `Sessions` button hugs its label, in whole pixels (rounded up): the label at `font_caption_medium` (51.7 px), a control
+/// inset on each side and the chevron slot. `sessions_button_hugs_its_label` keeps this equal to that sum.
+const SESSIONS_BTN_W: f32 = 76.0;
 const ADD_BTN_RESERVE: f32 = 32.0;
-const TABS_RIGHT_RESERVE: f32 = 108.0;
+/// Room the tab strip leaves on its right for `Sessions` and `+`: a 4 px gap, the button, 8 px and the `+` reserve.
+const TABS_RIGHT_RESERVE: f32 = theme::SPACE_FACT + SESSIONS_BTN_W + theme::SPACE_INLINE + ADD_BTN_RESERVE;
 
 /// Returns the right X limit for the tab strip when `"Sessions"` and `+` follow it before `pop_left`.
 pub fn max_tabs_right_for_bar(pop_left: f32) -> f32 {
@@ -455,24 +458,26 @@ pub fn render_sessions_button(state: &mut TerminalState, ui: &mut Ui, btn_rect: 
 pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rect: Rect, top_y: f32, file_path: Option<&Path>) {
     let rows = state.sessions_popover_rows();
     let pad = theme::INSET_POPOVER;
-    let row_h = theme::CONTROL_ROW;
+    let row_h = theme::CONTROL_MD;
     let row_gap = theme::SPACE_FACT;
     let header_h = theme::FIELD_HEIGHT;
     let body_count = rows.len().max(1) as f32;
     let pop_w = (panel_rect.width() - pad).clamp(POPOVER_MIN_W, POPOVER_MAX_W);
-    let notice_h = if state.resume_notice.is_some() { header_h } else { 0.0 };
+    let p = ui.painter().clone();
+    let inner_w = (pop_w - pad * 2.0).max(POPOVER_MIN_INNER_W);
+    // A failed-resume notice is wrapped, never elided: when one line is too short it takes a second and the popover grows.
+    let notice = state.resume_notice.as_deref().map(|text| p.layout(text.to_string(), theme::font_caption(), theme::DANGER, inner_w - theme::INSET_CONTROL));
+    let notice_h = notice.as_ref().map_or(0.0, |galley| header_h.max(galley.size().y + theme::SPACE_FACT * 2.0));
     let pop_h = pad * 2.0 + header_h + theme::SPACE_FACT + body_count * (row_h + row_gap) + notice_h;
     let pop_x = (panel_rect.right() - pop_w - theme::SPACE_ROW).max(panel_rect.left() + theme::SPACE_ROW);
     let pop_r = Rect::from_min_size(Pos2::new(pop_x, top_y), Vec2::new(pop_w, pop_h));
 
-    let p = ui.painter().clone();
     p.rect_filled(pop_r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
     p.rect_stroke(pop_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_MENU), StrokeKind::Inside);
     widgets::record(ui, "agents-sessions-popover", pop_r);
 
     let inner_left = pop_r.left() + pad;
     let inner_right = pop_r.right() - pad;
-    let inner_w = (inner_right - inner_left).max(POPOVER_MIN_INNER_W);
 
     let hdr = widgets::elide(&p, "Sessions for this file", &theme::font_caption_medium(), inner_w);
     p.text(
@@ -503,10 +508,10 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         widgets::record(ui, "agents-sessions-empty", empty_r);
     }
 
-    if let Some(notice) = state.resume_notice.as_deref() {
-        let notice_r = Rect::from_min_size(Pos2::new(inner_left, pop_r.bottom() - pad - header_h), Vec2::new(inner_w, header_h));
-        let txt = widgets::elide(&p, notice, &theme::font_caption(), inner_w - theme::INSET_CONTROL);
-        p.text(Pos2::new(notice_r.left() + theme::INSET_CONTROL, notice_r.center().y), Align2::LEFT_CENTER, txt, theme::font_caption(), theme::DANGER);
+    if let Some(galley) = notice {
+        let notice_r = Rect::from_min_size(Pos2::new(inner_left, pop_r.bottom() - pad - notice_h), Vec2::new(inner_w, notice_h));
+        let pos = Pos2::new(notice_r.left() + theme::INSET_CONTROL, notice_r.center().y - galley.size().y * 0.5);
+        p.galley(pos, galley, theme::DANGER);
         widgets::record(ui, "agents-sessions-notice", notice_r);
     }
 
@@ -549,7 +554,7 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         paint_session_row_indicators(ui, &p, &row.status, row.preset, r_rect.left(), top_y_line);
 
         let cli_x = r_rect.left() + TITLE_LEFT_X;
-        let cli_str = widgets::elide(&p, &row.cli_display_name, &theme::font_body_medium(), (inner_w * 0.38).max(theme::CONTROL_ROW));
+        let cli_str = widgets::elide(&p, &row.cli_display_name, &theme::font_body_medium(), (inner_w * 0.38).max(theme::CONTROL_MD));
         let cli_w = widgets::text_width(&p, &cli_str, &theme::font_body_medium());
         p.text(Pos2::new(cli_x, top_y_line), Align2::LEFT_CENTER, &cli_str, theme::font_body_medium(), theme::TEXT);
 
@@ -594,7 +599,7 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
 
         // Line 2: relative time + status on the left, Rename + Remove from list on the right
         let meta_txt = format!("{} · {}", row.relative_time, row.status.label());
-        let meta_avail_w = (rename_r.left() - theme::SPACE_INLINE - cli_x).max(theme::CONTROL_ROW);
+        let meta_avail_w = (rename_r.left() - theme::SPACE_INLINE - cli_x).max(theme::CONTROL_MD);
         let meta_elided = widgets::elide(&p, &meta_txt, &theme::font_caption(), meta_avail_w);
         p.text(Pos2::new(cli_x, bottom_y_line), Align2::LEFT_CENTER, meta_elided, theme::font_caption(), theme::TEXT_SECONDARY);
 
@@ -1266,6 +1271,24 @@ mod tests {
         crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect()
     }
 
+    /// The painted texts with wrapped rows joined: a notice that wraps onto a second line is still one sentence
+    /// (the wrap follows a space, so joining the rows restores it).
+    fn painted_sentences(out: &egui::FullOutput) -> Vec<String> {
+        painted_texts(out).into_iter().map(|t| t.replace('\n', "")).collect()
+    }
+
+    #[test]
+    fn sessions_button_hugs_its_label() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let label_w = widgets::text_width(ui.painter(), "Sessions", &theme::font_caption_medium());
+            let hug = label_w.ceil() + theme::INSET_CONTROL * 2.0 + SESSIONS_BTN_CHEVRON_OFFSET;
+            assert_eq!(SESSIONS_BTN_W, hug, "the button is the label ({label_w} px, rounded up) plus its insets and chevron slot");
+        });
+    }
+
     fn click_at(ctx: &egui::Context, screen: Rect, pos: Pos2, mut frame: impl FnMut(&mut Ui)) {
         for pressed in [true, false] {
             let raw = egui::RawInput {
@@ -1362,14 +1385,14 @@ mod tests {
             let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
                 render_sessions_popover(&mut st, ui, narrow_panel, 40.0, None);
             });
-            assert!(painted_texts(&out).contains(&notice), "popover elides {notice:?}: {:?}", painted_texts(&out));
+            assert!(painted_sentences(&out).contains(&notice), "popover elides {notice:?}: {:?}", painted_texts(&out));
 
             st.sessions_popover_open = false;
             st.runtime_dropdown_open = true;
             let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
                 crate::agent_picker::render_runtime_dropdown_menu(&mut st, ui, narrow_panel, 40.0, None);
             });
-            assert!(painted_texts(&out).contains(&notice), "+ menu footer elides {notice:?}: {:?}", painted_texts(&out));
+            assert!(painted_sentences(&out).contains(&notice), "+ menu footer elides {notice:?}: {:?}", painted_texts(&out));
         }
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1392,7 +1415,7 @@ mod tests {
 
         st.set_resume_failure("CLI 'codex' does not support safe session resume");
         st.runtime_dropdown_open = true;
-        let open = painted_texts(&frame(&mut st));
+        let open = painted_sentences(&frame(&mut st));
         assert!(open.iter().any(|t| t == NOT_RESUMABLE_NOTICE), "notice shows in the open + menu: {open:?}");
 
         // Picking a row (or Esc, or an outside click) closes the menu: the notice must go with it.

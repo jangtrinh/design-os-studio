@@ -938,14 +938,16 @@ fn the_import_toast_still_paints_above_the_floating_variables_panel() {
     assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
 }
 
-/// Raises the web capture import toast (the one with a `Details` link) and returns its text.
+/// Raises the web capture import toast (the one with a `Details` button) and returns the message the toast paints,
+/// which is the summary without its trailing hint.
 fn raise_the_details_toast(s: &mut Sim) -> String {
     let report = designos_webcapture::ImportReport::default();
     let text = report.summary_toast();
+    let message = text.strip_suffix(" \u{00b7} Details").expect("the summary ends with the Details hint").to_string();
     s.shell.app.web_capture_report = Some(report);
-    s.shell.app.show_toast(text.clone(), false);
+    s.shell.app.show_toast(text, false);
     settle_the_toast(s);
-    text
+    message
 }
 
 /// The toast's Area sizes itself on the first frame it exists and paints on the next one.
@@ -961,9 +963,11 @@ fn the_details_toast_opens_its_report_in_the_full_variables_view() {
     let text = raise_the_details_toast(&mut s);
     let (at, bounds) = painted_text(&s, &text).unwrap_or_else(|| panic!("toast {text:?} was not painted"));
     assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
+    let (at, button) = painted_text(&s, "Details").expect("the Details button is painted");
+    assert_eq!(opaque_rect_over(&s, at, button), None, "nothing hides the Details button");
     assert!(!s.app().web_capture_report_open, "precondition: the report starts closed");
 
-    s.click(bounds.center());
+    s.click(button.center());
     assert!(s.app().web_capture_report_open, "clicking Details opens the report over the full view");
     assert!(s.app().vars.open && s.app().vars.full, "the click did not close the view");
 }
@@ -974,9 +978,11 @@ fn the_details_toast_opens_its_report_on_the_canvas() {
     let text = raise_the_details_toast(&mut s);
     let (at, bounds) = painted_text(&s, &text).unwrap_or_else(|| panic!("toast {text:?} was not painted"));
     assert_eq!(opaque_rect_over(&s, at, bounds), None, "nothing hides the toast");
+    let (at, button) = painted_text(&s, "Details").expect("the Details button is painted");
+    assert_eq!(opaque_rect_over(&s, at, button), None, "nothing hides the Details button");
     let selection = s.app().selection.clone();
 
-    s.click(bounds.center());
+    s.click(button.center());
     assert!(s.app().web_capture_report_open, "clicking Details opens the report");
     assert_eq!(s.app().selection, selection, "the click did not reach the canvas under the toast");
 }

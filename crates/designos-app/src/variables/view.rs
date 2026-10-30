@@ -5,7 +5,8 @@
 
 use super::library::{self, LIBRARY_TIP};
 use super::widgets::{
-    arrows_glyph, cross_glyph, filter_glyph, from_c32, hexagon, kind_glyph, kind_name, picker, pill, sliders_glyph, to_c32, PickItem, PickResult,
+    arrows_glyph, cross_glyph, filter_glyph, from_c32, hexagon, kind_glyph, kind_name, picker, pill, sliders_glyph, to_c32, PickItem, PickResult, SWITCH_H,
+    SWITCH_W,
 };
 use super::{AliasPicker, CellPicker, EditPopover, RowDrag, VarMenu, VarMenuKind};
 use crate::app::App;
@@ -277,13 +278,10 @@ pub fn show(app: &mut App, ui: &mut Ui, content: Rect) {
         ui.set_clip_rect(g.panel.expand(40.0));
         let (_, _) = ui.allocate_exact_size(g.panel.size(), Sense::hover());
         let p = ui.painter().clone();
-        if g.floating {
-            widgets::elevation_400(&p, g.panel, theme::RADIUS_FRAME);
-        }
         let radius = if g.floating { theme::cr_each(0, theme::RADIUS_FRAME, theme::RADIUS_FRAME, 0) } else { theme::cr(0) };
         p.rect_filled(g.panel, radius, theme::BG);
         if g.floating {
-            p.rect_stroke(g.panel, radius, Stroke::new(1.0, theme::ELEVATION_400_RING), StrokeKind::Inside);
+            p.rect_stroke(g.panel, radius, Stroke::new(1.0, theme::BORDER_MENU), StrokeKind::Inside);
         }
         // swallow pointer input over the panel; the controls below register after and win
         let body = ui.interact(g.panel, Id::new("vars-body"), Sense::click_and_drag());
@@ -404,8 +402,7 @@ fn rename_field(app: &mut App, ui: &mut Ui, rect: Rect, eid: Id, cur: &str, font
         ui.ctx().memory_mut(|m| m.request_focus(eid));
     }
     app.vars.rename_frames += 1;
-    ui.painter().rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    ui.painter().rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+    editor_chrome(ui, rect);
     let r = field::edit_text(ui, rect, eid, cur, font, theme::TEXT, pad);
     if r.is_some() || (app.vars.rename_frames > 2 && !ui.memory(|m| m.has_focus(eid))) {
         app.vars.renaming = None;
@@ -424,16 +421,22 @@ fn edit_or_show(read_only: bool, ui: &mut Ui, rect: Rect, id: Id, display: &str,
     None
 }
 
+/// A value cell paints nothing at rest, a fill under the pointer, and the kit's focused field with its ring while it is
+/// edited. A row under the pointer already shows the hover background, so the cell's own fill is the next step up.
 fn cell_chrome(ui: &Ui, rect: Rect, id: Id) {
-    let focused = ui.memory(|m| m.has_focus(id));
-    let hovered = ui.rect_contains_pointer(rect);
-    let p = ui.painter();
-    if focused {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
-    } else if hovered {
-        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+    if ui.memory(|m| m.has_focus(id)) {
+        editor_chrome(ui, rect);
+    } else if ui.rect_contains_pointer(rect) {
+        let hover = crate::widgets::kit::row_look(crate::widgets::kit::State::Hover, crate::widgets::kit::Surface::Secondary);
+        crate::widgets::kit::paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &hover);
     }
+}
+
+/// The focused field look around an inline editor.
+fn editor_chrome(ui: &Ui, rect: Rect) {
+    let focused = crate::widgets::kit::field_look(crate::widgets::kit::State::Focused, false);
+    crate::widgets::kit::paint_frame(ui.painter(), rect, theme::RADIUS_CONTROL, &focused);
+    crate::widgets::kit::focus_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32);
 }
 
 // ------------------------------------------------------------------ sidebar
@@ -674,12 +677,13 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
     }
     search_left = search_left.max(x0 + 100.0);
     let search = Rect::from_min_size(Pos2::new(search_left, cy - 12.0), Vec2::new(theme::VAR_SEARCH_W, 24.0));
-    let sr = theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL);
-    p.rect_filled(search, sr, theme::BG_SECONDARY);
-    icons::paint(&p, Icon::Search, Pos2::new(search.left() + 11.0, cy), 16.0, theme::ICON_SECONDARY);
+    let search_id = Id::new("vars-search");
+    super::widgets::field_chrome(ui, search, search_id, crate::widgets::kit::Size::Xs);
+    let search_icon = crate::widgets::kit::field_look(crate::widgets::kit::State::Default, false).icon;
+    icons::paint(&p, Icon::Search, Pos2::new(search.left() + 11.0, cy), 16.0, search_icon);
     let te = egui::TextEdit::singleline(&mut app.vars.search)
-        .id(Id::new("vars-search"))
-        .hint_text("Search")
+        .id(search_id)
+        .hint_text(egui::RichText::new("Search").color(theme::TEXT_PLACEHOLDER))
         .font(theme::font_body())
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
@@ -751,7 +755,8 @@ fn bottom_bar(app: &mut App, ui: &mut Ui, g: &Geom, coll: &VariableCollection, f
     let read_only = coll.is_library();
     let label = if read_only { library::NOTE } else { "Create variable" };
     let w = 34.0 + widgets::text_width(&p, label, &theme::font_body()) + 8.0;
-    let b = Rect::from_min_size(Pos2::new(x0 + 8.0, g.panel.bottom() - 8.0 - theme::VAR_FIELD_H), Vec2::new(w, theme::VAR_FIELD_H));
+    let top = g.bottom_line() + 1.0 + (theme::VAR_BOTTOM_H - 1.0 - theme::FIELD_HEIGHT) / 2.0;
+    let b = Rect::from_min_size(Pos2::new(x0 + 8.0, top), Vec2::new(w, theme::FIELD_HEIGHT));
     if read_only {
         // a library collection has no "Create variable": say why, in the space it would take
         library::paint_read_only_note(ui, b);
@@ -882,11 +887,11 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
     });
 
     // ---- header row
-    p.rect_filled(Rect::from_min_size(Pos2::new(x0, hy), Vec2::new(right - x0, theme::VAR_HEAD_H)), 0.0, theme::BG);
+    p.rect_filled(Rect::from_min_size(Pos2::new(x0, hy), Vec2::new(right - x0, theme::VAR_HEAD_H)), 0.0, theme::BG_SECONDARY);
     widgets::hline(&p, x0, right, hy + theme::VAR_HEAD_H, theme::BORDER);
     widgets::vline(&p, x0 + theme::VAR_NAME_COL, hy, hy + theme::VAR_HEAD_H, theme::BORDER);
     let hcy = hy + theme::VAR_HEAD_H / 2.0;
-    p.text(Pos2::new(x0 + 16.0, hcy), Align2::LEFT_CENTER, "Name", theme::font_body_strong(), theme::TEXT);
+    p.text(Pos2::new(x0 + 16.0, hcy), Align2::LEFT_CENTER, "Name", theme::font_body_strong(), theme::TEXT_TERTIARY);
     clipped(ui, Rect::from_min_max(Pos2::new(modes_left, hy), Pos2::new(right, hy + theme::VAR_HEAD_H + 1.0)), |ui| {
         let p = ui.painter().clone();
         for (i, mode) in coll.modes.iter().enumerate() {
@@ -906,7 +911,7 @@ fn table(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame, coll: &VariableCo
                 }
             } else {
                 let shown = widgets::elide(&p, &label, &theme::font_body_strong(), mw - 32.0);
-                p.text(Pos2::new(cl + 16.0, hcy), Align2::LEFT_CENTER, shown, theme::font_body_strong(), theme::TEXT);
+                p.text(Pos2::new(cl + 16.0, hcy), Align2::LEFT_CENTER, shown, theme::font_body_strong(), theme::TEXT_TERTIARY);
                 if coll.default_mode == mode.id && coll.modes.len() > 1 {
                     let w = widgets::text_width(&p, &label, &theme::font_body_strong());
                     if w + 80.0 < mw {
@@ -981,11 +986,11 @@ fn header_row(app: &mut App, ui: &mut Ui, g: &Geom, r: Rect, coll: &str, path: &
     let name_cell = Rect::from_min_size(r.min, Vec2::new(theme::VAR_NAME_COL, r.height()));
     let key = folded_key(coll, path);
     let resp = ui.interact(Rect::from_min_max(r.min, Pos2::new(r.right(), r.bottom())), Id::new(("vars-header", &key)), Sense::click());
-    let row_bg = if resp.hovered() { theme::BG_HOVER } else { Color32::from_rgb(0x25, 0x25, 0x25) };
+    let row_bg = if resp.hovered() { theme::BG_SECONDARY_HOVER } else { theme::BG_SECONDARY };
     p.rect_filled(r, 0.0, row_bg);
     let open = !app.vars.folded.contains(&key);
     let x = r.left() + 16.0 + depth as f32 * 16.0;
-    let group_fg = Color32::from_rgb(0xB3, 0xB3, 0xB3);
+    let group_fg = theme::TEXT_TERTIARY;
     icons::paint(&p, if open { Icon::ChevronDown } else { Icon::ChevronRight }, Pos2::new(x + 4.0, r.center().y), 12.0, group_fg);
     let label = split_name(path).1;
     let read_only = fr.view.is_library_collection(coll);
@@ -1282,7 +1287,7 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
     let value = v.values.get(mode).cloned().unwrap_or_else(|| default_value(v.kind));
     let p = ui.painter().clone();
     let cy = cell.center().y;
-    let fh = theme::VAR_FIELD_H;
+    let fh = theme::FIELD_HEIGHT;
     widgets::record(ui, &format!("vars-cell:{}:{}", v.name, mode), cell);
     if let VariableValue::Alias(target) = &value {
         let tv = fr.view.variables.get(target);
@@ -1293,7 +1298,7 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
         let label = tv.map(|t| t.name.clone()).unwrap_or_else(|| "Missing variable".into());
         let tw = widgets::text_width(&p, &label, &theme::font_body());
         let w = (tw + 12.0 + 12.0 + if swatch_c.is_some() { 18.0 } else { 0.0 } + 8.0 + 22.0).min(cell.width() - 16.0);
-        let pr_rect = Rect::from_min_size(Pos2::new(cell.left() + 8.0, cy - fh / 2.0), Vec2::new(w, fh));
+        let pr_rect = Rect::from_min_size(Pos2::new(cell.left() + 8.0, cy - theme::BADGE_MD / 2.0), Vec2::new(w, theme::BADGE_MD));
         widgets::record(ui, &format!("vars-alias:{}:{}", v.name, mode), pr_rect);
         let pr = pill(ui, pr_rect, id, &label, swatch_c, !ro);
         if ro {
@@ -1341,9 +1346,8 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
             }
             if op_shown {
                 let op_r = Rect::from_min_size(Pos2::new(field_right - theme::VAR_OPACITY_W, op_r.top()), op_r.size());
-                p.rect_filled(op_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-                if ui.memory(|m| m.has_focus(oid)) {
-                    p.rect_stroke(op_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+                if !ro {
+                    cell_chrome(ui, op_r, oid);
                 }
                 widgets::record(ui, &format!("vars-opacity:{}:{}", v.name, mode), op_r);
                 let shown = format!("{}%", fmt_num((c.a * 100.0).round()));
@@ -1381,14 +1385,13 @@ pub(super) fn value_cell(app: &mut App, ui: &mut Ui, cell: Rect, v: &Variable, m
             }
         }
         VariableValue::Boolean(b) => {
-            let sw = Rect::from_min_size(Pos2::new(cell.left() + 16.0, cy - 8.0), Vec2::new(28.0, 16.0));
-            let resp = ui.interact(Rect::from_min_max(cell.min, Pos2::new(field_right, cell.bottom())), id.with("tog"), Sense::click());
-            widgets::record(ui, &format!("vars-bool:{}:{}", v.name, mode), sw);
-            p.rect_filled(sw, theme::cr(255), if *b { theme::BG_BRAND } else { theme::BG_TERTIARY });
-            let kx = if *b { sw.right() - 8.0 } else { sw.left() + 8.0 };
-            p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, Color32::WHITE);
+            let sw = Rect::from_min_size(Pos2::new(cell.left() + 16.0, cy - SWITCH_H / 2.0), Vec2::new(SWITCH_W, SWITCH_H));
+            // The cell takes clicks on its label; the kit switch is the one focusable control in it.
+            let resp = ui.interact(Rect::from_min_max(cell.min, Pos2::new(field_right, cell.bottom())), id.with("tog"), Sense::CLICK);
+            let switch = crate::widgets::kit::toggle(ui, sw, id.with("switch"), *b, true);
+            widgets::record(ui, &format!("vars-bool:{}:{}", v.name, mode), switch.rect);
             p.text(Pos2::new(sw.right() + 8.0, cy), Align2::LEFT_CENTER, if *b { "True" } else { "False" }, theme::font_body(), theme::TEXT);
-            if resp.clicked() && !ro {
+            if (resp.clicked() || switch.clicked()) && !ro {
                 fr.work.set_value(&v.id, mode, VariableValue::Boolean(!b));
             }
         }
@@ -1644,9 +1647,9 @@ fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
     let mut close = false;
     let area = egui::Area::new(Id::new("vars-skipped-details")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(size, Sense::click());
-        widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
+        crate::widgets::kit::popover_surface(ui.painter(), rect);
         let p = ui.painter();
-        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + theme::CONTROL_TOOL));
+        let head = Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + theme::CONTROL_XS));
         let title_r = p.text(
             Pos2::new(head.left() + theme::SPACE_GROUP, head.center().y),
             Align2::LEFT_CENTER,
@@ -1662,7 +1665,7 @@ fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
             theme::BG_TERTIARY,
             theme::TEXT_SECONDARY,
         );
-        let close_rect = Rect::from_center_size(Pos2::new(head.right() - theme::INSET_POPOVER, head.center().y), Vec2::splat(theme::CONTROL_DENSE));
+        let close_rect = Rect::from_center_size(Pos2::new(head.right() - theme::INSET_POPOVER, head.center().y), Vec2::splat(theme::CONTROL_XS));
         let close_resp = ui.interact(close_rect, Id::new("vars-skipped-close"), Sense::click());
         cross_glyph(p, close_rect.center(), 4.5, if close_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
         if close_resp.clicked() {
@@ -1676,7 +1679,7 @@ fn run_skipped_details_popover(app: &mut App, ctx: &Context, g: Geom) {
         ui.scope_builder(egui::UiBuilder::new().max_rect(body), |ui| {
             egui::ScrollArea::vertical().id_salt("vars-skipped-scroll").max_height(220.0).show(ui, |ui| {
                 for item in &rep.skipped {
-                    let (row_r, _) = ui.allocate_exact_size(Vec2::new(body.width(), theme::CONTROL_DENSE), Sense::hover());
+                    let (row_r, _) = ui.allocate_exact_size(Vec2::new(body.width(), theme::MENU_ITEM_HEIGHT), Sense::hover());
                     widgets::record(ui, &format!("vars-skipped-item:{}", item.path), row_r);
                     ui.painter().text(
                         Pos2::new(row_r.left(), row_r.center().y),
@@ -1760,7 +1763,7 @@ fn run_cell_picker(app: &mut App, ctx: &Context) {
     let mut changed = false;
     let area = egui::Area::new(Id::new("vars-color-picker")).order(Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
         let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-        widgets::menu_panel(ui.painter(), rect, theme::RADIUS_FRAME);
+        crate::widgets::kit::popover_surface(ui.painter(), rect);
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect.shrink(8.0)), |ui| {
             ui.spacing_mut().slider_width = 180.0;
             changed = egui::color_picker::color_picker_color32(ui, &mut pk.color, egui::color_picker::Alpha::OnlyBlend);
