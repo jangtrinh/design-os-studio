@@ -15,7 +15,9 @@ What it rewrites (only what the release actually lists, never a guess):
 The previous version is read from the pages, never hardcoded. The script is idempotent:
 on an up-to-date tree it changes nothing. A release numbered lower than the version the
 pages show (v0.7.1 published after v0.7.5) is skipped with a notice and exit 0: the pages
-and the homepage stay on the highest version. It exits non-zero when a link would point at
+and the homepage stay on the highest version. The skip only counts when `gh release view`
+finds the version the pages show as a published stable release; a stray higher version on
+the pages (a typo) fails the run instead. It exits non-zero when a link would point at
 a missing asset (the macOS .dmg is required; an optional Windows or Linux package that the
 release does not list is dropped from index.html with a warning) or when an old-version
 link is left over.
@@ -81,6 +83,39 @@ def load_release(version: str, repo: str, assets_json: str | None) -> dict:
         "assets": {a["name"]: int(a["size"]) for a in data["assets"]},
         "published": (data.get("publishedAt") or "")[:10],
     }
+
+
+def require_published_stable(version: str, repo: str, release_json: str | None) -> None:
+    """Raise unless v<version> is a published, non-draft, non-pre-release release.
+
+    The pages are the only evidence of "the version the pages show", and one typo on them
+    (`build-release.sh 7.0.5`) would make every real release look older. So a version found
+    on the pages only counts once a release by that name exists.
+    """
+    if release_json:
+        raw = Path(release_json).read_text()
+    else:
+        try:
+            out = subprocess.run(
+                ["gh", "release", "view", f"v{version}", "--repo", repo, "--json", "tagName,isDraft,isPrerelease"],
+                capture_output=True, text=True,
+            )
+        except OSError as err:
+            raise SyncError(f"pages name v{version}, but gh could not check it: {err}")
+        if out.returncode != 0:
+            raise SyncError(f"pages name v{version}, which is not a published release "
+                            f"(gh release view v{version} failed: {out.stderr.strip()})")
+        raw = out.stdout
+    try:
+        data = json.loads(raw)
+    except ValueError as err:
+        raise SyncError(f"pages name v{version}, but its release json is unreadable: {err}")
+    if not isinstance(data, dict):
+        raise SyncError(f"pages name v{version}, but its release json is not an object")
+    if data.get("tagName") not in (None, f"v{version}"):
+        raise SyncError(f"pages name v{version}, but the release json is for {data['tagName']}")
+    if data.get("isDraft") or data.get("isPrerelease"):
+        raise SyncError(f"pages name v{version}, which is a draft or pre-release, not a published stable release")
 
 
 def download_re(repo: str) -> re.Pattern:
@@ -258,8 +293,9 @@ def run(args: argparse.Namespace) -> int:
     old = previous_versions(texts, args.repo)
     newest_seen = max(old | {version}, key=semver)
     if newest_seen != version:
-        # Nothing about the release matters here, so no release lookup and no asset checks.
-        print(f"v{version} is older than the v{newest_seen} the pages show; nothing to do")
+        # Skip only for a real, newer release. No lookup of v<version> itself and no asset checks.
+        require_published_stable(newest_seen, args.repo, args.pages_release_json)
+        print(f"::notice::v{version} is older than the v{newest_seen} the pages show; nothing to do")
         return 0
 
     release = load_release(version, args.repo, args.assets_json)
@@ -320,6 +356,8 @@ def main() -> int:
     ap.add_argument("--root", default=".", help="repository root (default: cwd)")
     ap.add_argument("--repo", default=DEFAULT_REPO)
     ap.add_argument("--assets-json", help="gh release view --json tagName,publishedAt,isPrerelease,assets output")
+    ap.add_argument("--pages-release-json",
+                    help="gh release view --json tagName,isDraft,isPrerelease output for the version the pages show")
     ap.add_argument("--verify-urls", action="store_true", help="GET every new download URL")
     ap.add_argument("--report", help="write a markdown report (warnings + manual follow-ups) to this file")
     try:

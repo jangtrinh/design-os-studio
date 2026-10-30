@@ -64,10 +64,81 @@ class MakeLatestTests(unittest.TestCase):
         with self.assertRaises(mod.LatestError):
             mod.make_latest("v0.7.6", ["v0.7.5"])
 
+    def test_tag_that_is_neither_stable_nor_hyphenated_is_rejected(self):
+        # `v1.0.0+b1` is not a pre-release (no hyphen), so GitHub would make it Latest; the helper
+        # cannot rank it, so it must refuse rather than print nothing.
+        for tag in ("v1.0.0+b1", "v1.0", "nightly", "0.7.1", ""):
+            with self.assertRaises(mod.LatestError, msg=tag):
+                mod.make_latest(tag, PUBLISHED)
+        self.assertEqual(mod.make_latest("v1.0.0-rc.1+b1", PUBLISHED), "")
+
+
+def listed(tag, latest=False, **kw):
+    return {**release(tag, **kw), "isLatest": latest}
+
+
+# v0.7.1 was published without the guard and took the Latest badge from v0.7.5.
+STOLEN = [listed("v0.7.1", latest=True), listed("v0.7.5"), listed("v0.7.0"), listed("v0.6.4", prerelease=True)]
+# The badge is where it should be.
+CORRECT = [listed("v0.7.1"), listed("v0.7.5", latest=True), listed("v0.7.0")]
+
+
+class ReassertLatestTests(unittest.TestCase):
+    """After an older number is published, the sync workflow puts Latest back on the highest release."""
+
+    def test_older_tag_that_took_latest_hands_it_back_to_the_highest(self):
+        self.assertEqual(mod.reassert_latest("v0.7.1", STOLEN), "v0.7.5")
+
+    def test_nothing_to_do_when_the_highest_is_already_latest(self):
+        self.assertEqual(mod.reassert_latest("v0.7.1", CORRECT), "")
+
+    def test_nothing_to_do_for_the_highest_tag_itself(self):
+        # release.yml already passed make_latest=true for it.
+        self.assertEqual(mod.reassert_latest("v0.7.5", STOLEN), "")
+        self.assertEqual(mod.reassert_latest("v0.7.6", STOLEN + [listed("v0.7.6")]), "")
+
+    def test_a_tag_below_a_newer_one_is_reasserted_even_if_it_is_not_the_oldest(self):
+        rows = [listed("v0.7.3", latest=True), listed("v0.7.6"), listed("v0.7.5")]
+        self.assertEqual(mod.reassert_latest("v0.7.3", rows), "v0.7.6")
+
+    def test_drafts_and_prereleases_are_never_promoted(self):
+        rows = [listed("v0.7.1", latest=True), listed("v0.7.5"),
+                listed("v0.9.0", draft=True), listed("v0.8.0", prerelease=True), listed("v1.0.0-rc.1")]
+        self.assertEqual(mod.reassert_latest("v0.7.1", rows), "v0.7.5")
+
+    def test_compare_is_numeric(self):
+        rows = [listed("v0.9.0", latest=True), listed("v0.10.0")]
+        self.assertEqual(mod.reassert_latest("v0.9.0", rows), "v0.10.0")
+
+    def test_no_published_stable_release_means_nothing_to_promote(self):
+        self.assertEqual(mod.reassert_latest("v0.7.1", [listed("v0.7.1", draft=True)]), "")
+
+    def test_prerelease_tag_is_left_alone(self):
+        self.assertEqual(mod.reassert_latest("v0.8.0-rc.1", STOLEN), "")
+
+    def test_rows_without_islatest_are_rejected(self):
+        with self.assertRaises(mod.LatestError):
+            mod.reassert_latest("v0.7.1", PUBLISHED)
+
+    def test_tag_that_cannot_be_ranked_is_rejected(self):
+        with self.assertRaises(mod.LatestError):
+            mod.reassert_latest("v1.0.0+b1", STOLEN)
+
+    def test_make_latest_and_reassert_agree_on_the_highest_release(self):
+        # One choice, one implementation: the tag make_latest says "true" for is what reassert promotes.
+        rows = [listed("v0.7.1", latest=True), listed("v0.7.6"), listed("v0.7.5")]
+        self.assertEqual(mod.make_latest("v0.7.6", rows), "true")
+        self.assertEqual(mod.make_latest("v0.7.1", rows), "false")
+        self.assertEqual(mod.reassert_latest("v0.7.1", rows), "v0.7.6")
+
 
 class CliTests(unittest.TestCase):
     def run_cli(self, tag, stdin):
         return subprocess.run([sys.executable, str(SCRIPT), tag], input=stdin, capture_output=True, text=True)
+
+    def run_cli_with(self, flag, tag, stdin):
+        args = [flag] + ([tag] if tag else [])
+        return subprocess.run([sys.executable, str(SCRIPT), *args], input=stdin, capture_output=True, text=True)
 
     def test_prints_exactly_true_or_false(self):
         # The action turns anything but true/false/legacy into "unset", which means Latest.
@@ -99,6 +170,30 @@ class CliTests(unittest.TestCase):
 
     def test_missing_tag_argument_exits_2(self):
         out = subprocess.run([sys.executable, str(SCRIPT)], input="[]", capture_output=True, text=True)
+        self.assertEqual(out.returncode, 2)
+        self.assertEqual(out.stdout, "")
+
+    def test_unrankable_tag_exits_2_with_empty_stdout(self):
+        out = self.run_cli("v1.0.0+b1", json.dumps(PUBLISHED))
+        self.assertEqual(out.returncode, 2)
+        self.assertEqual(out.stdout, "")
+        self.assertIn("v1.0.0+b1", out.stderr)
+
+    def test_reassert_prints_the_tag_to_promote_or_nothing(self):
+        out = self.run_cli_with("--reassert", "v0.7.1", json.dumps(STOLEN))
+        self.assertEqual((out.returncode, out.stdout), (0, "v0.7.5\n"), out.stderr)
+        out = self.run_cli_with("--reassert", "v0.7.1", json.dumps(CORRECT))
+        self.assertEqual((out.returncode, out.stdout), (0, ""), out.stderr)
+
+    def test_reassert_unusable_input_exits_2(self):
+        for stdin in ("", "not json", '{"message": "Bad credentials"}', json.dumps(PUBLISHED)):
+            out = self.run_cli_with("--reassert", "v0.7.1", stdin)
+            self.assertEqual(out.returncode, 2, stdin)
+            self.assertEqual(out.stdout, "", stdin)
+            self.assertNotIn("Traceback", out.stderr)
+
+    def test_reassert_without_a_tag_exits_2(self):
+        out = self.run_cli_with("--reassert", None, "[]")
         self.assertEqual(out.returncode, 2)
         self.assertEqual(out.stdout, "")
 

@@ -155,6 +155,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # Two tags pushed together would each read a release list that lacks the other one,
+    # and both could pass make_latest=true. One publish at a time.
+    concurrency:
+      group: release-publish
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
