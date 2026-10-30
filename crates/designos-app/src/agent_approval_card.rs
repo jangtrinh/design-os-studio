@@ -8,7 +8,7 @@ use crate::terminal::{AgentCliPreset, STATUS_WARN_BG, STATUS_WARN_BORDER, STATUS
 use crate::theme;
 use crate::widgets::{self, menu_panel};
 use egui::text::LayoutJob;
-use egui::{Align2, Color32, Context, Id, Key, Modifiers, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui, Vec2};
+use egui::{Align2, Context, Id, Key, Modifiers, Order, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, TextFormat, Ui, Vec2};
 use std::path::Path;
 
 /// User action taken on the in-panel approval card.
@@ -324,7 +324,7 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         let sw = Rect::from_min_size(Pos2::new(auto_r.right() - theme::INSET_FRAME - 28.0, auto_r.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
         p.rect_filled(sw, theme::cr_pill(sw.height()), if autosave_on { theme::BG_BRAND } else { theme::BG_SECONDARY });
         let kx = if autosave_on { sw.right() - theme::SPACE_INLINE } else { sw.left() + theme::SPACE_INLINE };
-        p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, Color32::WHITE);
+        p.circle_filled(Pos2::new(kx, sw.center().y), 6.0, theme::ICON_WHITE);
         widgets::record(ui, "agent-autosave-ai", auto_r);
         if auto_resp.clicked() {
             if let Some(root) = lib_root {
