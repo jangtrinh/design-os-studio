@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-16
 **Repo:** `/Users/jangtrinh/Products/design-os-studio` (`https://github.com/jangtrinh/design-os-studio`)
-**Owner / Sole Contributor:** `Jang Trịnh <trinhnguyengiang@gmail.com>` (`jangtrinh`)
+**Owner / Sole Contributor:** `Jang Trinh <trinhnguyengiang@gmail.com>` (`jangtrinh`)
 
 ---
 

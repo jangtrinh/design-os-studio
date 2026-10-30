@@ -9,11 +9,11 @@ trace:
   us: [US-01, US-02, US-03, US-04, US-05, US-06, US-07, US-08, US-09, US-10, US-11, US-12, US-13, US-14, US-15]
 ---
 
-Tài liệu này ánh xạ toàn bộ **46 kịch bản nghiệm thu (`SCN-01-01` .. `SCN-15-03`)** của 15 User Stories (`US-01..US-15`) sang các bài kiểm thử tự động (`cargo test`) và các lệnh chụp ảnh xác minh ngầm (`--screenshot` / `--parity-report` với `with_active(false)`).
+This document maps all **46 acceptance scenarios (`SCN-01-01` .. `SCN-15-03`)** of the 15 User Stories (`US-01..US-15`) to automated tests (`cargo test`) and background verification screenshot commands (`--screenshot` / `--parity-report` with `with_active(false)`).
 
 ---
 
-## 1. Ma trận Kịch bản Kiểm thử Tự động (`SCN-01-01` .. `SCN-15-03`)
+## 1. Automated Test Scenario Matrix (`SCN-01-01` .. `SCN-15-03`)
 
 | Scenario ID | User Story & AC | Screen(s) | Method | Status | Automated Test Target / CLI Verification Command |
 |---|---|---|---|---|---|
@@ -53,7 +53,7 @@ Tài liệu này ánh xạ toàn bộ **46 kịch bản nghiệm thu (`SCN-01-01
 | **SCN-11-04** | `US-11` · `AC-04` | `S01`, `S05..S10` | `auto` | `passed` | `cargo test -p designos-app` & `designos-fig` (Figma `126.9.13` Functional Gaps A–F closure) |
 | **SCN-12-01** | `US-12` · `AC-01` | `S12` | `auto` | `passed` | `python3 scripts/figma_parity_meter.py` (deterministic 5-pillar weighted parity calculation & `research/parity-scorecard.json`) |
 | **SCN-12-02** | `US-12` · `AC-02` | `S12` | `auto` | `passed` | `cargo test -p designos-app cli::tests` & `designos --parity-report` (headless CLI 5-pillar parity table output) |
-| **SCN-12-03** | `US-12` · `AC-03` | `S02`, `S12` | `auto` | `passed` | `cargo test -p designos-app specs::tests` (Live 5-Pillar Figma Parity Meter card & `Copy Parity Report cho AI`) |
+| **SCN-12-03** | `US-12` · `AC-03` | `S02`, `S12` | `auto` | `passed` | `cargo test -p designos-app specs::tests` (Live 5-Pillar Figma Parity Meter card & `Copy Parity Report for AI`) |
 | **SCN-13-01** | `US-13` · `AC-01` | `S13` | `auto` | `passed` | `cargo test -p designos-app panels::left::tests` (`DIR-17` 1:1 Figma UI3 `Agents` Left Side Panel, inline `>_ Terminal` PTY & `#0D99FF` composer) |
 | **SCN-13-02** | `US-13` · `AC-02` | `S01`, `S06`, `S07`, `S13` | `auto` | `passed` | `cargo test -p designos-app panels::` & `cmdk::tests` & `dev::tests` (`DIR-18` 9 Visual Deltas verification) |
 | **SCN-13-03** | `US-13` · `AC-03..05` | `S01`, `S04`, `S10`, `S13` | `auto` | `passed` | `cargo test -p designos-app shell::tests` (`DIR-18` / `DIR-20` End-to-End Userflows `UF-01..UF-08` state machine verification) |
@@ -66,10 +66,10 @@ Tài liệu này ánh xạ toàn bộ **46 kịch bản nghiệm thu (`SCN-01-01
 
 ---
 
-## 2. Quy trình TDD & Kiểm chứng Nền Không Xâm lấn (`with_active(false)`)
+## 2. TDD Process & Non-Intrusive Background Verification (`with_active(false)`)
 
-1. **Red → Green → Refactor**: Mọi hành vi mới trong `ui-contract.md` phải được khai báo `SCN-xx-yy` trước khi viết mã giao diện và kiểm chứng bằng `cargo test`.
-2. **Chụp ảnh bằng chứng ngầm & Kiểm tra Cập nhật / Parity (Zero Focus Stealing)**:
+1. **Red → Green → Refactor**: Every new behaviour in `ui-contract.md` must be declared as `SCN-xx-yy` before the UI code is written, and verified with `cargo test`.
+2. **Background proof screenshots & Update / Parity checks (Zero Focus Stealing)**:
    ```bash
    cargo run --release -p designos-app -- "/Users/jangtrinh/Downloads/VSF - PCP.fig" --screenshot /tmp/designos_s01_canvas.png
    cargo run --release -p designos-app -- --panel specs --screenshot /tmp/designos_s02_specs.png
@@ -77,5 +77,5 @@ Tài liệu này ánh xạ toàn bộ **46 kịch bản nghiệm thu (`SCN-01-01
    cargo run --release -p designos-app -- --parity-report
    cargo run --release -p designos-app -- update --check
    ```
-   Tất cả lệnh trên thực thi với `ViewportBuilder::default().with_visible(false).with_active(false)` để không bao giờ hiện cửa sổ đè lên màn hình người dùng.
+   All the commands above run with `ViewportBuilder::default().with_visible(false).with_active(false)` so a window never appears over the user's screen.
 
