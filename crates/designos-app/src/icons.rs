@@ -19,6 +19,7 @@ pub enum Icon {
     Help,
     ChevronUp,
     ChevronDown,
+    Ellipsis,
     ChevronRight,
     Plus,
     Minus,
@@ -159,6 +160,7 @@ impl Icon {
         Icon::Book,
         Icon::ChevronUp,
         Icon::ChevronDown,
+        Icon::Ellipsis,
         Icon::ChevronRight,
         Icon::Plus,
         Icon::Minus,
@@ -282,6 +284,7 @@ impl Icon {
             Icon::Help => "question",
             Icon::ChevronUp => "caret-up",
             Icon::ChevronDown => "caret-down",
+            Icon::Ellipsis => "dots-three",
             Icon::ChevronRight => "caret-right",
             Icon::Plus => "plus",
             Icon::Minus => "minus",
@@ -449,6 +452,7 @@ phosphor!(
     "dice-five",
     "dots-nine",
     "dots-six",
+    "dots-three",
     "download-simple",
     "drop",
     "eye",
@@ -637,7 +641,12 @@ mod tests {
         for i in Icon::ALL {
             assert!(seen.insert(*i), "{i:?} listed twice");
         }
-        assert_eq!(seen.len(), 118);
+        assert_eq!(seen.len(), 119);
+    }
+
+    #[test]
+    fn ellipsis_maps_to_phosphor_dots_three() {
+        assert_eq!(Icon::Ellipsis.phosphor_name(), Some("dots-three"));
     }
 
     #[test]
