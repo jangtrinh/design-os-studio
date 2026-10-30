@@ -5,7 +5,7 @@
         "design-os.role": "accent"
       },
       "$type": "color",
-      "$value": "#2b1d16"
+      "$value": "#431407"
     },
     "accent-foreground": {
       "$extensions": {
@@ -13,7 +13,7 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#ff9e66"
+      "$value": "#f97316"
     },
     "agent-1": {
       "$type": "color",
@@ -36,71 +36,71 @@
         "design-os.role": "background"
       },
       "$type": "color",
-      "$value": "#18181b"
+      "$value": "#0a0a0a"
     },
     "bg-active": {
       "$extensions": {
         "design-os.role": "background"
       },
       "$type": "color",
-      "$value": "#2e2e36"
+      "$value": "#262626"
     },
     "bg-foreground": {
       "$extensions": {
         "design-os.role": "foreground"
       },
       "$type": "color",
-      "$value": "#f5f5f7"
+      "$value": "#fafafa"
     },
     "bg-hover": {
       "$extensions": {
         "design-os.role": "background"
       },
       "$type": "color",
-      "$value": "#232329"
+      "$value": "#171717"
     },
     "border": {
       "$extensions": {
         "design-os.role": "border"
       },
       "$type": "color",
-      "$value": "#27272a"
+      "$value": "#262626"
     },
     "border-focus": {
       "$extensions": {
         "design-os.role": "ring"
       },
       "$type": "color",
-      "$value": "#e36323"
+      "$value": "#fb923c"
     },
     "border-strong": {
       "$extensions": {
         "design-os.role": "border"
       },
       "$type": "color",
-      "$value": "#3f3f46"
+      "$value": "#404040"
     },
     "border-subtle": {
       "$extensions": {
         "design-os.role": "border"
       },
       "$type": "color",
-      "$value": "#222226"
+      "$value": "#262626"
     },
     "canvas": {
       "$type": "color",
-      "$value": "#121215"
+      "$value": "#0a0a0a"
     },
     "canvas-foreground": {
       "$type": "color",
-      "$value": "#f5f5f7"
+      "$value": "#fafafa"
     },
     "card": {
       "$extensions": {
         "design-os.role": "card"
       },
       "$type": "color",
-      "$value": "#1e1e22"
+      "$value": "#171717"
     },
     "card-foreground": {
       "$extensions": {
@@ -108,7 +108,7 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#f5f5f7"
+      "$value": "#fafafa"
     },
     "component": {
       "$type": "color",
@@ -116,14 +116,14 @@
     },
     "component-foreground": {
       "$type": "color",
-      "$value": "#09090b"
+      "$value": "#0a0a0a"
     },
     "destructive": {
       "$extensions": {
         "design-os.role": "destructive"
       },
       "$type": "color",
-      "$value": "#f24822"
+      "$value": "#dc2626"
     },
     "destructive-foreground": {
       "$extensions": {
@@ -131,7 +131,7 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#09090b"
+      "$value": "#ffffff"
     },
     "info": {
       "$extensions": {
@@ -146,21 +146,21 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#09090b"
+      "$value": "#0a0a0a"
     },
     "input": {
       "$extensions": {
         "design-os.role": "input"
       },
       "$type": "color",
-      "$value": "#121215"
+      "$value": "#0a0a0a"
     },
     "muted": {
       "$extensions": {
         "design-os.role": "muted"
       },
       "$type": "color",
-      "$value": "#222226"
+      "$value": "#171717"
     },
     "muted-foreground": {
       "$extensions": {
@@ -168,14 +168,14 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#a8a8b2"
+      "$value": "#a3a3a3"
     },
     "neutral": {
       "$extensions": {
         "design-os.role": "neutral"
       },
       "$type": "color",
-      "$value": "#6e6e77"
+      "$value": "#737373"
     },
     "neutral-foreground": {
       "$extensions": {
@@ -183,14 +183,14 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#f5f5f7"
+      "$value": "#fafafa"
     },
     "popover": {
       "$extensions": {
         "design-os.role": "popover"
       },
       "$type": "color",
-      "$value": "#18181b"
+      "$value": "#0a0a0a"
     },
     "popover-foreground": {
       "$extensions": {
@@ -198,7 +198,7 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#f5f5f7"
+      "$value": "#fafafa"
     },
     "primary": {
       "$extensions": {
@@ -212,7 +212,7 @@
         "design-os.role": "primary"
       },
       "$type": "color",
-      "$value": "#ff9e66"
+      "$value": "#ea580c"
     },
     "primary-foreground": {
       "$extensions": {
@@ -220,35 +220,35 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#09090b"
+      "$value": "#0a0a0a"
     },
     "primary-hover": {
       "$extensions": {
         "design-os.role": "primary"
       },
       "$type": "color",
-      "$value": "#f07436"
+      "$value": "#f97316"
     },
     "ring": {
       "$extensions": {
         "design-os.role": "ring"
       },
       "$type": "color",
-      "$value": "#e36323"
+      "$value": "#f97316"
     },
     "secondary": {
       "$extensions": {
         "design-os.role": "secondary"
       },
       "$type": "color",
-      "$value": "#27272a"
+      "$value": "#262626"
     },
     "secondary-active": {
       "$extensions": {
         "design-os.role": "secondary"
       },
       "$type": "color",
-      "$value": "#3f3f46"
+      "$value": "#404040"
     },
     "secondary-foreground": {
       "$extensions": {
@@ -256,21 +256,21 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#f5f5f7"
+      "$value": "#fafafa"
     },
     "secondary-hover": {
       "$extensions": {
         "design-os.role": "secondary"
       },
       "$type": "color",
-      "$value": "#2e2e34"
+      "$value": "#404040"
     },
     "success": {
       "$extensions": {
         "design-os.role": "success"
       },
       "$type": "color",
-      "$value": "#14ae5c"
+      "$value": "#22c55e"
     },
     "success-foreground": {
       "$extensions": {
@@ -278,42 +278,42 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#09090b"
+      "$value": "#0a0a0a"
     },
     "surface": {
       "$extensions": {
         "design-os.role": "background"
       },
       "$type": "color",
-      "$value": "#1e1e22"
+      "$value": "#171717"
     },
     "surface-active": {
       "$extensions": {
         "design-os.role": "background"
       },
       "$type": "color",
-      "$value": "#2e2e36"
+      "$value": "#262626"
     },
     "surface-foreground": {
       "$extensions": {
         "design-os.role": "background"
       },
       "$type": "color",
-      "$value": "#f5f5f7"
+      "$value": "#fafafa"
     },
     "surface-hover": {
       "$extensions": {
         "design-os.role": "background"
       },
       "$type": "color",
-      "$value": "#232329"
+      "$value": "#262626"
     },
     "warning": {
       "$extensions": {
         "design-os.role": "warning"
       },
       "$type": "color",
-      "$value": "#f59e0b"
+      "$value": "#eab308"
     },
     "warning-foreground": {
       "$extensions": {
@@ -321,7 +321,7 @@
         "design-os.role-position": "fg"
       },
       "$type": "color",
-      "$value": "#09090b"
+      "$value": "#0a0a0a"
     }
   },
   "duration": {
@@ -341,27 +341,27 @@
   "radius": {
     "radius-lg": {
       "$type": "dimension",
-      "$value": "8px"
+      "$value": "10px"
     },
     "radius-md": {
       "$type": "dimension",
-      "$value": "6px"
+      "$value": "8px"
     },
     "radius-pill": {
       "$type": "dimension",
-      "$value": "13px"
+      "$value": "9999px"
     },
     "radius-sm": {
       "$type": "dimension",
-      "$value": "4px"
+      "$value": "6px"
     },
     "radius-xl": {
       "$type": "dimension",
-      "$value": "10px"
+      "$value": "12px"
     },
     "radius-xs": {
       "$type": "dimension",
-      "$value": "2px"
+      "$value": "4px"
     }
   },
   "spacing": {
@@ -425,15 +425,15 @@
     },
     "font-size-body": {
       "$type": "dimension",
-      "$value": "11px"
+      "$value": "12px"
     },
     "font-size-caption": {
       "$type": "dimension",
-      "$value": "10px"
+      "$value": "12px"
     },
     "font-size-heading": {
       "$type": "dimension",
-      "$value": "13px"
+      "$value": "14px"
     },
     "font-size-hero": {
       "$type": "dimension",
@@ -445,7 +445,7 @@
     },
     "font-size-title": {
       "$type": "dimension",
-      "$value": "12px"
+      "$value": "14px"
     }
   }
 }

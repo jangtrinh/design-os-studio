@@ -76,6 +76,8 @@ struct Shot {
     /// The capture cannot happen: the file did not open, or `--select` matched nothing. The window closes at once
     /// and writes no PNG.
     open_failed: bool,
+    /// --layout-json: output path for the deterministic `LayoutSnapshot` JSON.
+    layout_json: Option<PathBuf>,
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
@@ -92,12 +94,13 @@ pub fn is_typing_in_agent_panel(app: &App, ctx: &Context) -> bool {
 }
 
 pub struct Shell {
-    app: App,
+    pub(crate) app: App,
     shot: Option<Shot>,
     title: String,
     paste_chord: crate::clipboard::PasteChord,
     /// Why a `--select` or `--edit-text` named nothing, when it did not.
     select_miss: Option<String>,
+    launch_had_panel_or_file: bool,
 }
 
 impl Shell {
@@ -108,8 +111,6 @@ impl Shell {
         }
         opts.home = opts.wants_home();
         let screenshot = opts.screenshot.is_some();
-        let panel_was_none = opts.panel.is_none();
-        let has_file = opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
         let mut shell = Self::build(&cc.egui_ctx, opts);
         if shell.app.ui.pages_height.is_none() {
@@ -118,10 +119,6 @@ impl Shell {
         }
         if let Some(miss) = shell.select_miss.as_ref().filter(|_| screenshot) {
             let _ = SELECT_MISS.set(miss.clone());
-        }
-        if !screenshot && panel_was_none && !has_file {
-            shell.app.ui.rail = Some(crate::app::RailItem::Agents);
-            shell.app.ui.left_collapsed = false;
         }
         if let Some(rs) = &cc.wgpu_render_state {
             if let Some(max) = canvas::gpu::init(rs) {
@@ -135,16 +132,29 @@ impl Shell {
         let start = canvas::gpu_default::decide(saved, gpu_flag, software);
         shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
-        shell.app.tabs.always_visible = true;
-        if shell.app.home.is_none() {
-            let mut tabs = std::mem::take(&mut shell.app.tabs);
-            tabs.sync_from_app(&shell.app);
-            shell.app.tabs = tabs;
-        }
+        shell.apply_launch_defaults(screenshot);
         shell
     }
 
+    pub fn apply_launch_defaults(&mut self, screenshot: bool) {
+        self.app.ui.screenshot_chrome = screenshot;
+        self.app.ui.rulers = true;
+        if !screenshot && !self.launch_had_panel_or_file {
+            self.app.ui.rail = Some(crate::app::RailItem::Agents);
+            self.app.ui.left_collapsed = false;
+        }
+        self.app.tabs.always_visible = true;
+        if self.app.home.is_none() {
+            let mut tabs = std::mem::take(&mut self.app.tabs);
+            tabs.sync_from_app(&self.app);
+            self.app.tabs = tabs;
+        }
+    }
+
     pub fn build(ctx: &Context, opts: Options) -> Self {
+        #[cfg(test)]
+        let _scoped_cli_dirs = opts.agent_cli_dir.as_deref().map(crate::cli_resolve::ScopedCliDirs::enter);
+        let launch_had_panel_or_file = opts.panel.is_some() || opts.file.is_some() || opts.import_capture.is_some() || opts.open_id.is_some();
         theme::install_fonts(ctx);
         theme::apply(ctx);
         let mut app = App::new(match opts.fixture.as_deref() {
@@ -180,8 +190,45 @@ impl Shell {
         });
         // A shell started during build (`--panel agents`, `terminal`, `agents-chat`) captures its
         // session directory once; bind the terminal to the id the tab bar keeps before any can start.
-        let session_id = app.tabs.active_session_id();
-        app.terminal.bind_session(&session_id);
+        #[cfg(test)]
+        if let Some(ref cli_dir) = opts.agent_cli_dir {
+            static GATE_CASE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let seq = GATE_CASE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let case_id = format!("gate-{}-{seq}", std::process::id());
+            let case_temp = std::env::temp_dir().join("designos-gate-cases").join(&case_id);
+            let settings_dir = case_temp.join("settings");
+            let fallback_lib_dir = case_temp.join("lib");
+            let _ = std::fs::create_dir_all(&settings_dir);
+            let _ = std::fs::create_dir_all(&fallback_lib_dir);
+            let lib_root = opts.library.clone().unwrap_or(fallback_lib_dir);
+            app.terminal.path_override = Some(cli_dir.as_os_str().to_os_string());
+            app.terminal.picker.settings_root_override = Some(settings_dir);
+            app.libs.set_root(lib_root.clone());
+            app.terminal.library_root = Some(lib_root.clone());
+            app.terminal.skills.set_library_root(lib_root);
+            crate::terminal::pin_installed_catalog_clis(
+                &mut app.terminal,
+                &[
+                    crate::terminal::AgentCliPreset::Claude,
+                    crate::terminal::AgentCliPreset::Codex,
+                    crate::terminal::AgentCliPreset::Antigravity,
+                    crate::terminal::AgentCliPreset::Grok,
+                    crate::terminal::AgentCliPreset::Gemini,
+                    crate::terminal::AgentCliPreset::OpenCode,
+                ],
+            );
+            app.terminal.picker.opencode_installed = Some(true);
+            app.terminal.picker.probe_started = true;
+            app.terminal.bind_session(&case_id);
+        } else {
+            let session_id = app.tabs.active_session_id();
+            app.terminal.bind_session(&session_id);
+        }
+        #[cfg(not(test))]
+        {
+            let session_id = app.tabs.active_session_id();
+            app.terminal.bind_session(&session_id);
+        }
         #[cfg(any(test, feature = "fixtures"))]
         {
             if !matches!(
@@ -240,6 +287,10 @@ impl Shell {
                 } else if mode == "dialog" {
                     app.open_import_path_dialog();
                 }
+            }
+            #[cfg(test)]
+            if let (Some(fixed_now), Some(home)) = (opts.fixed_now, app.home.as_mut()) {
+                home.fixed_now = Some(fixed_now);
             }
         }
         let mut select_miss = None;
@@ -368,15 +419,8 @@ impl Shell {
             Some("agents-chat") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
+                app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
                 app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
-                let deadline = std::time::Instant::now() + std::time::Duration::from_millis(800);
-                while std::time::Instant::now() < deadline {
-                    let _ = app.terminal.poll_live_agent_bridge();
-                    if app.terminal.active_composer().pending_send.is_none() {
-                        break;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(30));
-                }
             }
             Some("agents-skills") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
@@ -440,10 +484,47 @@ impl Shell {
             }
             Some("interaction") => {
                 app.ui.right_tab = Some(crate::app::RightTab::Prototype);
-                if let Some(add) = app.doc.nodes.values().find(|n| n.name == "Add").map(|n| n.id) {
-                    app.selection = vec![add];
-                    app.proto.editing = Some((add, 0));
+                let selected_reacting = app.selection.first().copied().filter(|&id| app.doc.get(id).is_some_and(|n| !n.prototype.reactions.is_empty()));
+                let target = selected_reacting.or_else(|| {
+                    let mut first = None;
+                    app.doc.walk(app.page, |n, _| {
+                        if first.is_none() && n.id != app.page && !n.prototype.reactions.is_empty() {
+                            first = Some(n.id);
+                        }
+                    });
+                    first
+                });
+                if let Some(id) = target {
+                    app.selection = vec![id];
+                    app.proto.editing = Some((id, 0));
+                } else {
+                    app.proto.editing = None;
                 }
+            }
+            Some("comments") => {
+                app.tool = Tool::Comment;
+                let mut paint_rank = std::collections::BTreeMap::new();
+                app.doc.walk(app.page, |n, _| {
+                    if n.id != app.page {
+                        let next = paint_rank.len();
+                        paint_rank.entry(n.id).or_insert(next);
+                    }
+                });
+                let thread_id_key = |id: &str| {
+                    let split = id.rfind(|c: char| !c.is_ascii_digit()).map_or(0, |i| i + 1);
+                    let (prefix, digits) = id.split_at(split);
+                    (prefix.to_string(), digits.parse::<u64>().ok(), id.to_string())
+                };
+                app.comments.open = app
+                    .doc
+                    .comments
+                    .iter()
+                    .filter(|t| !t.resolved && crate::comments::model::thread_page(&app.doc, t) == app.page)
+                    .min_by_key(|t| {
+                        let rank = t.anchor.node.and_then(|nid| paint_rank.get(&nid).copied()).unwrap_or(usize::MAX);
+                        (rank, thread_id_key(&t.id))
+                    })
+                    .map(|t| t.id.clone());
             }
             Some("present-variables") => {}
             Some("libraries") => app.open_libraries(),
@@ -452,7 +533,10 @@ impl Shell {
                 app.plugins.install_form = panel == "plugin-install";
                 app.plugins.fresh = app.plugins.install_form;
             }
-            Some("version-history") => crate::history::preset::apply(&mut app, opts.library.clone()),
+            Some("version-history") => {
+                let hist_lib = opts.library.clone().or_else(|| app.libs.root.clone());
+                crate::history::preset::apply(&mut app, hist_lib);
+            }
             Some(p @ ("dev-annotate" | "dev-compare")) => crate::dev::preset::panel(&mut app, p),
             Some(panel @ ("variables" | "variables-floating")) => {
                 app.vars.full = panel == "variables";
@@ -492,6 +576,10 @@ impl Shell {
                 seq_capture = Some(MicroSeqCapture { slug: slug.to_string(), cur: 0, total, base_doc, hud, wait_frames: 0, no_caption: opts.no_caption });
             }
         }
+        if opts.layout_json.is_some() {
+            crate::layout_snapshot::RECORDING.store(true, Ordering::Relaxed);
+        }
+        let layout_json = opts.layout_json;
         let shot = opts.screenshot.map(|path| Shot {
             path,
             size: opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32)),
@@ -504,8 +592,9 @@ impl Shell {
             seq: seq_capture,
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
+            layout_json,
         });
-        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss }
+        Self { app, shot, title: String::new(), paste_chord: Default::default(), select_miss, launch_had_panel_or_file }
     }
 
     fn drive_screenshot(&mut self, ctx: &Context) {
@@ -564,6 +653,23 @@ impl Shell {
                         match buf.save(&shot.path) {
                             Ok(()) => SHOT_OK.store(true, Ordering::SeqCst),
                             Err(e) => eprintln!("designos: cannot write {}: {e}", shot.path.display()),
+                        }
+                        if let Some(layout_path) = &shot.layout_json {
+                            if let Some(dir) = layout_path.parent() {
+                                let _ = std::fs::create_dir_all(dir);
+                            }
+                            let mut snap = crate::layout_snapshot::capture(ctx, &self.app.ui.regions);
+                            if snap.case.is_empty() {
+                                snap.case = layout_path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().trim_end_matches(".layout").to_string();
+                            }
+                            match serde_json::to_string_pretty(&snap) {
+                                Ok(json) => {
+                                    if let Err(e) = std::fs::write(layout_path, format!("{json}\n")) {
+                                        eprintln!("designos: cannot write {}: {e}", layout_path.display());
+                                    }
+                                }
+                                Err(e) => eprintln!("designos: cannot serialize layout snapshot: {e}"),
+                            }
                         }
                     }
                 }
@@ -1123,43 +1229,66 @@ impl Shell {
         let Some(t) = &self.app.toast else { return };
         let (text, error, reveal, enter_path) = (t.text.clone(), t.error, t.reveal.clone(), t.enter_path);
         let details = self.app.web_capture_report.is_some() && text.ends_with("Details");
-        let action_meta = if reveal.is_some() {
+        // The import summary ends with a "Details" hint. The button below is that action, so the message drops it.
+        let message_text = if details { without_details_hint(&text) } else { text.as_str() };
+        let details_slot = details.then_some(("toast-details", "Details"));
+        let second_slot = if reveal.is_some() {
             Some(("toast-reveal", REVEAL_LABEL))
         } else if enter_path {
             Some(("toast-enter-path", "Enter a path\u{2026}"))
         } else {
             None
         };
-        let lay = toast_layout::layout(ui.painter(), &text, &theme::font_body(), screen, action_meta.map(|(_, l)| l));
+        // The right-most action is the primary one; with two, Details sits to its left.
+        let (primary_meta, extra_meta) = match (details_slot, second_slot) {
+            (Some(d), Some(second)) => (Some(second), Some(d)),
+            (Some(d), None) => (Some(d), None),
+            (None, second) => (second, None),
+        };
+        let toast_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium);
+        let action_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let lay = toast_layout::layout(
+            ui.painter(),
+            message_text,
+            &toast_font,
+            &action_font,
+            screen,
+            primary_meta.map(|(_, label)| label),
+            extra_meta.map(|(_, label)| label),
+        );
         let (r, ctx) = (lay.rect, ui.ctx().clone());
-        // Only the "Details" link and the action take clicks, each as its own small Area. The body has no widget at all:
-        // any widget in the layer, even a hover-only one, hides the canvas and the cards below it from the pointer.
-        let details_clicked = details && toast_click_target(&ctx, "toast-details", r, "Details").clicked();
-        let action = lay.action.zip(action_meta).map(|((target, label), (id, text_lbl))| (toast_click_target(&ctx, id, target, text_lbl), target, label));
+        // Each action is its own small Area. The body has no widget, so the canvas under the toast still receives the pointer.
+        let primary = lay.action.zip(primary_meta).map(|((target, label), (id, name))| (toast_click_target(&ctx, id, target, name), target, label, id));
+        let extra = lay.extra.zip(extra_meta).map(|((target, label), (id, name))| (toast_click_target(&ctx, id, target, name), target, label, id));
         // Painted on its own top-most layer: the full-screen Variables view is an Area above the root layer and would
         // hide the toast. No fade-in: the toast has always appeared at full strength.
         let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("shell-toast")));
-        widgets::elevation_shadow(&p, r, theme::RADIUS_FRAME);
-        p.rect_filled(r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-        p.circle_filled(lay.dot, 4.0, if error { theme::DANGER } else { theme::BG_BRAND });
+        crate::widgets::kit::toast_surface(&p, r);
+        let dot = if error { theme::DANGER } else { theme::ICON_BRAND_PRIMARY };
+        p.circle_filled(lay.dot, 4.0, dot);
         p.galley(lay.text_pos, lay.text, theme::TEXT);
-        let mut action_clicked = false;
-        if let Some((button, target, label)) = action {
-            if button.hovered() {
-                p.rect_filled(target, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+        let mut clicked: Option<&str> = None;
+        for (button, target, label, id) in primary.into_iter().chain(extra) {
+            let look = crate::widgets::kit::toast_action_look(crate::widgets::kit::state_of(&button, false, true));
+            crate::widgets::kit::paint_frame(&p, target, theme::RADIUS_CONTROL, &look);
+            if crate::widgets::kit::keyboard_focus(ui, button.id) {
+                crate::widgets::kit::focus_ring(&p, target, theme::RADIUS_CONTROL as f32);
             }
-            p.galley(Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0), label, theme::TEXT_BRAND);
-            action_clicked = button.clicked();
+            let pos = Pos2::new(target.left() + (target.width() - label.size().x) / 2.0, target.center().y - label.size().y / 2.0);
+            p.galley(pos, label, look.text);
+            if button.clicked() {
+                clicked = Some(id);
+            }
         }
-        if details_clicked {
+        if clicked == Some("toast-details") {
             self.app.web_capture_report_open = !self.app.web_capture_report_open;
         }
-        if let (true, Some(file)) = (action_clicked, reveal) {
+        if let (Some("toast-reveal"), Some(file)) = (clicked, reveal) {
             if let Err(e) = (self.app.reveal_file)(&file) {
                 self.app.toast = None;
                 self.app.show_toast(e, true);
             }
-        } else if action_clicked && enter_path {
+        } else if clicked == Some("toast-enter-path") && enter_path {
             self.app.toast = None;
             self.app.open_import_path_dialog();
             ctx.request_repaint();
@@ -1331,9 +1460,42 @@ impl Shell {
     }
 }
 
+fn srgb_channel(channel: u8) -> f32 {
+    let c = channel as f32 / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Top window title. Same rects and widget ids as the inline bar it replaced.
+fn title_bar(ui: &mut egui::Ui, ctx: &egui::Context, title_bar_rect: Rect) {
+    let tp = ui.painter_at(title_bar_rect);
+    tp.rect_filled(title_bar_rect, 0.0, theme::BG_PRIMARY);
+    tp.hline(title_bar_rect.x_range(), title_bar_rect.bottom() - 0.5, egui::Stroke::new(1.0, theme::BORDER));
+    let cy = title_bar_rect.center().y;
+    let x = title_bar_rect.left() + 76.0;
+    let font_bold = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    let font_reg = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular);
+    let w_design = widgets::text_width(&tp, "design", &font_bold);
+    let w_rest = widgets::text_width(&tp, ":os studio", &font_reg);
+    let brand_rect = Rect::from_min_size(Pos2::new(x, title_bar_rect.top() + 2.0), Vec2::new(22.0 + w_design + w_rest + 8.0, 24.0));
+    widgets::record(ui, "window-title-brand", brand_rect);
+    crate::icons::paint(&tp, Icon::Logo, Pos2::new(x + 8.0, cy), 14.0, theme::BG_BRAND);
+    let text_x = x + 19.0;
+    tp.text(Pos2::new(text_x, cy), Align2::LEFT_CENTER, "design", font_bold, theme::TEXT);
+    tp.text(Pos2::new(text_x + w_design, cy), Align2::LEFT_CENTER, ":os studio", font_reg, theme::TEXT_SECONDARY);
+    let drag_resp = ui.interact(title_bar_rect, ui.id().with("window-title-bar-drag"), egui::Sense::click_and_drag());
+    if drag_resp.drag_started() {
+        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+}
+
 impl eframe::App for Shell {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        [0.17, 0.17, 0.17, 1.0]
+        let px = theme::BG.to_array();
+        [srgb_channel(px[0]), srgb_channel(px[1]), srgb_channel(px[2]), 1.0]
     }
 
     /// Tab belongs to the text session (it nests list items) or to sibling layer traversal on the
@@ -1500,6 +1662,7 @@ impl Shell {
         }
         self.app.repaint_if_dot_moved(&ctx);
         self.request_screenshot(&ctx);
+        widgets::finish_pass_records();
     }
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {
@@ -1541,29 +1704,13 @@ impl Shell {
         if self.app.step_pending_relayout() {
             ctx.request_repaint();
         }
+        let mut regions = crate::app::ShellRegions::default();
         let window_full = ui.max_rect();
-        let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && self.app.proto.present.is_none();
+        let show_title_bar = self.app.tabs.always_visible && self.shot.is_none() && !self.app.ui.screenshot_chrome && self.app.proto.present.is_none();
         let after_title_rect = if show_title_bar {
             let title_bar_rect = Rect::from_min_max(window_full.min, Pos2::new(window_full.right(), window_full.top() + TOP_TITLE_BAR_HEIGHT));
-            let tp = ui.painter_at(title_bar_rect);
-            tp.rect_filled(title_bar_rect, 0.0, egui::Color32::from_rgb(0x18, 0x18, 0x1B));
-            tp.hline(title_bar_rect.x_range(), title_bar_rect.bottom() - 0.5, egui::Stroke::new(1.0, egui::Color32::from_rgb(0x27, 0x27, 0x2A)));
-            let cy = title_bar_rect.center().y;
-            let x = title_bar_rect.left() + 76.0;
-            let font_bold = theme::font_body_strong();
-            let font_reg = theme::font_body();
-            let w_design = widgets::text_width(&tp, "design", &font_bold);
-            let w_rest = widgets::text_width(&tp, ":os studio", &font_reg);
-            let brand_rect = Rect::from_min_size(Pos2::new(x, title_bar_rect.top() + 2.0), Vec2::new(22.0 + w_design + w_rest + 8.0, 24.0));
-            widgets::record(ui, "window-title-brand", brand_rect);
-            crate::icons::paint(&tp, Icon::Logo, Pos2::new(x + 8.0, cy), 14.0, theme::BG_BRAND);
-            let text_x = x + 19.0;
-            tp.text(Pos2::new(text_x, cy), Align2::LEFT_CENTER, "design", font_bold, theme::TEXT);
-            tp.text(Pos2::new(text_x + w_design, cy), Align2::LEFT_CENTER, ":os studio", font_reg, theme::TEXT_SECONDARY);
-            let drag_resp = ui.interact(title_bar_rect, ui.id().with("window-title-bar-drag"), egui::Sense::click_and_drag());
-            if drag_resp.drag_started() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
+            regions.title_bar = Some(title_bar_rect);
+            title_bar(ui, &ctx, title_bar_rect);
             Rect::from_min_max(Pos2::new(window_full.left(), title_bar_rect.bottom()), window_full.max)
         } else {
             window_full
@@ -1572,6 +1719,7 @@ impl Shell {
         let full = if show_tab_bar {
             let bar_rect =
                 Rect::from_min_max(after_title_rect.min, Pos2::new(after_title_rect.right(), after_title_rect.top() + crate::tabs::TOP_TAB_BAR_HEIGHT));
+            regions.tab_bar = Some(bar_rect);
             crate::tabs::show_top_tab_bar_ui(ui, bar_rect, &mut self.app);
             Rect::from_min_max(Pos2::new(after_title_rect.left(), bar_rect.bottom()), after_title_rect.max)
         } else {
@@ -1581,6 +1729,8 @@ impl Shell {
             after_title_rect
         };
         if self.app.home.is_some() {
+            regions.home = Some(full);
+            self.app.ui.regions = regions;
             if show_tab_bar {
                 let mut home_ui = ui.new_child(egui::UiBuilder::new().max_rect(full));
                 self.home_frame(&mut home_ui, &ctx);
@@ -1595,6 +1745,8 @@ impl Shell {
         self.app.history_tick();
         self.app.dev_tick(&ctx);
         if self.app.proto.present.is_some() {
+            regions.present = Some(full);
+            self.app.ui.regions = regions;
             crate::present::show(&mut self.app, ui);
             crate::agent_a11y::poll_and_step(&mut self.app, &ctx);
             return;
@@ -1623,6 +1775,23 @@ impl Shell {
         let notes_rect = Rect::from_min_max(Pos2::new(canvas_left, canvas_rect.bottom()), Pos2::new(right_rect.left(), full.bottom()));
 
         let full_vars = self.app.vars.open && self.app.vars.full;
+        regions.rail = Some(rail_rect);
+        if full_vars {
+            let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
+            regions.variables_full = Some(content);
+        } else {
+            if !self.app.ui.left_collapsed {
+                regions.left_panel = Some(left_rect);
+            }
+            regions.canvas = Some(canvas_rect);
+            if deck {
+                regions.notes = Some(notes_rect);
+            }
+            if !board {
+                regions.right_panel = Some(right_rect);
+            }
+        }
+        self.app.ui.regions = regions;
         crate::live_patch_apply::publish_live_context(&mut self.app);
         if let Some(ai_copy) = self.app.specs.last_ai_copy.take() {
             self.app.terminal.send_copy_for_ai(&ai_copy);
@@ -1673,33 +1842,49 @@ impl Shell {
             }
             rail::show(&mut self.app, ui, rail_rect);
             if self.app.ui.left_collapsed {
-                let b = Rect::from_min_size(Pos2::new(canvas_rect.left() + 8.0, canvas_rect.top() + 8.0), Vec2::splat(theme::PANEL_ACTION_BUTTON));
+                let b = Rect::from_min_size(
+                    Pos2::new(canvas_rect.left() + theme::SPACE_INLINE, canvas_rect.top() + theme::SPACE_INLINE),
+                    Vec2::splat(theme::CONTROL_XS),
+                );
                 ui.painter().rect_filled(b, theme::cr(theme::RADIUS_CONTROL), theme::BG);
                 if widgets::icon_button(ui, b, "show-sidebar", Icon::Sidebar, false, "Show sidebar").clicked() {
                     self.app.ui.left_collapsed = false;
                 }
-            } else if deck {
-                let mode = Rect::from_min_size(left_rect.min, Vec2::new(left_rect.width(), 36.0));
-                crate::decks::ui::mode_bar(&mut self.app, ui, mode);
-                let body = Rect::from_min_max(Pos2::new(left_rect.left(), mode.bottom()), left_rect.max);
-                if self.app.decks.design_mode {
-                    left::show(&mut self.app, ui, body);
-                } else {
-                    crate::decks::ui::sidebar(&mut self.app, ui, body);
-                }
             } else {
-                left::show(&mut self.app, ui, left_rect);
-            }
-            if !self.app.ui.left_collapsed {
-                let handle_rect =
-                    Rect::from_min_max(Pos2::new(left_rect.right() - 3.0, left_rect.top()), Pos2::new(left_rect.right() + 3.0, left_rect.bottom()));
+                let edge = left_rect.right();
+                let half = theme::DRAG_DIVIDER_HIT * 0.5;
+                // egui's rect hit test includes the far edge. A quarter pixel keeps the canvas side half open,
+                // [R - 12, R + 12), so a click exactly 12 px right of the edge is the canvas's.
+                const HALF_OPEN_FAR_EDGE: f32 = 0.25;
+                let mut band = Rect::from_min_max(Pos2::new(edge - half, left_rect.top()), Pos2::new(edge + half - HALF_OPEN_FAR_EDGE, left_rect.bottom()));
+                if self.app.ui.rulers {
+                    band.max.x = edge + theme::PAGES_SEPARATOR_HIT_HALF;
+                }
+                widgets::record(ui, "left-panel-resize-band", band);
+                let band_resp = ui.interact(band, ui.id().with("left-panel-resize-band"), egui::Sense::drag());
+                if deck {
+                    let mode = Rect::from_min_size(left_rect.min, Vec2::new(left_rect.width(), 36.0));
+                    crate::decks::ui::mode_bar(&mut self.app, ui, mode);
+                    let body = Rect::from_min_max(Pos2::new(left_rect.left(), mode.bottom()), left_rect.max);
+                    if self.app.decks.design_mode {
+                        left::show(&mut self.app, ui, body);
+                    } else {
+                        crate::decks::ui::sidebar(&mut self.app, ui, body);
+                    }
+                } else {
+                    left::show(&mut self.app, ui, left_rect);
+                }
+                let handle_rect = Rect::from_min_max(
+                    Pos2::new(edge - theme::PAGES_SEPARATOR_HIT_HALF, left_rect.top()),
+                    Pos2::new(edge + theme::PAGES_SEPARATOR_HIT_HALF, left_rect.bottom()),
+                );
                 widgets::record(ui, "left-panel-resize-handle", handle_rect);
                 let drag_resp = ui.interact(handle_rect, ui.id().with("left-panel-resize-handle"), egui::Sense::drag());
-                if drag_resp.hovered() || drag_resp.dragged() {
+                if band_resp.hovered() || band_resp.dragged() || drag_resp.hovered() || drag_resp.dragged() {
                     ctx.set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                    ui.painter().vline(left_rect.right() - 0.5, left_rect.y_range(), egui::Stroke::new(2.0, theme::BG_BRAND));
+                    ui.painter().vline(edge - 0.5, left_rect.y_range(), egui::Stroke::new(2.0, theme::BG_BRAND));
                 }
-                if drag_resp.dragged() {
+                if band_resp.dragged() || drag_resp.dragged() {
                     if let Some(pointer) = ctx.input(|i| i.pointer.interact_pos()) {
                         let new_w = (pointer.x - rail_rect.right()).clamp(200.0, max_left_w);
                         if is_ai_panel {
@@ -3599,7 +3784,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
 fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect: Rect, hud: &MicroSeqHud, cur: usize, total: usize) {
     let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("micro-seq-hud")));
     let cursor_pos = hud.cursor_screen_override.unwrap_or_else(|| app.view.to_screen(canvas_rect.min, hud.cursor_page));
-    let accent = if hud.accent_orange { egui::Color32::from_rgb(0xE3, 0x63, 0x23) } else { egui::Color32::from_rgb(0x0D, 0x99, 0xFF) };
+    let accent = if hud.accent_orange { theme::BG_BRAND } else { theme::INFO };
 
     if let Some(start_page) = hud.drag_start_page {
         let start_pos = app.view.to_screen(canvas_rect.min, start_page);
@@ -3626,7 +3811,7 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
         Pos2::new(tip.x + 8.5, tip.y + 13.5),
         Pos2::new(tip.x + 15.0, tip.y + 13.5),
     ];
-    p.add(egui::Shape::convex_polygon(arrow.clone(), egui::Color32::from_rgb(0x11, 0x12, 0x16), egui::Stroke::new(2.0, egui::Color32::WHITE)));
+    p.add(egui::Shape::convex_polygon(arrow.clone(), theme::HUD_POINTER_FILL, egui::Stroke::new(2.0, theme::ICON_WHITE)));
 
     // Floating live metric pill near cursor
     if !hud.badge_text.is_empty() {
@@ -3643,10 +3828,9 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
             px = canvas_rect.left() + theme::SPACE_GROUP;
         }
         let pill_rect = Rect::from_min_size(Pos2::new(px, py), Vec2::new(pill_w, pill_h));
-        widgets::elevation_shadow(&p, pill_rect, 8);
-        p.rect_filled(pill_rect, 8.0, egui::Color32::from_rgba_unmultiplied(17, 18, 22, 242));
-        p.rect_stroke(pill_rect, 8.0, egui::Stroke::new(1.5, accent), egui::StrokeKind::Outside);
-        p.text(pill_rect.center(), Align2::CENTER_CENTER, &hud.badge_text, font, egui::Color32::WHITE);
+        p.rect_filled(pill_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_PRIMARY);
+        p.rect_stroke(pill_rect, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.5, accent), egui::StrokeKind::Outside);
+        p.text(pill_rect.center(), Align2::CENTER_CENTER, &hud.badge_text, font, theme::TEXT);
     }
 
     // Top-center HUD caption bar with keycap badge + progress bar
@@ -3658,22 +3842,15 @@ fn paint_micro_seq_hud(ui: &egui::Ui, app: &App, canvas_rect: Rect, _right_rect:
         let bar_w = (kw + cw + 46.0).min(canvas_rect.width() - 24.0);
         let bar_h = 38.0;
         let bar_rect = Rect::from_center_size(Pos2::new(canvas_rect.center().x, canvas_rect.top() + theme::SPACE_REGION), Vec2::new(bar_w, bar_h));
-        widgets::elevation_shadow(&p, bar_rect, 10);
-        p.rect_filled(bar_rect, 10.0, egui::Color32::from_rgba_unmultiplied(17, 18, 22, 238));
-        p.rect_stroke(bar_rect, 10.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 36)), egui::StrokeKind::Outside);
+        p.rect_filled(bar_rect, theme::cr(theme::RADIUS_XL), theme::BG_PRIMARY);
+        p.rect_stroke(bar_rect, theme::cr(theme::RADIUS_XL), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Outside);
         let key_rect = Rect::from_min_size(
             Pos2::new(bar_rect.left() + theme::INSET_CONTROL + theme::INSET_SEGMENT, bar_rect.top() + theme::SPACE_INLINE - theme::BORDER_WIDTH),
             Vec2::new(kw, 24.0),
         );
-        p.rect_filled(key_rect, 6.0, accent);
-        p.text(key_rect.center(), Align2::CENTER_CENTER, &hud.keycap, font_key, egui::Color32::WHITE);
-        p.text(
-            Pos2::new(key_rect.right() + theme::SPACE_GROUP, bar_rect.center().y),
-            Align2::LEFT_CENTER,
-            &hud.caption,
-            font_cap,
-            egui::Color32::from_rgb(0xF4, 0xF4, 0xF6),
-        );
+        p.rect_filled(key_rect, theme::cr(theme::RADIUS_SEGMENT), accent);
+        p.text(key_rect.center(), Align2::CENTER_CENTER, &hud.keycap, font_key, theme::TEXT_ON_BRAND);
+        p.text(Pos2::new(key_rect.right() + theme::SPACE_GROUP, bar_rect.center().y), Align2::LEFT_CENTER, &hud.caption, font_cap, theme::TEXT);
         let prog = if total <= 1 { 1.0 } else { (cur as f32 + 1.0) / (total as f32) };
         let prog_rect = Rect::from_min_size(
             Pos2::new(bar_rect.left() + theme::SPACE_INLINE, bar_rect.bottom() - (theme::SPACE_ROW - theme::BORDER_WIDTH)),
@@ -3699,6 +3876,11 @@ fn toast_click_target(ctx: &Context, id: &str, rect: Rect, name: &str) -> egui::
             response.on_hover_cursor(egui::CursorIcon::PointingHand)
         })
         .inner
+}
+
+/// An import summary without its trailing `· Details` hint.
+fn without_details_hint(text: &str) -> &str {
+    text.strip_suffix("Details").map_or(text, |rest| rest.trim_end().trim_end_matches('\u{00b7}').trim_end())
 }
 
 /// The toolbar is centered on the window (not the canvas).

@@ -19,7 +19,7 @@ pub const STARTER_BYTES: &[u8] = include_bytes!("../../assets/starter/designos-s
 /// Decodes [`STARTER_BYTES`] into a [`Document`].
 pub fn load_starter_document() -> std::result::Result<Document, String> {
     #[cfg(test)]
-    let bytes: &[u8] = super::TEST_STARTER_BYTES_OVERRIDE.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or(STARTER_BYTES);
+    let bytes: &[u8] = super::TEST_STARTER_BYTES_OVERRIDE.with(std::cell::Cell::get).unwrap_or(STARTER_BYTES);
     #[cfg(not(test))]
     let bytes: &[u8] = STARTER_BYTES;
     let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;

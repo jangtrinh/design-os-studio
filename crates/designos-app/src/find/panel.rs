@@ -102,13 +102,11 @@ fn build_rows(app: &App) -> Vec<ListRow> {
 }
 
 fn text_button(ui: &mut Ui, rect: Rect, key: &str, label: &str, enabled: bool) -> bool {
-    let r = ui.interact(rect, ui.id().with(("find-btn", key)), if enabled { Sense::click() } else { Sense::hover() });
-    let p = ui.painter();
-    let fill = if enabled && r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY };
-    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), fill);
-    p.text(rect.center(), Align2::CENTER_CENTER, label, theme::font_body(), if enabled { theme::TEXT } else { theme::TEXT_DISABLED });
-    widgets::record(ui, &format!("find:{key}"), rect);
-    enabled && r.clicked()
+    let id = format!("find:{key}");
+    let clicked =
+        crate::widgets::kit::button(ui, rect, id.as_str(), label, crate::widgets::kit::Hierarchy::Secondary, crate::widgets::kit::Size::Xs, enabled).clicked();
+    widgets::record(ui, &id, rect);
+    enabled && clicked
 }
 
 fn toggle(ui: &mut Ui, rect: Rect, key: &str, label: &str, tip: &str, on: bool) -> bool {
@@ -171,9 +169,14 @@ fn input(ui: &mut Ui, rect: Rect, id: egui::Id, text: &mut String, hint: &str, f
         .frame(egui::Frame::NONE)
         .margin(Margin::symmetric(theme::FIELD_PLAIN_X as i8, 0))
         .vertical_align(Align::Center)
-        .hint_text(egui::RichText::new(hint).font(font).color(theme::TEXT_TERTIARY))
+        .hint_text(egui::RichText::new(hint).font(font).color(theme::TEXT_PLACEHOLDER))
         .desired_width(rect.width());
-    ui.put(rect, te)
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+        ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
+        ui.put(rect, te)
+    })
+    .inner
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
@@ -254,11 +257,11 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         y += theme::FIND_FIELD_H + theme::FIND_ROW_GAP;
         let bw = (rr.width() - theme::FIND_ROW_GAP) / 2.0;
         let has = !app.find.results.is_empty();
-        let b1 = Rect::from_min_size(Pos2::new(rr.left(), y), Vec2::new(bw, theme::FIND_BUTTON_H));
-        let b2 = Rect::from_min_size(Pos2::new(rr.left() + bw + theme::FIND_ROW_GAP, y), Vec2::new(bw, theme::FIND_BUTTON_H));
+        let b1 = Rect::from_min_size(Pos2::new(rr.left(), y), Vec2::new(bw, theme::CONTROL_XS));
+        let b2 = Rect::from_min_size(Pos2::new(rr.left() + bw + theme::FIND_ROW_GAP, y), Vec2::new(bw, theme::CONTROL_XS));
         replace_one |= text_button(ui, b1, "replace-one", "Replace", has);
         replace_all |= text_button(ui, b2, "replace-all", "Replace all", has);
-        y += theme::FIND_BUTTON_H + theme::FIND_ROW_GAP;
+        y += theme::CONTROL_XS + theme::FIND_ROW_GAP;
     }
 
     // ---- status row: count, scope, previous / next
@@ -267,7 +270,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let (msg, col) = match (&app.find.error, app.find.query.is_empty(), n) {
         (Some(e), _, _) => (e.clone(), theme::DANGER),
         (None, true, _) => ("Type to search".to_string(), theme::TEXT_TERTIARY),
-        (None, false, 0) => ("No results".to_string(), theme::TEXT_SECONDARY),
+        (None, false, 0) => ("No results".to_string(), theme::TEXT_TERTIARY),
         (None, false, 1) => ("1 result".to_string(), theme::TEXT_SECONDARY),
         (None, false, n) => (format!("{n} results"), theme::TEXT_SECONDARY),
     };

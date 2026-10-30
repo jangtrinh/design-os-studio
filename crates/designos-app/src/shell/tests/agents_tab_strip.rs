@@ -179,17 +179,25 @@ fn flat_shapes(s: &Sim) -> Vec<&egui::epaint::Shape> {
     out
 }
 
-/// Contrast of the tab title that starts with `prefix` against the opaque fill it is painted on.
-fn painted_title_contrast(s: &Sim, prefix: &str) -> f32 {
+/// The hit rect of the strip's tab number `idx`, as the last frame laid it out.
+fn tab_rect(s: &Sim, idx: usize) -> egui::Rect {
+    let id = s.shell.app.terminal.tabs[idx].id;
+    s.ctx.read_response(egui::Id::new(("agents-left-tab-select", id))).expect("the strip laid the tab out").rect
+}
+
+/// Contrast of the title painted inside `tab` against the opaque fill it is painted on. The strip elides a title
+/// to the width of its tab, so the tab's rect finds the title, not the words it starts with; the full title stays
+/// in the tab's accessible name.
+fn painted_title_contrast(s: &Sim, tab: egui::Rect) -> f32 {
     use egui::epaint::Shape;
     let shapes = flat_shapes(s);
     let title = shapes
         .iter()
         .find_map(|shape| match shape {
-            Shape::Text(text) if text.galley.job.text.starts_with(prefix) => Some(text),
+            Shape::Text(text) if tab.contains(text.pos) => Some(text),
             _ => None,
         })
-        .unwrap_or_else(|| panic!("no text starting with {prefix:?} was painted"));
+        .unwrap_or_else(|| panic!("no text was painted inside the tab at {tab:?}"));
     let colour = title.galley.job.sections[0].format.color;
     let centre = title.galley.rect.translate(title.pos.to_vec2()).center();
     let fill = shapes
@@ -217,12 +225,12 @@ fn strip_with_an_exited_first_tab(tag: &str) -> (Sim, PathBuf) {
 #[test]
 fn an_exited_tab_title_stays_readable_whether_the_tab_is_active_or_not() {
     let (mut s, dir) = strip_with_an_exited_first_tab("exit-contrast");
-    let inactive = painted_title_contrast(&s, "Claude");
+    let inactive = painted_title_contrast(&s, tab_rect(&s, 0));
     assert!(inactive >= 4.5, "the title of an exited tab behind the active one is {inactive:.2}:1, 4.5:1 is the floor");
 
     s.shell.app.terminal.active_tab = 0;
     frames(&mut s, 3);
-    let active = painted_title_contrast(&s, "Claude");
+    let active = painted_title_contrast(&s, tab_rect(&s, 0));
     assert!(active >= 4.5, "the title of the active exited tab is {active:.2}:1, 4.5:1 is the floor");
     finish(s, dir);
 }

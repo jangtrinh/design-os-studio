@@ -494,7 +494,8 @@ mod tests {
         for expected in ["Antigravity failed to start", "agy rejected a launch flag", "Last output", "Open a shell"] {
             assert!(all.contains(&expected), "{expected:?} not painted: {all:?}");
         }
-        assert!(all.iter().any(|t| t.contains("flags provided but not defined")), "stderr tail not painted: {all:?}");
+        // A long line wraps onto several painted rows (the break follows a space): join them before matching.
+        assert!(all.iter().any(|t| t.replace('\n', "").contains("flags provided but not defined")), "stderr tail not painted: {all:?}");
         let findings = crate::lint::check_text(&texts, &boxes);
         assert!(findings.is_empty(), "failure panel text lint: {findings:?}");
         assert!(clicked.is_none());

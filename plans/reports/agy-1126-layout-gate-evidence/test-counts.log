@@ -1,0 +1,62 @@
+=== origin/main (3c0818a6b) workspace --lib test results ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-1944596dcf93109a)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-e5810ad15da21541)
+test result: ok. 653 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.84s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-fea658eb94e13b12)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-ee88861ded17c916)
+test result: ok. 134 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.10s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-55465cff2ee1459e)
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.37s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-195bf1fc3fe8d28e)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-608a75bd07a52088)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-2028d878fd68ddb7)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.30s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-7710857e987590b5)
+test result: ok. 224 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.36s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-8f05f28292a56b44)
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 42.48s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-5201ca85dbe58ed3)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-170cec1498fe9b5e)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+=== origin/main (3c0818a6b) designos-app --bin designos test count ===
+widgets::popup_open::tests::nothing_is_open_before_a_popup_is_marked: test
+widgets::tests::field_text_baseline_is_16px_below_the_top: test
+widgets::tests::number_formatting: test
+
+2965 tests, 0 benchmarks
+
+=== Round 1 (db1ac784c) workspace --lib test results ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-1944596dcf93109a)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-e5810ad15da21541)
+test result: ok. 653 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.06s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-fea658eb94e13b12)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-ee88861ded17c916)
+test result: ok. 134 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-55465cff2ee1459e)
+test result: ok. 121 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 39.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-195bf1fc3fe8d28e)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-608a75bd07a52088)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-2028d878fd68ddb7)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.08s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-7710857e987590b5)
+test result: ok. 224 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.35s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-8f05f28292a56b44)
+test result: ok. 55 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.53s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-5201ca85dbe58ed3)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-170cec1498fe9b5e)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+=== Round 1 (db1ac784c) designos-app --bin designos test results ===
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-dd82a7aa841fdfee)
+test result: ok. 2971 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 153.87s

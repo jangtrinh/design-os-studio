@@ -666,6 +666,12 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
     items
 }
 
+fn mark_focus(ui: &egui::Ui, p: &egui::Painter, id: egui::Id, rect: Rect, radius: f32) {
+    if crate::widgets::kit::keyboard_focus(ui, id) {
+        crate::widgets::kit::focus_ring(p, rect, radius);
+    }
+}
+
 struct ZoomRowSpec {
     label: &'static str,
     shortcut: &'static str,
@@ -719,7 +725,6 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
         let p = ui.painter().clone();
         menu_panel(&p, rect, theme::RADIUS_FRAME);
 
-        // Top editable Zoom percentage input box (`#0D99FF` active border ring)
         let input_box = Rect::from_min_size(Pos2::new(rect.left() + 8.0, rect.top() + 8.0), Vec2::new(w - 16.0, 26.0));
         p.rect_filled(input_box, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
         p.rect_stroke(input_box, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
@@ -752,21 +757,17 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
         for (idx, r) in rows.iter().enumerate() {
             let r_rect = Rect::from_min_size(Pos2::new(rect.left(), ry), Vec2::new(w, row_h));
             let row_resp = ui.interact(r_rect, id.with(("zrow", idx)), Sense::click());
-            if row_resp.hovered() {
-                p.rect_filled(r_rect.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
-            }
+            let pill = r_rect.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0));
+            let paint = crate::widgets::kit::menu_row_look(false, row_resp.hovered(), r.checked);
+            crate::widgets::kit::paint_frame(&p, pill, theme::RADIUS_CONTROL, &paint);
+            mark_focus(ui, &p, row_resp.id, pill, theme::RADIUS_CONTROL as f32);
             if r.checked {
-                icons::paint(&p, Icon::Check, Pos2::new(r_rect.left() + 18.0, r_rect.center().y), 12.0, theme::TEXT);
+                icons::paint(&p, Icon::Check, Pos2::new(r_rect.left() + 18.0, r_rect.center().y), 12.0, paint.mark);
             }
-            p.text(Pos2::new(r_rect.left() + 32.0, r_rect.center().y), Align2::LEFT_CENTER, r.label, font.clone(), theme::TEXT);
+            p.text(Pos2::new(r_rect.left() + 32.0, r_rect.center().y), Align2::LEFT_CENTER, r.label, font.clone(), paint.text);
             if !r.shortcut.is_empty() {
-                p.text(
-                    Pos2::new(r_rect.right() - theme::MENU_SHORTCUT_PAD, r_rect.center().y),
-                    Align2::RIGHT_CENTER,
-                    r.shortcut,
-                    font.clone(),
-                    if row_resp.hovered() { theme::MENU_SHORTCUT_HIGHLIGHT } else { theme::TEXT_SECONDARY },
-                );
+                let hint = crate::widgets::kit::shortcut_look(crate::widgets::kit::State::Default).text;
+                p.text(Pos2::new(r_rect.right() - theme::MENU_SHORTCUT_PAD, r_rect.center().y), Align2::RIGHT_CENTER, r.shortcut, font.clone(), hint);
             }
             if row_resp.clicked() {
                 picked = Some(r.action);
@@ -905,7 +906,6 @@ fn commands(app: &App) -> Vec<Command> {
 }
 
 const PALETTE_ROWS: usize = 8;
-const PALETTE_SEARCH_H: f32 = 38.0;
 const PALETTE_TAB_H: f32 = 34.0;
 const PALETTE_SEC_H: f32 = 22.0;
 const PALETTE_MODAL_W: f32 = 520.0;
@@ -949,8 +949,9 @@ fn palette(app: &mut App, ctx: &Context) {
     let first = (app.ui.palette_sel + 1).saturating_sub(PALETTE_ROWS);
     let shown = n.saturating_sub(first).min(PALETTE_ROWS);
     let screen = ctx.content_rect();
-    let list_h = if n == 0 { theme::MENU_ITEM_HEIGHT } else { shown as f32 * theme::MENU_ITEM_HEIGHT };
-    let h = PALETTE_SEARCH_H + 1.0 + PALETTE_TAB_H + 1.0 + PALETTE_SEC_H + list_h + theme::MENU_PADDING;
+    let row_h = theme::MENU_ITEM_HEIGHT + theme::INSET_SEGMENT * 2.0;
+    let list_h = if n == 0 { row_h } else { shown as f32 * row_h };
+    let h = theme::CONTROL_MD + 1.0 + PALETTE_TAB_H + 1.0 + PALETTE_SEC_H + list_h + theme::MENU_PADDING;
     let modal_w = PALETTE_MODAL_W.min((screen.width() - 32.0).max(320.0));
     // Anchored at the bottom-center of the viewport right above the bottom floating toolbar (`screen.bottom() - 68.0`)
     let rect = Rect::from_min_size(Pos2::new(screen.center().x - modal_w / 2.0, (screen.bottom() - 68.0 - h).max(20.0)), Vec2::new(modal_w, h));
@@ -959,19 +960,13 @@ fn palette(app: &mut App, ctx: &Context) {
     let mut hover: Option<usize> = None;
     let moved = ctx.input(|i| i.pointer.delta() != Vec2::ZERO);
     let ptr = ctx.input(|i| i.pointer.hover_pos());
-    let bg_surface = egui::Color32::from_rgb(0x2C, 0x2C, 0x2C);
-    let border_col = egui::Color32::from_rgb(0x38, 0x38, 0x38);
-    let tab_active_bg = egui::Color32::from_rgb(0x38, 0x38, 0x38);
-
-    egui::Area::new(Id::new("palette")).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).show(ctx, |ui| {
+    egui::Area::new(Id::new("palette")).order(egui::Order::Foreground).fixed_pos(rect.min).interactable(true).fade_in(false).show(ctx, |ui| {
         ui.allocate_exact_size(rect.size(), Sense::hover());
         let p = ui.painter().clone();
-        widgets::elevation_400(&p, rect, theme::RADIUS_FRAME);
-        p.rect_filled(rect, theme::cr(theme::RADIUS_FRAME), bg_surface);
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_FRAME), egui::Stroke::new(1.0, border_col), egui::StrokeKind::Inside);
+        crate::widgets::kit::command_bar_surface(&p, rect);
 
         // 1. Top Search Row
-        let srow = Rect::from_min_size(rect.min, Vec2::new(rect.width(), PALETTE_SEARCH_H));
+        let srow = Rect::from_min_size(rect.min, Vec2::new(rect.width(), theme::CONTROL_MD));
         icons::paint(&p, Icon::Search, Pos2::new(srow.left() + 20.0, srow.center().y), theme::MENU_ICON_SIZE, theme::ICON_SECONDARY);
         icons::paint(&p, Icon::Dev, Pos2::new(srow.right() - 20.0, srow.center().y), 14.0, theme::ICON_SECONDARY);
         let field = Rect::from_min_max(Pos2::new(srow.left() + 36.0, srow.top()), Pos2::new(srow.right() - 36.0, srow.bottom()));
@@ -984,7 +979,7 @@ fn palette(app: &mut App, ctx: &Context) {
             .frame(egui::Frame::NONE)
             .margin(egui::Margin::ZERO)
             .vertical_align(egui::Align::Center)
-            .hint_text(egui::RichText::new("Search...").font(font.clone()).color(theme::TEXT_TERTIARY))
+            .hint_text(egui::RichText::new("Search...").font(font.clone()).color(theme::TEXT_PLACEHOLDER))
             .desired_width(field.width());
         ui.put(field, te);
         ui.memory_mut(|m| m.request_focus(tid));
@@ -992,7 +987,7 @@ fn palette(app: &mut App, ctx: &Context) {
             app.ui.palette_query = text;
             app.ui.palette_sel = 0;
         }
-        widgets::hline(&p, rect.left(), rect.right(), srow.bottom(), border_col);
+        widgets::hline(&p, rect.left(), rect.right(), srow.bottom(), theme::BORDER_MENU);
 
         // 2. 4-Tab Bar (`All`, `Assets`, `Plugins & widgets`, `AI & Gate`)
         let tab_row = Rect::from_min_size(Pos2::new(rect.left(), srow.bottom() + 1.0), Vec2::new(rect.width(), PALETTE_TAB_H));
@@ -1003,11 +998,13 @@ fn palette(app: &mut App, ctx: &Context) {
             let tresp = ui.interact(pill_r, Id::new(("palette-tab", ti)), Sense::click());
             let is_act = active_tab == ti;
             if is_act {
-                p.rect_filled(pill_r, egui::CornerRadius::same(6), tab_active_bg);
+                p.hline(pill_r.x_range(), pill_r.bottom(), egui::Stroke::new(theme::PAGES_SEPARATOR_HIGHLIGHT_STROKE, theme::BORDER_SELECTED));
             } else if tresp.hovered() {
-                p.rect_filled(pill_r, egui::CornerRadius::same(6), theme::BG_HOVER);
+                p.rect_filled(pill_r, theme::cr(theme::RADIUS_SEGMENT), theme::BG_MENU_HOVER);
             }
-            p.text(pill_r.center(), Align2::CENTER_CENTER, *tlabel, font.clone(), if is_act { egui::Color32::WHITE } else { theme::TEXT_SECONDARY });
+            let tab_col = if is_act { theme::TEXT } else { theme::TEXT_QUATERNARY };
+            mark_focus(ui, &p, tresp.id, pill_r, theme::RADIUS_SEGMENT as f32);
+            p.text(pill_r.center(), Align2::CENTER_CENTER, *tlabel, font.clone(), tab_col);
             if tresp.clicked() {
                 active_tab = ti;
                 ctx.data_mut(|d| d.insert_temp(tab_id, active_tab));
@@ -1015,17 +1012,17 @@ fn palette(app: &mut App, ctx: &Context) {
             }
             tx = pill_r.right() + 6.0;
         }
-        widgets::hline(&p, rect.left(), rect.right(), tab_row.bottom(), border_col);
+        widgets::hline(&p, rect.left(), rect.right(), tab_row.bottom(), theme::BORDER_MENU);
 
         // 3. Section Header ("Recents" when query is empty)
         let sec_top = tab_row.bottom() + 1.0;
         let sec_label = if q.is_empty() { "Recents" } else { "Matching actions" };
-        p.text(Pos2::new(rect.left() + 16.0, sec_top + PALETTE_SEC_H / 2.0), Align2::LEFT_CENTER, sec_label, theme::font_caption(), theme::TEXT_SECONDARY);
+        p.text(Pos2::new(rect.left() + 16.0, sec_top + PALETTE_SEC_H / 2.0), Align2::LEFT_CENTER, sec_label, theme::font_caption(), theme::TEXT_TERTIARY);
 
         let top = sec_top + PALETTE_SEC_H;
         if n == 0 {
             p.text(
-                Pos2::new(rect.left() + theme::MENU_LABEL_X_PLAIN, top + theme::MENU_ITEM_HEIGHT / 2.0),
+                Pos2::new(rect.left() + theme::MENU_LABEL_X_PLAIN, top + row_h / 2.0),
                 Align2::LEFT_CENTER,
                 "No matching actions",
                 font.clone(),
@@ -1035,7 +1032,7 @@ fn palette(app: &mut App, ctx: &Context) {
         for r in 0..shown {
             let li = first + r;
             let c = &cmds[list[li]];
-            let row = Rect::from_min_size(Pos2::new(rect.left(), top + r as f32 * theme::MENU_ITEM_HEIGHT), Vec2::new(rect.width(), theme::MENU_ITEM_HEIGHT));
+            let row = Rect::from_min_size(Pos2::new(rect.left(), top + r as f32 * row_h), Vec2::new(rect.width(), row_h));
             let resp = ui.interact(row, Id::new(("palette-row", li)), if c.disabled { Sense::hover() } else { Sense::click() });
             let lit = app.ui.palette_sel == li && !c.disabled;
             if ptr.is_some_and(|p| row.contains(p)) {
@@ -1044,19 +1041,23 @@ fn palette(app: &mut App, ctx: &Context) {
             if resp.clicked() && !c.disabled {
                 pick = Some(list[li]);
             }
+            let pill = row.shrink2(Vec2::new(theme::MENU_PILL_INSET, theme::INSET_SEGMENT));
             if lit {
-                p.rect_filled(row.shrink2(Vec2::new(theme::MENU_PILL_INSET, 0.0)), theme::cr(theme::RADIUS_CONTROL), tab_active_bg);
+                p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
+            } else if resp.hovered() && !c.disabled {
+                p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_HOVER);
             }
-            let col = if c.disabled { theme::TEXT_DISABLED } else { theme::TEXT };
+            mark_focus(ui, &p, resp.id, pill, theme::RADIUS_CONTROL as f32);
+            let col = if c.disabled {
+                theme::TEXT_DISABLED
+            } else if lit {
+                theme::TEXT
+            } else {
+                theme::TEXT_SECONDARY
+            };
             p.text(Pos2::new(row.left() + 16.0, row.center().y), Align2::LEFT_CENTER, &c.label, font.clone(), col);
             if !c.shortcut.is_empty() {
-                let sc = if c.disabled {
-                    theme::TEXT_DISABLED
-                } else if lit {
-                    theme::MENU_SHORTCUT_HIGHLIGHT
-                } else {
-                    theme::TEXT_SECONDARY
-                };
+                let sc = if c.disabled { theme::TEXT_DISABLED } else { theme::TEXT_QUATERNARY };
                 p.text(Pos2::new(row.right() - theme::MENU_SHORTCUT_PAD, row.center().y), Align2::RIGHT_CENTER, &c.shortcut, font.clone(), sc);
             }
         }
@@ -1205,5 +1206,30 @@ mod tests {
         assert_eq!(offset_disabled(&app), Some(false), "a rectangle can be offset");
         app.selection = vec![frame, shape];
         assert_eq!(offset_disabled(&app), Some(false), "one offsettable shape in the selection is enough");
+    }
+
+    #[test]
+    fn palette_is_394_tall_with_the_40_px_input_row() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let mut app = App::new(designos_doc::Document::new("Palette"));
+        app.ui.menu = Some(MenuKind::Palette);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+        let _ = ctx.run_ui(raw.clone(), |_ui| show(&mut app, &ctx));
+        let shapes = ctx.run_ui(raw, |_ui| show(&mut app, &ctx)).shapes;
+        fn sizes(shape: &egui::Shape, out: &mut Vec<(f32, f32)>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push((r.rect.width(), r.rect.height())),
+                egui::Shape::Vec(inner) => inner.iter().for_each(|s| sizes(s, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        for clipped in &shapes {
+            sizes(&clipped.shape, &mut found);
+        }
+        // Several surface roles share one fill, so only the size says this is the palette frame.
+        assert!(found.iter().any(|(w, h)| (w - 520.0).abs() < 0.5 && (h - 394.0).abs() < 0.5), "palette frame is 520 by 394, got {found:?}");
     }
 }

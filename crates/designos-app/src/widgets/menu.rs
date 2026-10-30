@@ -73,6 +73,18 @@ pub enum TreeResult {
 
 /// Vertical space of a separator between two rows (margin + 1px line + margin).
 pub const SEP_H: f32 = theme::MENU_SEP_MARGIN * 2.0 + theme::BORDER_WIDTH;
+
+/// Height of a menu level made of `items`, before the screen clamps it: the padding at both ends, every row and every
+/// separator block. A caller that places a menu so it clears something takes its height from here.
+pub fn menu_height(items: &[MenuItem]) -> f32 {
+    menu_height_for(items, theme::MENU_ITEM_HEIGHT)
+}
+
+/// Height of a menu level whose rows are `row_h` tall. [`menu_height`] keeps the default pitch.
+pub fn menu_height_for(items: &[MenuItem], row_h: f32) -> f32 {
+    items.iter().fold(2.0 * theme::MENU_PADDING, |h, it| h + row_h + if it.separator_after { SEP_H } else { 0.0 })
+}
+
 /// Width given to submenu panels at minimum.
 const SUBMENU_MIN_W: f32 = 190.0;
 
@@ -156,17 +168,18 @@ struct Layout {
     h: f32,
     tops: Vec<f32>,
     has_check: bool,
+    row_h: f32,
 }
 
 impl Layout {
-    fn new(ctx: &egui::Context, items: &[MenuItem], min_w: f32) -> Self {
+    fn new(ctx: &egui::Context, items: &[MenuItem], min_w: f32, row_h: f32) -> Self {
         let font = theme::font_menu();
         let has_check = items.iter().any(|i| i.checkable);
         let mut tops = Vec::with_capacity(items.len());
         let mut y = theme::MENU_PADDING;
         for it in items {
             tops.push(y);
-            y += theme::MENU_ITEM_HEIGHT + if it.separator_after { SEP_H } else { 0.0 };
+            y += row_h + if it.separator_after { SEP_H } else { 0.0 };
         }
         let mut need = 0.0f32;
         ctx.fonts_mut(|f| {
@@ -183,7 +196,7 @@ impl Layout {
                 need = need.max(label_x(it, has_check) + lw + right);
             }
         });
-        Self { w: need.ceil().max(min_w), h: y + theme::MENU_PADDING, tops, has_check }
+        Self { w: need.ceil().max(min_w), h: menu_height_for(items, row_h), tops, has_check, row_h }
     }
 
     /// Whether the level is taller than the `limit` it may fill, so that it scrolls.
@@ -201,7 +214,7 @@ impl Layout {
 
     /// `scroll` moved by the least amount that brings row `i` fully between the panel's vertical paddings.
     fn scroll_to_row(&self, i: usize, scroll: f32, limit: f32) -> f32 {
-        let (top, bottom) = (self.tops[i], self.tops[i] + theme::MENU_ITEM_HEIGHT);
+        let (top, bottom) = (self.tops[i], self.tops[i] + self.row_h);
         scroll.max(bottom + theme::MENU_PADDING - limit).min(top - theme::MENU_PADDING).clamp(0.0, self.max_scroll(limit))
     }
 }
@@ -288,7 +301,12 @@ fn levels<'a>(items: &'a [MenuItem], st: &mut MenuState) -> Vec<&'a [MenuItem]> 
 /// Shows a floating menu at `pos`. `anchor` is the button that opened it (a
 /// press on it does not count as an outside click so the button can toggle).
 pub fn popup_menu(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[MenuItem], anchor: Option<Rect>) -> MenuResult {
-    match popup_tree(ctx, id, pos, min_w, items, anchor) {
+    popup_menu_with_row_h(ctx, id, pos, min_w, items, anchor, theme::MENU_ITEM_HEIGHT)
+}
+
+/// Same as [`popup_menu`] with an explicit row pitch. The default pitch stays [`theme::MENU_ITEM_HEIGHT`].
+pub fn popup_menu_with_row_h(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[MenuItem], anchor: Option<Rect>, row_h: f32) -> MenuResult {
+    match popup_tree_with_row_h(ctx, id, pos, min_w, items, anchor, row_h) {
         TreeResult::Open => MenuResult::Open,
         TreeResult::Closed => MenuResult::Closed,
         TreeResult::Picked(p) => MenuResult::Picked(p[0]),
@@ -297,6 +315,10 @@ pub fn popup_menu(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
 
 /// Like `popup_menu` but with submenus: returns the full index path of the picked leaf.
 pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[MenuItem], anchor: Option<Rect>) -> TreeResult {
+    popup_tree_with_row_h(ctx, id, pos, min_w, items, anchor, theme::MENU_ITEM_HEIGHT)
+}
+
+fn popup_tree_with_row_h(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[MenuItem], anchor: Option<Rect>, row_h: f32) -> TreeResult {
     let mut st = load_state(ctx, id, items);
     let before = st.hl.clone();
     let screen = ctx.content_rect();
@@ -371,7 +393,7 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
     let own_layers: Vec<egui::LayerId> = (0..lv.len()).map(|k| egui::LayerId::new(Order::Foreground, id.with(("lvl", k)))).collect();
     let covered = |p: Pos2| ctx.layer_id_at(p).is_some_and(|l| l.order >= Order::Foreground && !own_layers.contains(&l));
     let (press_pos, release_pos) = primary_gesture(&events, &mut st.armed, covered);
-    let lays: Vec<Layout> = lv.iter().enumerate().map(|(k, list)| Layout::new(ctx, list, if k == 0 { min_w } else { SUBMENU_MIN_W })).collect();
+    let lays: Vec<Layout> = lv.iter().enumerate().map(|(k, list)| Layout::new(ctx, list, if k == 0 { min_w } else { SUBMENU_MIN_W }, row_h)).collect();
     let limit = screen.height() - 4.0;
     st.scroll.resize(lays.len(), 0.0);
     for (s, lay) in st.scroll.iter_mut().zip(&lays) {
@@ -430,7 +452,7 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
             let p = if capped { p.with_clip_rect(band) } else { p };
             for (i, it) in list.iter().enumerate() {
                 let top = rect.top() + lay.tops[i] - scroll;
-                let row = Rect::from_min_size(Pos2::new(rect.left(), top), Vec2::new(rect.width(), theme::MENU_ITEM_HEIGHT));
+                let row = Rect::from_min_size(Pos2::new(rect.left(), top), Vec2::new(rect.width(), lay.row_h));
                 #[cfg(test)]
                 record(ui, &format!("menu-row-{k}-{i}"), row);
                 #[cfg(test)]
@@ -438,13 +460,13 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                 let hit = if capped { row.intersect(band) } else { row };
                 if !hit.is_positive() {
                     if it.separator_after {
-                        hline(&p, rect.left(), rect.right(), row.bottom() + theme::MENU_SEP_MARGIN, theme::BORDER_MENU);
+                        hline(&p, rect.left(), rect.right(), row.bottom() + theme::MENU_SEP_MARGIN, theme::BORDER);
                     }
                     continue;
                 }
                 let pill = Rect::from_min_size(
                     Pos2::new(rect.left() + theme::MENU_PILL_INSET, top),
-                    Vec2::new(rect.width() - theme::MENU_PILL_INSET * 2.0, theme::MENU_ITEM_HEIGHT),
+                    Vec2::new(rect.width() - theme::MENU_PILL_INSET * 2.0, lay.row_h),
                 );
                 let resp = ui.interact(hit, id.with(("row", k, i)), if it.disabled { Sense::hover() } else { Sense::click() });
                 if !it.tooltip.is_empty() {
@@ -462,46 +484,37 @@ pub fn popup_tree(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, items: &[M
                 if (released_here || activated) && !it.disabled {
                     clicked = Some((k, i));
                 }
-                if lit {
-                    p.rect_filled(pill, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU_SELECTED);
-                }
-                let col = if it.disabled { theme::TEXT_DISABLED } else { theme::TEXT };
+                let paint = kit::menu_row_look(it.disabled, lit, it.checked);
+                kit::paint_frame(&p, pill, theme::RADIUS_CONTROL, &paint);
                 let cy = row.center().y;
                 if it.checked {
-                    icons::paint(&p, Icon::Check, Pos2::new(rect.left() + theme::MENU_CHECK_X + theme::MENU_CHECK_BOX / 2.0, cy), theme::MENU_ICON_SIZE, col);
+                    icons::paint(
+                        &p,
+                        Icon::Check,
+                        Pos2::new(rect.left() + theme::MENU_CHECK_X + theme::MENU_CHECK_BOX / 2.0, cy),
+                        theme::MENU_ICON_SIZE,
+                        paint.mark,
+                    );
                 }
                 if let Some(ic) = it.icon {
                     let ix = if lay.has_check { theme::MENU_ICON_X_CHECKED } else { theme::MENU_ICON_X_PLAIN };
-                    icons::paint(&p, ic, Pos2::new(rect.left() + ix + theme::MENU_ICON_BOX / 2.0, cy), theme::MENU_ICON_SIZE, col);
+                    icons::paint(&p, ic, Pos2::new(rect.left() + ix + theme::MENU_ICON_BOX / 2.0, cy), theme::MENU_ICON_SIZE, paint.icon);
                 }
-                p.text(Pos2::new(rect.left() + label_x(it, lay.has_check), cy), Align2::LEFT_CENTER, &it.label, font.clone(), col);
+                p.text(Pos2::new(rect.left() + label_x(it, lay.has_check), cy), Align2::LEFT_CENTER, &it.label, font.clone(), paint.text);
+                let hint = kit::shortcut_look(if it.disabled { kit::State::Disabled } else { kit::State::Default }).text;
                 if it.has_sub() {
-                    let c = if it.disabled {
-                        theme::TEXT_DISABLED
-                    } else if lit {
-                        theme::MENU_SHORTCUT_HIGHLIGHT
-                    } else {
-                        theme::ICON_SECONDARY
-                    };
                     icons::paint(
                         &p,
                         Icon::ChevronRight,
                         Pos2::new(rect.right() - theme::MENU_CHEVRON_PAD - theme::MENU_CHEVRON_BOX / 2.0, cy),
                         theme::MENU_CHEVRON_SIZE,
-                        c,
+                        paint.icon,
                     );
                 } else if !it.shortcut.is_empty() {
-                    let c = if it.disabled {
-                        theme::TEXT_DISABLED
-                    } else if lit {
-                        theme::MENU_SHORTCUT_HIGHLIGHT
-                    } else {
-                        theme::TEXT_SECONDARY
-                    };
-                    p.text(Pos2::new(rect.right() - theme::MENU_SHORTCUT_PAD, cy), Align2::RIGHT_CENTER, &it.shortcut, font.clone(), c);
+                    p.text(Pos2::new(rect.right() - theme::MENU_SHORTCUT_PAD, cy), Align2::RIGHT_CENTER, &it.shortcut, font.clone(), hint);
                 }
                 if it.separator_after {
-                    hline(&p, rect.left(), rect.right(), row.bottom() + theme::MENU_SEP_MARGIN, theme::BORDER_MENU);
+                    hline(&p, rect.left(), rect.right(), row.bottom() + theme::MENU_SEP_MARGIN, theme::BORDER);
                 }
             }
             if capped {
@@ -587,14 +600,13 @@ pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let p = ui.painter();
-    p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-    if r.hovered() || open {
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, if open { theme::BORDER_SELECTED } else { theme::BORDER }), StrokeKind::Inside);
-    }
+    let focused = open || ui.memory(|mem| mem.has_focus(id));
+    let paint = kit::select_look(if focused { kit::State::Focused } else { kit::State::Default });
+    kit::paint_frame(p, rect, theme::RADIUS_CONTROL, &paint);
     let font = theme::font_menu();
     let shown = elide(p, label, &font, rect.width() - 28.0);
-    p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT);
-    icons::paint(p, Icon::ChevronDown, Pos2::new(rect.right() - 12.0, rect.center().y), 12.0, theme::ICON_SECONDARY);
+    p.text(Pos2::new(rect.left() + 8.0, rect.center().y), Align2::LEFT_CENTER, shown, font, paint.text);
+    icons::paint(p, Icon::ChevronDown, Pos2::new(rect.right() - 12.0, rect.center().y), 12.0, paint.icon);
     if r.clicked() {
         ui.data_mut(|d| d.insert_temp(id, !open));
     }
@@ -617,6 +629,26 @@ pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_height_is_the_height_of_the_panel_the_layout_gives_the_items() {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {}); // the fonts are in place from the first pass on
+        let mut items = vec![MenuItem::new("One"), MenuItem::new("Two"), MenuItem::new("Three")];
+        items[1].separator_after = true;
+        assert_eq!(menu_height(&items), 2.0 * theme::MENU_PADDING + 3.0 * theme::MENU_ITEM_HEIGHT + SEP_H);
+        assert_eq!(Layout::new(&ctx, &items, 100.0, theme::MENU_ITEM_HEIGHT).h, menu_height(&items));
+        assert_eq!(menu_height(&[]), 2.0 * theme::MENU_PADDING);
+    }
+
+    #[test]
+    fn menu_height_for_sm_is_taller_than_the_default_pitch() {
+        let items = vec![MenuItem::new("A"), MenuItem::new("B")];
+        let sm = menu_height_for(&items, theme::CONTROL_SM);
+        let xs = menu_height(&items);
+        assert_eq!(sm - xs, 2.0 * (theme::CONTROL_SM - theme::MENU_ITEM_HEIGHT));
+    }
     use crate::proto::DEVICES;
 
     const SCREEN: Vec2 = Vec2::new(900.0, 600.0);
@@ -829,7 +861,7 @@ mod tests {
     /// The panel rect the menu code produced before levels could be capped: size from the layout, then
     /// the 2 px screen-edge clamp on both axes.
     fn uncapped_panel(m: &Popup) -> Rect {
-        let lay = Layout::new(&m.ctx, &m.items, 160.0);
+        let lay = Layout::new(&m.ctx, &m.items, 160.0, theme::MENU_ITEM_HEIGHT);
         let screen = Rect::from_min_size(Pos2::ZERO, SCREEN);
         let x = m.pos.x.min(screen.right() - lay.w - 2.0).max(screen.left() + 2.0);
         let y = m.pos.y.min(screen.bottom() - lay.h - 2.0).max(screen.top() + 2.0);

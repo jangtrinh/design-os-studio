@@ -1,0 +1,47 @@
+......FFF..F...
+======================================================================
+FAIL: test_kit_imported_once_and_cloned_per_case_with_headless_prep (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest.test_kit_imported_once_and_cloned_per_case_with_headless_prep)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/tests/test_layout_baseline_capture.py", line 813, in test_kit_imported_once_and_cloned_per_case_with_headless_prep
+    self.assertIn("imported-kit-designos", captures[0]["clone_content"])
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 'imported-kit-designos' not found in '{"name":"Untitled","pages":[1],"nodes":{"1":{"id":1,"name":"Page 1"}}}\n'
+
+======================================================================
+FAIL: test_mcp_import_sends_initialized_before_tools_call_and_checks_is_error (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest.test_mcp_import_sends_initialized_before_tools_call_and_checks_is_error)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/tests/test_layout_baseline_capture.py", line 1103, in test_mcp_import_sends_initialized_before_tools_call_and_checks_is_error
+    self.assertGreaterEqual(len(methods), 4, f"expected >= 4 MCP messages, got {methods}")
+    ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: 3 not greater than or equal to 4 : expected >= 4 MCP messages, got ['initialize', 'tools/call', 'tools/call']
+
+======================================================================
+FAIL: test_missing_designos_mcp_exits_1_and_writes_no_kit_designos (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_designos_mcp_exits_1_and_writes_no_kit_designos)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/tests/test_layout_baseline_capture.py", line 1193, in test_missing_designos_mcp_exits_1_and_writes_no_kit_designos
+    self.assertIn(
+    ~~~~~~~~~~~~~^
+        "designos-mcp not found next to --bin: build it with -p designos-mcp",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        proc.stderr,
+        ^^^^^^^^^^^^
+    )
+    ^
+AssertionError: 'designos-mcp not found next to --bin: build it with -p designos-mcp' not found in 'ERROR: case d-editor-default: check 1 failed: missing /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-hbxmokz2/run/tmp/.designos-hermetic-active\n'
+
+======================================================================
+FAIL: test_one_page_kit_import_exits_1_with_page_count (scripts.tests.test_layout_baseline_capture.LayoutBaselineCaptureTest.test_one_page_kit_import_exits_1_with_page_count)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/scripts/tests/test_layout_baseline_capture.py", line 1236, in test_one_page_kit_import_exits_1_with_page_count
+    self.assertIn("1 page", proc.stderr)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '1 page' not found in 'ERROR: case d-editor-default: check 1 failed: missing /private/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/designos-tierb-run-3jn_crv7/run/tmp/.designos-hermetic-active\n'
+
+----------------------------------------------------------------------
+Ran 15 tests in 46.709s
+
+FAILED (failures=4)
