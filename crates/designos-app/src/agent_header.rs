@@ -19,6 +19,8 @@ struct DrawnTab {
     idx: Option<usize>,
     tab_id: usize,
     title: String,
+    /// Screen-reader name: the title, with `(exited)` once the agent ended.
+    a11y: String,
     tip: String,
     dot: Option<DotTone>,
     width: f32,
@@ -101,7 +103,7 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
         state.sessions_popover_open = false;
         state.resume_notice = None;
         state.picker.on_close();
-        ui.memory_mut(|m| m.request_focus(Id::new("agents-ask-for-changes-input")));
+        state.pending_composer_focus = true;
     } else if more_resp.clicked() {
         state.sessions_popover_open = !state.sessions_popover_open;
         state.resume_notice = None;
@@ -128,13 +130,14 @@ fn layout_tabs(state: &TerminalState, p: &egui::Painter, left: f32, right: f32) 
             idx: Some(idx),
             tab_id: tab.id,
             title: tab.title.clone(),
+            a11y: tab.display_title(),
             tip: tab_tip(tab, now),
             dot: tab_dot(tab, idx == state.active_tab, pending),
             width: 0.0,
         })
         .collect();
     if state.picker_open || state.tabs.is_empty() {
-        slots.push(DrawnTab { idx: None, tab_id: 0, title: "New chat".to_string(), tip: "New chat".to_string(), dot: None, width: 0.0 });
+        slots.push(DrawnTab { idx: None, tab_id: 0, title: "New chat".to_string(), a11y: "New chat".to_string(), tip: "New chat".to_string(), dot: None, width: 0.0 });
     }
     let total = slots.len();
     let dots: Vec<Option<DotTone>> = slots.iter().map(|s| s.dot).collect();
@@ -214,7 +217,7 @@ fn paint_tab(ui: &mut Ui, p: &egui::Painter, t_rect: Rect, tab: &DrawnTab, selec
     }
     let record_name = if tab.idx.is_none() { "agents-new-chat-tab" } else { "agents-left-tab-select" };
     widgets::record(ui, record_name, t_rect);
-    widgets::labelled(ui, resp.id, egui::accesskit::Role::Tab, &tab.title);
+    widgets::labelled(ui, resp.id, egui::accesskit::Role::Tab, &tab.a11y);
     (resp.clicked(), close_resp.is_some_and(|r| r.clicked()))
 }
 
@@ -233,9 +236,12 @@ fn icon_color(resp: &egui::Response, selected: bool) -> egui::Color32 {
 }
 
 fn tab_dot(tab: &TerminalTab, active: bool, pending: bool) -> Option<DotTone> {
-    let failed = matches!(tab.effective_status(), AgentTabStatus::Error(_)) || tab.start_failure.is_some() || tab.session_failure.is_some();
-    if failed {
+    let crashed = !tab.exited_notice_shown && matches!(tab.effective_status(), AgentTabStatus::Error(_));
+    if crashed || tab.start_failure.is_some() || tab.session_failure.is_some() {
         return Some(DotTone::Error);
+    }
+    if tab.exited_notice_shown {
+        return None;
     }
     let waiting = tab.needs_approval() || (active && pending) || matches!(tab.effective_status(), AgentTabStatus::WaitingForInput(_));
     waiting.then_some(DotTone::Info)

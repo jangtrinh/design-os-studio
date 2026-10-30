@@ -49,6 +49,17 @@ pub fn paint_approval_card(
     paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), surface_id)
 }
 
+/// `1 of N` at the right edge of the title row while more than one request waits. Returns the room it takes.
+fn paint_queue_count(p: &egui::Painter, header_r: Rect, queue_len: usize, mono: &egui::FontId) -> f32 {
+    if queue_len <= 1 {
+        return 0.0;
+    }
+    let count_text = format!("1 of {queue_len}");
+    let width = widgets::text_width(p, &count_text, mono) + theme::SPACE_INLINE;
+    p.text(Pos2::new(header_r.right(), header_r.center().y), Align2::RIGHT_CENTER, count_text, mono.clone(), theme::TEXT_TERTIARY);
+    width
+}
+
 /// Paints the in-panel approval card for `tab_id` (`#656`, `#1195`).
 #[allow(clippy::too_many_arguments)]
 pub fn paint_approval_card_for_tab(
@@ -88,16 +99,8 @@ pub fn paint_approval_card_for_tab(
     let inner = card_rect.shrink(theme::INSET_BUTTON);
     let header_r = Rect::from_min_size(inner.min, Vec2::new(inner.width(), theme::TARGET_MIN));
 
-    let count_font = theme::font_mono();
-    let queue_len = total_pending.max(requests.len());
-    let count_reserve = if queue_len > 1 {
-        let count_text = format!("1 of {queue_len}");
-        let cw = widgets::text_width(&p, &count_text, &count_font) + theme::SPACE_INLINE;
-        p.text(Pos2::new(header_r.right(), header_r.center().y), Align2::RIGHT_CENTER, count_text, count_font, theme::TEXT_TERTIARY);
-        cw
-    } else {
-        0.0
-    };
+    let mono_font = theme::font_mono();
+    let count_reserve = paint_queue_count(&p, header_r, total_pending.max(requests.len()), &mono_font);
 
     let title_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
     let raw_title = if is_claude {
@@ -122,10 +125,9 @@ pub fn paint_approval_card_for_tab(
             mark: egui::Color32::TRANSPARENT,
         };
         kit::paint_frame(&p, sum_r, theme::RADIUS_CONTROL, &sum_paint);
-        let mono_font = theme::font_mono();
         let sum_max_w = (sum_r.width() - theme::INSET_BUTTON * 2.0).max(theme::TARGET_MIN);
         let sum_elided = widgets::elide(&p, &req.input_summary, &mono_font, sum_max_w);
-        p.text(Pos2::new(sum_r.left() + theme::INSET_BUTTON, sum_r.center().y), Align2::LEFT_CENTER, sum_elided, mono_font, theme::TEXT);
+        p.text(Pos2::new(sum_r.left() + theme::INSET_BUTTON, sum_r.center().y), Align2::LEFT_CENTER, sum_elided, mono_font.clone(), theme::TEXT);
         widgets::record(ui, "agent-approval-summary", sum_r);
         y = sum_r.bottom() + theme::SPACE_INLINE;
     }

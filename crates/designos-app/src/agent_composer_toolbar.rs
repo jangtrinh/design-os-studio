@@ -65,6 +65,7 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
                 error: false,
                 dismiss: Some("Dismiss selection"),
                 tip: Some("Send the selection to the agent"),
+                name: Some("Send selection to agent"),
             },
         );
         widgets::record(ui, "agent-selection-chip", rect);
@@ -77,7 +78,7 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         let w = widths[slot];
         slot += 1;
         let rect = place(&mut x, &mut y, row, w);
-        if paint_tag(ui, &p, rect, TagSpec { id: "agents-composer-chip-prd", label: "PRD", error: false, dismiss: Some("Remove PRD"), tip: None }).dismiss {
+        if paint_tag(ui, &p, rect, TagSpec { id: "agents-composer-chip-prd", label: "PRD", error: false, dismiss: Some("Remove PRD"), tip: None, name: Some("PRD attached") }).dismiss {
             out.prd_hide = true;
         }
     }
@@ -90,7 +91,7 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         let tip = state.skills.selected_names.join(", ");
         let bad = state.skills.limit_violation().is_some();
         let hit =
-            paint_tag(ui, &p, rect, TagSpec { id: "agents-composer-chip-skills", label: &label, error: bad, dismiss: Some("Detach skills"), tip: Some(&tip) });
+            paint_tag(ui, &p, rect, TagSpec { id: "agents-composer-chip-skills", label: &label, error: bad, dismiss: Some("Detach skills"), tip: Some(&tip), name: None });
         out.skills_clear = hit.dismiss;
         out.skills_open = hit.body && !hit.dismiss;
     }
@@ -98,7 +99,7 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         let w = widths.get(slot + i).copied().unwrap_or(CHIP_MIN_W);
         let rect = place(&mut x, &mut y, row, w);
         let id = format!("agents-composer-chip-{}", chip.node_id.0);
-        if paint_tag(ui, &p, rect, TagSpec { id: &id, label: &chip.name, error: false, dismiss: None, tip: None }).body {
+        if paint_tag(ui, &p, rect, TagSpec { id: &id, label: &chip.name, error: false, dismiss: None, tip: None, name: None }).body {
             out.drop_layer = Some(chip.node_id);
         }
         widgets::record(ui, "agents-composer-chip", rect);
@@ -182,6 +183,8 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
         state.mode_menu_open = false;
         if state.runtime_dropdown_open {
             stamp_pass(ui, "agents-runtime-opened-pass");
+        } else {
+            state.picker.on_close();
         }
         out.pill = true;
     }
@@ -298,6 +301,7 @@ struct TagSpec<'a> {
     error: bool,
     dismiss: Option<&'a str>,
     tip: Option<&'a str>,
+    name: Option<&'a str>,
 }
 
 fn paint_tag(ui: &mut Ui, p: &egui::Painter, rect: Rect, spec: TagSpec<'_>) -> TagHit {
@@ -311,6 +315,7 @@ fn paint_tag(ui: &mut Ui, p: &egui::Painter, rect: Rect, spec: TagSpec<'_>) -> T
     let shown = widgets::elide(p, spec.label, &theme::font_caption(), label_w.max(theme::SPACE_BLOCK));
     p.text(Pos2::new(rect.left() + theme::SPACE_ROW, rect.center().y), Align2::LEFT_CENTER, shown, theme::font_caption(), text);
     widgets::record(ui, spec.id, rect);
+    widgets::labelled(ui, resp.id, egui::accesskit::Role::Button, spec.name.unwrap_or(spec.label));
     if resp.has_focus() {
         kit::focus_ring(p, rect, theme::RADIUS_CONTROL as f32);
     }

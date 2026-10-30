@@ -814,7 +814,7 @@ impl TerminalState {
 }
 
 fn composer_popup_open(state: &TerminalState) -> bool {
-    state.mention_popup.is_open() && state.mention_popup.mode == crate::agent_mention_popup::MentionPopupMode::Composer
+    state.mention_popup.is_open()
 }
 
 /// Runs `f` with the active composer draft, the `@`-mention popup and the active mentions as disjoint borrows.
@@ -906,7 +906,7 @@ pub fn show_composer(
         state.mention_popup.sync_from_composer_text(&draft_now, pre_cursor, doc, current_page);
         if composer_popup_open(state) {
             let ctx = ui.ctx().clone();
-            let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions, doc, current_page));
+            let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions));
             apply_post_pick_cursor(ui, state, input_id);
         }
     }
@@ -1026,6 +1026,9 @@ pub fn show_composer(
                 .interactive(composer_live)
                 .hint_text(RichText::new(hint_owned).font(theme::font_body()).color(theme::TEXT_TERTIARY));
             let out = te.show(ui);
+            if std::mem::take(&mut state.pending_composer_focus) {
+                out.response.request_focus();
+            }
             // After `show`: a click elsewhere has already taken the focus by now, which is what the next frame starts from.
             state.record_composer_focus(ui.memory(|m| m.has_focus(input_id)));
             if let Some(cr) = out.cursor_range {
@@ -1767,7 +1770,7 @@ mod tests {
         st.flush_pending_enter_now();
         assert_eq!(st.active_composer().send_count, 3);
 
-        // Entry point 4: a sample prompt row fills the composer, and the Send button then sends it through the same path.
+        // Entry point 4: a draft typed into the composer, sent with the Send button through the same path.
         st.side_panel_pty_open = false;
         let frame = |st: &mut TerminalState, events: Vec<Event>| {
             let _ = ctx.run_ui(
@@ -1784,12 +1787,8 @@ mod tests {
                 Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
             ]
         };
-        frame(&mut st, Vec::new());
-        let sample_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-sample-prompt-0".to_string())))).expect("agents-sample-prompt-0 rect");
-        frame(&mut st, click(sample_rect));
-        let sample_text = crate::agent_sample_prompts::sample_prompts(st.prompt_context)[0].text.clone();
-        assert_eq!(st.composer_draft(), sample_text, "the sample prompt row must only fill the composer");
-        assert_eq!(st.active_composer().send_count, 3, "filling the composer must not send");
+        let typed_text = "Entry 4 typed in the composer".to_string();
+        st.set_composer_draft(typed_text.clone());
         frame(&mut st, Vec::new());
         let send_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-composer-send".to_string())))).expect("agents-composer-send rect");
         frame(&mut st, click(send_rect));
@@ -1797,7 +1796,7 @@ mod tests {
         assert_eq!(st.active_composer().send_count, 4);
 
         let all_written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
-        for expected in ["Entry 1 from composer button", "Entry 2 from submit_chat_prompt", "Entry 3 from dispatch_figma_ai_prompt", sample_text.as_str()] {
+        for expected in ["Entry 1 from composer button", "Entry 2 from submit_chat_prompt", "Entry 3 from dispatch_figma_ai_prompt", typed_text.as_str()] {
             assert!(all_written.contains(expected), "Entry point prompt `{expected}` missing from PTY stream: {all_written:?}");
             assert!(st.active_composer().history.iter().any(|h| h.contains(expected)), "Entry point prompt `{expected}` missing from composer history");
         }
@@ -2701,32 +2700,46 @@ mod tests {
     }
 
     #[test]
-    fn the_agents_header_has_a_28px_skills_button_beside_the_runtime_selector_that_opens_the_picker() {
+    fn composer_plus_menu_holds_three_items() {
         let _turn = one_pty_test_at_a_time();
         let ctx = themed_context();
-        let dir = temp_composer_dir("skills-header-button");
-        let mut st = TerminalState::new_for_session("doc-skills-header", "Skill Send", Some(&dir));
-        assert!(st.side_panel_pty_open, "the default Agents panel is the PTY view with the `+` runtime selector");
+        let dir = temp_composer_dir("plus-menu-items");
+        let mut st = TerminalState::new_for_session("doc-plus-menu", "Plus Menu", Some(&dir));
+        assert!(st.side_panel_pty_open, "the default Agents panel is the PTY view");
 
         panel_frame(&ctx, &mut st, Vec::new());
-        let add = drawn_rect(&ctx, "agents-runtime-add-btn").expect("runtime selector");
-        let skills = drawn_rect(&ctx, "agents-header-skills").expect("header Skills button");
-        assert_eq!(skills.height(), theme::CONTROL_STANDARD, "RD-4 §7: a 28 px button");
-        assert!(skills.left() >= add.right() && skills.left() - add.right() <= theme::SPACE_GROUP, "next to the runtime selector: {add:?} {skills:?}");
-        assert!((skills.center().y - add.center().y).abs() < 1.0, "same row as the selector: {add:?} {skills:?}");
-        assert!(!st.skills.picker_open);
+        for retired in ["agents-header-skills", "agents-runtime-add-btn", "agents-composer-book", "agents-composer-prd", "agents-composer-skills"] {
+            assert!(drawn_rect(&ctx, retired).is_none(), "{retired} is gone");
+        }
+        let add = drawn_rect(&ctx, "agents-composer-add-btn").expect("composer +");
+        assert_eq!((add.width(), add.height()), (theme::CONTROL_XS, theme::CONTROL_XS), "Button/Icon at xs");
+        assert!(drawn_rect(&ctx, "agents-composer-attach-menu").is_none(), "the menu starts closed");
 
+        panel_frame(&ctx, &mut st, click_events(add));
+        panel_frame(&ctx, &mut st, Vec::new());
+        assert!(drawn_rect(&ctx, "agents-composer-attach-menu").is_some(), "the + opens the attach menu");
+        let items = ["agents-composer-add-selection", "agents-composer-attach-prd", "agents-composer-skills-item"];
+        for item in items {
+            let r = drawn_rect(&ctx, item).unwrap_or_else(|| panic!("{item} is a row of the menu"));
+            assert_eq!(r.height(), theme::MENU_ITEM_HEIGHT, "{item} is a 32 px menu item");
+        }
+
+        // `Attach PRD` toggles the chip state, and the next send prepends the tag.
+        let prd = drawn_rect(&ctx, "agents-composer-attach-prd").unwrap();
+        panel_frame(&ctx, &mut st, click_events(prd));
+        assert!(st.active_composer().attach_prd, "Attach PRD sets the flag");
+        panel_frame(&ctx, &mut st, Vec::new());
+        assert!(drawn_rect(&ctx, "agents-composer-chip-prd").is_some(), "and the PRD chip is drawn");
+
+        // `Skills…` opens the same popover the chip opens.
+        panel_frame(&ctx, &mut st, click_events(add));
+        panel_frame(&ctx, &mut st, Vec::new());
+        let skills = drawn_rect(&ctx, "agents-composer-skills-item").expect("Skills… row");
+        assert!(!st.skills.picker_open);
         panel_frame(&ctx, &mut st, click_events(skills));
-        assert!(st.skills.picker_open, "the button opens the same picker as the composer chip");
+        assert!(st.skills.picker_open, "Skills… opens the picker");
         panel_frame(&ctx, &mut st, Vec::new());
         assert!(drawn_rect(&ctx, "agents-skills-picker-popover").is_some(), "the picker is drawn");
-
-        // The strip makes room for it: with a tab open the button still sits right of `+` and inside the panel (`panel_frame`: x 48..408).
-        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
-        panel_frame(&ctx, &mut st, Vec::new());
-        let add = drawn_rect(&ctx, "agents-runtime-add-btn").expect("runtime selector");
-        let skills = drawn_rect(&ctx, "agents-header-skills").expect("header Skills button");
-        assert!(skills.left() >= add.right() && skills.right() <= 48.0 + 360.0, "{add:?} {skills:?}");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

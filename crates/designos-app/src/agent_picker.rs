@@ -4,17 +4,14 @@
 
 use std::path::{Path, PathBuf};
 
-use egui::{Align2, Color32, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
+use egui::{Align2, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
 use crate::agent_cli_catalog::{
-    build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, ASK_PERMISSION_CAPTION, CUSTOM_CLI_WARNING, SKIP_PERMISSION_CAPTION,
+    build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, CUSTOM_CLI_WARNING,
 };
 use crate::agent_start_failure::{login_command, FixAction};
 use crate::comments::settings::{add_custom_cli, load_custom_clis};
-use crate::terminal::{
-    AgentCliPreset, TerminalState, STATUS_INFO_BG, STATUS_INFO_BORDER, STATUS_INFO_TEXT, STATUS_OK_BG, STATUS_OK_BORDER, STATUS_OK_TEXT, STATUS_WARN_BG,
-    STATUS_WARN_BORDER, STATUS_WARN_TEXT,
-};
+use crate::terminal::{AgentCliPreset, TerminalState};
 use crate::theme;
 use crate::widgets;
 
@@ -269,7 +266,7 @@ fn step_row(selectable: &[bool], from: usize, forward: bool) -> Option<usize> {
 /// `row_id` is the widget id the surface draws a row with.
 fn handle_picker_keyboard(state: &mut TerminalState, ui: &Ui, rows: &[PickerRow], row_id: impl Fn(&PickerRow) -> Id) {
     // An open dialog or menu owns the keys, Esc included: the Esc that closes it must not also close this list (`#923`).
-    if state.overlay_owns_keyboard {
+    if state.modal_owns_keyboard {
         return;
     }
     let ctx = ui.ctx();
@@ -307,17 +304,6 @@ fn keep_arrows_on_row(ui: &Ui, resp: &egui::Response) {
     }
 }
 
-fn state_pill_colors(signed_in: SignIn, installed: bool) -> (Color32, Color32, Color32) {
-    if !installed {
-        return (theme::BG_TERTIARY, theme::BORDER, theme::TEXT_DISABLED);
-    }
-    match signed_in {
-        SignIn::Yes => (STATUS_OK_BG, STATUS_OK_BORDER, STATUS_OK_TEXT),
-        SignIn::No => (STATUS_WARN_BG, STATUS_WARN_BORDER, STATUS_WARN_TEXT),
-        SignIn::Unknown | SignIn::Checking => (theme::BG_TERTIARY, theme::BORDER, theme::TEXT_SECONDARY),
-    }
-}
-
 /// Height of the `Other CLI…` form card, summed from its parts so it follows the caption line height: padding, the label
 /// and command fields, a caption block of two caption lines, the gap, the button row, and padding. The card is the same
 /// in the full picker and in the agent menu, and its height is a multiple of 4 px.
@@ -334,193 +320,6 @@ const OTHER_FORM_HEIGHT: f32 = OTHER_FORM_CARD_HEIGHT + 8.0;
 /// Two lines of the caption at its line height. The caption wraps to this block and never runs under the buttons.
 const OTHER_FORM_CAPTION_HEIGHT: f32 = 2.0 * theme::LINE_CAPTION;
 const OTHER_FORM_BUTTON_HEIGHT: f32 = theme::CONTROL_XS;
-const PICKER_FOOTER_HEIGHT: f32 = 22.0;
-
-/// Height of the picker card for `row_count` rows (header, rows, optional `"Other CLI…"` form, footer).
-fn picker_card_height(row_count: usize, other_form_open: bool) -> f32 {
-    let form_h = if other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
-    theme::INSET_POPOVER * 2.0 + theme::SPACE_SECTION + row_count as f32 * (theme::CONTROL_MD + theme::SPACE_ROW) + form_h + PICKER_FOOTER_HEIGHT
-}
-
-/// Height [`show_picker_panel_with_rows`] needs for `row_count` rows: the card plus its top margin, so a caller can
-/// stack content below it (`#688` §3 rule 3).
-pub fn picker_outer_height(row_count: usize, other_form_open: bool) -> f32 {
-    theme::INSET_POPOVER + picker_card_height(row_count, other_form_open)
-}
-
-/// Renders the full new-session picker panel (`CONTROL_MD` = 40 px rows, `#652` §7).
-pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) {
-    let rows = rows_for_state(state);
-    show_picker_panel_with_rows(state, ui, rect, file_path, rows);
-}
-
-/// Renders the picker for `rows` built once by the caller this frame (`rows_for_state` reads `settings.json`).
-pub fn show_picker_panel_with_rows(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>, rows: Vec<PickerRow>) {
-    if state.picker.cache.is_probing() {
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
-    }
-    handle_picker_keyboard(state, ui, &rows, |row| Id::new(format!("picker-row-{}", row.id)));
-
-    let p = ui.painter().clone();
-    let pad = theme::INSET_POPOVER;
-    let row_h = theme::CONTROL_MD;
-    let row_gap = theme::SPACE_ROW;
-    let form_h = if state.picker.other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
-    let header_h = theme::SPACE_SECTION;
-    let content_h = picker_card_height(rows.len(), state.picker.other_form_open);
-    let card_w = (rect.width() - pad * 2.0).clamp(220.0, 380.0);
-    let card_h = content_h.min((rect.height() - pad).max(160.0));
-    let card_x = rect.left() + ((rect.width() - card_w) * 0.5).max(theme::SPACE_INLINE);
-    let card_y = rect.top() + pad;
-    let card_r = Rect::from_min_size(Pos2::new(card_x, card_y), Vec2::new(card_w, card_h));
-
-    p.rect_filled(card_r, theme::cr(theme::RADIUS_FRAME), theme::BG_MENU);
-    p.rect_stroke(card_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_MENU), StrokeKind::Inside);
-    widgets::record(ui, "agents-new-session-picker", card_r);
-
-    let inner_left = card_r.left() + pad;
-    let inner_right = card_r.right() - pad;
-    let inner_w = (inner_right - inner_left).max(120.0);
-    let mut y = card_r.top() + pad;
-
-    let hdr = widgets::elide(&p, "New session", &theme::font_body_medium(), inner_w);
-    p.text(Pos2::new(inner_left, y + theme::SPACE_INLINE), Align2::LEFT_CENTER, hdr, theme::font_body_medium(), theme::TEXT);
-    y += header_h;
-
-    let mut interaction = PickerInteraction::None;
-    let caption_top_offset = theme::SPACE_GROUP;
-    let caption_bottom_offset = theme::INSET_CONTROL;
-    let st_reserve = 90.0;
-
-    for (idx, row) in rows.iter().enumerate() {
-        let r_rect = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
-        let row_id = format!("picker-row-{}", row.id);
-        let resp = ui.interact(r_rect, Id::new(&row_id), Sense::click());
-        // Focus ring on the row the keyboard stands on; the file's last chosen CLI keeps the neutral fill.
-        keep_arrows_on_row(ui, &resp);
-        let has_cursor = resp.has_focus();
-        let is_selected = has_cursor || (row.selectable && row.is_last_choice);
-
-        let bg = if is_selected {
-            theme::BG_SELECTED
-        } else if resp.hovered() && row.selectable {
-            theme::BG_HOVER
-        } else {
-            theme::BG_SECONDARY
-        };
-        p.rect_filled(r_rect, theme::cr(theme::RADIUS_CONTROL), bg);
-        p.rect_stroke(
-            r_rect,
-            theme::cr(theme::RADIUS_CONTROL),
-            Stroke::new(theme::BORDER_WIDTH, if has_cursor { STATUS_INFO_BORDER } else { theme::BORDER }),
-            StrokeKind::Inside,
-        );
-
-        let text_col = if row.selectable { theme::TEXT } else { theme::TEXT_DISABLED };
-        let top_line_y = if row.caption.is_some() { r_rect.top() + caption_top_offset } else { r_rect.center().y };
-
-        // Left: Name + Version (`SPACE_INLINE` = 8 px)
-        let name_str = widgets::elide(&p, &row.label, &theme::font_body_medium(), (inner_w * 0.45).max(48.0));
-        p.text(Pos2::new(r_rect.left() + theme::INSET_CONTROL, top_line_y), Align2::LEFT_CENTER, &name_str, theme::font_body_medium(), text_col);
-        let mut left_cursor = r_rect.left() + theme::INSET_CONTROL + widgets::text_width(&p, &name_str, &theme::font_body_medium()) + theme::SPACE_INLINE;
-
-        if let Some(ref ver) = row.version {
-            let ver_str = widgets::elide(&p, ver, &theme::font_mono(), 68.0);
-            p.text(Pos2::new(left_cursor, top_line_y), Align2::LEFT_CENTER, &ver_str, theme::font_mono(), theme::TEXT_SECONDARY);
-            left_cursor += widgets::text_width(&p, &ver_str, &theme::font_mono()) + theme::SPACE_INLINE;
-        }
-        let _ = left_cursor;
-
-        // Right: State pill OR Install action button (`CONTROL_DENSE` = 24 px)
-        if let Some(ref fix) = row.install_action {
-            let btn_w = 56.0;
-            let btn_r = Rect::from_min_size(
-                Pos2::new(r_rect.right() - theme::INSET_CONTROL - btn_w, r_rect.center().y - theme::CONTROL_DENSE * 0.5),
-                Vec2::new(btn_w, theme::CONTROL_DENSE),
-            );
-            let btn_resp = ui.interact(btn_r, Id::new((&row_id, "install-btn")), Sense::click());
-            let btn_bg = if btn_resp.hovered() { theme::BG_HOVER } else { STATUS_INFO_BG };
-            p.rect_filled(btn_r, theme::cr(theme::RADIUS_CONTROL), btn_bg);
-            p.rect_stroke(btn_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, STATUS_INFO_BORDER), StrokeKind::Inside);
-            p.text(btn_r.center(), Align2::CENTER_CENTER, "Install", theme::font_caption_medium(), STATUS_INFO_TEXT);
-            widgets::record(ui, &format!("{}-install", row.id), btn_r);
-
-            if let Some(ref st_lbl) = row.state_label {
-                let st_w = (btn_r.left() - r_rect.left() - st_reserve).max(36.0);
-                let st_elided = widgets::elide(&p, st_lbl, &theme::font_caption(), st_w);
-                p.text(Pos2::new(btn_r.left() - theme::SPACE_INLINE, top_line_y), Align2::RIGHT_CENTER, st_elided, theme::font_caption(), theme::TEXT_DISABLED);
-            }
-            if btn_resp.clicked() {
-                interaction = PickerInteraction::ActivateInstall(fix.clone());
-            }
-        } else if let PickerRowKind::CatalogCli { signed_in, installed, .. } = row.kind {
-            if let Some(ref st_lbl) = row.state_label {
-                let (p_bg, p_border, p_fg) = state_pill_colors(signed_in, installed);
-                let lbl_w = widgets::text_width(&p, st_lbl, &theme::font_caption()) + theme::SPACE_GROUP;
-                let pill_w = lbl_w.clamp(48.0, (inner_w * 0.46).max(64.0));
-                let pill_h = 18.0;
-                let pill_r =
-                    Rect::from_min_size(Pos2::new(r_rect.right() - theme::INSET_CONTROL - pill_w, top_line_y - pill_h * 0.5), Vec2::new(pill_w, pill_h));
-                p.rect_filled(pill_r, theme::cr_pill(pill_r.height()), p_bg);
-                p.rect_stroke(pill_r, theme::cr_pill(pill_r.height()), Stroke::new(theme::BORDER_WIDTH, p_border), StrokeKind::Inside);
-                let pill_txt = widgets::elide(&p, st_lbl, &theme::font_caption(), (pill_w - theme::SPACE_INLINE).max(24.0));
-                p.text(pill_r.center(), Align2::CENTER_CENTER, pill_txt, theme::font_caption(), p_fg);
-            }
-        }
-
-        if let Some(ref cap) = row.caption {
-            let cap_elided = widgets::elide(&p, cap, &theme::font_caption(), (inner_w - theme::INSET_CONTROL * 2.0).max(48.0));
-            p.text(
-                Pos2::new(r_rect.left() + theme::INSET_CONTROL, r_rect.bottom() - caption_bottom_offset),
-                Align2::LEFT_CENTER,
-                cap_elided,
-                theme::font_caption(),
-                theme::TEXT_TERTIARY,
-            );
-        }
-
-        widgets::record(ui, &row_id, r_rect);
-        if resp.clicked() && matches!(interaction, PickerInteraction::None) {
-            if row.kind == PickerRowKind::OtherCli {
-                interaction = PickerInteraction::OpenOtherForm;
-            } else if is_row_clickable_on_pointer(state, row) {
-                interaction = PickerInteraction::SelectRow(idx);
-            }
-        }
-        y += row_h + row_gap;
-    }
-
-    if state.picker.other_form_open {
-        let form_r = Rect::from_min_size(Pos2::new(inner_left, y + theme::INSET_SEGMENT), Vec2::new(inner_w, OTHER_FORM_CARD_HEIGHT));
-        render_other_cli_inline_form(state, ui, form_r, &mut interaction);
-        y += form_h;
-    }
-
-    // Footer: caption of the active permission mode (`Ask before acting` by default, `#652` §3 rule 9, `#841`)
-    let footer_y = (card_r.bottom() - theme::SPACE_GROUP).max(y + theme::SPACE_INLINE);
-    let perm_elided = widgets::elide(&p, permission_caption(state.permission_mode), &theme::font_caption(), inner_w);
-    p.text(Pos2::new(inner_left, footer_y), Align2::LEFT_CENTER, perm_elided, theme::font_caption(), theme::TEXT_TERTIARY);
-
-    apply_picker_interaction(state, &rows, interaction, file_path);
-}
-
-/// Footer caption for the active launch mode (`Ask before acting` by default, `Skip permissions` once picked, `#656`, `#841`).
-fn permission_caption(mode: crate::terminal::PermissionMode) -> &'static str {
-    match mode {
-        crate::terminal::PermissionMode::Skip => SKIP_PERMISSION_CAPTION,
-        crate::terminal::PermissionMode::Ask => ASK_PERMISSION_CAPTION,
-    }
-}
-
-/// Footer line of the `+` menu: a failed resume replaces the permission caption until the menu closes.
-#[cfg_attr(not(test), allow(dead_code))]
-fn footer_caption(state: &TerminalState) -> (&str, egui::Color32) {
-    match state.resume_notice.as_deref() {
-        Some(notice) => (notice, theme::DANGER),
-        None => (permission_caption(state.permission_mode), theme::TEXT_TERTIARY),
-    }
-}
-
 fn preset_menu_slug(preset: AgentCliPreset) -> &'static str {
     match preset {
         AgentCliPreset::Claude => "claude",
@@ -587,12 +386,8 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     if show_folded {
         keyboard_rows.extend(folded_idx.iter().map(|&idx| rows[idx].clone()));
     }
-    let saved_overlay = state.overlay_owns_keyboard;
-    state.overlay_owns_keyboard = false;
     handle_picker_keyboard(state, ui, &keyboard_rows, |row| Id::new(&row.id));
-    let still_open = state.runtime_dropdown_open;
-    state.overlay_owns_keyboard = saved_overlay;
-    if !still_open {
+    if !state.runtime_dropdown_open {
         return;
     }
     crate::widgets::popup_open::mark_open(ui.ctx());
@@ -859,7 +654,7 @@ fn render_other_cli_inline_form(state: &mut TerminalState, ui: &mut Ui, form_r: 
     let caption_block =
         Rect::from_min_size(Pos2::new(form_r.left() + pad, cmd_rect.bottom() + theme::SPACE_ROW), Vec2::new(field_w, OTHER_FORM_CAPTION_HEIGHT));
     let caption_txt = state.picker.other_error.as_deref().unwrap_or(CUSTOM_CLI_WARNING);
-    let caption_col = if state.picker.other_error.is_some() { STATUS_WARN_TEXT } else { theme::TEXT_TERTIARY };
+    let caption_col = if state.picker.other_error.is_some() { theme::TEXT_WARNING } else { theme::TEXT_TERTIARY };
     let caption_format = egui::TextFormat { line_height: Some(theme::LINE_CAPTION), ..egui::TextFormat::simple(theme::font_caption(), caption_col) };
     let mut caption_job = egui::text::LayoutJob::single_section(caption_txt.to_string(), caption_format);
     caption_job.wrap = egui::text::TextWrapping { max_width: field_w, max_rows: 2, break_anywhere: false, overflow_character: Some('…') };
@@ -968,7 +763,6 @@ mod tests {
         assert!(st.tabs.is_empty());
         assert!(st.runtime_dropdown_open, "menu stays open so the notice is seen");
         assert_eq!(st.resume_notice.as_deref(), Some("Can't resume. Start a new session."));
-        assert_eq!(footer_caption(&st).0, "Can't resume. Start a new session.");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1022,22 +816,6 @@ mod tests {
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
 
-        // 1. Render full picker (`CONTROL_MD` = 40 px)
-        let out_full =
-            ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-                show_picker_panel(&mut st, ui, panel_rect, None);
-            });
-        let (full_texts, _full_boxes) = crate::lint::scan_shapes(&out_full.shapes);
-        let full_all: Vec<&str> = full_texts.iter().map(|t| t.text.as_str()).collect();
-        for lbl in &expected_labels {
-            assert!(full_all.iter().any(|t| t.contains(lbl)), "Full picker missing '{lbl}': {full_all:?}");
-        }
-        assert!(full_all.iter().any(|t| t.contains("Ask before acting")), "Full picker must show the permission caption, Ask by default (#841): {full_all:?}");
-        assert!(!full_all.iter().any(|t| t.contains("Skip permissions")), "a default picker must not offer Skip as the active mode (#841): {full_all:?}");
-        let full_claude_rect =
-            ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "picker-row-agents-dropdown-claude".to_string())))).expect("full picker claude rect");
-        assert!((full_claude_rect.height() - theme::CONTROL_MD).abs() < 0.5, "Full picker row height must be CONTROL_MD (40px)");
-
         // Agent menu, collapsed: catalog and saved CLIs, `More…` instead of Other CLI and Shell.
         st.runtime_dropdown_open = true;
         let out_plus =
@@ -1060,37 +838,6 @@ mod tests {
         let plus_claude_rect = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-dropdown-claude".to_string())))).expect("agent menu claude rect");
         assert!((plus_claude_rect.height() - theme::MENU_ITEM_HEIGHT).abs() < 0.5, "agent menu row height is the menu item height");
         assert!(ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-agent-menu".to_string())))).is_some(), "agent menu records its panel");
-
-        st.shutdown();
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// The footer names the mode that is active: Ask on a fresh state, Skip only after the user picked it (`#841`).
-    #[test]
-    fn picker_footer_names_the_active_permission_mode() {
-        let root = temp_test_dir("picker-footer-mode");
-        let mut st = TerminalState::for_tab(84_102);
-        st.picker.settings_root_override = Some(root.clone());
-        seed_test_probes(&mut st);
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(260.0, 800.0));
-        let footer_texts = |st: &mut TerminalState| -> Vec<String> {
-            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-                show_picker_panel(st, ui, panel_rect, None);
-            });
-            crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect()
-        };
-
-        let fresh = footer_texts(&mut st);
-        assert!(fresh.iter().any(|t| t == "Ask before acting"), "a fresh picker footer says Ask: {fresh:?}");
-        assert!(!fresh.iter().any(|t| t == "Skip permissions"), "{fresh:?}");
-
-        st.permission_mode = crate::terminal::PermissionMode::Skip;
-        let skipped = footer_texts(&mut st);
-        assert!(skipped.iter().any(|t| t == "Skip permissions"), "a user-picked Skip shows in the footer: {skipped:?}");
-        assert!(!skipped.iter().any(|t| t == "Ask before acting"), "{skipped:?}");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
@@ -1382,10 +1129,8 @@ mod tests {
     /// Where the open `Other CLI…` form is painted.
     #[derive(Clone, Copy, Debug)]
     enum FormSurface {
-        /// The `+` menu over a running session.
+        /// The agent menu above the composer pill.
         PlusMenu,
-        /// The Agents panel before any session exists.
-        Picker,
     }
 
     /// What one frame of the open `Other CLI…` form painted.
@@ -1421,7 +1166,6 @@ mod tests {
                 st.runtime_dropdown_open = true;
                 render_runtime_dropdown_menu(&mut st, ui, panel_rect, 40.0, None);
             }
-            FormSurface::Picker => show_picker_panel(&mut st, ui, panel_rect, None),
         });
         let rect_of =
             |name: &str| ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("nothing recorded for {name}"));
@@ -1492,7 +1236,7 @@ mod tests {
 
     #[test]
     fn the_other_cli_caption_keeps_8px_from_the_buttons_and_is_not_cut() {
-        for (surface, panel_w) in [(FormSurface::PlusMenu, 208.0), (FormSurface::PlusMenu, 260.0), (FormSurface::Picker, 260.0), (FormSurface::Picker, 440.0)] {
+        for (surface, panel_w) in [(FormSurface::PlusMenu, 208.0), (FormSurface::PlusMenu, 260.0), (FormSurface::PlusMenu, 440.0)] {
             let what = format!("{surface:?} in a {panel_w} px panel");
             let form = paint_other_form(surface, panel_w, None);
             assert_caption_clear_of_buttons(&form, &what);
@@ -1503,7 +1247,7 @@ mod tests {
     #[test]
     fn a_long_other_cli_error_keeps_8px_from_the_buttons_and_stays_in_the_card() {
         let error = "Enter a command to run, for example aider or ollama run llama3, then save it.";
-        for (surface, panel_w) in [(FormSurface::PlusMenu, 208.0), (FormSurface::Picker, 260.0), (FormSurface::Picker, 440.0)] {
+        for (surface, panel_w) in [(FormSurface::PlusMenu, 208.0), (FormSurface::PlusMenu, 440.0)] {
             let what = format!("{surface:?} in a {panel_w} px panel, error shown");
             let form = paint_other_form(surface, panel_w, Some(error));
             assert_caption_clear_of_buttons(&form, &what);

@@ -14,12 +14,10 @@ use crate::agent_permissions::AgentPermissionMode;
 use std::os::unix::fs::PermissionsExt;
 use std::process::Command as Process;
 
-/// The tests that started a real `claude` (three times) or `grok usage` (twice).
+/// The tests that once started a real `claude` or `grok usage`: the child run starts them with logging stand-ins on the PATH.
 const LAUNCHING_TESTS: &[&str] = &[
     "terminal::tests::notification_when_the_tab_is_hidden_but_window_focused",
     "terminal::tests::os_notification_sink_reports_denied_immediately_and_click_focuses_tab",
-    "terminal::tests::a_click_fills_the_composer_and_changes_nothing_else",
-    "terminal::tests::a_click_appends_to_an_existing_draft",
     // Ignored in a normal run; last by name, it gives the launches the tests start in the background time to happen.
     "terminal::tests::zz_let_background_launches_finish",
 ];

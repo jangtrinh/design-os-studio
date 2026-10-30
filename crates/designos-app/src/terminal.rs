@@ -1390,8 +1390,6 @@ pub struct TerminalState {
     pub active_tab: usize,
     /// Unattached composer state held while `tabs` is empty; moved into the first spawned tab (`#689` §4).
     pub unattached_composer: crate::agent_composer::ComposerState,
-    /// Why the last sample-prompt click could not start an agent session; painted under the prompts until the next click.
-    pub sample_prompt_error: Option<String>,
     /// Bridge actions a send polled for early (to learn whether the tab failed to start); the next
     /// [`Self::poll_live_agent_bridge`] returns them first so no spec or live-log apply is lost.
     pub deferred_bridge_actions: Vec<TerminalAction>,
@@ -1421,8 +1419,6 @@ pub struct TerminalState {
     pub composer_selection: crate::agent_selection_chip::SelectionSummary,
     /// Fix clicked on a tab's "failed to start" panel, applied by the surface that knows the open file.
     pub pending_start_fix: Option<FixAction>,
-    /// Context that selects which starter sample prompts appear in the empty state (`#688`).
-    pub prompt_context: crate::agent_sample_prompts::PromptContext,
     /// Active CLI runtime (`Claude`, `Codex`, `Antigravity`, `Grok`, `Shell`).
     pub active_runtime: AgentCliPreset,
     /// Whether the Orca floating `Cmd+F` terminal search bar is open.
@@ -1443,6 +1439,10 @@ pub struct TerminalState {
     /// The shell sets it before the panels draw: those overlays draw after the Agents panel in the same frame, so the
     /// terminal would already have sent the keys to the agent when they looked for them (`#923`).
     pub overlay_owns_keyboard: bool,
+    /// True while a dialog, palette or menu that is open by a flag owns the keys, a marked popup not counted ([`modal_owns_keyboard`]).
+    pub modal_owns_keyboard: bool,
+    /// Set by `+` (new chat): the composer takes the caret in the pass it is drawn, after its field exists.
+    pub pending_composer_focus: bool,
     /// Deferred undo depth to fold once a user edit in progress finishes (`#684 §3.4`).
     pub pending_stop_fold_depth: Option<usize>,
     /// Deferred stop close metadata (`depth`, `pre_close_patch_count`, `run_id`, `agent`) (`#684 §3.4`, `§3.5`).
@@ -1744,7 +1744,6 @@ impl TerminalState {
             tabs: Vec::new(),
             active_tab: 0,
             unattached_composer: crate::agent_composer::ComposerState::default(),
-            sample_prompt_error: None,
             deferred_bridge_actions: Vec::new(),
             status_msg: None,
             next_tab_id: 1,
@@ -1761,7 +1760,6 @@ impl TerminalState {
             mode_menu_open: false,
             composer_selection: crate::agent_selection_chip::SelectionSummary::default(),
             pending_start_fix: None,
-            prompt_context: crate::agent_sample_prompts::PromptContext::NoSelection,
             active_runtime: AgentCliPreset::Shell,
             search_open: false,
             search_query: String::new(),
@@ -1770,6 +1768,8 @@ impl TerminalState {
             composer_focused_last_frame: false,
             composer_focused_now: false,
             overlay_owns_keyboard: false,
+            modal_owns_keyboard: false,
+            pending_composer_focus: false,
             pending_stop_fold_depth: None,
             pending_stop_close: None,
             current_undo_depth: 0,
@@ -2104,7 +2104,7 @@ impl TerminalState {
         })
     }
 
-    /// What a sample-prompt click can start: the first installed built-in CLI, else the first saved `"Other CLI…"` entry.
+    /// What the agent menu can start: the first installed built-in CLI, else the first saved `"Other CLI…"` entry.
     pub fn first_startable_agent_cli(&mut self) -> Option<StartableAgentCli> {
         if let Some(preset) = self.first_installed_agent_cli() {
             return Some(StartableAgentCli::Preset(preset));
@@ -2116,47 +2116,6 @@ impl TerminalState {
     /// Returns `true` when at least one agent CLI can be started: a built-in one or a saved custom one (`#688` §3 rule 6).
     pub fn any_agent_cli_installed(&mut self) -> bool {
         self.first_startable_agent_cli().is_some()
-    }
-
-    /// Makes an agent tab that accepts input the active tab when the user clicks a sample prompt in the empty
-    /// state: the first live agent tab, else a new session on the first startable CLI (`#688`). The caller fills the
-    /// composer afterwards, so the draft lands in the tab that is active when the click is handled.
-    /// A draft typed into an exited active tab moves to the tab that takes over, so no text is left behind.
-    /// Returns `false` when no session could be started; the reason is in `sample_prompt_error`.
-    pub fn ensure_agent_session_for_sample_prompt(&mut self, file_path: Option<&Path>) -> bool {
-        self.sample_prompt_error = None;
-        let active = self.active_tab;
-        let dead_active = self.tabs.get_mut(active).is_some_and(|t| !t.accepts_agent_input()).then_some(active);
-        let started = if let Some(idx) = self.tabs.iter_mut().position(|t| t.accepts_agent_input()) {
-            self.active_tab = idx;
-            if matches!(self.active_runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp) {
-                self.active_runtime = self.tabs[idx].spawn_preset;
-            }
-            true
-        } else {
-            let spawned = match self.first_startable_agent_cli() {
-                Some(StartableAgentCli::Preset(preset)) => {
-                    self.active_runtime = preset;
-                    self.spawn_tab(preset, file_path).map_err(|_| preset.tab_title().to_string())
-                }
-                Some(StartableAgentCli::Custom(entry)) => self.spawn_custom_cli_tab(&entry.label, &entry.command, file_path).map_err(|_| entry.label.clone()),
-                None => Err("an agent CLI".to_string()),
-            };
-            if let Err(name) = &spawned {
-                self.sample_prompt_error = Some(format!("Couldn't start {name}."));
-            }
-            spawned.is_ok()
-        };
-        if !started {
-            return false;
-        }
-        self.viewport_focused = false;
-        if let Some(dead) = dead_active.filter(|d| *d != self.active_tab) {
-            let stranded = std::mem::take(&mut self.tabs[dead].composer.draft);
-            self.tabs[dead].composer.cursor = None;
-            crate::agent_sample_prompts::apply_sample_prompt_to_draft(&mut self.tabs[self.active_tab].composer.draft, &stranded);
-        }
-        true
     }
 
     /// Creates a `TerminalState` bound to `file_id` (and `lib_root` when provided) with `doc_name`.
@@ -2730,7 +2689,6 @@ impl TerminalState {
     /// in this file's terminal automatically targets THIS file and its currently selected page without
     /// serializing full-document JSON or writing files on the UI thread.
     pub fn sync_live_file_context(&mut self, doc: &Document, page: NodeId, selection: &[NodeId], file_path: Option<&Path>) {
-        self.prompt_context = crate::agent_sample_prompts::prompt_context(doc, page, selection);
         self.current_page_id = page.0;
         self.current_page_name = doc.get(page).map(|n| n.name.clone()).unwrap_or_else(|| "Page 1".into());
         self.doc_name = if doc.name.trim().is_empty() { "Untitled".into() } else { doc.name.clone() };
@@ -4178,22 +4136,6 @@ impl TerminalState {
             }
         }
         false
-    }
-
-    /// Pastes a terminal-header `@`-mention pick into the active agent tab (`#655`).
-    /// Closes the popup and reports the pasted label when accepted; keeps the popup open and sets
-    /// `"Nothing sent. Open an agent tab first."` when no agent tab accepted the paste.
-    pub fn handle_terminal_mention_pick(&mut self, mention: &crate::agent_mention::Mention) -> bool {
-        let snippet = crate::agent_mention::format_terminal_paste_mention(mention);
-        if self.paste_into_agent_tab(&snippet) {
-            self.mention_popup.close();
-            self.status_msg = Some(format!("Pasted @{}. Press Enter to send.", mention.label));
-            true
-        } else {
-            self.mention_popup.open = true;
-            self.status_msg = Some("Nothing sent. Open an agent tab first.".to_string());
-            false
-        }
     }
 
     /// Copies the `product-os-spec-driven` block citation to the system clipboard and a session
@@ -5837,6 +5779,12 @@ pub fn show_left_with_selection(
 /// gap and padding editor are not marked either; they open from a press on the canvas, which takes the keyboard from the
 /// terminal.
 pub fn overlay_owns_keyboard(app: &crate::app::App, ctx: &egui::Context) -> bool {
+    modal_owns_keyboard(app) || crate::widgets::popup_open::open_recently(ctx)
+}
+
+/// The part of [`overlay_owns_keyboard`] that is not a marked popup: a dialog, modal, palette or menu that is open by a flag.
+/// The panel's own menus mark themselves open, so the mark cannot tell them from another overlay; this can.
+pub fn modal_owns_keyboard(app: &crate::app::App) -> bool {
     app.dialog.is_some()
         || app.history.save_modal.is_some()
         || app.dev.compare.is_some()
@@ -5847,7 +5795,6 @@ pub fn overlay_owns_keyboard(app: &crate::app::App, ctx: &egui::Context) -> bool
         || app.ui.layer_picker.is_some()
         || app.libs.open
         || app.libs.review
-        || crate::widgets::popup_open::open_recently(ctx)
 }
 
 /// Renders the `Agents` Left Side Panel with live [`Document`] access for the `@`-mention picker (`#655`).
@@ -5874,8 +5821,10 @@ pub fn show_left_with_doc(
     }
 
     if state.side_panel_pty_open {
-        // Pure Interactive PTY Shell by Default + Top `+` Runtime Dropdown (`DIR-29`)
+        // The panel fill; tests find the terminal area by this rect, not by a fill colour the window shares.
         p.rect_filled(rect, 0.0, TERM_BG_VIEWPORT);
+        #[cfg(test)]
+        ui.ctx().data_mut(|d| d.insert_temp(Id::new(("test-rect", "agents-terminal-rect".to_string())), rect));
 
         if ui.input(|i| i.pointer.any_pressed()) {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
@@ -5924,6 +5873,8 @@ pub fn show_left_with_doc(
             }
         }
 
+        #[cfg(test)]
+        ui.ctx().data_mut(|d| d.insert_temp(Id::new(("test-rect", "agents-terminal-viewport".to_string())), vp_r));
         render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
         let chrome_owns_keys =
             state.runtime_dropdown_open || state.attach_menu_open || state.mode_menu_open || state.sessions_popover_open || state.skills.picker_open;
@@ -6999,6 +6950,7 @@ mod tests {
 
         // 1. Verify default pure PTY shell + `+` dropdown menu renders cleanly
         st.runtime_dropdown_open = true;
+        st.picker.menu_more_open = true;
         crate::lint::take_icons();
         let raw_pty = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() };
         let out_pty = ctx.run_ui(raw_pty, |ui| {
@@ -7014,7 +6966,7 @@ mod tests {
         assert!(!pty_all_text.contains(&"Learn more"), "AI credits banner must be removed");
         st.runtime_dropdown_open = false;
 
-        // 2. Also verify chat/sample-prompts view when side_panel_pty_open is false
+        // 2. Also verify the classic chat view when side_panel_pty_open is false
         st.side_panel_pty_open = false;
         st.chat_mode = false;
         crate::lint::take_icons();
@@ -7027,11 +6979,6 @@ mod tests {
         assert!(all_text.contains(&"New chat"), "Header 'New chat' must be painted: {all_text:?}");
         assert!(all_text.contains(&"Shared"), "Subtitle 'Shared' must be painted: {all_text:?}");
         assert!(all_text.contains(&"AI"), "Badge 'AI' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"What's next?"), "Heading 'What's next?' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"Describe this page"), "Sample prompt 'Describe this page' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"Find design problems"), "Sample prompt 'Find design problems' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"Build new screen"), "Sample prompt 'Build new screen' must be painted: {all_text:?}");
-        assert!(all_text.contains(&"Name layers"), "Sample prompt 'Name layers' must be painted: {all_text:?}");
         assert!(!all_text.contains(&"Learn more"), "Credits banner 'Learn more' must NOT be painted: {all_text:?}");
 
         let text_findings = crate::lint::check_text(&texts, &boxes);
@@ -7039,21 +6986,7 @@ mod tests {
         assert!(text_findings.is_empty(), "Agents side panel text lint findings: {text_findings:?}");
         assert!(icon_findings.is_empty(), "Agents side panel icon lint findings: {icon_findings:?}");
 
-        // Also verify all 3 prompt contexts and in-panel PTY mode pass layout lint cleanly
-        for pctx in [
-            crate::agent_sample_prompts::PromptContext::EmptyFile,
-            crate::agent_sample_prompts::PromptContext::Frame,
-            crate::agent_sample_prompts::PromptContext::NoSelection,
-        ] {
-            st.prompt_context = pctx;
-            let raw2 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() };
-            let out2 = ctx.run_ui(raw2, |ui| {
-                let _ = show_left(&mut st, ui, panel_rect, None);
-            });
-            let (t2, b2) = crate::lint::scan_shapes(&out2.shapes);
-            assert!(crate::lint::check_text(&t2, &b2).is_empty());
-        }
-
+        // The in-panel PTY mode passes layout lint cleanly too.
         st.side_panel_pty_open = true;
         let raw3 = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() };
         let _ = ctx.run_ui(raw3, |ui| {
@@ -7213,8 +7146,6 @@ mod tests {
         let get_rect =
             |name: &str| -> Rect { ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("{name} recorded")) };
         let ai_rect = get_rect("agents-header-ai");
-        let plus_rect = get_rect("agents-composer-attach");
-        let prd_rect = get_rect("agents-composer-context");
         assert!(
             ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-composer-mic".to_string())))).is_none(),
             "agents-composer-mic must not be rendered"
@@ -7243,20 +7174,23 @@ mod tests {
         assert!(!st.chat_mode);
         assert!(st.side_panel_pty_open);
 
-        // Switch back to chat view to test composer buttons
-        st.side_panel_pty_open = false;
+        // Back in the terminal view: the composer `+` opens its menu and `Add selection` changes the draft and emits the export action.
+        st.side_panel_pty_open = true;
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
         });
-
-        // Click `+` attach button -> prepends @selection @prd and emits ExportSelectionToTerminal
-        let acts = click_at(&ctx, &mut st, plus_rect.center());
+        let add_rect = get_rect("agents-composer-add-btn");
+        assert!(!st.attach_menu_open);
+        let _ = click_at(&ctx, &mut st, add_rect.center());
+        assert!(st.attach_menu_open, "the composer + opens the attach menu");
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+            let _ = show_left(&mut st, ui, panel_rect, None);
+        });
+        let item_rect = get_rect("agents-composer-add-selection");
+        let acts = click_at(&ctx, &mut st, item_rect.center());
         assert!(st.composer_draft().contains("@selection"));
         assert!(acts.contains(&TerminalAction::ExportSelectionToTerminal));
-
-        // Click `PRD` context chip -> cycles next context tag (@tokens since @prd & @selection are present)
-        let _ = click_at(&ctx, &mut st, prd_rect.center());
-        assert!(st.composer_draft().contains("@tokens"));
+        assert!(!st.attach_menu_open, "picking an item closes the menu");
 
         for mut tab in st.tabs.drain(..) {
             let _ = tab.child.kill();
@@ -9041,58 +8975,6 @@ mod tests {
     }
 
     #[test]
-    fn header_strip_shows_chip_and_turn_status_side_by_side() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let (doc, page, ids) = make_three_layer_doc();
-        let sel = [ids[0], ids[1]];
-        let mut st = isolated_683_state(68302);
-        let _ = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-strip-1"));
-        let events_path = st.prepared_hook_paths().events();
-        {
-            use std::io::Write;
-            let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&events_path).unwrap();
-            writeln!(f, r#"{{"t":100.0,"e":"UserPromptSubmit","p":{{"session_id":"sid-strip-1"}}}}"#).unwrap();
-            writeln!(f, r#"{{"t":101.0,"e":"PreToolUse","p":{{"session_id":"sid-strip-1","tool_name":"mcp__designos__designos_create_node"}}}}"#).unwrap();
-        }
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
-        let frame = |st: &mut TerminalState, events: Vec<egui::Event>| -> Vec<TerminalAction> {
-            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), events, ..Default::default() };
-            let mut out = Vec::new();
-            let _ = ctx.run_ui(raw, |ui| {
-                crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
-                    out = show_left_with_selection(st, ui, panel_rect, None, summary);
-                });
-            });
-            out
-        };
-        let rect_of = |name: &str| -> Option<Rect> { ctx.data(|d| d.get_temp(Id::new(("test-rect", name.to_string())))) };
-
-        let _ = frame(&mut st, vec![]);
-        assert!(matches!(st.tabs[0].effective_status(), AgentTabStatus::Working(_)), "tab must be Working");
-        let _ = frame(&mut st, vec![]);
-        let chip = rect_of("agent-selection-chip-left").expect("selection chip stays visible while the turn runs");
-        let status = rect_of("agents-header-turn-status").expect("turn status is visible");
-        assert!(!chip.intersects(status), "chip {chip:?} and status {status:?} must not overlap");
-        assert!(chip.right() < status.left(), "chip on the left, status right-aligned");
-        assert!(status.right() <= panel_rect.right(), "status stays inside the panel");
-        assert!(chip.height() >= theme::TARGET_MIN - 0.01 && status.height() >= theme::TARGET_MIN - 0.01, "targets keep the minimum height");
-
-        let pos = chip.center();
-        let click = vec![
-            egui::Event::PointerMoved(pos),
-            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
-            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
-        ];
-        let emitted = frame(&mut st, click);
-        assert_eq!(emitted, vec![TerminalAction::SendSelectionToAgent], "chip is still clickable while Working");
-
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&st.session_dir);
-    }
-
-    #[test]
     fn file_covers_the_whole_selection() {
         let (doc, page, ids) = make_three_layer_doc();
         let mut st = isolated_683_state(65404);
@@ -10154,177 +10036,6 @@ mod tests {
     }
 
     #[test]
-    fn header_strip_gives_its_right_slot_to_a_pending_approval() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let (doc, page, ids) = make_three_layer_doc();
-        let sel = [ids[0], ids[1]];
-        let mut st = isolated_683_state(68412);
-        st.permission_mode = crate::agent_permissions::AgentPermissionMode::Ask;
-        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-strip-approval"));
-        let approvals_dir = st.tabs[idx].approvals_dir.clone().expect("a session tab has a private approvals folder");
-        std::fs::create_dir_all(&approvals_dir).unwrap();
-        let request = serde_json::json!({
-            "id": "6001-Bash", "tool_name": "Bash", "summary": "cargo check", "timestamp": crate::agent_sessions::unix_timestamp_secs(),
-        });
-        std::fs::write(approvals_dir.join("6001-Bash.request.json"), request.to_string()).unwrap();
-        std::fs::write(
-            st.prepared_hook_paths().events(),
-            concat!(
-                "{\"t\":500.0,\"e\":\"UserPromptSubmit\",\"p\":{\"session_id\":\"sid-strip-approval\"}}\n",
-                "{\"t\":501.0,\"e\":\"PreToolUse\",\"p\":{\"session_id\":\"sid-strip-approval\",\"tool_name\":\"Bash\"}}\n",
-            ),
-        )
-        .unwrap();
-        let _ = st.poll_live_agent_bridge();
-
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() }, |ui| {
-            crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
-                let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
-            });
-        });
-        let rect_of = |name: &str| -> Option<Rect> { ctx.data(|d| d.get_temp(Id::new(("test-rect", name.to_string())))) };
-        let chip = rect_of("agent-selection-chip-left").expect("selection chip stays visible next to the approval");
-        let pill = rect_of("agents-needs-approval-pill").expect("pending approval takes the right slot");
-        assert!(rect_of("agents-header-turn-status").is_none(), "the turn status must not draw a second right-hand item");
-        assert!(!chip.intersects(pill) && chip.right() < pill.left(), "chip {chip:?} left of approval {pill:?}");
-        assert!(pill.right() <= panel_rect.right(), "approval stays inside the panel");
-        let mention = rect_of("agent-mention-btn-left").expect("@ Mention button stays in the header strip");
-        assert!(!mention.intersects(pill) && pill.right() <= mention.left(), "approval {pill:?} left of mention {mention:?}");
-        assert!(!mention.intersects(chip) && mention.right() <= panel_rect.right(), "chip {chip:?} clear of mention {mention:?}");
-
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&st.session_dir);
-    }
-
-    #[test]
-    fn header_strip_keeps_still_running_notice_stop_and_mention_apart_at_narrow_widths() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let (doc, page, ids) = make_three_layer_doc();
-        let sel = [ids[0], ids[1]];
-        for width in [280.0f32, 300.0] {
-            let mut st = isolated_683_state(68413);
-            let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-strip-still-running"));
-            *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Thinking".into()));
-            st.tabs[idx].still_running_notice = Some(crate::agent_stop::STILL_RUNNING_NOTICE.to_string());
-
-            let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(width, 600.0));
-            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() }, |ui| {
-                crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
-                    let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
-                });
-            });
-            let rect_of = |name: &str| -> Option<Rect> { ctx.data(|d| d.get_temp(Id::new(("test-rect", name.to_string())))) };
-            let chip = rect_of("agent-selection-chip-left").expect("chip");
-            let notice = rect_of("agents-header-turn-status").expect("still-running notice takes the right slot");
-            let mention = rect_of("agent-mention-btn-left").expect("@ Mention button");
-            let stop = rect_of("agents-header-stop-btn").expect("Stop button");
-            let strip = [("chip", chip), ("notice", notice), ("mention", mention)];
-            for (i, (an, a)) in strip.iter().enumerate() {
-                assert!(a.left() >= panel_rect.left() && a.right() <= panel_rect.right(), "{an} {a:?} inside {width}px panel");
-                for (bn, b) in strip.iter().skip(i + 1) {
-                    assert!(!a.intersects(*b), "{an} {a:?} overlaps {bn} {b:?} at {width}px");
-                }
-            }
-            assert!(chip.right() <= notice.left() && notice.right() <= mention.left(), "chip | notice | mention order at {width}px");
-            assert!(stop.left() >= panel_rect.left() && stop.right() <= panel_rect.right(), "Stop {stop:?} inside the {width}px panel");
-            assert!(stop.bottom() <= chip.top().min(mention.top()), "Stop sits in the chrome bar above the strip");
-
-            // A token/cost readout (`#678`) joins the strip: it never overlaps the chip, the turn status or `@ Mention`,
-            // and it yields (is not drawn) when the notice leaves it no room.
-            st.tabs[idx].usage = crate::agent_usage::TabUsageTracker::new(Some(crate::agent_usage::UsageReading {
-                input: 412_000,
-                output: 13_000,
-                cost: Some(crate::agent_usage::CostLabel::Reference(0.42)),
-                source: crate::agent_usage::UsageSource::ClaudeTranscript,
-                as_of_ms: 1,
-            }));
-            let run_frame = |st: &mut TerminalState| {
-                let _ =
-                    ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))), ..Default::default() }, |ui| {
-                        crate::agent_selection_chip::with_selection_summary(&doc, page, &sel, |summary| {
-                            let _ = show_left_with_selection(st, ui, panel_rect, None, summary);
-                        });
-                    });
-            };
-            run_frame(&mut st);
-            let chip = rect_of("agent-selection-chip-left").expect("chip");
-            let notice = rect_of("agents-header-turn-status").expect("notice");
-            let mention = rect_of("agent-mention-btn-left").expect("@ Mention button");
-            let mut strip = vec![("chip", chip), ("notice", notice), ("mention", mention)];
-            if let Some(usage) = rect_of("agents-header-usage") {
-                assert!(
-                    chip.right() <= usage.left() && usage.right() <= mention.left() && notice.right() <= usage.left(),
-                    "chip | notice | usage | mention order"
-                );
-                strip.push(("usage", usage));
-            }
-            for (i, (an, a)) in strip.iter().enumerate() {
-                assert!(a.left() >= panel_rect.left() && a.right() <= panel_rect.right(), "{an} {a:?} inside {width}px panel");
-                for (bn, b) in strip.iter().skip(i + 1) {
-                    assert!(!a.intersects(*b), "{an} {a:?} overlaps {bn} {b:?} at {width}px with usage");
-                }
-            }
-
-            // Idle tab: no status competes, so the readout is drawn between the chip and `@ Mention`.
-            st.tabs[idx].still_running_notice = None;
-            *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Idle;
-            run_frame(&mut st);
-            let chip = rect_of("agent-selection-chip-left").expect("chip");
-            let mention = rect_of("agent-mention-btn-left").expect("@ Mention button");
-            let usage = rect_of("agents-header-usage").expect("usage readout fits beside the chip on an idle tab");
-            assert!(chip.right() <= usage.left() && usage.right() <= mention.left(), "chip | usage | mention order at {width}px");
-            assert!(usage.left() >= panel_rect.left() && usage.right() <= panel_rect.right(), "usage inside {width}px panel");
-
-            kill_tabs(&mut st);
-            let _ = std::fs::remove_dir_all(&st.session_dir);
-        }
-    }
-
-    #[test]
-    fn esc_with_the_mention_popup_open_closes_the_popup_and_does_not_stop_the_turn() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let (doc, page, _ids) = make_three_layer_doc();
-        let mut st = isolated_683_state(68414);
-        let idx = spawn_mock_agent_tab(&mut st, AgentCliPreset::Claude, Some("sid-esc-popup"));
-        *st.tabs[idx].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Thinking".into()));
-        st.viewport_focused = false;
-        st.chrome_focused = true;
-        st.mention_popup.toggle_terminal_mode_for("agents-left-pty", &doc, page);
-        assert!(st.mention_popup.is_open());
-
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(300.0, 600.0));
-        let esc_frame = |st: &mut TerminalState| {
-            let raw = egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
-                events: vec![egui::Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
-                ..Default::default()
-            };
-            let _ = ctx.run_ui(raw, |ui| {
-                crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                    let _ = show_left_with_doc(st, ui, panel_rect, None, summary, &doc, page);
-                });
-            });
-        };
-        esc_frame(&mut st);
-        assert!(!st.mention_popup.is_open(), "Esc closes the popup");
-        assert!(st.tabs[idx].stop_state.is_none(), "the same Esc must not stop the running turn");
-        assert!(st.tabs[idx].stop_sent_keys.is_empty(), "no interrupt key was sent");
-
-        esc_frame(&mut st);
-        assert!(st.tabs[idx].stop_state.is_some(), "a second Esc with the popup closed stops the turn");
-
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&st.session_dir);
-    }
-
-    #[test]
     fn skill_text_documents_the_grammar() {
         let mut st = isolated_683_state(65501);
         let _ = std::fs::create_dir_all(&st.session_dir);
@@ -10364,7 +10075,7 @@ mod tests {
     }
 
     #[test]
-    fn approval_card_stacks_between_the_strip_and_the_receipt_row_without_overlap() {
+    fn approval_card_stacks_between_the_header_and_the_receipt_row_without_overlap() {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
@@ -10404,14 +10115,16 @@ mod tests {
                     let _ = show_left_with_selection(&mut st, ui, panel_rect, None, summary);
                 });
             });
-            let chip = rect_of("agent-selection-chip-left").expect("chip");
-            let pill = rect_of("agents-needs-approval-pill").expect("approval status in the strip");
+            let header_bottom = panel_rect.top() + TERMINAL_HEADER_H;
+            let chip = rect_of("agent-selection-chip").expect("chip");
+            let composer = rect_of("agents-composer-box").expect("composer box");
             let card = rect_of("agent-approval-card").expect("approval card");
             let receipt = rect_of("agents-turn-receipt-line").expect("receipt row");
-            assert!(!chip.intersects(pill), "h={height}: chip {chip:?} vs approval status {pill:?}");
-            assert!(pill.bottom() <= card.top() + 0.5, "h={height}: strip {pill:?} above the card {card:?}");
+            assert!(composer.contains_rect(chip), "h={height}: the selection chip {chip:?} lives inside the composer box {composer:?}");
+            assert!(rect_of("agents-needs-approval-pill").is_none(), "h={height}: the strip pill is gone, the card says it");
+            assert!(header_bottom <= card.top() + 0.5, "h={height}: header {header_bottom} above the card {card:?}");
             assert!(card.bottom() <= receipt.top() + 0.5, "h={height}: card {card:?} above the receipt row {receipt:?}");
-            assert!(receipt.bottom() <= panel_rect.bottom() + 0.5, "h={height}: receipt row inside the panel");
+            assert!(receipt.bottom() <= composer.top() + 0.5, "h={height}: receipt row {receipt:?} above the composer {composer:?}");
         }
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
@@ -11014,7 +10727,7 @@ mod tests {
         let (texts, boxes) = crate::lint::scan_shapes(&out.shapes);
         assert!(crate::lint::check_text(&texts, &boxes).is_empty());
         let all_txt: Vec<&str> = texts.iter().map(|t| t.text.as_str()).collect();
-        assert!(all_txt.iter().any(|t| t.contains("Bash")), "Tool name 'Bash' must be painted: {all_txt:?}");
+        assert!(all_txt.contains(&"Run a command"), "The tool verb must be painted: {all_txt:?}");
         assert!(all_txt.iter().any(|t| t.contains("cargo test")), "Summary must be painted: {all_txt:?}");
         assert!(all_txt.contains(&"Approve"), "Approve button must be painted: {all_txt:?}");
         assert!(all_txt.contains(&"Deny"), "Deny button must be painted: {all_txt:?}");
@@ -11067,7 +10780,7 @@ mod tests {
     }
 
     #[test]
-    fn status_becomes_needs_approval() {
+    fn status_becomes_needs_approval_and_the_tab_carries_the_dot() {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
@@ -11086,9 +10799,12 @@ mod tests {
         let (texts, boxes) = crate::lint::scan_shapes(&out.shapes);
         assert!(crate::lint::check_text(&texts, &boxes).is_empty());
         let all_txt: Vec<&str> = texts.iter().map(|t| t.text.as_str()).collect();
-        assert!(all_txt.contains(&"Needs approval"), "Status pill 'Needs approval' must be painted: {all_txt:?}");
+        assert!(!all_txt.contains(&"Needs approval"), "the card says it, no second status pill is painted: {all_txt:?}");
         let pill_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-needs-approval-pill".to_string()))));
-        assert!(pill_rect.is_some(), "agents-needs-approval-pill must be recorded");
+        assert!(pill_rect.is_none(), "the strip pill is gone");
+        let dot_key = format!("agents-tab-dot-{}", st.active_tab().unwrap().id);
+        let dot_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", dot_key.clone()))));
+        assert!(dot_rect.is_some(), "the tab carries the one status dot while it needs the user");
 
         let _ = std::fs::remove_dir_all(&st.session_dir);
         kill_tabs(&mut st);
@@ -11555,53 +11271,6 @@ mod tests {
     }
 
     #[test]
-    fn mention_pick_in_shell_tab_sends_zero_bytes_keeps_popup_and_claude_tab_receives_reference() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let (doc, page, ids) = make_three_layer_doc();
-        let mut st = isolated_683_state(65503);
-        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell tab");
-        let rec = attach_recorder(st.active_tab_mut().unwrap());
-        st.sync_live_file_context(&doc, page, &[], None);
-        st.mention_popup.toggle_terminal_mode_for("agents-left-pty", &doc, page);
-        assert!(st.mention_popup.is_open());
-
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(300.0, 600.0));
-        let enter_raw = || egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0))),
-            events: vec![egui::Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
-            ..Default::default()
-        };
-
-        // 1) Active tab is a Shell tab: Enter must write zero bytes, keep popup open, and set status.
-        let _ = ctx.run_ui(enter_raw(), |ui| {
-            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                let _ = show_left_with_doc(&mut st, ui, panel_rect, None, summary, &doc, page);
-            });
-        });
-        assert!(rec.lock().unwrap().is_empty(), "Shell tab must receive zero bytes when picking a mention");
-        assert!(st.mention_popup.is_open(), "popup must stay open when no agent tab accepted the paste");
-        assert_eq!(st.status_msg.as_deref(), Some("Nothing sent. Open an agent tab first."));
-
-        // 2) Active tab is a live Claude tab: Enter pastes `@A (designos:node/<id>)` and closes popup.
-        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
-        let _ = ctx.run_ui(enter_raw(), |ui| {
-            crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                let _ = show_left_with_doc(&mut st, ui, panel_rect, None, summary, &doc, page);
-            });
-        });
-        assert!(!st.mention_popup.is_open(), "popup must close once live Claude tab accepts the paste");
-        let bytes = rec.lock().unwrap().clone();
-        let pasted = String::from_utf8_lossy(&bytes);
-        let expected_ref = format!("@A (designos:node/{})", ids[0].0);
-        assert!(pasted.contains(&expected_ref), "expected live Claude tab to receive {expected_ref}, got {pasted:?}");
-
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&st.session_dir);
-    }
-
-    #[test]
     fn at_mention_typed_before_trailing_words_opens_popup_and_replaces_only_that_token() {
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
@@ -11649,59 +11318,6 @@ mod tests {
         assert_eq!(st.composer_draft(), "make @A red");
         assert_eq!(st.active_mentions.len(), 1);
         assert_eq!(st.active_mentions[0].label, "A");
-
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&st.session_dir);
-    }
-
-    #[test]
-    fn mention_popup_opens_inside_the_agents_panel_and_pastes_the_picked_layer() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let (doc, page, ids) = make_three_layer_doc();
-        let mut st = isolated_683_state(65505);
-        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
-        st.active_tab_mut().unwrap().spawn_preset = AgentCliPreset::Claude;
-        let rec = attach_recorder(st.active_tab_mut().unwrap());
-        st.sync_live_file_context(&doc, page, &[], None);
-
-        let left_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 600.0));
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
-        let paint = |ctx: &egui::Context, st: &mut TerminalState, raw: egui::RawInput| {
-            let _ = ctx.run_ui(raw, |ui| {
-                crate::agent_selection_chip::with_selection_summary(&doc, page, &[], |summary| {
-                    let _ = show_left_with_doc(st, ui, left_rect, None, summary, &doc, page);
-                });
-            });
-        };
-        let click_ev = |pos: Pos2| egui::RawInput {
-            screen_rect: Some(screen),
-            events: vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
-            ],
-            ..Default::default()
-        };
-
-        // Frame 1: paint the panel to record `agent-mention-btn-left`.
-        paint(&ctx, &mut st, egui::RawInput { screen_rect: Some(screen), ..Default::default() });
-        let mention_btn: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-mention-btn-left".to_string())))).expect("mention button rect");
-
-        // Frame 2: click `@ Mention`.
-        paint(&ctx, &mut st, click_ev(mention_btn.center()));
-        assert!(st.mention_popup.is_open(), "clicking @ Mention must open the popup");
-
-        // Frame 3: paint so the popup records `agent-mention-row-0` inside the panel, then click it.
-        paint(&ctx, &mut st, egui::RawInput { screen_rect: Some(screen), ..Default::default() });
-        let row0: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agent-mention-row-0".to_string())))).expect("row 0 rect");
-        assert!(left_rect.contains(row0.center()), "the popup must render inside the Agents panel, got {row0:?}");
-
-        paint(&ctx, &mut st, click_ev(row0.center()));
-        assert!(!st.mention_popup.is_open(), "clicking a row in the popup must pick and close");
-        let pasted = String::from_utf8_lossy(&rec.lock().unwrap()).to_string();
-        assert!(pasted.contains(&format!("@A (designos:node/{})", ids[0].0)), "a row click must paste the mention into the Claude tab, got {pasted:?}");
 
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
@@ -11875,76 +11491,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    #[test]
-    fn the_three_contexts_show_their_prompts() {
-        use crate::agent_sample_prompts::{sample_prompts, PromptContext};
-        use designos_doc::{FrameProps, Node, NodeKind};
-
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
-
-        let mut doc = Document::new("688 Three Contexts");
-        let page = doc.add_page("Page 1");
-        let mut st = isolated_683_state(68801);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-
-        // 1. EmptyFile context
-        st.sync_live_file_context(&doc, page, &[], None);
-        assert_eq!(st.prompt_context, PromptContext::EmptyFile);
-        let out_empty =
-            ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-                let _ = show_left(&mut st, ui, panel_rect, None);
-            });
-        let (texts_empty, _) = crate::lint::scan_shapes(&out_empty.shapes);
-        for (idx, expected) in sample_prompts(PromptContext::EmptyFile).iter().enumerate() {
-            assert!(
-                ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", format!("agents-sample-prompt-{idx}"))))).is_some(),
-                "EmptyFile prompt row {idx} must be recorded"
-            );
-            assert!(texts_empty.iter().any(|t| t.text == expected.label), "EmptyFile prompt label {:?} must be painted: {:?}", expected.label, texts_empty);
-        }
-
-        // 2. Frame context (when a frame is selected)
-        let frame_id = doc.alloc_id();
-        let mut frame_node = Node::new(frame_id, NodeKind::Frame(FrameProps::default()));
-        frame_node.name = "Card".into();
-        let frame_id = doc.insert(page, frame_node).expect("insert frame");
-        st.sync_live_file_context(&doc, page, &[frame_id], None);
-        assert_eq!(st.prompt_context, PromptContext::Frame);
-        let out_frame =
-            ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-                let _ = show_left(&mut st, ui, panel_rect, None);
-            });
-        let (texts_frame, _) = crate::lint::scan_shapes(&out_frame.shapes);
-        for (idx, expected) in sample_prompts(PromptContext::Frame).iter().enumerate() {
-            assert!(
-                ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", format!("agents-sample-prompt-{idx}"))))).is_some(),
-                "Frame prompt row {idx} must be recorded"
-            );
-            assert!(texts_frame.iter().any(|t| t.text == expected.label), "Frame prompt label {:?} must be painted: {:?}", expected.label, texts_frame);
-        }
-
-        // 3. NoSelection context (non-empty file, empty selection)
-        st.sync_live_file_context(&doc, page, &[], None);
-        assert_eq!(st.prompt_context, PromptContext::NoSelection);
-        let out_nosel =
-            ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-                let _ = show_left(&mut st, ui, panel_rect, None);
-            });
-        let (texts_nosel, _) = crate::lint::scan_shapes(&out_nosel.shapes);
-        for (idx, expected) in sample_prompts(PromptContext::NoSelection).iter().enumerate() {
-            assert!(
-                ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", format!("agents-sample-prompt-{idx}"))))).is_some(),
-                "NoSelection prompt row {idx} must be recorded"
-            );
-            assert!(texts_nosel.iter().any(|t| t.text == expected.label), "NoSelection prompt label {:?} must be painted: {:?}", expected.label, texts_nosel);
-        }
-        kill_tabs(&mut st);
-    }
-
     /// Runs last among the tests `real_cli_launch_tests` starts in a child process (the name sorts after theirs), so that a CLI
     /// the earlier tests started in the background has run before the child exits. Skipped in a normal run.
     #[test]
@@ -11954,269 +11500,57 @@ mod tests {
     }
 
     #[test]
-    fn a_click_fills_the_composer_and_changes_nothing_else() {
-        use crate::agent_sample_prompts::{sample_prompts, PromptContext};
-
+    fn no_cli_installed_guides_through_the_menu_and_placeholder() {
+        const PLACEHOLDER: &str = "No agent CLI found. Open the agent menu to install one.";
         let ctx = egui::Context::default();
         crate::theme::install_fonts(&ctx);
         crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
-
-        let mut doc = Document::new("688 Click Fills Composer");
-        let page = doc.add_page("Page 1");
-        let doc_hash = |d: &Document| -> u64 {
-            use std::hash::{Hash, Hasher};
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            d.to_json().expect("doc.to_json").hash(&mut h);
-            h.finish()
-        };
-        let hash_before = doc_hash(&doc);
-
-        let mut st = isolated_683_state(68802);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell tab");
-        let rec = attach_recorder(st.active_tab_mut().expect("active tab"));
-        st.sync_live_file_context(&doc, page, &[], None);
-        assert_eq!(st.prompt_context, PromptContext::EmptyFile);
-
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let row0: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-sample-prompt-0".to_string())))).expect("agents-sample-prompt-0 recorded");
-        let pos = row0.center();
-
-        let mut actions = Vec::new();
-        let raw = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
-            events: vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
-            ],
-            ..Default::default()
-        };
-        let _ = ctx.run_ui(raw, |ui| {
-            actions = show_left(&mut st, ui, panel_rect, None);
-        });
-
-        let expected_text = &sample_prompts(PromptContext::EmptyFile)[0].text;
-        assert_eq!(st.composer_draft(), expected_text.as_str(), "clicking sample prompt must set the composer draft to the full prompt text");
-        assert!(st.active_tab().unwrap().written_bytes.is_empty(), "clicking sample prompt must never write to the new session's PTY");
-        assert!(actions.is_empty(), "clicking sample prompt must emit no TerminalAction: {actions:?}");
-        assert_eq!(doc_hash(&doc), hash_before, "document hash must be unchanged");
-        assert!(rec.lock().unwrap().is_empty(), "PTY must receive 0 bytes when clicking a sample prompt");
-        assert!(ctx.memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input"))), "clicking sample prompt must focus the composer input");
-        kill_tabs(&mut st);
-    }
-
-    #[test]
-    fn a_click_appends_to_an_existing_draft() {
-        use crate::agent_sample_prompts::{sample_prompts, PromptContext};
-
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
-
-        let mut st = isolated_683_state(68803);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-        st.prompt_context = PromptContext::Frame;
-        st.set_composer_draft("Keep the header intact.");
-
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let row1: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-sample-prompt-1".to_string())))).expect("agents-sample-prompt-1 recorded");
-        let pos = row1.center();
-
-        for click_round in 1..=2 {
-            let raw = egui::RawInput {
-                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
-                events: vec![
-                    egui::Event::PointerMoved(pos),
-                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
-                    egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
-                ],
-                ..Default::default()
-            };
-            let _ = ctx.run_ui(raw, |ui| {
-                let _ = show_left(&mut st, ui, panel_rect, None);
-            });
-            let p_text = &sample_prompts(PromptContext::Frame)[1].text;
-            if click_round == 1 {
-                assert_eq!(st.composer_draft(), format!("Keep the header intact. {p_text}"));
-            } else {
-                assert_eq!(st.composer_draft(), format!("Keep the header intact. {p_text} {p_text}"));
-            }
-        }
-        kill_tabs(&mut st);
-    }
-
-    #[test]
-    fn no_cli_installed_shows_install_guidance() {
-        const NO_CLI_LINE: &str = "No agent CLI found. Install one to start.";
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(420.0, 1000.0));
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1100.0));
 
         let mut st = isolated_683_state(68804);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
         st.path_override = Some(std::ffi::OsString::new());
         pin_installed_catalog_clis(&mut st, &[]);
         assert!(!st.any_agent_cli_installed(), "no probed CLI, empty PATH and no saved CLI must report no agent CLI installed");
+        let paint = |st: &mut TerminalState, events: Vec<egui::Event>| {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
+                let _ = show_left(st, ui, panel_rect, None);
+            });
+            let (texts, boxes) = crate::lint::scan_shapes(&out.shapes);
+            assert!(crate::lint::check_text(&texts, &boxes).is_empty(), "no-CLI guidance must pass text layout lint");
+            texts.into_iter().map(|t| t.text.replace('\n', "")).collect::<Vec<_>>()
+        };
 
-        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let (texts, boxes) = crate::lint::scan_shapes(&out.shapes);
-        assert!(crate::lint::check_text(&texts, &boxes).is_empty(), "no-CLI guidance must pass text layout lint");
-        let painted: String = texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(" ");
-        let flat = painted.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(flat.contains(NO_CLI_LINE), "the no-CLI sentence must be painted in full: {flat:?}");
-        assert!(
-            ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-new-session-picker".to_string())))).is_some(),
-            "with no session open the #652 picker carries the install guidance"
-        );
-
+        let painted = paint(&mut st, vec![]);
+        assert!(painted.iter().any(|t| t == "Choose agent"), "the pill asks for an agent: {painted:?}");
+        assert!(painted.iter().any(|t| t == PLACEHOLDER), "the placeholder guides to the menu: {painted:?}");
+        assert!(ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-new-session-picker".to_string())))).is_none(), "no body picker card");
         for idx in 0..6 {
             assert!(
                 ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", format!("agents-sample-prompt-{idx}"))))).is_none(),
-                "sample prompt row {idx} must NOT be recorded when no CLI is installed"
+                "sample prompt row {idx} must NOT be recorded"
             );
         }
 
-        // With a session already open the empty state keeps the install links of each CLI.
-        let ctx2 = egui::Context::default();
-        crate::theme::install_fonts(&ctx2);
-        crate::theme::apply(&ctx2);
-        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn shell tab");
-        let _ = ctx2.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        for id in ["agents-install-claude", "agents-install-codex", "agents-install-agy", "agents-install-grok"] {
-            assert!(
-                ctx2.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", id.to_string())))).is_some(),
-                "install guidance row {id} must be recorded when no CLI is installed"
-            );
-        }
+        // Send is disabled: a click starts nothing and keeps the draft.
+        st.set_composer_draft("hello");
+        let _ = paint(&mut st, vec![]);
+        let send: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-composer-send".to_string())))).expect("send is drawn");
+        let pos = send.center();
+        let click = vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+        ];
+        let _ = paint(&mut st, click);
+        assert!(st.tabs.is_empty(), "a disabled Send starts nothing");
+        assert_eq!(st.composer_draft(), "hello", "the draft is kept");
+
+        // The agent menu names the way out: every built-in row offers Install.
+        st.runtime_dropdown_open = true;
+        let menu = paint(&mut st, vec![]);
+        assert!(menu.iter().filter(|t| t.as_str() == "Install").count() >= 4, "uninstalled rows offer Install: {menu:?}");
         kill_tabs(&mut st);
-    }
-
-    #[test]
-    fn old_category_cards_are_gone() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
-        let mut st = isolated_683_state(68805);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-
-        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        for retired_id in [
-            "agents-cat-tidy",
-            "agents-cat-generate",
-            "agents-cat-plugins",
-            "agents-cat-prd",
-            "term-ai-rename-layers",
-            "term-ai-design-gate",
-            "term-ai-translate",
-            "term-ai-make-design",
-            "term-ai-make-proto",
-            "term-ai-populate",
-        ] {
-            assert!(
-                ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", retired_id.to_string())))).is_none(),
-                "retired category/action id {retired_id} must not be recorded"
-            );
-        }
-        assert!(
-            ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "agents-empty-attach-hint".to_string())))).is_some(),
-            "the @-mention hint (#655) must be recorded under the prompts"
-        );
-        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
-        assert!(texts.iter().any(|t| t.text == "Type @ to mention layers."), "the shipped #655 hint must be painted: {texts:?}");
-        for t in &texts {
-            assert!(!t.text.contains("Click the selection chip"), "the selection chip is not drawn on this surface, so its hint must not be painted");
-        }
-        kill_tabs(&mut st);
-    }
-
-    #[test]
-    fn clicking_sample_prompt_with_empty_tabs_starts_session_on_first_installed_cli() {
-        use crate::agent_sample_prompts::{sample_prompts, PromptContext};
-
-        let stub_dir = std::env::temp_dir().join(format!("designos-688-single-cli-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&stub_dir);
-        std::fs::create_dir_all(&stub_dir).expect("create stub_dir");
-        let spawned_marker = stub_dir.join("grok-spawned.txt");
-        let grok_bin = stub_dir.join("grok");
-        let script = format!("#!/bin/sh\necho \"spawned:$*\" > '{}'\n/bin/sleep 5\n", spawned_marker.display());
-        std::fs::write(&grok_bin, script.as_bytes()).expect("write grok stub");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&grok_bin, std::fs::Permissions::from_mode(0o755)).expect("chmod grok stub");
-        }
-
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
-
-        let mut doc = Document::new("688 Single Stub CLI");
-        let page = doc.add_page("Page 1");
-        let doc_before = doc.to_json().expect("doc.to_json");
-
-        let mut st = isolated_683_state(68806);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-        st.path_override = Some(stub_dir.as_os_str().to_os_string());
-        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Grok]);
-        st.sync_live_file_context(&doc, page, &[], None);
-        assert!(st.tabs.is_empty(), "precondition: tab list starts empty");
-        assert_eq!(st.first_installed_agent_cli(), Some(AgentCliPreset::Grok));
-
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        assert!(st.tabs.is_empty(), "painting empty state before click must not spawn a Shell tab");
-
-        let row0: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-sample-prompt-0".to_string())))).expect("agents-sample-prompt-0 recorded");
-        let pos = row0.center();
-        let raw = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
-            events: vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
-            ],
-            ..Default::default()
-        };
-        let mut actions = Vec::new();
-        let _ = ctx.run_ui(raw, |ui| {
-            actions = show_left(&mut st, ui, panel_rect, None);
-        });
-
-        assert_eq!(st.active_runtime, AgentCliPreset::Grok, "clicking sample prompt must set active_runtime to the first installed CLI");
-        assert_eq!(st.tabs.len(), 1, "clicking sample prompt with no open agent tab must start one session tab");
-        assert_eq!(st.active_tab().unwrap().preset, AgentCliPreset::Grok);
-        assert_eq!(st.active_tab().unwrap().spawn_preset, AgentCliPreset::Grok);
-        assert_eq!(st.composer_draft(), sample_prompts(PromptContext::EmptyFile)[0].text.as_str());
-        assert!(st.active_tab().unwrap().written_bytes.is_empty(), "clicking sample prompt must not send anything");
-        assert!(actions.is_empty(), "clicking sample prompt must emit no TerminalAction");
-        assert_eq!(doc.to_json().expect("doc.to_json"), doc_before, "canvas document must be unchanged");
-        assert!(ctx.memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input"))), "composer input must be focused");
-
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&stub_dir);
     }
 
     #[test]
@@ -12260,68 +11594,6 @@ mod tests {
         kill_tabs(&mut st);
     }
 
-    #[test]
-    fn clicking_sample_prompt_when_existing_agent_tab_has_exited_spawns_new_live_agent_tab() {
-        use crate::agent_sample_prompts::{sample_prompts, PromptContext};
-
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
-        // The click starts a new Claude session. Only a stub `claude` that stays alive is reachable, so the test never
-        // launches a real agent CLI and does not depend on what the host has installed.
-        let stub_dir = install_stub_claude("exited-tab-respawn");
-
-        let mut st = isolated_683_state(68808);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-        spawn_stub_exiting_agent_into(&mut st);
-        let deadline = std::time::Instant::now() + crate::test_timing::STUB_WAIT;
-        while st.active_tab_mut().unwrap().is_alive() {
-            assert!(std::time::Instant::now() < deadline, "stub agent must exit");
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-        assert!(!st.tabs[0].accepts_agent_input(), "precondition: initial agent tab has exited");
-        st.tabs[0].composer.draft = "Keep the header intact.".to_string();
-        st.path_override = Some(stub_dir.as_os_str().to_os_string());
-        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Claude]);
-        assert_eq!(st.first_installed_agent_cli(), Some(AgentCliPreset::Claude), "precondition: the click starts the stub Claude");
-
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let row0: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-sample-prompt-0".to_string())))).expect("agents-sample-prompt-0 recorded");
-        let pos = row0.center();
-        let raw = egui::RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
-            events: vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
-                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
-            ],
-            ..Default::default()
-        };
-        let _ = ctx.run_ui(raw, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-
-        // A CLI that cannot start exits within milliseconds. Wait past that window so the liveness check below cannot
-        // be won by a race against the child's exit.
-        std::thread::sleep(std::time::Duration::from_millis(300));
-        assert_eq!(st.tabs.len(), 2, "clicking sample prompt when existing agent tab has exited must spawn a new session tab");
-        assert_eq!(st.active_tab, 1, "newly spawned agent tab must be selected");
-        assert_eq!(st.tabs[1].spawn_preset, AgentCliPreset::Claude, "the click starts the first installed CLI");
-        assert!(st.active_tab_mut().unwrap().accepts_agent_input(), "newly spawned agent tab must accept input");
-        assert_eq!(
-            st.composer_draft(),
-            format!("Keep the header intact. {}", sample_prompts(PromptContext::NoSelection)[0].text),
-            "the text typed into the exited tab moves to the new tab and the prompt is appended"
-        );
-        assert!(st.tabs[0].composer.draft.is_empty(), "the draft is moved, not copied: the exited tab keeps nothing");
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&stub_dir);
-    }
-
     fn install_stub_claude(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("designos-688-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -12340,117 +11612,7 @@ mod tests {
         ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", id.to_string()))))
     }
 
-    /// The `#652` picker sits on top of the sample prompts while no session is open and leaves once one is (`#688` §3 rule 3).
-    #[test]
-    fn picker_sits_above_the_sample_prompts_until_a_session_opens() {
-        let stub_dir = install_stub_claude("layout");
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
-        let mut doc = Document::new("688 Layout");
-        let page = doc.add_page("Page 1");
-
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let mut st = isolated_683_state(68812);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-        st.path_override = Some(stub_dir.as_os_str().to_os_string());
-        st.sync_live_file_context(&doc, page, &[], None);
-        assert!(st.tabs.is_empty(), "precondition: no session is open");
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let picker = empty_state_rect(&ctx, "agents-new-session-picker").expect("the picker is drawn while no session is open");
-        let first_prompt = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("the sample prompts are drawn below the picker");
-        assert!(first_prompt.top() >= picker.bottom(), "prompts must sit below the picker: picker={picker:?} prompt={first_prompt:?}");
-
-        let ctx2 = egui::Context::default();
-        crate::theme::install_fonts(&ctx2);
-        crate::theme::apply(&ctx2);
-        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn claude stub");
-        let _ = ctx2.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        assert!(empty_state_rect(&ctx2, "agents-new-session-picker").is_none(), "the picker leaves once a session is open");
-        assert!(empty_state_rect(&ctx2, "agents-sample-prompt-0").is_some(), "the prompts stay while the session has no conversation");
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&stub_dir);
-    }
-
-    /// A panel too short for the picker plus the prompts scrolls the empty state (`#688` §3 rule 3, §8 rule 7).
-    #[test]
-    fn the_empty_state_scrolls_when_the_picker_and_prompts_do_not_fit() {
-        let stub_dir = install_stub_claude("scroll");
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 640.0));
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
-        let mut doc = Document::new("688 Scroll");
-        let page = doc.add_page("Page 1");
-
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let mut st = isolated_683_state(68809);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-        st.path_override = Some(stub_dir.as_os_str().to_os_string());
-        st.sync_live_file_context(&doc, page, &[], None);
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let before = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("prompt row recorded");
-        assert_eq!(st.left_scroll, 0.0);
-
-        let over_panel = Pos2::new(panel_rect.center().x, panel_rect.top() + 200.0);
-        let wheel = egui::RawInput {
-            screen_rect: Some(screen),
-            events: vec![
-                egui::Event::PointerMoved(over_panel),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: Vec2::new(0.0, -120.0),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            ..Default::default()
-        };
-        let _ = ctx.run_ui(wheel, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let after = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("prompt row recorded");
-        assert!(st.left_scroll > 0.0, "a wheel over the empty state must scroll it");
-        assert!(after.top() < before.top(), "the prompt rows move up with the scroll: before={before:?} after={after:?}");
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&stub_dir);
-    }
-
-    /// The default terminal view keeps the `#652` picker on top and shows the starter prompts under it (`#688` §3 rule 3).
-    #[test]
-    fn the_default_terminal_view_shows_the_prompts_under_the_picker() {
-        let stub_dir = install_stub_claude("default-view");
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let mut st = isolated_683_state(68810);
-        assert!(st.side_panel_pty_open, "precondition: the default view is the terminal");
-        st.path_override = Some(stub_dir.as_os_str().to_os_string());
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let picker = empty_state_rect(&ctx, "agents-new-session-picker").expect("the picker is drawn while no session is open");
-        let first_prompt = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("the starter prompts are drawn under the picker in the terminal view");
-        assert!(first_prompt.top() >= picker.bottom(), "prompts must sit below the picker: picker={picker:?} prompt={first_prompt:?}");
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&stub_dir);
-    }
-
-    /// Gemini and OpenCode count as installed agent CLIs, so a user with only one of them still gets the prompts (`#688` §3 rule 6).
+    /// Gemini and OpenCode count as installed agent CLIs, so a user with only one of them is not told that none was found.
     #[test]
     fn a_gemini_only_machine_is_not_told_that_no_agent_cli_was_found() {
         let dir = std::env::temp_dir().join(format!("designos-688-gemini-only-{}", std::process::id()));
@@ -12484,14 +11646,14 @@ mod tests {
         crate::theme::apply(&ctx);
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
+        st.path_override = Some(dir.as_os_str().to_os_string());
+        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Gemini]);
         let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
         });
         let (texts, _) = crate::lint::scan_shapes(&out.shapes);
-        assert!(!texts.iter().any(|t| t.text.contains("No agent CLI")), "a machine with an agent CLI must not see the no-CLI line: {texts:?}");
-        assert!(empty_state_rect(&ctx, "agents-sample-prompt-0").is_some(), "the prompts are drawn when any agent CLI is installed");
+        assert!(!texts.iter().any(|t| t.text.contains("No agent CLI")), "a machine with an agent CLI must not see the no-CLI placeholder: {texts:?}");
+        assert!(texts.iter().any(|t| t.text.starts_with("Ask ")), "the placeholder names the agent a Send would start: {texts:?}");
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&only_opencode);
@@ -12503,50 +11665,6 @@ mod tests {
             egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
             egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
         ]
-    }
-
-    /// The shipped default view (terminal, not chat): a click on a starter prompt opens the first installed CLI, fills the
-    /// composer, keeps the composer focused on the frames after the click and writes nothing to the PTY.
-    #[test]
-    fn clicking_a_starter_prompt_in_the_default_terminal_view_opens_a_session_and_fills_the_composer() {
-        use crate::agent_sample_prompts::sample_prompts;
-
-        let stub_dir = install_stub_claude("default-view-click");
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let mut st = isolated_683_state(68813);
-        assert!(st.side_panel_pty_open, "precondition: the default view is the terminal");
-        st.path_override = Some(stub_dir.as_os_str().to_os_string());
-        pin_installed_catalog_clis(&mut st, &[AgentCliPreset::Claude]);
-        assert!(st.tabs.is_empty(), "precondition: no session is open");
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let row0 = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("the starter prompts are drawn in the terminal view");
-
-        let mut actions = Vec::new();
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events: click_events(row0.center()), ..Default::default() }, |ui| {
-            actions = show_left(&mut st, ui, panel_rect, None);
-        });
-        assert!(actions.is_empty(), "a prompt click emits no TerminalAction: {actions:?}");
-
-        // Two more frames: the new tab's terminal viewport draws now and must not take the focus away.
-        for _ in 0..2 {
-            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-                let _ = show_left(&mut st, ui, panel_rect, None);
-            });
-        }
-        assert_eq!(st.tabs.len(), 1, "the click opens exactly one session");
-        assert_eq!(st.active_tab().unwrap().spawn_preset, AgentCliPreset::Claude, "the first installed CLI starts");
-        assert_eq!(st.composer_draft(), sample_prompts(st.prompt_context)[0].text.as_str(), "the draft is the prompt text");
-        assert!(st.active_tab().unwrap().written_bytes.is_empty(), "a prompt click never writes to the PTY");
-        assert!(!st.viewport_focused, "the terminal viewport must not keep the keyboard");
-        assert!(ctx.memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input"))), "the composer stays focused after the click");
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&stub_dir);
     }
 
     /// The install check reads the picker's cached probes, not the PATH, so it costs nothing per frame and agrees with the rows.
@@ -12562,9 +11680,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&stub_dir);
     }
 
-    /// A saved "Other CLI…" entry counts as an agent CLI: the prompts show and a click starts that command.
+    /// A saved "Other CLI…" entry counts as a startable CLI: it is a row of the agent menu, and a click starts that command.
     #[test]
-    fn a_saved_other_cli_counts_and_a_prompt_click_starts_it() {
+    fn a_saved_other_cli_counts_and_a_menu_click_starts_it() {
         let root = std::env::temp_dir().join(format!("designos-688-custom-cli-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).expect("create settings root");
@@ -12581,77 +11699,18 @@ mod tests {
         pin_installed_catalog_clis(&mut st, &[]);
         assert!(st.any_agent_cli_installed(), "a saved custom CLI is startable");
 
+        st.runtime_dropdown_open = true;
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
         });
-        let row0 = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("the prompts are drawn when a custom CLI is saved");
+        let row0 = empty_state_rect(&ctx, "agents-dropdown-custom-0").expect("the saved CLI is a row of the agent menu");
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events: click_events(row0.center()), ..Default::default() }, |ui| {
             let _ = show_left(&mut st, ui, panel_rect, None);
         });
         assert_eq!(st.tabs.len(), 1, "the click starts the saved command");
         assert_eq!(st.tabs[0].spawned_command.as_deref(), Some("/bin/sleep 5"));
-        assert!(st.sample_prompt_error.is_none());
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// A start failure is painted under the prompts instead of vanishing into an unseen status line.
-    #[test]
-    fn a_start_failure_is_painted_under_the_prompts() {
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 1400.0));
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1500.0));
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let mut st = isolated_683_state(68816);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-        st.sample_prompt_error = Some("Couldn't start Claude Code.".to_string());
-        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
-        assert!(texts.iter().any(|t| t.text == "Couldn't start Claude Code."), "the failure line must be painted: {texts:?}");
-        assert!(empty_state_rect(&ctx, "agents-start-error").is_some());
-        kill_tabs(&mut st);
-    }
-
-    /// An exited active tab's draft follows the click onto the other live tab instead of staying behind.
-    #[test]
-    fn a_draft_on_an_exited_tab_follows_the_click_to_another_live_tab() {
-        use crate::agent_sample_prompts::sample_prompts;
-
-        let stub_dir = install_stub_claude("draft-follows");
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let mut st = isolated_683_state(68817);
-        st.side_panel_pty_open = false;
-        st.chat_mode = true;
-        st.path_override = Some(stub_dir.as_os_str().to_os_string());
-        st.spawn_tab(AgentCliPreset::Claude, None).expect("spawn the live claude stub");
-        spawn_stub_exiting_agent_into(&mut st);
-        assert!(wait_until_tab_exits(&mut st), "the second agent tab must exit");
-        assert_eq!(st.active_tab, 1, "precondition: the exited tab is active");
-        st.tabs[1].composer.draft = "Keep the header intact.".to_string();
-
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let row0 = empty_state_rect(&ctx, "agents-sample-prompt-0").expect("prompt row recorded");
-        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events: click_events(row0.center()), ..Default::default() }, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        assert_eq!(st.tabs.len(), 2, "the live tab is reused, no third tab");
-        assert_eq!(st.active_tab, 0, "the live tab takes over");
-        let prompt = &sample_prompts(st.prompt_context)[0].text;
-        assert!(st.tabs[0].composer.draft.contains("Keep the header intact."), "the exited tab's text moved: {:?}", st.tabs[0].composer.draft);
-        assert!(st.tabs[0].composer.draft.ends_with(prompt.as_str()), "the prompt is appended after it: {:?}", st.tabs[0].composer.draft);
-        assert!(st.tabs[1].composer.draft.is_empty(), "moved, not copied");
-        kill_tabs(&mut st);
-        let _ = std::fs::remove_dir_all(&stub_dir);
     }
 
     #[test]
@@ -12666,61 +11725,6 @@ mod tests {
         assert!(st.tabs[idx].usage.elapsed_since_last_poll().is_some(), "a stopped turn consumed tokens, so the readout refreshes");
         kill_tabs(&mut st);
         let _ = std::fs::remove_dir_all(&st.session_dir);
-    }
-
-    #[test]
-    fn header_strip_shows_usage_only_when_active_tab_has_a_reading() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 800.0));
-
-        let mut st = isolated_683_state(760);
-        // Active Codex tab: no reading -> no agents-header-usage rect.
-        let mut codex_tab = TerminalTab::spawn(1, AgentCliPreset::Shell, 24, 80, None).expect("spawn stub tab");
-        codex_tab.spawn_preset = AgentCliPreset::Codex;
-        codex_tab.usage = crate::agent_usage::TabUsageTracker::new(None);
-
-        let mut claude_tab = TerminalTab::spawn(2, AgentCliPreset::Shell, 24, 80, None).expect("spawn stub tab");
-        claude_tab.spawn_preset = AgentCliPreset::Claude;
-        claude_tab.usage = crate::agent_usage::TabUsageTracker::new(Some(crate::agent_usage::UsageReading {
-            input: 41_000,
-            output: 1_300,
-            cost: None,
-            source: crate::agent_usage::UsageSource::ClaudeTranscript,
-            as_of_ms: 1,
-        }));
-
-        let mut agy_tab = TerminalTab::spawn(3, AgentCliPreset::Shell, 24, 80, None).expect("spawn stub tab");
-        agy_tab.spawn_preset = AgentCliPreset::Antigravity;
-        agy_tab.usage = crate::agent_usage::TabUsageTracker::new(None);
-
-        st.tabs = vec![codex_tab, claude_tab, agy_tab];
-        st.active_tab = 0;
-
-        let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() };
-        let _ = ctx.run_ui(raw.clone(), |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let codex_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-header-usage".to_string()))));
-        assert!(codex_rect.is_none(), "Codex tab must not paint agents-header-usage: {codex_rect:?}");
-
-        // Switch to the Claude tab with a reading -> agents-header-usage is painted.
-        st.active_tab = 1;
-        let _ = ctx.run_ui(raw.clone(), |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let claude_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-header-usage".to_string()))));
-        assert!(claude_rect.is_some(), "Claude tab with reading must paint agents-header-usage");
-
-        // Switch to the Antigravity tab -> agents-header-usage is not painted.
-        st.active_tab = 2;
-        let _ = ctx.run_ui(raw, |ui| {
-            let _ = show_left(&mut st, ui, panel_rect, None);
-        });
-        let agy_rect: Option<Rect> = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-header-usage".to_string()))));
-        assert!(agy_rect.is_none(), "Antigravity tab must not paint agents-header-usage: {agy_rect:?}");
-        kill_tabs(&mut st);
     }
 
     #[test]

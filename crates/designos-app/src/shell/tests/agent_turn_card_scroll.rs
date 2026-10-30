@@ -40,18 +40,12 @@ fn frame_at_panel_height(s: &mut Sim, panel_h: f32, events: Vec<Event>) {
     s.shell.app.settle_paste_jobs();
 }
 
-/// Returns `(term_rect, viewport_rect)` painted by `terminal::show_left_with_doc` in the last frame.
+/// Returns `(term_rect, viewport_rect)` recorded by `terminal::show_left_with_doc` in the last frame. The panel fill is the window
+/// fill too, so the rects are read from what the panel recorded and not from a colour.
 fn terminal_rects(s: &Sim) -> (Rect, Rect) {
-    let rects: Vec<Rect> = s
-        .shapes
-        .iter()
-        .filter_map(|cs| match &cs.shape {
-            egui::epaint::Shape::Rect(r) if r.fill == crate::terminal::TERM_BG_VIEWPORT => Some(r.rect),
-            _ => None,
-        })
-        .collect();
-    assert!(rects.len() >= 2, "expected term_rect and viewport_rect with TERM_BG_VIEWPORT fill, got {}", rects.len());
-    (rects[0], rects[1])
+    let term = recorded(s, "agents-terminal-rect").expect("the panel recorded its terminal area");
+    let viewport = recorded(s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    (term, viewport)
 }
 
 /// Returns the vertical bounds of the left panel (`left_rect` / `inner`).

@@ -56,34 +56,35 @@ fn allowlisted_terminal_line(line: &str) -> bool {
 
 #[test]
 fn agent_sources_paint_no_chrome_colour_literals() {
-    const FILES: &[&str] = &[
-        "terminal.rs",
-        "agent_approval_card.rs",
-        "agent_composer.rs",
-        "agent_mention_popup.rs",
-        "agent_open_flow.rs",
-        "agent_picker.rs",
-        "agent_selection_chip.rs",
-        "agent_session_failure.rs",
-        "agent_start_failure.rs",
-        "agent_stop.rs",
-        "agent_turn_card.rs",
-        "agent_presence.rs",
-        "agent_busy_frames.rs",
-        "canvas/agent_banner.rs",
-        "canvas/agent_changes_chip.rs",
-        "canvas/agent_overlay.rs",
-        "skills/mod.rs",
-        "skills/pills.rs",
-        "image_jobs.rs",
+    let files: &[(&str, &str)] = &[
+        ("terminal.rs", include_str!("../../terminal.rs")),
+        ("agent_approval_card.rs", include_str!("../../agent_approval_card.rs")),
+        ("agent_composer.rs", include_str!("../../agent_composer.rs")),
+        ("agent_composer_toolbar.rs", include_str!("../../agent_composer_toolbar.rs")),
+        ("agent_header.rs", include_str!("../../agent_header.rs")),
+        ("agent_mention_popup.rs", include_str!("../../agent_mention_popup.rs")),
+        ("agent_open_flow.rs", include_str!("../../agent_open_flow.rs")),
+        ("agent_picker.rs", include_str!("../../agent_picker.rs")),
+        ("agent_selection_chip.rs", include_str!("../../agent_selection_chip.rs")),
+        ("agent_session_failure.rs", include_str!("../../agent_session_failure.rs")),
+        ("agent_start_failure.rs", include_str!("../../agent_start_failure.rs")),
+        ("agent_stop.rs", include_str!("../../agent_stop.rs")),
+        ("agent_turn_card.rs", include_str!("../../agent_turn_card.rs")),
+        ("agent_presence.rs", include_str!("../../agent_presence.rs")),
+        ("agent_busy_frames.rs", include_str!("../../agent_busy_frames.rs")),
+        ("canvas/agent_banner.rs", include_str!("../../canvas/agent_banner.rs")),
+        ("canvas/agent_changes_chip.rs", include_str!("../../canvas/agent_changes_chip.rs")),
+        ("canvas/agent_overlay.rs", include_str!("../../canvas/agent_overlay.rs")),
+        ("skills/mod.rs", include_str!("../../skills/mod.rs")),
+        ("skills/picker_popover.rs", include_str!("../../skills/picker_popover.rs")),
+        ("skills/pills.rs", include_str!("../../skills/pills.rs")),
+        ("image_jobs.rs", include_str!("../../image_jobs.rs")),
     ];
     let mut left = Vec::new();
-    for rel in FILES {
-        let path = format!("crates/designos-app/src/{rel}");
-        let src = std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {path}: {err}"));
-        let cleaned = super::chrome_census::clean_rust(&src);
+    for (rel, src) in files {
+        let cleaned = super::chrome_census::clean_rust(src);
         let lines: Vec<&str> = cleaned.lines().collect();
-        for site in chrome_colour_sites(&src) {
+        for site in chrome_colour_sites(src) {
             let line = lines.get(site - 1).copied().unwrap_or("");
             if *rel == "terminal.rs" && allowlisted_terminal_line(line) {
                 continue;

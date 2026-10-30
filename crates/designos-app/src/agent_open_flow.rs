@@ -7,7 +7,6 @@ use std::path::Path;
 use egui::{Align2, Id, Key, Painter, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
 use crate::agent_sessions::{preset_from_cli_name, save_registry, unix_timestamp_secs, SessionEntryStatus};
-use crate::icons::{self, Icon};
 use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalState, NEEDS_APPROVAL_LABEL, NEEDS_INPUT_LABEL};
 use crate::theme;
 use crate::widgets;
@@ -19,8 +18,6 @@ const ACTION_BTN_H: f32 = 20.0;
 /// Row actions of the Sessions popover. Their buttons are as wide as the label plus the segment inset on each side.
 const RENAME_ACTION_LABEL: &str = "Rename";
 const REMOVE_ACTION_LABEL: &str = "Remove from list";
-const SESSIONS_BTN_CHEVRON_OFFSET: f32 = 8.0;
-const SESSIONS_BTN_CHEVRON_SIZE: f32 = 8.0;
 const POPOVER_MIN_W: f32 = 216.0;
 const POPOVER_MAX_W: f32 = 320.0;
 const POPOVER_MIN_INNER_W: f32 = 140.0;
@@ -402,58 +399,6 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
     }
 }
 
-/// The `Sessions` button hugs its label, in whole pixels (rounded up): the label at `font_caption_medium` (51.7 px), a control
-/// inset on each side and the chevron slot. `sessions_button_hugs_its_label` keeps this equal to that sum.
-const SESSIONS_BTN_W: f32 = 76.0;
-const ADD_BTN_RESERVE: f32 = 32.0;
-/// Room the tab strip leaves on its right for `Sessions` and `+`: a 4 px gap, the button, 8 px and the `+` reserve.
-const TABS_RIGHT_RESERVE: f32 = theme::SPACE_FACT + SESSIONS_BTN_W + theme::SPACE_INLINE + ADD_BTN_RESERVE;
-
-/// Returns the right X limit for the tab strip when `"Sessions"` and `+` follow it before `pop_left`.
-pub fn max_tabs_right_for_bar(pop_left: f32) -> f32 {
-    pop_left - TABS_RIGHT_RESERVE
-}
-
-/// Renders the `"Sessions"` ghost button between the tab strip (`tabs_end_x`) and `+`, returning `add_x` for the `+` button (`#651` §7).
-pub fn render_sessions_button_in_bar(state: &mut TerminalState, ui: &mut Ui, bar_r: Rect, tabs_end_x: f32, pop_left: f32) -> f32 {
-    let add_max_x = pop_left - ADD_BTN_RESERVE;
-    let sess_x = (tabs_end_x + theme::SPACE_FACT).min(add_max_x - SESSIONS_BTN_W - theme::SPACE_INLINE);
-    let sess_y = bar_r.center().y - theme::CONTROL_DENSE * 0.5;
-    let btn_rect = Rect::from_min_size(Pos2::new(sess_x, sess_y), Vec2::new(SESSIONS_BTN_W, theme::CONTROL_DENSE));
-    render_sessions_button(state, ui, btn_rect);
-    (btn_rect.right() + theme::SPACE_INLINE).min(add_max_x)
-}
-
-/// Renders the `"Sessions"` ghost button (`CONTROL_DENSE` high, `RADIUS_CONTROL`, `#651` §7).
-pub fn render_sessions_button(state: &mut TerminalState, ui: &mut Ui, btn_rect: Rect) {
-    let p = ui.painter().clone();
-    let resp = ui.interact(btn_rect, Id::new("agents-sessions-btn"), Sense::click());
-    if state.sessions_popover_open {
-        p.rect_filled(btn_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
-        p.rect_stroke(btn_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_MENU), StrokeKind::Inside);
-    } else if resp.hovered() {
-        p.rect_filled(btn_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-    }
-    let fg = if state.sessions_popover_open { theme::TEXT } else { theme::TEXT_SECONDARY };
-    let label_max_w = (btn_rect.width() - theme::INSET_CONTROL * 2.0 - SESSIONS_BTN_CHEVRON_OFFSET).max(theme::CONTROL_DENSE);
-    let lbl = widgets::elide(&p, "Sessions", &theme::font_caption_medium(), label_max_w);
-    p.text(Pos2::new(btn_rect.left() + theme::INSET_SEGMENT, btn_rect.center().y), Align2::LEFT_CENTER, lbl, theme::font_caption_medium(), fg);
-    icons::paint(&p, Icon::ChevronDown, Pos2::new(btn_rect.right() - SESSIONS_BTN_CHEVRON_OFFSET, btn_rect.center().y), SESSIONS_BTN_CHEVRON_SIZE, fg);
-    widgets::record(ui, "agents-sessions-btn", btn_rect);
-    ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-sessions-btn-rect"), btn_rect));
-    if resp.clicked() {
-        state.sessions_popover_open = !state.sessions_popover_open;
-        state.resume_notice = None;
-        if state.sessions_popover_open {
-            state.runtime_dropdown_open = false;
-            let pass_nr = ui.ctx().cumulative_pass_nr();
-            ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-sessions-opened-pass"), pass_nr));
-        } else {
-            state.cancel_rename_session();
-        }
-    }
-}
-
 /// One footer row of the sessions popover. Returns whether it was clicked this frame.
 fn sessions_footer_item(ui: &mut Ui, p: &Painter, rect: Rect, key: &str, label: &str, caption: Option<&str>) -> bool {
     let resp = ui.interact(rect, Id::new(key), Sense::click());
@@ -685,8 +630,7 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         if !opened_this_pass {
             if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
                 let more_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new("agents-more-btn-rect")));
-                let sess_btn = ui.ctx().data(|d| d.get_temp::<Rect>(Id::new("agents-sessions-btn-rect")));
-                let in_btn = more_btn.map(|r| r.contains(pos)).unwrap_or(false) || sess_btn.map(|r| r.contains(pos)).unwrap_or(false);
+                let in_btn = more_btn.map(|r| r.contains(pos)).unwrap_or(false);
                 if !pop_r.contains(pos) && !in_btn {
                     state.sessions_popover_open = false;
                     state.cancel_rename_session();
@@ -1319,18 +1263,6 @@ mod tests {
         painted_texts(out).into_iter().map(|t| t.replace('\n', "")).collect()
     }
 
-    #[test]
-    fn sessions_button_hugs_its_label() {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-            let label_w = widgets::text_width(ui.painter(), "Sessions", &theme::font_caption_medium());
-            let hug = label_w.ceil() + theme::INSET_CONTROL * 2.0 + SESSIONS_BTN_CHEVRON_OFFSET;
-            assert_eq!(SESSIONS_BTN_W, hug, "the button is the label ({label_w} px, rounded up) plus its insets and chevron slot");
-        });
-    }
-
     fn click_at(ctx: &egui::Context, screen: Rect, pos: Pos2, mut frame: impl FnMut(&mut Ui)) {
         for pressed in [true, false] {
             let raw = egui::RawInput {
@@ -1429,12 +1361,6 @@ mod tests {
             });
             assert!(painted_sentences(&out).contains(&notice), "popover elides {notice:?}: {:?}", painted_texts(&out));
 
-            st.sessions_popover_open = false;
-            st.runtime_dropdown_open = true;
-            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-                crate::agent_picker::render_runtime_dropdown_menu(&mut st, ui, narrow_panel, 40.0, None);
-            });
-            assert!(painted_sentences(&out).contains(&notice), "+ menu footer elides {notice:?}: {:?}", painted_texts(&out));
         }
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1456,19 +1382,18 @@ mod tests {
         };
 
         st.set_resume_failure("CLI 'codex' does not support safe session resume");
-        st.runtime_dropdown_open = true;
+        st.sessions_popover_open = true;
         let open = painted_sentences(&frame(&mut st));
-        assert!(open.iter().any(|t| t == NOT_RESUMABLE_NOTICE), "notice shows in the open + menu: {open:?}");
+        assert!(open.iter().any(|t| t == NOT_RESUMABLE_NOTICE), "notice shows in the open sessions popover: {open:?}");
 
         // Picking a row (or Esc, or an outside click) closes the menu: the notice must go with it.
-        st.runtime_dropdown_open = false;
+        st.sessions_popover_open = false;
         let _ = frame(&mut st);
-        assert!(st.resume_notice.is_none(), "closed menu must not keep a stale notice");
+        assert!(st.resume_notice.is_none(), "closed popover must not keep a stale notice");
 
-        st.runtime_dropdown_open = true;
+        st.sessions_popover_open = true;
         let reopened = painted_texts(&frame(&mut st));
-        assert!(!reopened.iter().any(|t| t == NOT_RESUMABLE_NOTICE), "reopened menu must not replay the old notice: {reopened:?}");
-        assert!(reopened.iter().any(|t| t == "Ask before acting"), "permission caption comes back, Ask by default: {reopened:?}");
+        assert!(!reopened.iter().any(|t| t == NOT_RESUMABLE_NOTICE), "reopened popover must not replay the old notice: {reopened:?}");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1549,8 +1474,9 @@ mod tests {
     }
 
     // 19. `sessions_button_single_frame_click_keeps_popover_open`
+    // 19. `more_button_single_frame_click_keeps_popover_open`
     #[test]
-    fn sessions_button_single_frame_click_keeps_popover_open() {
+    fn more_button_single_frame_click_keeps_popover_open() {
         let dir = temp_test_dir("btn-single-frame");
         let mut st = TerminalState::new_for_session("doc-btn-frame", "Landing", Some(&dir));
 
@@ -1559,13 +1485,13 @@ mod tests {
         crate::theme::apply(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(320.0, 720.0));
-        let btn_rect = Rect::from_min_size(Pos2::new(180.0, 8.0), Vec2::new(SESSIONS_BTN_W, theme::CONTROL_DENSE));
 
         // Initial layout frame
         let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ui| {
-            render_sessions_button(&mut st, ui, btn_rect);
+            crate::agent_header::paint(&mut st, ui, panel_rect);
         });
         assert!(!st.sessions_popover_open);
+        let btn_rect = ctx.data(|d| d.get_temp::<Rect>(Id::new("agents-more-btn-rect"))).expect("the more button is drawn in the header");
 
         // Single-frame synthetic click (both press and release in one frame)
         let pos = btn_rect.center();
@@ -1579,12 +1505,12 @@ mod tests {
             ..Default::default()
         };
         let _ = ctx.run_ui(raw, |ui| {
-            render_sessions_button(&mut st, ui, btn_rect);
+            crate::agent_header::paint(&mut st, ui, panel_rect);
             if st.sessions_popover_open {
                 render_sessions_popover(&mut st, ui, panel_rect, 40.0, None);
             }
         });
-        assert!(st.sessions_popover_open, "Opening the Sessions popover must not immediately self-close on the same pass");
+        assert!(st.sessions_popover_open, "Opening the sessions popover must not immediately self-close on the same pass");
 
         let _ = std::fs::remove_dir_all(&dir);
     }
