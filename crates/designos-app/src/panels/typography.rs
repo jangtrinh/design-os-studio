@@ -75,12 +75,13 @@ pub fn set_style(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
     }
     // The edit asks for any font face it introduces (family, weight, italic), so no caller does.
     ts::requesting_new_faces(app, sel, |app| {
+        let text_ref = crate::styles::StyleKind::Text.ref_key();
         app.edit_nodes(sel, |n| {
             if let NodeKind::Text(t) = &mut n.kind {
-                let before = t.clone();
+                let before = n.style_refs.contains_key(text_ref).then(|| (t.style.clone(), t.runs.clone()));
                 richtext::apply_all(t, &f);
-                if *t != before {
-                    n.style_refs.remove("text");
+                if before.is_some_and(|(style, runs)| t.style != style || t.runs != runs) {
+                    n.style_refs.remove(text_ref);
                 }
                 n.size = layout::fit_text(t, n.size);
             }
@@ -960,3 +961,7 @@ mod tests {
         assert!(matches!(t.style.fills.first().map(|p| &p.kind), Some(PaintKind::Solid(c)) if *c == Color::rgb(0, 0, 255)));
     }
 }
+
+#[cfg(test)]
+#[path = "../shell/tests/typography_style_detach.rs"]
+mod typography_style_detach;
