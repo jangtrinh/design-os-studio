@@ -232,7 +232,7 @@ fn main() {
         }),
     );
     if let Err(e) = result {
-        eprintln!("designos: {e}");
+        eprintln!("designos: {}", startup_error_message(&e.to_string()));
         std::process::exit(1);
     }
     if screenshot_mode {
@@ -261,6 +261,37 @@ fn exit_code(select_miss: bool, shot_ok: bool) -> i32 {
         (true, _) => 2,
         (false, false) => 1,
         (false, true) => 0,
+    }
+}
+
+/// Adds an actionable Linux driver hint to the otherwise opaque eframe/wgpu startup error.
+/// Keep the original error intact so backend-specific details remain available for diagnosis.
+fn startup_error_message(error: &str) -> String {
+    let lower = error.to_ascii_lowercase();
+    let gpu_failure = lower.contains("wgpu error")
+        && (lower.contains("surface") || lower.contains("adapter") || lower.contains("vulkan") || lower.contains("opengl") || lower.contains("egl"));
+    if !gpu_failure {
+        return error.to_string();
+    }
+    format!(
+        "{error}. No usable GPU driver was found. On Linux, install your GPU driver or Mesa (for example `mesa-vulkan-drivers` and `libegl1`), then try again."
+    )
+}
+
+#[cfg(test)]
+mod startup_error_tests {
+    use super::startup_error_message;
+
+    #[test]
+    fn no_gpu_error_names_linux_recovery() {
+        let message = startup_error_message("WGPU error: Failed to create surface for any enabled backend: {}");
+        assert!(message.contains("Failed to create surface"));
+        assert!(message.contains("mesa-vulkan-drivers") && message.contains("libegl1"));
+    }
+
+    #[test]
+    fn unrelated_startup_error_is_unchanged() {
+        assert_eq!(startup_error_message("winit error: display unavailable"), "winit error: display unavailable");
     }
 }
 
