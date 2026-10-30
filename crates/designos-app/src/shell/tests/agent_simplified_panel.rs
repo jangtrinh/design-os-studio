@@ -169,7 +169,7 @@ fn agents_header_is_one_row() {
     let more = recorded(&s, "agents-more-btn").expect("more");
     for (name, r) in [("tab", tab), ("new chat", plus), ("more", more)] {
         assert!(r.top() >= top - 0.01 && r.bottom() <= top + TERMINAL_HEADER_H + 0.01, "{name} {r:?} lies inside the {TERMINAL_HEADER_H} px header at {top}");
-        assert_eq!(r.height(), crate::theme::TARGET_MIN, "{name} is 24 px high (R10.1)");
+        assert_eq!(r.height(), crate::theme::TARGET_MIN, "{name} is 24 px high");
         assert!((r.center().y - tab.center().y).abs() < 0.5, "{name} shares the tab's vertical centre");
     }
     for key in RETIRED_STRIP_KEYS {
@@ -330,6 +330,7 @@ fn mode_control_sets_the_permission_mode() {
     s.click(mode.center());
     frames(&mut s, 2);
     assert!(recorded(&s, "agents-composer-mode-menu").is_some(), "the menu opens");
+    assert!(painted(&s).iter().any(|t| t == "Applies to new agent tabs."), "the menu says which tabs the mode reaches: {:?}", painted(&s));
     let skip = recorded(&s, "agents-composer-mode-skip").expect("Skip permissions row");
     s.click(skip.center());
     frames(&mut s, 3);
@@ -354,10 +355,10 @@ fn chrome_focus_band_is_the_header_only() {
 #[test]
 fn no_status_line_under_the_composer() {
     let mut s = new_chat_sim();
-    s.shell.app.terminal.set_composer_draft("x".repeat(crate::agent_composer::MAX_COMPOSER_CHARS + 1));
-    let _ = s.shell.app.terminal.send_to_agent("x", None);
-    s.shell.app.terminal.active_composer_mut().notice = Some("Message is too long.".into());
-    s.shell.app.terminal.active_composer_mut().last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::TooLong));
+    let too_long = "x".repeat(crate::agent_composer::MAX_COMPOSER_CHARS + 1);
+    s.shell.app.terminal.set_composer_draft(too_long.clone());
+    let outcome = s.shell.app.terminal.send_to_agent(&too_long, None);
+    assert_eq!(outcome, crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::TooLong), "the refusal comes from the send path");
     frames(&mut s, 3);
     let bx = recorded(&s, "agents-composer-box").expect("composer box");
     let note = recorded(&s, "agents-composer-notice").expect("a refusal is captioned");
@@ -568,4 +569,95 @@ fn a_composer_menu_closes_from_its_own_anchor() {
         assert!(!is_open(&s.shell.app.terminal), "{anchor}: closes in one frame");
         finish(s);
     }
+}
+
+#[test]
+fn new_chat_from_the_keyboard_closes_every_menu_and_popover() {
+    let mut s = session_sim();
+    s.shell.app.terminal.attach_menu_open = true;
+    s.shell.app.terminal.mode_menu_open = true;
+    s.shell.app.terminal.skills.open_picker();
+    s.ctx.memory_mut(|m| m.request_focus(egui::Id::new("agents-new-chat-btn")));
+    frames(&mut s, 2);
+    // No pointer press: only a keyboard activation reaches the button.
+    s.key(Key::Enter);
+    frames(&mut s, 2);
+    let t = &s.shell.app.terminal;
+    assert!(t.picker_open, "Enter on + starts New chat");
+    assert!(!t.attach_menu_open && !t.mode_menu_open && !t.skills.picker_open, "and closes every menu and popover");
+    finish(s);
+}
+
+#[test]
+fn stop_reads_disabled_while_it_is_stopping() {
+    use crate::widgets::kit::{button_look, Hierarchy, State};
+    let mut s = working_session();
+    let fill_of = |s: &Sim, rect: Rect| -> Vec<egui::Color32> {
+        s.shapes
+            .iter()
+            .filter_map(|cs| match &cs.shape {
+                egui::epaint::Shape::Rect(r) if r.rect.center().distance(rect.center()) < 1.0 && (r.rect.width() - rect.width()).abs() < 1.0 => Some(r.fill),
+                _ => None,
+            })
+            .collect()
+    };
+    let stop = recorded(&s, "agents-header-stop-btn").expect("Stop is drawn on a running turn");
+    let disabled = button_look(Hierarchy::Destructive, State::Disabled).fill;
+    assert!(!fill_of(&s, stop).contains(&disabled), "an idle Stop is enabled");
+    s.click(stop.center());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.tabs[0].stop_state.is_some(), "the click started a stop");
+    let stop = recorded(&s, "agents-header-stop-btn").expect("Stop stays while stopping");
+    assert!(painted(&s).iter().any(|t| t == "Stopping…"), "{:?}", painted(&s));
+    assert!(fill_of(&s, stop).contains(&disabled), "Stopping… is drawn with the disabled look: {:?}", fill_of(&s, stop));
+    finish(s);
+}
+
+#[test]
+fn a_working_session_row_spins_in_the_info_colour() {
+    let mut s = working_session();
+    let more = recorded(&s, "agents-more-btn").unwrap();
+    s.click(more.center());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.sessions_popover_open, "the sessions popover is open");
+    let spinner_colours: Vec<egui::Color32> = s
+        .shapes
+        .iter()
+        .filter_map(|cs| match &cs.shape {
+            egui::epaint::Shape::LineSegment { stroke, .. } => Some(stroke.color),
+            _ => None,
+        })
+        .collect();
+    assert!(spinner_colours.contains(&crate::theme::INFO), "the working spinner is INFO: {spinner_colours:?}");
+    assert!(!spinner_colours.contains(&crate::theme::WARNING), "and not WARNING");
+    finish(s);
+}
+
+#[test]
+fn chips_wear_the_kit_tag_look() {
+    use crate::widgets::kit::{tag_look, State};
+    let mut s = session_sim();
+    s.shell.app.terminal.active_composer_mut().attach_prd = true;
+    frames(&mut s, 3);
+    let chip = recorded(&s, "agents-composer-chip-prd").expect("the PRD chip");
+    let look = tag_look(State::Default);
+    let rects: Vec<&egui::epaint::RectShape> = s
+        .shapes
+        .iter()
+        .filter_map(|cs| match &cs.shape {
+            egui::epaint::Shape::Rect(r) if (r.rect.center() - chip.center()).length() < 1.0 && (r.rect.width() - chip.width()).abs() < 1.0 => Some(r),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        rects.iter().any(|r| r.fill == look.fill && r.corner_radius == crate::theme::cr(crate::theme::RADIUS_CONTROL)),
+        "the chip is a kit tag with the control radius: {rects:?}"
+    );
+    let label = s.shapes.iter().find_map(|cs| match &cs.shape {
+        egui::epaint::Shape::Text(t) if chip.contains(t.pos) && t.galley.job.text == "PRD" => Some(t),
+        _ => None,
+    });
+    let label = label.expect("the PRD label is painted inside the chip");
+    assert_eq!(label.galley.job.sections[0].format.font_id.size, crate::theme::FONT_SIZE_TEXT_XS, "the label is text-xs");
+    finish(s);
 }

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use egui::{Align2, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
 use crate::agent_cli_catalog::{build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, CUSTOM_CLI_WARNING};
+use crate::agent_composer_menus::{MENU_W_NARROW, MENU_W_WIDE};
 use crate::agent_start_failure::{login_command, FixAction};
 use crate::comments::settings::{add_custom_cli, load_custom_clis};
 use crate::terminal::{AgentCliPreset, TerminalState};
@@ -402,7 +403,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     let inset = theme::INSET_FRAME;
     let row_h = theme::MENU_ITEM_HEIGHT;
     let fit = (panel_rect.width() - inset * 2.0).max(row_h);
-    let menu_w = if fit < 196.0 { fit } else { fit.min(232.0) };
+    let menu_w = if fit < MENU_W_NARROW { fit } else { fit.min(MENU_W_WIDE) };
     let form_h = if state.picker.other_form_open { OTHER_FORM_HEIGHT } else { 0.0 };
     let shown = main_idx.len() + 1 + if show_folded { folded_idx.len() } else { 0 };
     let content_h = inset * 2.0 + shown as f32 * row_h + form_h;

@@ -112,7 +112,7 @@ pub(crate) fn selection_visible(state: &TerminalState) -> bool {
 }
 
 fn chip_widths(p: &egui::Painter, state: &TerminalState) -> Vec<f32> {
-    let font = theme::font_caption();
+    let font = chip_font();
     let mut widths = Vec::new();
     if selection_visible(state) {
         widths.push(tag_w(p, &composer_chip_label(&state.composer_selection).unwrap_or_default(), &font));
@@ -176,14 +176,17 @@ struct TagSpec<'a> {
 
 fn paint_tag(ui: &mut Ui, p: &egui::Painter, rect: Rect, spec: TagSpec<'_>) -> TagHit {
     let resp = ui.interact(rect, Id::new(spec.id), Sense::click());
-    let fill = if spec.error { theme::BG_ERROR_PRIMARY } else { theme::BG };
-    let border = if spec.error { theme::BADGE_ERROR_BORDER } else { theme::BORDER_STRONG };
-    let text = if spec.error { theme::BADGE_ERROR_TEXT } else { theme::TEXT_SECONDARY };
-    p.rect_filled(rect, theme::cr_pill(theme::BADGE_MD), fill);
-    p.rect_stroke(rect, theme::cr_pill(theme::BADGE_MD), egui::Stroke::new(theme::BORDER_WIDTH, border), egui::StrokeKind::Inside);
-    let label_w = if spec.dismiss.is_some() { rect.width() - theme::TARGET_MIN - theme::SPACE_ROW } else { rect.width() - theme::SPACE_INLINE };
-    let shown = widgets::elide(p, spec.label, &theme::font_caption(), label_w.max(theme::SPACE_BLOCK));
-    p.text(Pos2::new(rect.left() + theme::SPACE_ROW, rect.center().y), Align2::LEFT_CENTER, shown, theme::font_caption(), text);
+    // The kit's `Tag/Chip`: control radius, text-xs medium label, a 14 px close glyph. The error chip swaps the colours only.
+    let look = kit::tag_look(if resp.hovered() { kit::State::Hover } else { kit::State::Default });
+    let (fill, border, text) =
+        if spec.error { (theme::BG_ERROR_PRIMARY, theme::BADGE_ERROR_BORDER, theme::BADGE_ERROR_TEXT) } else { (look.fill, look.border, look.text) };
+    let radius = theme::cr(theme::RADIUS_CONTROL);
+    p.rect_filled(rect, radius, fill);
+    p.rect_stroke(rect, radius, egui::Stroke::new(theme::BORDER_WIDTH, border), egui::StrokeKind::Inside);
+    let font = chip_font();
+    let label_w = if spec.dismiss.is_some() { rect.width() - theme::TARGET_MIN - theme::INSET_FRAME } else { rect.width() - theme::INSET_FRAME * 2.0 };
+    let shown = widgets::elide(p, spec.label, &font, label_w.max(theme::SPACE_BLOCK));
+    p.text(Pos2::new(rect.left() + theme::INSET_FRAME, rect.center().y), Align2::LEFT_CENTER, shown, font, text);
     widgets::record(ui, spec.id, rect);
     widgets::labelled(ui, resp.id, egui::accesskit::Role::Button, spec.name.unwrap_or(spec.label));
     if resp.has_focus() {
@@ -194,11 +197,19 @@ fn paint_tag(ui: &mut Ui, p: &egui::Painter, rect: Rect, spec: TagSpec<'_>) -> T
     }
     let mut dismiss = false;
     if let Some(name) = spec.dismiss {
-        let x = Rect::from_min_size(Pos2::new(rect.right() - theme::TARGET_MIN, rect.top()), Vec2::new(theme::TARGET_MIN, theme::BADGE_MD));
+        let x = Rect::from_min_size(Pos2::new(rect.right() - theme::TARGET_MIN, rect.top()), Vec2::new(theme::TARGET_MIN, rect.height()));
         let xr = ui.interact(x, Id::new(format!("{}-x", spec.id)), Sense::click());
-        icons::paint(p, Icon::Close, x.center(), theme::FONT_SIZE_CAPTION, if xr.hovered() { theme::ICON_QUATERNARY_HOVER } else { theme::ICON_QUATERNARY });
+        let glyph = kit::tag_look(if xr.hovered() { kit::State::Hover } else { kit::State::Default }).icon;
+        icons::paint(p, Icon::Close, x.center(), theme::FONT_SIZE_TEXT_SM, glyph);
         widgets::labelled(ui, xr.id, egui::accesskit::Role::Button, name);
+        if xr.has_focus() {
+            kit::focus_ring(p, x, theme::RADIUS_CONTROL as f32);
+        }
         dismiss = xr.clicked();
     }
     TagHit { body: resp.clicked() && !dismiss, dismiss }
+}
+
+fn chip_font() -> egui::FontId {
+    theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium)
 }

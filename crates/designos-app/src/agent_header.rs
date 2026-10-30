@@ -14,6 +14,7 @@ const TAB_MANY: f32 = 82.0;
 const TAB_ONE_MIN: f32 = 104.0;
 const TAB_PAD: f32 = 40.0;
 const FIT_SLACK: f32 = 48.0;
+const MORE_DOT_RADIUS: f32 = 1.2;
 
 struct DrawnTab {
     idx: Option<usize>,
@@ -71,7 +72,7 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
     paint_icon_btn(ui, &p, more, &more_resp, state.sessions_popover_open, "agents-more-btn", "More");
     let dot_col = icon_color(&more_resp, state.sessions_popover_open);
     for dx in [-theme::SPACE_FACT, 0.0, theme::SPACE_FACT] {
-        p.circle_filled(more.center() + Vec2::new(dx, 0.0), 1.2, dot_col);
+        p.circle_filled(more.center() + Vec2::new(dx, 0.0), MORE_DOT_RADIUS, dot_col);
     }
     if hidden_needs > 0 {
         let dot_at = Pos2::new(more.right() - theme::SPACE_FACT, more.top() + theme::SPACE_FACT);
@@ -100,6 +101,9 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
     } else if plus_resp.clicked() {
         state.picker_open = true;
         state.runtime_dropdown_open = false;
+        state.attach_menu_open = false;
+        state.mode_menu_open = false;
+        state.skills.picker_open = false;
         state.sessions_popover_open = false;
         state.resume_notice = None;
         state.picker.on_close();

@@ -392,7 +392,7 @@ pub fn paint_header_stop_controls(ui: &mut Ui, p: &Painter, state: &mut Terminal
     let btn_w = 64.0;
     let stop_rect = Rect::from_min_size(Pos2::new(right_anchor_x - theme::SPACE_ROW - btn_w, bar_r.center().y - btn_h * 0.5), Vec2::new(btn_w, btn_h));
     let resp = ui.interact(stop_rect, Id::new("agents-header-stop-btn"), Sense::click());
-    let paint = button_look(Hierarchy::Destructive, kit::state_of(&resp, false, true));
+    let paint = button_look(Hierarchy::Destructive, kit::state_of(&resp, false, !active_stopping));
     paint_frame(p, stop_rect, theme::RADIUS_CONTROL, &paint);
     let label = state.tabs.get(state.active_tab).and_then(|t| t.stop_state.as_ref()).map_or("Stop", StopState::button_label);
     let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);

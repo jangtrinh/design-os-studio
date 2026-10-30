@@ -341,7 +341,7 @@ fn paint_session_row_indicators(ui: &Ui, p: &Painter, status: &SessionRowStatus,
             let step = ((ui.input(|i| i.time) * 12.0).floor() as i32).rem_euclid(12);
             let base_angle = (step as f32) * (std::f32::consts::TAU / 12.0);
             let arc_span = std::f32::consts::TAU * 0.68;
-            let spin_col = theme::WARNING;
+            let spin_col = theme::INFO;
             let segs = 7usize;
             let mut prev = Pos2::new(status_center.x + STATUS_SPINNER_RADIUS * base_angle.cos(), status_center.y + STATUS_SPINNER_RADIUS * base_angle.sin());
             for i in 1..=segs {

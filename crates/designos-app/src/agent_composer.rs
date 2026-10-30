@@ -45,6 +45,8 @@ pub const READY_QUIET_OUTPUT: Duration = Duration::from_millis(180);
 pub const UNCONFIRMED_TIMEOUT: Duration = Duration::from_secs(10);
 
 const ZERO: f32 = 0.0;
+/// Stroke width of the composer box while its field has the caret.
+const FOCUS_STROKE_W: f32 = 2.0;
 const MIN_CENTER_HEIGHT: f32 = theme::CONTROL_XS * 2.0;
 
 /// Why [`TerminalState::send_to_agent`] refused to write a prompt (`#689` §3 rules 3, 7, 10 & §8).
@@ -1028,7 +1030,7 @@ pub fn show_composer(
 
     let focused_box = was_focused && composer_live;
     p.rect_filled(composer_rect, theme::cr(theme::RADIUS_XL), theme::BG_SECONDARY);
-    let stroke = if focused_box { Stroke::new(2.0, theme::BORDER_SELECTED) } else { Stroke::new(theme::BORDER_WIDTH, theme::BORDER) };
+    let stroke = if focused_box { Stroke::new(FOCUS_STROKE_W, theme::BORDER_SELECTED) } else { Stroke::new(theme::BORDER_WIDTH, theme::BORDER) };
     p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_XL), stroke, StrokeKind::Inside);
     widgets::record(ui, "agents-composer-box", composer_rect);
 

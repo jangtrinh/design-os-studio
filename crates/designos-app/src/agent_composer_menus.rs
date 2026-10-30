@@ -15,6 +15,10 @@ pub enum AttachPick {
 
 pub(super) const ATTACH_PASS: &str = "agents-composer-attach-menu-opened-pass";
 pub(super) const MODE_PASS: &str = "agents-composer-mode-menu-opened-pass";
+/// Widths of the composer's popup menus: the attach menu is narrow, the permission mode menu is wide, and the agent menu takes
+/// what the panel allows between the two.
+pub(crate) const MENU_W_NARROW: f32 = 196.0;
+pub(crate) const MENU_W_WIDE: f32 = 232.0;
 const ADD_SELECTION_TIP: &str = "Sends the selection and its unresolved comments to the agent";
 
 #[derive(Clone, Copy)]
@@ -29,7 +33,7 @@ struct AttachRow<'a> {
 pub(super) fn attach_menu(ui: &mut Ui, anchor: Rect, prd_on: bool, skills_n: usize) -> (Option<AttachPick>, bool) {
     let skills_caption = (skills_n > 0).then(|| format!("{skills_n} on"));
     let h = theme::INSET_FRAME * 2.0 + 3.0 * theme::MENU_ITEM_HEIGHT;
-    let w = 196.0;
+    let w = MENU_W_NARROW;
     let rect = Rect::from_min_size(Pos2::new(anchor.left(), anchor.top() - theme::SPACE_ROW - h), Vec2::new(w, h));
     menu_frame(ui, rect, "agents-composer-attach-menu");
     let mut pick = None;
@@ -59,7 +63,7 @@ pub(super) fn attach_menu(ui: &mut Ui, anchor: Rect, prd_on: bool, skills_n: usi
 pub(super) fn mode_menu(ui: &mut Ui, anchor: Rect, current: PermissionMode) -> (Option<PermissionMode>, bool) {
     let modes = [PermissionMode::Skip, PermissionMode::Ask];
     let h = theme::INSET_FRAME * 2.0 + (modes.len() as f32 + 1.0) * theme::MENU_ITEM_HEIGHT;
-    let w = 232.0;
+    let w = MENU_W_WIDE;
     let rect = Rect::from_min_size(Pos2::new(anchor.right() - w, anchor.top() - theme::SPACE_ROW - h), Vec2::new(w, h));
     menu_frame(ui, rect, "agents-composer-mode-menu");
     let mut pick = None;

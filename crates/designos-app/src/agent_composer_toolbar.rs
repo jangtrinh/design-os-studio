@@ -9,6 +9,7 @@ use crate::theme;
 use crate::widgets::{self, kit};
 
 const PILL_MIN_W: f32 = 72.0;
+const PILL_MAX_W: f32 = 220.0;
 
 pub struct ToolbarOut {
     pub add: bool,
@@ -82,7 +83,7 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
         out.mode = true;
     }
     let pill_right = mode.left() - theme::SPACE_ROW;
-    let pill_w = (pill_right - add.right() - theme::SPACE_ROW).clamp(PILL_MIN_W, 220.0);
+    let pill_w = (pill_right - add.right() - theme::SPACE_ROW).clamp(PILL_MIN_W, PILL_MAX_W);
     let pill_r = Rect::from_min_size(Pos2::new(pill_right - pill_w, y), Vec2::new(pill_w, theme::CONTROL_XS));
     let pill_resp = ui.interact(pill_r, Id::new("agents-composer-agent-pill"), Sense::click());
     if paint_text_button(
