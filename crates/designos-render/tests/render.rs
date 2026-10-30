@@ -451,7 +451,6 @@ fn layer_blur_and_background_blur() {
     let mut t = T::new();
     t.rect(None, Rect::new(0.0, 0.0, 30.0, 60.0), Color::BLACK);
     let g = t.rect(None, Rect::new(10.0, 10.0, 40.0, 40.0), Color::rgba(255, 255, 255, 0));
-    t.node(g).fills.clear();
     t.node(g).effects = vec![Effect::BackgroundBlur { radius: 12.0, visible: true }];
     let pm = t.render(60, 60);
     let inside = px(&pm, 29, 30);
