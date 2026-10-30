@@ -100,6 +100,7 @@ impl App {
     pub fn apply_style_in(&mut self, tx: &mut crate::edit::Tx, sel: &[NodeId], key: &str) {
         let Some(style) = self.doc.styles.get(key).cloned() else { return };
         let prop = style_property(&self.doc, key);
+        let paragraph_fields = self.doc.style_meta.get(key).and_then(|m| m.text_paragraph_fields);
         let f = |n: &mut Node| match &style {
             Style::Fill(paints) if prop == StyleProperty::Stroke => {
                 n.stroke.paints = paints.clone();
@@ -130,9 +131,15 @@ impl App {
                     // TextProps but are owned by the shared style.
                     let (align_h, align_v) = (t.style.align_h, t.style.align_v);
                     t.style = TextStyle { fills: t.style.fills.clone(), align_h, align_v, ..ts.clone() };
-                    t.paragraph.indent = ts.paragraph_indent;
-                    t.paragraph.list_spacing = ts.list_spacing;
-                    t.paragraph.leading_trim = ts.leading_trim;
+                    if paragraph_fields.is_none_or(|bits| bits & 1 != 0) {
+                        t.paragraph.indent = ts.paragraph_indent;
+                    }
+                    if paragraph_fields.is_none_or(|bits| bits & 2 != 0) {
+                        t.paragraph.list_spacing = ts.list_spacing;
+                    }
+                    if paragraph_fields.is_none_or(|bits| bits & 4 != 0) {
+                        t.paragraph.leading_trim = ts.leading_trim;
+                    }
                     for r in &mut t.runs {
                         let (align_h, align_v) = (r.style.align_h, r.style.align_v);
                         r.style = TextStyle { fills: r.style.fills.clone(), align_h, align_v, ..ts.clone() };

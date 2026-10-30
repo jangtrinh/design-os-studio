@@ -13,8 +13,9 @@ use crate::tools::text_remeasure::{resize_hug_text, BoundTextIndex, VariablesBef
 use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
-    apply_style_values, resolve_easeui_color, style_property, Color, Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect,
-    SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable, VariableCollection, VariableKind, VariableMode, VariableValue,
+    apply_style_values_with_fields, resolve_easeui_color, style_property, text_style_paragraph_fields_after_update, Color, Command, Document, Effect,
+    LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect, SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable, VariableCollection,
+    VariableKind, VariableMode, VariableValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1275,7 +1276,7 @@ fn apply_set_style_op(
             Style::Effect(fx.clone())
         } else if let Some(grids) = &s_in.grids {
             Style::Grid(grids.clone())
-        } else if let Some(ex) = existing_style {
+        } else if let Some(ex) = existing_style.clone() {
             ex
         } else {
             return Err(op_failed_error(
@@ -1299,12 +1300,17 @@ fn apply_set_style_op(
         let name = s_in.name.clone().or_else(|| existing_meta.as_ref().map(|m| m.name.clone())).unwrap_or_else(|| key.clone());
         let description = s_in.description.clone().or_else(|| existing_meta.as_ref().map(|m| m.description.clone())).unwrap_or_default();
         let bindings = existing_meta.as_ref().map(|m| m.bindings.clone()).unwrap_or_default();
-        let (lib_key, sort_position) = match existing_meta {
-            Some(m) => (m.key, m.sort_position),
-            None => (None, None),
+        let (lib_key, sort_position, existing_fields) = match existing_meta.as_ref() {
+            Some(m) => (m.key.clone(), m.sort_position.clone(), m.text_paragraph_fields),
+            None => (None, None, None),
         };
+        let ownership = if existing_style.is_none() && matches!(&style_val, Style::Text(_)) { Some(0b111) } else { existing_fields };
+        let paragraph_fields = text_style_paragraph_fields_after_update(styles.get(&key), &style_val, ownership);
         styles.insert(key.clone(), style_val);
-        style_meta.insert(key.clone(), StyleMeta { name, key: lib_key, description, property: prop, bindings, sort_position });
+        style_meta.insert(
+            key.clone(),
+            StyleMeta { name, key: lib_key, description, property: prop, bindings, sort_position, text_paragraph_fields: paragraph_fields },
+        );
     }
 
     for del_key in &op.delete {
@@ -1359,7 +1365,7 @@ fn apply_set_style_op(
             designos_doc::detach_fill_paints(&mut updated);
         }
         updated.style_refs.insert(ref_slot.into(), resolved_key.clone());
-        apply_style_values(&mut updated, st, &resolved_key);
+        apply_style_values_with_fields(&mut updated, st, &resolved_key, style_meta.get(&resolved_key).and_then(|m| m.text_paragraph_fields));
         if prop == StyleProperty::Text {
             resize_hug_text(doc, &mut updated);
         }
@@ -1391,7 +1397,7 @@ fn apply_set_style_op(
                 continue;
             }
             let mut updated = base.clone();
-            apply_style_values(&mut updated, style, key);
+            apply_style_values_with_fields(&mut updated, style, key, style_meta.get(key).and_then(|m| m.text_paragraph_fields));
             resize_hug_text(doc, &mut updated);
             match pending {
                 Some(i) => cmds[i] = Command::Update { node: Box::new(updated) },

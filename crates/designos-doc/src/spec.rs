@@ -1111,9 +1111,10 @@ impl Document {
         if let Some(eff_ref) = &spec.effect_style {
             let style_key = crate::resolve_style_ref(self, index, libraries, eff_ref, StyleProperty::Effect, "effect_style", &format!("{path}.effect_style"))?;
             if let Some(style) = self.styles.get(&style_key).cloned() {
+                let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                 if let Some(n) = self.get_mut(id) {
                     n.style_refs.insert("effect".to_string(), style_key.clone());
-                    crate::apply_style_values(n, &style, &style_key);
+                    crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                     report.styles_linked += 1;
                 }
             }
@@ -1123,9 +1124,10 @@ impl Document {
         if let Some(grid_ref) = &spec.grid_style {
             let style_key = crate::resolve_style_ref(self, index, libraries, grid_ref, StyleProperty::Grid, "grid_style", &format!("{path}.grid_style"))?;
             if let Some(style) = self.styles.get(&style_key).cloned() {
+                let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                 if let Some(n) = self.get_mut(id) {
                     n.style_refs.insert("grid".to_string(), style_key.clone());
-                    crate::apply_style_values(n, &style, &style_key);
+                    crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                     report.styles_linked += 1;
                 }
             }
@@ -1136,9 +1138,10 @@ impl Document {
             if let Some(ts_ref) = &spec.text_style {
                 let style_key = crate::resolve_style_ref(self, index, libraries, ts_ref, StyleProperty::Text, "text_style", &format!("{path}.text_style"))?;
                 if let Some(style) = self.styles.get(&style_key).cloned() {
+                    let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                     if let Some(n) = self.get_mut(id) {
                         n.style_refs.insert("text".to_string(), style_key.clone());
-                        crate::apply_style_values(n, &style, &style_key);
+                        crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                         report.styles_linked += 1;
                     }
                 }
@@ -1176,10 +1179,11 @@ impl Document {
                     }
                     ResolvedColourRef::Style { style_key, .. } => {
                         if let Some(style) = self.styles.get(&style_key).cloned() {
+                            let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                             if let Some(n) = self.get_mut(id) {
                                 n.variables.bindings.remove("fills/0");
                                 n.style_refs.insert("fill".to_string(), style_key.clone());
-                                crate::apply_style_values(n, &style, &style_key);
+                                crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                                 report.styles_linked += 1;
                             }
                         }
@@ -1210,10 +1214,11 @@ impl Document {
                 }
                 ResolvedColourRef::Style { style_key, .. } => {
                     if let Some(style) = self.styles.get(&style_key).cloned() {
+                        let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                         if let Some(n) = self.get_mut(id) {
                             n.variables.bindings.remove("fills/0");
                             n.style_refs.insert("fill".to_string(), style_key.clone());
-                            crate::apply_style_values(n, &style, &style_key);
+                            crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                             report.styles_linked += 1;
                         }
                     }
@@ -1248,10 +1253,11 @@ impl Document {
                 }
                 ResolvedColourRef::Style { style_key, .. } => {
                     if let Some(style) = self.styles.get(&style_key).cloned() {
+                        let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                         if let Some(n) = self.get_mut(id) {
                             n.variables.bindings.remove("strokes/0");
                             n.style_refs.insert("stroke".to_string(), style_key.clone());
-                            crate::apply_style_values(n, &style, &style_key);
+                            crate::apply_style_values_with_fields(n, &style, &style_key, paragraph_fields);
                             report.styles_linked += 1;
                         }
                     }
@@ -1437,9 +1443,10 @@ impl Document {
                 if let Some(ts_ref) = &spec.text_style {
                     let style_key = crate::resolve_style_ref(self, index, libraries, ts_ref, StyleProperty::Text, "text_style", &format!("{path}.text_style"))?;
                     if let Some(s) = self.styles.get(&style_key).cloned() {
+                        let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                         if let Some(tn) = self.get_mut(tid) {
                             tn.style_refs.insert("text".to_string(), style_key.clone());
-                            crate::apply_style_values(tn, &s, &style_key);
+                            crate::apply_style_values_with_fields(tn, &s, &style_key, paragraph_fields);
                             report.styles_linked += 1;
                         }
                     }
@@ -1468,9 +1475,10 @@ impl Document {
                         }
                         ResolvedColourRef::Style { style_key, .. } => {
                             if let Some(s) = self.styles.get(&style_key).cloned() {
+                                let paragraph_fields = self.style_meta.get(&style_key).and_then(|m| m.text_paragraph_fields);
                                 if let Some(tn) = self.get_mut(tid) {
                                     tn.style_refs.insert("fill".to_string(), style_key.clone());
-                                    crate::apply_style_values(tn, &s, &style_key);
+                                    crate::apply_style_values_with_fields(tn, &s, &style_key, paragraph_fields);
                                     report.styles_linked += 1;
                                 }
                             }

@@ -1501,7 +1501,34 @@ impl Document {
     pub fn from_json_with_report(s: &str) -> serde_json::Result<(Self, RepairReport)> {
         // A `null` in a number slot is how older versions saved a NaN or infinity; it is read as the
         // neutral value and counted (see [`finite_json`]).
+        let paragraph_fields: BTreeMap<String, u8> = serde_json::from_str::<serde_json::Value>(s)
+            .ok()
+            .and_then(|v| v.get("styles").and_then(|v| v.as_object()).cloned())
+            .map(|styles| {
+                styles
+                    .into_iter()
+                    .filter_map(|(key, value)| {
+                        let obj = value.get("Text").or_else(|| value.get("text"))?.as_object()?;
+                        let mut bits = 0;
+                        if obj.contains_key("paragraph_indent") {
+                            bits |= 1;
+                        }
+                        if obj.contains_key("list_spacing") {
+                            bits |= 2;
+                        }
+                        if obj.contains_key("leading_trim") {
+                            bits |= 4;
+                        }
+                        Some((key, bits))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
+        for (key, bits) in paragraph_fields {
+            let meta = doc.style_meta.entry(key).or_default();
+            meta.text_paragraph_fields = Some(meta.text_paragraph_fields.unwrap_or(0) | bits);
+        }
         let mut report = doc.validate_and_repair();
         let now = now_ms();
         doc.in_progress.retain(|id, _| doc.nodes.contains_key(id));
@@ -1578,6 +1605,32 @@ pub struct StyleMeta {
     /// Figma `sortPosition` fractional-indexing key ordering styles within a property.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_position: Option<String>,
+    /// Presence bits for paragraph fields in text styles loaded from legacy JSON (1=indent, 2=list spacing, 4=leading trim).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_paragraph_fields: Option<u8>,
+}
+
+/// Returns paragraph-field ownership after replacing a text style.
+///
+/// `Some(0)` means an old style did not store any of the fields introduced after
+/// the original text-style format. A newly-created style owns all three. For
+/// an old style, changing one of the fields promotes only that field, so an
+/// unrelated style edit keeps legacy consumer values intact.
+pub fn text_style_paragraph_fields_after_update(previous: Option<&Style>, next: &Style, existing: Option<u8>) -> Option<u8> {
+    let Style::Text(next) = next else { return existing };
+    let Some(previous) = previous else { return existing };
+    let Style::Text(previous) = previous else { return existing };
+    let Some(mut bits) = existing else { return Some(0b111) };
+    if previous.paragraph_indent != next.paragraph_indent {
+        bits |= 0b001;
+    }
+    if previous.list_spacing != next.list_spacing {
+        bits |= 0b010;
+    }
+    if previous.leading_trim != next.leading_trim {
+        bits |= 0b100;
+    }
+    Some(bits)
 }
 
 /// Shared (library) style referenced by nodes via `style_refs`.
