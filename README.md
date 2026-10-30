@@ -136,7 +136,17 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.0. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.5. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v075"></a>
+### 0.7.5
+
+- **Colours, type and scale.** The chrome moves to a neutral dark palette with Studio orange for brand actions and an orange keyboard focus ring. Body text is 12 px with three text weights, corner radii are 6, 8, 12 and 16 px, and rows, fields and text grow only where the new scale says. Regions and panel widths stay where they were.
+- **Controls.** Buttons, fields, checkboxes, toggles, tabs, menu items, badges, tooltips and the rest paint from one shared look. A keyboard-focused control draws a 2 px focus ring in every state, menu items sit inset in their panel, and a switch shorter than 24 px takes clicks in a 24 px band.
+- **Window and left panel.** The title bar, file tabs, left rail, floating toolbar, rulers and shell menus use the new look, with a 4 px press band beside each ruler. `Pages`, the Dev section and `Layers` keep their 240 px width and section order with 32 px rows and buttons, Studio orange marks live state, and a click on a page row leaves the keyboard on the canvas.
+- **Popovers, dialogs and the command bar.** Command bar rows are 36 px, Enter runs the row you picked with the keyboard, and in a small window the bar scrolls its rows instead of covering the bottom toolbar. Dialogs use 14 px text and 40 px buttons, and brand buttons carry a dark label on orange.
+- **Home.** Home uses the same dark palette, `+ Design file` is Studio orange with a dark label instead of blue, and the sidebar, header, filter bar, file grid and Trash stay where they were.
+- **Assets, Variables, Libraries and Check designs.** The `Assets` search field shows a focus ring only while it has focus, `Variables` cells draw nothing at rest and booleans are switches, `Libraries` shows change labels such as `New` and `Changed` as status chips, and `Check designs` rules use checkboxes with a segmented contrast choice.
 
 <a id="new-in-v070"></a>
 ### 0.7.0
@@ -619,14 +629,13 @@ design-os-studio/
 
 ### Known issues
 
-- Not in 0.7.0: Codex approvals answered from the Agents panel ([#930](https://github.com/jangtrinh/design-os-studio/issues/930)) and the Ubuntu test-memory change ([#1205](https://github.com/jangtrinh/design-os-studio/issues/1205)) were reverted before release ([#1284](https://github.com/jangtrinh/design-os-studio/pull/1284)). Codex still asks for approval in its own terminal menu, and the Ubuntu test job passes without the change.
 - Scrolling the terminal with the mouse wheel after a large agent edit is not fixed, and the terminal parts of [#1173](https://github.com/jangtrinh/design-os-studio/issues/1173) were not smoke-tested. [#1173](https://github.com/jangtrinh/design-os-studio/issues/1173) stays open on 0.7.1. The `changed layers` card scrolling from [#1276](https://github.com/jangtrinh/design-os-studio/pull/1276) is in 0.7.0.
 - Saving a `.fig` from Studio drops numbered-list formatting and writes inherited or variable-bound paints on instances as fixed values ([#834](https://github.com/jangtrinh/design-os-studio/issues/834)). Keep the original `.fig`, or save as `.designos`, until it is fixed. v0.5.0 behaves the same.
 - Shadow cut-out of a frame with no fill cuts the wrong region when a child is a mask, a group, or paints nothing ([#1277](https://github.com/jangtrinh/design-os-studio/issues/1277)).
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.0. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.5. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
