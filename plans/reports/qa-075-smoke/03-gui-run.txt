@@ -1,0 +1,3 @@
+idle before capture: 9143s
+capture exit=0
+idle after: 9664s

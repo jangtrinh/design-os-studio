@@ -1,0 +1,3 @@
+dmg: designos-0.0.0-dev.6d6faed-macos.dmg
+expected: 09f81f7d22723cfeebdd100f0ca2b26e342ef5081105c1a25c227c110c2f783f  designos-0.0.0-dev.6d6faed-macos.dmg
+actual:   09f81f7d22723cfeebdd100f0ca2b26e342ef5081105c1a25c227c110c2f783f  artifact/designos-macos-universal/designos-0.0.0-dev.6d6faed-macos.dmg

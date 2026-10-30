@@ -1,0 +1,11 @@
+# original before
+size=336639376 mtime=Oct 16 16:40:32 2026 links=1 inode=251309965
+cp -c exit=0
+# clone
+size=336639376 inode=452643444
+clone sha256 before: f38650833b5c25249a4e14ce8d3c5c6996a216019d3a80d3adbb7b546899bd6e
+# original after
+size=336639376 mtime=Oct 16 16:40:32 2026 links=1 inode=251309965
+clone sha256 after:  f38650833b5c25249a4e14ce8d3c5c6996a216019d3a80d3adbb7b546899bd6e
+# original after run
+size=336639376 mtime=Oct 16 16:40:32 2026 links=1 inode=251309965

@@ -1,0 +1,4 @@
+designos
+designos-diff
+designos-mcp
+designos-studio

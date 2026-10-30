@@ -1,0 +1,9 @@
+$ designos --version
+designos 0.7.5
+$ designos-studio --version
+designos-studio 0.7.5
+$ designos-mcp --version
+designos-mcp 0.7.5
+$ designos-diff --version
+designos-diff 0.7.5
+# The capture's G6 compare used designos-diff built from release/v0.7.5 2b69fb31 (same diff source, version string 0.7.0), not the bundle's copy.
