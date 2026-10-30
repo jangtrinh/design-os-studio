@@ -58,7 +58,12 @@ fn cleanup_stale_process_roots(base: &Path, own_pid: u32, is_alive: impl Fn(u32)
         if pid == own_pid || is_alive(pid) {
             continue;
         }
-        let meta = std::fs::symlink_metadata(&path)?;
+        // Another test process can remove this stale root after `read_dir` returns and before
+        // this process inspects it. Treat that race as already-cleaned; only real filesystem
+        // errors should abort test-root setup.
+        let Some(meta) = stale_root_metadata(&path)? else {
+            continue;
+        };
         if meta.file_type().is_symlink() || !meta.is_dir() {
             continue;
         }
@@ -70,6 +75,14 @@ fn cleanup_stale_process_roots(base: &Path, own_pid: u32, is_alive: impl Fn(u32)
         }
     }
     Ok(removed)
+}
+
+fn stale_root_metadata(path: &Path) -> io::Result<Option<std::fs::Metadata>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => Ok(Some(meta)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(unix)]
@@ -129,6 +142,50 @@ mod tests {
         assert!(!stale.exists(), "dead process root was not removed");
         assert!(live.join("sessions/p1-tab-1/owner.json").is_file(), "live process root was removed");
         assert!(foreign.join("sessions/p1-tab-1/owner.json").is_file(), "foreign entry was removed");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_root_removed_by_another_test_process_is_already_cleaned() {
+        let base = scratch_base("already-cleaned");
+        let stale = make_root(&base, "999991");
+
+        let removed = cleanup_stale_process_roots(&base, 999_992, |pid| {
+            assert_eq!(pid, 999_991);
+            std::fs::remove_dir_all(&stale).expect("sibling removes stale root");
+            false
+        })
+        .expect("a sibling cleanup is not a test-root failure");
+
+        assert_eq!(removed, 0, "the sibling already removed the stale root");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn concurrent_stale_root_cleanup_tolerates_a_sibling_removing_the_root() {
+        let base = scratch_base("concurrent-cleanup");
+        let stale = make_root(&base, "999991");
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+
+        let cleaners: Vec<_> = (0..2)
+            .map(|i| {
+                let base = base.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    cleanup_stale_process_roots(&base, 999_992 + i, |pid| {
+                        assert_eq!(pid, 999_991);
+                        barrier.wait();
+                        false
+                    })
+                    .expect("a sibling cleanup is not a test-root failure")
+                })
+            })
+            .collect();
+
+        let removed: usize = cleaners.into_iter().map(|cleaner| cleaner.join().expect("cleaner thread")).sum();
+
+        assert!(removed <= 2, "concurrent cleaners report only their successful removals");
+        assert!(!stale.exists(), "the stale root is gone");
         let _ = std::fs::remove_dir_all(&base);
     }
 
