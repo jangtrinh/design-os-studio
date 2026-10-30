@@ -13,6 +13,20 @@ use gen_tool_docs::{
 };
 
 #[test]
+fn parity_markdown_prints_risk_tier() {
+    let snapshots = build_tool_snapshots();
+    let block = render_tools_markdown_block(&snapshots);
+    assert!(block.contains("| Tool ("));
+    assert!(block.contains("| Mode | Risk | Required Args | Description |"));
+    assert!(block.contains("| `designos_get_document` | read-only | read |"));
+    assert!(block.contains("| `designos_create_node` | mutating | additive |"));
+    assert!(block.contains("| `designos_delete_node` | mutating | destructive |"));
+    assert!(block.contains("| `designos_save_file` | mutating | destructive |"));
+    assert!(block.contains("| `designos_update_node` | mutating | modify |"));
+    assert_eq!(snapshots.len(), snapshots.iter().filter(|tool| tool.meta.get("risk_tier").and_then(|v| v.as_str()).is_some()).count());
+}
+
+#[test]
 fn tool_list_matches_snapshot() {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let snapshot_path = crate_dir.join("tests/snapshots/tools.json");

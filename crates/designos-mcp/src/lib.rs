@@ -6,6 +6,7 @@ pub mod engine;
 mod loop_guard;
 pub mod prompts;
 pub mod resources;
+pub mod risk;
 pub mod rules;
 pub mod server;
 pub mod session_file_io;

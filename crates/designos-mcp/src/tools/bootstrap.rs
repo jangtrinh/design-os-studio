@@ -68,13 +68,7 @@ pub fn tool_definition() -> Value {
                 "session": {"type": "object"}
             }),
             &["generated_at", "doc_revision", "scoped", "sections", "markdown", "total_tokens", "session"],
-        ),
-        "annotations": {
-            "readOnlyHint": true,
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false
-        }
+        )
     })
 }
 
