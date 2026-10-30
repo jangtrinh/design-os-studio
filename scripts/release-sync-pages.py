@@ -101,10 +101,11 @@ def require_published_stable(version: str, repo: str, release_json: str | None) 
                 capture_output=True, text=True,
             )
         except OSError as err:
-            raise SyncError(f"pages name v{version}, but gh could not check it: {err}")
+            raise SyncError(f"could not confirm v{version} is a published release (the pages name it): {err}")
         if out.returncode != 0:
-            raise SyncError(f"pages name v{version}, which is not a published release "
-                            f"(gh release view v{version} failed: {out.stderr.strip()})")
+            # A missing release and a 401/network failure look alike here; do not claim which.
+            raise SyncError(f"could not confirm v{version} is a published release (the pages name it): "
+                            f"gh release view v{version} failed: {out.stderr.strip()}")
         raw = out.stdout
     try:
         data = json.loads(raw)
@@ -114,7 +115,9 @@ def require_published_stable(version: str, repo: str, release_json: str | None) 
         raise SyncError(f"pages name v{version}, but its release json is not an object")
     if data.get("tagName") not in (None, f"v{version}"):
         raise SyncError(f"pages name v{version}, but the release json is for {data['tagName']}")
-    if data.get("isDraft") or data.get("isPrerelease"):
+    if not (isinstance(data.get("isDraft"), bool) and isinstance(data.get("isPrerelease"), bool)):
+        raise SyncError(f"pages name v{version}, but its release json has no boolean isDraft and isPrerelease: {data!r}")
+    if data["isDraft"] or data["isPrerelease"]:
         raise SyncError(f"pages name v{version}, which is a draft or pre-release, not a published stable release")
 
 

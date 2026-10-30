@@ -213,10 +213,35 @@ class GuardTests(SyncCase):
         before = self.snapshot()
         out = self.run_with_fake_gh('echo "release not found" >&2\nexit 1\n')
         self.assertEqual(out.returncode, 1, out.stdout)
-        self.assertIn("pages name v7.0.5, which is not a published release", out.stderr)
+        self.assertIn("could not confirm v7.0.5 is a published release", out.stderr)
         self.assertIn("release not found", out.stderr)
         self.assertNotIn("nothing to do", out.stdout)
         self.assertEqual(before, self.snapshot())
+
+    def test_a_failing_lookup_does_not_claim_the_release_is_missing(self):
+        # HTTP 401 says nothing about whether v7.0.5 exists, so the message must not say it does not.
+        self.add_stray_version()
+        out = self.run_with_fake_gh('echo "HTTP 401: Bad credentials" >&2\nexit 1\n')
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("could not confirm v7.0.5 is a published release", out.stderr)
+        self.assertIn("HTTP 401", out.stderr)
+        self.assertNotIn("not a published release", out.stderr)
+
+    def test_release_json_without_boolean_draft_and_prerelease_is_not_trusted(self):
+        # `{}` has no isDraft/isPrerelease; reading it as "published, stable" would skip on no evidence.
+        self.assertEqual(self.sync_to("0.4.0").returncode, 0)
+        before = self.snapshot()
+        bad_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, bad_dir, ignore_errors=True)
+        for body in ("{}", '{"isDraft": false}', '{"isDraft": "false", "isPrerelease": false}',
+                     '{"isDraft": false, "isPrerelease": null}'):
+            bad = bad_dir / "release.json"
+            bad.write_text(body)
+            out = self.sync_to("0.3.0", "--pages-release-json", str(bad))
+            self.assertEqual(out.returncode, 1, body)
+            self.assertIn("isDraft and isPrerelease", out.stderr)
+            self.assertNotIn("nothing to do", out.stdout)
+        self.assertEqual(before | {"release-0.3.0.json": ""}, self.snapshot() | {"release-0.3.0.json": ""})
 
     def test_stray_higher_version_is_not_skipped_when_it_is_a_draft_or_prerelease(self):
         self.add_stray_version()

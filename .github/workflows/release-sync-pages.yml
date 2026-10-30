@@ -174,10 +174,10 @@ jobs:
 
   # release.yml runs from the tagged commit, so a tag cut from a branch that lacks its
   # make_latest guard still takes GitHub's Latest badge. This workflow always runs from main:
-  # when the release just published is numbered below the highest published stable one, it puts
-  # Latest back on that one. It does not depend on the pages sync (a failed sync must not leave
-  # Latest wrong), and it skips `release: published`, which a person triggers in the UI and
-  # whose "Set as latest" choice stands.
+  # when Latest is not on the highest published stable release, it puts it back there. It needs
+  # the sync job's Resolve step to have set `version`, but not the later sync steps to succeed
+  # (a failed pages sync must not leave Latest wrong). It skips `release: published`, which a
+  # person triggers in the UI and whose "Set as latest" choice stands.
   keep-latest:
     name: Keep Latest on the highest release
     needs: sync
@@ -211,4 +211,4 @@ jobs:
             exit 0
           fi
           gh release edit "$promote" --latest
-          echo "::notice::v$VERSION is older than $promote, so Latest was put back on $promote."
+          echo "::notice::After v$VERSION, Latest was not on the highest published release; put it on $promote."

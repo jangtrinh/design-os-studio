@@ -92,10 +92,17 @@ class ReassertLatestTests(unittest.TestCase):
     def test_nothing_to_do_when_the_highest_is_already_latest(self):
         self.assertEqual(mod.reassert_latest("v0.7.1", CORRECT), "")
 
-    def test_nothing_to_do_for_the_highest_tag_itself(self):
-        # release.yml already passed make_latest=true for it.
-        self.assertEqual(mod.reassert_latest("v0.7.5", STOLEN), "")
-        self.assertEqual(mod.reassert_latest("v0.7.6", STOLEN + [listed("v0.7.6")]), "")
+    def test_nothing_to_do_for_the_highest_tag_when_it_holds_latest(self):
+        self.assertEqual(mod.reassert_latest("v0.7.5", CORRECT), "")
+
+    def test_the_highest_tag_is_repaired_when_the_badge_is_elsewhere(self):
+        # A manual re-run for the highest version (v0.7.1 holds Latest) must repair, not report "all right".
+        self.assertEqual(mod.reassert_latest("v0.7.5", STOLEN), "v0.7.5")
+        self.assertEqual(mod.reassert_latest("v0.7.6", STOLEN + [listed("v0.7.6")]), "v0.7.6")
+
+    def test_tag_newer_than_every_listed_release_is_left_alone(self):
+        # The list is stale (the tag's release is not in it yet); promoting a lower release would be wrong.
+        self.assertEqual(mod.reassert_latest("v0.7.6", STOLEN), "")
 
     def test_a_tag_below_a_newer_one_is_reasserted_even_if_it_is_not_the_oldest(self):
         rows = [listed("v0.7.3", latest=True), listed("v0.7.6"), listed("v0.7.5")]

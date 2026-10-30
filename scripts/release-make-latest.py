@@ -16,8 +16,9 @@ default, which is Latest.
 
 `--reassert`, for the sync workflow that runs from main. release.yml runs from the tagged
 commit, so a tag cut from a branch without the guard still takes Latest. Prints the tag that
-should hold Latest instead (the highest published stable release) when `vX.Y.Z` is below it
-and it does not hold Latest yet; prints nothing when there is nothing to fix. Needs `isLatest`.
+should hold Latest (the highest published stable release) when it does not hold it yet, so a
+repair run for the highest version works too; prints nothing when there is nothing to fix, or
+when `vX.Y.Z` is newer than every listed release (a stale list). Needs `isLatest`.
 
 A tag that is neither `vX.Y.Z` nor hyphenated (`v1.0.0+b1`) cannot be ranked: exit 2.
 
@@ -79,13 +80,15 @@ def make_latest(tag: str, releases: object) -> str:
 
 
 def reassert_latest(tag: str, releases: object) -> str:
-    """The tag that must hold Latest instead of `tag`'s release, or `` when nothing needs fixing."""
+    """The highest published stable tag when it must be given Latest, or `` when nothing needs fixing."""
     mine = tag_version(tag)
     published = published_stable(releases, need_is_latest=True)
     if mine is None or not published:
         return ""
     version, highest, holds_latest = published[0]
-    return "" if mine >= version or holds_latest else highest
+    if mine > version:
+        return ""  # the tag's own release is not in the list yet; the list is stale, so do not touch Latest
+    return "" if holds_latest else highest
 
 
 def main() -> int:
