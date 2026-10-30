@@ -1,0 +1,2 @@
+test panels::components::props_panel_tests::instance_boolean_toggle_shows_focus_ring_on_tab ... ok
+test result: ok. 183 passed; 0 failed; 0 ignored; 0 measured; 3616 filtered out; finished in 16.29s
