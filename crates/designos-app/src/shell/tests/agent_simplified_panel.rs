@@ -85,6 +85,12 @@ fn agents_new_chat_has_at_most_17_interactive_widgets() {
     let total = named + unnamed;
     eprintln!("interactive widgets in the New chat panel: {total} ({named} named, {unnamed} unnamed)");
     assert!(total <= 17, "the New chat panel holds {total} widgets (33 before the simplification)");
+    // The same count over the committed snapshot of the gate's own `i-agents` case, which holds a few more rects of the window.
+    let blessed: crate::layout_snapshot::LayoutSnapshot =
+        serde_json::from_str(include_str!("../../../tests/layout-baseline/i-agents.layout.json")).expect("the blessed i-agents snapshot parses");
+    let blessed_total = blessed.named.values().filter(|w| w.region == "left_panel").map(|w| w.count).sum::<usize>()
+        + blessed.unnamed.iter().filter(|w| w.region == "left_panel").count();
+    assert!(blessed_total <= 17, "the blessed i-agents case holds {blessed_total} widgets");
     for key in [
         "agents-new-chat-tab",
         "agents-new-chat-btn",
@@ -344,5 +350,41 @@ fn no_status_line_under_the_composer() {
     let bx = recorded(&s, "agents-composer-box").expect("composer box");
     let note = recorded(&s, "agents-composer-notice").expect("a refusal is captioned");
     assert!(bx.contains_rect(note), "the caption {note:?} lies inside the box {bx:?}");
+    finish(s);
+}
+
+#[test]
+fn agents_viewport_spans_header_to_composer() {
+    let s = new_chat_sim();
+    let top = panel_top(&s);
+    let viewport = recorded(&s, "agents-terminal-viewport").expect("the panel recorded its viewport");
+    let composer = recorded(&s, "agents-composer-box").expect("composer box");
+    assert_eq!(viewport.top(), top + TERMINAL_HEADER_H, "the viewport starts at the header's bottom, no context strip between (60 before)");
+    assert!(viewport.bottom() <= composer.top() + 0.01, "and ends above the composer: {viewport:?} {composer:?}");
+    assert!(composer.top() - viewport.bottom() <= crate::theme::SPACE_INLINE + 0.01, "with nothing but the gap between them (no receipt row)");
+    finish(s);
+}
+
+#[test]
+fn sign_in_shows_only_on_a_row_known_signed_out_and_runs_the_cli_login() {
+    let mut s = new_chat_sim();
+    let probe = |installed, signed_in| CliProbe { installed, version: Some("1.0.0".into()), signed_in };
+    s.shell.app.terminal.picker.cache.set_probe(AgentCliPreset::Claude, probe(true, SignIn::No));
+    s.shell.app.terminal.picker.cache.set_probe(AgentCliPreset::Codex, probe(true, SignIn::Unknown));
+    s.shell.app.terminal.picker.cache.set_probe(AgentCliPreset::Grok, probe(true, SignIn::Yes));
+    s.shell.app.terminal.picker.cache.set_probe(AgentCliPreset::Gemini, probe(true, SignIn::Unknown));
+    s.shell.app.terminal.runtime_dropdown_open = true;
+    frames(&mut s, 3);
+    let texts = painted(&s);
+    assert_eq!(texts.iter().filter(|t| t.as_str() == "Sign in").count(), 1, "Sign in only on the row Studio knows is signed out: {texts:?}");
+    for banned in ["Sign-in unknown", "Signed in", "Not signed in", "Not installed"] {
+        assert!(!texts.iter().any(|t| t == banned), "{banned:?} is painted: {texts:?}");
+    }
+    let sign_in = recorded(&s, "agents-menu-sign-in-claude").expect("Claude's Sign in");
+    s.click(sign_in.center());
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.runtime_dropdown_open, "the menu closes");
+    let titles: Vec<String> = s.shell.app.terminal.tabs.iter().map(|t| t.title.clone()).collect();
+    assert!(titles.iter().any(|t| t.contains("auth login")), "a plain command tab runs the CLI's own sign-in: {titles:?}");
     finish(s);
 }
