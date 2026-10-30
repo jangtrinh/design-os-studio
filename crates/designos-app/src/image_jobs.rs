@@ -839,6 +839,7 @@ impl App {
                                                     disk_mtime: std::fs::metadata(crate::home::library_file_disk_path(lib, &lf.project_id, &lf.id))
                                                         .ok()
                                                         .and_then(|m| m.modified().ok()),
+                                                    save_failed_at: None,
                                                     conflict_mtime: None,
                                                 };
                                             }

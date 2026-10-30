@@ -28,6 +28,8 @@ pub enum Leave {
     OpenPath(PathBuf),
     /// Open a library file in the editor, which replaces the document on screen.
     OpenLibraryFile(String),
+    /// Switch to another open project tab.
+    SwitchTab(u64),
     /// Create a new file in the editor, which replaces the document on screen.
     NewFile(designos_doc::DocumentKind, Option<(String, Option<String>)>),
 }
@@ -142,6 +144,9 @@ impl App {
         // Typed text, a drag and a scrub are not in the history until they end: end them where they are, so that they
         // count, and so that Save writes a settled document.
         self.commit_open_edits();
+        // Give the active library file its final autosave attempt before deciding whether leaving is safe. A failed
+        // write records save_failed_at, which keeps Quit, close, and tab switch behind the save question.
+        self.flush_autosave();
         let queue: VecDeque<u64> = self.tabs_to_ask_about(&action).into();
         if queue.is_empty() {
             return false;
@@ -174,6 +179,15 @@ impl App {
                     vec![self.tabs.active_idx]
                 }
             }
+            Leave::SwitchTab(target) => {
+                if self.home.is_some() {
+                    Vec::new()
+                } else if self.tabs.entries.get(self.tabs.active_idx).is_some_and(|t| t.id != *target) {
+                    vec![self.tabs.active_idx]
+                } else {
+                    Vec::new()
+                }
+            }
         };
         ended
             .into_iter()
@@ -182,7 +196,17 @@ impl App {
                 let shown = self.home.is_none() && i == self.tabs.active_idx;
                 // The shown document's library file is the live state: its tab entry is only refreshed by the tab bar.
                 let outside_the_library = if shown { self.lib_file.is_none() } else { tab.lib_file.is_none() };
-                outside_the_library && (crate::tabs::tab_is_unsaved(self, i) || (shown && crate::live_patch_apply::user_edit_in_progress(self)))
+                let failed_library_save = if shown {
+                    self.lib_file.is_some() && self.autosave.save_failed_at.is_some()
+                } else {
+                    tab.lib_file.is_some() && tab.disk.save_failed_at.is_some()
+                };
+                let unsaved_outside =
+                    outside_the_library && (crate::tabs::tab_is_unsaved(self, i) || (shown && crate::live_patch_apply::user_edit_in_progress(self)));
+                match action {
+                    Leave::SwitchTab(_) => failed_library_save,
+                    _ => unsaved_outside || failed_library_save,
+                }
             })
             .map(|i| self.tabs.entries[i].id)
             .collect()
@@ -255,7 +279,8 @@ impl App {
             self.switch_tab(idx);
         }
         self.save_with(false, dialogs);
-        !self.has_unsaved_edits()
+        let failed_library_save = self.lib_file.is_some() && self.autosave.save_failed_at.is_some();
+        !self.has_unsaved_edits() && !failed_library_save
     }
 
     /// Puts the user back where the questions began, when that place is still there.
@@ -307,6 +332,13 @@ impl App {
                 self.leave.confirmed_open = true;
                 self.open_library_file(&id);
                 self.leave.confirmed_open = false;
+            }
+            Leave::SwitchTab(id) => {
+                if let Some(idx) = self.tabs.entries.iter().position(|t| t.id == id) {
+                    let mut tabs = std::mem::take(&mut self.tabs);
+                    tabs.switch_to(idx, self);
+                    self.tabs = tabs;
+                }
             }
             Leave::NewFile(kind, target) => {
                 self.leave.confirmed_open = true;

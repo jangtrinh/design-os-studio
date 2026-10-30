@@ -66,6 +66,9 @@ pub(crate) fn library_file_disk_path(lib: &Library, project_id: &str, file_id: &
 pub struct DiskState {
     pub saved_hash: u64,
     pub disk_mtime: Option<std::time::SystemTime>,
+    /// When the last attempt to write this document failed. This travels with a parked tab so a failed library
+    /// save still counts as unsaved after switching away and back.
+    pub save_failed_at: Option<f64>,
     /// The write the user was asked about and answered "Keep mine": it is not asked about again, also after a
     /// trip to another tab.
     pub conflict_mtime: Option<std::time::SystemTime>,
@@ -106,7 +109,7 @@ pub struct Autosave {
 
 impl Autosave {
     pub fn disk_state(&self) -> DiskState {
-        DiskState { saved_hash: self.saved_hash, disk_mtime: self.disk_mtime, conflict_mtime: self.conflict_mtime }
+        DiskState { saved_hash: self.saved_hash, disk_mtime: self.disk_mtime, save_failed_at: self.save_failed_at, conflict_mtime: self.conflict_mtime }
     }
 
     /// Takes over the file state a parked tab kept, for the document at `path` that is about to be shown.
@@ -115,10 +118,10 @@ impl Autosave {
     pub fn adopt_disk_state(&mut self, state: DiskState, path: Option<PathBuf>) {
         self.saved_hash = state.saved_hash;
         self.disk_mtime = state.disk_mtime;
+        self.save_failed_at = state.save_failed_at;
         self.disk_path = path;
         self.changed_at = None;
         self.confirmed = false;
-        self.save_failed_at = None;
         self.conflict_mtime = state.conflict_mtime;
     }
 
@@ -843,7 +846,15 @@ impl App {
     /// Writes the open library file; also refreshes its thumbnail. There is no "Saved" toast, but a save
     /// that replaced non-finite numbers says so, because no later open of the file would.
     pub fn save_library_file(&mut self) -> Result<(), String> {
-        if let Some(notice) = self.save_library_file_noticing()? {
+        let result = self.save_library_file_noticing();
+        let notice = match result {
+            Ok(notice) => notice,
+            Err(e) => {
+                self.autosave.save_failed_at = Some(self.now);
+                return Err(e);
+            }
+        };
+        if let Some(notice) = notice {
             self.show_toast(&notice, true);
             self.pending_flush_notice = Some((self.now, notice));
         }
@@ -887,7 +898,10 @@ impl App {
                     None => self.show_toast(format!("Saved to {project}"), false),
                 }
             }
-            Err(e) => self.show_toast(e, true),
+            Err(e) => {
+                self.autosave.save_failed_at = Some(self.now);
+                self.show_toast(e, true);
+            }
         }
     }
 
@@ -905,10 +919,11 @@ impl App {
                 }
             } else {
                 // The edits netted out: the document is what the file holds.
+                self.autosave.save_failed_at = None;
                 self.mark_saved();
             }
         }
-        self.autosave.changed_at = None;
+        // A failed write remains pending so the document stays dirty and the next frame can retry it.
     }
 
     /// Called every frame: debounced autosave of the open library file.
@@ -1109,6 +1124,7 @@ impl App {
             // Cheap-ish check once the revision settled: did the document really change?
             if doc_hash(&self.doc) == self.autosave.saved_hash {
                 self.autosave.changed_at = None;
+                self.autosave.save_failed_at = None;
                 // The edits netted out (a move and its undo by hand): the document is what the file holds.
                 self.mark_saved();
                 return;

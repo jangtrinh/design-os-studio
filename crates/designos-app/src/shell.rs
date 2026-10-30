@@ -991,11 +991,21 @@ impl Shell {
                     None
                 }
                 (Key::Tab, false, _) => {
-                    app.next_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let next = (app.tabs.active_idx + 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(next).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::Tab, true, _) => {
-                    app.prev_tab();
+                    if app.tabs.entries.len() > 1 {
+                        let prev = (app.tabs.active_idx + app.tabs.entries.len() - 1) % app.tabs.entries.len();
+                        if let Some(id) = app.tabs.entries.get(prev).map(|tab| tab.id) {
+                            app.request_leave(Some(ctx), crate::home::Leave::SwitchTab(id));
+                        }
+                    }
                     None
                 }
                 (Key::T, false, false) => {

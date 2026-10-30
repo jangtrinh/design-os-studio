@@ -3,14 +3,14 @@
 //! that the main tests drive directly.
 
 use super::leave_prompt::{add_an_unsaved_untitled_tab, asks_about, click, close_tab_by_click, dialog_title, make_two_tabs, tab_id};
-use super::unsaved_dot::{dot, edit, external_sim_with, nodes_on_disk, switch_to, two_rects, wait, SETTLED};
+use super::unsaved_dot::{dot, edit, edit_now, external_sim_with, library_sim, nodes_on_disk, switch_to, two_rects, wait, SETTLED};
 use super::*;
 use crate::canvas::tools::Tool;
 use crate::canvas::Interaction;
 use crate::home::{Answer, Leave};
 use crate::io::{DialogOutcome, ScriptedDialogs};
 use designos_doc::{Document, DocumentKind, Node, Rect as DRect};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const NOTE: &str = "Talking points the user typed";
 
@@ -32,6 +32,22 @@ fn with_a_clean_second_tab(s: &mut Sim) {
     s.shell.app.open_new_tab("Second", doc, crate::tabs::ProjectTabKind::Design);
     wait(s, SETTLED);
     switch_to(s, 0);
+}
+
+#[cfg(unix)]
+fn block_library_files(s: &Sim, root: &Path) -> (PathBuf, PathBuf) {
+    let project = s.app().lib_file.as_ref().unwrap().project_id.clone();
+    let files = root.join("lib").join("projects").join(project).join("files");
+    let moved = root.join("blocked-files");
+    std::fs::rename(&files, &moved).unwrap();
+    std::fs::write(&files, b"not a directory").unwrap();
+    (files, moved)
+}
+
+#[cfg(unix)]
+fn restore_library_files(files: &Path, moved: &Path) {
+    std::fs::remove_file(files).unwrap();
+    std::fs::rename(moved, files).unwrap();
 }
 
 fn write_doc(dir: &Path, file: &str, name: &str) -> std::path::PathBuf {
@@ -428,4 +444,73 @@ fn opening_a_file_over_a_flagged_document_leaves_the_new_one_without_a_dot() {
     assert_eq!(s.app().file_path.as_deref(), Some(other.as_path()));
     assert!(!s.app().has_unsaved_edits(), "and nothing of the flagged document is left");
     assert!(!dot(&s), "so the tab shows no dot");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_library_flush_asks_before_quit() {
+    let (mut s, d) = library_sim();
+    edit_now(&mut s);
+    let (files, moved) = block_library_files(&s, &d.0);
+    s.shell.app.flush_autosave();
+    assert!(s.app().has_unsaved_edits(), "a failed write leaves the document dirty");
+    s.close_frame();
+    let asked = asks_about(&s, "Welcome");
+    restore_library_files(&files, &moved);
+    assert!(asked, "quit must ask before dropping a library edit: {:?}", dialog_title(&s));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_debounced_library_save_asks_before_quit() {
+    let (mut s, d) = library_sim();
+    edit_now(&mut s);
+    let (files, moved) = block_library_files(&s, &d.0);
+    wait(&mut s, 2.5);
+    assert!(s.app().autosave.save_failed_at.is_some(), "the debounced save attempted the blocked path");
+    s.close_frame();
+    let asked = asks_about(&s, "Welcome");
+    restore_library_files(&files, &moved);
+    assert!(asked, "quit must ask after a debounced library save failure: {:?}", dialog_title(&s));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_library_save_asks_before_switching_tabs() {
+    let (mut s, d) = library_sim();
+    let second = s.shell.app.open_new_design_tab();
+    assert_eq!(second, 1, "the second tab is available as a switch target");
+    let first = tab_id(&s, 0);
+    s.shell.app.switch_tab(0);
+    edit_now(&mut s);
+    let (files, moved) = block_library_files(&s, &d.0);
+    // The direct tab action is the same route used by the tab bar and keyboard shortcuts.
+    let target = tab_id(&s, second);
+    s.shell.app.request_leave(None, Leave::SwitchTab(target));
+    let asked = asks_about(&s, "Welcome");
+    restore_library_files(&files, &moved);
+    assert!(asked, "tab switch must ask after a library save failure: {:?}", dialog_title(&s));
+    assert_eq!(s.app().tabs.entries[s.app().tabs.active_idx].id, first, "the failed tab remains active until answered");
+    s.shell.app.dialog = None;
+    s.shell.app.answer_save_changes_with(None, Answer::Save, &ScriptedDialogs::answering(DialogOutcome::Cancelled));
+    wait(&mut s, SETTLED);
+    assert_eq!(s.app().tabs.entries[s.app().tabs.active_idx].id, target, "a successful retry completes the switch");
+    assert!(!s.app().has_unsaved_edits(), "the retry clears the failed save state");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_library_save_that_is_undone_does_not_prompt() {
+    let (mut s, d) = library_sim();
+    edit_now(&mut s);
+    let (files, moved) = block_library_files(&s, &d.0);
+    s.shell.app.flush_autosave();
+    assert!(s.app().autosave.save_failed_at.is_some(), "the write failed");
+    restore_library_files(&files, &moved);
+    s.shell.app.undo();
+    s.shell.app.flush_autosave();
+    assert!(s.app().hist.is_clean(), "undo returned to the saved document");
+    assert!(s.app().autosave.save_failed_at.is_none(), "the stale failure is cleared when edits net out");
+    s.close_frame();
+    assert!(s.app().dialog.is_none(), "a clean document needs no save question: {:?}", dialog_title(&s));
 }

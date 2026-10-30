@@ -1267,7 +1267,12 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         for act in actions {
             match act {
                 TabUiAction::ClickHome => tabs.enter_home(app),
-                TabUiAction::SwitchTab(idx) => tabs.switch_to(idx, app),
+                TabUiAction::SwitchTab(idx) => {
+                    if let Some(tab) = tabs.entries.get(idx) {
+                        // A failed library save is protected by the leave flow before the tab is parked.
+                        leaves.push(crate::home::Leave::SwitchTab(tab.id));
+                    }
+                }
                 TabUiAction::CloseTab(idx) => {
                     if let Some(t) = tabs.entries.get(idx) {
                         leaves.push(crate::home::Leave::CloseTab(t.id));
@@ -1375,15 +1380,23 @@ impl App {
     }
 
     pub fn next_tab(&mut self) {
-        let mut tabs = std::mem::take(&mut self.tabs);
-        tabs.next_tab(self);
-        self.tabs = tabs;
+        if self.tabs.entries.len() <= 1 {
+            return;
+        }
+        let next = (self.tabs.active_idx + 1) % self.tabs.entries.len();
+        if let Some(id) = self.tabs.entries.get(next).map(|tab| tab.id) {
+            self.request_leave(None, crate::home::Leave::SwitchTab(id));
+        }
     }
 
     pub fn prev_tab(&mut self) {
-        let mut tabs = std::mem::take(&mut self.tabs);
-        tabs.prev_tab(self);
-        self.tabs = tabs;
+        if self.tabs.entries.len() <= 1 {
+            return;
+        }
+        let prev = (self.tabs.active_idx + self.tabs.entries.len() - 1) % self.tabs.entries.len();
+        if let Some(id) = self.tabs.entries.get(prev).map(|tab| tab.id) {
+            self.request_leave(None, crate::home::Leave::SwitchTab(id));
+        }
     }
 }
 
