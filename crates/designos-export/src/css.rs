@@ -120,7 +120,8 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
         }
         if al.direction == LayoutDirection::Grid {
             let cols = crate::codegen::grid_column_count(al);
-            push("grid-template-columns", crate::codegen::grid_tracks_css(&al.grid_col_tracks, cols));
+            let col_tracks = crate::codegen::resolved_grid_col_tracks(doc, n, al);
+            push("grid-template-columns", crate::codegen::grid_tracks_css(&col_tracks, cols));
             if al.grid_rows > 0 {
                 push("grid-template-rows", crate::codegen::grid_tracks_css(&al.grid_row_tracks, al.grid_rows as usize));
             }
@@ -128,6 +129,9 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             let row = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
             if row > 0.0 || col > 0.0 {
                 push("gap", if (row - col).abs() < 1e-4 { format!("{}px", num(row)) } else { format!("{}px {}px", num(row), num(col)) });
+            }
+            if crate::codegen::grid_packs_auto_rows(al) {
+                push("align-content", "start".into());
             }
         } else {
             if al.direction == LayoutDirection::Vertical {

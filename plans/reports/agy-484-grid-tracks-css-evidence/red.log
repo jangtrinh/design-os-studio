@@ -1,0 +1,72 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.81s
+     Running tests/grid_chrome_fixtures.rs (out/cargo/debug/deps/grid_chrome_fixtures-68e44f521f53a4ec)
+
+running 6 tests
+test equal_tracks_css_and_tailwind ... FAILED
+test hugging_grid_css_and_tailwind ... FAILED
+test row_and_column_spans_css_and_tailwind ... FAILED
+test fixed_first_column_css_and_tailwind ... FAILED
+test fixed_height_auto_rows_css_and_tailwind ... FAILED
+test unequal_tracks_css_and_tailwind ... FAILED
+
+failures:
+
+---- equal_tracks_css_and_tailwind stdout ----
+
+thread 'equal_tracks_css_and_tailwind' (34842019) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:22:5:
+assertion `left == right` failed: equal_tracks CSS mismatch
+  left: "display: grid;\nwidth: 324px;\nheight: 180px;\npadding: 12px;\ngrid-template-columns: repeat(3, minmax(0, 1fr));\ngap: 12px;"
+ right: "display: grid;\nwidth: 324px;\nheight: 180px;\npadding: 12px;\ngrid-template-columns: repeat(3, minmax(0, 1fr));\ngap: 12px;\nalign-content: start;"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- hugging_grid_css_and_tailwind stdout ----
+
+thread 'hugging_grid_css_and_tailwind' (34842022) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:22:5:
+assertion `left == right` failed: hugging_grid CSS mismatch
+  left: "display: grid;\nwidth: 212px;\nheight: 72px;\npadding: 8px;\ngrid-template-columns: repeat(3, minmax(0, 1fr));\ngap: 8px;"
+ right: "display: grid;\nwidth: 212px;\nheight: 72px;\npadding: 8px;\ngrid-template-columns: 100px 40px 40px;\ngap: 8px;"
+
+---- row_and_column_spans_css_and_tailwind stdout ----
+
+thread 'row_and_column_spans_css_and_tailwind' (34842023) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:22:5:
+assertion `left == right` failed: row_and_column_spans CSS mismatch
+  left: "display: grid;\nwidth: 428px;\nheight: 220px;\npadding: 12px;\ngrid-template-columns: repeat(4, minmax(0, 1fr));\ngap: 12px;"
+ right: "display: grid;\nwidth: 428px;\nheight: 220px;\npadding: 12px;\ngrid-template-columns: repeat(4, minmax(0, 1fr));\ngap: 12px;\nalign-content: start;"
+
+---- fixed_first_column_css_and_tailwind stdout ----
+
+thread 'fixed_first_column_css_and_tailwind' (34842020) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:22:5:
+assertion `left == right` failed: fixed_first_column CSS mismatch
+  left: "display: grid;\nwidth: 440px;\nheight: 180px;\ngrid-template-columns: 200px repeat(2, minmax(0, 1fr));\ngap: 10px;"
+ right: "display: grid;\nwidth: 440px;\nheight: 180px;\ngrid-template-columns: 200px repeat(2, minmax(0, 1fr));\ngap: 10px;\nalign-content: start;"
+
+---- fixed_height_auto_rows_css_and_tailwind stdout ----
+
+thread 'fixed_height_auto_rows_css_and_tailwind' (34842021) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:22:5:
+assertion `left == right` failed: fixed_height_auto_rows CSS mismatch
+  left: "display: grid;\nwidth: 260px;\nheight: 240px;\npadding: 16px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngap: 16px 12px;"
+ right: "display: grid;\nwidth: 260px;\nheight: 240px;\npadding: 16px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngap: 16px 12px;\nalign-content: start;"
+
+---- unequal_tracks_css_and_tailwind stdout ----
+
+thread 'unequal_tracks_css_and_tailwind' (34842024) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:22:5:
+assertion `left == right` failed: unequal_tracks CSS mismatch
+  left: "display: grid;\nwidth: 200px;\nheight: 140px;\ngrid-template-columns: repeat(3, minmax(0, 1fr));\ngap: 10px 0px;"
+ right: "display: grid;\nwidth: 200px;\nheight: 140px;\ngrid-template-columns: 100px 40px 60px;\ngap: 10px 0px;\nalign-content: start;"
+
+
+failures:
+    equal_tracks_css_and_tailwind
+    fixed_first_column_css_and_tailwind
+    fixed_height_auto_rows_css_and_tailwind
+    hugging_grid_css_and_tailwind
+    row_and_column_spans_css_and_tailwind
+    unequal_tracks_css_and_tailwind
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+error: test failed, to rerun pass `-p designos-export --test grid_chrome_fixtures`

@@ -345,10 +345,14 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     }
     if let Some(al) = own_al {
         if al.direction == LayoutDirection::Grid {
+            let col_tracks = resolved_grid_col_tracks(doc, n, al);
             c.push("grid".into());
-            c.push(template_class("grid-cols", &al.grid_col_tracks, grid_column_count(al), STOCK_GRID_COLS));
+            c.push(template_class("grid-cols", &col_tracks, grid_column_count(al), STOCK_GRID_COLS));
             if al.grid_rows > 0 {
                 c.push(template_class("grid-rows", &al.grid_row_tracks, al.grid_rows as usize, STOCK_GRID_ROWS));
+            }
+            if grid_packs_auto_rows(al) {
+                c.push("content-start".into());
             }
             let col_gap = al.item_spacing;
             let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
@@ -747,7 +751,7 @@ mod tests {
         assert_eq!(size, Vec2::new(180.0, 10.0), "the solver sizes the columns 100, 40 and 40 and the rows at their tallest child");
         let html = tailwind_for(&d, grid);
         let t = tokens(&html, 0);
-        for want in ["grid", "grid-cols-3", "grid-rows-2", "w-[180px]", "h-2.5"] {
+        for want in ["grid", "grid-cols-[100px_40px_40px]", "grid-rows-2", "w-[180px]", "h-2.5"] {
             assert!(t.iter().any(|c| c == want), "{want} missing in {html}");
         }
         assert!(!t.iter().any(|c| c.contains("max") || c.contains("auto")), "{html}");
