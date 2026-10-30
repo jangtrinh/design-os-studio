@@ -22,11 +22,6 @@ pub const FS_CALLS: &[Allowed] = &[
     Allowed { file: "src/server.rs", func: Some("fig_output_path"), why: WORKSPACE_PATH },
     Allowed {
         file: "src/server.rs",
-        func: Some("editor_tab_is_gone"),
-        why: "asks only whether the tab folder still exists (NotFound); the marker file inside it is read through session_file_io::stat",
-    },
-    Allowed {
-        file: "src/server.rs",
         func: Some("call_inner"),
         why: "open, save, render, export and import: the paths come from input_path and the *_output_path checks",
     },

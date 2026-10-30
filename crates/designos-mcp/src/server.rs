@@ -907,16 +907,19 @@ impl Session {
     const TAB_CLOSED_NEXT_STEP: &'static str =
         "That tab is already closed, so there is nothing to close. Open the document again with designos_open_file, or ask the user.";
 
-    /// Whether the editor tab this session's folder belonged to is closed, learnt from the folder itself, so a tab the person closed, and
-    /// a tab closed before this process started, are told apart from a tab that is merely slow to answer. A scratch folder is removed
-    /// with its tab; a library file's folder stays and carries the editor's `tab-closed.json` until the file is opened again.
+    /// Whether the editor tab this session's folder belonged to is known to be closed. Only the
+    /// editor's `tab-closed.json` marker is authoritative; a missing session folder is reported
+    /// by the close publish path as an unavailable session instead of being treated as closed.
     fn editor_tab_is_gone(&self) -> bool {
         let Some(dir) = self.bridge.session_dir.clone().or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
         else {
             return false;
         };
-        let missing = matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
-        missing || crate::session_file_io::stat(&dir.join(CloseIntent::TAB_CLOSED_FILE)).is_ok()
+        // A missing session directory only proves that the session state is unavailable. It does
+        // not prove that the editor closed the tab: the path may be stale, the session may never
+        // have been created, or another process may have removed it. Let the close publish fail
+        // through the normal retryable `EDITOR_NOT_NOTIFIED` path so the caller sees that state.
+        crate::session_file_io::stat(&dir.join(CloseIntent::TAB_CLOSED_FILE)).is_ok()
     }
 
     /// A close of a tab this session already closed: no editor is asked, and the answer is not retryable.
