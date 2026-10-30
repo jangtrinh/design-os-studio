@@ -110,6 +110,32 @@ fn human_edit_then_agent_fail_keeps_the_tab_and_the_file() {
     finish(s, workspace);
 }
 
+/// An agent edit written after a refused close must reach the canvas (AC-02): the refused close left the reader dropping every later patch.
+fn apply_while_pumping(s: &mut Sim, session: &mut designos_mcp::server::Session, spec_name: &str) -> serde_json::Value {
+    let page = *s.app().doc.pages.first().expect("a page");
+    let out = session
+        .call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"name": spec_name, "kind": "frame", "width": 80.0, "height": 40.0}}))
+        .expect("apply_spec after the refused close");
+    wait(s, SETTLED);
+    out
+}
+
+fn named(s: &Sim, name: &str) -> bool {
+    s.app().doc.nodes.values().any(|n| n.name == name)
+}
+
+#[test]
+fn apply_spec_after_a_refused_close_reaches_the_canvas() {
+    let (mut s, mut session, _path, workspace, _dir) = live_outside_autosave_off();
+    edit(&mut s);
+    let err = close_while_pumping(&mut s, &mut session, json!({})).expect_err("fail on human-dirty");
+    assert_eq!(err["code"], "UNSAVED_CHANGES", "{err}");
+    let out = apply_while_pumping(&mut s, &mut session, "After Refused Close");
+    assert_eq!(out["changed"], true, "{out}");
+    assert!(named(&s, "After Refused Close"), "apply_spec said changed:true but the edit never reached the canvas");
+    finish(s, workspace);
+}
+
 #[test]
 fn human_edit_then_agent_save_writes_the_edit_and_closes() {
     let (mut s, mut session, path, workspace, _dir) = live_outside_autosave_off();

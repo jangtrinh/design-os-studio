@@ -189,16 +189,24 @@ fn close_cancelled(app: &App, close_id: Option<u64>) -> bool {
     serde_json::from_slice::<serde_json::Value>(&raw).ok().and_then(|v| v.get("close_id").and_then(serde_json::Value::as_u64)) == Some(id)
 }
 
+/// Answers a close the editor will not do. The document stays open, so the edits the agent writes next must land: the
+/// reader stops dropping them before the answer is written, because the agent only writes again after it reads it.
+fn refuse_close(app: &mut App, intent: &designos_doc::live_patch::CloseIntent, body: serde_json::Value) {
+    app.terminal.live_patch.close_refused();
+    crate::live_patch_log::write_close_result_file(&app.terminal.live_patch.path, intent, body);
+}
+
 fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseIntent) {
     if close_cancelled(app, intent.close_id) {
+        app.terminal.live_patch.close_refused();
         return;
     }
     let active_id = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id);
     if let Some(named) = intent.tab_id {
         if app.tabs.entries.iter().all(|t| t.id != named) {
             // The tab is gone (a person closed it): asking again can never work, and the answer says so.
-            crate::live_patch_log::write_close_result_file(
-                &app.terminal.live_patch.path,
+            refuse_close(
+                app,
                 &intent,
                 serde_json::json!({
                     "ok": false,
@@ -210,8 +218,8 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
             return;
         }
         if active_id != Some(named) {
-            crate::live_patch_log::write_close_result_file(
-                &app.terminal.live_patch.path,
+            refuse_close(
+                app,
                 &intent,
                 serde_json::json!({
                     "ok": false,
@@ -223,8 +231,8 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
         }
     }
     let Some(id) = intent.tab_id.or(active_id) else {
-        crate::live_patch_log::write_close_result_file(
-            &app.terminal.live_patch.path,
+        refuse_close(
+            app,
             &intent,
             serde_json::json!({
                 "ok": false,
@@ -240,8 +248,8 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
     let log_path = app.terminal.live_patch.path.clone();
     match intent.unsaved.as_str() {
         "fail" if dirty => {
-            crate::live_patch_log::write_close_result_file(
-                &log_path,
+            refuse_close(
+                app,
                 &intent,
                 serde_json::json!({
                     "ok": false,
@@ -254,8 +262,8 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
             match save_for_agent_close(app, intent.path.as_deref()) {
                 AgentCloseSave::Saved => {}
                 AgentCloseSave::PathRequired => {
-                    crate::live_patch_log::write_close_result_file(
-                        &log_path,
+                    refuse_close(
+                        app,
                         &intent,
                         serde_json::json!({
                             "ok": false,
@@ -266,8 +274,8 @@ fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseInte
                     return;
                 }
                 AgentCloseSave::Failed { code, message } => {
-                    crate::live_patch_log::write_close_result_file(
-                        &log_path,
+                    refuse_close(
+                        app,
                         &intent,
                         serde_json::json!({
                             "ok": false,
