@@ -406,7 +406,7 @@ impl State {
 
     /// Re-derives HSV from `rgba` unless it is what the HSV already encodes (keeps the hue
     /// of greys and blacks stable while dragging).
-    fn sync(&mut self, rgba: [u8; 4]) {
+    pub(crate) fn sync(&mut self, rgba: [u8; 4]) {
         let cur = self.hsv.to_srgba_unmultiplied();
         if cur[..3] != rgba[..3] {
             let mut n = Hsva::from_srgba_unmultiplied(rgba);
@@ -910,6 +910,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
 
     // ---- gradient stop bar + flip / rotate controls
     if mode.is_gradient() {
+        crate::panels::var_bind::picker_keep_open(ui.ctx(), st);
         let bar_w = AREA - 56.0;
         gradient_bar(ui, Rect::from_min_size(Pos2::new(rect.left() + PAD, y + 12.0), Vec2::new(bar_w, 16.0)), st, paint, &mut out);
         let flip_r = Rect::from_min_size(Pos2::new(rect.left() + PAD + bar_w + 4.0, y + 8.0), Vec2::splat(24.0));
@@ -1064,110 +1065,116 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     // ---- value row
     let vy = area.bottom() + 67.0;
     let row = Rect::from_min_size(Pos2::new(rect.left() + PAD, vy), Vec2::new(AREA, 24.0));
-    let mut typed: Option<[u8; 4]> = None;
-    // format dropdown
-    {
-        let dd = Rect::from_min_size(row.min, Vec2::new(55.0, 24.0));
-        let labels: Vec<String> = Fmt::ALL.iter().map(|f| f.label().to_string()).collect();
-        if let Some(i) = picker_dropdown(ui, dd, "picker-fmt", st.fmt.label(), &labels, &mut st.menu_open) {
-            st.fmt = Fmt::ALL[i];
+    let stop_bound = mode.is_gradient() && crate::panels::var_bind::picker_stop_pill_field(ui, st, row, st.sel);
+    if !stop_bound {
+        let mut typed: Option<[u8; 4]> = None;
+        // format dropdown
+        {
+            let dd = Rect::from_min_size(row.min, Vec2::new(55.0, 24.0));
+            let labels: Vec<String> = Fmt::ALL.iter().map(|f| f.label().to_string()).collect();
+            if let Some(i) = picker_dropdown(ui, dd, "picker-fmt", st.fmt.label(), &labels, &mut st.menu_open) {
+                st.fmt = Fmt::ALL[i];
+            }
         }
-    }
-    let cur = {
-        let a = (st.hsv.a * 255.0).round() as u8;
-        let b = st.hsv.to_srgba_unmultiplied();
-        [b[0], b[1], b[2], a]
-    };
-    let fields = Rect::from_min_max(Pos2::new(row.left() + 64.0, row.top()), row.right_bottom());
-    let kind_rgba = |c: [u8; 4]| c;
-    match st.fmt {
-        Fmt::Hex => {
-            let hex_r = Rect::from_min_size(fields.min, Vec2::new(89.0, 24.0));
-            let op_r = Rect::from_min_max(Pos2::new(hex_r.right() + 1.0, fields.top()), fields.right_bottom());
-            if let Some(s) = grouped_hex_text(
-                ui,
-                hex_r,
-                "picker-hex",
-                &Color::rgba(cur[0], cur[1], cur[2], 255).to_hex(),
-                theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
-                8.0,
-            ) {
-                if let Some(c) = parse_css(&s, cur[3]) {
-                    typed = Some(kind_rgba(c));
+        let cur = {
+            let a = (st.hsv.a * 255.0).round() as u8;
+            let b = st.hsv.to_srgba_unmultiplied();
+            [b[0], b[1], b[2], a]
+        };
+        let fields = Rect::from_min_max(Pos2::new(row.left() + 64.0, row.top()), row.right_bottom());
+        let kind_rgba = |c: [u8; 4]| c;
+        match st.fmt {
+            Fmt::Hex => {
+                let hex_r = Rect::from_min_size(fields.min, Vec2::new(89.0, 24.0));
+                let op_r = Rect::from_min_max(Pos2::new(hex_r.right() + 1.0, fields.top()), fields.right_bottom());
+                if let Some(s) = grouped_hex_text(
+                    ui,
+                    hex_r,
+                    "picker-hex",
+                    &Color::rgba(cur[0], cur[1], cur[2], 255).to_hex(),
+                    theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
+                    8.0,
+                ) {
+                    if let Some(c) = parse_css(&s, cur[3]) {
+                        typed = Some(kind_rgba(c));
+                    }
+                }
+                if let Some(a) = opacity_cell(ui, op_r, cur[3]) {
+                    typed = Some([cur[0], cur[1], cur[2], a]);
                 }
             }
-            if let Some(a) = opacity_cell(ui, op_r, cur[3]) {
-                typed = Some([cur[0], cur[1], cur[2], a]);
+            Fmt::Css => {
+                let r = Rect::from_min_size(fields.min, Vec2::new(fields.width(), 24.0));
+                if let Some(s) = grouped_text(ui, r, "picker-css", &css_text(cur), theme::cr(theme::RADIUS_CONTROL), 8.0) {
+                    typed = parse_css(&s, cur[3]);
+                }
             }
-        }
-        Fmt::Css => {
-            let r = Rect::from_min_size(fields.min, Vec2::new(fields.width(), 24.0));
-            if let Some(s) = grouped_text(ui, r, "picker-css", &css_text(cur), theme::cr(theme::RADIUS_CONTROL), 8.0) {
-                typed = parse_css(&s, cur[3]);
-            }
-        }
-        Fmt::Rgb | Fmt::Hsl | Fmt::Hsb => {
-            let vals: [f32; 3] = match st.fmt {
-                Fmt::Rgb => [cur[0] as f32, cur[1] as f32, cur[2] as f32],
-                Fmt::Hsl => rgb_to_hsl(cur),
-                _ => [st.hsv.h * 360.0, st.hsv.s * 100.0, st.hsv.v * 100.0],
-            };
-            let w3 = (89.0 - 2.0) / 3.0;
-            let mut edited: Option<(usize, f32)> = None;
-            for (i, v) in vals.iter().enumerate() {
-                let r = Rect::from_min_size(Pos2::new(fields.left() + i as f32 * (w3 + 1.0), fields.top()), Vec2::new(w3, 24.0));
-                let radius = match i {
-                    0 => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
-                    _ => theme::cr(0),
+            Fmt::Rgb | Fmt::Hsl | Fmt::Hsb => {
+                let vals: [f32; 3] = match st.fmt {
+                    Fmt::Rgb => [cur[0] as f32, cur[1] as f32, cur[2] as f32],
+                    Fmt::Hsl => rgb_to_hsl(cur),
+                    _ => [st.hsv.h * 360.0, st.hsv.s * 100.0, st.hsv.v * 100.0],
                 };
-                if let Some(n) = grouped_num(ui, r, ("picker-ch", i), v.round(), radius, 5.0) {
-                    edited = Some((i, n));
+                let w3 = (89.0 - 2.0) / 3.0;
+                let mut edited: Option<(usize, f32)> = None;
+                for (i, v) in vals.iter().enumerate() {
+                    let r = Rect::from_min_size(Pos2::new(fields.left() + i as f32 * (w3 + 1.0), fields.top()), Vec2::new(w3, 24.0));
+                    let radius = match i {
+                        0 => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
+                        _ => theme::cr(0),
+                    };
+                    if let Some(n) = grouped_num(ui, r, ("picker-ch", i), v.round(), radius, 5.0) {
+                        edited = Some((i, n));
+                    }
                 }
-            }
-            if let Some((i, n)) = edited {
-                match st.fmt {
-                    Fmt::Rgb => {
-                        let mut c = cur;
-                        c[i] = n.clamp(0.0, 255.0).round() as u8;
-                        typed = Some(c);
-                    }
-                    Fmt::Hsl => {
-                        let mut v = vals;
-                        v[i] = n;
-                        let rgb = hsl_to_rgb(v[0], v[1], v[2]);
-                        typed = Some([rgb[0], rgb[1], rgb[2], cur[3]]);
-                    }
-                    _ => {
-                        let mut h = st.hsv;
-                        match i {
-                            0 => h.h = (n / 360.0).rem_euclid(1.0),
-                            1 => h.s = (n / 100.0).clamp(0.0, 1.0),
-                            _ => h.v = (n / 100.0).clamp(0.0, 1.0),
+                if let Some((i, n)) = edited {
+                    match st.fmt {
+                        Fmt::Rgb => {
+                            let mut c = cur;
+                            c[i] = n.clamp(0.0, 255.0).round() as u8;
+                            typed = Some(c);
                         }
-                        st.hsv = h;
-                        let b = h.to_srgba_unmultiplied();
-                        typed = Some([b[0], b[1], b[2], cur[3]]);
+                        Fmt::Hsl => {
+                            let mut v = vals;
+                            v[i] = n;
+                            let rgb = hsl_to_rgb(v[0], v[1], v[2]);
+                            typed = Some([rgb[0], rgb[1], rgb[2], cur[3]]);
+                        }
+                        _ => {
+                            let mut h = st.hsv;
+                            match i {
+                                0 => h.h = (n / 360.0).rem_euclid(1.0),
+                                1 => h.s = (n / 100.0).clamp(0.0, 1.0),
+                                _ => h.v = (n / 100.0).clamp(0.0, 1.0),
+                            }
+                            st.hsv = h;
+                            let b = h.to_srgba_unmultiplied();
+                            typed = Some([b[0], b[1], b[2], cur[3]]);
+                        }
                     }
                 }
-            }
-            let op_r = Rect::from_min_max(Pos2::new(fields.left() + 89.0 + 1.0, fields.top()), fields.right_bottom());
-            if let Some(a) = opacity_cell(ui, op_r, cur[3]) {
-                typed = Some([typed.unwrap_or(cur)[0], typed.unwrap_or(cur)[1], typed.unwrap_or(cur)[2], a]);
+                let op_r = Rect::from_min_max(Pos2::new(fields.left() + 89.0 + 1.0, fields.top()), fields.right_bottom());
+                if let Some(a) = opacity_cell(ui, op_r, cur[3]) {
+                    typed = Some([typed.unwrap_or(cur)[0], typed.unwrap_or(cur)[1], typed.unwrap_or(cur)[2], a]);
+                }
             }
         }
-    }
-    if let Some(c) = typed {
-        st.sync(c);
-        st.hsv.a = c[3] as f32 / 255.0;
-    }
-    // Commit whatever HSV now says into the paint.
-    let fin = {
-        let b = st.hsv.to_srgba_unmultiplied();
-        [b[0], b[1], b[2], (st.hsv.a * 255.0).round() as u8]
-    };
-    if fin != active_rgba(paint, st.sel) {
-        set_active(paint, st.sel, fin);
-        out.changed = true;
+        if let Some(c) = typed {
+            st.sync(c);
+            st.hsv.a = c[3] as f32 / 255.0;
+        }
+        // Commit whatever HSV now says into the paint.
+        let fin = {
+            let b = st.hsv.to_srgba_unmultiplied();
+            [b[0], b[1], b[2], (st.hsv.a * 255.0).round() as u8]
+        };
+        if fin != active_rgba(paint, st.sel) {
+            set_active(paint, st.sel, fin);
+            out.changed = true;
+        }
+        if mode.is_gradient() {
+            crate::panels::var_bind::picker_stop_hover_button(ui, st, row, st.sel);
+        }
     }
 
     // ---- swatches

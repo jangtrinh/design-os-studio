@@ -194,6 +194,7 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
 }
 
 pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], effects: &[Effect]) {
+    super::var_bind::sync_picker_context(app, ui.ctx());
     let linked = style_picker::linked_style(app, sel, StyleProperty::Effect);
     header(app, ui, pane, sel, effects.is_empty() && linked.is_none());
     style_picker::header_button(app, ui, pane, sel, StyleProperty::Effect);
@@ -220,6 +221,15 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
             });
         }
         let set_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 25.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        if app.ui.screenshot_chrome
+            && app.props.pop.is_none()
+            && app.props.picker.is_none()
+            && !app.props.fx_menu
+            && app.props.style_menu.is_none()
+            && sel.first().and_then(|&id| app.doc.get(id)).is_some_and(|n| n.variables.bindings.keys().any(|k| k.starts_with(&format!("effects/{i}/"))))
+        {
+            app.props.pop = Some(PopState { kind: PopKind::Effect(i), anchor: set_r, ids: sel.to_vec() });
+        }
         let open = app.props.pop.as_ref().is_some_and(|p| p.kind == PopKind::Effect(i));
         if widgets::icon_button(ui, set_r, ("fx-settings", i), Icon::StrokeSettings, open, "Effect settings").clicked() {
             app.props.pop = (!open).then(|| PopState { kind: PopKind::Effect(i), anchor: set_r, ids: sel.to_vec() });
@@ -321,7 +331,7 @@ pub(super) fn popover_ui(app: &mut App, ui: &mut Ui, region: Rect) {
     let ctx = ui.ctx().clone();
     match st.kind {
         PopKind::Effect(i) => {
-            let Some(e) = app.doc.get(st.ids.first().copied().unwrap_or(NodeId(0))).and_then(|n| n.effects.get(i)).cloned() else {
+            let Some(e) = app.doc.get(st.ids.first().copied().unwrap_or(NodeId(0))).and_then(|n| resolve_node(&app.doc, n).effects.get(i).cloned()) else {
                 app.props.pop = None;
                 return;
             };
@@ -375,10 +385,14 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
     if let Some((color, offset, radius, spread, behind)) = shadow {
         let x_prop = format!("effects/{i}/offsetX");
         popover::row(ui, body, next(), "X", |ui, rc| {
-            let v = if let Some(sk) = &style_key {
-                super::var_bind::style_numeric(app, ui, rc, sk, &x_prop, |ui| num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""))
-            } else {
-                num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, "")
+            let v = match (&style_key, tgt) {
+                (Some(sk), _) => {
+                    super::var_bind::style_numeric(app, ui, rc, sk, &x_prop, |ui| num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""))
+                }
+                (None, FxTarget::Nodes(ids)) => {
+                    super::var_bind::numeric(app, ui, rc, ids, &[&x_prop], |ui| num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""))
+                }
+                (None, FxTarget::Style) => num(ui, rc, ("fxp-x", i), Prefix::Icon(Icon::DirHorizontal), offset.x, ""),
             };
             if let Some(v) = v {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.x = v));
@@ -386,10 +400,14 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         });
         let y_prop = format!("effects/{i}/offsetY");
         popover::row(ui, body, next(), "Y", |ui, rc| {
-            let v = if let Some(sk) = &style_key {
-                super::var_bind::style_numeric(app, ui, rc, sk, &y_prop, |ui| num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""))
-            } else {
-                num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, "")
+            let v = match (&style_key, tgt) {
+                (Some(sk), _) => {
+                    super::var_bind::style_numeric(app, ui, rc, sk, &y_prop, |ui| num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""))
+                }
+                (None, FxTarget::Nodes(ids)) => {
+                    super::var_bind::numeric(app, ui, rc, ids, &[&y_prop], |ui| num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""))
+                }
+                (None, FxTarget::Style) => num(ui, rc, ("fxp-y", i), Prefix::Icon(Icon::DirVertical), offset.y, ""),
             };
             if let Some(v) = v {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, o, _, _| o.y = v));
@@ -397,10 +415,14 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         });
         let r_prop = format!("effects/{i}/radius");
         popover::row(ui, body, next(), "Blur", |ui, rc| {
-            let v = if let Some(sk) = &style_key {
-                super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui| num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""))
-            } else {
-                num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, "")
+            let v = match (&style_key, tgt) {
+                (Some(sk), _) => {
+                    super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui| num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""))
+                }
+                (None, FxTarget::Nodes(ids)) => {
+                    super::var_bind::numeric(app, ui, rc, ids, &[&r_prop], |ui| num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""))
+                }
+                (None, FxTarget::Style) => num(ui, rc, ("fxp-b", i), Prefix::Icon(Icon::LayerBlur), radius, ""),
             };
             if let Some(v) = v {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, rr, _| *rr = v.max(0.0)));
@@ -408,26 +430,41 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         });
         let s_prop = format!("effects/{i}/spread");
         popover::row(ui, body, next(), "Spread", |ui, rc| {
-            let v = if let Some(sk) = &style_key {
-                super::var_bind::style_numeric(app, ui, rc, sk, &s_prop, |ui| num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""))
-            } else {
-                num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, "")
+            let v = match (&style_key, tgt) {
+                (Some(sk), _) => {
+                    super::var_bind::style_numeric(app, ui, rc, sk, &s_prop, |ui| num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""))
+                }
+                (None, FxTarget::Nodes(ids)) => {
+                    super::var_bind::numeric(app, ui, rc, ids, &[&s_prop], |ui| num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""))
+                }
+                (None, FxTarget::Style) => num(ui, rc, ("fxp-s", i), Prefix::Icon(Icon::Scale), spread, ""),
             };
             if let Some(v) = v {
                 edit_effect(app, tgt, i, |e| set_shadow(e, |_, _, _, sp| *sp = v));
             }
         });
         let c_prop = format!("effects/{i}/color");
-        popover::row(ui, body, next(), "Color", |ui, rc| {
-            if let Some(sk) = &style_key {
+        popover::row(ui, body, next(), "Color", |ui, rc| match (&style_key, tgt) {
+            (Some(sk), _) => {
                 if !super::var_bind::style_pill_field(app, ui, rc, sk, &c_prop) {
                     if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
                         edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
                     }
                     super::var_bind::style_hover_button(app, ui, rc, sk, &c_prop, VariableKind::Color);
                 }
-            } else if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
-                edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
+            }
+            (None, FxTarget::Nodes(ids)) => {
+                if !super::var_bind::pill_field(app, ui, rc, ids, &[&c_prop]) {
+                    if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
+                        edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
+                    }
+                    super::var_bind::hover_button(app, ui, rc, ids, &[&c_prop], VariableKind::Color);
+                }
+            }
+            (None, FxTarget::Style) => {
+                if let Some(nc) = color_row(app, ui, rc, (i, 0), color, tgt.picker(PickTarget::Shadow(i))) {
+                    edit_effect(app, tgt, i, |e| set_shadow(e, |c, _, _, _| *c = nc));
+                }
             }
         });
         popover::row(ui, body, next(), "Blend", |ui, rc| {
@@ -459,10 +496,14 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
         Effect::LayerBlur { radius, .. } | Effect::BackgroundBlur { radius, .. } => {
             let r_prop = format!("effects/{i}/radius");
             popover::row(ui, body, next(), "Blur", |ui, rc| {
-                let v = if let Some(sk) = &style_key {
-                    super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui| num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""))
-                } else {
-                    num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, "")
+                let v = match (&style_key, tgt) {
+                    (Some(sk), _) => {
+                        super::var_bind::style_numeric(app, ui, rc, sk, &r_prop, |ui| num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""))
+                    }
+                    (None, FxTarget::Nodes(ids)) => {
+                        super::var_bind::numeric(app, ui, rc, ids, &[&r_prop], |ui| num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""))
+                    }
+                    (None, FxTarget::Style) => num(ui, rc, ("fxp-blur", i), Prefix::Icon(Icon::LayerBlur), *radius, ""),
                 };
                 if let Some(v) = v {
                     edit_effect(app, tgt, i, |e| {
