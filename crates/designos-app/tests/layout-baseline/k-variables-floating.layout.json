@@ -1,0 +1,3396 @@
+{
+  "schema": 1,
+  "case": "k-variables-floating",
+  "size": [
+    1600,
+    1088
+  ],
+  "scale": 1.0,
+  "regions": {
+    "canvas": [
+      290.0,
+      32.0,
+      1069.0,
+      1056.0
+    ],
+    "home": null,
+    "left_panel": [
+      49.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "notes": null,
+    "present": null,
+    "rail": [
+      0.0,
+      32.0,
+      49.0,
+      1056.0
+    ],
+    "right_panel": [
+      1359.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "tab_bar": [
+      0.0,
+      0.0,
+      1600.0,
+      32.0
+    ],
+    "title_bar": null,
+    "variables_full": null
+  },
+  "overlays": [
+    {
+      "name": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        8.0,
+        642.0,
+        380.0
+      ]
+    }
+  ],
+  "named": {
+    "al-upgrade-v1": {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        799.0,
+        184.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bound:fills/0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1459.0,
+        135.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "copy-to-figma-slides-btn": {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        165.0,
+        184.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "copy-to-slides": {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        165.0,
+        184.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "distribute": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        260.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "effect-style-button": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1540.0,
+        1557.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "export-add": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1568.0,
+        3573.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "file-header": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        40.0,
+        193.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Avatars": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3139.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Gradients": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3075.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Primary": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3267.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Effect styles/Shadows": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3436.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "fx-add": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1568.0,
+        1557.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "grid-style-button": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1540.0,
+        1598.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "help-button": {
+      "region": "right_panel",
+      "rect": [
+        1566.0,
+        1056.0,
+        28.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "layers-collapse-all": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        229.0,
+        217.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "layers-list": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        249.0,
+        240.0,
+        839.0
+      ],
+      "count": 1
+    },
+    "layers-search": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        257.0,
+        217.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "left-header-subtitle": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        63.0,
+        71.0,
+        124.5,
+        18.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-handle": {
+      "region": "left_panel",
+      "rect": [
+        287.0,
+        32.0,
+        6.0,
+        1056.0
+      ],
+      "count": 1
+    },
+    "mode:Starter colours": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1302.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter dividers": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1374.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter platform colours": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        978.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter primitives": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1338.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter progress and icons": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1266.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter roles": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1122.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter shape and size": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        942.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1158.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing extra": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1014.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter spacing tokens": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1050.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter surfaces": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1086.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter theme": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1230.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "mode:Starter theme compact": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1472.0,
+        1194.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "pages-layers-separator": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        205.0,
+        240.0,
+        6.0
+      ],
+      "count": 1
+    },
+    "pages-list": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        137.0,
+        240.0,
+        64.0
+      ],
+      "count": 1
+    },
+    "pages-toggle": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        97.0,
+        240.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "present-button": {
+      "region": "right_panel",
+      "rect": [
+        1498.0,
+        40.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "present-chevron": {
+      "region": "right_panel",
+      "rect": [
+        1522.0,
+        40.0,
+        16.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "project-tab-0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "project-tab-id-1": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "rail-Agents": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        144.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Assets": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        200.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-File": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        88.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Plugins": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        384.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Tools": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        256.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Variables": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        328.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-help": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        1048.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "rail-menu": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        40.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "right-tab-Design": {
+      "region": "right_panel",
+      "rect": [
+        1368.0,
+        80.0,
+        56.25,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-tab-Prototype": {
+      "region": "right_panel",
+      "rect": [
+        1428.25,
+        80.0,
+        71.5,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-avatar": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        40.0,
+        38.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-share": {
+      "region": "right_panel",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "scrollbar-track": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        634.0,
+        89.0,
+        8.0,
+        247.0
+      ],
+      "count": 2
+    },
+    "selhex:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1675.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:1": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1715.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:10": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2075.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:11": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2115.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:12": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2155.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:13": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2195.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:14": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2235.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:15": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2275.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:16": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2315.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:17": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2355.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:18": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2395.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:19": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2435.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:2": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1755.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:20": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2475.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:21": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2515.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:22": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2555.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:23": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2595.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:24": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2635.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:25": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2675.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:26": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2715.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:27": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2755.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:28": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2795.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:29": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2835.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:3": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1795.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:30": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2875.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:31": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2915.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:32": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2955.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:4": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1835.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:5": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1875.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:6": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1915.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:7": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1955.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:8": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        1995.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selhex:9": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1400.0,
+        2035.0,
+        96.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "selsw:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1679.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:1": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1719.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:10": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2079.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:11": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2119.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:12": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2159.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:13": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2199.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:14": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2239.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:15": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2279.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:16": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2319.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:17": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2359.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:18": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2399.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:19": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2439.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:2": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1759.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:20": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2479.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:21": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2519.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:22": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2559.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:23": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2599.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:24": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2639.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:25": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2679.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:26": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2719.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:27": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2759.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:28": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2799.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:29": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2839.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:3": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1799.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:30": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2879.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:31": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2919.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:32": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2959.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:4": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1839.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:5": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1879.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:6": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1919.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:7": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1959.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:8": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        1999.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "selsw:9": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1376.0,
+        2039.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "share-button": {
+      "region": "right_panel",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "style:10420:191552": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3107.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:191557": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3468.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:191562": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3500.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:192284": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3532.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:784805": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3171.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:19356:557808": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3203.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:19438:568206": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3235.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:2002:48701": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3299.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:20787:131720": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3363.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:94:9101": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1367.0,
+        3331.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "sw:false:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1380.0,
+        1467.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "tab-bar-brand": {
+      "region": "tab_bar",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "tab-bar-home": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        4.0,
+        72.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-bar-new": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        337.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-close-1": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        310.0,
+        7.0,
+        18.0,
+        18.0
+      ],
+      "count": 1
+    },
+    "tab-unsaved-dot-1": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "title-action:Auto layout": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        441.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "title-action:Export": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1568.0,
+        3573.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "title-action:Layout guide": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        1568.0,
+        1598.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-0": {
+      "region": "canvas",
+      "rect": [
+        584.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-1": {
+      "region": "canvas",
+      "rect": [
+        640.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-2": {
+      "region": "canvas",
+      "rect": [
+        696.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-3": {
+      "region": "canvas",
+      "rect": [
+        752.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-4": {
+      "region": "canvas",
+      "rect": [
+        808.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "toolbar-actions-btn": {
+      "region": "canvas",
+      "rect": [
+        872.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-design": {
+      "region": "canvas",
+      "rect": [
+        967.25,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-dev": {
+      "region": "canvas",
+      "rect": [
+        1006.75,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-draw": {
+      "region": "canvas",
+      "rect": [
+        928.0,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    },
+    "vars-add-collection": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        207.0,
+        56.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-add-mode": {
+      "region": "canvas",
+      "rect": [
+        723.0,
+        48.0,
+        39.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/1000:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        441.0,
+        171.0,
+        140.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/1000:9041:0": {
+      "region": "canvas",
+      "rect": [
+        582.0,
+        171.0,
+        140.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/100:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        441.0,
+        212.0,
+        140.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/100:9041:0": {
+      "region": "canvas",
+      "rect": [
+        582.0,
+        212.0,
+        140.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/800:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        441.0,
+        253.0,
+        140.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Colour/Grey/800:9041:0": {
+      "region": "canvas",
+      "rect": [
+        582.0,
+        253.0,
+        140.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Size/Small:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        441.0,
+        335.0,
+        140.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-cell:Size/Small:9041:0": {
+      "region": "canvas",
+      "rect": [
+        582.0,
+        335.0,
+        140.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-close": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        610.0,
+        16.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter colours": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        412.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter dividers": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        476.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter platform colours": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        124.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter primitives": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        444.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter progress and icons": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        380.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter roles": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        252.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter shape and size": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        92.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter spacing": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        284.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter spacing extra": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        156.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter spacing tokens": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        188.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter surfaces": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        220.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter theme": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        348.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-coll:Starter theme compact": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        316.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-create": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        248.0,
+        356.0,
+        128.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-expand": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        582.0,
+        16.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-filter": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        549.0,
+        16.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:All": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        557.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Colour": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        589.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Colour/Grey": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        621.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Radius": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        717.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Size": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        653.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-group:Space": {
+      "region": "left_panel",
+      "rect": [
+        8.0,
+        685.0,
+        224.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-header:Colour": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        276.0,
+        97.0,
+        156.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-header:Colour/Grey": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        292.0,
+        138.0,
+        140.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-header:Size": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        276.0,
+        302.0,
+        156.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/1000:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        471.0,
+        179.0,
+        102.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/1000:9041:0": {
+      "region": "canvas",
+      "rect": [
+        612.0,
+        179.0,
+        102.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/100:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        471.0,
+        220.0,
+        102.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/100:9041:0": {
+      "region": "canvas",
+      "rect": [
+        612.0,
+        220.0,
+        102.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/800:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        471.0,
+        261.0,
+        102.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hex:Colour/Grey/800:9041:0": {
+      "region": "canvas",
+      "rect": [
+        612.0,
+        261.0,
+        102.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-hscrollbar": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        250.0,
+        339.0,
+        382.0,
+        7.0
+      ],
+      "count": 1
+    },
+    "vars-mode:Dark": {
+      "region": "canvas",
+      "rect": [
+        590.0,
+        56.0,
+        124.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-mode:Light": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        449.0,
+        56.0,
+        124.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Size/Small:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        449.0,
+        343.0,
+        124.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-num:Size/Small:9041:0": {
+      "region": "canvas",
+      "rect": [
+        590.0,
+        343.0,
+        124.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-row:Colour/Grey/100": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        240.0,
+        212.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Colour/Grey/1000": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        240.0,
+        171.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Colour/Grey/800": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        240.0,
+        253.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-row:Size/Small": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        240.0,
+        335.0,
+        200.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "vars-scope:All": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        392.0,
+        357.0,
+        30.5,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Fills": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        426.75,
+        357.0,
+        38.5,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Radius": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        577.25,
+        357.0,
+        54.75,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Strokes": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        469.25,
+        357.0,
+        59.5,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-scope:Text": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        532.75,
+        357.0,
+        40.75,
+        22.0
+      ],
+      "count": 1
+    },
+    "vars-search": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        374.0,
+        16.0,
+        174.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-settings": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        180.0,
+        56.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-sidebar-toggle": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        207.0,
+        16.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/1000:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        458.0,
+        183.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/1000:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        599.0,
+        183.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/100:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        458.0,
+        224.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/100:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        599.0,
+        224.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/800:737:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        458.0,
+        265.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "vars-swatch:Colour/Grey/800:9041:0": {
+      "region": "overlay:Middle/0",
+      "rect": [
+        599.0,
+        265.0,
+        16.0,
+        16.0
+      ],
+      "count": 1
+    },
+    "xform:0": {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        392.0,
+        29.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "xform:1": {
+      "region": "right_panel",
+      "rect": [
+        1501.0,
+        392.0,
+        29.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "xform:2": {
+      "region": "right_panel",
+      "rect": [
+        1530.0,
+        392.0,
+        29.0,
+        32.0
+      ],
+      "count": 1
+    }
+  },
+  "unnamed": [
+    {
+      "region": "canvas",
+      "rect": [
+        290.0,
+        32.0,
+        1069.0,
+        1056.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        544.0,
+        1028.0,
+        512.0,
+        48.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        552.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        608.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        664.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        720.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        776.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        832.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        92.0,
+        3.0,
+        216.0,
+        26.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        8.0,
+        642.0,
+        380.0
+      ],
+      "sense": [
+        "click"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        0.0,
+        8.0,
+        642.0,
+        380.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        398.0,
+        15.0,
+        150.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        253.0,
+        44.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        441.0,
+        48.0,
+        140.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        582.0,
+        48.0,
+        60.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        240.0,
+        89.0,
+        402.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        229.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        257.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        240.0,
+        130.0,
+        402.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        137.0,
+        224.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        169.0,
+        224.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        477.0,
+        179.0,
+        96.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        618.0,
+        179.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        456.0,
+        181.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        597.0,
+        181.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        477.0,
+        220.0,
+        96.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        618.0,
+        220.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        456.0,
+        222.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        597.0,
+        222.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        249.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        253.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        477.0,
+        261.0,
+        96.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        618.0,
+        261.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        456.0,
+        263.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        597.0,
+        263.0,
+        20.0,
+        20.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        281.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        285.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        240.0,
+        294.0,
+        402.0,
+        40.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        49.0,
+        313.0,
+        240.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        57.0,
+        317.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        240.0,
+        335.0,
+        200.0,
+        1.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Middle/0",
+      "rect": [
+        8.0,
+        380.0,
+        224.0,
+        8.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1537.0,
+        80.0,
+        55.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1592.0,
+        113.0,
+        8.0,
+        939.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        125.0,
+        136.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1511.0,
+        125.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1539.0,
+        125.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1567.0,
+        125.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        260.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1405.0,
+        260.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1434.0,
+        260.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1471.0,
+        260.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1500.0,
+        260.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1529.0,
+        260.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        326.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        326.0,
+        64.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        326.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        326.0,
+        64.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        392.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        392.0,
+        58.5,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        495.0,
+        22.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1398.0,
+        495.0,
+        22.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1420.0,
+        495.0,
+        22.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1442.0,
+        495.0,
+        22.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        495.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        495.0,
+        64.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        561.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        561.0,
+        64.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        561.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        561.0,
+        64.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        627.0,
+        88.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        627.0,
+        88.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        693.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        693.0,
+        64.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        693.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        693.0,
+        64.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        759.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1405.0,
+        759.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1434.0,
+        759.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1467.0,
+        759.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1488.0,
+        759.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1517.0,
+        759.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1546.0,
+        759.0,
+        29.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        870.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        870.0,
+        52.25,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        870.0,
+        24.0,
+        32.0
+      ],
+      "sense": [
+        "drag"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1496.0,
+        870.0,
+        64.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1376.0,
+        906.0,
+        184.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1472.0,
+        1050.0,
+        88.0,
+        2.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    }
+  ],
+  "scroll": []
+}

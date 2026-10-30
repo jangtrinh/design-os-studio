@@ -92,6 +92,20 @@ pub enum MenuKind {
     Palette,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ShellRegions {
+    pub title_bar: Option<egui::Rect>,
+    pub tab_bar: Option<egui::Rect>,
+    pub rail: Option<egui::Rect>,
+    pub left_panel: Option<egui::Rect>,
+    pub canvas: Option<egui::Rect>,
+    pub notes: Option<egui::Rect>,
+    pub right_panel: Option<egui::Rect>,
+    pub home: Option<egui::Rect>,
+    pub present: Option<egui::Rect>,
+    pub variables_full: Option<egui::Rect>,
+}
+
 #[derive(Default)]
 pub struct UiState {
     pub menu: Option<MenuKind>,
@@ -124,6 +138,10 @@ pub struct UiState {
     pub no_pixel_snap: bool,
     /// Whether the Preferences -> Agent permissions modal is open (`#656`).
     pub permissions_modal_open: bool,
+    /// Region rects copied every frame by `Shell::draw` (`#1126`).
+    pub regions: ShellRegions,
+    /// True when launched with `--screenshot` or `apply_launch_defaults(true)` (`#1126`).
+    pub screenshot_chrome: bool,
 }
 
 #[derive(Clone, Debug)]

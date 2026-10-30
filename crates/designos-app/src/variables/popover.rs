@@ -3,11 +3,11 @@
 
 use super::view::{value_cell, Frame, Geom};
 use crate::app::App;
-use crate::icons::{self, Icon};
+use crate::icons::Icon;
 use crate::theme;
 use crate::widgets::{self, field};
 use designos_doc::*;
-use egui::{Align2, Context, Id, Key, Order, Pos2, Rect, Sense, Stroke, Ui, Vec2};
+use egui::{Align2, Context, Id, Key, Order, Pos2, Rect, Sense, Ui, Vec2};
 
 /// (group, label, Figma scope id) for the properties a variable of `kind` can be scoped to.
 pub fn scope_options(kind: VariableKind) -> &'static [(&'static str, &'static str, &'static str)] {
@@ -70,22 +70,19 @@ fn scope_all(scopes: &[String]) -> bool {
     scopes.is_empty() || scopes.iter().any(|s| s == "ALL_SCOPES")
 }
 
+/// A scope row: the kit checkbox is the focusable control, and the row takes clicks on its label.
 fn checkbox(ui: &mut Ui, row: Rect, key: &str, label: &str, checked: bool) -> bool {
-    let r = ui.interact(row, Id::new(("var-pop-check", key)), Sense::click());
-    let p = ui.painter();
-    if r.hovered() {
+    let row_hit = ui.interact(row, Id::new(("var-pop-check", key)), Sense::CLICK);
+    let p = ui.painter().clone();
+    if ui.rect_contains_pointer(row) {
         p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
     }
-    let b = Rect::from_center_size(Pos2::new(row.left() + 16.0, row.center().y), Vec2::splat(14.0));
-    if checked {
-        p.rect_filled(b, theme::cr(3), theme::BG_BRAND);
-        icons::paint(p, Icon::Check, b.center(), 12.0, theme::TEXT);
-    } else {
-        p.rect_stroke(b, theme::cr(3), Stroke::new(1.0, theme::ICON_TERTIARY), egui::StrokeKind::Inside);
-    }
+    let box_left = row.left() + 16.0 - theme::LAYER_ICON_SIZE / 2.0;
+    let hit = Rect::from_min_max(Pos2::new(box_left, row.top()), row.max);
+    let box_hit = crate::widgets::kit::checkbox(ui, hit, ("var-pop-box", key), checked, true);
     p.text(Pos2::new(row.left() + 32.0, row.center().y), Align2::LEFT_CENTER, label, theme::font_body(), theme::TEXT);
     widgets::record(ui, &format!("var-pop:{key}"), row);
-    r.clicked()
+    row_hit.clicked() || box_hit.clicked()
 }
 
 pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
@@ -96,11 +93,12 @@ pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
     let w = theme::VAR_POPOVER_W;
     let options = scope_options(var.kind);
     // content height
+    let row_h = theme::MENU_ITEM_HEIGHT;
     let mut h = 40.0 + 8.0 + 2.0 * 52.0 + 8.0;
     if !options.is_empty() {
-        h += 24.0 + 24.0 + options.len() as f32 * 24.0 + 8.0;
+        h += 32.0 + row_h + options.len() as f32 * row_h + 8.0;
     }
-    h += 24.0 + 16.0 + coll.modes.len() as f32 * 40.0 + 8.0;
+    h += row_h + 16.0 + coll.modes.len() as f32 * 40.0 + 8.0;
     let max_h = (screen.height() - 16.0).min(560.0);
     let ph = h.min(max_h);
     let want = Pos2::new(ep.anchor.left() + 8.0, ep.anchor.top() - 8.0);
@@ -114,14 +112,14 @@ pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
     egui::Area::new(Id::new("vars-edit-popover")).order(Order::Foreground).fixed_pos(pos).constrain(false).show(ctx, |ui| {
         let (full, _) = ui.allocate_exact_size(rect.size(), Sense::click_and_drag());
         let p = ui.painter().clone();
-        widgets::menu_panel(&p, full, theme::RADIUS_FRAME);
+        crate::widgets::kit::popover_surface(&p, full);
         // header
         p.text(Pos2::new(full.left() + 16.0, full.top() + 20.0), Align2::LEFT_CENTER, "Edit variable", theme::font_body_strong(), theme::TEXT);
-        let xr = Rect::from_center_size(Pos2::new(full.right() - 20.0, full.top() + 20.0), Vec2::splat(24.0));
-        if widgets::icon_button(ui, xr, "var-pop-close", Icon::Minus, false, "").clicked() {
+        let xr = Rect::from_center_size(Pos2::new(full.right() - 20.0, full.top() + 20.0), Vec2::splat(theme::CONTROL_XS));
+        widgets::record(ui, "var-pop-close", xr);
+        if widgets::icon_button(ui, xr, "var-pop-close", Icon::Close, false, "Close").clicked() {
             close = true;
         }
-        super::widgets::cross_glyph(&p, xr.center(), 4.0, theme::ICON_SECONDARY);
         widgets::hline(&p, full.left(), full.right(), full.top() + 39.0, theme::BORDER_MENU);
         if ui.rect_contains_pointer(full) {
             ep.scroll = (ep.scroll - ui.input(|i| i.smooth_scroll_delta.y)).clamp(0.0, max_scroll);
@@ -157,17 +155,17 @@ pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
                 p.text(Pos2::new(x, y + 16.0), Align2::LEFT_CENTER, "Scoping", theme::font_body_strong(), theme::TEXT_SECONDARY);
                 y += 32.0;
                 let all = scope_all(&var.scopes);
-                let row = Rect::from_min_size(Pos2::new(full.left() + 8.0, y), Vec2::new(w - 16.0, 24.0));
+                let row = Rect::from_min_size(Pos2::new(full.left() + 8.0, y), Vec2::new(w - 16.0, row_h));
                 if checkbox(ui, row, "all", "Show in all supported properties", all) {
                     let next = toggle_all(var.kind, &var.scopes);
                     if let Some(v) = fr.work.variables.get_mut(&var.id) {
                         v.scopes = next;
                     }
                 }
-                y += 24.0;
+                y += row_h;
                 for (_, label, id) in options {
                     let on = all || var.scopes.iter().any(|s| s == id);
-                    let row = Rect::from_min_size(Pos2::new(full.left() + 8.0, y), Vec2::new(w - 16.0, 24.0));
+                    let row = Rect::from_min_size(Pos2::new(full.left() + 8.0, y), Vec2::new(w - 16.0, row_h));
                     let r = Rect::from_min_max(row.min + Vec2::new(16.0, 0.0), row.max);
                     if checkbox(ui, r, id, label, on) {
                         let next = toggle_scope(var.kind, &var.scopes, id);
@@ -175,18 +173,18 @@ pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
                             v.scopes = next;
                         }
                     }
-                    y += 24.0;
+                    y += row_h;
                 }
                 y += 8.0;
             }
             widgets::hline(&p, full.left(), full.right(), y - 4.0, theme::BORDER_MENU);
-            let row = Rect::from_min_size(Pos2::new(full.left() + 8.0, y + 4.0), Vec2::new(w - 16.0, 24.0));
+            let row = Rect::from_min_size(Pos2::new(full.left() + 8.0, y + 4.0), Vec2::new(w - 16.0, row_h));
             if checkbox(ui, row, "hide", "Hide from publishing", var.hidden_from_publishing) {
                 if let Some(v) = fr.work.variables.get_mut(&var.id) {
                     v.hidden_from_publishing = !v.hidden_from_publishing;
                 }
             }
-            y += 36.0;
+            y += row_h + 16.0;
             // values
             widgets::hline(&p, full.left(), full.right(), y - 4.0, theme::BORDER_MENU);
             p.text(Pos2::new(x, y + 12.0), Align2::LEFT_CENTER, "Value", theme::font_body_strong(), theme::TEXT_SECONDARY);

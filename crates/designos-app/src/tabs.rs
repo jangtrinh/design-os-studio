@@ -12,7 +12,7 @@ use crate::theme;
 use crate::widgets;
 use crate::widgets::menu::{popup_menu, MenuItem, MenuResult};
 use designos_doc::{Document, DocumentKind, History, NodeId};
-use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 use std::path::{Path, PathBuf};
 
 mod agent_document;
@@ -23,12 +23,6 @@ pub const TOP_TAB_BAR_HEIGHT: f32 = 32.0;
 // Top Tab Strip palette tokens (unified with theme.rs Zinc dark palette)
 const TAB_BAR_BG: Color32 = theme::BG_PRIMARY;
 const TAB_BAR_BORDER: Color32 = theme::BORDER;
-const TAB_ACTIVE_BG: Color32 = theme::BG_SECONDARY;
-const TAB_ACTIVE_BORDER: Color32 = theme::BORDER_STRONG;
-const TAB_HOVER_BG: Color32 = theme::BG_HOVER;
-const BADGE_DESIGN_BLUE: Color32 = Color32::from_rgb(0x0D, 0x99, 0xFF);
-const BADGE_BOARD_PURPLE: Color32 = Color32::from_rgb(0xF5, 0x9E, 0x0B);
-const BADGE_DECK_ORANGE: Color32 = Color32::from_rgb(0xFF, 0x6A, 0x3D);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectTabKind {
@@ -44,14 +38,6 @@ impl ProjectTabKind {
             DocumentKind::Design => Self::Design,
             DocumentKind::Board => Self::Board,
             DocumentKind::Deck => Self::Deck,
-        }
-    }
-
-    pub fn badge_color(self) -> Color32 {
-        match self {
-            Self::Design => BADGE_DESIGN_BLUE,
-            Self::Board => BADGE_BOARD_PURPLE,
-            Self::Deck | Self::Spec => BADGE_DECK_ORANGE,
         }
     }
 
@@ -955,6 +941,12 @@ pub(crate) fn tab_is_unsaved(app: &App, idx: usize) -> bool {
     app.tabs.entries.get(idx).is_some_and(|t| if is_active { app.has_unsaved_edits() } else { !t.hist.is_clean() || t.dirty })
 }
 
+fn mark_focus(ui: &Ui, p: &egui::Painter, id: egui::Id, rect: Rect, radius: f32) {
+    if crate::widgets::kit::keyboard_focus(ui, id) {
+        crate::widgets::kit::focus_ring(p, rect, radius);
+    }
+}
+
 /// Renders the 1:1 Figma UI3 Top Window Tab Bar (`32px` height) inside `ui`.
 #[allow(dead_code)]
 pub fn show_top_tab_bar(ui: &mut Ui, app: &mut App) {
@@ -993,15 +985,18 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        if is_home {
-            p.rect_filled(home_rect, theme::cr(6), TAB_ACTIVE_BG);
-            p.rect_stroke(home_rect, theme::cr(6), Stroke::new(1.0, TAB_ACTIVE_BORDER), StrokeKind::Inside);
+        let home_state = if is_home {
+            crate::widgets::kit::State::Selected
         } else if resp.hovered() {
-            p.rect_filled(home_rect, theme::cr(6), TAB_HOVER_BG);
-        }
-        let fg = if is_home || resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY };
-        paint_home_glyph(&p, Pos2::new(home_rect.left() + 14.0, cy), fg);
-        p.text(Pos2::new(home_rect.left() + 26.0, cy), Align2::LEFT_CENTER, "Home", if is_home { theme::font_body_strong() } else { theme::font_body() }, fg);
+            crate::widgets::kit::State::Hover
+        } else {
+            crate::widgets::kit::State::Default
+        };
+        let home_look = crate::widgets::kit::tab_look(home_state);
+        crate::widgets::kit::paint_frame(&p, home_rect, theme::RADIUS_CONTROL, &home_look);
+        mark_focus(ui, &p, resp.id, home_rect, theme::RADIUS_CONTROL as f32);
+        paint_home_glyph(&p, Pos2::new(home_rect.left() + 14.0, cy), home_look.icon);
+        p.text(Pos2::new(home_rect.left() + 26.0, cy), Align2::LEFT_CENTER, "Home", theme::font_body_strong(), home_look.text);
         if resp.clicked() {
             actions.push(TabUiAction::ClickHome);
         }
@@ -1009,7 +1004,7 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
     }
 
     // Divider between Home button and open project tabs
-    p.vline(x, (bar_rect.top() + 8.0)..=(bar_rect.bottom() - 8.0), Stroke::new(1.0, TAB_ACTIVE_BORDER));
+    p.vline(x, (bar_rect.top() + 8.0)..=(bar_rect.bottom() - 8.0), Stroke::new(1.0, TAB_BAR_BORDER));
     x += 6.0;
 
     // 3. Open Project Tabs Strip
@@ -1037,78 +1032,96 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
 
         let close_rect = Rect::from_center_size(Pos2::new(tab_rect.right() - 13.0, tab_rect.center().y), Vec2::splat(18.0));
         widgets::record(ui, &format!("tab-close-{tab_id}"), close_rect);
+        let close_hit = Rect::from_center_size(close_rect.center(), Vec2::splat(theme::TARGET_MIN));
+        if !tab.pinned {
+            widgets::record_with(ui, || format!("tab-close-hit-{tab_id}"), close_hit);
+        }
 
-        // Exclude close_rect from tab_hit_rect so clicking `×` never triggers tab switch instead of close
-        let tab_hit_right = if tab.pinned { tab_rect.right() } else { (close_rect.left() - 2.0).max(tab_rect.left() + 24.0) };
+        // The body stops before the 24px close hit so the close wins that press.
+        let tab_hit_right = if tab.pinned { tab_rect.right() } else { (close_hit.left() - theme::INSET_SEGMENT).max(tab_rect.left() + theme::TARGET_MIN) };
         let tab_hit_rect = Rect::from_min_max(tab_rect.min, Pos2::new(tab_hit_right, tab_rect.bottom()));
         let tab_resp = ui.interact(tab_hit_rect, ui.id().with(("project-tab", tab_id)), Sense::click());
-        let close_resp = if !tab.pinned { Some(ui.interact(close_rect, ui.id().with(("tab-close", tab_id)), Sense::click())) } else { None };
+        let close_resp = if !tab.pinned { Some(ui.interact(close_hit, ui.id().with(("tab-close", tab_id)), Sense::click())) } else { None };
 
         let hovered = tab_resp.hovered() || close_resp.as_ref().is_some_and(|r| r.hovered());
         if hovered {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
-        if is_active {
-            p.rect_filled(tab_rect, theme::cr_each(theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, theme::RADIUS_SEGMENT, theme::RADIUS_SEGMENT), TAB_ACTIVE_BG);
-            p.rect_stroke(
-                tab_rect,
-                theme::cr_each(theme::RADIUS_CONTROL, theme::RADIUS_CONTROL, theme::RADIUS_SEGMENT, theme::RADIUS_SEGMENT),
-                Stroke::new(1.0, TAB_ACTIVE_BORDER),
-                StrokeKind::Inside,
-            );
+        let tab_state = if is_active {
+            crate::widgets::kit::State::Selected
         } else if hovered {
-            p.rect_filled(tab_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
+            crate::widgets::kit::State::Hover
+        } else {
+            crate::widgets::kit::State::Default
+        };
+        let tab_look = crate::widgets::kit::tab_look(tab_state);
+        if is_active || hovered {
+            crate::widgets::kit::paint_frame(&p, tab_rect, theme::RADIUS_CONTROL, &tab_look);
         } else {
             // Subtle right separator between inactive tabs
             p.vline(tab_rect.right() + 1.0, (tab_rect.top() + 5.0)..=(tab_rect.bottom() - 5.0), Stroke::new(1.0, TAB_BAR_BORDER));
         }
+        mark_focus(ui, &p, tab_resp.id, tab_rect, theme::RADIUS_CONTROL as f32);
 
-        // Colored file-type icon badge (or Figma Dev Mode #1BC47D `</>` badge when dev_mode is active)
+        // File-type tile, or the ready mark when dev mode is on for this tab.
         let badge_rect = Rect::from_center_size(Pos2::new(tab_rect.left() + 13.0, tab_rect.center().y), Vec2::splat(14.0));
         let in_dev_mode = tab.dev_mode || (is_active && app.ui.dev_mode);
-        let (badge_col, badge_icon) = if in_dev_mode { (Color32::from_rgb(0x1B, 0xC4, 0x7D), Icon::Dev) } else { (tab.kind.badge_color(), tab.kind.icon()) };
         if in_dev_mode {
-            p.rect_filled(badge_rect, theme::cr(3), badge_col);
-            icons::paint(&p, badge_icon, badge_rect.center(), 10.0, Color32::from_rgb(0x0D, 0x1F, 0x16));
+            let dev = crate::widgets::kit::Look {
+                fill: theme::DEV_READY,
+                border: Color32::TRANSPARENT,
+                border_w: theme::BORDER_WIDTH,
+                text: Color32::TRANSPARENT,
+                icon: theme::TEXT_ON_BRAND,
+                mark: Color32::TRANSPARENT,
+            };
+            crate::widgets::kit::paint_frame(&p, badge_rect, theme::RADIUS_MARK, &dev);
+            icons::paint(&p, Icon::Dev, badge_rect.center(), 10.0, dev.icon);
         } else {
-            p.rect_filled(badge_rect, theme::cr(3), Color32::from_rgba_unmultiplied(badge_col.r(), badge_col.g(), badge_col.b(), 38));
-            icons::paint(&p, badge_icon, badge_rect.center(), 11.0, badge_col);
+            let kind = match tab.kind {
+                ProjectTabKind::Design => crate::widgets::kit::TileKind::Design,
+                ProjectTabKind::Board => crate::widgets::kit::TileKind::Board,
+                ProjectTabKind::Deck => crate::widgets::kit::TileKind::Deck,
+                ProjectTabKind::Spec => crate::widgets::kit::TileKind::Spec,
+            };
+            let tile = crate::widgets::kit::tile_look(kind);
+            crate::widgets::kit::paint_frame(&p, badge_rect, theme::RADIUS_MARK, &tile);
+            icons::paint(&p, tab.kind.icon(), badge_rect.center(), 11.0, tile.icon);
         }
 
         let mut text_left = badge_rect.right() + 6.0;
         if tab.pinned {
-            icons::paint(&p, Icon::Lock, Pos2::new(text_left + 5.0, tab_rect.center().y), 10.0, theme::TEXT_SECONDARY);
+            icons::paint(&p, Icon::Lock, Pos2::new(text_left + 5.0, tab_rect.center().y), 10.0, tab_look.icon);
             text_left += 13.0;
         }
 
         let right_reserve = if tab.pinned { 10.0 } else { 24.0 } + if is_dirty { 10.0 } else { 0.0 };
         let max_title_w = (tab_rect.right() - right_reserve - text_left).max(24.0);
-        let font = if is_active { theme::font_body_strong() } else { theme::font_body() };
-        let fg = if is_active || hovered { theme::TEXT } else { theme::TEXT_SECONDARY };
+        let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Semibold);
         let display_title = truncate_tab_title(&p, &tab.title, &font, max_title_w);
-        p.text(Pos2::new(text_left, tab_rect.center().y), Align2::LEFT_CENTER, &display_title, font, fg);
+        p.text(Pos2::new(text_left, tab_rect.center().y), Align2::LEFT_CENTER, &display_title, font, tab_look.text);
 
-        // Unsaved/modified dot `•`
+        // Unsaved/modified dot.
         let dot_center = Pos2::new(if tab.pinned { tab_rect.right() - 10.0 } else { close_rect.left() - 6.0 }, tab_rect.center().y);
         widgets::record(ui, &format!("tab-unsaved-dot-{tab_id}"), if is_dirty { Rect::from_center_size(dot_center, Vec2::splat(6.0)) } else { Rect::NOTHING });
         if is_dirty {
-            p.circle_filled(dot_center, 3.0, BADGE_DESIGN_BLUE);
+            p.circle_filled(dot_center, 3.0, theme::ICON_BRAND_PRIMARY);
         }
 
-        // Close `×` button — always visible on unpinned tabs so user can close in 1 click
+        // Close stays on the 18px plate. The 24px hit is the interact target.
         if let Some(cr) = &close_resp {
-            if cr.hovered() {
-                p.rect_filled(close_rect, theme::cr(4), Color32::from_rgb(0xE1, 0x1D, 0x48));
-            }
-            let close_fg = if cr.hovered() {
-                Color32::WHITE
-            } else if is_active || hovered {
-                theme::TEXT
+            let plate = if is_active {
+                crate::widgets::kit::ClosePlate::Selected
+            } else if hovered {
+                crate::widgets::kit::ClosePlate::Hover
             } else {
-                theme::TEXT_SECONDARY
+                crate::widgets::kit::ClosePlate::Primary
             };
-            icons::paint(&p, Icon::Close, close_rect.center(), 10.0, close_fg);
+            let close_look = crate::widgets::kit::close_look_over(plate, crate::widgets::kit::state_of(cr, false, true));
+            crate::widgets::kit::paint_frame(&p, close_rect, theme::RADIUS_SEGMENT, &close_look);
+            mark_focus(ui, &p, cr.id, close_rect, theme::RADIUS_SEGMENT as f32);
+            icons::paint(&p, Icon::Close, close_rect.center(), 10.0, close_look.icon);
         }
 
         let close_clicked = close_resp.as_ref().is_some_and(|r| r.clicked());
@@ -1134,9 +1147,11 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
         let plus_resp = ui.interact(plus_rect, ui.id().with("tab-bar-new"), Sense::click());
         if plus_resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            p.rect_filled(plus_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
         }
-        icons::paint(&p, Icon::Plus, plus_rect.center(), 13.0, if plus_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
+        let plus_look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Icon, crate::widgets::kit::state_of(&plus_resp, false, true));
+        crate::widgets::kit::paint_frame(&p, plus_rect, theme::RADIUS_CONTROL, &plus_look);
+        mark_focus(ui, &p, plus_resp.id, plus_rect, theme::RADIUS_CONTROL as f32);
+        icons::paint(&p, Icon::Plus, plus_rect.center(), 13.0, plus_look.icon);
         if plus_resp.clicked() {
             actions.push(TabUiAction::NewDesignTab);
         }
@@ -1148,21 +1163,20 @@ pub fn show_top_tab_bar_ui(ui: &mut Ui, bar_rect: Rect, app: &mut App) {
 
     // 4c. Right-aligned compact Update check button ("top-tab-update-btn"); hidden until the updater is real (see `updater::UPDATER_UI_ENABLED`)
     if crate::home::updater::UPDATER_UI_ENABLED {
-        let upd_rect = Rect::from_min_size(Pos2::new(bar_rect.right() - 68.0, bar_rect.top() + 4.0), Vec2::new(60.0, 24.0));
+        let upd_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let upd_w = (14.0 + widgets::text_width(&p, "Update", &upd_font) + theme::INSET_CONTROL).ceil();
+        let upd_rect =
+            Rect::from_min_size(Pos2::new(bar_rect.right() - upd_w - theme::SPACE_INLINE, bar_rect.top() + 4.0), Vec2::new(upd_w, theme::TARGET_MIN));
         widgets::record(ui, "top-tab-update-btn", upd_rect);
         let upd_resp = ui.interact(upd_rect, ui.id().with("top-tab-update-btn"), Sense::click());
         if upd_resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            p.rect_filled(upd_rect, theme::cr(theme::RADIUS_CONTROL), TAB_HOVER_BG);
         }
-        p.circle_filled(Pos2::new(upd_rect.left() + 8.0, upd_rect.center().y), 2.5, Color32::from_rgb(0x1B, 0xC4, 0x7D));
-        p.text(
-            Pos2::new(upd_rect.left() + 14.0, upd_rect.center().y),
-            Align2::LEFT_CENTER,
-            "Update",
-            theme::font_caption(),
-            if upd_resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY },
-        );
+        let upd_look = crate::widgets::kit::button_look(crate::widgets::kit::Hierarchy::Tertiary, crate::widgets::kit::state_of(&upd_resp, false, true));
+        crate::widgets::kit::paint_frame(&p, upd_rect, theme::RADIUS_CONTROL, &upd_look);
+        mark_focus(ui, &p, upd_resp.id, upd_rect, theme::RADIUS_CONTROL as f32);
+        p.circle_filled(Pos2::new(upd_rect.left() + 8.0, upd_rect.center().y), 2.5, theme::SUCCESS);
+        p.text(Pos2::new(upd_rect.left() + 14.0, upd_rect.center().y), Align2::LEFT_CENTER, "Update", upd_font, upd_look.text);
         if upd_resp.on_hover_text("Check for updates & verify binary SHA-256").clicked() {
             let msg = if let Some(home) = &mut app.home {
                 home.updater.check_for_updates();
@@ -2074,5 +2088,167 @@ mod tests {
         assert_eq!(std::fs::read(&backup).unwrap(), damaged_bytes, "saving the remaining library tab writes the pre-repair .bak");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn paint_tab_bar(app: &mut App) -> (egui::Context, Vec<egui::epaint::ClippedShape>) {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let bar = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, TOP_TAB_BAR_HEIGHT));
+        let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+        let shapes = ctx.run_ui(raw, |ui| show_top_tab_bar_ui(ui, bar, app)).shapes;
+        (ctx, shapes)
+    }
+
+    fn walk_rects(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::epaint::RectShape> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<egui::epaint::RectShape>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push(r.clone()),
+                egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in shapes {
+            walk(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    /// Every colour the tab bar paints on a rectangle, a line or a dot, transparent ones left out.
+    fn painted_colours(shapes: &[egui::epaint::ClippedShape]) -> Vec<Color32> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<Color32>) {
+            match shape {
+                egui::Shape::Rect(r) => {
+                    out.push(r.fill);
+                    if r.stroke.width > 0.0 {
+                        out.push(r.stroke.color);
+                    }
+                }
+                egui::Shape::LineSegment { stroke, .. } => out.push(stroke.color),
+                egui::Shape::Circle(c) => {
+                    out.push(c.fill);
+                    if c.stroke.width > 0.0 {
+                        out.push(c.stroke.color);
+                    }
+                }
+                egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in shapes {
+            walk(&cs.shape, &mut out);
+        }
+        out.retain(|c| c.a() > 0);
+        out
+    }
+
+    /// The fills and lines the tab bar is allowed to paint: its own bar and hairline, the tab and close plates of the
+    /// widget kit, the file-type tiles, the Dev ready mark and the unsaved dot.
+    const TAB_BAR_ROLES: [Color32; 12] = [
+        theme::BG_PRIMARY,
+        theme::BORDER,
+        theme::BG_SELECTED,
+        theme::BG_HOVER,
+        theme::BG_SECONDARY_HOVER,
+        theme::BG_PRESSED,
+        theme::TILE_DESIGN_BG,
+        theme::TILE_BOARD_BG,
+        theme::TILE_DECK_BG,
+        theme::TILE_SPEC_BG,
+        theme::DEV_READY,
+        theme::ICON_BRAND_PRIMARY,
+    ];
+
+    fn assert_only_roles(shapes: &[egui::epaint::ClippedShape], what: &str) -> Vec<Color32> {
+        let painted = painted_colours(shapes);
+        let strays: Vec<_> = painted.iter().filter(|c| !TAB_BAR_ROLES.contains(c)).collect();
+        assert!(strays.is_empty(), "{what}: the tab bar paints colours outside its roles: {strays:?}");
+        painted
+    }
+
+    /// Paints the bar once to find the tab's close hit, then again with the pointer resting on it.
+    fn paint_tab_bar_hovering_close(app: &mut App, tab: usize) -> Vec<egui::epaint::ClippedShape> {
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let bar = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, TOP_TAB_BAR_HEIGHT));
+        let id = app.tabs.entries[tab].id;
+        let run = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            ctx.run_ui(raw, |ui| show_top_tab_bar_ui(ui, bar, app)).shapes
+        };
+        run(app, vec![]);
+        let close = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", format!("tab-close-hit-{id}"))))).expect("close hit");
+        let at = close.center();
+        run(app, vec![egui::Event::PointerMoved(at)]);
+        run(app, vec![egui::Event::PointerMoved(at)])
+    }
+
+    #[test]
+    fn tab_bar_paints_only_theme_roles() {
+        let mut app = make_app_with_doc("Design");
+        app.home = None;
+        let (_ctx, shapes) = paint_tab_bar(&mut app);
+        let painted = assert_only_roles(&shapes, "at rest");
+        assert!(
+            walk_rects(&shapes).iter().any(|r| (r.rect.height() - 26.0).abs() < 0.5 && r.fill == theme::BG_SELECTED),
+            "the active file tab fills with the selected role"
+        );
+        assert!(painted.contains(&theme::BG_PRIMARY), "the bar fills with the page role");
+        assert!(!painted.contains(&theme::DEV_READY), "outside Dev mode no tab shows the ready mark");
+
+        let mut dev = make_app_with_doc("Design");
+        dev.home = None;
+        dev.ui.dev_mode = true;
+        let (_ctx, shapes) = paint_tab_bar(&mut dev);
+        let painted = assert_only_roles(&shapes, "in Dev mode");
+        assert!(painted.contains(&theme::DEV_READY), "the active tab shows the ready mark in Dev mode");
+
+        let mut hovered = make_app_with_doc("Design");
+        hovered.home = None;
+        let shapes = paint_tab_bar_hovering_close(&mut hovered, 0);
+        let painted = assert_only_roles(&shapes, "hovering the close of the active tab");
+        assert!(painted.contains(&theme::BG_PRESSED), "the close plate of the selected tab takes its hover fill");
+
+        let mut two = make_app_with_doc("Design");
+        two.home = None;
+        two.open_new_design_tab();
+        let shapes = paint_tab_bar_hovering_close(&mut two, 0);
+        let painted = assert_only_roles(&shapes, "hovering the close of a resting tab");
+        assert!(painted.contains(&theme::BG_HOVER), "the hovered tab takes the hover fill");
+        assert!(painted.contains(&theme::BG_SECONDARY_HOVER), "the close plate of a hovered tab takes its hover fill");
+    }
+
+    #[test]
+    fn tab_close_hit_box_meets_the_target_floor() {
+        let mut app = make_app_with_doc("Design");
+        app.home = None;
+        let id = app.tabs.entries[0].id;
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, 900.0));
+        let bar = Rect::from_min_size(Pos2::ZERO, Vec2::new(1440.0, TOP_TAB_BAR_HEIGHT));
+        let raw = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+        let root = std::cell::Cell::new(egui::Id::NULL);
+        let _ = ctx.run_ui(raw, |ui| {
+            root.set(ui.id());
+            show_top_tab_bar_ui(ui, bar, &mut app)
+        });
+        let named = |name: String| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name))));
+        let hit = named(format!("tab-close-hit-{id}")).expect("close hit");
+        let visual = named(format!("tab-close-{id}")).expect("close visual");
+        let tab = named("project-tab-0".to_string()).expect("tab");
+        // The body is a widget the bar does not record under a name (a new name would change the layout gate's
+        // unnamed widgets), so its rect comes from the response egui kept for it.
+        let body = ctx.read_response(root.get().with(("project-tab", id))).expect("the tab body widget").rect;
+        assert!(hit.width() + 0.5 >= theme::TARGET_MIN && hit.height() + 0.5 >= theme::TARGET_MIN);
+        assert!((visual.width() - 18.0).abs() < 0.5 && (visual.height() - 18.0).abs() < 0.5, "the painted close stays 18");
+        assert!((hit.center() - visual.center()).length() < 0.5, "hit and visual share a centre");
+        assert!(hit.left() > tab.left() && hit.right() <= tab.right() + 0.5, "the close hit stays inside the tab");
+        assert!(hit.left() < visual.left(), "the hit extends past the painted close, so the tab body stops before it");
+        assert!(body.right() < hit.left(), "the tab body hit ends at {} before the close hit starts at {}", body.right(), hit.left());
+        assert!(body.left() == tab.left() && body.height() == tab.height(), "the body keeps the tab's left edge and height");
     }
 }

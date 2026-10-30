@@ -91,6 +91,58 @@ fn first_launch_shows_the_home_screen_with_the_getting_started_project() {
     assert_eq!(s.shell.title, theme::APP_TITLE);
 }
 
+fn painted_home(s: &Sim) -> (Vec<egui::epaint::RectShape>, Vec<(String, egui::Color32)>) {
+    fn walk(shape: &egui::Shape, rects: &mut Vec<egui::epaint::RectShape>, texts: &mut Vec<(String, egui::Color32)>) {
+        match shape {
+            egui::Shape::Rect(r) => rects.push(r.clone()),
+            egui::Shape::Text(t) => {
+                let color = t.override_text_color.or_else(|| t.galley.job.sections.first().map(|sec| sec.format.color)).unwrap_or(egui::Color32::TRANSPARENT);
+                texts.push((t.galley.text().to_string(), color));
+            }
+            egui::Shape::Vec(inner) => inner.iter().for_each(|s| walk(s, rects, texts)),
+            _ => {}
+        }
+    }
+    let mut rects = Vec::new();
+    let mut texts = Vec::new();
+    for clipped in &s.shapes {
+        walk(&clipped.shape, &mut rects, &mut texts);
+    }
+    (rects, texts)
+}
+
+#[test]
+fn home_chrome_uses_studio_theme_colours() {
+    let (s, _d) = home_sim();
+    let (rects, texts) = painted_home(&s);
+
+    let side = rects
+        .iter()
+        .filter(|r| (r.rect.width() - theme::HOME_SIDEBAR_W).abs() < 0.5 && r.rect.height() > 400.0 && r.fill.a() == 255)
+        .max_by(|a, b| a.rect.height().total_cmp(&b.rect.height()))
+        .expect("sidebar background");
+    assert_eq!(side.fill, theme::BG, "sidebar background");
+
+    let main = rects
+        .iter()
+        .filter(|r| r.rect.left() >= theme::HOME_SIDEBAR_W - 0.5 && r.rect.width() > 800.0 && r.rect.height() > 400.0 && r.fill.a() == 255)
+        .max_by(|a, b| (a.rect.width() * a.rect.height()).total_cmp(&(b.rect.width() * b.rect.height())))
+        .expect("main area background");
+    assert_eq!(main.fill, theme::BG, "main area background");
+
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
+    let card_fill = rects.iter().find(|r| r.rect == card && r.fill.a() == 255).expect("file card fill");
+    assert_eq!(card_fill.fill, theme::BG_SECONDARY, "file card fill");
+    let card_stroke = rects.iter().find(|r| r.rect == card && r.stroke.width > 0.0).expect("file card stroke");
+    assert_eq!(card_stroke.stroke.color, theme::BORDER, "file card stroke");
+
+    let button = s.rect_of("home-new-file");
+    let button_fill = rects.iter().find(|r| r.rect == button && r.fill.a() == 255).expect("+ Design file fill");
+    assert_eq!(button_fill.fill, theme::BG_BRAND, "+ Design file fill");
+    let label = texts.iter().find(|(text, _)| text == "+ Design file").expect("+ Design file label");
+    assert_eq!(label.1, theme::TEXT_ON_BRAND, "+ Design file label");
+}
+
 #[test]
 fn new_design_file_creates_and_opens_an_untitled_library_file() {
     let (mut s, _d) = home_sim();
@@ -217,7 +269,7 @@ fn right_click_menu_moves_a_file_to_the_trash_and_trash_restores_it() {
     assert!(s.app().home.as_ref().unwrap().menu.is_some(), "context menu open");
     // "Move to trash" is the 8th row, after three separators
     let pos = card.center();
-    let y = pos.y + theme::MENU_PADDING + 7.0 * theme::MENU_ITEM_HEIGHT + 3.0 * crate::widgets::menu::SEP_H + theme::MENU_ITEM_HEIGHT / 2.0;
+    let y = pos.y + theme::MENU_PADDING + 7.0 * theme::CONTROL_SM + 3.0 * crate::widgets::menu::SEP_H + theme::CONTROL_SM / 2.0;
     s.click(Pos2::new(pos.x + 60.0, y));
     s.frame(vec![]);
     let l = lib(&s);
@@ -876,9 +928,9 @@ fn ac10_help_open_starter_sample_creates_numbered_copies_in_current_project() {
 #[test]
 fn corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker() {
     let d = TmpDir::new();
-    *crate::home::TEST_STARTER_BYTES_OVERRIDE.lock().unwrap() = Some(b"{not valid json");
+    crate::home::TEST_STARTER_BYTES_OVERRIDE.with(|cell| cell.set(Some(b"{not valid json")));
     let s = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
-    *crate::home::TEST_STARTER_BYTES_OVERRIDE.lock().unwrap() = None;
+    crate::home::TEST_STARTER_BYTES_OVERRIDE.with(|cell| cell.set(None));
 
     let toast = s.app().toast.as_ref().expect("corrupt starter asset must show an error toast");
     assert!(toast.error);
@@ -886,4 +938,412 @@ fn corrupt_starter_asset_toasts_and_leaves_library_usable_without_marker() {
     assert!(s.app().lib.is_some(), "library remains usable after corrupt starter asset");
     assert!(!d.0.join(".starter-seeded").exists(), "no .starter-seeded marker written when starter asset fails");
     assert!(!d.0.join(".seeded").exists(), "no .seeded marker written when fresh starter asset fails");
+}
+
+fn near(a: f32, b: f32) -> bool {
+    (a - b).abs() < 0.5
+}
+
+#[test]
+fn home_header_buttons_are_button_sm() {
+    let (s, _d) = home_sim();
+    let head = theme::HOME_HEADER_H;
+    for name in ["home-new-file", "home-import"] {
+        let r = s.rect_of(name);
+        assert!(near(r.height(), theme::CONTROL_SM), "{name} height {} want {}", r.height(), theme::CONTROL_SM);
+        let side_top = s.rect_of("home-workspace-header").top() - 10.0;
+        let cy = r.center().y;
+        assert!(near(cy, side_top + head / 2.0), "{name} centre {cy} want {}", side_top + head / 2.0);
+    }
+}
+
+#[test]
+fn home_sidebar_nav_rows_follow_home_density() {
+    let (s, _d) = home_sim();
+    for name in ["home-recents", "home-trash"] {
+        let r = s.rect_of(name);
+        assert!(near(r.height(), theme::CONTROL_SM), "{name} height {} want {}", r.height(), theme::CONTROL_SM);
+    }
+}
+
+#[test]
+fn home_filter_bar_controls_are_button_sm() {
+    let (s, _d) = home_sim();
+    for name in ["home-filter", "home-sort", "home-view-grid"] {
+        let r = s.rect_of(name);
+        assert!(near(r.height(), theme::CONTROL_SM), "{name} height {} want {}", r.height(), theme::CONTROL_SM);
+    }
+    let filter = s.rect_of("home-filter");
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
+    let side_top = s.rect_of("home-workspace-header").top() - 10.0;
+    let content_top = side_top + theme::HOME_HEADER_H + theme::CONTROL_SM + 10.0 + 1.0;
+    assert!(near(filter.top(), side_top + theme::HOME_HEADER_H + theme::SPACE_FACT), "filter {}", filter.top());
+    assert!(near(card.top(), content_top + theme::HOME_PAD), "card {} content {}", card.top(), content_top);
+}
+
+fn home_sources(rel: &str) -> &'static str {
+    match rel {
+        "mod" => include_str!("../../home/mod.rs"),
+        "thumb" => include_str!("../../home/thumb.rs"),
+        "time" => include_str!("../../home/time.rs"),
+        "session" => include_str!("../../home/session.rs"),
+        _ => unreachable!(),
+    }
+}
+
+fn sites_without_texture_tints(src: &str) -> Vec<usize> {
+    let clean = super::chrome_census::clean_rust(src);
+    let lines: Vec<&str> = clean.split('\n').collect();
+    super::chrome_census::chrome_colour_sites(src).into_iter().filter(|line| !super::chrome_census::texture_tint_line(lines[line - 1])).collect()
+}
+
+#[test]
+fn home_sources_paint_no_chrome_colour_literals() {
+    assert_eq!(sites_without_texture_tints(home_sources("mod")), Vec::<usize>::new());
+    assert_eq!(super::chrome_census::chrome_colour_sites(home_sources("thumb")), Vec::<usize>::new());
+    assert_eq!(super::chrome_census::chrome_colour_sites(home_sources("time")), Vec::<usize>::new());
+    assert_eq!(super::chrome_census::chrome_colour_sites(home_sources("session")), Vec::<usize>::new());
+}
+
+#[test]
+fn home_nav_and_list_rows_use_list_row_look() {
+    use crate::widgets::kit::{self, State, Surface};
+    let (mut s, _d) = home_sim();
+    let selected = kit::row_look(State::Selected, Surface::Primary);
+    let (rects, texts) = painted_home(&s);
+    let nav = s.rect_of("home-recents");
+    let fill = rects.iter().find(|r| r.rect == nav && r.fill == selected.fill).expect("selected nav fill");
+    assert_eq!(fill.fill, theme::BG_SELECTED);
+    assert!(rects.iter().all(|r| r.rect != nav || r.stroke.color.a() == 0), "selected nav row has no stroke");
+    let label = texts.iter().find(|(t, _)| t == "Recents").expect("Recents label");
+    assert_eq!(label.1, selected.text);
+
+    click_rect(&mut s, "home-view-list");
+    s.frame(vec![]);
+    click_rect(&mut s, "home-card-DESIGN-OS Studio Starter");
+    s.frame(vec![]);
+    let (rects, texts) = painted_home(&s);
+    let row = s.rect_of("home-card-DESIGN-OS Studio Starter");
+    assert!(near(row.height(), theme::HOME_LIST_ROW_H), "list row stays {}", row.height());
+    let row_fill = rects.iter().find(|r| r.rect == row && r.fill == selected.fill).expect("selected list fill");
+    assert_eq!(row_fill.fill, theme::BG_SELECTED);
+    assert!(rects.iter().all(|r| r.rect != row || r.stroke.color.a() == 0), "selected list row has no stroke");
+    let name = texts.iter().find(|(t, _)| t == "DESIGN-OS Studio Starter").expect("list name");
+    assert_eq!(name.1, selected.text);
+}
+
+#[test]
+fn home_thumb_stage_uses_home_thumb_bg() {
+    let src = home_sources("mod");
+    assert!(src.contains("theme::HOME_THUMB_BG"));
+    assert!(!src.contains("let _ = theme::HOME_THUMB_BG"));
+}
+
+/// A library whose only file has lost its copy on disk, drawn on Home.
+fn missing_file_sim() -> (Sim, TmpDir) {
+    let d = TmpDir::new();
+    let l = Library::open(&d.0).unwrap();
+    let p = l.create_project("Getting started").unwrap();
+    let mut doc = Document::new("Missing draft");
+    doc.add_page("Page 1");
+    let entry = l.create_file(&p.id, None, "Missing draft", &doc).unwrap();
+    std::fs::write(d.0.join(".seeded"), b"1\n").unwrap();
+    std::fs::write(d.0.join(".starter-seeded"), b"1\n").unwrap();
+    let disk_path = crate::home::library_file_disk_path(&l, &p.id, &entry.id);
+    std::fs::remove_file(&disk_path).unwrap();
+    let s = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
+    (s, d)
+}
+
+/// The control drawn over `rect` is a secondary-destructive button at rest: its fill, its 1 px error border and its
+/// label, read from the shapes the frame painted.
+fn assert_paints_secondary_destructive(s: &Sim, rect: Rect, label: &str) {
+    use crate::widgets::kit::{self, Hierarchy, State};
+    let rest = kit::button_look(Hierarchy::SecondaryDestructive, State::Default);
+    assert_eq!(rest.border, theme::BORDER_ERROR_SUBTLE, "the kit's error border");
+    let (rects, texts) = painted_home(s);
+    assert!(rects.iter().any(|r| r.rect == rect && r.fill == rest.fill), "{label}: fill {:?} over {rect:?}", rest.fill);
+    assert!(
+        rects.iter().any(|r| r.rect == rect && r.stroke.width == 1.0 && r.stroke.color == theme::BORDER_ERROR_SUBTLE),
+        "{label}: no 1 px error border over {rect:?}"
+    );
+    assert!(texts.iter().any(|(t, c)| t == label && *c == theme::TEXT_ERROR), "{label}: label in the error text colour");
+}
+
+#[test]
+fn home_empty_trash_is_destructive_secondary() {
+    let (mut s, _d) = home_sim();
+    let id = file_id(&s, "DESIGN-OS Studio Starter");
+    crate::home::apply(&mut s.shell.app, Act::Trash(id));
+    s.frame(vec![]);
+    click_rect(&mut s, "home-trash");
+    s.frame(vec![]);
+    let btn = s.rect_of("home-empty-trash");
+    assert_paints_secondary_destructive(&s, btn, "Empty trash");
+}
+
+#[test]
+fn home_missing_file_uses_error_roles() {
+    let (mut s, _d) = missing_file_sim();
+    let (_rects, texts) = painted_home(&s);
+    let missing = texts.iter().find(|(t, _)| t.contains("File not found")).expect("missing copy");
+    assert_eq!(missing.1, theme::TEXT_ERROR);
+    let remove = s.rect_of("home-remove-Missing draft");
+    assert!(near(remove.height(), theme::CONTROL_SM), "remove height {}", remove.height());
+    assert_paints_secondary_destructive(&s, remove, "Remove");
+
+    click_rect(&mut s, "home-view-list");
+    s.frame(vec![]);
+    let remove = s.rect_of("home-remove-Missing draft");
+    assert_paints_secondary_destructive(&s, remove, "Remove");
+}
+
+#[test]
+fn home_has_no_figma_blue_or_ui3_palette() {
+    let src = home_sources("mod");
+    assert!(!src.contains("UI3_"));
+    assert!(!src.contains("PrimaryBlue"));
+    assert!(!src.contains("0x0D, 0x99, 0xFF"));
+}
+
+#[test]
+fn home_primary_button_is_brand_with_dark_label() {
+    let (s, _d) = home_sim();
+    let (rects, texts) = painted_home(&s);
+    let button = s.rect_of("home-new-file");
+    assert!(rects.iter().any(|r| r.rect == button && r.fill == theme::BG_BRAND), "+ Design file is painted on the brand fill");
+    assert!(texts.iter().any(|(t, c)| t == "+ Design file" && *c == theme::TEXT_ON_BRAND), "+ Design file label is the dark brand label");
+    let brand: Vec<Rect> = rects.iter().filter(|r| r.fill == theme::BG_BRAND && r.rect.left() >= theme::HOME_SIDEBAR_W).map(|r| r.rect).collect();
+    assert_eq!(brand, [button], "no other Home control takes the brand fill");
+    // the secondary header buttons stay on the page colour
+    let import = s.rect_of("home-import");
+    assert!(rects.iter().any(|r| r.rect == import && r.fill == theme::BG), "Import is a secondary button");
+}
+
+#[test]
+fn home_filter_menu_rows_follow_the_home_pitch() {
+    let (mut s, _d) = home_sim();
+    click_rect(&mut s, "home-filter");
+    s.frame(vec![]);
+    let first = s.rect_of("menu-row-0-0");
+    let second = s.rect_of("menu-row-0-1");
+    assert!(near(first.height(), theme::CONTROL_SM), "first row {} want {}", first.height(), theme::CONTROL_SM);
+    assert!(near(second.top() - first.top(), theme::CONTROL_SM), "row pitch {} want {}", second.top() - first.top(), theme::CONTROL_SM);
+}
+
+#[test]
+fn home_layout_regions_unchanged() {
+    let (s, _d) = home_sim();
+    let card = s.rect_of("home-card-DESIGN-OS Studio Starter");
+    assert!(near(card.left(), theme::HOME_SIDEBAR_W + theme::HOME_PAD), "card x {}", card.left());
+    assert!(near(card.width(), theme::HOME_CARD_W), "card w {}", card.width());
+    assert_eq!(theme::HOME_HEADER_H, 64.0);
+    assert_eq!(theme::HOME_SIDEBAR_W, 264.0);
+    let side_top = s.rect_of("home-workspace-header").top() - 10.0;
+    let filter = s.rect_of("home-filter");
+    assert!(near(filter.top(), side_top + theme::HOME_HEADER_H + theme::SPACE_FACT), "header stays 64");
+}
+
+/// Ten pixels a character and sixteen for "…", so a test can add widths up by hand.
+fn crumb_width(text: &str) -> f32 {
+    text.chars().map(|c| if c == '…' { 16.0 } else { 10.0 }).sum()
+}
+
+fn crumb_texts<'a>(shown: &'a [crate::home::Crumb<'a>]) -> Vec<&'a str> {
+    shown.iter().map(|c| &*c.text).collect()
+}
+
+#[test]
+fn fit_breadcrumb_shortened_last_segment_fits_its_budget() {
+    // 10 characters at 10 px each, 55 px available, ellipsis 16 px.
+    let out = crate::home::fit_breadcrumb(&["abcdefghij"], 24.0, 55.0, crumb_width);
+    let w = crumb_width(&out[0].text);
+    assert!(w <= 55.0, "{:?} is {w} px, budget 55", crumb_texts(&out));
+    assert_eq!(out[0].segment, Some(0));
+}
+
+#[test]
+fn fit_breadcrumb_drops_leading_segments_behind_an_ellipsis_before_it_shortens() {
+    let labels = ["Brand", "Marketing", "Logos"];
+    // 50 + 24 + 90 + 24 + 50 = 238 in full.
+    let all = crate::home::fit_breadcrumb(&labels, 24.0, 238.0, crumb_width);
+    assert_eq!(crumb_texts(&all), ["Brand", "Marketing", "Logos"]);
+    assert_eq!(all.iter().map(|c| c.segment).collect::<Vec<_>>(), [Some(0), Some(1), Some(2)]);
+    // "…" 16 + 24 + 90 + 24 + 50 = 204: the project goes first.
+    let lead = crate::home::fit_breadcrumb(&labels, 24.0, 204.0, crumb_width);
+    assert_eq!(crumb_texts(&lead), ["…", "Marketing", "Logos"]);
+    assert_eq!(lead.iter().map(|c| c.segment).collect::<Vec<_>>(), [None, Some(1), Some(2)]);
+    // "…" 16 + 24 + 50 = 90 keeps the last segment whole.
+    let last = crate::home::fit_breadcrumb(&labels, 24.0, 90.0, crumb_width);
+    assert_eq!(crumb_texts(&last), ["…", "Logos"]);
+    // 80 px: the last segment is cut to what the leading "…" leaves, "Lo…" = 36 px.
+    let cut = crate::home::fit_breadcrumb(&labels, 24.0, 80.0, crumb_width);
+    assert_eq!(crumb_texts(&cut), ["…", "Lo…"]);
+    assert_eq!(cut[1].segment, Some(2));
+}
+
+/// One frame at a window size other than the Sim's fixed 1600 x 1088. The rects it records stay readable until the
+/// next `Sim` frame, which draws at the fixed size again.
+fn frame_at(s: &mut Sim, size: Vec2) {
+    s.t += 0.05;
+    let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)), time: Some(s.t), ..Default::default() };
+    let ctx = s.ctx.clone();
+    let shell = &mut s.shell;
+    let out = ctx.run_ui(raw, |ui| shell.draw(ui));
+    s.shapes = out.shapes;
+}
+
+#[test]
+fn home_breadcrumb_clears_header_buttons_at_min_window() {
+    let (mut s, _d) = home_sim();
+    click_rect(&mut s, "home-project-Getting started");
+    let size = Vec2::new(theme::MIN_WINDOW.0, theme::MIN_WINDOW.1);
+    frame_at(&mut s, size);
+    frame_at(&mut s, size);
+    let crumb = s.rect_of("home-crumb-0");
+    let button = s.rect_of("home-new-folder");
+    assert!(crumb.right() + theme::SPACE_GROUP <= button.left() + 0.5, "crumb right {} button left {}", crumb.right(), button.left());
+}
+
+#[test]
+fn a_crumb_opens_its_own_segment_when_a_project_and_its_folders_share_a_name() {
+    let (mut s, _d) = home_sim();
+    let l = lib(&s);
+    let project = l.create_project("Brand").unwrap();
+    let outer = l.create_folder(&project.id, None, "Brand").unwrap();
+    let inner = l.create_folder(&project.id, Some(&outer.id), "Logos").unwrap();
+    s.shell.app.home.as_mut().unwrap().dirty = true;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    crate::home::apply(&mut s.shell.app, Act::Go(Section::Project(project.id.clone(), Some(inner.id.clone()))));
+    s.frame(vec![]);
+    s.frame(vec![]);
+    // Brand / Brand / Logos: the middle crumb is the folder, not the project that has the same name.
+    click_rect(&mut s, "home-crumb-1");
+    s.frame(vec![]);
+    assert_eq!(s.app().home.as_ref().unwrap().section, Section::Project(project.id.clone(), Some(outer.id.clone())));
+    // The project crumb still opens the project root.
+    click_rect(&mut s, "home-crumb-0");
+    s.frame(vec![]);
+    assert_eq!(s.app().home.as_ref().unwrap().section, Section::Project(project.id, None));
+}
+
+#[test]
+fn template_card_icon_tile_and_category_pill_keep_an_edge_on_the_banner() {
+    let (mut s, _d) = home_sim();
+    s.shell.app.home.as_mut().unwrap().section = Section::Templates;
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let card = s.rect_of("home-template-design");
+    let (rects, _) = painted_home(&s);
+    let edge = |r: &egui::epaint::RectShape| r.stroke.width == 1.0 && r.stroke.color == theme::BORDER;
+    let tile = Rect::from_min_size(card.min + Vec2::new(12.0, 14.0), Vec2::splat(28.0));
+    assert!(rects.iter().any(|r| r.rect == tile && edge(r)), "the icon tile has no 1 px BORDER stroke over {tile:?}");
+    let pill =
+        rects.iter().any(|r| near(r.rect.top(), card.top() + 16.0) && near(r.rect.height(), 20.0) && near(r.rect.right(), card.right() - 12.0) && edge(r));
+    assert!(pill, "the category pill has no 1 px BORDER stroke");
+}
+
+#[test]
+fn home_trash_row_clears_the_divider_above_it() {
+    let (s, _d) = home_sim();
+    let trash = s.rect_of("home-trash");
+    let (rects, _) = painted_home(&s);
+    let divider = rects
+        .iter()
+        .filter(|r| r.fill == theme::BORDER && near(r.rect.height(), theme::BORDER_WIDTH) && r.rect.width() > 200.0 && r.rect.bottom() <= trash.top() + 1.0)
+        .map(|r| r.rect)
+        .max_by(|a, b| a.top().total_cmp(&b.top()))
+        .expect("the hairline above the Trash row");
+    let gap = trash.top() - divider.bottom();
+    assert!(gap >= theme::SPACE_INLINE, "the Trash row starts {gap} px under its divider");
+}
+
+#[test]
+fn home_workspace_bell_is_centred_on_the_workspace_row() {
+    let (s, _d) = home_sim();
+    let bell = s.rect_of("home-notifications");
+    let header = s.rect_of("home-workspace-header");
+    assert!(near(bell.center().y, header.center().y), "bell centre {} header centre {}", bell.center().y, header.center().y);
+}
+
+#[test]
+fn board_badge_is_a_bordered_gray_badge() {
+    use crate::widgets::kit::{count_badge_look, Tone};
+    let d = TmpDir::new();
+    let l = Library::open(&d.0).unwrap();
+    let p = l.create_project("Getting started").unwrap();
+    let mut doc = Document::new("Sticky wall");
+    doc.kind = designos_doc::DocumentKind::Board;
+    doc.add_page("Page 1");
+    l.create_file(&p.id, None, "Sticky wall", &doc).unwrap();
+    std::fs::write(d.0.join(".seeded"), b"1\n").unwrap();
+    std::fs::write(d.0.join(".starter-seeded"), b"1\n").unwrap();
+    let mut s = Sim::with(Options { home: true, library: Some(d.0.clone()), ..Default::default() });
+    for _ in 0..4 {
+        s.frame(vec![]);
+    }
+    let card = s.rect_of("home-card-Sticky wall");
+    let look = count_badge_look(Tone::Neutral);
+    let (rects, texts) = painted_home(&s);
+    let top = card.top() + theme::HOME_THUMB_H - theme::SPACE_INLINE - theme::BADGE_SM;
+    let badge = rects
+        .iter()
+        .find(|r| {
+            near(r.rect.left(), card.left() + theme::SPACE_INLINE) && near(r.rect.top(), top) && near(r.rect.height(), theme::BADGE_SM) && r.fill == look.fill
+        })
+        .expect("the Board badge fill: gray, 22 px tall");
+    assert!(rects.iter().any(|r| r.rect == badge.rect && r.stroke.width == 1.0 && r.stroke.color == look.border), "the Board badge has the gray badge border");
+    assert!(texts.iter().any(|(t, c)| t == "Board" && *c == look.text), "the Board label is the gray badge text");
+}
+
+/// The kit's focus band: a 2 px `FOCUS_RING` stroke 4 px outside the control.
+fn focus_ring_around(s: &Sim, control: Rect) -> bool {
+    let outer = control.expand(theme::SPACE_FACT);
+    let (rects, _) = painted_home(s);
+    rects.iter().any(|r| {
+        r.stroke.color == theme::FOCUS_RING
+            && r.stroke.width == 2.0
+            && near(r.rect.min.x, outer.min.x)
+            && near(r.rect.min.y, outer.min.y)
+            && near(r.rect.max.x, outer.max.x)
+            && near(r.rect.max.y, outer.max.y)
+    })
+}
+
+/// Gives `id` the keyboard focus and draws it: the band appears around `control`, and not before.
+fn assert_focus_ring_follows(s: &mut Sim, id: egui::Id, control: Rect, what: &str) {
+    assert!(!focus_ring_around(s, control), "{what}: a focus ring before the control has the focus");
+    s.ctx.memory_mut(|m| m.request_focus(id));
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(focus_ring_around(s, control), "{what}: no focus ring around {control:?}");
+}
+
+#[test]
+fn home_secondary_controls_draw_the_focus_ring() {
+    let (mut s, _d) = home_sim();
+    for (key, name) in [("home-filter", "filter"), ("home-sort", "sort")] {
+        let control = s.rect_of(key);
+        assert_focus_ring_follows(&mut s, egui::Id::new(key), control, name);
+    }
+    let home = |s: &mut Sim, section| {
+        s.shell.app.home.as_mut().unwrap().section = section;
+        s.frame(vec![]);
+        s.frame(vec![]);
+    };
+    home(&mut s, Section::Templates);
+    let card = s.rect_of("home-template-design");
+    let cta = Rect::from_min_size(
+        Pos2::new(card.left() + theme::SPACE_GROUP, card.bottom() - theme::SPACE_GROUP - theme::CONTROL_SM),
+        Vec2::new(card.width() - theme::SPACE_GROUP * 2.0, theme::CONTROL_SM),
+    );
+    assert_focus_ring_follows(&mut s, egui::Id::new(("home-tpl-card", "home-template-design")), cta, "template card button");
+    home(&mut s, Section::Resources);
+    let hub = s.rect_of("home-resource-libraries");
+    assert_focus_ring_follows(&mut s, egui::Id::new(("home-res-b1", "home-resource-libraries")), hub, "hub card button");
+    home(&mut s, Section::AllProjects);
+    let project = s.app().home.as_ref().unwrap().snap.projects[0].clone();
+    let folder = s.rect_of(&format!("home-project-new-folder-{}", project.name));
+    assert_focus_ring_follows(&mut s, egui::Id::new(("home-proj-new-folder", &project.id)), folder, "+ Folder");
 }

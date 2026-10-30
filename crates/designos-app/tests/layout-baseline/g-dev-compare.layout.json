@@ -1,0 +1,5008 @@
+{
+  "schema": 1,
+  "case": "g-dev-compare",
+  "size": [
+    1600,
+    1088
+  ],
+  "scale": 1.0,
+  "regions": {
+    "canvas": [
+      290.0,
+      32.0,
+      1069.0,
+      1056.0
+    ],
+    "home": null,
+    "left_panel": [
+      49.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "notes": null,
+    "present": null,
+    "rail": [
+      0.0,
+      32.0,
+      49.0,
+      1056.0
+    ],
+    "right_panel": [
+      1359.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "tab_bar": [
+      0.0,
+      0.0,
+      1600.0,
+      32.0
+    ],
+    "title_bar": null,
+    "variables_full": null
+  },
+  "overlays": [
+    {
+      "name": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        1600.0,
+        1088.0
+      ]
+    }
+  ],
+  "named": {
+    "annot-add": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1528.0,
+        248.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-\"annot-add\"": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1528.0,
+        248.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-\"code-connect-terminal\"": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        711.0,
+        209.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "btn-\"compare-done\"": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        912.0,
+        812.0,
+        80.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "btn-\"copy-code\"": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1528.0,
+        1043.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-\"dev-add-redlines\"": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1496.0,
+        754.0,
+        88.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "btn-\"link-new\"": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1528.0,
+        313.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-\"mcp-copy-prompt\"": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        574.0,
+        209.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 0)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83404.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 1)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83432.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 10)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83684.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 11)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83712.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 12)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83740.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 13)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83768.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 14)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83796.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 15)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83824.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 16)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83852.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 17)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83880.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 18)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83908.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 19)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83936.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 2)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83460.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 20)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83964.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 21)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83992.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 22)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84020.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 23)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84048.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 24)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84076.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 25)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84104.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 26)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84132.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 27)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84160.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 28)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84188.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 29)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84216.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 3)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83488.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 30)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84244.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 31)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84272.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 32)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84300.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 33)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84328.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 34)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84356.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 35)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84384.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 36)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84412.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 37)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84440.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 38)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84468.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 39)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84496.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 4)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83516.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 40)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84524.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 41)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84552.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 42)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        84580.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 5)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83544.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 6)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83572.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 7)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83600.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 8)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83628.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"asset\", 9)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1508.0,
+        83656.0,
+        76.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"dev-remark\", 0)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1503.0,
+        203.0,
+        81.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 0)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        36856.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 1)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        40452.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 10)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        43976.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 11)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        44480.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 12)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46156.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 13)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50672.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 14)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        51040.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 15)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        51340.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 16)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        55376.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 17)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        56732.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 18)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        56888.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 19)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60284.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 2)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        40684.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 20)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60440.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 21)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60672.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 22)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        61244.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 23)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        61400.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 24)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        62476.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 25)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64272.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 26)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64572.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 27)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65076.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 28)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65308.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 29)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65464.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 3)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        41256.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 30)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65696.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 31)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65928.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 32)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66160.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 33)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67072.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 34)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68528.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 35)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68924.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 36)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70924.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 37)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        71320.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 38)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73156.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 39)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73864.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 4)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        41892.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 40)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        74540.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 41)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        74696.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 42)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        74852.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 43)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        75008.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 44)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        75164.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 45)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        75320.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 46)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        75636.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 47)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        75952.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 48)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        76268.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 49)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        76504.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 5)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42532.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 50)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        76740.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 51)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        76976.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 52)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78024.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 53)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78868.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 54)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        79384.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 55)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        79616.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 56)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        79772.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 57)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        79928.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 58)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80084.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 59)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80384.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 6)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42832.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 60)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80616.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 61)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80848.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 62)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81148.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 63)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81380.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 64)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81816.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 7)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        43228.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 8)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        43464.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "btn-(\"token-mode-previews\", 9)": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        43700.0,
+        209.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-add-redlines": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1496.0,
+        754.0,
+        88.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "dev-code-block": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        1067.0,
+        209.0,
+        35480.0
+      ],
+      "count": 1
+    },
+    "dev-code-connect": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        609.0,
+        209.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "dev-code-thumb": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1383.0,
+        36539.0,
+        24.0,
+        4.0
+      ],
+      "count": 1
+    },
+    "dev-code-thumb-grab": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1383.0,
+        36523.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-color-format": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1504.0,
+        81861.0,
+        80.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-compare": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        203.0,
+        120.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "dev-copy-code": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1528.0,
+        1043.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81905.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81949.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-10": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82505.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-11": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82569.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-12": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82633.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-13": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82697.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-14": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82761.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-15": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82825.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-16": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82869.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-17": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82933.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-18": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82997.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-19": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        83061.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82013.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-20": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        83125.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-21": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        83189.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-22": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        83253.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-23": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        83317.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82077.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82141.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82205.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82269.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82333.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82397.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-copy-color-9": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        82441.0,
+        209.0,
+        44.0
+      ],
+      "count": 1
+    },
+    "dev-inspect-code": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1548.0,
+        127.0,
+        20.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "dev-inspect-link": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1526.0,
+        127.0,
+        20.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "dev-inspect-more": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1568.0,
+        127.0,
+        20.0,
+        20.0
+      ],
+      "count": 1
+    },
+    "dev-item-12873": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        49.0,
+        335.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "dev-lang": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1414.0,
+        1043.0,
+        108.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-left-tab-layers": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        190.0,
+        271.0,
+        55.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-left-tab-ready": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        65.0,
+        271.0,
+        121.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "dev-mcp-btn": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        370.0,
+        209.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "dev-mcp-prompt": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        478.0,
+        209.0,
+        88.0
+      ],
+      "count": 1
+    },
+    "dev-mode-toggle": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        889.0,
+        1036.0,
+        36.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "dev-ready-toggle": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        49.0,
+        209.0,
+        240.0,
+        52.0
+      ],
+      "count": 1
+    },
+    "dev-recenter": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        741.0,
+        992.0,
+        118.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        36652.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-11": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        44072.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-13": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46252.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-14": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50768.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-15": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        51136.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        40548.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-21": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60536.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-22": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60768.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-25": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        62572.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-26": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64368.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-27": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64668.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-28": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65172.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        40780.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-30": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65560.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-31": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65792.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-32": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66024.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-33": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66256.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-34": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67168.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-36": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69020.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-39": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73252.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        41988.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-52": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77072.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-53": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78120.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-55": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        79480.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-59": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80180.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42628.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-60": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80480.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-61": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80712.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-62": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80944.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-63": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81244.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-ref-64": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81476.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-0-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        36740.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-0-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        36808.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        44160.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        44228.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        44296.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        44364.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-11-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        44432.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46340.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46408.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-10": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47020.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-11": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47088.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-12": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47156.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-13": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47224.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-14": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47292.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-15": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47360.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-16": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47428.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-17": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47496.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-18": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47564.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-19": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47632.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46476.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-20": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47700.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-21": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47768.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-22": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47836.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-23": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47904.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-24": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        47972.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-25": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48040.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-26": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48108.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-27": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48176.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-28": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48244.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-29": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48312.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46544.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-30": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48380.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-31": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48448.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-32": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48516.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-33": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48584.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-34": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48652.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-35": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48720.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-36": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48788.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-37": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48856.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-38": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48924.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-39": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        48992.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46612.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-40": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49060.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-41": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49128.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-42": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49196.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-43": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49264.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-44": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49332.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-45": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49400.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-46": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49468.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-47": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49536.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-48": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49604.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-49": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49672.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46680.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-50": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49740.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-51": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49808.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-52": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49876.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-53": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        49944.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-54": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50012.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-55": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50080.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-56": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50148.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-57": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50216.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-58": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50284.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-59": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50352.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46748.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-60": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50420.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-61": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50488.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-62": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50556.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-63": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50624.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46816.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46884.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-13-9": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        46952.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-14-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50856.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-14-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50924.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-14-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        50992.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-15-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        51224.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-15-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        51292.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-2-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        40636.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-21-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60624.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60856.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60924.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        60992.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        61060.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        61128.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-22-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        61196.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        62660.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        62728.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-10": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63340.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-11": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63408.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-12": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63476.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-13": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63544.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-14": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63612.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-15": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63680.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-16": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63748.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-17": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63816.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-18": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63884.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-19": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63952.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        62796.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-20": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64020.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-21": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64088.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-22": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64156.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-23": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64224.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        62864.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        62932.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63000.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63068.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63136.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63204.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-25-9": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        63272.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-26-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64456.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-26-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64524.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64756.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-12": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64960.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-16": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65028.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64824.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-27-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        64892.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-28-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65260.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        40868.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        40936.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        41004.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        41072.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        41140.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-3-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        41208.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-30-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65648.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-31-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        65880.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-32-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66112.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66344.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66412.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-10": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67024.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66480.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66548.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66616.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66684.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66752.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66820.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66888.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-33-9": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        66956.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67256.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-10": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67800.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-11": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67868.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-12": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67936.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-13": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68004.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-15": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68072.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-17": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68140.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-19": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68208.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-21": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68276.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-23": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68344.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-25": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68412.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-27": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        68480.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67324.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67392.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67460.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67528.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67596.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67664.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-34-9": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        67732.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69108.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69176.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-10": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69788.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-11": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69856.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-12": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69924.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-13": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69992.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-14": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70060.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-15": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70128.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-16": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70196.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-17": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70264.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-18": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70332.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-19": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70400.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69244.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-20": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70468.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-21": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70536.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-22": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70604.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-23": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70672.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-24": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70740.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-25": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70808.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-26": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        70876.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69312.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69380.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69448.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69516.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69584.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69652.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-36-9": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        69720.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73340.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73408.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73476.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73544.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73612.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73680.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73748.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-39-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        73816.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42076.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-12": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42280.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-16": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42348.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-20": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42416.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-24": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42484.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42144.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-5-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42212.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77160.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77228.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-10": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77840.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-11": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77908.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-12": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77976.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77296.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77364.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77432.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77500.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77568.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77636.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77704.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-52-9": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        77772.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78208.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78276.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78344.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78412.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-4": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78480.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-5": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78548.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-6": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78616.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-7": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78684.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-8": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78752.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-53-9": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        78820.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-55-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        79568.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-59-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80268.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-59-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80336.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-6-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42716.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-6-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        42784.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-60-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80568.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-61-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        80800.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-62-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81032.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-62-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81100.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-63-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81332.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-64-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81564.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-64-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81632.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-64-2": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81700.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "dev-token-value-64-3": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        81768.0,
+        209.0,
+        42.0
+      ],
+      "count": 1
+    },
+    "file-header": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        57.0,
+        40.0,
+        193.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "help-button": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1566.0,
+        1056.0,
+        28.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "left-dev-mark-ready": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        59.0,
+        234.0,
+        220.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "left-dev-ready-section": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        49.0,
+        209.0,
+        240.0,
+        52.0
+      ],
+      "count": 1
+    },
+    "left-header-subtitle": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        63.0,
+        71.0,
+        124.5,
+        18.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-handle": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        287.0,
+        32.0,
+        6.0,
+        1056.0
+      ],
+      "count": 1
+    },
+    "link-new": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1528.0,
+        313.0,
+        56.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "pages-layers-separator": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        49.0,
+        205.0,
+        240.0,
+        6.0
+      ],
+      "count": 1
+    },
+    "pages-list": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        49.0,
+        137.0,
+        240.0,
+        64.0
+      ],
+      "count": 1
+    },
+    "pages-toggle": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        49.0,
+        97.0,
+        240.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "present-button": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1498.0,
+        40.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "present-chevron": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1522.0,
+        40.0,
+        16.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "project-tab-0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "project-tab-id-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "rail-Agents": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        144.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Assets": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        200.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-File": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        88.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Plugins": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        384.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Tools": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        256.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Variables": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        328.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-help": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        8.0,
+        1048.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "rail-menu": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        8.0,
+        40.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "right-tab-Inspect": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1368.0,
+        80.0,
+        59.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-tab-Plugins": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1431.0,
+        80.0,
+        57.25,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-avatar": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1367.0,
+        40.0,
+        38.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-share": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "scrollbar-track": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1182.0,
+        640.0,
+        8.0,
+        160.0
+      ],
+      "count": 2
+    },
+    "share-button": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-bar-brand": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "tab-bar-home": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        8.0,
+        4.0,
+        72.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-bar-new": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        337.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-close-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        310.0,
+        7.0,
+        18.0,
+        18.0
+      ],
+      "count": 1
+    },
+    "tab-unsaved-dot-1": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        301.0,
+        13.0,
+        6.0,
+        6.0
+      ],
+      "count": 1
+    }
+  },
+  "unnamed": [
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        1600.0,
+        1088.0
+      ],
+      "sense": [
+        "click"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        0.0,
+        0.0,
+        1600.0,
+        1088.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        92.0,
+        3.0,
+        216.0,
+        26.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        290.0,
+        32.0,
+        1069.0,
+        1056.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        253.0,
+        44.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1537.0,
+        80.0,
+        55.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        229.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        257.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1592.0,
+        113.0,
+        8.0,
+        939.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        57.0,
+        137.0,
+        224.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        57.0,
+        169.0,
+        224.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1166.0,
+        238.0,
+        28.0,
+        28.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        426.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        450.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        776.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        800.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1000.0,
+        812.0,
+        190.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        824.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1375.0,
+        848.0,
+        209.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        667.0,
+        1028.0,
+        266.0,
+        48.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        675.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        715.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        755.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        795.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        835.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1414.0,
+        1043.0,
+        108.0,
+        9.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1528.0,
+        1043.0,
+        56.0,
+        9.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    }
+  ],
+  "scroll": []
+}

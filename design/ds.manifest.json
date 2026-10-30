@@ -169,17 +169,1001 @@
       "reason": "the UI monospace role is the bundled Roboto Mono (principles P5)",
       "to": "Roboto Mono, SFMono-Regular, Menlo, monospace",
       "ts": "2026-10-18T15:30:17.533Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "56px",
+      "kind": "change-token",
+      "path": "spacing.rail-width",
+      "reason": "Rail width 48px (#1106), applied through the sealed path (#1164)",
+      "to": "48px",
+      "ts": "2026-10-28T16:09:20.491Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#2b1d16",
+      "kind": "change-token",
+      "path": "colors.accent",
+      "reason": "Studio dark chrome palette: brand-tinted text-selection fill (Orange-950)",
+      "to": "#431407",
+      "ts": "2026-10-28T17:11:18.310Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#ff9e66",
+      "kind": "change-token",
+      "path": "colors.accent-foreground",
+      "reason": "Studio dark chrome palette: accent text (Orange-500, R8.3)",
+      "to": "#f97316",
+      "ts": "2026-10-28T17:11:18.511Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#18181b",
+      "kind": "change-token",
+      "path": "colors.bg",
+      "reason": "Studio dark chrome palette: chrome base",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:18.714Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#2e2e36",
+      "kind": "change-token",
+      "path": "colors.bg-active",
+      "reason": "Studio dark chrome palette: selected row fill (R8.2)",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:18.950Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.bg-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:19.077Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#232329",
+      "kind": "change-token",
+      "path": "colors.bg-hover",
+      "reason": "Studio dark chrome palette: hover on the chrome base",
+      "to": "#171717",
+      "ts": "2026-10-28T17:11:19.255Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#27272a",
+      "kind": "change-token",
+      "path": "colors.border",
+      "reason": "Studio dark chrome palette: hairline between regions",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:19.531Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#e36323",
+      "kind": "change-token",
+      "path": "colors.border-focus",
+      "reason": "Studio dark chrome palette: focused-field and selected-card outline (Orange-400)",
+      "to": "#fb923c",
+      "ts": "2026-10-28T17:11:19.716Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#3f3f46",
+      "kind": "change-token",
+      "path": "colors.border-strong",
+      "reason": "Studio dark chrome palette: 1px resting control boundary (E-2)",
+      "to": "#404040",
+      "ts": "2026-10-28T17:11:19.972Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#222226",
+      "kind": "change-token",
+      "path": "colors.border-subtle",
+      "reason": "Studio dark chrome palette: subtlest divider",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:20.124Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#121215",
+      "kind": "change-token",
+      "path": "colors.canvas",
+      "reason": "Studio dark chrome palette: chrome around the canvas",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:20.302Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.canvas-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:20.478Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#1e1e22",
+      "kind": "change-token",
+      "path": "colors.card",
+      "reason": "Studio dark chrome palette: card fill",
+      "to": "#171717",
+      "ts": "2026-10-28T17:11:20.665Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.card-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:20.870Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.component-foreground",
+      "reason": "Studio dark chrome palette: dark label on the component cyan (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:21.021Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f24822",
+      "kind": "change-token",
+      "path": "colors.destructive",
+      "reason": "Studio dark chrome palette: destructive button fill",
+      "to": "#dc2626",
+      "ts": "2026-10-28T17:11:21.281Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.destructive-foreground",
+      "reason": "Studio dark chrome palette: label on the destructive fill",
+      "to": "#ffffff",
+      "ts": "2026-10-28T17:11:21.542Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.info-foreground",
+      "reason": "Studio dark chrome palette: dark label (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:21.795Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#121215",
+      "kind": "change-token",
+      "path": "colors.input",
+      "reason": "Studio dark chrome palette: text field fill (C-F)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:22.052Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#222226",
+      "kind": "change-token",
+      "path": "colors.muted",
+      "reason": "Studio dark chrome palette: muted surface",
+      "to": "#171717",
+      "ts": "2026-10-28T17:11:22.512Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#a8a8b2",
+      "kind": "change-token",
+      "path": "colors.muted-foreground",
+      "reason": "Studio dark chrome palette: tertiary text",
+      "to": "#a3a3a3",
+      "ts": "2026-10-28T17:11:22.774Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#6e6e77",
+      "kind": "change-token",
+      "path": "colors.neutral",
+      "reason": "Studio dark chrome palette: neutral status glyph (Neutral-500)",
+      "to": "#737373",
+      "ts": "2026-10-28T17:11:22.931Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.neutral-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:23.209Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#18181b",
+      "kind": "change-token",
+      "path": "colors.popover",
+      "reason": "Studio dark chrome palette: menu and popover fill",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:23.538Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.popover-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:23.876Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#ff9e66",
+      "kind": "change-token",
+      "path": "colors.primary-active",
+      "reason": "Studio dark chrome palette: pressed brand (Orange-600)",
+      "to": "#ea580c",
+      "ts": "2026-10-28T17:11:24.120Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.primary-foreground",
+      "reason": "Studio dark chrome palette: dark label on Studio orange (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:24.559Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f07436",
+      "kind": "change-token",
+      "path": "colors.primary-hover",
+      "reason": "Studio dark chrome palette: brand hover (Orange-500)",
+      "to": "#f97316",
+      "ts": "2026-10-28T17:11:24.742Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#e36323",
+      "kind": "change-token",
+      "path": "colors.ring",
+      "reason": "Studio dark chrome palette: focus ring (R4, Orange-500)",
+      "to": "#f97316",
+      "ts": "2026-10-28T17:11:25.079Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#27272a",
+      "kind": "change-token",
+      "path": "colors.secondary",
+      "reason": "Studio dark chrome palette: secondary button fill",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:25.487Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#3f3f46",
+      "kind": "change-token",
+      "path": "colors.secondary-active",
+      "reason": "Studio dark chrome palette: secondary button pressed",
+      "to": "#404040",
+      "ts": "2026-10-28T17:11:25.766Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.secondary-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:26.168Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#2e2e34",
+      "kind": "change-token",
+      "path": "colors.secondary-hover",
+      "reason": "Studio dark chrome palette: secondary button hover",
+      "to": "#404040",
+      "ts": "2026-10-28T17:11:26.444Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#14ae5c",
+      "kind": "change-token",
+      "path": "colors.success",
+      "reason": "Studio dark chrome palette: success status",
+      "to": "#22c55e",
+      "ts": "2026-10-28T17:11:26.822Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.success-foreground",
+      "reason": "Studio dark chrome palette: dark label (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:27.042Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#1e1e22",
+      "kind": "change-token",
+      "path": "colors.surface",
+      "reason": "Studio dark chrome palette: surface fill",
+      "to": "#171717",
+      "ts": "2026-10-28T17:11:27.266Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#2e2e36",
+      "kind": "change-token",
+      "path": "colors.surface-active",
+      "reason": "Studio dark chrome palette: selected surface (R8.2)",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:27.551Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f5f5f7",
+      "kind": "change-token",
+      "path": "colors.surface-foreground",
+      "reason": "Studio dark chrome palette: primary text",
+      "to": "#fafafa",
+      "ts": "2026-10-28T17:11:27.802Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#232329",
+      "kind": "change-token",
+      "path": "colors.surface-hover",
+      "reason": "Studio dark chrome palette: hover on a surface",
+      "to": "#262626",
+      "ts": "2026-10-28T17:11:27.953Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#f59e0b",
+      "kind": "change-token",
+      "path": "colors.warning",
+      "reason": "Studio dark chrome palette: warning status",
+      "to": "#eab308",
+      "ts": "2026-10-28T17:11:28.077Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "#09090b",
+      "kind": "change-token",
+      "path": "colors.warning-foreground",
+      "reason": "Studio dark chrome palette: dark label (R4)",
+      "to": "#0a0a0a",
+      "ts": "2026-10-28T17:11:28.165Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Primary",
+      "ts": "2026-10-28T17:11:28.359Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Secondary",
+      "ts": "2026-10-28T17:11:28.546Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "10px",
+      "kind": "change-token",
+      "path": "typography.font-size-caption",
+      "reason": "Studio scale: 12px caption and label size (R5)",
+      "to": "12px",
+      "ts": "2026-10-28T18:04:18.084Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "11px",
+      "kind": "change-token",
+      "path": "typography.font-size-body",
+      "reason": "Studio scale: 12px row and body size (R5)",
+      "to": "12px",
+      "ts": "2026-10-28T18:04:18.214Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "12px",
+      "kind": "change-token",
+      "path": "typography.font-size-title",
+      "reason": "Studio scale: 14px Home and dialog text (R5)",
+      "to": "14px",
+      "ts": "2026-10-28T18:04:18.328Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "13px",
+      "kind": "change-token",
+      "path": "typography.font-size-heading",
+      "reason": "Studio scale: 14px panel title (R5)",
+      "to": "14px",
+      "ts": "2026-10-28T18:04:18.436Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "2px",
+      "kind": "change-token",
+      "path": "radius.radius-xs",
+      "reason": "Studio scale: 4px radius step",
+      "to": "4px",
+      "ts": "2026-10-28T18:04:18.549Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "4px",
+      "kind": "change-token",
+      "path": "radius.radius-sm",
+      "reason": "Studio scale: 6px radius step",
+      "to": "6px",
+      "ts": "2026-10-28T18:04:18.667Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "6px",
+      "kind": "change-token",
+      "path": "radius.radius-md",
+      "reason": "Studio scale: 8px control radius (R5)",
+      "to": "8px",
+      "ts": "2026-10-28T18:04:18.788Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "8px",
+      "kind": "change-token",
+      "path": "radius.radius-lg",
+      "reason": "Studio scale: 10px radius step",
+      "to": "10px",
+      "ts": "2026-10-28T18:04:18.916Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "10px",
+      "kind": "change-token",
+      "path": "radius.radius-xl",
+      "reason": "Studio scale: 12px card radius",
+      "to": "12px",
+      "ts": "2026-10-28T18:04:19.036Z"
+    },
+    {
+      "by": "ui ds change-token",
+      "from": "13px",
+      "kind": "change-token",
+      "path": "radius.radius-pill",
+      "reason": "Studio scale: full pill radius",
+      "to": "9999px",
+      "ts": "2026-10-28T18:04:19.128Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Divider/Hairline",
+      "ts": "2026-10-29T00:57:00.818Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Separator",
+      "ts": "2026-10-29T00:57:00.933Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Shortcut",
+      "ts": "2026-10-29T00:57:01.039Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Focus/Ring",
+      "ts": "2026-10-29T00:57:01.146Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Icon/Glyph",
+      "ts": "2026-10-29T00:57:01.308Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Status/Dot",
+      "ts": "2026-10-29T00:57:01.415Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Primary",
+      "ts": "2026-10-29T00:57:01.503Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Secondary",
+      "ts": "2026-10-29T00:57:01.656Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Tertiary",
+      "ts": "2026-10-29T00:57:01.788Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Destructive",
+      "ts": "2026-10-29T00:57:01.892Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/SecondaryDestructive",
+      "ts": "2026-10-29T00:57:01.981Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Icon",
+      "ts": "2026-10-29T00:57:02.085Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Tool",
+      "ts": "2026-10-29T00:57:02.204Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Close",
+      "ts": "2026-10-29T00:57:02.332Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/Field",
+      "ts": "2026-10-29T00:57:02.456Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/PropertyField",
+      "ts": "2026-10-29T00:57:02.570Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/Search",
+      "ts": "2026-10-29T00:57:02.704Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Select/Trigger",
+      "ts": "2026-10-29T00:57:02.793Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Item",
+      "ts": "2026-10-29T00:57:02.948Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tabs/Pill",
+      "ts": "2026-10-29T00:57:03.092Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Toggle/Switch",
+      "ts": "2026-10-29T00:57:03.180Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Checkbox/Box",
+      "ts": "2026-10-29T00:57:03.363Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Radio/Card",
+      "ts": "2026-10-29T00:57:03.448Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Badge/StatusCount",
+      "ts": "2026-10-29T00:57:03.609Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tag/Chip",
+      "ts": "2026-10-29T00:57:03.702Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tooltip/Default",
+      "ts": "2026-10-29T00:57:03.835Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tree/Row",
+      "ts": "2026-10-29T00:57:03.905Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "List/Row",
+      "ts": "2026-10-29T00:57:04.033Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Swatch/Color",
+      "ts": "2026-10-29T00:57:04.117Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Slider/Handle",
+      "ts": "2026-10-29T00:57:04.209Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Progress/Bar",
+      "ts": "2026-10-29T00:57:04.351Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Loading/Inline",
+      "ts": "2026-10-29T00:57:04.479Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Icon/Tile",
+      "ts": "2026-10-29T00:57:04.621Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Panel",
+      "ts": "2026-10-29T00:57:04.713Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Menu/Context",
+      "ts": "2026-10-29T00:57:04.878Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tabs/Segmented",
+      "ts": "2026-10-29T00:57:05.002Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/Header",
+      "ts": "2026-10-29T00:57:05.145Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Section/Header",
+      "ts": "2026-10-29T00:57:05.244Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Dialog/Modal",
+      "ts": "2026-10-29T00:57:05.375Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Popover/Panel",
+      "ts": "2026-10-29T00:57:05.457Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Dialog/CommandPalette",
+      "ts": "2026-10-29T00:57:05.595Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Toast/Default",
+      "ts": "2026-10-29T00:57:05.685Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "EmptyState/Default",
+      "ts": "2026-10-29T00:57:05.834Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/FileThumbnail",
+      "ts": "2026-10-29T00:57:05.957Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/StarterTemplate",
+      "ts": "2026-10-29T00:57:06.072Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/Library",
+      "ts": "2026-10-29T00:57:06.172Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/Approval",
+      "ts": "2026-10-29T00:57:06.260Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/AgentTurn",
+      "ts": "2026-10-29T00:57:06.330Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Banner/Inline",
+      "ts": "2026-10-29T00:57:06.437Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Table/Data",
+      "ts": "2026-10-29T00:57:06.537Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Code/Block",
+      "ts": "2026-10-29T00:57:06.664Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/Composer",
+      "ts": "2026-10-29T00:57:06.805Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Popover/ColorPicker",
+      "ts": "2026-10-29T00:57:06.883Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Bar/Contextual",
+      "ts": "2026-10-29T00:57:07.017Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/TitleBar",
+      "ts": "2026-10-29T00:57:07.139Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/TopTabBar",
+      "ts": "2026-10-29T00:57:07.223Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/LeftRail",
+      "ts": "2026-10-29T00:57:07.323Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/BottomCanvasToolbar",
+      "ts": "2026-10-29T00:57:07.465Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/Rulers",
+      "ts": "2026-10-29T00:57:07.573Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/LeftLayers",
+      "ts": "2026-10-29T00:57:07.694Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/RightInspector",
+      "ts": "2026-10-29T00:57:07.839Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/DevInspect",
+      "ts": "2026-10-29T00:57:07.935Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/AgentTerminal",
+      "ts": "2026-10-29T00:57:08.045Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/SpecReader",
+      "ts": "2026-10-29T00:57:08.198Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/HomeSidebar",
+      "ts": "2026-10-29T00:57:08.295Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/HomeMain",
+      "ts": "2026-10-29T00:57:08.392Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/Assets",
+      "ts": "2026-10-29T00:57:08.499Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/CheckDesigns",
+      "ts": "2026-10-29T00:57:08.613Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/Comments",
+      "ts": "2026-10-29T00:57:08.677Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/VersionHistory",
+      "ts": "2026-10-29T00:57:08.854Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/FindReplace",
+      "ts": "2026-10-29T00:57:08.947Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Window/Variables",
+      "ts": "2026-10-29T00:57:09.095Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Bar/Presentation",
+      "ts": "2026-10-29T00:57:09.211Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/Home",
+      "ts": "2026-10-29T00:57:09.309Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/EditorDesign",
+      "ts": "2026-10-29T00:57:09.437Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/EditorPrototype",
+      "ts": "2026-10-29T00:57:09.567Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/EditorDev",
+      "ts": "2026-10-29T00:57:09.659Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Screen/Present",
+      "ts": "2026-10-29T00:57:09.740Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Destructive",
+      "ts": "2026-10-29T01:26:13.595Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/SecondaryDestructive",
+      "ts": "2026-10-29T01:26:13.649Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Badge/StatusCount",
+      "ts": "2026-10-29T01:26:13.720Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "List/Row",
+      "ts": "2026-10-29T01:26:13.786Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Icon/Tile",
+      "ts": "2026-10-29T01:26:13.858Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Button/Destructive",
+      "ts": "2026-10-29T08:18:03.275Z"
     }
   ],
-  "compiledHash": "sha256-1izY1I1zaVGRQzwiik2vdeZJYcwzWuxTWW-GHSBOnVE",
+  "compiledHash": "sha256-SkbvSo4GPRiDbsraF1SR2KVmOozT63OQNtWEiJgr-DY",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 28,
+  "generation": 166,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {
     "family": "imported",
     "slug": "imported"
   },
-  "registryHash": "sha256-7mJXl5tpjeyhvOo7ZbEi35vlj3r4ujTpnwUEAd0E1R4",
+  "registryHash": "sha256-yRR-pyuXMw_1qEIfg_H-fjbVZGgilz4qGvu2LcN-9bM",
   "version": "1.0.0"
 }

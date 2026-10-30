@@ -4,9 +4,9 @@
 use super::Section;
 use crate::app::App;
 use crate::theme;
-use crate::widgets::{self, menu_panel};
+use crate::widgets::{self, kit};
 use designos_library::Library;
-use egui::{Align2, Color32, Context, Id, Key, Modifiers, Order, Pos2, Rect, Sense, Vec2};
+use egui::{Align2, Context, Id, Key, Modifiers, Order, Pos2, Rect, Sense, Vec2};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -74,9 +74,9 @@ pub struct Dialog {
 }
 
 const W: f32 = 440.0;
-const PAD: f32 = 20.0;
-const BTN_H: f32 = 32.0;
-const ROW_H: f32 = 28.0;
+const PAD: f32 = theme::INSET_MODAL;
+const BTN_H: f32 = theme::CONTROL_MD;
+const ROW_H: f32 = theme::CONTROL_SM;
 const MAX_CHOICES: usize = 8;
 
 impl Dialog {
@@ -243,7 +243,7 @@ impl App {
 pub fn show(app: &mut App, ctx: &Context) {
     let Some(mut d) = app.dialog.take() else { return };
     let screen = ctx.content_rect();
-    let font = theme::font_body();
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular);
     let (enter, esc) = ctx.input_mut(|i| (i.consume_key(Modifiers::NONE, Key::Enter), i.consume_key(Modifiers::NONE, Key::Escape)));
 
     // ---- measure
@@ -251,12 +251,12 @@ pub fn show(app: &mut App, ctx: &Context) {
     let text_w = W - PAD * 2.0;
     let mut lines_h = 0.0;
     for (a, b) in &d.lines {
-        lines_h += if b.is_empty() { measure.layout(a.clone(), font.clone(), Color32::WHITE, text_w).size().y + 8.0 } else { 22.0 };
+        lines_h += if b.is_empty() { measure.layout(a.clone(), font.clone(), theme::TEXT, text_w).size().y + 8.0 } else { 22.0 };
     }
     let visible_choices = d.choices.len().min(MAX_CHOICES);
     let mut h = PAD + 24.0 + 12.0 + lines_h;
     if d.input.is_some() {
-        h += 32.0 + 12.0;
+        h += theme::CONTROL_SM + 12.0;
     }
     if !d.choices.is_empty() {
         h += visible_choices as f32 * ROW_H + 12.0;
@@ -270,21 +270,20 @@ pub fn show(app: &mut App, ctx: &Context) {
     egui::Area::new(Id::new("dialog")).order(Order::Foreground).fixed_pos(screen.min).interactable(true).show(ctx, |ui| {
         let scrim = ui.allocate_rect(screen, Sense::click_and_drag());
         let p = ui.painter().clone();
-        p.rect_filled(screen, 0.0, Color32::from_black_alpha(140));
+        kit::modal_surface(&p, screen, rect);
         if scrim.clicked() && !rect.contains(scrim.interact_pointer_pos().unwrap_or(Pos2::ZERO)) {
             cancel = true;
         }
-        menu_panel(&p, rect, theme::RADIUS_FRAME);
         let x0 = rect.left() + PAD;
         let mut y = rect.top() + PAD;
-        p.text(Pos2::new(x0, y + 12.0), Align2::LEFT_CENTER, &d.title, theme::font_large_strong(), theme::TEXT);
+        p.text(Pos2::new(x0, y + 12.0), Align2::LEFT_CENTER, &d.title, theme::font_text(theme::FONT_SIZE_TEXT_MD, theme::TextWeight::Semibold), theme::TEXT);
         y += 24.0 + 12.0;
         let key_font = if matches!(d.intent, Intent::Shortcuts) { theme::font_mono() } else { font.clone() };
         for (a, b) in &d.lines {
             if b.is_empty() {
-                let galley = p.layout(a.clone(), font.clone(), theme::TEXT_SECONDARY, text_w);
+                let galley = p.layout(a.clone(), font.clone(), theme::TEXT_TERTIARY, text_w);
                 let hh = galley.size().y;
-                p.galley(Pos2::new(x0, y), galley, theme::TEXT_SECONDARY);
+                p.galley(Pos2::new(x0, y), galley, theme::TEXT_TERTIARY);
                 y += hh + 8.0;
             } else {
                 p.text(Pos2::new(x0, y + 11.0), Align2::LEFT_CENTER, a, key_font.clone(), theme::TEXT);
@@ -293,9 +292,9 @@ pub fn show(app: &mut App, ctx: &Context) {
             }
         }
         if let Some(text) = d.input.as_mut() {
-            let r = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(text_w, 32.0));
-            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+            let r = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(text_w, theme::CONTROL_SM));
             let id = Id::new("dialog-input");
+            kit::paint_field(ui, r, id, kit::Size::Sm, false);
             let mut te = egui::TextEdit::singleline(text)
                 .id(id)
                 .font(font.clone())
@@ -306,8 +305,10 @@ pub fn show(app: &mut App, ctx: &Context) {
                 .min_size(r.size())
                 .desired_width(r.width());
             if let Some(hint) = d.hint.as_deref() {
-                te = te.hint_text(egui::RichText::new(hint).font(font.clone()).color(theme::TEXT_TERTIARY));
+                te = te.hint_text(egui::RichText::new(hint).font(font.clone()).color(theme::TEXT_PLACEHOLDER));
             }
+            // The hint colour is egui's weak text colour; point it at the placeholder role for this field only.
+            ui.visuals_mut().weak_text_color = Some(theme::TEXT_PLACEHOLDER);
             let out = ui.put(r, te);
             if d.fresh {
                 out.request_focus();
@@ -317,7 +318,7 @@ pub fn show(app: &mut App, ctx: &Context) {
                 state.store(ui.ctx(), id);
                 d.fresh = false;
             }
-            y += 32.0 + 12.0;
+            y += theme::CONTROL_SM + 12.0;
         }
         if !d.choices.is_empty() {
             let list = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(text_w, visible_choices as f32 * ROW_H));
@@ -335,20 +336,24 @@ pub fn show(app: &mut App, ctx: &Context) {
                         continue;
                     }
                     let r = ui.interact(row, Id::new(("dialog-choice", i)), Sense::click());
-                    if picked == Some(i) {
-                        p.rect_filled(row.shrink2(Vec2::new(4.0, 1.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_SELECTED);
+                    let row_state = if picked == Some(i) {
+                        kit::State::Selected
                     } else if r.hovered() {
-                        p.rect_filled(row.shrink2(Vec2::new(4.0, 1.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-                    }
+                        kit::State::Hover
+                    } else {
+                        kit::State::Default
+                    };
+                    let row_paint = kit::row_look(row_state, kit::Surface::Primary);
+                    kit::paint_frame(&p, row, theme::RADIUS_CONTROL, &row_paint);
                     let ix = row.left() + 12.0 + c.depth as f32 * 16.0;
                     crate::icons::paint(
                         &p,
                         if c.folder.is_some() { crate::icons::Icon::Folder } else { crate::icons::Icon::Frame },
                         Pos2::new(ix + 8.0, row.center().y),
                         16.0,
-                        theme::ICON,
+                        row_paint.icon,
                     );
-                    p.text(Pos2::new(ix + 22.0, row.center().y), Align2::LEFT_CENTER, &c.label, font.clone(), theme::TEXT);
+                    p.text(Pos2::new(ix + 22.0, row.center().y), Align2::LEFT_CENTER, &c.label, font.clone(), row_paint.text);
                     if r.clicked() {
                         new_pick = Some(i);
                     }
@@ -364,51 +369,33 @@ pub fn show(app: &mut App, ctx: &Context) {
             y += list.height() + 12.0;
         }
         // ---- buttons
-        let ok_w = widgets::text_width(&p, &d.ok, &theme::font_body_strong()).max(48.0) + 32.0;
+        let label_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+        let ok_w = widgets::text_width(&p, &d.ok, &label_font).max(48.0) + 32.0;
         let ok_r = Rect::from_min_size(Pos2::new(rect.right() - PAD - ok_w, y), Vec2::new(ok_w, BTN_H));
         let enabled = d.can_submit();
-        let resp = ui.interact(ok_r, Id::new("dialog-ok"), if enabled { Sense::click() } else { Sense::hover() });
-        let (base, hover, press) =
-            if d.danger { (theme::DANGER, theme::DANGER, theme::DANGER) } else { (theme::BG_BRAND, theme::BG_BRAND_HOVER, theme::BG_BRAND_HOVER) };
-        let bg = if !enabled {
-            theme::BG_TERTIARY
-        } else if resp.is_pointer_button_down_on() {
-            press
-        } else if resp.hovered() {
-            hover
-        } else {
-            base
-        };
-        p.rect_filled(ok_r, theme::cr_pill(ok_r.height()), bg);
-        p.text(ok_r.center(), Align2::CENTER_CENTER, &d.ok, theme::font_body_strong(), if enabled { Color32::WHITE } else { theme::TEXT_DISABLED });
-        widgets::record(ui, "dialog-ok", ok_r);
-        if resp.clicked() {
+        let kind = if d.danger { kit::Hierarchy::Destructive } else { kit::Hierarchy::Primary };
+        if kit::button(ui, ok_r, "dialog-ok", &d.ok, kind, kit::Size::Md, enabled).clicked() {
             submit = true;
         }
+        widgets::record(ui, "dialog-ok", ok_r);
         let mut left_of = ok_r.left();
         if let Some(alt_label) = d.alt_label.as_deref() {
-            let aw = widgets::text_width(&p, alt_label, &font) + 32.0;
+            let aw = widgets::text_width(&p, alt_label, &label_font) + 32.0;
             let ar = Rect::from_min_size(Pos2::new(left_of - 8.0 - aw, y), Vec2::new(aw, BTN_H));
-            let aresp = ui.interact(ar, Id::new("dialog-alt"), Sense::click());
-            widgets::button_bg(&p, ar, &aresp, false, theme::cr(theme::RADIUS_CONTROL));
-            p.text(ar.center(), Align2::CENTER_CENTER, alt_label, font.clone(), theme::TEXT);
-            widgets::record(ui, "dialog-alt", ar);
-            if aresp.clicked() {
+            if kit::button(ui, ar, "dialog-alt", alt_label, kit::Hierarchy::Secondary, kit::Size::Md, true).clicked() {
                 alt = true;
             }
+            widgets::record(ui, "dialog-alt", ar);
             left_of = ar.left();
         }
         if !d.info {
             let cancel_label = d.safe_label.as_deref().unwrap_or("Cancel");
-            let cw = widgets::text_width(&p, cancel_label, &font) + 32.0;
+            let cw = widgets::text_width(&p, cancel_label, &label_font) + 32.0;
             let cr = Rect::from_min_size(Pos2::new(left_of - 8.0 - cw, y), Vec2::new(cw, BTN_H));
-            let cresp = ui.interact(cr, Id::new("dialog-cancel"), Sense::click());
-            widgets::button_bg(&p, cr, &cresp, false, theme::cr(theme::RADIUS_CONTROL));
-            p.text(cr.center(), Align2::CENTER_CENTER, cancel_label, font.clone(), theme::TEXT);
-            widgets::record(ui, "dialog-cancel", cr);
-            if cresp.clicked() {
+            if kit::button(ui, cr, "dialog-cancel", cancel_label, kit::Hierarchy::Secondary, kit::Size::Md, true).clicked() {
                 cancel = true;
             }
+            widgets::record(ui, "dialog-cancel", cr);
         }
     });
 

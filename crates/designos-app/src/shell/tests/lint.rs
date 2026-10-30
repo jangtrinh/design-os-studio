@@ -78,6 +78,32 @@ fn audit_sim(label: &str, s: &mut Sim, check_canvas_purple: bool) -> Vec<lint::F
     out
 }
 
+/// A window in Dev mode whose selected frame ("Welcome") is in `status`: marked ready first, then edited (Changed) or
+/// completed (Completed).
+fn dev_header_sim(status: designos_doc::DevStatus) -> Sim {
+    use designos_doc::DevStatus;
+    let mut s = Sim::with(Options { select: Some("Welcome".into()), dev: Some("css".into()), ..Options::default() });
+    s.shell.app.tabs.always_visible = true;
+    let id = s.by_name("Welcome");
+    s.shell.app.dev_mark_ready(&[id]);
+    match status {
+        DevStatus::ReadyForDev => {}
+        DevStatus::Changed => {
+            let child = s.shell.app.doc.get(id).unwrap().children[0];
+            s.shell.app.edit_nodes(&[child], |n| n.size.x += 7.0);
+            s.shell.app.dev_refresh(true);
+        }
+        DevStatus::Completed => s.shell.app.dev_mark_completed(&[id]),
+    }
+    // The "Marked ..." toast paints over the canvas Re-center chip (a surface of its own); the `--dev-demo` preset clears it too.
+    s.shell.app.toast = None;
+    for _ in 0..60 {
+        s.frame(vec![]);
+    }
+    assert_eq!(s.app().doc.get(id).unwrap().dev.status, Some(status), "the scene is in the state it names");
+    s
+}
+
 #[test]
 fn design_os_gates_audit_all_studio_screens_zero_overflow_zero_purple_and_valid_contrast() {
     let mut all = Vec::new();
@@ -127,6 +153,13 @@ fn design_os_gates_audit_all_studio_screens_zero_overflow_zero_purple_and_valid_
     ] {
         let mut s = Sim::with(opts);
         s.shell.app.tabs.always_visible = true;
+        all.extend(audit_sim(label, &mut s, false));
+    }
+
+    // The other states of the Dev header (the scene above shows only "Ready for dev"): a ready frame that was edited
+    // afterwards ("Changed", with its Compare changes button) and a completed one.
+    for (label, status) in [("dev changed", designos_doc::DevStatus::Changed), ("dev completed", designos_doc::DevStatus::Completed)] {
+        let mut s = dev_header_sim(status);
         all.extend(audit_sim(label, &mut s, false));
     }
 

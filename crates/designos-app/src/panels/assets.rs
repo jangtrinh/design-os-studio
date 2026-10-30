@@ -17,6 +17,7 @@ use crate::icons::{self, Icon};
 use crate::libraries::LibEntry;
 use crate::theme;
 use crate::widgets;
+use crate::widgets::kit::{self, Hierarchy, Size};
 use designos_doc::{Document, NodeId, NodeKind};
 use egui::{Align2, Color32, Context, Id, LayerId, Order, Pos2, Rect, Sense, Stroke, StrokeKind, TextEdit, TextureHandle, TextureId, TextureOptions, Ui, Vec2};
 use std::collections::{HashMap, HashSet};
@@ -62,7 +63,7 @@ impl AssetsState {
 }
 
 const ROW_H: f32 = 48.0;
-const GROUP_H: f32 = 28.0;
+const GROUP_H: f32 = theme::CONTROL_XS;
 const SEARCH_H: f32 = 40.0;
 /// Edge of the square thumbnail box in list view.
 const THUMB: f32 = 40.0;
@@ -70,7 +71,7 @@ const GRID_GAP: f32 = 8.0;
 const GRID_PREVIEW_H: f32 = 72.0;
 const GRID_LABEL_H: f32 = 24.0;
 const GRID_ROW_H: f32 = GRID_PREVIEW_H + GRID_LABEL_H + GRID_GAP;
-const VIEW_BTN: f32 = 24.0;
+const VIEW_BTN: f32 = theme::CONTROL_XS;
 
 #[derive(Clone)]
 enum Line {
@@ -134,6 +135,14 @@ fn lines(entries: &[AssetEntry], shown: &[usize], cols: Option<usize>) -> Vec<Li
     }
     flush(&mut out, &mut pending);
     out
+}
+
+/// A page or container heading in the list. The rows do not fold, so there is no chevron.
+fn paint_group_row(p: &egui::Painter, row: Rect, name: &str, indent: f32) {
+    let text_x = row.left() + theme::PANEL_PADDING_X + indent;
+    let font = theme::font_body();
+    let s = widgets::elide(p, name, &font, (row.right() - text_x - theme::PANEL_PADDING_X).max(8.0));
+    p.text(Pos2::new(text_x, row.center().y), Align2::LEFT_CENTER, s, font, theme::TEXT_TERTIARY);
 }
 
 fn line_h(l: &Line) -> f32 {
@@ -369,11 +378,13 @@ fn grid_cell(
         if e.variants > 0 {
             let badge_txt = format!("{}", e.variants);
             let bfont = theme::font_caption_strong();
-            let bw = (widgets::text_width(p, &badge_txt, &bfont) + 20.0).max(26.0);
-            let badge_r = Rect::from_min_size(Pos2::new(preview.right() - bw - 4.0, preview.top() + 4.0), Vec2::new(bw, 16.0));
-            p.rect_filled(badge_r, theme::cr_pill(badge_r.height()), theme::CANVAS_COMPONENT);
-            icons::paint(p, Icon::Component, Pos2::new(badge_r.left() + 8.0, badge_r.center().y), 10.0, Color32::WHITE);
-            p.text(Pos2::new(badge_r.left() + 15.0, badge_r.center().y), Align2::LEFT_CENTER, badge_txt, bfont, Color32::WHITE);
+            let badge_h = theme::BADGE_SM;
+            let bw = (widgets::text_width(p, &badge_txt, &bfont) + 20.0).max(badge_h);
+            let badge_r = Rect::from_min_size(Pos2::new(preview.right() - bw - 4.0, preview.top() + 4.0), Vec2::new(bw, badge_h));
+            let paint = kit::look(theme::CANVAS_COMPONENT, Color32::TRANSPARENT, theme::BORDER_WIDTH, theme::TEXT_ON_LIGHT_CANVAS, theme::TEXT_ON_LIGHT_CANVAS);
+            kit::paint_frame(p, badge_r, theme::radius_full(badge_h).round() as u8, &paint);
+            icons::paint(p, Icon::Component, Pos2::new(badge_r.left() + 8.0, badge_r.center().y), 10.0, paint.icon);
+            p.text(Pos2::new(badge_r.left() + 15.0, badge_r.center().y), Align2::LEFT_CENTER, badge_txt, bfont, paint.text);
         }
     }
     let label = if e.variants > 0 { format!("{} ({})", e.name, e.variants) } else { e.name.clone() };
@@ -382,24 +393,36 @@ fn grid_cell(
     row_events(&r, e, src, out);
 }
 
+/// Created-in-this-file card. One click filters the list to local components.
+fn library_card(ui: &mut Ui, p: &egui::Painter, card_r: Rect, real_count: usize) -> egui::Response {
+    widgets::record(ui, "assets-created-in-file", card_r);
+    widgets::record(ui, "assets-created-in-file-card", card_r);
+    let card_resp = ui.interact(card_r, ui.id().with("assets-created-in-file-card"), Sense::click());
+    let preview_r = Rect::from_min_size(card_r.min, Vec2::new(card_r.width(), 52.0));
+    let fill = if card_resp.hovered() { theme::BG_SECONDARY_HOVER } else { theme::BG_SECONDARY };
+    let paint = kit::look(fill, theme::BORDER, theme::BORDER_WIDTH, theme::TEXT, theme::ICON_TERTIARY);
+    kit::paint_frame(p, preview_r, theme::RADIUS_CONTROL, &paint);
+    icons::paint(p, Icon::Component, preview_r.center(), 18.0, paint.icon);
+    p.text(Pos2::new(card_r.left() + 2.0, preview_r.bottom() + 11.0), Align2::LEFT_CENTER, "Created in this file", theme::font_body_strong(), theme::TEXT);
+    p.text(
+        Pos2::new(card_r.left() + 2.0, preview_r.bottom() + 26.0),
+        Align2::LEFT_CENTER,
+        format!("{real_count} component{}", if real_count == 1 { "" } else { "s" }),
+        theme::font_caption(),
+        theme::TEXT_TERTIARY,
+    );
+    card_resp
+}
+
 /// The list / grid switch next to the search box.
 fn view_toggle(ui: &mut Ui, at: Pos2, grid: &mut bool) {
     for (i, is_grid) in [false, true].into_iter().enumerate() {
         let rect = Rect::from_min_size(Pos2::new(at.x + i as f32 * (VIEW_BTN + 2.0), at.y), Vec2::splat(VIEW_BTN));
-        let r = ui.interact(rect, ui.id().with(("assets-view", is_grid)), Sense::click());
         let selected = *grid == is_grid;
-        widgets::button_bg(ui.painter(), rect, &r, selected, theme::cr(theme::RADIUS_CONTROL));
-        widgets::record(ui, if is_grid { "assets-view-grid" } else { "assets-view-list" }, rect);
-        let col = if selected {
-            theme::ICON_SELECTED
-        } else if r.hovered() {
-            theme::ICON
-        } else {
-            theme::ICON_SECONDARY
-        };
-        let p = ui.painter();
-        let c = rect.center();
-        icons::paint(p, if is_grid { Icon::GridView } else { Icon::ListView }, c, 15.0, col);
+        let key = if is_grid { "assets-view-grid" } else { "assets-view-list" };
+        let icon = if is_grid { Icon::GridView } else { Icon::ListView };
+        let r = kit::button_icon(ui, rect, key, icon, Hierarchy::Icon, Size::Xs, true, selected);
+        widgets::record(ui, key, rect);
         if r.on_hover_text(if is_grid { "Grid view" } else { "List view" }).clicked() {
             *grid = is_grid;
         }
@@ -410,16 +433,11 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let p = ui.painter().clone();
     // ---- 1. Figma UI3 40px Header Row: "Assets" + Libraries book icon button
     let hdr_h = SEARCH_H;
-    p.text(
-        Pos2::new(region.left() + theme::INSET_PANEL, region.top() + hdr_h * 0.5),
-        Align2::LEFT_CENTER,
-        "Assets",
-        theme::font_large_strong(),
-        Color32::WHITE,
-    );
+    p.text(Pos2::new(region.left() + theme::INSET_PANEL, region.top() + hdr_h * 0.5), Align2::LEFT_CENTER, "Assets", theme::font_large_strong(), theme::TEXT);
     let libs_btn = Rect::from_min_size(Pos2::new(region.right() - 8.0 - VIEW_BTN, region.top() + (hdr_h - VIEW_BTN) * 0.5), Vec2::splat(VIEW_BTN));
+    let libs = kit::button_icon(ui, libs_btn, "assets-libraries", Icon::BookOpen, Hierarchy::Icon, Size::Xs, true, app.libs.open);
     widgets::record(ui, "assets-libraries", libs_btn);
-    if widgets::icon_button(ui, libs_btn, "assets-libraries", Icon::BookOpen, app.libs.open, "Libraries").clicked() {
+    if libs.on_hover_text("Libraries").clicked() {
         app.open_libraries();
     }
     widgets::hline(&p, region.left(), region.right(), region.top() + hdr_h, theme::BORDER);
@@ -430,18 +448,18 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let filter_btn_w = VIEW_BTN + 4.0;
     let sr = Rect::from_min_size(
         Pos2::new(region.left() + theme::INSET_PANEL, search_y),
-        Vec2::new((region.width() - 2.0 * theme::INSET_PANEL - filter_btn_w - toggle_w - theme::SPACE_FACT).max(80.0), theme::CONTROL_STANDARD),
+        Vec2::new((region.width() - 2.0 * theme::INSET_PANEL - filter_btn_w - toggle_w - theme::SPACE_FACT).max(80.0), theme::FIELD_HEIGHT),
     );
-    p.rect_filled(sr, theme::cr(theme::RADIUS_CONTROL), Color32::from_rgb(0x1E, 0x1E, 0x1E));
-    p.rect_stroke(sr, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x0D, 0x99, 0xFF)), StrokeKind::Inside);
-    icons::paint(&p, Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 14.0, theme::ICON_SECONDARY);
+    let search_id = ui.id().with("assets-search");
+    crate::variables::widgets::field_chrome(ui, sr, search_id, Size::Xs);
+    icons::paint(&p, Icon::Search, Pos2::new(sr.left() + 14.0, sr.center().y), 14.0, kit::field_look(kit::State::Default, false).icon);
     let mut q = std::mem::take(&mut app.assets.query);
     let te = TextEdit::singleline(&mut q)
-        .id(ui.id().with("assets-search"))
+        .id(search_id)
         .font(theme::font_body())
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
-        .hint_text("Search all libraries")
+        .hint_text(egui::RichText::new("Search all libraries").color(theme::TEXT_PLACEHOLDER))
         .margin(egui::Margin::symmetric(0, 0))
         .vertical_align(egui::Align::Center)
         .desired_width((sr.width() - 32.0).max(40.0));
@@ -453,23 +471,24 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
     let cat_id = Id::new("assets-cat-filter");
     let mut cat = ui.ctx().data(|d| d.get_temp::<u8>(cat_id)).unwrap_or(0);
 
-    let filter_btn = Rect::from_min_size(Pos2::new(sr.right() + 4.0, search_y + 2.0), Vec2::splat(VIEW_BTN));
+    let filter_btn = Rect::from_min_size(Pos2::new(sr.right() + 4.0, search_y), Vec2::splat(VIEW_BTN));
+    let filter = kit::button_icon(ui, filter_btn, "assets-filter-btn", Icon::StrokeSettings, Hierarchy::Icon, Size::Xs, true, cat != 0);
     widgets::record(ui, "assets-filter-btn", filter_btn);
-    if widgets::icon_button(ui, filter_btn, "assets-filter-btn", Icon::StrokeSettings, cat != 0, "Cycle asset category filter").clicked() {
+    if filter.on_hover_text("Cycle asset category filter").clicked() {
         cat = (cat + 1) % 3;
         ui.ctx().data_mut(|d| d.insert_temp(cat_id, cat));
         app.assets.scroll = 0.0;
     }
 
     let mut grid = app.assets.grid;
-    view_toggle(ui, Pos2::new(filter_btn.right() + 4.0, search_y + 2.0), &mut grid);
+    view_toggle(ui, Pos2::new(filter_btn.right() + 4.0, search_y), &mut grid);
     if grid != app.assets.grid {
         app.assets.grid = grid;
         app.assets.scroll = 0.0;
     }
 
     // ---- 3. UI3 Category Filter Pills: All | Local | Used in file
-    let pill_y = search_y + 34.0;
+    let pill_y = search_y + theme::FIELD_HEIGHT + 6.0;
     let mut pill_x = region.left() + theme::INSET_PANEL;
     for (idx, label) in [(0u8, "All"), (1u8, "Local"), (2u8, "Used in file")] {
         let pfont = if cat == idx { theme::font_caption_strong() } else { theme::font_caption() };
@@ -493,7 +512,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 
     // ---- 4. "All libraries" section + vertical "Created in this file" card + "Add more libraries" button
     let sec_top = pill_y + 26.0;
-    p.text(Pos2::new(region.left() + theme::INSET_PANEL, sec_top + 8.0), Align2::LEFT_CENTER, "All libraries", theme::font_body_strong(), Color32::WHITE);
+    p.text(Pos2::new(region.left() + theme::INSET_PANEL, sec_top + 8.0), Align2::LEFT_CENTER, "All libraries", theme::font_body_strong(), theme::TEXT);
 
     type AssetsDocCacheVal = (Vec<AssetEntry>, Vec<AssetEntry>, usize, std::collections::HashSet<NodeId>);
     type AssetsDocCacheEntry = ((u64, u64, usize, u8), AssetsDocCacheVal);
@@ -532,25 +551,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         Pos2::new(region.left() + theme::INSET_PANEL, sec_top + 22.0),
         Vec2::new((region.width() - 2.0 * theme::INSET_PANEL).max(80.0), 86.0),
     );
-    widgets::record(ui, "assets-created-in-file", card_r);
-    widgets::record(ui, "assets-created-in-file-card", card_r);
-    let card_resp = ui.interact(card_r, ui.id().with("assets-created-in-file-card"), Sense::click());
-    let preview_r = Rect::from_min_size(card_r.min, Vec2::new(card_r.width(), 52.0));
-    p.rect_filled(
-        preview_r,
-        theme::cr(theme::RADIUS_CONTROL),
-        if card_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) },
-    );
-    p.rect_stroke(preview_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-    icons::paint(&p, Icon::Component, preview_r.center(), 18.0, Color32::from_rgb(0x8C, 0x8C, 0x8C));
-    p.text(Pos2::new(card_r.left() + 2.0, preview_r.bottom() + 11.0), Align2::LEFT_CENTER, "Created in this file", theme::font_body_strong(), Color32::WHITE);
-    p.text(
-        Pos2::new(card_r.left() + 2.0, preview_r.bottom() + 26.0),
-        Align2::LEFT_CENTER,
-        format!("{real_count} component{}", if real_count == 1 { "" } else { "s" }),
-        theme::font_caption(),
-        Color32::from_rgb(0x8C, 0x8C, 0x8C),
-    );
+    let card_resp = library_card(ui, &p, card_r, real_count);
     if card_resp.on_hover_text("Filter to local components & focus first component").clicked() {
         cat = 1;
         ui.ctx().data_mut(|d| d.insert_temp(cat_id, cat));
@@ -563,17 +564,10 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
 
     let add_libs_r = Rect::from_min_size(
         Pos2::new(region.left() + theme::INSET_PANEL, card_r.bottom() + 6.0),
-        Vec2::new((region.width() - 2.0 * theme::INSET_PANEL).max(80.0), theme::CONTROL_STANDARD),
+        Vec2::new((region.width() - 2.0 * theme::INSET_PANEL).max(80.0), theme::CONTROL_XS),
     );
+    let add_libs_resp = kit::button(ui, add_libs_r, "assets-add-more-libraries", "Add more libraries", Hierarchy::Secondary, Size::Xs, true);
     widgets::record(ui, "assets-add-more-libraries", add_libs_r);
-    let add_libs_resp = ui.interact(add_libs_r, ui.id().with("assets-add-more-libs"), Sense::click());
-    p.rect_filled(
-        add_libs_r,
-        theme::cr(theme::RADIUS_CONTROL),
-        if add_libs_resp.hovered() { Color32::from_rgb(0x38, 0x38, 0x38) } else { Color32::from_rgb(0x2C, 0x2C, 0x2C) },
-    );
-    p.rect_stroke(add_libs_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, Color32::from_rgb(0x38, 0x38, 0x38)), StrokeKind::Inside);
-    p.text(add_libs_r.center(), Align2::CENTER_CENTER, "Add more libraries", theme::font_body_strong(), Color32::WHITE);
     if add_libs_resp.clicked() {
         app.open_libraries();
     }
@@ -644,25 +638,8 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     continue;
                 }
                 match l {
-                    Line::Page(name) => {
-                        p.text(
-                            Pos2::new(row.left() + theme::PANEL_PADDING_X, row.center().y),
-                            Align2::LEFT_CENTER,
-                            name,
-                            theme::font_body_strong(),
-                            theme::TEXT,
-                        );
-                    }
-                    Line::Container(name) => {
-                        let s = widgets::elide(&p, name, &theme::font_body(), row.width() - 40.0);
-                        p.text(
-                            Pos2::new(row.left() + theme::PANEL_PADDING_X + 8.0, row.center().y),
-                            Align2::LEFT_CENTER,
-                            s,
-                            theme::font_body(),
-                            theme::TEXT_SECONDARY,
-                        );
-                    }
+                    Line::Page(name) => paint_group_row(&p, row, name, 0.0),
+                    Line::Container(name) => paint_group_row(&p, row, name, 8.0),
                     Line::Item(i) => {
                         let src = srcs[*i];
                         let is_drag = src.map(|k| lib_dragging == Some(k)).unwrap_or(dragging == Some(entries[*i].id));
@@ -755,8 +732,9 @@ fn drag(app: &mut App, ui: &mut Ui) {
             let font = theme::font_body();
             let w = widgets::text_width(&p, &name, &font) + 24.0;
             let r = Rect::from_min_size(pos + Vec2::new(12.0, 12.0), Vec2::new(w, 24.0));
-            p.rect_filled(r, theme::cr(theme::RADIUS_CONTROL), theme::BG_MENU);
-            p.text(r.center(), Align2::CENTER_CENTER, &name, font, Color32::WHITE);
+            let paint = kit::look(theme::BG_MENU, theme::BORDER_MENU, theme::BORDER_WIDTH, theme::TEXT, theme::ICON_QUATERNARY);
+            kit::paint_frame(&p, r, theme::RADIUS_CONTROL, &paint);
+            p.text(r.center(), Align2::CENTER_CENTER, &name, font, paint.text);
         }
     }
     if released {

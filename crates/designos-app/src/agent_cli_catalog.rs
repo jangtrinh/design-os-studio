@@ -22,7 +22,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::agent_start_failure::{install_url, login_command, FixAction};
-use crate::terminal::{extra_cli_path_dirs, runtime_binary_available, AgentCliPreset};
+use crate::terminal::{runtime_binary_available, AgentCliPreset};
 
 /// Per-command timeout for version and sign-in probes (`#652` §3 rule 2).
 pub const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
@@ -197,37 +197,21 @@ pub trait RunCommand: Send + Sync {
 pub struct SystemCommandRunner;
 
 impl SystemCommandRunner {
+    fn search_dirs_with_install_folders(install_folders: &[PathBuf]) -> Vec<PathBuf> {
+        let mut sources = crate::cli_resolve::current_search_sources(None);
+        let mut combined_path = sources.host_path;
+        combined_path.extend(install_folders.iter().cloned());
+        sources.host_path = combined_path;
+        crate::cli_resolve::cli_search_dirs_with(&sources)
+    }
+
     fn resolve_binary(binary: &str, install_folders: &[PathBuf]) -> Option<PathBuf> {
         let trimmed = binary.trim();
         if trimmed.is_empty() {
             return None;
         }
-        let mut dirs: Vec<PathBuf> = Vec::new();
-        if let Some(path_os) = std::env::var_os("PATH") {
-            for p in std::env::split_paths(&path_os) {
-                if !p.as_os_str().is_empty() {
-                    dirs.push(p);
-                }
-            }
-        }
-        dirs.extend(install_folders.iter().cloned());
-        dirs.extend(extra_cli_path_dirs());
-
-        for d in dirs {
-            let cand = d.join(trimmed);
-            if cand.is_file() {
-                return Some(cand);
-            }
-            if cfg!(windows) {
-                for ext in ["exe", "cmd", "bat"] {
-                    let win_cand = d.join(format!("{trimmed}.{ext}"));
-                    if win_cand.is_file() {
-                        return Some(win_cand);
-                    }
-                }
-            }
-        }
-        None
+        let dirs = Self::search_dirs_with_install_folders(install_folders);
+        crate::cli_resolve::resolve_in(&dirs, trimmed)
     }
 }
 
@@ -243,17 +227,14 @@ impl RunCommand for SystemCommandRunner {
         let Some((&prog, args)) = argv.split_first() else {
             return CommandOutput::exited(127, "", "empty argv");
         };
-        let resolved = Self::resolve_binary(prog, install_folders).unwrap_or_else(|| PathBuf::from(prog));
+        let Some(resolved) = Self::resolve_binary(prog, install_folders) else {
+            return CommandOutput::exited(127, "", "failed to spawn");
+        };
         let mut cmd = Command::new(resolved);
         cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
 
-        let mut extra_paths: Vec<String> = install_folders.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-        extra_paths.extend(extra_cli_path_dirs().into_iter().map(|p| p.to_string_lossy().into_owned()));
-        if !extra_paths.is_empty() {
-            let current_path = std::env::var("PATH").unwrap_or_default();
-            let sep = if cfg!(windows) { ";" } else { ":" };
-            let combined = if current_path.is_empty() { extra_paths.join(sep) } else { format!("{}{sep}{current_path}", extra_paths.join(sep)) };
-            cmd.env("PATH", combined);
+        if let Some(child_path) = crate::cli_resolve::catalog_child_path(install_folders) {
+            cmd.env("PATH", child_path);
         }
 
         let Ok(mut child) = cmd.spawn() else {

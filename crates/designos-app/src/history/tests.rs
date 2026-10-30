@@ -273,3 +273,20 @@ fn leaving_the_file_saves_a_closing_version_and_drops_the_view() {
     assert_eq!(list.len(), 2, "a closing auto version was added");
     assert_eq!(lib.load_file(&id).unwrap().get(app.page).map(|p| p.children.len()), Some(2), "the live document, not the viewed one, is on disk");
 }
+
+/// The `--panel version-history` preset saves nine versions at fixed ages. The library thins automatic versions to one per
+/// clock hour once they are an hour old, so two of them must never land in the same clock hour, whatever minute the
+/// capture runs in.
+#[test]
+fn the_version_history_preset_keeps_all_nine_versions_at_every_minute_of_the_hour() {
+    let t = Tmp::new("preset_every_minute");
+    let hour_ms = 3_600_000u64;
+    let hour_start = 1_790_000_000_000 / hour_ms * hour_ms;
+    for minute in 0..60u64 {
+        let mut app = App::new(Document::new("t"));
+        super::preset::apply_at(&mut app, Some(t.0.clone()), hour_start + minute * 60_000 + 30_000);
+        let file = app.lib_file.as_ref().expect("the preset opens a library file").id.clone();
+        let versions = app.lib.as_ref().expect("the preset attaches a library").list_versions(&file).len();
+        assert_eq!(versions, 9, "minute {minute} of the hour kept {versions} of 9 versions");
+    }
+}

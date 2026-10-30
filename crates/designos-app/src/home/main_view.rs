@@ -1,7 +1,7 @@
 //! Main area of the home screen: header, sort / view controls and the file
 //! grid or list, plus the Trash view and empty states.
 
-use super::time::{edited, relative, wall_ms};
+use super::time::{edited, relative};
 use super::{Act, DropTo, Home, Section, Target, ViewMode};
 use crate::icons::{self, Icon};
 use crate::theme;
@@ -200,7 +200,7 @@ fn files_view(lib: &Library, h: &mut Home, ui: &mut Ui, content: Rect, acts: &mu
         empty_state(h, ui, content);
         return;
     }
-    let now = wall_ms();
+    let now = h.now_ms();
     let pad = theme::HOME_PAD;
     let list = h.view == ViewMode::List;
     let inner_w = content.width() - pad * 2.0;
@@ -493,7 +493,7 @@ fn trash_view(h: &mut Home, ui: &mut Ui, content: Rect, acts: &mut Vec<Act>) {
         empty_state(h, ui, content);
         return;
     }
-    let now = wall_ms();
+    let now = h.now_ms();
     let pad = theme::HOME_PAD;
     let row_h = 52.0;
     let note_h = 36.0;

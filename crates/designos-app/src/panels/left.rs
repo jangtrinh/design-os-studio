@@ -14,6 +14,40 @@ use egui::{Align2, Color32, Pos2, Rect, Sense, Ui, Vec2};
 
 const PANEL_CARD_CAP_RATIO: f32 = 0.5;
 const MIN_TERMINAL_ROWS: f32 = 8.0;
+const LEFT_ACTION_BUTTON: f32 = theme::CONTROL_XS;
+const LEFT_ACTION_PITCH: f32 = LEFT_ACTION_BUTTON + theme::SPACE_FACT;
+const LEFT_ACTION_INSET_Y: f32 = (theme::PANEL_TITLE_ROW_HEIGHT - LEFT_ACTION_BUTTON) / 2.0;
+const DEV_TINT_REST: f32 = 0.16;
+const DEV_TINT_HOVER: f32 = 0.24;
+const DEV_STATUS_TINT: f32 = 0.22;
+const MARK_READY_X: f32 = 10.0;
+const MARK_READY_Y: f32 = 25.0;
+const MARK_READY_PAD: f32 = 20.0;
+
+fn dev_mark_ready_rect(x: f32, width: f32, sec_top: f32) -> Rect {
+    Rect::from_min_size(Pos2::new(x + MARK_READY_X, sec_top + MARK_READY_Y), Vec2::new(width - MARK_READY_PAD, theme::TARGET_MIN))
+}
+
+pub(crate) fn action_cluster(right: f32, row_top: f32) -> (Rect, Rect) {
+    let primary = Rect::from_min_size(
+        Pos2::new(right - theme::PANEL_ACTION_RIGHT_PAD - LEFT_ACTION_BUTTON, row_top + LEFT_ACTION_INSET_Y),
+        Vec2::splat(LEFT_ACTION_BUTTON),
+    );
+    (primary, primary.translate(Vec2::new(-LEFT_ACTION_PITCH, 0.0)))
+}
+
+/// Tests read these rects by name. The layout snapshot keeps the interact rect unnamed:
+/// a recorded name on the same rect would drop it from the unnamed list and shift every later index.
+fn remember(ui: &Ui, name: &str, rect: Rect) {
+    #[cfg(test)]
+    if widgets::recording() {
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(egui::Id::new(("test-rect", name.to_string())), rect);
+        });
+    }
+    #[cfg(not(test))]
+    let _ = (ui, name, rect);
+}
 
 fn agent_card_reserve(panel_h: f32, card_h: f32) -> f32 {
     if card_h <= 0.0 {
@@ -66,9 +100,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     // ---- header: "<Project> / <File name>", then the save state
     file_header(app, ui, inner, y);
     let tb = Rect::from_min_size(
-        Pos2::new(inner.right() - theme::LEFT_SIDEBAR_BTN_RIGHT_PAD - theme::PANEL_ACTION_BUTTON, y + theme::LEFT_ACTION_Y),
-        Vec2::splat(theme::PANEL_ACTION_BUTTON),
+        Pos2::new(inner.right() - theme::LEFT_SIDEBAR_BTN_RIGHT_PAD - LEFT_ACTION_BUTTON, y + theme::LEFT_ACTION_Y - theme::SPACE_FACT),
+        Vec2::splat(LEFT_ACTION_BUTTON),
     );
+    remember(ui, "sidebar", tb);
     if widgets::icon_button(ui, tb, "sidebar", Icon::Sidebar, false, "Hide sidebar").clicked() {
         app.ui.left_collapsed = true;
     }
@@ -79,14 +114,12 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     section_title(ui, Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), theme::PANEL_TITLE_ROW_HEIGHT)), "Pages");
     let tr = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), theme::PANEL_TITLE_ROW_HEIGHT));
     widgets::record(ui, "pages-toggle", tr);
-    let plus = Rect::from_min_size(
-        Pos2::new(tr.right() - theme::PANEL_ACTION_RIGHT_PAD - theme::PANEL_ACTION_BUTTON, tr.top() + 8.0),
-        Vec2::splat(theme::PANEL_ACTION_BUTTON),
-    );
+    let (plus, search) = action_cluster(tr.right(), tr.top());
+    remember(ui, "page-add", plus);
     if widgets::icon_button(ui, plus, "page-add", Icon::Plus, false, "Add page").clicked() {
         app.add_page();
     }
-    let search = plus.translate(Vec2::new(-theme::PAGES_SEARCH_DX, 0.0));
+    remember(ui, "page-search", search);
     if widgets::icon_button(ui, search, "page-search", Icon::Search, app.find.open, "Search pages").clicked() {
         if app.find.open {
             app.close_find();
@@ -102,7 +135,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     widgets::record(ui, "pages-list", list);
     pages_list(app, ui, list);
     y += list_h + theme::SPACE_INLINE;
-    left_sep::paint_and_interact(ui, inner, pages_list_top, list_h, sep_bounds, sep_dragging);
+    left_sep::paint_and_interact(ui, app, inner, pages_list_top, list_h, sep_bounds, sep_dragging);
 
     // ---- Dev Mode: compact 52px `Ready for development` section between Pages and Layers (`Gap C`)
     let ready_rows =
@@ -111,7 +144,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         let sec_r = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), 52.0));
         widgets::record(ui, "left-dev-ready-section", sec_r);
         widgets::record(ui, "dev-ready-toggle", sec_r);
-        let dev_green = Color32::from_rgb(0x1B, 0xC4, 0x7D);
+        let dev_ready = theme::DEV_READY;
         let ready_on_page: usize = ready_rows
             .iter()
             .find_map(|r| match r {
@@ -119,25 +152,31 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
                 _ => None,
             })
             .unwrap_or(0);
-        icons::paint(&p, Icon::Dev, Pos2::new(x0 + 18.0, y + 14.0), 13.0, dev_green);
+        icons::paint(&p, Icon::Dev, Pos2::new(x0 + 18.0, y + 14.0), 13.0, dev_ready);
         p.text(Pos2::new(x0 + 30.0, y + 14.0), Align2::LEFT_CENTER, "Ready for development", theme::font_caption_strong(), theme::TEXT);
-        p.text(
-            Pos2::new(inner.right() - theme::PANEL_PADDING_X, y + 14.0),
-            Align2::RIGHT_CENTER,
-            ready_on_page.to_string(),
-            theme::font_caption_strong(),
-            if ready_on_page > 0 { dev_green } else { theme::TEXT_TERTIARY },
-        );
+        let count_s = ready_on_page.to_string();
+        let mono = theme::font_mono();
+        let badge_h = theme::BADGE_SM;
+        let badge_w = (widgets::text_width(&p, &count_s, &mono) + theme::SPACE_INLINE).max(badge_h);
+        let badge = Rect::from_center_size(Pos2::new(inner.right() - theme::PANEL_PADDING_X - badge_w * 0.5, y + 14.0), Vec2::new(badge_w, badge_h));
+        let mut badge_look = crate::widgets::kit::count_badge_look(crate::widgets::kit::Tone::Neutral);
+        if ready_on_page > 0 {
+            badge_look.fill = dev_ready.gamma_multiply(DEV_STATUS_TINT);
+            badge_look.border = Color32::TRANSPARENT;
+            badge_look.text = theme::TEXT;
+        }
+        crate::widgets::kit::paint_frame(&p, badge, theme::radius_full(badge_h).round() as u8, &badge_look);
+        p.text(badge.center(), Align2::CENTER_CENTER, count_s, mono, badge_look.text);
 
         let markable_ids: Vec<NodeId> = app.selection.iter().copied().filter(|id| crate::dev::markable(app, *id)).collect();
-        let btn_r = Rect::from_min_size(Pos2::new(x0 + 10.0, y + 25.0), Vec2::new(inner.width() - 20.0, 24.0));
+        let btn_r = dev_mark_ready_rect(x0, inner.width(), y);
         widgets::record(ui, "left-dev-mark-ready", btn_r);
         let btn_resp = ui.interact(btn_r, ui.id().with("left-dev-mark-ready"), Sense::click());
         let can_mark = !markable_ids.is_empty();
         p.rect_filled(
             btn_r,
             theme::cr(theme::RADIUS_CONTROL),
-            if can_mark { dev_green.gamma_multiply(if btn_resp.hovered() { 0.24 } else { 0.16 }) } else { theme::BG_SECONDARY },
+            if can_mark { dev_ready.gamma_multiply(if btn_resp.hovered() { DEV_TINT_HOVER } else { DEV_TINT_REST }) } else { theme::BG_SECONDARY },
         );
         let btn_label = if can_mark {
             "</> Mark selection ready for dev"
@@ -146,7 +185,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         } else {
             "Select a frame or section to mark ready"
         };
-        p.text(btn_r.center(), Align2::CENTER_CENTER, btn_label, theme::font_caption_medium(), if can_mark { dev_green } else { theme::TEXT_SECONDARY });
+        p.text(btn_r.center(), Align2::CENTER_CENTER, btn_label, theme::font_caption_medium(), if can_mark { dev_ready } else { theme::TEXT_SECONDARY });
         if btn_resp.clicked() {
             if can_mark {
                 app.dev_mark_ready(&markable_ids);
@@ -177,10 +216,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         crate::dev::list::show(app, ui, below);
         return;
     }
-    let fb = Rect::from_min_size(
-        Pos2::new(lt.right() - theme::PANEL_ACTION_RIGHT_PAD - theme::PANEL_ACTION_BUTTON, lt.top() + 8.0),
-        Vec2::splat(theme::PANEL_ACTION_BUTTON),
-    );
+    let (fb, collapse_btn) = action_cluster(lt.right(), lt.top());
     if widgets::icon_button(ui, fb, "layers-search", Icon::Search, app.layers.filter_open, "Filter layers by name").clicked() {
         if app.layers.filter_open {
             app.close_layer_filter();
@@ -189,7 +225,6 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         }
     }
     widgets::record(ui, "layers-search", fb);
-    let collapse_btn = fb.translate(Vec2::new(-theme::PAGES_SEARCH_DX, 0.0));
     if widgets::icon_button(ui, collapse_btn, "layers-collapse-all", Icon::ChevronDown, false, "Collapse layers").clicked() {
         app.layers.expanded.clear();
         app.layers.expanded_gen = app.layers.expanded_gen.wrapping_add(1);
@@ -197,10 +232,10 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
     widgets::record(ui, "layers-collapse-all", collapse_btn);
     y += theme::LAYER_HEADER_HEIGHT;
     if app.layers.filter_open {
-        let row = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), 32.0));
+        let row = Rect::from_min_size(Pos2::new(x0, y), Vec2::new(inner.width(), theme::LAYER_FILTER_ROW_HEIGHT));
         crate::find::filter::show_field(app, ui, row);
         widgets::record(ui, "layers-filter", row);
-        y += 32.0;
+        y += theme::LAYER_FILTER_ROW_HEIGHT;
     }
     let region = Rect::from_min_max(Pos2::new(x0, y), inner.max);
     widgets::record(ui, "layers-list", region);
@@ -208,7 +243,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
 }
 
 fn section_title(ui: &Ui, row: Rect, title: &str) {
-    ui.painter().text(Pos2::new(row.left() + theme::PANEL_PADDING_X, row.center().y), Align2::LEFT_CENTER, title, theme::font_body_strong(), theme::TEXT);
+    crate::widgets::kit::panel_header(ui.painter(), row, title);
 }
 
 fn pages_list(app: &mut App, ui: &mut Ui, list: Rect) {
@@ -218,6 +253,7 @@ fn pages_list(app: &mut App, ui: &mut Ui, list: Rect) {
     wheel_scroll(ui, list, &mut scroll, content_h);
     app.layers.page_scroll = scroll;
     let pages = app.doc.pages.clone();
+    let separator_press = left_sep::press_claimed(ui);
     let ready_pages: std::collections::HashMap<NodeId, usize> = if app.ui.dev_mode && (app.dev.has_tracked_cached || app.doc.nodes.len() <= 20_000) {
         crate::dev::list::rows(&app.doc)
             .into_iter()
@@ -245,7 +281,8 @@ fn pages_list(app: &mut App, ui: &mut Ui, list: Rect) {
             if app.layers.renaming_page == Some(*pid) {
                 let id = ui.id().with(("page-rename", pid.0));
                 let txt_rect = Rect::from_min_max(row.min + Vec2::new(theme::PAGE_ROW_TEXT_PAD, 0.0), row.max);
-                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+                let paint = crate::widgets::kit::field_look(crate::widgets::kit::State::Focused, false);
+                crate::widgets::kit::paint_frame(&p, row, theme::RADIUS_CONTROL, &paint);
                 if !app.layers.rename_started {
                     ui.memory_mut(|m| m.request_focus(id));
                     app.layers.rename_started = true;
@@ -276,41 +313,51 @@ fn pages_list(app: &mut App, ui: &mut Ui, list: Rect) {
                 let at = ui.input(|i| i.pointer.interact_pos()).unwrap_or(row.left_bottom());
                 app.layers.page_menu = Some((*pid, at));
             }
-            if r.drag_started() {
+            if r.drag_started() && !separator_press {
                 app.layers.page_drag = Some(*pid);
             }
             if is_line_div && !selected {
                 widgets::hline(&p, row.left() + theme::PAGE_ROW_TEXT_PAD, row.right() - theme::PAGE_ROW_TEXT_PAD, row.center().y, theme::BORDER);
-                if r.double_clicked() {
+                if r.double_clicked() && !separator_press {
                     app.layers.renaming_page = Some(*pid);
                     app.layers.rename_started = false;
                 }
                 continue;
             }
-            if selected {
-                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-            } else if r.hovered() && app.layers.page_drag.is_none() && !is_hdr_div {
-                p.rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
+            let hovered = r.hovered() && app.layers.page_drag.is_none();
+            let state = if selected {
+                crate::widgets::kit::State::Selected
+            } else if hovered && !is_hdr_div {
+                crate::widgets::kit::State::Hover
+            } else {
+                crate::widgets::kit::State::Default
+            };
+            let mut paint = crate::widgets::kit::row_look(state, crate::widgets::kit::Surface::Primary);
+            if is_hdr_div && !selected {
+                paint.fill = Color32::TRANSPARENT;
+            }
+            crate::widgets::kit::paint_frame(&p, row, theme::RADIUS_CONTROL, &paint);
+            if r.has_focus() {
+                crate::widgets::kit::focus_ring(&p, row, theme::RADIUS_CONTROL as f32);
             }
             let ready_count = ready_pages.get(pid).copied().unwrap_or(0);
             let right_reserve = if ready_count > 0 { 26.0 } else { 0.0 };
             if is_hdr_div && !selected {
-                let font = theme::font_caption_strong();
+                let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Semibold);
                 let shown = widgets::elide(&p, trimmed, &font, row.width() - theme::PAGE_ROW_TEXT_PAD * 2.0 - right_reserve);
                 p.text(Pos2::new(row.left() + theme::PAGE_ROW_TEXT_PAD, row.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT_TERTIARY);
             } else {
                 let font = if selected { theme::font_body_strong() } else { theme::font_body() };
                 let shown = widgets::elide(&p, &name, &font, row.width() - theme::PAGE_ROW_TEXT_PAD * 2.0 - right_reserve);
-                p.text(Pos2::new(row.left() + theme::PAGE_ROW_TEXT_PAD, row.center().y), Align2::LEFT_CENTER, shown, font, theme::TEXT);
+                p.text(Pos2::new(row.left() + theme::PAGE_ROW_TEXT_PAD, row.center().y), Align2::LEFT_CENTER, shown, font, paint.text);
             }
             if ready_count > 0 {
-                let dev_green = Color32::from_rgb(0x1B, 0xC4, 0x7D);
-                icons::paint(&p, Icon::Dev, Pos2::new(row.right() - 12.0, row.center().y), 12.0, dev_green);
+                icons::paint(&p, Icon::Dev, Pos2::new(row.right() - 12.0, row.center().y), 12.0, theme::DEV_READY);
             }
-            if r.double_clicked() {
+            if r.double_clicked() && !separator_press {
                 app.layers.renaming_page = Some(*pid);
                 app.layers.rename_started = false;
-            } else if r.clicked() && !selected && !is_hdr_div {
+            } else if r.clicked() && !selected && !is_hdr_div && !separator_press {
                 app.switch_page(*pid);
             }
         }
@@ -377,7 +424,7 @@ fn page_menu(app: &mut App, ui: &mut Ui) {
 }
 
 /// Max width of the file-name row (the sidebar button and the menu chevron take the rest).
-const HEADER_NAME_W: f32 = theme::LEFT_PANEL_WIDTH - 16.0 - 36.0 - 24.0;
+const HEADER_NAME_W: f32 = theme::LEFT_PANEL_WIDTH - theme::INSET_PANEL - (theme::LEFT_SIDEBAR_BTN_RIGHT_PAD + LEFT_ACTION_BUTTON) - theme::TARGET_MIN;
 
 /// File header: "<Project> / <File name>" for library files (double-click renames), the
 /// plain name otherwise, and a second line with the save state or "Save to library".
@@ -396,7 +443,12 @@ fn file_header(app: &mut App, ui: &mut Ui, inner: Rect, y: f32) {
     let name_x = x0 + prefix_w;
     let name_w = widgets::text_width(&p, &shown, &strong);
     let name_rect = Rect::from_min_size(Pos2::new(name_x, cy - 10.0), Vec2::new(name_w.max(8.0), 20.0));
-    let hit = Rect::from_min_max(Pos2::new(inner.left() + 8.0, y + 8.0), Pos2::new(name_rect.right() + 28.0, y + 32.0));
+    let button_left = inner.right() - theme::LEFT_SIDEBAR_BTN_RIGHT_PAD - LEFT_ACTION_BUTTON;
+    let hit_right = (name_rect.right() + theme::TARGET_MIN + theme::SPACE_FACT).min(button_left - theme::SPACE_FACT);
+    let hit = Rect::from_min_max(
+        Pos2::new(inner.left() + theme::INSET_FRAME, y + theme::INSET_FRAME),
+        Pos2::new(hit_right, y + theme::INSET_FRAME + theme::TARGET_MIN),
+    );
     widgets::record(ui, "file-header", hit);
 
     if app.renaming_file && app.lib_file.is_some() {
@@ -408,9 +460,10 @@ fn file_header(app: &mut App, ui: &mut Ui, inner: Rect, y: f32) {
             ui.data_mut(|d| d.insert_temp(seen_id, true));
         }
         let field_rect = Rect::from_min_max(Pos2::new(name_x - 4.0, y + 10.0), Pos2::new(inner.left() + 8.0 + HEADER_NAME_W + 16.0, y + 30.0));
-        p.rect_filled(field_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+        let paint = crate::widgets::kit::field_look(crate::widgets::kit::State::Focused, false);
+        crate::widgets::kit::paint_frame(&p, field_rect, theme::RADIUS_CONTROL, &paint);
         if let Some(t) = &prefix {
-            p.text(Pos2::new(x0, cy), Align2::LEFT_CENTER, format!("{t} / "), regular.clone(), theme::TEXT_SECONDARY);
+            p.text(Pos2::new(x0, cy), Align2::LEFT_CENTER, format!("{t} / "), regular.clone(), theme::TEXT_TERTIARY);
         }
         let res = field::edit_text(ui, field_rect.shrink2(Vec2::new(4.0, 0.0)), id, &name, strong.clone(), theme::TEXT, 0.0);
         if let Some(new_name) = res {
@@ -427,10 +480,11 @@ fn file_header(app: &mut App, ui: &mut Ui, inner: Rect, y: f32) {
             p.rect_filled(hit, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
         }
         if let Some(t) = &prefix {
-            p.text(Pos2::new(x0, cy), Align2::LEFT_CENTER, format!("{t} / "), regular.clone(), theme::TEXT_SECONDARY);
+            let prefix_col = if hr.hovered() { theme::TEXT_SECONDARY } else { theme::TEXT_TERTIARY };
+            p.text(Pos2::new(x0, cy), Align2::LEFT_CENTER, format!("{t} / "), regular.clone(), prefix_col);
         }
         p.text(Pos2::new(name_x, cy), Align2::LEFT_CENTER, &shown, strong, theme::TEXT);
-        icons::paint(&p, Icon::ChevronDown, Pos2::new(name_rect.right() + 10.0, cy), 12.0, theme::ICON_SECONDARY);
+        icons::paint(&p, Icon::ChevronDown, Pos2::new(name_rect.right() + 10.0, cy), 12.0, theme::ICON_QUATERNARY);
         if hr.double_clicked() && app.lib_file.is_some() {
             app.renaming_file = true;
             app.ui.menu = None;
@@ -448,7 +502,7 @@ fn file_header(app: &mut App, ui: &mut Ui, inner: Rect, y: f32) {
         let sub_r = Rect::from_min_size(Pos2::new(x0 - 2.0, sub_y - 9.0), Vec2::new(w + 6.0, 18.0));
         widgets::record(ui, "left-header-subtitle", sub_r);
         let resp = ui.interact(sub_r, ui.id().with("left-header-subtitle"), Sense::click());
-        p.text(Pos2::new(x0, sub_y), Align2::LEFT_CENTER, text, theme::font_body(), if resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
+        p.text(Pos2::new(x0, sub_y), Align2::LEFT_CENTER, text, theme::font_body(), if resp.hovered() { theme::TEXT_SECONDARY } else { theme::TEXT_TERTIARY });
         if resp.on_hover_text("Return to Home / Drafts").clicked() {
             app.go_home();
         }
@@ -457,7 +511,7 @@ fn file_header(app: &mut App, ui: &mut Ui, inner: Rect, y: f32) {
         let w = widgets::text_width(&p, label, &theme::font_body());
         let lr = Rect::from_min_size(Pos2::new(x0 - 2.0, sub_y - 9.0), Vec2::new(w + 4.0, 18.0));
         let resp = ui.interact(lr, ui.id().with("save-to-library"), Sense::click());
-        let col = if resp.hovered() { theme::ICON_SELECTED } else { theme::TEXT_BRAND };
+        let col = if resp.hovered() { theme::TEXT } else { theme::TEXT_BRAND };
         p.text(Pos2::new(x0, sub_y), Align2::LEFT_CENTER, label, theme::font_body(), col);
         widgets::record(ui, "save-to-library", lr);
         if resp.clicked() {
@@ -469,9 +523,44 @@ fn file_header(app: &mut App, ui: &mut Ui, inner: Rect, y: f32) {
         let sub_r = Rect::from_min_size(Pos2::new(x0 - 2.0, sub_y - 9.0), Vec2::new(w + 6.0, 18.0));
         widgets::record(ui, "left-header-subtitle", sub_r);
         let resp = ui.interact(sub_r, ui.id().with("left-header-subtitle"), Sense::click());
-        p.text(Pos2::new(x0, sub_y), Align2::LEFT_CENTER, text, theme::font_body(), if resp.hovered() { theme::TEXT } else { theme::TEXT_SECONDARY });
+        p.text(Pos2::new(x0, sub_y), Align2::LEFT_CENTER, text, theme::font_body(), if resp.hovered() { theme::TEXT_SECONDARY } else { theme::TEXT_TERTIARY });
         if resp.on_hover_text("Return to Home / Drafts").clicked() {
             app.go_home();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remembered_rects_follow_the_record_switch() {
+        fn stored(ctx: &egui::Context) -> Option<Rect> {
+            ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "probe".to_string()))))
+        }
+        let rect = Rect::from_min_size(Pos2::new(3.0, 4.0), Vec2::splat(5.0));
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| remember(ui, "probe", rect));
+        assert_eq!(stored(&ctx), Some(rect), "recorded while recording is on");
+        let ctx = egui::Context::default();
+        let _disabled = widgets::RecordDisabled::begin();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| remember(ui, "probe", rect));
+        assert_eq!(stored(&ctx), None, "nothing is stored while recording is off, as in a release build");
+    }
+
+    #[test]
+    fn pages_list_height_is_five_rows() {
+        let mut doc = designos_doc::Document::new("t");
+        for i in 0..8 {
+            doc.add_page(format!("P{i}"));
+        }
+        let app = App::new(doc);
+        let inner = Rect::from_min_size(Pos2::new(49.0, 32.0), Vec2::new(theme::LEFT_PANEL_WIDTH, 1000.0));
+        let top = 32.0 + theme::LEFT_HEADER_HEIGHT + theme::PANEL_TITLE_ROW_HEIGHT;
+        let bounds = left_sep::compute_bounds(&app, inner, top);
+        assert_eq!(theme::PAGE_ROW_HEIGHT, theme::CONTROL_XS, "a page row is the extra-small control height");
+        let five = theme::PAGES_MAX_VISIBLE_ROWS as f32 * theme::PAGE_ROW_HEIGHT;
+        assert!((bounds.default_h - five).abs() < 0.1, "default pages height is five rows ({five}), got {}", bounds.default_h);
     }
 }

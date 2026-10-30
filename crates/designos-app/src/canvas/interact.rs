@@ -1660,7 +1660,12 @@ pub fn auto_layout_inline_overlay(app: &mut App, ui: &mut Ui, rect: ERect) {
             .show(ui, |ui| {
                 let resp = ui.add_sized(
                     [48.0, 18.0],
-                    egui::TextEdit::singleline(&mut inline.text).font(egui::FontId::proportional(11.0)).horizontal_align(egui::Align::Center),
+                    // The editor's own frame is the field: a framed TextEdit would draw a second box (field fill and ring) inside it.
+                    // The margin is the one egui's default frame gave the text, so the value stays where it was.
+                    egui::TextEdit::singleline(&mut inline.text)
+                        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(theme::SPACE_FACT as i8, theme::INSET_SEGMENT as i8)))
+                        .font(egui::FontId::proportional(11.0))
+                        .horizontal_align(egui::Align::Center),
                 );
                 if inline.request_focus {
                     resp.request_focus();
@@ -2540,6 +2545,54 @@ mod tests {
         assert_eq!(mains, 1, "the file keeps its one main");
         app.undo();
         assert_eq!(app.doc.nodes.len(), nodes, "one undo takes both copies away");
+    }
+
+    fn flat_shapes(shape: &egui::Shape, out: &mut Vec<egui::epaint::RectShape>) {
+        match shape {
+            egui::Shape::Vec(v) => v.iter().for_each(|s| flat_shapes(s, out)),
+            egui::Shape::Rect(r) => out.push(r.clone()),
+            _ => {}
+        }
+    }
+
+    /// The inline gap and padding editor sits in its own `BG_SECONDARY` frame: the text field inside it is
+    /// frameless, so the frame is the field and no second box (resting field ring on the field fill) shows.
+    #[test]
+    fn the_inline_gap_editor_draws_one_box_not_a_field_inside_a_frame() {
+        let (d, _page, frames) = page_of_frames(1);
+        let mut app = App::new(d);
+        app.selection = vec![frames[0]];
+        let canvas_rect = egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        app.canvas_rect = canvas_rect;
+        app.view = crate::app::View { offset: DV::ZERO, zoom: 1.0 };
+        app.canvas.al_inline = Some(AutoLayoutInlineEdit {
+            id: frames[0],
+            kind: handles::AutoLayoutHandleKind::Gap(0),
+            anchor_page: DV::new(120.0, 120.0),
+            text: "12".into(),
+            request_focus: false,
+        });
+        let ctx = egui::Context::default();
+        theme::apply(&ctx);
+        theme::install_fonts(&ctx);
+        // The first pass sizes the area; egui then fades a new area in, so run until it is fully opaque.
+        let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(canvas_rect), time: Some(0.9), ..Default::default() }, |ui| {
+            auto_layout_inline_overlay(&mut app, ui, canvas_rect);
+        });
+        for time in [1.5, 2.0, 2.5] {
+            out = ctx.run_ui(egui::RawInput { screen_rect: Some(canvas_rect), time: Some(time), ..Default::default() }, |ui| {
+                auto_layout_inline_overlay(&mut app, ui, canvas_rect);
+            });
+        }
+        assert!(app.canvas.al_inline.is_some(), "the editor stays open while no key was pressed");
+        let mut rects = Vec::new();
+        out.shapes.iter().for_each(|c| flat_shapes(&c.shape, &mut rects));
+        assert!(rects.iter().any(|r| r.fill == theme::BG_SECONDARY), "the editor's own frame is painted");
+        let field_rings = rects.iter().filter(|r| r.stroke.color == theme::BORDER_STRONG).count();
+        assert_eq!(field_rings, 0, "a framed TextEdit draws the resting field ring inside the editor frame");
+        let rose = egui::Color32::from_rgb(244, 63, 94);
+        assert!(rects.iter().any(|r| r.stroke.color == rose && r.stroke.width == 1.0), "the rose frame is the editing indicator");
+        assert_eq!(rects.iter().filter(|r| r.stroke.color == theme::FOCUS_RING).count(), 0, "the editor draws no focus ring of its own");
     }
 
     /// A page with `count` plain frames at x = 0, 300, 600 ..., each 100 x 100 with one 40 x 40 layer inside.

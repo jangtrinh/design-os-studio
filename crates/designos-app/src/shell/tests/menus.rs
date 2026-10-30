@@ -9,21 +9,32 @@ fn open_main(s: &mut Sim) {
     assert_eq!(s.app().ui.menu, Some(MenuKind::Main));
 }
 
-/// Row tops of the main menu (x=12, y=44, 8px padding, 17px separator blocks): Back to files,
-/// Actions, File, Edit, View, Object, Text, Arrange, Vector.
-fn main_row_center(i: usize) -> f32 {
+/// Item height of the Figma reference menu the row positions below were measured on (800x600 UI3 capture).
+const FIGMA_MENU_ITEM_HEIGHT: f32 = 24.0;
+
+/// Row centres of the main menu (x=12, y=44, 8px padding, 17px separator blocks) for items `item_h` tall:
+/// Back to files, Actions, File, Edit, View, Object, Text, Arrange, Vector.
+fn main_row_center_for(item_h: f32, i: usize) -> f32 {
     let seps_before = [0, 1, 2, 2, 2, 2, 2, 2, 2][i] as f32;
-    44.0 + 8.0 + i as f32 * 24.0 + seps_before * 17.0 + 12.0
+    44.0 + theme::MENU_PADDING + i as f32 * item_h + seps_before * crate::widgets::menu::SEP_H + item_h / 2.0
 }
 
+/// Row centres of the main menu as the app lays it out.
+fn main_row_center(i: usize) -> f32 {
+    main_row_center_for(theme::MENU_ITEM_HEIGHT, i)
+}
+
+/// Checks the reference numbers only, not the app: they were read off a menu of 24 px items, while the app's items are
+/// `MENU_ITEM_HEIGHT` (32, the editor row size). What they still pin is the shared top padding and the separator block.
 #[test]
-fn main_menu_rows_sit_where_figma_puts_them() {
+fn figma_reference_menu_rows_use_the_shared_padding_and_separator() {
     // Figma reference (800x600): Back to files 64, Actions 105, File 146, Edit 170 ... Vector 290.
-    assert_eq!(main_row_center(0), 64.0);
-    assert_eq!(main_row_center(1), 105.0);
-    assert_eq!(main_row_center(2), 146.0);
-    assert_eq!(main_row_center(3), 170.0);
-    assert_eq!(main_row_center(8), 290.0);
+    let figma = |i| main_row_center_for(FIGMA_MENU_ITEM_HEIGHT, i);
+    assert_eq!(figma(0), 64.0);
+    assert_eq!(figma(1), 105.0);
+    assert_eq!(figma(2), 146.0);
+    assert_eq!(figma(3), 170.0);
+    assert_eq!(figma(8), 290.0);
 }
 
 #[test]
@@ -35,8 +46,8 @@ fn hovering_opens_a_submenu_and_clicking_a_leaf_runs_it() {
     s.frame(vec![]);
     // Edit submenu: top aligned with the hovered row minus the 8px padding; "Select all" is its
     // 7th row after two 17px separators.
-    let top = main_row_center(3) - 12.0 - theme::MENU_PADDING;
-    let y = top + theme::MENU_PADDING + 6.0 * 24.0 + 2.0 * crate::widgets::menu::SEP_H + 12.0;
+    let top = main_row_center(3) - theme::MENU_ITEM_HEIGHT / 2.0 - theme::MENU_PADDING;
+    let y = top + theme::MENU_PADDING + 6.0 * theme::MENU_ITEM_HEIGHT + 2.0 * crate::widgets::menu::SEP_H + theme::MENU_ITEM_HEIGHT / 2.0;
     s.mv(Pos2::new(300.0, y));
     s.click(Pos2::new(300.0, y));
     assert_eq!(s.app().ui.menu, None);

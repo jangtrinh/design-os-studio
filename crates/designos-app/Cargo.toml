@@ -53,6 +53,7 @@ roxmltree = "0.20"
 egui = "0.35"
 resvg = { version = "0.45", default-features = false }
 portable-pty = "0.8"
+shell-words = "1.1.1"
 toml = "1"
 vt100 = "0.15"
 
