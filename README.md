@@ -199,16 +199,16 @@ Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.
 <a id="new-in-v060"></a>
 ### 0.6.0
 
-Real screenshots from the v0.6.0 macOS build, captured headlessly with `designos-studio --screenshot` (2x) on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click an image for full size. The approval card comes from the built-in `--panel agents-approval-queued` preview.
+Screenshots retaken with the 0.7.5 release build, captured headlessly with `designos-studio --screenshot` (2x) on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click an image for full size. The approval card comes from the built-in `--panel agents-approval-queued` preview.
 
 <table>
   <tr>
     <td width="50%" valign="top" align="center">
-      <a href="docs/images/v0.6/check-designs-color-fixes.png"><img src="docs/images/v0.6/check-designs-color-fixes.png" alt="DESIGN:OS Studio Check designs panel open on the Avatar variant set of the Untitled UI kit: the Color group lists findings such as Stroke #000000 matches variable Colors/Base/black, each with a Fix button, and a Fix all button sits at the top" width="430"></a><br>
-      <sub><b>Check designs: Color</b><br>Hard-coded colors that match a variable are listed under Color, each with a one-click Fix, plus Fix all.</sub>
+      <a href="docs/images/v0.7/check-designs-color-fixes.png"><img src="docs/images/v0.7/check-designs-color-fixes.png" alt="DESIGN:OS Studio Check designs panel open on the Buttons/Button component set of the Untitled UI kit: the Color group lists hard-coded fills such as Fill #FFFFFF that match the kit's white variables, a Contrast group follows, and a Fix all button sits at the top" width="430"></a><br>
+      <sub><b>Check designs: Color</b><br>Hard-coded colors that match a variable are listed under Color, with Fix all at the top.</sub>
     </td>
     <td width="50%" valign="top" align="center">
-      <a href="docs/images/v0.6/ask-before-acting-approval.png"><img src="docs/images/v0.6/ask-before-acting-approval.png" alt="DESIGN:OS Studio Agents panel in ask mode: an approval card reading Claude Code wants to run Bash, with the command git status --short, a 1 of 3 count and Deny and Approve buttons, beside the Untitled UI Avatar frame on the canvas" width="430"></a><br>
+      <a href="docs/images/v0.7/ask-before-acting-approval.png"><img src="docs/images/v0.7/ask-before-acting-approval.png" alt="DESIGN:OS Studio Agents panel in ask mode: an approval card reading Claude Code wants to run Bash, with the command git status --short, a 1 of 3 count and Deny and Approve buttons, beside the Untitled UI Avatar group on the canvas" width="430"></a><br>
       <sub><b>Ask before acting</b><br>With Ask before acting on, Claude Code's request to run a command waits in the Agents panel for Approve or Deny.</sub>
     </td>
   </tr>
@@ -256,13 +256,13 @@ Real screenshots from the v0.6.0 macOS build, captured headlessly with `designos
 
 Studio compiles every document through one scene graph (`SceneCompiler` + `GeomCache`), writes `.fig` files, and captures headless frames (`--screenshot` and `designos-diff`).
 
-Screenshots below are headless captures from the v0.6.0 macOS build on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Each caption shows the command that made it, with the kit as `untitled-ui-kit.fig`.
+Screenshots below are headless captures from the 0.7.5 release build on a `.designos` copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Each caption shows the command that made it, with the kit copy as `untitled-ui-kit.designos`.
 
 ### Pillar 1 — Agents panel (`Claude Code` · `Codex` · `Grok` · `Antigravity` · `Gemini CLI`)
 
 <p align="center">
   <img src="docs/images/designos-agents-chat.png" alt="DESIGN:OS Studio Agents panel beside an Untitled UI canvas with the Avatar group component selected. A New session list shows Claude Code, Codex, Grok, Antigravity and Gemini CLI with their versions and sign-in states, then Other CLI and Shell. Below it are sample prompts and the Ask for changes composer, under a chip that names the selection" width="880"><br>
-  <sub>Command: <code>designos-studio untitled-ui-kit.fig --select "Avatar group" --zoom 100 --panel agents --gpu --size 1440x900 --scale 2 --screenshot docs/images/designos-agents-chat.png</code><br>
+  <sub>Command: <code>designos-studio untitled-ui-kit.designos --select "Avatar group" --zoom 200 --panel agents-picker --size 1440x900 --scale 2 --no-toast --screenshot docs/images/designos-agents-chat.png</code><br>
   The new-session picker reads each CLI's version and sign-in state from the machine that took the capture. A live session is not shown.</sub>
 </p>
 
@@ -272,7 +272,7 @@ The **Agents** panel (`RailItem::Agents`) starts your own agent CLI (`claude`, `
 
 <p align="center">
   <img src="docs/images/designos-variables.png" alt="DESIGN:OS Studio Variables view on the Untitled UI kit. The left column lists the file's variable collections: _Primitives, Color modes, Containers, Widths, Spacing, Radius and Typography, then collections from a library. The _Primitives collection is open on the Colors group and shows the Base and Neutral color scales with their hex values" width="880"><br>
-  <sub>Command: <code>designos-studio untitled-ui-kit.fig --panel variables --gpu --size 1440x900 --scale 2 --screenshot docs/images/designos-variables.png</code></sub>
+  <sub>Command: <code>designos-studio untitled-ui-kit.designos --panel variables --size 1440x900 --scale 2 --no-toast --screenshot docs/images/designos-variables.png</code></sub>
 </p>
 
 The Variables view lists a file's collections, groups and modes in one table, with an alias picker for bindings. Variables are color, number, string or boolean. A frame can pin its own mode per collection (for example `Light` or `Dark`), and modes survive a `.fig` round trip. Import and export variables as Figma JSON and W3C Design Tokens (DTCG) from the Variables menu, or with `--import-variables` and `--export-variables`. Press **`Q`** (or `⌘⌥A`; `Ctrl+Alt+A` on Windows and Linux) to run Select matching layers: it selects the layers that share the selection's name and type across top-level frames and component variants, for Multi-Edit. Press **`⌘⇧⌥A`** (`Ctrl+Shift+Alt+A`) to run Suggest Auto-Layout on the selection. `⇧A` runs Add auto layout.
@@ -280,8 +280,8 @@ The Variables view lists a file's collections, groups and modes in one table, wi
 ### Pillar 3 — Dev Mode (`Shift+D` / `</>`) Multi-Target Codegen & Box-Model Inspector
 
 <p align="center">
-  <img src="docs/images/designos-devmode.png" alt="DESIGN:OS Studio Dev Mode on the Untitled UI kit with the Avatar group component set selected. The Inspect tab on the right shows the Ready for dev button, a component playground with its properties, annotations, dev links, the MCP section with a Copy link button, Code Connect and Layer properties" width="880"><br>
-  <sub>Command: <code>designos-studio untitled-ui-kit.fig --select "Avatar group" --zoom 100 --dev react --gpu --size 1440x900 --scale 2 --screenshot docs/images/designos-devmode.png</code></sub>
+  <img src="docs/images/designos-devmode.png" alt="DESIGN:OS Studio Dev Mode on the Untitled UI kit with the Avatar group component set selected. The Inspect tab on the right shows the Ready for dev button, a component playground with its properties, annotations, dev links, the MCP section with a Copy link button and Code Connect" width="880"><br>
+  <sub>Command: <code>designos-studio untitled-ui-kit.designos --select "Avatar group" --zoom 200 --dev react --size 1440x900 --scale 2 --no-toast --screenshot docs/images/designos-devmode.png</code></sub>
 </p>
 
 Switch into **Dev Mode (`Shift+D` or `</>`)** to inspect a layer: its Ready for dev status, annotations, dev links, a CSS box-model diagram, resolved variables, and copy-ready code in **CSS**, **Tailwind**, **React (JSX)**, **SwiftUI**, **UIKit**, **Jetpack Compose**, **Android XML** and **HTML**. This capture shows the top of the panel. From a terminal, `designos <file> --select <layer> --codegen <language>` prints the same code, and `--dev <language>` opens Dev Mode on that language. Both take `css`, `tailwind`, `react`, `swiftui`, `uikit`, `compose`, `android-xml` or `html`.
