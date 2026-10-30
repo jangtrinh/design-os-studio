@@ -259,154 +259,7 @@ fn kind_rank(kind: &PropKind) -> u8 {
     }
 }
 
-#[cfg(test)]
-mod props_panel_tests {
-    use super::*;
-
-    fn def(name: &str, kind: PropKind) -> ComponentPropDef {
-        ComponentPropDef { name: name.into(), kind, default: PropValue::Text(String::new()) }
-    }
-
-    #[test]
-    fn property_kind_rank_matches_panel_order() {
-        assert_eq!(kind_rank(&PropKind::Variant { options: vec![] }), 0);
-        assert_eq!(kind_rank(&PropKind::Boolean), 1);
-        assert_eq!(kind_rank(&PropKind::Text), 2);
-        assert_eq!(kind_rank(&PropKind::InstanceSwap { preferred: vec![] }), 3);
-        assert_eq!(kind_rank(&PropKind::Slot), 4);
-    }
-
-    #[test]
-    fn property_sort_is_stable_within_each_kind() {
-        let mut defs = vec![
-            def("text", PropKind::Text),
-            def("bool-a", PropKind::Boolean),
-            def("variant-a", PropKind::Variant { options: vec![] }),
-            def("bool-b", PropKind::Boolean),
-            def("variant-b", PropKind::Variant { options: vec![] }),
-        ];
-        sort_props_by_kind(&mut defs);
-        assert_eq!(defs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["variant-a", "variant-b", "bool-a", "bool-b", "text"]);
-    }
-
-    #[test]
-    fn description_resolution_prefers_own_then_set_and_normalizes_whitespace() {
-        assert_eq!(resolve_description(" own text ", Some("set text")).as_deref(), Some("own text"));
-        assert_eq!(resolve_description("", Some(" set\n fallback ")).as_deref(), Some("set fallback"));
-        assert_eq!(resolve_description("", None), None);
-        assert_eq!(resolve_description(" \n\t ", Some(" \n ")), None);
-        assert_eq!(resolve_description("one\ntwo   three", None).as_deref(), Some("one two three"));
-    }
-
-    #[test]
-    fn description_truncation_keeps_two_lines_and_marks_last_line() {
-        let (lines, truncated) = truncate_description_lines(&["first".into(), "second".into(), "third".into()], 100.0, |line| line.chars().count() as f32);
-        assert!(truncated);
-        assert_eq!(lines, vec!["first".to_string(), "second…".to_string()]);
-        assert_eq!(truncate_description_lines(&["one".into()], 100.0, |line| line.chars().count() as f32), (vec!["one".into()], false));
-    }
-
-    #[test]
-    fn description_truncation_shrinks_to_fit_width() {
-        let truncated = truncate_to_width("second   ", 60.0, |line| line.chars().count() as f32 * 10.0);
-        assert_eq!(truncated, "secon…");
-        assert!(truncated.chars().count() as f32 * 10.0 <= 60.0);
-    }
-
-    #[test]
-    fn description_clipping_accounts_for_row_height() {
-        assert!(!description_clipped(1, 18.0, 40.0));
-        assert!(!description_clipped(2, 18.0, 40.0));
-        assert!(description_clipped(3, 18.0, 40.0));
-        assert!(description_clipped(2, 22.0, 40.0));
-    }
-
-    #[test]
-    fn instance_boolean_toggle_shows_focus_ring_on_tab() {
-        fn ring_strokes(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::epaint::RectShape> {
-            shapes
-                .iter()
-                .filter_map(|clipped| match &clipped.shape {
-                    egui::epaint::Shape::Rect(shape) if shape.stroke.color == theme::FOCUS_RING && shape.stroke.width == 2.0 => Some(shape.clone()),
-                    _ => None,
-                })
-                .collect()
-        }
-
-        let rect = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(92.0, theme::FIELD_HEIGHT));
-        let track = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
-
-        let unfocused_ctx = egui::Context::default();
-        theme::install_fonts(&unfocused_ctx);
-        let mut unfocused_shapes = Vec::new();
-        for _ in 0..3 {
-            unfocused_shapes = unfocused_ctx
-                .run_ui(egui::RawInput::default(), |ui| {
-                    instance_boolean_toggle(ui, rect, "instance-bool", false);
-                })
-                .shapes;
-        }
-        assert!(ring_strokes(&unfocused_shapes).is_empty(), "unfocused toggle has no focus ring");
-
-        let ctx = egui::Context::default();
-        theme::install_fonts(&ctx);
-        let first_id = std::cell::Cell::new(egui::Id::NULL);
-        let toggle_id = std::cell::Cell::new(egui::Id::NULL);
-        let frame = |input: egui::RawInput| {
-            ctx.run_ui(input, |ui| {
-                ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle")));
-                instance_boolean_toggle(ui, rect, "instance-bool", false);
-            })
-        };
-
-        // Request focus on frame one, then let egui register and retain the widget for two frames.
-        ctx.run_ui(egui::RawInput::default(), |ui| {
-            let response = ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle"))).inner;
-            first_id.set(response.id);
-            response.request_focus();
-            toggle_id.set(instance_boolean_toggle(ui, rect, "instance-bool", false).id);
-        });
-        frame(egui::RawInput::default());
-        frame(egui::RawInput::default());
-        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "the first widget holds focus before Tab");
-
-        let before_tab = frame(egui::RawInput::default());
-        assert!(ring_strokes(&before_tab.shapes).is_empty(), "toggle has no focus ring before Tab");
-        let tab =
-            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: true, repeat: false, modifiers: egui::Modifiers::default() };
-        let release =
-            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: false, repeat: false, modifiers: egui::Modifiers::default() };
-        frame(egui::RawInput { events: vec![tab, release], ..Default::default() });
-        let focused = frame(egui::RawInput::default());
-        assert!(ctx.memory(|m| m.has_focus(toggle_id.get())), "Tab moves focus to the toggle");
-        let rings = ring_strokes(&focused.shapes);
-        assert_eq!(rings.len(), 1, "focused toggle has exactly one focus ring");
-        assert_eq!(rings[0].rect, track.expand(theme::SPACE_FACT));
-        assert_eq!(rings[0].stroke.color, theme::FOCUS_RING);
-        assert_eq!(rings[0].stroke.width, 2.0);
-
-        let shift_tab = egui::Event::Key {
-            key: egui::Key::Tab,
-            physical_key: Some(egui::Key::Tab),
-            pressed: true,
-            repeat: false,
-            modifiers: egui::Modifiers { shift: true, ..Default::default() },
-        };
-        let shift_release = egui::Event::Key {
-            key: egui::Key::Tab,
-            physical_key: Some(egui::Key::Tab),
-            pressed: false,
-            repeat: false,
-            modifiers: egui::Modifiers { shift: true, ..Default::default() },
-        };
-        frame(egui::RawInput { events: vec![shift_tab, shift_release], ..Default::default() });
-        let returned = frame(egui::RawInput::default());
-        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "Shift+Tab returns focus to the first widget");
-        assert!(ring_strokes(&returned.shapes).is_empty(), "toggle ring disappears after Shift+Tab");
-    }
-}
-
-fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
+fn sort_props_by_kind(defs: &mut [ComponentPropDef]) {
     defs.sort_by_key(|def| kind_rank(&def.kind));
 }
 
@@ -935,5 +788,152 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         slot_settings_rows(app, ui, pane, slot_owner, &prop_name);
         pane.y += theme::SPACE_ROW;
         section_sep(ui, pane, false);
+    }
+}
+
+#[cfg(test)]
+mod props_panel_tests {
+    use super::*;
+
+    fn def(name: &str, kind: PropKind) -> ComponentPropDef {
+        ComponentPropDef { name: name.into(), kind, default: PropValue::Text(String::new()) }
+    }
+
+    #[test]
+    fn property_kind_rank_matches_panel_order() {
+        assert_eq!(kind_rank(&PropKind::Variant { options: vec![] }), 0);
+        assert_eq!(kind_rank(&PropKind::Boolean), 1);
+        assert_eq!(kind_rank(&PropKind::Text), 2);
+        assert_eq!(kind_rank(&PropKind::InstanceSwap { preferred: vec![] }), 3);
+        assert_eq!(kind_rank(&PropKind::Slot), 4);
+    }
+
+    #[test]
+    fn property_sort_is_stable_within_each_kind() {
+        let mut defs = vec![
+            def("text", PropKind::Text),
+            def("bool-a", PropKind::Boolean),
+            def("variant-a", PropKind::Variant { options: vec![] }),
+            def("bool-b", PropKind::Boolean),
+            def("variant-b", PropKind::Variant { options: vec![] }),
+        ];
+        sort_props_by_kind(&mut defs);
+        assert_eq!(defs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["variant-a", "variant-b", "bool-a", "bool-b", "text"]);
+    }
+
+    #[test]
+    fn description_resolution_prefers_own_then_set_and_normalizes_whitespace() {
+        assert_eq!(resolve_description(" own text ", Some("set text")).as_deref(), Some("own text"));
+        assert_eq!(resolve_description("", Some(" set\n fallback ")).as_deref(), Some("set fallback"));
+        assert_eq!(resolve_description("", None), None);
+        assert_eq!(resolve_description(" \n\t ", Some(" \n ")), None);
+        assert_eq!(resolve_description("one\ntwo   three", None).as_deref(), Some("one two three"));
+    }
+
+    #[test]
+    fn description_truncation_keeps_two_lines_and_marks_last_line() {
+        let (lines, truncated) = truncate_description_lines(&["first".into(), "second".into(), "third".into()], 100.0, |line| line.chars().count() as f32);
+        assert!(truncated);
+        assert_eq!(lines, vec!["first".to_string(), "second…".to_string()]);
+        assert_eq!(truncate_description_lines(&["one".into()], 100.0, |line| line.chars().count() as f32), (vec!["one".into()], false));
+    }
+
+    #[test]
+    fn description_truncation_shrinks_to_fit_width() {
+        let truncated = truncate_to_width("second   ", 60.0, |line| line.chars().count() as f32 * 10.0);
+        assert_eq!(truncated, "secon…");
+        assert!(truncated.chars().count() as f32 * 10.0 <= 60.0);
+    }
+
+    #[test]
+    fn description_clipping_accounts_for_row_height() {
+        assert!(!description_clipped(1, 18.0, 40.0));
+        assert!(!description_clipped(2, 18.0, 40.0));
+        assert!(description_clipped(3, 18.0, 40.0));
+        assert!(description_clipped(2, 22.0, 40.0));
+    }
+
+    #[test]
+    fn instance_boolean_toggle_shows_focus_ring_on_tab() {
+        fn ring_strokes(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::epaint::RectShape> {
+            shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::epaint::Shape::Rect(shape) if shape.stroke.color == theme::FOCUS_RING && shape.stroke.width == 2.0 => Some(shape.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        let rect = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(92.0, theme::FIELD_HEIGHT));
+        let track = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
+
+        let unfocused_ctx = egui::Context::default();
+        theme::install_fonts(&unfocused_ctx);
+        let mut unfocused_shapes = Vec::new();
+        for _ in 0..3 {
+            unfocused_shapes = unfocused_ctx
+                .run_ui(egui::RawInput::default(), |ui| {
+                    instance_boolean_toggle(ui, rect, "instance-bool", false);
+                })
+                .shapes;
+        }
+        assert!(ring_strokes(&unfocused_shapes).is_empty(), "unfocused toggle has no focus ring");
+
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let first_id = std::cell::Cell::new(egui::Id::NULL);
+        let toggle_id = std::cell::Cell::new(egui::Id::NULL);
+        let frame = |input: egui::RawInput| {
+            ctx.run_ui(input, |ui| {
+                ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle")));
+                instance_boolean_toggle(ui, rect, "instance-bool", false);
+            })
+        };
+
+        // Request focus on frame one, then let egui register and retain the widget for two frames.
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let response = ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle"))).inner;
+            first_id.set(response.id);
+            response.request_focus();
+            toggle_id.set(instance_boolean_toggle(ui, rect, "instance-bool", false).id);
+        });
+        frame(egui::RawInput::default());
+        frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "the first widget holds focus before Tab");
+
+        let before_tab = frame(egui::RawInput::default());
+        assert!(ring_strokes(&before_tab.shapes).is_empty(), "toggle has no focus ring before Tab");
+        let tab =
+            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: true, repeat: false, modifiers: egui::Modifiers::default() };
+        let release =
+            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: false, repeat: false, modifiers: egui::Modifiers::default() };
+        frame(egui::RawInput { events: vec![tab, release], ..Default::default() });
+        let focused = frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(toggle_id.get())), "Tab moves focus to the toggle");
+        let rings = ring_strokes(&focused.shapes);
+        assert_eq!(rings.len(), 1, "focused toggle has exactly one focus ring");
+        assert_eq!(rings[0].rect, track.expand(theme::SPACE_FACT));
+        assert_eq!(rings[0].stroke.color, theme::FOCUS_RING);
+        assert_eq!(rings[0].stroke.width, 2.0);
+
+        let shift_tab = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: Some(egui::Key::Tab),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers { shift: true, ..Default::default() },
+        };
+        let shift_release = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: Some(egui::Key::Tab),
+            pressed: false,
+            repeat: false,
+            modifiers: egui::Modifiers { shift: true, ..Default::default() },
+        };
+        frame(egui::RawInput { events: vec![shift_tab, shift_release], ..Default::default() });
+        let returned = frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "Shift+Tab returns focus to the first widget");
+        assert!(ring_strokes(&returned.shapes).is_empty(), "toggle ring disappears after Shift+Tab");
     }
 }
