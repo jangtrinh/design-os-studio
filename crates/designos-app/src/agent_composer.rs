@@ -889,7 +889,7 @@ pub fn show_composer(
     let draft_snapshot = state.composer_draft().to_string();
     let margin = theme::SPACE_GROUP;
     let inner_w = (panel_rect.width() - margin * 2.0 - theme::SPACE_ROW * 2.0).max(theme::CONTROL_MD);
-    let chip_row_n = crate::agent_composer_toolbar::chip_rows(&p, state, inner_w);
+    let chip_row_n = crate::agent_composer_chips::chip_rows(&p, state, inner_w);
     let caption_text = crate::agent_composer_toolbar::caption(state);
     let box_h = composer_chrome_height(&draft_snapshot, chip_row_n, caption_text.is_some());
     let comp_top = (panel_rect.bottom() - margin - box_h).max(min_top_y + MIN_CENTER_HEIGHT);
@@ -976,7 +976,7 @@ pub fn show_composer(
     if chip_row_n > 0 {
         let chip_h = chip_row_n as f32 * (theme::BADGE_MD + theme::SPACE_ROW);
         let chip_row = Rect::from_min_size(Pos2::new(composer_rect.left() + theme::SPACE_ROW, content_top), Vec2::new(inner_w, chip_h));
-        let chips = crate::agent_composer_toolbar::paint_chips(ui, state, chip_row);
+        let chips = crate::agent_composer_chips::paint_chips(ui, state, chip_row);
         if chips.select_hide {
             let finger = crate::agent_selection_chip::selection_fingerprint(&state.composer_selection);
             state.active_composer_mut().selection_chip_dismissed = Some(finger);
@@ -1068,7 +1068,7 @@ pub fn show_composer(
     let bar = crate::agent_composer_toolbar::toolbar(ui, state, composer_rect, &pill_label, send_on, skills_violation.as_deref());
     if let Some(pick) = bar.attach {
         match pick {
-            crate::agent_composer_toolbar::AttachPick::Selection => {
+            crate::agent_composer_menus::AttachPick::Selection => {
                 let cur = state.composer_draft().to_string();
                 if !cur.contains("@selection") {
                     let next = if cur.trim().is_empty() { "@selection ".to_string() } else { format!("@selection {cur}") };
@@ -1076,11 +1076,11 @@ pub fn show_composer(
                 }
                 actions.push(TerminalAction::ExportSelectionToTerminal);
             }
-            crate::agent_composer_toolbar::AttachPick::Prd => {
+            crate::agent_composer_menus::AttachPick::Prd => {
                 let on = state.active_composer().attach_prd;
                 state.active_composer_mut().attach_prd = !on;
             }
-            crate::agent_composer_toolbar::AttachPick::Skills => state.skills.open_picker(),
+            crate::agent_composer_menus::AttachPick::Skills => state.skills.open_picker(),
         }
     }
     if let Some(mode) = bar.mode_pick {

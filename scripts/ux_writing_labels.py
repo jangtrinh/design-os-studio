@@ -67,7 +67,7 @@ LABEL_CALLS: List[Tuple[str, str, int]] = [
     (r"(?<![\w.])paint_icon_btn", "agent_header.rs", 6),
     (r"(?<![\w.])paint_icon_button", "agent_composer_toolbar.rs", 5),
     (r"(?<![\w.])paint_text_button", "agent_composer_toolbar.rs", 5),
-    (r"(?<![\w.])menu_row", "agent_composer_toolbar.rs", 3),
+    (r"(?<![\w.])menu_row", "agent_composer_menus.rs", 3),
     (r"(?<![\w.])add_row", "panels/proto_actions.rs", 3),
     (r"(?<![\w.])add_row_indented", "panels/proto_actions.rs", 3),
 ]

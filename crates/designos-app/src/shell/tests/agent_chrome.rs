@@ -60,6 +60,8 @@ fn agent_sources_paint_no_chrome_colour_literals() {
         ("terminal.rs", include_str!("../../terminal.rs")),
         ("agent_approval_card.rs", include_str!("../../agent_approval_card.rs")),
         ("agent_composer.rs", include_str!("../../agent_composer.rs")),
+        ("agent_composer_chips.rs", include_str!("../../agent_composer_chips.rs")),
+        ("agent_composer_menus.rs", include_str!("../../agent_composer_menus.rs")),
         ("agent_composer_toolbar.rs", include_str!("../../agent_composer_toolbar.rs")),
         ("agent_header.rs", include_str!("../../agent_header.rs")),
         ("agent_mention_popup.rs", include_str!("../../agent_mention_popup.rs")),
