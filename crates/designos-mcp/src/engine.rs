@@ -4165,6 +4165,50 @@ mod tests {
     }
 
     #[test]
+    fn apply_spec_wraps_hug_text_at_max_width() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let content = "The agent read 14 layers, renamed the card titles, and moved the badge into the header row so the layout matches the kit. It did not change any colours.";
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "MaxWidth",
+                        "width_sizing": "hug",
+                        "height_sizing": "hug",
+                        "layout": {"direction": "column", "gap": 8.0, "padding": [16.0, 16.0, 16.0, 16.0]},
+                        "children": [
+                            {"kind": "text", "name": "Paragraph", "text": content, "font_size": 14.0, "width_sizing": "hug", "max_width": 200.0}
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let paragraph_id = NodeId(res["name_to_id"]["MaxWidth/Paragraph"].as_u64().unwrap());
+        let root = e.doc.get(root_id).unwrap();
+        let paragraph = e.doc.get(paragraph_id).unwrap();
+        let NodeKind::Text(tp) = &paragraph.kind else { panic!("expected text node") };
+        let wrapped = designos_render::measure_text_box(tp, Some(200.0));
+        assert!((paragraph.size.x - 200.0).abs() <= 0.5, "max-width text must clamp to 200px, got {}", paragraph.size.x);
+        assert!(
+            (paragraph.size.y - wrapped.y).abs() <= 0.5,
+            "max-width text must wrap to the measured height: got height {}, wrapped measurement {:?}",
+            paragraph.size.y,
+            wrapped
+        );
+        assert!(
+            (root.size.y - (16.0 + paragraph.size.y + 16.0)).abs() <= 0.5,
+            "hug parent must include wrapped text height: root {}, child {}",
+            root.size.y,
+            paragraph.size.y
+        );
+    }
+
+    #[test]
     fn apply_spec_is_one_undo_step_and_one_patch() {
         let mut e = Engine::new();
         let page = e.resolve_default_page().unwrap();

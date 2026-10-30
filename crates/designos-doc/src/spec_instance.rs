@@ -177,6 +177,9 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub styles_linked: usize,
     pub warnings: Vec<crate::SpecWarning>,
     pub measured_with_fallback: Vec<u64>,
+    /// Text nodes whose hug width is capped and therefore need their height measured at the
+    /// width chosen by auto-layout after the first pass.
+    pub constrained_hug_texts: Vec<NodeId>,
     pub touched_slot_containers: HashMap<NodeId, String>,
     /// Renderer measurer for this call. `None` keeps the character-width estimate.
     pub measure: Option<&'a dyn crate::text_measure::TextMeasure>,
@@ -209,6 +212,7 @@ impl<'a> SpecBuildCtx<'a> {
             styles_linked: 0,
             warnings: Vec::new(),
             measured_with_fallback: Vec::new(),
+            constrained_hug_texts: Vec::new(),
             touched_slot_containers: HashMap::new(),
             measure: None,
         }
@@ -616,6 +620,23 @@ impl<'a> SpecBuildCtx<'a> {
         let corrected = corrected_component_example(spec_for_example, valid.first());
         Err(SpecError::named("UNKNOWN_COMPONENT", format!("Component '{r}' not found"), Some("component".into()), valid, corrected))
     }
+}
+
+/// Re-measures hug text after auto-layout has resolved a max-width constraint. The first layout
+/// pass is needed because a hug node's final width can be smaller than its cap.
+pub(crate) fn remeasure_constrained_hug_texts(doc: &mut Document, ids: &[NodeId], measure: Option<&dyn crate::text_measure::TextMeasure>) -> bool {
+    let mut changed = false;
+    for &id in ids {
+        let Some(node) = doc.get_mut(id) else { continue };
+        let NodeKind::Text(tp) = &mut node.kind else { continue };
+        let width = node.size.x.max(20.0);
+        let height = crate::text_measure::intrinsic_text_size(tp, Some(width), measure).y;
+        if (node.size.y - height).abs() > 0.5 {
+            node.size.y = height;
+            changed = true;
+        }
+    }
+    changed
 }
 
 enum ResolvedLibraryHit {
@@ -2398,6 +2419,10 @@ pub fn apply_spec_command_with<'m>(
     let relayout_root = if parent_has_al { parent } else { root_id };
     doc.relayout_subtree(relayout_root);
     doc.flush_pending_relayout();
+    if remeasure_constrained_hug_texts(doc, &ctx.constrained_hug_texts, measure) {
+        doc.relayout_subtree(relayout_root);
+        doc.flush_pending_relayout();
+    }
 
     let mut nodes = Vec::new();
     doc.walk(root_id, |n, _| nodes.push(n.clone()));
