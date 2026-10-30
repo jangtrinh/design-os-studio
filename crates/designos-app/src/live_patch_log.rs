@@ -271,7 +271,10 @@ impl LivePatchLog {
         let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
         if self.stale_close == StaleClose::Hidden {
-            self.stale_close = StaleClose::Before(len);
+            // The boundary is the read position captured when the tab was hidden.  Using the
+            // current file length would also classify a close appended while the tab was hidden
+            // as stale, even though it was never observed by this tab before it was parked.
+            self.stale_close = StaleClose::Before(self.offset);
         }
         if len == self.offset && self.identity == Some(id) {
             return Default::default();
@@ -969,6 +972,19 @@ mod tests {
         append(&path, &line(4));
         read(&mut log);
         assert_eq!(pending_ids(&log), vec![4]);
+    }
+
+    #[test]
+    fn a_close_appended_while_hidden_is_not_dropped_as_stale() {
+        let path = temp_log("hidden-close-new");
+        let mut log = LivePatchLog::bind(path.clone());
+
+        // Parking the tab marks only lines already consumed by this watcher as stale.
+        assert!(log.drop_close_on_hide().is_none());
+        append(&path, &close_line());
+
+        read(&mut log);
+        assert!(log.pending_close.is_some(), "a close written after hiding must be delivered");
     }
 
     #[test]
