@@ -1,0 +1,1385 @@
+{
+  "schema": 1,
+  "case": "j-find",
+  "size": [
+    1600,
+    1088
+  ],
+  "scale": 1.0,
+  "regions": {
+    "canvas": [
+      290.0,
+      32.0,
+      1069.0,
+      1056.0
+    ],
+    "home": null,
+    "left_panel": [
+      49.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "notes": null,
+    "present": null,
+    "rail": [
+      0.0,
+      32.0,
+      49.0,
+      1056.0
+    ],
+    "right_panel": [
+      1359.0,
+      32.0,
+      241.0,
+      1056.0
+    ],
+    "tab_bar": [
+      0.0,
+      0.0,
+      1600.0,
+      32.0
+    ],
+    "title_bar": null,
+    "variables_full": null
+  },
+  "overlays": [],
+  "named": {
+    "export-add": {
+      "region": "unknown",
+      "rect": [
+        1568.0,
+        1505.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "file-header": {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        40.0,
+        193.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "find:case": {
+      "region": "left_panel",
+      "rect": [
+        205.0,
+        254.0,
+        22.0,
+        22.0
+      ],
+      "count": 1
+    },
+    "find:hit0": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        353.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit1": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        385.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit10": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        705.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit11": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        737.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit12": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        801.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit13": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        833.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit14": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        865.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit15": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        897.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit16": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        929.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit17": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        961.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit18": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        993.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit2": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        417.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit3": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        449.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit4": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        481.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit5": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        545.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit6": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        577.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit7": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        609.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit8": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        641.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:hit9": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        673.0,
+        240.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:next": {
+      "region": "left_panel",
+      "rect": [
+        257.0,
+        293.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "find:prev": {
+      "region": "left_panel",
+      "rect": [
+        233.0,
+        293.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "find:regex": {
+      "region": "left_panel",
+      "rect": [
+        249.0,
+        254.0,
+        22.0,
+        22.0
+      ],
+      "count": 1
+    },
+    "find:replace-toggle": {
+      "region": "left_panel",
+      "rect": [
+        229.0,
+        217.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "find:scope": {
+      "region": "left_panel",
+      "rect": [
+        161.0,
+        294.0,
+        68.0,
+        22.0
+      ],
+      "count": 1
+    },
+    "find:search": {
+      "region": "left_panel",
+      "rect": [
+        65.0,
+        249.0,
+        208.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "find:word": {
+      "region": "left_panel",
+      "rect": [
+        227.0,
+        254.0,
+        22.0,
+        22.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Avatars": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        1058.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Gradients": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        994.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Color styles/Primary": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1186.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Effect styles/Shadows": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1355.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Text styles/H1 - 36": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        665.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Text styles/H2 - 32": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        409.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Text styles/H3 - 28": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        729.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Text styles/Text": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        281.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Text styles/body 2 - 16": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        473.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Text styles/body 3 - 14": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        793.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "folder:Text styles/caption - 12": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        889.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "help-button": {
+      "region": "right_panel",
+      "rect": [
+        1566.0,
+        1056.0,
+        28.0,
+        28.0
+      ],
+      "count": 1
+    },
+    "left-header-subtitle": {
+      "region": "left_panel",
+      "rect": [
+        63.0,
+        71.0,
+        124.5,
+        18.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-handle": {
+      "region": "left_panel",
+      "rect": [
+        287.0,
+        32.0,
+        6.0,
+        1056.0
+      ],
+      "count": 1
+    },
+    "pages-layers-separator": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        205.0,
+        240.0,
+        6.0
+      ],
+      "count": 1
+    },
+    "pages-list": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        137.0,
+        240.0,
+        64.0
+      ],
+      "count": 1
+    },
+    "pages-toggle": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        97.0,
+        240.0,
+        40.0
+      ],
+      "count": 1
+    },
+    "present-button": {
+      "region": "right_panel",
+      "rect": [
+        1498.0,
+        40.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "present-chevron": {
+      "region": "right_panel",
+      "rect": [
+        1522.0,
+        40.0,
+        16.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "project-tab-0": {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "project-tab-id-1": {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        240.0,
+        26.0
+      ],
+      "count": 1
+    },
+    "rail-Agents": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        144.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Assets": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        200.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-File": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        88.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Plugins": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        384.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Tools": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        256.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-Variables": {
+      "region": "rail",
+      "rect": [
+        0.0,
+        328.0,
+        47.0,
+        56.0
+      ],
+      "count": 1
+    },
+    "rail-help": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        1048.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "rail-menu": {
+      "region": "rail",
+      "rect": [
+        8.0,
+        40.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "right-tab-Design": {
+      "region": "right_panel",
+      "rect": [
+        1368.0,
+        80.0,
+        56.25,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-tab-Prototype": {
+      "region": "right_panel",
+      "rect": [
+        1428.25,
+        80.0,
+        71.5,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-avatar": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        40.0,
+        38.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "right-top-share": {
+      "region": "right_panel",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "scrollbar-track": {
+      "region": "right_panel",
+      "rect": [
+        1592.0,
+        113.0,
+        8.0,
+        939.0
+      ],
+      "count": 1
+    },
+    "share-button": {
+      "region": "right_panel",
+      "rect": [
+        1544.0,
+        40.0,
+        48.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "style:10420:191552": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        1026.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:191557": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1387.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:191562": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1419.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:192284": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1451.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:192336": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        313.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:192522": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        345.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:196451": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        377.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:10420:784805": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1090.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:12287:135876": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        441.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:13610:57593": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        505.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:13610:57595": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        537.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:1463:61558": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        697.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:19356:557808": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1122.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:19438:568206": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1154.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:2002:48701": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1218.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:20501:173600": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        761.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:20787:131720": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1282.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:6:3449": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        825.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:6:611": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        857.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:6:82": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        921.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:767:59007": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        569.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:767:59008": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        601.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:767:59010": {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        633.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "style:94:9101": {
+      "region": "unknown",
+      "rect": [
+        1367.0,
+        1250.0,
+        223.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tab-bar-brand": {
+      "region": "tab_bar",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "tab-bar-home": {
+      "region": "tab_bar",
+      "rect": [
+        8.0,
+        4.0,
+        72.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-bar-new": {
+      "region": "tab_bar",
+      "rect": [
+        337.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tab-close-1": {
+      "region": "tab_bar",
+      "rect": [
+        310.0,
+        7.0,
+        18.0,
+        18.0
+      ],
+      "count": 1
+    },
+    "tab-unsaved-dot-1": {
+      "region": "unknown",
+      "rect": [
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "count": 1
+    },
+    "title-action:Export": {
+      "region": "unknown",
+      "rect": [
+        1568.0,
+        1505.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "title-action:Page": {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        121.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-0": {
+      "region": "canvas",
+      "rect": [
+        584.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-1": {
+      "region": "canvas",
+      "rect": [
+        640.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-2": {
+      "region": "canvas",
+      "rect": [
+        696.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-3": {
+      "region": "canvas",
+      "rect": [
+        752.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-4": {
+      "region": "canvas",
+      "rect": [
+        808.0,
+        1036.0,
+        16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "toolbar-actions-btn": {
+      "region": "canvas",
+      "rect": [
+        872.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-design": {
+      "region": "canvas",
+      "rect": [
+        967.25,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-dev": {
+      "region": "canvas",
+      "rect": [
+        1006.75,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    },
+    "toolbar-mode-draw": {
+      "region": "canvas",
+      "rect": [
+        928.0,
+        1038.0,
+        39.25,
+        28.0
+      ],
+      "count": 1
+    }
+  },
+  "unnamed": [
+    {
+      "region": "canvas",
+      "rect": [
+        290.0,
+        32.0,
+        1069.0,
+        1056.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        544.0,
+        1028.0,
+        512.0,
+        48.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        552.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        608.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        664.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        720.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        776.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "canvas",
+      "rect": [
+        832.0,
+        1036.0,
+        32.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        253.0,
+        44.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        229.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        257.0,
+        105.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        137.0,
+        224.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        169.0,
+        224.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        257.0,
+        217.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        65.0,
+        249.0,
+        138.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1537.0,
+        80.0,
+        55.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1400.0,
+        157.0,
+        105.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1506.0,
+        157.0,
+        38.0,
+        32.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1568.0,
+        157.0,
+        24.0,
+        24.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1380.0,
+        165.0,
+        16.0,
+        16.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "right_panel",
+      "rect": [
+        1367.0,
+        1026.0,
+        223.0,
+        26.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "tab_bar",
+      "rect": [
+        92.0,
+        3.0,
+        216.0,
+        26.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    }
+  ],
+  "scroll": []
+}

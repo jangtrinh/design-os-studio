@@ -1,0 +1,128 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-mcp)
+   Compiling designos-app v0.6.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1126-layout-gate/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.96s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-453cabe8bb4c7115)
+
+running 40 tests
+test layout_snapshot::tests::layout_json_requires_screenshot ... ok
+test layout_snapshot::tests::missing_baseline_fails ... ok
+test layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason ... ok
+test layout_snapshot::tests::g3_checks_row_name_sequence_with_underscore_for_unnamed ... ok
+test layout_snapshot::tests::region_wide_wildcard_entry_is_rejected ... ok
+test layout_snapshot::tests::equally_specific_entries_fail_to_parse ... ok
+test layout_snapshot::tests::palette_growing_above_bottom_anchor_passes_with_allow ... ok
+test layout_snapshot::tests::growing_a_row_without_allow_fails_and_with_allow_passes ... ok
+test layout_snapshot::tests::centred_bar_widening_by_12_passes_with_anchor_x_centre ... ok
+test layout_snapshot::tests::cumulative_shift_is_derived_not_a_range ... ok
+test layout_snapshot::tests::g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact ... ok
+test layout_snapshot::tests::stale_allow_entry_fails ... ok
+test layout_snapshot::tests::reordering_two_buttons_fails_g3 ... ok
+test layout_snapshot::tests::widening_the_left_panel_fails_g1 ... ok
+test layout_snapshot::tests::derived_shift_covers_left_right_and_bottom_anchors ... ok
+test layout_snapshot::tests::row_own_dh_is_range_checked_against_covering_entry ... ok
+test layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ... ok
+test layout_snapshot::tests::inventory_max_delta_forgives_count_only_and_compares_shared_prefix ... ok
+test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... ok
+test layout_snapshot::tests::unnamed_rows_shift_by_cumulative_row_box_dh ... ok
+test layout_snapshot::tests::inspector_overflow_does_not_fail_g2 ... ok
+test shell::tests::layout_unchanged::cases_json_has_no_old_fixture ... ok
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... ok
+test layout_snapshot::tests::overlay_names_use_areas_order_and_omit_egui_id ... ok
+test layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release ... ok
+
+running 1 test
+
+running 1 test
+test shell::tests::layout_unchanged::prep_helpers_populate_missing_starter_states ... ok
+test layout_snapshot::tests::snapshot_reports_every_region_of_the_editor ... ok
+test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... ok
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test layout_snapshot::tests::home_is_deterministic_with_fixed_clock ... ok
+test layout_snapshot::tests::layout_json_matches_headless_snapshot ... ok
+test shell::tests::layout_unchanged::sim_loads_starter_and_seed_library_at_seeds_starter_not_showcase ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3533 filtered out; finished in 4.67s
+
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3533 filtered out; finished in 4.82s
+
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 3494 filtered out; finished in 10.45s
+
+
+=== Deliverable 6 (GREEN): python3 -m unittest discover -s scripts/tests -v ===
+test_clean_tree_passes_its_baseline (test_check_spacing_relationships.SpacingRatchetTest.test_clean_tree_passes_its_baseline) ... ok
+test_comments_and_tests_are_not_counted (test_check_spacing_relationships.SpacingRatchetTest.test_comments_and_tests_are_not_counted) ... ok
+test_dirty_tree_fails_in_every_category (test_check_spacing_relationships.SpacingRatchetTest.test_dirty_tree_fails_in_every_category) ... ok
+test_matching_baseline_passes_and_one_extra_literal_fails (test_check_spacing_relationships.SpacingRatchetTest.test_matching_baseline_passes_and_one_extra_literal_fails) ... ok
+test_missing_baseline_is_a_usage_error_not_a_pass (test_check_spacing_relationships.SpacingRatchetTest.test_missing_baseline_is_a_usage_error_not_a_pass) ... ok
+test_new_file_with_a_literal_fails_even_when_totals_would_fall (test_check_spacing_relationships.SpacingRatchetTest.test_new_file_with_a_literal_fails_even_when_totals_would_fall) ... ok
+test_write_baseline_refuses_to_raise_a_count (test_check_spacing_relationships.SpacingRatchetTest.test_write_baseline_refuses_to_raise_a_count) ... ok
+test_gsap_entrance_never_fades_the_header (test_homepage_motion.HomepageMotionTests.test_gsap_entrance_never_fades_the_header) ... ok
+test_gsap_entrance_still_moves_the_header (test_homepage_motion.HomepageMotionTests.test_gsap_entrance_still_moves_the_header) ... ok
+test_header_is_not_hidden_by_the_static_preflight (test_homepage_motion.HomepageMotionTests.test_header_is_not_hidden_by_the_static_preflight) ... ok
+test_hero_blocks_are_still_hidden_until_the_cascade (test_homepage_motion.HomepageMotionTests.test_hero_blocks_are_still_hidden_until_the_cascade) ... ok
+test_argv0_outside_stub_dir_fails (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_argv0_outside_stub_dir_fails) ... ok
+test_dry_run_prints_import_clone_prep_and_capture_without_spawning (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_dry_run_prints_import_clone_prep_and_capture_without_spawning) ... ok
+test_empty_named_map_fails (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_empty_named_map_fails) ... ok
+test_env_is_built_with_env_i_and_four_markers (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_env_is_built_with_env_i_and_four_markers) ... ok
+test_g6_builds_crop_and_ignore_list_from_fixture_layout_json (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_g6_builds_crop_and_ignore_list_from_fixture_layout_json) ... ok
+test_infra_retry_then_exit_3 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_infra_retry_then_exit_3) ... ok
+test_kit_imported_once_and_cloned_per_case_with_headless_prep (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_kit_imported_once_and_cloned_per_case_with_headless_prep) ... ok
+test_missing_kit_exits_nonzero (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_kit_exits_nonzero) ... ok
+test_missing_or_foreign_hermetic_active_fails (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_missing_or_foreign_hermetic_active_fails) ... ok
+test_owned_infra_exits_1 (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_owned_infra_exits_1) ... ok
+test_spawns_case_with_empty_log_fails (test_layout_baseline_capture.LayoutBaselineCaptureTest.test_spawns_case_with_empty_log_fails) ... ok
+test_a_drifted_ladder_rung_in_the_real_theme_fails (test_non_colour_token_parity.NonColourParityTest.test_a_drifted_ladder_rung_in_the_real_theme_fails) ... ok
+test_a_new_role_constant_without_a_token_or_a_reason_fails (test_non_colour_token_parity.NonColourParityTest.test_a_new_role_constant_without_a_token_or_a_reason_fails) ... ok
+test_agreement_passes (test_non_colour_token_parity.NonColourParityTest.test_agreement_passes) ... ok
+test_alias_or_expression_constant_fails (test_non_colour_token_parity.NonColourParityTest.test_alias_or_expression_constant_fails) ... ok
+test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive (test_non_colour_token_parity.NonColourParityTest.test_every_ladder_inset_and_control_constant_is_guarded_by_a_primitive) ... ok
+test_known_drift_passes_only_while_pinned (test_non_colour_token_parity.NonColourParityTest.test_known_drift_passes_only_while_pinned) ... ok
+test_missing_token_fails (test_non_colour_token_parity.NonColourParityTest.test_missing_token_fails) ... ok
+test_repository_is_in_parity_with_the_pinned_drift_only (test_non_colour_token_parity.NonColourParityTest.test_repository_is_in_parity_with_the_pinned_drift_only) ... ok
+test_rust_drift_fails (test_non_colour_token_parity.NonColourParityTest.test_rust_drift_fails) ... ok
+test_title_token_is_not_matched_by_name (test_non_colour_token_parity.NonColourParityTest.test_title_token_is_not_matched_by_name) ... ok
+test_token_drift_fails (test_non_colour_token_parity.NonColourParityTest.test_token_drift_fails) ... ok
+test_numeric_compare_refuses_0_10_0_to_0_9_0 (test_release_sync_pages.GuardTests.test_numeric_compare_refuses_0_10_0_to_0_9_0) ... ok
+test_refuses_downgrade (test_release_sync_pages.GuardTests.test_refuses_downgrade) ... ok
+test_refuses_prerelease_and_bad_version (test_release_sync_pages.GuardTests.test_refuses_prerelease_and_bad_version) ... ok
+test_size_label_rounds_decimal_megabytes (test_release_sync_pages.GuardTests.test_size_label_rounds_decimal_megabytes) ... ok
+test_version_compare_is_numeric_not_lexicographic (test_release_sync_pages.GuardTests.test_version_compare_is_numeric_not_lexicographic) ... ok
+test_final_assertion_catches_leftover_old_link (test_release_sync_pages.MissingAssetTests.test_final_assertion_catches_leftover_old_link) ... ok
+test_missing_asset_in_markdown_fails (test_release_sync_pages.MissingAssetTests.test_missing_asset_in_markdown_fails) ... ok
+test_missing_required_dmg_fails (test_release_sync_pages.MissingAssetTests.test_missing_required_dmg_fails) ... ok
+test_optional_assets_missing_are_dropped_with_warning (test_release_sync_pages.MissingAssetTests.test_optional_assets_missing_are_dropped_with_warning) ... ok
+test_cli_exit_code_matches (test_release_sync_pages.PublishJobTests.test_cli_exit_code_matches) ... ok
+test_cli_unusable_answer_exits_2_not_skip (test_release_sync_pages.PublishJobTests.test_cli_unusable_answer_exits_2_not_skip) ... ok
+test_publish_skipped_or_failed_or_missing (test_release_sync_pages.PublishJobTests.test_publish_skipped_or_failed_or_missing) ... ok
+test_publish_succeeded_while_a_platform_leg_failed (test_release_sync_pages.PublishJobTests.test_publish_succeeded_while_a_platform_leg_failed) ... ok
+test_accepts_v_prefix (test_release_sync_pages.RewriteTests.test_accepts_v_prefix) ... ok
+test_idempotent (test_release_sync_pages.RewriteTests.test_idempotent) ... ok
+test_marketing_copy_is_not_rewritten (test_release_sync_pages.RewriteTests.test_marketing_copy_is_not_rewritten) ... ok
+test_report_lists_manual_followups (test_release_sync_pages.RewriteTests.test_report_lists_manual_followups) ... ok
+test_rewrites_every_download_link_and_size (test_release_sync_pages.RewriteTests.test_rewrites_every_download_link_and_size) ... ok
+test_updates_readme_install_and_sitemap (test_release_sync_pages.RewriteTests.test_updates_readme_install_and_sitemap) ... ok
+test_mismatch_is_detected (test_release_sync_pages.WhatsNewParityTests.test_mismatch_is_detected) ... ok
+test_readme_and_homepage_whats_new_versions_match (test_release_sync_pages.WhatsNewParityTests.test_readme_and_homepage_whats_new_versions_match) ... ok
+test_ac03_no_legacy_demos_in_shipped_code (test_shipped_resources.ShippedResourcesTest.test_ac03_no_legacy_demos_in_shipped_code) ... ok
+test_ac12_no_untitled_ui_in_shipped_resources_or_starter (test_shipped_resources.ShippedResourcesTest.test_ac12_no_untitled_ui_in_shipped_resources_or_starter) ... ok
+test_examples_removed_and_unreferenced (test_shipped_resources.ShippedResourcesTest.test_examples_removed_and_unreferenced) ... ok
+
+----------------------------------------------------------------------
+Ran 57 tests in 11.096s
+
+OK

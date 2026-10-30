@@ -1272,7 +1272,7 @@ fn libraries(ui: &mut Ui, rect: Rect, st: &mut State, env: &Env, out: &mut Out) 
             .fixed_pos(Pos2::new(r.left() + theme::MENU_PADDING, r.bottom()))
             .interactable(false)
             .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                kit::tooltip_frame().show(ui, |ui| {
                     ui.label(tip_text);
                 });
             });

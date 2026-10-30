@@ -21,11 +21,17 @@ pub fn status_color(s: DevStatus) -> Color32 {
     }
 }
 
+/// Width of the status pill of `s`: the label hugged in whole pixels (rounded up), plus the slot of the dot before it
+/// and the padding after it. Whoever frames or places a pill takes its width from here, so the frame always holds the label.
+pub fn status_pill_width(p: &egui::Painter, s: DevStatus) -> f32 {
+    text_width(p, s.label(), &theme::font_caption_medium()).ceil() + 26.0
+}
+
 /// A rounded status pill with a dot; returns its width.
 pub fn status_pill(p: &egui::Painter, at: Pos2, s: DevStatus) -> f32 {
     let font = theme::font_caption_medium();
     let label = s.label();
-    let w = text_width(p, label, &font) + 26.0;
+    let w = status_pill_width(p, s);
     let r = Rect::from_min_size(at, Vec2::new(w, 20.0));
     p.rect_filled(r, theme::cr_pill(r.height()), status_color(s).gamma_multiply(0.22));
     p.circle_filled(Pos2::new(r.left() + 10.0, r.center().y), 3.5, status_color(s));
@@ -59,9 +65,13 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
         }
         c.y += 28.0;
     }
-    let row = c.rect(PAD, 0.0, w, 28.0);
-    let half = Rect::from_min_size(row.min, Vec2::new((w - 8.0) / 2.0, 28.0));
-    let other = half.translate(Vec2::new(half.width() + 8.0, 0.0));
+    let row = c.rect(PAD, 0.0, w, ACTION_ROW_H);
+    // The two buttons of a status share the row by their labels (the secondary one is painted by `small_button`, in `font_body`).
+    let split = |ui: &Ui, primary: &str, secondary: &str| {
+        let primary_w = text_width(ui.painter(), primary, &theme::font_body_strong());
+        split_actions(row, primary_w, text_width(ui.painter(), secondary, &theme::font_body()))
+    };
+    let mut bottom = row.bottom();
     match status {
         None => {
             if primary_button(ui, row, "ready", "Ready for dev") {
@@ -69,7 +79,9 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             }
         }
         Some(DevStatus::ReadyForDev) => {
-            if primary_button(ui, half, "complete", "Mark completed") {
+            let (primary, other) = split(ui, "Mark completed", "Remove status");
+            bottom = other.bottom();
+            if primary_button(ui, primary, "complete", "Mark completed") {
                 app.dev_mark_completed(&[id]);
             }
             if small_button(ui, other, ("dev-clear", 0), "Remove status") {
@@ -77,7 +89,9 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             }
         }
         Some(DevStatus::Changed) => {
-            if primary_button(ui, half, "compare", "Compare changes") {
+            let (primary, other) = split(ui, "Compare changes", "Mark ready");
+            bottom = other.bottom();
+            if primary_button(ui, primary, "compare", "Compare changes") {
                 super::compare::open(app, id);
             }
             if small_button(ui, other, ("dev-remark", 0), "Mark ready") {
@@ -85,7 +99,9 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             }
         }
         Some(DevStatus::Completed) => {
-            if primary_button(ui, half, "reopen", "Back to ready") {
+            let (primary, other) = split(ui, "Back to ready", "Remove status");
+            bottom = other.bottom();
+            if primary_button(ui, primary, "reopen", "Back to ready") {
                 app.dev_mark_ready(&[id]);
             }
             if small_button(ui, other, ("dev-clear", 1), "Remove status") {
@@ -93,7 +109,29 @@ pub fn status_header(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             }
         }
     }
-    c.y += 36.0;
+    // The row, plus the second row when the buttons stacked, plus the 8 px below.
+    c.y += bottom - row.top() + 8.0;
+}
+
+/// Height of the row that holds the action buttons of a status.
+const ACTION_ROW_H: f32 = 28.0;
+
+/// Splits the action `row` between the primary and the secondary button of a status by their labels, not in halves.
+/// The secondary button hugs its label: the width rounded up to whole pixels (R11) between two control insets. The
+/// primary button takes the rest of the row less the `SPACE_INLINE` gap. When that is too narrow for the primary label
+/// (rounded up) with a segment inset on each side, the buttons stack instead: the primary on the full row, the
+/// secondary on a full row below it, `SPACE_ROW` apart.
+fn split_actions(row: Rect, primary_label_w: f32, secondary_label_w: f32) -> (Rect, Rect) {
+    let secondary_w = secondary_label_w.ceil() + 2.0 * theme::INSET_CONTROL;
+    let primary_w = row.width() - theme::SPACE_INLINE - secondary_w;
+    if primary_w < primary_label_w.ceil() + 2.0 * theme::INSET_SEGMENT {
+        let primary = Rect::from_min_size(row.min, Vec2::new(row.width(), ACTION_ROW_H));
+        let secondary = primary.translate(Vec2::new(0.0, ACTION_ROW_H + theme::SPACE_ROW));
+        return (primary, secondary);
+    }
+    let primary = Rect::from_min_size(row.min, Vec2::new(primary_w, ACTION_ROW_H));
+    let secondary = Rect::from_min_size(Pos2::new(primary.right() + theme::SPACE_INLINE, row.top()), Vec2::new(secondary_w, ACTION_ROW_H));
+    (primary, secondary)
 }
 
 /// Component properties of an instance, followed by the read-only Component Playground.
@@ -649,5 +687,54 @@ pub fn assets_section(app: &mut App, ui: &mut Ui, c: &mut Cur, id: NodeId) {
             download(app, *node, a);
         }
         c.y += 28.0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(w: f32) -> Rect {
+        Rect::from_min_size(Pos2::new(17.0, 100.0), Vec2::new(w, ACTION_ROW_H))
+    }
+
+    #[test]
+    fn the_secondary_button_hugs_its_label_and_the_primary_takes_the_rest_of_the_row() {
+        // The "Changed" header at the 209 px inspector row: "Compare changes" (105.84) beside "Mark ready" (64.56).
+        let r = row(209.0);
+        let (primary, secondary) = split_actions(r, 105.84, 64.56);
+        assert_eq!(secondary.width(), 65.0 + 2.0 * theme::INSET_CONTROL, "the label rounded up between two control insets");
+        assert_eq!(primary.left(), r.left());
+        assert_eq!(primary.right() + theme::SPACE_INLINE, secondary.left(), "an 8 px gap between the buttons");
+        assert_eq!(secondary.right(), r.right(), "the row is filled to its end");
+        assert_eq!((primary.top(), secondary.top()), (r.top(), r.top()), "side by side");
+        assert!(primary.width() >= 105.84f32.ceil() + 2.0 * theme::INSET_SEGMENT, "the primary label fits, got {} px", primary.width());
+        // It was 100.5 px (half of the row) for a 105.84 px label.
+        assert!(primary.width() > 100.5);
+    }
+
+    #[test]
+    fn the_three_dev_states_keep_their_buttons_on_one_row_at_the_inspector_width() {
+        for (primary_label, secondary_label) in [(94.28, 83.3), (105.84, 64.56), (79.34, 83.3)] {
+            let (primary, secondary) = split_actions(row(209.0), primary_label, secondary_label);
+            assert_eq!(primary.top(), secondary.top(), "{primary_label} px beside {secondary_label} px stacked");
+        }
+    }
+
+    #[test]
+    fn the_buttons_stack_only_when_the_primary_label_does_not_fit_beside_the_secondary() {
+        let (primary_label, secondary_label) = (105.84f32, 64.56f32);
+        let need = primary_label.ceil() + 2.0 * theme::INSET_SEGMENT;
+        let secondary_w = secondary_label.ceil() + 2.0 * theme::INSET_CONTROL;
+        // The narrowest row that still fits side by side, and one pixel less.
+        let fits = row(need + theme::SPACE_INLINE + secondary_w);
+        let (primary, secondary) = split_actions(fits, primary_label, secondary_label);
+        assert_eq!((primary.top(), primary.width()), (fits.top(), need), "side by side at exactly the needed width");
+        assert_eq!(secondary.top(), fits.top());
+        let narrow = row(fits.width() - 1.0);
+        let (primary, secondary) = split_actions(narrow, primary_label, secondary_label);
+        assert_eq!(primary, Rect::from_min_size(narrow.min, Vec2::new(narrow.width(), ACTION_ROW_H)), "the primary takes the full row");
+        assert_eq!(secondary.width(), narrow.width(), "the secondary button has a full row of its own");
+        assert_eq!(secondary.top() - primary.bottom(), theme::SPACE_ROW, "below it, 4 px apart");
     }
 }

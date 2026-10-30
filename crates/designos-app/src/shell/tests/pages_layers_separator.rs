@@ -24,9 +24,10 @@ fn shape_has_rect_stroke_color(shape: &Shape, target: Rect, color: Color32) -> b
     match shape {
         Shape::Rect(r) => {
             let stroke = r.stroke;
-            let matches_rect = (r.rect.min.x - target.min.x).abs() <= 2.0
-                && (r.rect.max.x - target.max.x).abs() <= 2.0
-                && (r.rect.center().y - target.center().y).abs() <= 2.0;
+            let tol = theme::SPACE_FACT + 1.0;
+            let matches_rect = (r.rect.min.x - target.min.x).abs() <= tol
+                && (r.rect.max.x - target.max.x).abs() <= tol
+                && (r.rect.center().y - target.center().y).abs() <= tol;
             matches_rect && stroke.width > 0.0 && stroke.color == color
         }
         Shape::Vec(children) => children.iter().any(|c| shape_has_rect_stroke_color(c, target, color)),
@@ -52,7 +53,13 @@ fn dragging_the_separator_changes_the_pages_and_layers_split() {
     let hit_h = 6.0;
     assert!((sep0.height() - hit_h).abs() < 0.1, "separator hit zone must be 6 px tall, got {:?}", sep0);
     let default_pages_h = theme::PAGES_MAX_VISIBLE_ROWS as f32 * theme::PAGE_ROW_HEIGHT;
-    assert!((pages0.height() - default_pages_h).abs() < 0.1, "default 6-page height must be 4 rows (96 px), got {}", pages0.height());
+    assert!(
+        (pages0.height() - default_pages_h).abs() < 0.1,
+        "default pages height must be {} rows ({} px), got {}",
+        theme::PAGES_MAX_VISIBLE_ROWS,
+        default_pages_h,
+        pages0.height()
+    );
 
     // Hovering shows ResizeVertical cursor and 2px brand-colour highlight.
     let center = sep0.center();
@@ -195,7 +202,7 @@ fn keyboard_navigation_steps_clamps_and_resets_with_accesskit_and_focus_ring() {
     s.frame(vec![]);
 
     let sep_rect = s.rect_of("pages-layers-separator");
-    assert!(has_focus_ring_around(&s.shapes, sep_rect, theme::BORDER_SELECTED), "focused separator must draw a visible focus ring with theme::BORDER_SELECTED");
+    assert!(has_focus_ring_around(&s.shapes, sep_rect, theme::FOCUS_RING), "focused separator must draw the focus ring outside the 6 px core");
 
     let default_h = theme::PAGES_MAX_VISIBLE_ROWS as f32 * theme::PAGE_ROW_HEIGHT;
     let min_h = theme::PAGE_ROW_HEIGHT;
@@ -286,4 +293,87 @@ fn slow_frame_drag_ends_at_the_release_point() {
             s.rect_of("pages-list").height()
         );
     }
+}
+
+#[test]
+fn separator_band_is_24_px_and_yields_to_controls_and_the_scrollbar() {
+    let mut s = Sim::new();
+    for i in 4..=10 {
+        s.shell.app.doc.add_page(format!("Page {i}"));
+    }
+    s.frame(vec![]);
+
+    let sep = s.rect_of("pages-layers-separator");
+    let band = s.rect_of("pages-layers-separator-band");
+    assert!((sep.height() - theme::PAGES_SEPARATOR_HIT).abs() < 0.1, "core stays 6 px, got {}", sep.height());
+    assert!((band.height() - theme::TARGET_MIN).abs() < 0.1, "band is the target floor, got {}", band.height());
+    assert!((band.center().y - sep.center().y).abs() < 0.1, "band is centred on the core");
+
+    let line_y = sep.center().y;
+    let height_before = s.rect_of("pages-list").height();
+    let search = s.rect_of("layers-search");
+    s.click(Pos2::new(search.center().x, line_y + 10.0));
+    assert!(s.app().layers.filter_open, "a press on the search button opens the filter");
+    assert!((s.rect_of("pages-list").height() - height_before).abs() < 0.1, "that press does not drag the split");
+    s.shell.app.close_layer_filter();
+    s.frame(vec![]);
+
+    let list = s.rect_of("pages-list");
+    let scroll_before = s.app().layers.page_scroll;
+    s.click(Pos2::new(list.right() - theme::SPACE_INLINE * 0.5, line_y - 10.0));
+    assert!(s.app().layers.page_scroll > scroll_before + 1.0, "the pages track still scrolls, scroll={}", s.app().layers.page_scroll);
+    assert!((s.rect_of("pages-list").height() - height_before).abs() < 0.1, "scrolling the track does not drag the split");
+
+    let x = s.rect_of("pages-list").left() + 60.0;
+    s.drag(Pos2::new(x, line_y + 10.0), Pos2::new(x, line_y + 10.0 + theme::PAGE_ROW_HEIGHT));
+    assert!(s.rect_of("pages-list").height() > height_before + theme::PAGE_ROW_HEIGHT * 0.5, "a drag in the band, clear of the buttons, moves the split");
+
+    let mut s = Sim::new();
+    for i in 4..=10 {
+        s.shell.app.doc.add_page(format!("Page {i}"));
+    }
+    s.frame(vec![]);
+    let list = s.rect_of("pages-list");
+    let current = s.app().page;
+    let pages = s.app().doc.pages.clone();
+    let visible = theme::PAGES_MAX_VISIBLE_ROWS.min(pages.len());
+    assert!(visible >= 2, "need a non-current page in the list");
+    let other = pages[visible - 1];
+    assert_ne!(other, current);
+    s.click(Pos2::new(list.left() + 60.0, list.bottom() - 2.0));
+    assert_eq!(s.app().page, current, "the band's overlap with the last page row does not switch pages");
+}
+
+#[test]
+fn a_click_on_a_page_row_leaves_the_keyboard_with_the_document() {
+    let mut s = Sim::new();
+    s.click(Pos2::new(150.0, page_row_y(&s, 1)));
+    assert_eq!(s.app().page, s.app().doc.pages[1], "the click switches the page");
+    assert!(!crate::agent_a11y::non_canvas_has_focus(&s.ctx), "a page click must not take keyboard focus");
+    s.key(Key::H);
+    assert_eq!(s.app().tool, Tool::Hand, "a tool key still reaches the document after a page click");
+}
+
+fn ring_rects(shape: &Shape, color: Color32, out: &mut Vec<Rect>) {
+    match shape {
+        Shape::Rect(r) if r.stroke.width > 0.0 && r.stroke.color == color => out.push(r.rect),
+        Shape::Vec(children) => children.iter().for_each(|c| ring_rects(c, color, out)),
+        _ => {}
+    }
+}
+
+#[test]
+fn the_separator_focus_ring_stays_inside_the_left_panel() {
+    let mut s = Sim::new();
+    s.ctx.memory_mut(|m| m.request_focus(egui::Id::new("pages-layers-separator")));
+    s.frame(vec![]);
+    let sep = s.rect_of("pages-layers-separator");
+    let panel = s.rect_of("pages-list");
+    let mut rings = Vec::new();
+    s.shapes.iter().for_each(|cs| ring_rects(&cs.shape, theme::FOCUS_RING, &mut rings));
+    rings.retain(|r| (r.center().y - sep.center().y).abs() <= theme::SPACE_FACT + 1.0);
+    assert_eq!(rings.len(), 1, "one ring around the separator, got {rings:?}");
+    let ring = rings[0];
+    assert!(ring.left() >= panel.left() - 0.5, "the ring starts at {} left of the panel edge {}", ring.left(), panel.left());
+    assert!(ring.right() <= panel.right() + 0.5, "the ring ends at {} right of the panel edge {}", ring.right(), panel.right());
 }

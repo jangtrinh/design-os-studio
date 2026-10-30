@@ -3,6 +3,8 @@ name: Release sync pages
 # After a release is published, point the README, the GitHub Pages site and the docs at it
 # and open one pull request. `main` is protected, so this workflow never pushes to it.
 # The script is scripts/release-sync-pages.py (see docs/releasing.md, checklist step 5).
+# A release numbered below the one the pages show is skipped by the script; the second job,
+# keep-latest, makes sure GitHub's Latest badge stayed on the highest published release.
 #
 # Triggers: the Release workflow publishes with GITHUB_TOKEN, and GitHub starts no workflow
 # for events that token causes, so `release: published` never fires for a tag-driven release.
@@ -35,6 +37,9 @@ jobs:
   sync:
     name: Sync pages to the release
     runs-on: ubuntu-latest
+    outputs:
+      # Empty when the release is not one the pages follow (pre-release, unpublished, not stable).
+      version: ${{ steps.v.outputs.version }}
     env:
       # A pull request opened with GITHUB_TOKEN does not start CI, and main requires
       # Test (macos-14), Clippy and Rustfmt. Set the RELEASE_SYNC_TOKEN secret (a PAT or
@@ -139,7 +144,7 @@ jobs:
           VERSION: ${{ steps.v.outputs.version }}
         run: |
           if git diff --quiet; then
-            echo "::notice::README, pages and docs already point at v$VERSION; nothing to do."
+            echo "::notice::No README, pages or docs change for v$VERSION; nothing to open a pull request for."
             exit 0
           fi
           branch="release-sync/v$VERSION"
@@ -166,3 +171,44 @@ jobs:
           else
             gh pr create --base main --head "$branch" --title "$title" --body-file "$RUNNER_TEMP/pr-body.md"
           fi
+
+  # release.yml runs from the tagged commit, so a tag cut from a branch that lacks its
+  # make_latest guard still takes GitHub's Latest badge. This workflow always runs from main:
+  # when Latest is not on the highest published stable release, it puts it back there. It needs
+  # the sync job's Resolve step to have set `version`, but not the later sync steps to succeed
+  # (a failed pages sync must not leave Latest wrong). It skips `release: published`, which a
+  # person triggers in the UI and whose "Set as latest" choice stands.
+  keep-latest:
+    name: Keep Latest on the highest release
+    needs: sync
+    if: ${{ !cancelled() && needs.sync.outputs.version != '' && github.event_name != 'release' }}
+    runs-on: ubuntu-latest
+    # `gh release edit` needs contents: write and nothing else.
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Put Latest back on the highest published release
+        env:
+          VERSION: ${{ needs.sync.outputs.version }}
+        run: |
+          if ! releases="$(gh release list --limit 1000 --json tagName,isDraft,isPrerelease,isLatest)"; then
+            echo "::error::could not list the published releases to check which one is Latest"
+            exit 1
+          fi
+          if ! promote="$(printf '%s' "$releases" | python3 scripts/release-make-latest.py --reassert "v$VERSION")"; then
+            echo "::error::could not decide which release should be Latest for v$VERSION"
+            exit 1
+          fi
+          if [ -z "$promote" ]; then
+            echo "::notice::Latest is already right for v$VERSION; nothing to do."
+            exit 0
+          fi
+          gh release edit "$promote" --latest
+          echo "::notice::After v$VERSION, Latest was not on the highest published release; put it on $promote."

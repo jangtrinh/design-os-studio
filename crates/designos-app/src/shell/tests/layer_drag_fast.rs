@@ -6,11 +6,16 @@
 
 use super::*;
 
+/// Pages of the demo document: the Pages list above the layers is one row per page (up to five).
+const DEMO_PAGES: usize = 3;
+/// Top of the Layers list in a fresh window: header, Pages title and list, the gap, the Layers header.
+const LAYERS_LIST_TOP: f32 =
+    theme::LEFT_HEADER_HEIGHT + theme::PANEL_TITLE_ROW_HEIGHT + DEMO_PAGES as f32 * theme::PAGE_ROW_HEIGHT + theme::SPACE_INLINE + theme::LAYER_HEADER_HEIGHT;
 /// Row centres of the demo page, top-most layer first: Dashboard, Card, Welcome.
 const X: f32 = 180.0;
-const DASHBOARD_Y: f32 = 241.0;
-const CARD_Y: f32 = 273.0;
-const WELCOME_Y: f32 = 305.0;
+const DASHBOARD_Y: f32 = LAYERS_LIST_TOP + theme::LAYER_ROW_HEIGHT / 2.0;
+const CARD_Y: f32 = DASHBOARD_Y + theme::LAYER_ROW_HEIGHT;
+const WELCOME_Y: f32 = CARD_Y + theme::LAYER_ROW_HEIGHT;
 /// 2 px below Dashboard's top edge: the "above" zone of a frame row.
 const ABOVE_DASHBOARD_Y: f32 = DASHBOARD_Y - theme::LAYER_ROW_HEIGHT / 2.0 + 2.0;
 
@@ -37,6 +42,7 @@ fn assert_card_on_top(s: &Sim, before: &[NodeId]) {
 /// A fresh window, and the page order it starts with.
 fn start() -> (Sim, Vec<NodeId>) {
     let s = Sim::new();
+    assert_eq!(s.rect_of("layers-list").top(), LAYERS_LIST_TOP, "the row centres below follow the real Layers list");
     let before = page_order(&s);
     (s, before)
 }

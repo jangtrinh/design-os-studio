@@ -50,8 +50,8 @@ const HALF: f32 = 0.5;
 const FOCUS_RING_WIDTH: f32 = 1.5;
 const CHIP_MAX_WIDTH: f32 = 148.0;
 const CHIP_TEXT_PAD: f32 = theme::INSET_BUTTON * 2.0;
-const PRD_CHIP_WIDTH: f32 = theme::CONTROL_ROW;
-const MIN_CENTER_HEIGHT: f32 = theme::CONTROL_TOOL * 2.0;
+const PRD_CHIP_WIDTH: f32 = theme::CONTROL_MD;
+const MIN_CENTER_HEIGHT: f32 = theme::CONTROL_XS * 2.0;
 
 /// Why [`TerminalState::send_to_agent`] refused to write a prompt (`#689` §3 rules 3, 7, 10 & §8).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -340,13 +340,13 @@ pub fn visible_line_count(text: &str) -> usize {
 }
 
 /// Height of the composer box for `text` and `has_chips` (`#689` §7 & §10 `field_grows_to_eight_lines_then_scrolls`).
-/// Minimum height is `CONTROL_ROW` (40 px) plus the control row (`CONTROL_ROW`, 40 px), growing by `LINE_BODY`
+/// Minimum height is `CONTROL_MD` (40 px) plus the control row (`CONTROL_MD`, 40 px), growing by `LINE_BODY`
 /// per line from 1 to 8 lines and then capping while scrolling.
 pub fn composer_box_height(text: &str, has_chips: bool) -> f32 {
     let lines = visible_line_count(text);
     let extra_lines = (lines.saturating_sub(MIN_COMPOSER_LINES)) as f32;
     let chips_h = if has_chips { theme::CONTROL_DENSE + theme::SPACE_ROW } else { ZERO };
-    theme::CONTROL_ROW + theme::CONTROL_ROW + extra_lines * theme::LINE_BODY + chips_h
+    theme::CONTROL_MD + theme::CONTROL_MD + extra_lines * theme::LINE_BODY + chips_h
 }
 
 /// Total vertical space reserved at the bottom of `show_left` for the composer box and its margins/caption.
@@ -967,7 +967,7 @@ pub fn show_composer(
         let max_chip_right = composer_rect.right() - theme::INSET_BUTTON;
         for chip in &chips_snapshot {
             let text_w = widgets::text_width(&p, &chip.name, &theme::font_caption());
-            let pill_w = (text_w + CHIP_TEXT_PAD).min(CHIP_MAX_WIDTH).min((max_chip_right - chip_x).max(theme::CONTROL_ROW));
+            let pill_w = (text_w + CHIP_TEXT_PAD).min(CHIP_MAX_WIDTH).min((max_chip_right - chip_x).max(theme::CONTROL_MD));
             if chip_x + pill_w > max_chip_right {
                 break;
             }
@@ -994,7 +994,7 @@ pub fn show_composer(
         content_top += theme::CONTROL_DENSE + theme::SPACE_ROW;
     }
 
-    let control_row_top = composer_rect.bottom() - theme::CONTROL_ROW;
+    let control_row_top = composer_rect.bottom() - theme::CONTROL_MD;
     let input_rect = Rect::from_min_max(
         Pos2::new(composer_rect.left() + theme::INSET_BUTTON, content_top),
         Pos2::new(composer_rect.right() - theme::INSET_BUTTON, control_row_top.max(content_top + theme::LINE_BODY)),
@@ -1045,7 +1045,7 @@ pub fn show_composer(
         }
     }
 
-    let icon_y = composer_rect.bottom() - theme::CONTROL_ROW * HALF;
+    let icon_y = composer_rect.bottom() - theme::CONTROL_MD * HALF;
 
     // Bottom-left `+` attach button (`agents-composer-plus` / `agents-composer-attach`).
     let plus_center = Pos2::new(composer_rect.left() + theme::INSET_PANEL + theme::SPACE_FACT, icon_y);
@@ -1180,7 +1180,7 @@ pub fn show_composer(
             Pos2::new(composer_rect.left() + theme::INSET_CONTROL, composer_rect.bottom() + theme::SPACE_FACT * HALF),
             Vec2::new(composer_rect.width() - theme::INSET_CONTROL * 2.0, theme::LINE_CAPTION),
         );
-        let elided = widgets::elide(&p, &note, &theme::font_caption(), note_rect.width().max(theme::CONTROL_ROW));
+        let elided = widgets::elide(&p, &note, &theme::font_caption(), note_rect.width().max(theme::CONTROL_MD));
         p.text(Pos2::new(note_rect.left(), note_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_SECONDARY);
         widgets::record(ui, "agents-composer-notice", note_rect);
     }

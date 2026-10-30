@@ -152,7 +152,7 @@ fn subtract_rect(pieces: &mut Vec<ERect>, cover: ERect) {
 fn measure_label(ctx: &egui::Context, n: &Node, w_px: f32) -> (bool, String, f32) {
     let w_px = w_px.max(0.0);
     let max_w = (w_px - LABEL_RIGHT_INSET).max(0.0);
-    let font = theme::font_body();
+    let font = theme::font_canvas_label();
     let clean_name = n.name.trim_start_matches("❖ ").trim_start_matches("◇ ");
     let is_comp_like = matches!(n.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. });
     ctx.fonts_mut(|f| {
@@ -526,6 +526,24 @@ pub fn empty_slot_picker_overlay(app: &mut App, ui: &mut Ui, rect: ERect) {
     crate::panels::components::show_slot_picker_popup(app, ui.ctx());
 }
 
+/// The labels within this rect are painted; the ones further out are left to the next pan.
+fn label_paint_clip(rect: ERect) -> ERect {
+    rect.expand(40.0)
+}
+
+/// The nodes whose frame label the canvas paints in `rect` with a Dev status badge beside it, the same labels
+/// `overlays` paints. The Dev annotation pill is not painted for them: the badge already shows the status, and the
+/// pill would sit over the frame name. A hidden label (zoomed far out) paints no badge, so its node is not listed.
+pub fn status_badge_nodes(app: &App, ctx: &egui::Context, rect: ERect) -> std::collections::HashSet<NodeId> {
+    let clip = label_paint_clip(rect);
+    label_entries(app, ctx, rect)
+        .into_iter()
+        .filter(|entry| clip.intersects(entry.rect))
+        .filter(|entry| app.doc.get(entry.id).is_some_and(|n| dev_status_badge_rect(entry.id, n, entry.rect).is_some()))
+        .map(|entry| entry.id)
+        .collect()
+}
+
 /// Screen rect and status of the on-canvas Dev Status pill badge right after a top-level frame label (`S3-12`).
 pub fn dev_status_badge_rect(id: NodeId, n: &Node, label_rect: ERect) -> Option<(ERect, designos_doc::DevStatus)> {
     let status = n.dev.status?;
@@ -888,7 +906,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
 
     // Frame / Component / Instance / Section labels + Dev status pills (`S3-12`).
     let lab_col = if light { theme::CANVAS_LABEL } else { theme::CANVAS_LABEL_DARK };
-    let label_clip = rect.expand(40.0);
+    let label_clip = label_paint_clip(rect);
     for entry in label_entries(app, ui.ctx(), rect) {
         let (id, r) = (entry.id, entry.rect);
         if !label_clip.intersects(r) {
@@ -921,7 +939,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
                     paint_instance_diamond(&piece_p, Pos2::new(r.left() + theme::SPACE_INLINE - theme::BORDER_WIDTH, r.center().y), 5.0, col);
                 }
             }
-            piece_p.text(Pos2::new(r.left() + dx, r.center().y), Align2::LEFT_CENTER, &entry.text, theme::font_body(), col);
+            piece_p.text(Pos2::new(r.left() + dx, r.center().y), Align2::LEFT_CENTER, &entry.text, theme::font_canvas_label(), col);
         }
         if let Some((badge_r, status)) = dev_status_badge_rect(id, n, r) {
             let badge_col = match status {
