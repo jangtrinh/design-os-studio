@@ -120,7 +120,7 @@ Numbered so PM, Codex and the test log can cite them.
 18. AC18. Mixed prop types (fixture B, fixture C): all six kinds of ordering permutations land in the AC2 order; no row is dropped, duplicated, or overlapping.
 19. AC19. Empty props (fixture D, empty `componentPropertyDefinitions`): header, source line and description still render; no "Properties" title, no empty block, no extra separator; panel below is not shifted by a phantom 4px. No panic.
 20. AC20. Many props (fixture C and a 20-row synthetic case): all rows render in order; the panel content height includes every row; the right-panel scroll reaches the last row; no row is clipped at the bottom; no overlap with the section below.
-21. AC21. Long property names: the label is elided inside w=88 (`widgets::elide`), never overlaps the control, and shows the full name as a tooltip when elided.
+21. AC21. Long property names: the label column is w=92 and the label is elided at w-4 (= 88 text width, `widgets::elide`, same as AC4), the control column is w=88; the label never overlaps the control, and shows the full name as a tooltip when elided.
 22. AC22. Long values (long variant option, long text default): the control keeps w=88, the value is elided inside the control with "…", never overflows into the label column or past the panel edge. Editing a long text value still works and commits the full string.
 23. AC23. Interaction parity: toggling a boolean, picking a variant option, editing text, and swapping an instance each call the same `app.set_instance_prop` path as v0.7.5; undo/redo and the "is set" label color (`TEXT` when overridden, `TEXT_SECONDARY` otherwise) are unchanged.
 24. AC24. No behavior change for `component_props()` (main component editor).
