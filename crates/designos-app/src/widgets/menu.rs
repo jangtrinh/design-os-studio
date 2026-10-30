@@ -1116,23 +1116,6 @@ mod tests {
         shapes.iter().any(|cs| walk(&cs.shape, target, color, width))
     }
 
-    fn any_stroke_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
-        fn walk(shape: &egui::epaint::Shape, target: Rect) -> bool {
-            match shape {
-                egui::epaint::Shape::Rect(r) => {
-                    let same = (r.rect.min.x - target.min.x).abs() <= 0.5
-                        && (r.rect.min.y - target.min.y).abs() <= 0.5
-                        && (r.rect.max.x - target.max.x).abs() <= 0.5
-                        && (r.rect.max.y - target.max.y).abs() <= 0.5;
-                    same && r.stroke.width > 0.0
-                }
-                egui::epaint::Shape::Vec(children) => children.iter().any(|c| walk(c, target)),
-                _ => false,
-            }
-        }
-        shapes.iter().any(|cs| walk(&cs.shape, target))
-    }
-
     fn shape_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
         fn walk(shape: &egui::epaint::Shape, out: &mut Vec<String>) {
             match shape {
@@ -1152,12 +1135,14 @@ mod tests {
         shape_texts(shapes).iter().any(|t| t.contains(needle))
     }
 
+    /// The focused look of the kit select: a 2px `BORDER_SELECTED` inside stroke.
     fn focus_ring_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
-        rect_stroke_on(shapes, target, theme::BORDER_SELECTED, 1.0)
+        rect_stroke_on(shapes, target, theme::BORDER_SELECTED, theme::BORDER_WIDTH * 2.0)
     }
 
-    fn hover_hairline_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
-        rect_stroke_on(shapes, target, theme::BORDER, 1.0)
+    /// The resting look of the kit select: a 1px `BORDER_STRONG` inside stroke, with no hover change.
+    fn resting_border_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
+        rect_stroke_on(shapes, target, theme::BORDER_STRONG, theme::BORDER_WIDTH)
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -1304,26 +1289,27 @@ mod tests {
         s.focus_dd();
         assert_eq!(s.focused, Some(s.dd_id), "the closed dropdown must hold keyboard focus");
         assert!(!s.open);
-        assert!(focus_ring_on(&s.shapes, dd_rect()), "focused closed dropdown must paint a 1px BORDER_SELECTED inside stroke on its rect");
-        assert!(!hover_hairline_on(&s.shapes, dd_rect()), "focus must not leave the hover hairline");
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "focused closed dropdown must paint the 2px BORDER_SELECTED inside stroke on its rect");
+        assert!(!resting_border_on(&s.shapes, dd_rect()), "focus replaces the resting BORDER_STRONG stroke");
     }
 
     #[test]
-    fn closed_idle_dropdown_paints_no_stroke() {
+    fn closed_idle_dropdown_paints_the_resting_border_and_no_ring() {
         let mut s = DropSim::new(DropKind::Dropdown);
         s.idle();
         assert!(s.focused.is_none());
         assert!(!s.open);
-        assert!(!any_stroke_on(&s.shapes, dd_rect()), "closed dropdown with no focus and no hover must paint no stroke");
+        assert!(resting_border_on(&s.shapes, dd_rect()), "an idle closed dropdown paints the resting BORDER_STRONG stroke");
+        assert!(!focus_ring_on(&s.shapes, dd_rect()), "an idle closed dropdown must not paint the focus ring");
     }
 
     #[test]
-    fn hovered_unfocused_dropdown_paints_border_hairline() {
+    fn hovered_unfocused_dropdown_keeps_the_resting_border() {
         let mut s = DropSim::new(DropKind::Dropdown);
         s.hover(dd_rect().center());
         assert!(s.focused.is_none() || s.focused != Some(s.dd_id), "hover alone must not focus the dropdown");
         assert!(!s.open);
-        assert!(hover_hairline_on(&s.shapes, dd_rect()), "hover without focus must paint the BORDER hairline");
+        assert!(resting_border_on(&s.shapes, dd_rect()), "the kit select has no hover stroke, so hover keeps the resting BORDER_STRONG");
         assert!(!focus_ring_on(&s.shapes, dd_rect()), "hover without focus must not paint BORDER_SELECTED");
     }
 
@@ -1413,7 +1399,8 @@ mod tests {
         s.idle();
         s.focus_dd();
         assert!(focus_ring_on(&s.shapes, dd_rect()), "the focused dropdown must show the ring");
-        assert!(!any_stroke_on(&s.shapes, dd2_rect()), "the unfocused sibling in the same row must show no ring");
+        assert!(!focus_ring_on(&s.shapes, dd2_rect()), "the unfocused sibling in the same row must show no ring");
+        assert!(resting_border_on(&s.shapes, dd2_rect()), "the unfocused sibling keeps its resting border");
     }
 
     #[test]
@@ -1423,7 +1410,7 @@ mod tests {
         assert_eq!(s.focused, Some(s.dd_id));
         assert!(!s.open);
         assert!(focus_ring_on(&s.shapes, dd_rect()), "focus must paint BORDER_SELECTED even while hovered");
-        assert!(!hover_hairline_on(&s.shapes, dd_rect()), "hover must not replace the focus ring with the BORDER hairline");
+        assert!(!resting_border_on(&s.shapes, dd_rect()), "hover must not bring back the resting border over the focus ring");
     }
 
     #[test]
@@ -1435,7 +1422,6 @@ mod tests {
         s.frame(vec![], Some(id));
         assert!(!s.open);
         assert!(!focus_ring_on(&s.shapes, dd_rect()), "a disabled dropdown must not paint a focus ring");
-        assert!(!any_stroke_on(&s.shapes, dd_rect()), "a disabled dropdown must paint no stroke");
     }
 
     #[test]

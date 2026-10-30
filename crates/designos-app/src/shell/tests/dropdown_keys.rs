@@ -33,7 +33,9 @@ fn focus_ring_on(shapes: &[ClippedShape], target: Rect) -> bool {
                     && (r.rect.min.y - target.min.y).abs() <= 0.5
                     && (r.rect.max.x - target.max.x).abs() <= 0.5
                     && (r.rect.max.y - target.max.y).abs() <= 0.5;
-                same && r.stroke.color == theme::BORDER_SELECTED && (r.stroke.width - 1.0).abs() <= 0.01 && r.stroke_kind == StrokeKind::Inside
+                same && r.stroke.color == theme::BORDER_SELECTED
+                    && (r.stroke.width - theme::BORDER_WIDTH * 2.0).abs() <= 0.01
+                    && r.stroke_kind == StrokeKind::Inside
             }
             egui::epaint::Shape::Vec(children) => children.iter().any(|c| walk(c, target)),
             _ => false,
@@ -78,7 +80,7 @@ fn tab_walk_reaches_a_dropdown_and_paints_the_ring() {
     let (mut s, _) = welcome_sim();
     let (id, rect) = focus_a_dropdown(&mut s);
     assert_eq!(s.ctx.memory(|m| m.focused()), Some(id));
-    assert!(focus_ring_on(&s.shapes, rect), "the focused dropdown must paint a 1px BORDER_SELECTED inside stroke");
+    assert!(focus_ring_on(&s.shapes, rect), "the focused dropdown must paint the 2px BORDER_SELECTED inside stroke");
 
     tab(&mut s, false);
     assert_ne!(s.ctx.memory(|m| m.focused()), Some(id), "Tab must leave the dropdown");

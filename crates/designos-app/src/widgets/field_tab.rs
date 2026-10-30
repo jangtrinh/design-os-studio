@@ -242,7 +242,9 @@ mod tests {
                         && (r.rect.min.y - target.min.y).abs() <= 0.5
                         && (r.rect.max.x - target.max.x).abs() <= 0.5
                         && (r.rect.max.y - target.max.y).abs() <= 0.5;
-                    same && r.stroke.color == crate::theme::BORDER_SELECTED && (r.stroke.width - 1.0).abs() <= 0.01 && r.stroke_kind == egui::StrokeKind::Inside
+                    same && r.stroke.color == crate::theme::BORDER_SELECTED
+                        && (r.stroke.width - crate::theme::BORDER_WIDTH * 2.0).abs() <= 0.01
+                        && r.stroke_kind == egui::StrokeKind::Inside
                 }
                 egui::epaint::Shape::Vec(children) => children.iter().any(|c| walk(c, target)),
                 _ => false,
