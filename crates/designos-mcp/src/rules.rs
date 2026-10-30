@@ -467,7 +467,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 100;
+const MAX_PURPOSE_CHARS: usize = 65;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -900,6 +900,13 @@ mod tests {
         assert_eq!(from_crlf, GENERATED_RULES_MD);
     }
 
+    #[test]
+    fn rules_pack_needs_human_instruction_stays_within_issue_budget() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("`needs_human`: stop and ask the user; do not retry or work around"));
+        assert!(pack.chars().count() <= 23_000, "rules pack is {} chars", pack.chars().count());
+    }
+
     /// The section of the rules pack for `tool`, from its heading to the next one.
     fn pack_section(pack: &str, tool: &str) -> String {
         let start = pack.find(&format!("### `{tool}`")).unwrap_or_else(|| panic!("{tool} is in the pack"));
@@ -1321,6 +1328,8 @@ mod tests {
             "`value: false`",
             "`idempotency_key`",
             "re-read",
+            "needs_human",
+            "do not retry or work around",
             "every group in a card",
             "gradients, shadows, and corner radii",
             "never hand-draw logos",
