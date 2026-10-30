@@ -263,6 +263,136 @@ fn uniform_scale_scales_the_copied_contents() {
 }
 
 #[test]
+fn uniform_scale_keeps_scaled_text_size_when_linked_style_has_binding() {
+    let alias = |key: &str| {
+        json!({
+            "dataType": "ALIAS",
+            "resolvedDataType": "FLOAT",
+            "value": {"alias": {"assetRef": {"key": key, "version": "1"}}}
+        })
+    };
+    let input = json!([
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        node(
+            (6, 1),
+            (0, 2),
+            "v",
+            "VARIABLE_SET",
+            "Type",
+            json!({"key": "SET_TYPE", "variableSetModes": [{"id": g(6, 10), "name": "Mode", "sortPosition": "!"}]}),
+        ),
+        node(
+            (6, 2),
+            (0, 2),
+            "w",
+            "VARIABLE",
+            "Font size/text-sm",
+            json!({
+                "key": "VAR_SM",
+                "variableResolvedType": "FLOAT",
+                "variableSetID": {"assetRef": {"key": "SET_TYPE", "version": "1"}},
+                "variableDataValues": {"entries": [{
+                    "modeID": g(6, 10),
+                    "variableData": {"dataType": "FLOAT", "resolvedDataType": "FLOAT", "value": {"floatValue": 14.0}}
+                }]}
+            }),
+        ),
+        node(
+            (6, 3),
+            (0, 2),
+            "x",
+            "VARIABLE",
+            "Line height/text-sm",
+            json!({
+                "key": "VAR_SM_LH",
+                "variableResolvedType": "FLOAT",
+                "variableSetID": {"assetRef": {"key": "SET_TYPE", "version": "1"}},
+                "variableDataValues": {"entries": [{
+                    "modeID": g(6, 10),
+                    "variableData": {"dataType": "FLOAT", "resolvedDataType": "FLOAT", "value": {"floatValue": 18.0}}
+                }]}
+            }),
+        ),
+        node(
+            (6, 4),
+            (0, 2),
+            "y",
+            "VARIABLE",
+            "Tracking/text-sm",
+            json!({
+                "key": "VAR_SM_TRACKING",
+                "variableResolvedType": "FLOAT",
+                "variableSetID": {"assetRef": {"key": "SET_TYPE", "version": "1"}},
+                "variableDataValues": {"entries": [{
+                    "modeID": g(6, 10),
+                    "variableData": {"dataType": "FLOAT", "resolvedDataType": "FLOAT", "value": {"floatValue": 2.0}}
+                }]}
+            }),
+        ),
+        node(
+            (8, 2),
+            (0, 2),
+            "s",
+            "TEXT",
+            "Text sm/Semibold",
+            json!({
+                "styleType": "TEXT",
+                "fontSize": 14.0,
+                "fontName": {"family": "Inter", "style": "Semi Bold"},
+                "lineHeight": {"units": "PIXELS", "value": 18.0},
+                "letterSpacing": {"units": "PIXELS", "value": 2.0},
+                "variableConsumptionMap": {"entries": [
+                    {"variableField": "FONT_SIZE", "variableData": alias("VAR_SM")},
+                    {"variableField": "LINE_HEIGHT", "variableData": alias("VAR_SM_LH")},
+                    {"variableField": "LETTER_SPACING", "variableData": alias("VAR_SM_TRACKING")}
+                ]}
+            }),
+        ),
+        node((5, 1), (0, 2), "c", "SYMBOL", "Badge", json!({"size": {"x": 100.0, "y": 24.0}})),
+        node(
+            (5, 2),
+            (5, 1),
+            "a",
+            "TEXT",
+            "Rating",
+            json!({
+                "overrideKey": g(9, 2),
+                "size": {"x": 88.0, "y": 16.0},
+                "fontSize": 14.0,
+                "fontName": {"family": "Inter", "style": "Semi Bold"},
+                "styleIdForText": {"guid": g(8, 2)},
+                "textData": {"characters": "Best Design Tool"}
+            }),
+        ),
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "Scaled badge",
+            json!({
+                "size": {"x": 80.0, "y": 19.2},
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 0.8}
+            }),
+        )
+    ]);
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    let rating = child(&doc, find(&doc, "Scaled badge"), "Rating");
+    let NodeKind::Text(raw) = &rating.kind else { panic!("text") };
+    assert!((raw.style.font_size - 11.2).abs() < 1e-3, "scale_contents applies the instance scale");
+    assert!(matches!(raw.style.line_height, LineHeight::Pixels(px) if (px - 14.4).abs() < 1e-3));
+    assert!((raw.style.letter_spacing - 1.6).abs() < 1e-3);
+    assert!(!rating.style_refs.contains_key("text"), "scaled instance text detaches inherited style");
+    let resolved = resolve_node(&doc, rating);
+    let NodeKind::Text(text) = &resolved.kind else { panic!("text") };
+    assert!((text.style.font_size - 11.2).abs() < 1e-3, "linked style must not restore the unscaled 14px size; got {}", text.style.font_size);
+    assert!(matches!(text.style.line_height, LineHeight::Pixels(px) if (px - 14.4).abs() < 1e-3));
+    assert!((text.style.letter_spacing - 1.6).abs() < 1e-3);
+}
+
+#[test]
 fn variable_sets_map_by_asset_key_with_modes_aliases_and_bindings() {
     let doc = import_fig_node_changes(&fixture(), "t").unwrap();
     assert_eq!((doc.variable_collections.len(), doc.variables.len()), (1, 2));
