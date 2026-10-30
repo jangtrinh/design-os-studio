@@ -1658,6 +1658,55 @@ impl App {
     /// dragged nodes are removed), preserving their page position.
     pub fn move_to_parent(&mut self, ids: &[NodeId], new_parent: NodeId, index: usize) {
         let Some(npw) = self.doc.world_transform(new_parent).invert() else { return };
+        // Layer-panel selection order reflects click order, which can be the
+        // reverse of the document order. Reparenting selected siblings in
+        // click order would reverse their relative order at the drop point.
+        // Canonicalize a selection from one source parent; cross-parent moves
+        // retain the caller's explicit order because there is no single
+        // sibling list to define its order.
+        let mut ids = ids.to_vec();
+        let common_parent = ids.first().and_then(|id| self.doc.get(*id)).and_then(|n| n.parent);
+        let one_source_parent = common_parent.is_some() && ids.iter().all(|id| self.doc.get(*id).and_then(|n| n.parent) == common_parent);
+        if one_source_parent {
+            if let Some(parent) = common_parent.and_then(|p| self.doc.get(p)) {
+                ids.sort_by_key(|id| parent.children.iter().position(|child| child == id).unwrap_or(usize::MAX));
+            }
+        }
+        let same_parent = one_source_parent && common_parent == Some(new_parent);
+        if same_parent {
+            let move_ids: Vec<NodeId> = ids
+                .iter()
+                .copied()
+                .filter(|id| {
+                    *id != new_parent
+                        && !self.doc.is_ancestor(*id, new_parent)
+                        && !reparent_would_hold_itself(&self.doc, &[*id], new_parent)
+                        && self.slot_move_allowed(&[*id], new_parent)
+                })
+                .collect();
+            if move_ids.is_empty() {
+                return;
+            }
+            let mut tx = Tx::new();
+            // Park the selected siblings after the unselected siblings. This removes them
+            // without changing the relative order of either group, including non-contiguous
+            // selections that straddle the drop point. Reinsert the parked block at the
+            // resolved post-removal index. Keep all structural commands atomic so a future
+            // document/slot validation failure cannot leave a partial move behind.
+            let commands = move_ids
+                .iter()
+                .map(|id| Command::Reparent { id: *id, parent: new_parent, index: usize::MAX })
+                .chain(move_ids.iter().enumerate().map(|(i, id)| Command::Reparent { id: *id, parent: new_parent, index: index + i }))
+                .collect();
+            if let Err(e) = tx.cmds_all_or_none(&mut self.doc, commands) {
+                self.show_toast(format!("Cannot move layer: {e}"), true);
+                return;
+            }
+            Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, new_parent);
+            layout::relayout_around(&mut self.doc, &mut tx.ed, new_parent);
+            self.run_tx(tx);
+            return;
+        }
         let mut tx = Tx::new();
         let mut old_parents = Vec::new();
         let mut moved = false;
@@ -2535,6 +2584,84 @@ mod tests {
         assert_eq!((before.x, before.y), (after.x, after.y));
         app.undo();
         assert_eq!(app.doc.get(ids[1]).unwrap().parent, Some(app.page));
+    }
+
+    #[test]
+    fn move_to_parent_keeps_multi_selection_sibling_order() {
+        let (mut app, ids) = app_with_rects();
+        let [card, welcome, dashboard] = ids.as_slice() else { unreachable!() };
+        // A bottom-up layer-panel selection supplies the IDs in reverse document order.
+        app.move_to_parent(&[*welcome, *card], app.page, 1);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*dashboard, *card, *welcome]);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*card, *welcome, *dashboard]);
+
+        // A top-down selection must produce the same document order.
+        app.move_to_parent(&[*card, *welcome], app.page, 1);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*dashboard, *card, *welcome]);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*card, *welcome, *dashboard]);
+
+        // A non-contiguous selection also stays together.
+        app.move_to_parent(&[*dashboard, *card], app.page, 1);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*welcome, *card, *dashboard]);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*card, *welcome, *dashboard]);
+
+        // Moving into a frame keeps source sibling order as well.
+        let frame_id = app.doc.alloc_id();
+        let frame = app.doc.insert(app.page, Node::frame(frame_id, Rect::new(500.0, 500.0, 300.0, 300.0))).unwrap();
+        app.move_to_parent(&[*welcome, *card], frame, 0);
+        assert_eq!(app.doc.get(frame).unwrap().children, vec![*card, *welcome]);
+        app.undo();
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*card, *welcome, *dashboard, frame]);
+    }
+
+    #[test]
+    fn move_to_parent_keeps_block_order_at_each_same_parent_drop_position() {
+        let (mut app, ids) = app_with_rects();
+        let [a, b, c] = ids.as_slice() else { unreachable!() };
+
+        // The drop index is relative to the sibling list after the selected nodes
+        // are removed. The moved block must remain contiguous at every position.
+        app.move_to_parent(&[*c, *b], app.page, 0);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*b, *c, *a]);
+        app.undo();
+
+        app.move_to_parent(&[*c, *b], app.page, 1);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, *b, *c]);
+        app.undo();
+
+        app.move_to_parent(&[*b, *c], app.page, 2);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, *b, *c]);
+        app.undo();
+
+        // A non-contiguous selection keeps source order when moved as one block.
+        app.move_to_parent(&[*c, *a], app.page, 0);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, *c, *b]);
+        app.undo();
+    }
+
+    #[test]
+    fn move_to_parent_keeps_order_when_drop_is_before_or_after_selected_block() {
+        let (mut app, ids) = app_with_rects();
+        let [a, b, c] = ids.as_slice() else { unreachable!() };
+        let d = app.doc.alloc_id();
+        let d = app.doc.insert(app.page, Node::rectangle(d, Rect::new(300.0, 60.0, 50.0, 50.0))).unwrap();
+
+        // Regression for a drop above the first unselected sibling.
+        app.move_to_parent(&[*c, *b], app.page, 0);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*b, *c, *a, d]);
+        app.undo();
+
+        // Regression for a drop after the last unselected sibling.
+        app.move_to_parent(&[*c, *b], app.page, 2);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, d, *b, *c]);
+        app.undo();
+
+        // Non-contiguous selections also move as a source-order block.
+        app.move_to_parent(&[d, *b], app.page, 0);
+        assert_eq!(app.doc.get(app.page).unwrap().children, vec![*b, d, *a, *c]);
     }
 
     #[test]
