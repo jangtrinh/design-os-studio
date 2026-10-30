@@ -18,6 +18,7 @@ use std::process::Command as Process;
 const LAUNCHING_TESTS: &[&str] = &[
     "terminal::tests::notification_when_the_tab_is_hidden_but_window_focused",
     "terminal::tests::os_notification_sink_reports_denied_immediately_and_click_focuses_tab",
+    "shell::tests::agent_simplified_panel::sign_in_shows_only_on_a_row_known_signed_out_and_runs_the_cli_login",
     // Ignored in a normal run; last by name, it gives the launches the tests start in the background time to happen.
     "terminal::tests::zz_let_background_launches_finish",
 ];
