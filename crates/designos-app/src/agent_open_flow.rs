@@ -1360,7 +1360,6 @@ mod tests {
                 render_sessions_popover(&mut st, ui, narrow_panel, 40.0, None);
             });
             assert!(painted_sentences(&out).contains(&notice), "popover elides {notice:?}: {:?}", painted_texts(&out));
-
         }
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

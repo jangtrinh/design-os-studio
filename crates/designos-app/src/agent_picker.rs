@@ -6,9 +6,7 @@ use std::path::{Path, PathBuf};
 
 use egui::{Align2, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
-use crate::agent_cli_catalog::{
-    build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, CUSTOM_CLI_WARNING,
-};
+use crate::agent_cli_catalog::{build_picker_rows, CatalogProbeCache, CustomCliEntry, PickerRow, PickerRowKind, SignIn, CUSTOM_CLI_WARNING};
 use crate::agent_start_failure::{login_command, FixAction};
 use crate::comments::settings::{add_custom_cli, load_custom_clis};
 use crate::terminal::{AgentCliPreset, TerminalState};

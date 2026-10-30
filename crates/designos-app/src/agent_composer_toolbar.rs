@@ -78,7 +78,14 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         let w = widths[slot];
         slot += 1;
         let rect = place(&mut x, &mut y, row, w);
-        if paint_tag(ui, &p, rect, TagSpec { id: "agents-composer-chip-prd", label: "PRD", error: false, dismiss: Some("Remove PRD"), tip: None, name: Some("PRD attached") }).dismiss {
+        if paint_tag(
+            ui,
+            &p,
+            rect,
+            TagSpec { id: "agents-composer-chip-prd", label: "PRD", error: false, dismiss: Some("Remove PRD"), tip: None, name: Some("PRD attached") },
+        )
+        .dismiss
+        {
             out.prd_hide = true;
         }
     }
@@ -90,8 +97,12 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         let label = format!("{skills_n} skills");
         let tip = state.skills.selected_names.join(", ");
         let bad = state.skills.limit_violation().is_some();
-        let hit =
-            paint_tag(ui, &p, rect, TagSpec { id: "agents-composer-chip-skills", label: &label, error: bad, dismiss: Some("Detach skills"), tip: Some(&tip), name: None });
+        let hit = paint_tag(
+            ui,
+            &p,
+            rect,
+            TagSpec { id: "agents-composer-chip-skills", label: &label, error: bad, dismiss: Some("Detach skills"), tip: Some(&tip), name: None },
+        );
         out.skills_clear = hit.dismiss;
         out.skills_open = hit.body && !hit.dismiss;
     }

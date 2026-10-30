@@ -137,7 +137,15 @@ fn layout_tabs(state: &TerminalState, p: &egui::Painter, left: f32, right: f32) 
         })
         .collect();
     if state.picker_open || state.tabs.is_empty() {
-        slots.push(DrawnTab { idx: None, tab_id: 0, title: "New chat".to_string(), a11y: "New chat".to_string(), tip: "New chat".to_string(), dot: None, width: 0.0 });
+        slots.push(DrawnTab {
+            idx: None,
+            tab_id: 0,
+            title: "New chat".to_string(),
+            a11y: "New chat".to_string(),
+            tip: "New chat".to_string(),
+            dot: None,
+            width: 0.0,
+        });
     }
     let total = slots.len();
     let dots: Vec<Option<DotTone>> = slots.iter().map(|s| s.dot).collect();
@@ -188,10 +196,10 @@ fn paint_tab(ui: &mut Ui, p: &egui::Painter, t_rect: Rect, tab: &DrawnTab, selec
     if selected {
         p.rect_filled(
             Rect::from_min_max(
-                Pos2::new(t_rect.left() + theme::SPACE_FACT, t_rect.bottom() - 2.0),
+                Pos2::new(t_rect.left() + theme::SPACE_FACT, t_rect.bottom() - theme::INSET_SEGMENT),
                 Pos2::new(t_rect.right() - theme::SPACE_FACT, t_rect.bottom()),
             ),
-            egui::CornerRadius::same(1),
+            theme::cr_pill(theme::INSET_SEGMENT),
             theme::BORDER_SELECTED,
         );
     }

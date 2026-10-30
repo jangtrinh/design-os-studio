@@ -248,7 +248,10 @@ fn an_exited_tab_and_an_idle_tab_draw_no_status_ring_or_brand_dot() {
     assert!(dots.iter().all(|c| c.fill == crate::theme::DANGER), "no brand dot and no ring: {dots:?}");
     assert_eq!(dots.len(), 1, "one dot, on the tab that failed to start: {dots:?}");
     let idle_id = s.shell.app.terminal.tabs[1].id;
-    assert!(s.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("test-rect", format!("agents-tab-dot-{idle_id}"))))).is_none(), "the running idle tab has none");
+    assert!(
+        s.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("test-rect", format!("agents-tab-dot-{idle_id}"))))).is_none(),
+        "the running idle tab has none"
+    );
     finish(s, dir);
 }
 

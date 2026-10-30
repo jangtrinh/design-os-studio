@@ -339,8 +339,7 @@ fn no_status_line_under_the_composer() {
     s.shell.app.terminal.set_composer_draft("x".repeat(crate::agent_composer::MAX_COMPOSER_CHARS + 1));
     let _ = s.shell.app.terminal.send_to_agent("x", None);
     s.shell.app.terminal.active_composer_mut().notice = Some("Message is too long.".into());
-    s.shell.app.terminal.active_composer_mut().last_outcome =
-        Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::TooLong));
+    s.shell.app.terminal.active_composer_mut().last_outcome = Some(crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::TooLong));
     frames(&mut s, 3);
     let bx = recorded(&s, "agents-composer-box").expect("composer box");
     let note = recorded(&s, "agents-composer-notice").expect("a refusal is captioned");

@@ -1239,10 +1239,10 @@ mod vector;
 // Needs the stub agent CLIs of `Sim::use_stub_agent_clis`, which exist on unix only: on Windows the tab runs a real `claude`
 // that is not there, and dies at a moment that depends on machine load, so the terminal bytes the tests read are not stable.
 mod agent_chrome;
-mod agent_simplified_panel;
 #[cfg(unix)]
 mod agent_panel_keyboard;
 mod agent_picker_return;
+mod agent_simplified_panel;
 mod agents_panel_only;
 mod agents_tab_strip;
 mod approval_banner_tab;
@@ -1727,12 +1727,10 @@ mod agent_a11y {
         let (chip_node_id, _) = find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Send selection to agent")
             .expect("expected Role::Button with label \"Send selection to agent\" in PTY mode when a node is selected");
         assert_eq!(chip_node_id, egui::Id::new("agents-composer-chip-selection").accesskit_id());
-        for absent in ["Stop"] {
-            assert!(
-                find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, absent).is_none(),
-                "unexpected phantom button {absent:?} in PTY mode with selection"
-            );
-        }
+        assert!(
+            find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Stop").is_none(),
+            "unexpected phantom button \"Stop\" in PTY mode with selection"
+        );
     }
 
     #[test]

@@ -15,7 +15,7 @@ fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(ch);
@@ -115,7 +115,10 @@ impl SkillsAttachmentState {
             let rp = rows_ui.painter().clone();
             if let Some(label) = entry.status.error_badge() {
                 let w = widgets::text_width(&rp, label, &theme::font_caption()) + theme::SPACE_INLINE * 2.0;
-                let badge = Rect::from_center_size(Pos2::new(content.right() - w * 0.5, row_r.top() + theme::SPACE_GROUP + theme::SPACE_ROW), Vec2::new(w, theme::BADGE_SM));
+                let badge = Rect::from_center_size(
+                    Pos2::new(content.right() - w * 0.5, row_r.top() + theme::SPACE_GROUP + theme::SPACE_ROW),
+                    Vec2::new(w, theme::BADGE_SM),
+                );
                 kit::count_badge(&rp, badge, label, kit::Tone::Error);
                 text_right = badge.left() - theme::SPACE_INLINE;
             }
@@ -124,7 +127,13 @@ impl SkillsAttachmentState {
             let name_shown = widgets::elide(&rp, &name, &name_font, (text_right - text_left).max(theme::CONTROL_MD));
             rp.text(Pos2::new(text_left, row_r.top() + theme::SPACE_GROUP), Align2::LEFT_CENTER, name_shown, name_font, name_color);
             let desc = widgets::elide(&rp, &entry.description, &theme::font_caption(), (content.right() - text_left).max(theme::CONTROL_MD));
-            rp.text(Pos2::new(text_left, row_r.top() + theme::SPACE_GROUP + theme::LINE_BODY), Align2::LEFT_CENTER, desc, theme::font_caption(), theme::TEXT_SECONDARY);
+            rp.text(
+                Pos2::new(text_left, row_r.top() + theme::SPACE_GROUP + theme::LINE_BODY),
+                Align2::LEFT_CENTER,
+                desc,
+                theme::font_caption(),
+                theme::TEXT_SECONDARY,
+            );
         }
         if let Some(target) = toggle_target {
             self.toggle_skill(&target);

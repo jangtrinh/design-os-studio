@@ -119,12 +119,7 @@ impl MentionPopupState {
 
     /// Consumes `ArrowUp`, `ArrowDown`, `Enter`, `Tab`, and `Escape` from `ctx` while the popup
     /// is open so the underlying `TextEdit` or PTY does not also act on them.
-    pub fn handle_keyboard(
-        &mut self,
-        ctx: &Context,
-        input_line: &mut String,
-        active_mentions: &mut Vec<Mention>,
-    ) -> MentionPopupOutcome {
+    pub fn handle_keyboard(&mut self, ctx: &Context, input_line: &mut String, active_mentions: &mut Vec<Mention>) -> MentionPopupOutcome {
         if !self.open {
             return MentionPopupOutcome::None;
         }
