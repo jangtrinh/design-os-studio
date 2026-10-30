@@ -73,9 +73,12 @@ pub fn silhouette_source(n: &Node, shape_fillable: Option<bool>, mode: Silhouett
                 FilllessKnockout::ChildrenOpaque => SilhouetteSource::ChildrenOpaque,
             };
         }
-        if fillable && mode.ignores_alpha() {
+        if fillable && mode == SilhouetteMode::Opaque {
             return SilhouetteSource::OwnShape;
         }
+    }
+    if mode == SilhouetteMode::Knockout && has_children {
+        return SilhouetteSource::ChildrenOpaque;
     }
     if has_children {
         SilhouetteSource::Children
@@ -85,7 +88,7 @@ pub fn silhouette_source(n: &Node, shape_fillable: Option<bool>, mode: Silhouett
 }
 
 fn has_visible_fills(n: &Node) -> bool {
-    n.fills.iter().any(|p| p.visible)
+    n.fills.iter().any(|p| p.visible && p.silhouette_alpha() > 0.0)
 }
 
 /// A stroke exists with a weight or with per-side weights.
@@ -224,7 +227,7 @@ mod tests {
         // the opaque mode used by grain and glass still covers the rectangle
         assert_eq!(src(&f, true), SilhouetteSource::OwnShape);
         // without children there is nothing to follow
-        assert_eq!(knock(&bare(Node::frame(NodeId(1), rect()))), SilhouetteSource::OwnShape);
+        assert_eq!(knock(&bare(Node::frame(NodeId(1), rect()))), SilhouetteSource::Nothing);
     }
 
     #[test]
@@ -234,9 +237,9 @@ mod tests {
     }
 
     #[test]
-    fn knockout_of_group_and_text_is_unchanged() {
+    fn knockout_of_group_and_text_uses_opaque_children_for_groups() {
         let g = with_child(Node::new(NodeId(1), NodeKind::Group));
-        assert_eq!(silhouette_source(&g, None, SilhouetteMode::Knockout), SilhouetteSource::Children);
+        assert_eq!(silhouette_source(&g, None, SilhouetteMode::Knockout), SilhouetteSource::ChildrenOpaque);
         let t = Node::text(NodeId(1), rect(), "Hi", TextStyle::default());
         assert_eq!(silhouette_source(&t, None, SilhouetteMode::Knockout), SilhouetteSource::Text);
     }

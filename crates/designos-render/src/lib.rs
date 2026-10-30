@@ -663,17 +663,33 @@ impl Renderer<'_> {
     /// Draws each visible child's own opaque silhouette (a knockout): paint alpha is ignored,
     /// hidden and fully transparent children add nothing.
     fn knockout_children(&self, children: &[NodeId], parent_ts: sk::Transform, pm: &mut sk::Pixmap) {
-        for cid in children {
+        for (i, cid) in children.iter().enumerate() {
             if self.hide.contains(cid) {
                 continue;
             }
             let Some(child) = board::get(self.doc, *cid) else { continue };
             let child = &*resolve_node(self.doc, &child);
+            let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
+            if child.is_mask {
+                if !child.visible {
+                    continue;
+                }
+                let (w, h) = (pm.width(), pm.height());
+                let (Some(mut layer), Some(mut mask_layer)) = (sk::Pixmap::new(w, h), sk::Pixmap::new(w, h)) else {
+                    return;
+                };
+                self.knockout_children(&children[i + 1..], parent_ts, &mut layer);
+                let mask_node = mask::mask_stencil(child);
+                self.draw_node(&mask_node, ts, &mut mask_layer, None, None);
+                let pp = sk::PixmapPaint { blend_mode: sk::BlendMode::DestinationIn, ..Default::default() };
+                layer.draw_pixmap(0, 0, mask_layer.as_ref(), &pp, sk::Transform::identity(), None);
+                pm.draw_pixmap(0, 0, layer.as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
+                return;
+            }
             let runtime_mul = self.runtime_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
-            if !child.visible || child.is_mask || matches!(child.kind, NodeKind::Page { .. }) || child.opacity * runtime_mul <= 0.0 {
+            if !child.visible || matches!(child.kind, NodeKind::Page { .. }) || child.opacity * runtime_mul <= 0.0 {
                 continue;
             }
-            let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
             let scale = ts_scale(&ts);
             let shape = node_shape(self.doc, child, 0.15 / scale);
             let text_layout = match &child.kind {
