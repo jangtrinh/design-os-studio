@@ -397,6 +397,15 @@ pub fn probe_descriptor(desc: &CliDescriptor, runner: &Arc<dyn RunCommand>, time
     CliProbe { installed: true, version, signed_in }
 }
 
+/// Stores `probe` for `preset` and bumps `generation` only when the stored answer changes, so a re-probe that finds the same answer
+/// leaves everything derived from the cache valid.
+fn store_probe(map: &mut HashMap<AgentCliPreset, CliProbe>, generation: &AtomicU64, preset: AgentCliPreset, probe: CliProbe) {
+    if map.get(&preset) != Some(&probe) {
+        map.insert(preset, probe);
+        generation.fetch_add(1, Ordering::Release);
+    }
+}
+
 /// In-memory cache of [`CliProbe`] results per [`AgentCliPreset`], refreshed asynchronously off the UI thread (`#652` §3 rule 2).
 #[derive(Clone)]
 pub struct CatalogProbeCache {
@@ -473,9 +482,11 @@ impl CatalogProbeCache {
         {
             let mut map = self.probes.lock().unwrap();
             for desc in &descriptors {
-                map.entry(desc.preset).or_insert_with(|| CliProbe { installed: false, version: None, signed_in: SignIn::Checking });
+                if !map.contains_key(&desc.preset) {
+                    let seed = CliProbe { installed: false, version: None, signed_in: SignIn::Checking };
+                    store_probe(&mut map, &self.generation, desc.preset, seed);
+                }
             }
-            self.generation.fetch_add(1, Ordering::Release);
         }
         if let Ok(mut active) = self.in_flight.lock() {
             *active = true;
@@ -499,16 +510,14 @@ impl CatalogProbeCache {
                     if let Ok(pinned) = pin_map.lock() {
                         if let Some(existing) = pinned.get(&desc.preset).cloned() {
                             if let Ok(mut guard) = p_map.lock() {
-                                guard.insert(desc.preset, existing);
-                                generation.fetch_add(1, Ordering::Release);
+                                store_probe(&mut guard, &generation, desc.preset, existing);
                             }
                             return;
                         }
                     }
                     let res = probe_descriptor(&desc, &r, timeout);
                     if let Ok(mut guard) = p_map.lock() {
-                        guard.insert(desc.preset, res);
-                        generation.fetch_add(1, Ordering::Release);
+                        store_probe(&mut guard, &generation, desc.preset, res);
                     }
                 }));
             }
@@ -526,8 +535,7 @@ impl CatalogProbeCache {
         for desc in catalog() {
             let res = probe_descriptor(&desc, &self.runner, self.timeout);
             if let Ok(mut guard) = self.probes.lock() {
-                guard.insert(desc.preset, res);
-                self.generation.fetch_add(1, Ordering::Release);
+                store_probe(&mut guard, &self.generation, desc.preset, res);
             }
         }
         if let Ok(mut active) = self.in_flight.lock() {
@@ -551,8 +559,7 @@ impl CatalogProbeCache {
             pinned.insert(preset, probe.clone());
         }
         if let Ok(mut guard) = self.probes.lock() {
-            guard.insert(preset, probe);
-            self.generation.fetch_add(1, Ordering::Release);
+            store_probe(&mut guard, &self.generation, preset, probe);
         }
     }
 
