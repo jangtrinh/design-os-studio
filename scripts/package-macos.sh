@@ -16,12 +16,18 @@ set -euo pipefail
 
 version=${1:?usage: package-macos.sh <version> [arm64-bin-dir] [x86_64-bin-dir]}
 version=${version#v}
-arm_dir=${2:-target/aarch64-apple-darwin/release}
-x64_dir=${3:-target/x86_64-apple-darwin/release}
-host_dir=target/release
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
+
+if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+  target_dir="$CARGO_TARGET_DIR"
+else
+  target_dir="$(python3 "$root/scripts/cargo_target.py" "$root")"
+fi
+arm_dir=${2:-$target_dir/aarch64-apple-darwin/release}
+x64_dir=${3:-$target_dir/x86_64-apple-darwin/release}
+host_dir=$target_dir/release
 dist=$root/dist
 work=$dist/macos-work
 rm -rf "$work"
