@@ -2147,6 +2147,15 @@ impl<'a> Ctx<'a> {
         Ok(())
     }
 
+    /// REST name override metadata is applied after expansion, so consult the
+    /// source id while an instance swap is being applied.
+    fn has_pending_rest_name_override(&self, id: NodeId) -> bool {
+        let source_id = self.doc.get(id).and_then(|n| n.source_id.as_deref()).map(str::to_owned);
+        self.rest_overrides
+            .iter()
+            .any(|(_, nid, fields)| fields.iter().any(|field| field == "name") && (source_id.as_deref() == Some(nid) || self.ids.get(nid).copied() == Some(id)))
+    }
+
     /// Points the nested instance `d` at `target`, updates its component shell
     /// properties to `target`'s defaults, rebuilds its children, and re-applies
     /// `d`'s own component property values.
@@ -2169,9 +2178,15 @@ impl<'a> Ctx<'a> {
         for k in self.doc.get(d).map(|n| n.children.clone()).unwrap_or_default() {
             let _ = self.doc.remove(k);
         }
+        let current_name_is_component_name =
+            self.doc.get(d).and_then(|n| current.and_then(|c| self.doc.get(c)).map(|source| n.name == source.name)).unwrap_or(false);
+        let pending_rest_name_override = self.has_pending_rest_name_override(d);
         if let Some(dn) = self.doc.get_mut(d) {
             let keep_resized = current_size.is_some_and(|cs| (dn.size.x - cs.x).abs() > 1e-4 || (dn.size.y - cs.y).abs() > 1e-4);
             dn.kind = NodeKind::Instance { frame: target_fp.clone(), component: Some(target), component_key: None };
+            if current_name_is_component_name && !dn.component.overrides.contains(&OverrideField::Name) && !pending_rest_name_override {
+                dn.name = target_node.name.clone();
+            }
             if !keep_resized {
                 dn.size = target_node.size;
             }
@@ -2700,6 +2715,11 @@ impl<'a> Ctx<'a> {
     ) -> Result<bool, FigError> {
         let mut swapped = false;
         if !derived_only {
+            if set.get("name").is_some() {
+                if let Some(n) = self.doc.get_mut(id) {
+                    n.component.overrides.insert(OverrideField::Name);
+                }
+            }
             if let Some(cid) = fstr(set, "componentId") {
                 if let Some(&target_comp) = self.ids.get(cid) {
                     self.swap_nested(id, target_comp, targets, done)?;
@@ -4159,6 +4179,49 @@ mod expand_depth_tests {
         json!({"document": {"type": "DOCUMENT", "children": [{"id": "0:1", "type": "CANVAS", "children": kids}]}})
     }
 
+    /// A shell component contains an icon instance. Swapping that nested instance
+    /// must update its layer name to the selected component's name, just as Figma
+    /// does in the Layers panel.
+    fn nested_instance_swap_names() -> Value {
+        let size = json!({"x": 16, "y": 16});
+        json!({
+            "document": {"type": "DOCUMENT", "children": [{
+                "id": "0:1", "type": "CANVAS", "name": "Page 1", "children": [
+                    {"id": "10:1", "name": "home-line", "type": "COMPONENT", "size": size,
+                     "children": [{"id": "10:2", "name": "home-path", "type": "RECTANGLE", "size": size}]},
+                    {"id": "11:1", "name": "settings-01", "type": "COMPONENT", "size": size,
+                     "children": [{"id": "11:2", "name": "settings-path", "type": "RECTANGLE", "size": size}]},
+                    {"id": "12:1", "name": "Sidebar", "type": "COMPONENT", "size": size,
+                     "children": [{"id": "12:2", "name": "home-line", "type": "INSTANCE", "componentId": "10:1", "size": size}]},
+                    {"id": "1:1", "name": "Sidebar use", "type": "INSTANCE", "componentId": "12:1", "size": size,
+                     "_overrides": [{"path": ["12:2"], "set": {"componentId": "11:1"}}]}
+                ]
+            }]}
+        })
+    }
+
+    /// REST files can carry the nested instance's custom name separately from
+    /// the component swap metadata. The custom name must survive the swap.
+    fn nested_instance_swap_rest_name_override() -> Value {
+        let size = json!({"x": 16, "y": 16});
+        json!({
+            "document": {"type": "DOCUMENT", "children": [{
+                "id": "0:1", "type": "CANVAS", "name": "Page 1", "children": [
+                    {"id": "10:1", "name": "home-line", "type": "COMPONENT", "size": size,
+                     "children": [{"id": "10:2", "name": "home-path", "type": "RECTANGLE", "size": size}]},
+                    {"id": "11:1", "name": "settings-01", "type": "COMPONENT", "size": size,
+                     "children": [{"id": "11:2", "name": "settings-path", "type": "RECTANGLE", "size": size}]},
+                    {"id": "12:1", "name": "Sidebar", "type": "COMPONENT", "size": size,
+                     "children": [{"id": "12:2", "name": "home-line", "type": "INSTANCE", "componentId": "10:1", "size": size}]},
+                    {"id": "1:1", "name": "Sidebar use", "type": "INSTANCE", "componentId": "12:1", "size": size,
+                     "overrides": [{"id": "I1:1;12:2", "overriddenFields": ["name"]}],
+                     "_overrides": [{"path": ["12:2"], "set": {"componentId": "11:1"}}],
+                     "children": [{"id": "I1:1;12:2", "name": "Sidebar icon", "type": "INSTANCE", "componentId": "10:1", "size": size}]}
+                ]
+            }]}
+        })
+    }
+
     /// Same chain, but each `X` swaps `S` through an instance override (`_overrides` with a `componentId`) rather
     /// than through a component property.
     fn override_swap_chain(len: usize) -> Value {
@@ -4197,6 +4260,27 @@ mod expand_depth_tests {
             assert_eq!(subtree_of_named(&doc, "Use").len(), 2 * len + 1, "chain of {len}");
             assert_eq!(depth_below_named(&doc, "Use"), 2 * len, "chain of {len}");
         }
+    }
+
+    #[test]
+    fn nested_instance_swap_uses_target_component_name() {
+        let doc = import_rest_value(&nested_instance_swap_names(), true).unwrap();
+        let use_node = doc.nodes.values().find(|n| n.name == "Sidebar use").expect("instance use");
+        let swapped = use_node.children.iter().find_map(|id| doc.get(*id)).expect("swapped nested instance");
+        assert!(matches!(swapped.kind, NodeKind::Instance { component: Some(_), .. }));
+        assert_eq!(swapped.name, "settings-01");
+        assert!(swapped.children.iter().any(|id| doc.get(*id).is_some_and(|n| n.name == "settings-path")));
+    }
+
+    #[test]
+    fn nested_instance_swap_preserves_rest_name_override() {
+        let doc = import_rest_value(&nested_instance_swap_rest_name_override(), true).unwrap();
+        let use_node = doc.nodes.values().find(|n| n.name == "Sidebar use").expect("instance use");
+        let swapped = use_node.children.iter().find_map(|id| doc.get(*id)).expect("swapped nested instance");
+        assert!(matches!(swapped.kind, NodeKind::Instance { component: Some(_), .. }));
+        assert_eq!(swapped.name, "Sidebar icon");
+        assert!(swapped.component.overrides.contains(&OverrideField::Name));
+        assert!(swapped.children.iter().any(|id| doc.get(*id).is_some_and(|n| n.name == "settings-path")));
     }
 
     #[test]
