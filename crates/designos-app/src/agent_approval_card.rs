@@ -200,7 +200,7 @@ pub fn paint_grant_strip(ui: &mut Ui, origin: Pos2, width: f32, grants: &[agent_
     if grants.is_empty() || width <= 0.0 {
         return (0.0, None);
     }
-    let row_h = theme::CONTROL_DENSE;
+    let row_h = theme::TARGET_MIN;
     let height = grants.len() as f32 * row_h;
     let p = ui.painter().clone();
     let strip = Rect::from_min_size(origin, Vec2::new(width, height));
@@ -220,7 +220,7 @@ pub fn paint_grant_strip(ui: &mut Ui, origin: Pos2, width: f32, grants: &[agent_
         p.rect_stroke(btn, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
         p.text(btn.center(), Align2::CENTER_CENTER, "Revoke", font.clone(), theme::TEXT);
         widgets::record(ui, "agent-grant-revoke", btn);
-        let text_w = (btn.left() - row.left() - theme::INSET_CONTROL - theme::SPACE_INLINE).max(theme::CONTROL_DENSE);
+        let text_w = (btn.left() - row.left() - theme::INSET_CONTROL - theme::SPACE_INLINE).max(theme::TARGET_MIN);
         let label = format!("{} {}", grant.tool_name, grant.target);
         let elided = widgets::elide(&p, &label, &font, text_w);
         p.text(Pos2::new(row.left() + theme::INSET_CONTROL, row.center().y), Align2::LEFT_CENTER, elided, font, theme::TEXT_SECONDARY);

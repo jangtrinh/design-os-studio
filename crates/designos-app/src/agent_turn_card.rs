@@ -12,6 +12,8 @@ use std::time::Instant;
 
 pub const MAX_PREVIEW_LAYERS: usize = 5;
 const MAX_CALL_ROWS: usize = 8;
+/// One call row in the expanded card. Sits on the pointer floor (24 px), the same value the row had as `CONTROL_DENSE`.
+const CALL_ROW_H: f32 = theme::TARGET_MIN;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TabScrollScope {
@@ -162,7 +164,7 @@ fn call_block_height(turn: &TurnRecord) -> f32 {
     if total == 0 {
         0.0
     } else {
-        total as f32 * theme::CONTROL_DENSE + total.saturating_sub(1) as f32 * theme::SPACE_ROW + theme::SPACE_ROW
+        total as f32 * CALL_ROW_H + total.saturating_sub(1) as f32 * theme::SPACE_ROW + theme::SPACE_ROW
     }
 }
 
@@ -273,20 +275,20 @@ fn draw_call_rows(ui: &mut Ui, p: &egui::Painter, turn: &TurnRecord, left: f32, 
         return y;
     }
     for (idx, row) in turn.calls.iter().take(shown).enumerate() {
-        let rect = Rect::from_min_size(Pos2::new(left, y), Vec2::new(width, theme::CONTROL_DENSE));
+        let rect = Rect::from_min_size(Pos2::new(left, y), Vec2::new(width, CALL_ROW_H));
         let label = row.card_label(reverted);
         let elided = widgets::elide(p, &label, &theme::font_caption(), (width - theme::INSET_CONTROL * 2.0).max(32.0));
         p.text(Pos2::new(rect.left() + theme::INSET_CONTROL, rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_SECONDARY);
         widgets::record(ui, &format!("agent-turn-call-{idx}"), rect);
-        y += theme::CONTROL_DENSE + theme::SPACE_ROW;
+        y += CALL_ROW_H + theme::SPACE_ROW;
     }
     if more {
         let hidden = turn.calls.len().saturating_sub(shown) as u64 + turn.calls_dropped;
-        let rect = Rect::from_min_size(Pos2::new(left, y), Vec2::new(width, theme::CONTROL_DENSE));
+        let rect = Rect::from_min_size(Pos2::new(left, y), Vec2::new(width, CALL_ROW_H));
         let text = format!("{hidden} more");
         p.text(Pos2::new(rect.left() + theme::INSET_CONTROL, rect.center().y), Align2::LEFT_CENTER, text, theme::font_caption(), theme::TEXT_SECONDARY);
         widgets::record(ui, "agent-turn-calls-more", rect);
-        y += theme::CONTROL_DENSE + theme::SPACE_ROW;
+        y += CALL_ROW_H + theme::SPACE_ROW;
     }
     y
 }
