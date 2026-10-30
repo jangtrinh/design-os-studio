@@ -65,8 +65,8 @@ fn is_dropdown_open(ui: &Ui, key: impl crate::widgets::Key) -> bool {
     ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false)
 }
 
-/// 28x16 switch; returns the new state when clicked.
-fn toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
+/// 28x16 switch used by the component definition editor.
+fn definition_toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> Option<bool> {
     let r = ui.interact(rect, ui.id().with(("tog", key)), Sense::click());
     widgets::record(ui, &format!("toggle:{key}"), rect);
     let sw = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(28.0, 16.0));
@@ -117,14 +117,15 @@ fn instance_header(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     }
     let more = pane.rect(theme::SECTION_TRAILING_X, row_y, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
     widgets::record(ui, "instance-more", more);
-    if widgets::icon_button(ui, more, "inst-more", Icon::ChevronDown, app.ui.inst_menu.is_some(), "More").clicked() {
+    if widgets::icon_button(ui, more, "inst-more", Icon::Ellipsis, app.ui.inst_menu.is_some(), "More").clicked() {
         app.ui.inst_menu = if app.ui.inst_menu.is_some() { None } else { Some(more) };
     }
     pane.y += theme::FIELD_HEIGHT + 8.0;
-    if let Some(info) = library_instance_info(&app.doc, inst) {
-        let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 20.0);
-        crate::libraries::instance_library_row(ui, row, &info);
-        pane.y += 28.0;
+    if let Some(comp) = comp {
+        source_line(&app.doc, ui, pane, inst, comp);
+        if let Some(description) = description_text(&app.doc, comp) {
+            description_row(ui, pane, &description);
+        }
     }
     section_sep(ui, pane, false);
 
@@ -150,6 +151,56 @@ fn instance_header(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     }
 }
 
+fn source_line(doc: &Document, ui: &mut Ui, pane: &mut Pane, inst: NodeId, _comp: NodeId) {
+    let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 20.0);
+    if let Some(info) = library_instance_info(doc, inst) {
+        crate::libraries::instance_library_row(ui, row, &info);
+    } else {
+        let label = ui.painter().layout_no_wrap("From this file".to_string(), theme::font_body(), theme::TEXT_SECONDARY);
+        let label_pos = Pos2::new(row.left(), row.center().y - label.size().y * 0.5);
+        let label_right = label_pos.x + label.size().x;
+        ui.painter().galley(label_pos, label, theme::TEXT_SECONDARY);
+        let icon = Rect::from_min_size(Pos2::new(label_right + 6.0, row.center().y - 8.0), Vec2::splat(16.0));
+        widgets::paint_icon_in(ui.painter(), icon, Icon::Component, 16.0, theme::TEXT_SECONDARY);
+    }
+    pane.y += 28.0;
+}
+
+fn description_text(doc: &Document, comp: NodeId) -> Option<String> {
+    let node = doc.get(comp)?;
+    let parent = node.parent.and_then(|parent| doc.get(parent)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))).map(|p| p.component.description.as_str());
+    resolve_description(&node.component.description, parent)
+}
+
+fn resolve_description(own: &str, parent: Option<&str>) -> Option<String> {
+    let source = if own.trim().is_empty() { parent.unwrap_or("") } else { own };
+    let text = source.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!text.is_empty()).then_some(text)
+}
+
+fn truncate_description_lines(lines: &[String]) -> (Vec<String>, bool) {
+    if lines.len() <= 2 { return (lines.to_vec(), false); }
+    let mut result = lines[..2].to_vec();
+    let last = result.last_mut().expect("two description lines");
+    while last.ends_with(' ') { last.pop(); }
+    last.push('…');
+    (result, true)
+}
+
+fn description_row(ui: &mut Ui, pane: &mut Pane, text: &str) {
+    let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, 40.0);
+    let galley = ui.painter().layout(text.to_owned(), theme::font_body(), theme::TEXT, row.width());
+    let lines: Vec<String> = galley.rows.iter().map(|line| line.text().to_string()).collect();
+    let (shown, truncated) = truncate_description_lines(&lines);
+    for (index, line) in shown.iter().enumerate() {
+        ui.painter().text(Pos2::new(row.left(), row.top() + index as f32 * theme::LINE_BODY), Align2::LEFT_TOP, line, theme::font_body(), theme::TEXT);
+    }
+    if truncated {
+        ui.interact(row, ui.id().with("instance-description"), Sense::hover()).on_hover_text(text);
+    }
+    pane.y += 48.0;
+}
+
 fn has_changes(app: &App, inst: NodeId) -> bool {
     let mut stack = vec![inst];
     let mut visited = 0usize;
@@ -167,13 +218,73 @@ fn has_changes(app: &App, inst: NodeId) -> bool {
     false
 }
 
+fn kind_rank(kind: &PropKind) -> u8 {
+    match kind {
+        PropKind::Variant { .. } => 0,
+        PropKind::Boolean => 1,
+        PropKind::Text => 2,
+        PropKind::InstanceSwap { .. } => 3,
+        PropKind::Slot => 4,
+    }
+}
+
+#[cfg(test)]
+mod props_panel_tests {
+    use super::*;
+
+    fn def(name: &str, kind: PropKind) -> ComponentPropDef {
+        ComponentPropDef { name: name.into(), kind, default: PropValue::Text(String::new()) }
+    }
+
+    #[test]
+    fn property_kind_rank_matches_panel_order() {
+        assert_eq!(kind_rank(&PropKind::Variant { options: vec![] }), 0);
+        assert_eq!(kind_rank(&PropKind::Boolean), 1);
+        assert_eq!(kind_rank(&PropKind::Text), 2);
+        assert_eq!(kind_rank(&PropKind::InstanceSwap { preferred: vec![] }), 3);
+        assert_eq!(kind_rank(&PropKind::Slot), 4);
+    }
+
+    #[test]
+    fn property_sort_is_stable_within_each_kind() {
+        let mut defs = vec![
+            def("text", PropKind::Text), def("bool-a", PropKind::Boolean),
+            def("variant-a", PropKind::Variant { options: vec![] }), def("bool-b", PropKind::Boolean),
+            def("variant-b", PropKind::Variant { options: vec![] }),
+        ];
+        sort_props_by_kind(&mut defs);
+        assert_eq!(defs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["variant-a", "variant-b", "bool-a", "bool-b", "text"]);
+    }
+
+    #[test]
+    fn description_resolution_prefers_own_then_set_and_normalizes_whitespace() {
+        assert_eq!(resolve_description(" own text ", Some("set text")).as_deref(), Some("own text"));
+        assert_eq!(resolve_description("", Some(" set\n fallback ")).as_deref(), Some("set fallback"));
+        assert_eq!(resolve_description("", None), None);
+        assert_eq!(resolve_description(" \n\t ", Some(" \n ")), None);
+        assert_eq!(resolve_description("one\ntwo   three", None).as_deref(), Some("one two three"));
+    }
+
+    #[test]
+    fn description_truncation_keeps_two_lines_and_marks_last_line() {
+        let (lines, truncated) = truncate_description_lines(&["first".into(), "second".into(), "third".into()]);
+        assert!(truncated);
+        assert_eq!(lines, vec!["first".to_string(), "second…".to_string()]);
+        assert_eq!(truncate_description_lines(&["one".into()]), (vec!["one".into()], false));
+    }
+}
+
+fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
+    defs.sort_by_key(|def| kind_rank(&def.kind));
+}
+
 fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     let Some(comp) = app.main_of(inst) else { return };
-    let defs = prop_defs(&app.doc, comp);
+    let mut defs = prop_defs(&app.doc, comp);
+    sort_props_by_kind(&mut defs);
     if defs.is_empty() {
         return;
     }
-    title(ui, pane, "Properties", None, false);
     for def in defs {
         let value = prop_value(&app.doc, inst, &def);
         let lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 92.0, theme::FIELD_HEIGHT);
@@ -182,16 +293,22 @@ fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
         ui.painter().text(
             Pos2::new(lab.left(), lab.center().y),
             Align2::LEFT_CENTER,
-            shown,
+            &shown,
             theme::font_body(),
             if is_set { theme::TEXT } else { theme::TEXT_SECONDARY },
         );
+        if shown != def.name {
+            ui.interact(lab, ui.id().with(("prop-label", &def.name)), Sense::hover()).on_hover_text(&def.name);
+        }
         let ctl = pane.col(1, 0.0);
         let key = format!("prop:{}", def.name);
         widgets::record(ui, &key, ctl);
         match (&def.kind, &value) {
             (PropKind::Boolean, PropValue::Bool(b)) => {
-                if let Some(v) = toggle(ui, ctl, &key, *b) {
+                let track = Rect::from_min_size(Pos2::new(ctl.left(), ctl.center().y - 8.0), Vec2::new(28.0, 16.0));
+                widgets::record(ui, &format!("toggle:{key}"), ctl);
+                if crate::widgets::kit::toggle(ui, track, &key, *b, true).clicked() {
+                    let v = !*b;
                     app.set_instance_prop(inst, &def.name, Some(PropValue::Bool(v)));
                 }
             }
@@ -415,7 +532,7 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         let key = format!("default:{}", def.name);
         match (&def.kind, &def.default) {
             (PropKind::Boolean, PropValue::Bool(b)) => {
-                if let Some(v) = toggle(ui, ctl, &key, *b) {
+                if let Some(v) = definition_toggle(ui, ctl, &key, *b) {
                     app.set_prop_default(*def_owner, &def.name, PropValue::Bool(v));
                 }
             }
@@ -534,7 +651,7 @@ fn slot_settings_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, owner: NodeId
     );
     let pref_ctl = pane.rect(theme::SECTION_TRAILING_X - 4.0, 0.0, 28.0, theme::FIELD_HEIGHT);
     let pref_on = cfg.allow_preferred_values_only.unwrap_or(false);
-    if let Some(v) = toggle(ui, pref_ctl, &format!("slot-preferred-only:{prop_name}"), pref_on) {
+    if let Some(v) = definition_toggle(ui, pref_ctl, &format!("slot-preferred-only:{prop_name}"), pref_on) {
         let mut next = cfg.clone();
         next.allow_preferred_values_only = Some(v);
         app.set_slot_config(owner, prop_name, next);
@@ -581,7 +698,7 @@ fn slot_settings_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, owner: NodeId
     );
     let stretch_ctl = pane.rect(theme::SECTION_TRAILING_X - 4.0, 0.0, 28.0, theme::FIELD_HEIGHT);
     let stretch_on = cfg.stretch_child_on_insert.unwrap_or(false);
-    if let Some(v) = toggle(ui, stretch_ctl, &format!("slot-stretch-on-insert:{prop_name}"), stretch_on) {
+    if let Some(v) = definition_toggle(ui, stretch_ctl, &format!("slot-stretch-on-insert:{prop_name}"), stretch_on) {
         let mut next = cfg.clone();
         next.stretch_child_on_insert = Some(v);
         app.set_slot_config(owner, prop_name, next);
@@ -599,7 +716,7 @@ fn slot_settings_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, owner: NodeId
     );
     let empty_ctl = pane.rect(theme::SECTION_TRAILING_X - 4.0, 0.0, 28.0, theme::FIELD_HEIGHT);
     let empty_on = cfg.display_by_default.unwrap_or(false);
-    if let Some(v) = toggle(ui, empty_ctl, &format!("slot-show-empty:{prop_name}"), empty_on) {
+    if let Some(v) = definition_toggle(ui, empty_ctl, &format!("slot-show-empty:{prop_name}"), empty_on) {
         let mut next = cfg.clone();
         next.display_by_default = Some(v);
         app.set_slot_config(owner, prop_name, next);
