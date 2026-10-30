@@ -4165,6 +4165,53 @@ mod tests {
     }
 
     #[test]
+    fn apply_spec_remeasures_fill_width_text_after_layout_stretch() {
+        let mut e = Engine::new();
+        let page = e.resolve_default_page().unwrap();
+        let content = "The agent read 14 layers, renamed the card titles, and moved the badge into the header row so the layout matches the kit. It did not change any colours.";
+        let res = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "frame",
+                        "name": "Column",
+                        "width": 300.0,
+                        "width_sizing": "fixed",
+                        "height_sizing": "hug",
+                        "layout": {"direction": "column", "gap": 8.0, "padding": [16.0, 16.0, 16.0, 16.0]},
+                        "children": [
+                            {"kind": "text", "name": "Fill", "text": content, "font_size": 14.0, "width_sizing": "fill"},
+                            {"kind": "text", "name": "Fixed", "text": content, "font_size": 14.0, "width": 268.0, "width_sizing": "fixed"}
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let root_id = NodeId(res["root_node_id"].as_u64().unwrap());
+        let fill_id = NodeId(res["name_to_id"]["Column/Fill"].as_u64().unwrap());
+        let fixed_id = NodeId(res["name_to_id"]["Column/Fixed"].as_u64().unwrap());
+        let root = e.doc.get(root_id).unwrap();
+        let fill = e.doc.get(fill_id).unwrap();
+        let fixed = e.doc.get(fixed_id).unwrap();
+
+        assert!((fill.size.x - 268.0).abs() <= 0.5, "fill text must stretch to the padded column width, got {}", fill.size.x);
+        assert!(
+            (fill.size.y - fixed.size.y).abs() <= 0.5,
+            "fill text height ({}) must be remeasured at its final width; fixed-width control is {}",
+            fill.size.y,
+            fixed.size.y
+        );
+        let expected_root_height = 16.0 + fixed.size.y + 8.0 + fixed.size.y + 16.0;
+        assert!(
+            (root.size.y - expected_root_height).abs() <= 0.5,
+            "hugged column height ({}) must not include the stale narrow-width measurement ({expected_root_height} expected)",
+            root.size.y
+        );
+    }
+
+    #[test]
     fn apply_spec_is_one_undo_step_and_one_patch() {
         let mut e = Engine::new();
         let page = e.resolve_default_page().unwrap();

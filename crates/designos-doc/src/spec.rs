@@ -621,6 +621,31 @@ pub fn apply_easeui_preset(node: &mut Node, preset: &str) {
 }
 
 impl Document {
+    /// Re-measures text whose width was filled by an auto-layout parent after the solver has
+    /// resolved that width. The initial spec build uses the node's fallback width, so a later
+    /// stretch must update the height before a hugged ancestor is finalized.
+    pub(crate) fn remeasure_fill_text_after_layout(&mut self, ids: &[NodeId], measure: Option<&dyn crate::text_measure::TextMeasure>) -> bool {
+        let mut fill_text_sizes = Vec::new();
+        for &id in ids {
+            if let Some(n) = self.get(id) {
+                if let NodeKind::Text(tp) = &n.kind {
+                    let height = crate::text_measure::intrinsic_text_size(tp, Some(n.size.x.max(20.0)), measure).y;
+                    fill_text_sizes.push((id, height));
+                }
+            }
+        }
+        let mut changed = false;
+        for (id, height) in fill_text_sizes {
+            if let Some(n) = self.get_mut(id) {
+                if (n.size.y - height).abs() > 1e-3 {
+                    n.size.y = height;
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
     /// Materializes a declarative [`NodeSpec`] subtree under `parent` and runs
     /// Auto-Layout 5.0 reflow across the created hierarchy.
     pub fn apply_spec(&mut self, parent: NodeId, spec: &NodeSpec) -> Result<NodeId, String> {
@@ -721,6 +746,12 @@ impl Document {
                     if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { root_id };
                 self.relayout_subtree(relayout_root);
                 self.flush_pending_relayout();
+
+                let fill_text_ids = ctx.remeasure_fill_text.clone();
+                if self.remeasure_fill_text_after_layout(&fill_text_ids, measure) {
+                    self.relayout_subtree(relayout_root);
+                    self.flush_pending_relayout();
+                }
                 Ok(report)
             }
             Err(err) => {
@@ -1381,6 +1412,9 @@ impl Document {
                     tp.auto_resize = TextAutoResize::Height;
                     if spec.height.is_none() {
                         n.size.y = ctx.text_size(tp, Some(n.size.x.max(20.0))).y;
+                        if spec.width_sizing.as_deref().is_some_and(|s| parse_sizing(s) == Sizing::Fill) {
+                            ctx.remeasure_fill_text.push(id);
+                        }
                     }
                 } else {
                     let sz = ctx.text_size(tp, None);

@@ -177,6 +177,8 @@ pub(crate) struct SpecBuildCtx<'a> {
     pub styles_linked: usize,
     pub warnings: Vec<crate::SpecWarning>,
     pub measured_with_fallback: Vec<u64>,
+    /// Text nodes whose fill width needs a second height measurement after layout resolves it.
+    pub remeasure_fill_text: Vec<NodeId>,
     pub touched_slot_containers: HashMap<NodeId, String>,
     /// Renderer measurer for this call. `None` keeps the character-width estimate.
     pub measure: Option<&'a dyn crate::text_measure::TextMeasure>,
@@ -209,6 +211,7 @@ impl<'a> SpecBuildCtx<'a> {
             styles_linked: 0,
             warnings: Vec::new(),
             measured_with_fallback: Vec::new(),
+            remeasure_fill_text: Vec::new(),
             touched_slot_containers: HashMap::new(),
             measure: None,
         }
@@ -2398,6 +2401,11 @@ pub fn apply_spec_command_with<'m>(
     let relayout_root = if parent_has_al { parent } else { root_id };
     doc.relayout_subtree(relayout_root);
     doc.flush_pending_relayout();
+    let fill_text_ids = ctx.remeasure_fill_text.clone();
+    if doc.remeasure_fill_text_after_layout(&fill_text_ids, measure) {
+        doc.relayout_subtree(relayout_root);
+        doc.flush_pending_relayout();
+    }
 
     let mut nodes = Vec::new();
     doc.walk(root_id, |n, _| nodes.push(n.clone()));
