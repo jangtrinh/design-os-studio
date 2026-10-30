@@ -1917,6 +1917,9 @@
       "idempotentHint": false,
       "openWorldHint": false,
       "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
