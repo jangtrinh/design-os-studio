@@ -37,6 +37,41 @@ struct PhraseFinder {
     at: usize,
 }
 
+/// Finds Gemini's option label only when it starts immediately after an option number.
+/// User prompts can quote the label, but Gemini option rows always render `N.` first.
+struct NumberedPhraseFinder {
+    phrase: PhraseFinder,
+    numbered: bool,
+}
+
+impl NumberedPhraseFinder {
+    fn new(phrase: &'static str) -> Self {
+        Self { phrase: PhraseFinder::new(phrase), numbered: false }
+    }
+
+    fn feed(&mut self, word: &str) -> bool {
+        let mut chars = word.chars();
+        let is_number = word.ends_with('.') && {
+            chars.next_back();
+            chars.next().is_some() && chars.all(|ch| ch.is_ascii_digit())
+        };
+        if self.numbered {
+            if self.phrase.feed(word) {
+                return true;
+            }
+            if self.phrase.at > 0 {
+                return false;
+            }
+            self.numbered = false;
+        }
+        if is_number {
+            self.numbered = true;
+            self.phrase.at = 0;
+        }
+        false
+    }
+}
+
 impl PhraseFinder {
     fn new(phrase: &'static str) -> Self {
         Self { phrase, words: phrase.split(' ').count(), at: 0 }
@@ -69,7 +104,7 @@ pub fn dialog_view(parser: &mut vt100::Parser) -> DialogView {
     parser.set_scrollback(0);
     let text = parser.screen().contents();
     parser.set_scrollback(scrolled);
-    let (mut options, mut modifying, mut modify_seen) = (PhraseFinder::new(DIALOG_PREFIX), PhraseFinder::new(MODIFY_MARKER), false);
+    let (mut options, mut modifying, mut modify_seen) = (NumberedPhraseFinder::new(DIALOG_PREFIX), PhraseFinder::new(MODIFY_MARKER), false);
     for word in text.split(breaks_words).filter(|word| !word.is_empty()) {
         if options.feed(word) {
             return DialogView::Options;
