@@ -488,6 +488,89 @@ struct TouchedRootRecord {
     before_bounds: Rect,
 }
 
+fn flatten_batch_command(command: Command, out: &mut Vec<Command>) {
+    match command {
+        Command::Batch(commands) => {
+            for command in commands {
+                flatten_batch_command(command, out);
+            }
+        }
+        command => out.push(command),
+    }
+}
+
+fn slot_name_matches(candidate: &str, requested: &str) -> bool {
+    candidate == requested
+        || candidate.eq_ignore_ascii_case(requested)
+        || candidate.split('#').next() == Some(requested)
+        || candidate.split('#').next().is_some_and(|name| name.eq_ignore_ascii_case(requested))
+}
+
+/// Returns only the descendants owned by this instance's template. Nested instance
+/// subtrees belong to their own component and must not satisfy a slot lookup on the
+/// containing instance.
+fn direct_instance_descendants(doc: &Document, instance: NodeId) -> Vec<NodeId> {
+    let Some(root) = doc.get(instance) else {
+        return Vec::new();
+    };
+    let mut descendants = Vec::new();
+    let mut stack: Vec<NodeId> = root.children.iter().copied().rev().collect();
+    while let Some(id) = stack.pop() {
+        let Some(node) = doc.get(id) else {
+            continue;
+        };
+        descendants.push(id);
+        if !matches!(node.kind, NodeKind::Instance { .. }) {
+            stack.extend(node.children.iter().copied().rev());
+        }
+    }
+    descendants
+}
+
+fn slot_container_in_instance(doc: &Document, instance: NodeId, requested: &str) -> Option<NodeId> {
+    for node_id in direct_instance_descendants(doc, instance) {
+        let Some(node) = doc.get(node_id) else {
+            continue;
+        };
+        let binding_matches = node.component.bindings.get(&designos_doc::OverrideField::SlotContent).is_some_and(|name| slot_name_matches(name, requested));
+        let source_binding_matches = node
+            .component
+            .source
+            .and_then(|source| doc.get(source))
+            .and_then(|source| source.component.bindings.get(&designos_doc::OverrideField::SlotContent).filter(|name| slot_name_matches(name, requested)));
+        if (binding_matches || source_binding_matches.is_some()) && designos_doc::is_slot_container(doc, node.id) {
+            return Some(node.id);
+        }
+    }
+
+    // Older component documents may mark a slot with `is_slot` but omit the
+    // binding. Instance overrides can also rename the mirrored node while the
+    // source slot keeps its canonical name. Keep the name fallback after the
+    // explicit binding pass so a matching layer name cannot shadow a binding.
+    for node_id in direct_instance_descendants(doc, instance) {
+        let Some(node) = doc.get(node_id) else {
+            continue;
+        };
+        let source_name_matches = node.component.source.and_then(|source| doc.get(source)).is_some_and(|source| slot_name_matches(&source.name, requested));
+        if (slot_name_matches(&node.name, requested) || source_name_matches) && designos_doc::is_slot_container(doc, node.id) {
+            return Some(node.id);
+        }
+    }
+    None
+}
+
+fn slot_value_key(root: &designos_doc::Node, requested: &str) -> Option<String> {
+    root.component.values.keys().find(|name| slot_name_matches(name, requested)).cloned()
+}
+
+fn resolve_slot_container(doc: &Document, instance: NodeId, requested: &str) -> Option<NodeId> {
+    // Prefer the component binding/source metadata. A mirrored layer can be
+    // renamed by an override, while an unrelated layer can still have the
+    // requested slot's old display name.
+    slot_container_in_instance(doc, instance, requested)
+        .or_else(|| designos_doc::resolve_override_path(doc, instance, requested).ok().filter(|&id| designos_doc::is_slot_container(doc, id)))
+}
+
 fn batch_error(code: ErrorCode, failed_op: Option<usize>, op: Option<&str>, path: &str, message: impl Into<String>) -> ToolError {
     let mut err = ToolError::new(code, path, message);
     err.failed_op = failed_op;
@@ -1523,6 +1606,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
     let mut deleted_ids: Vec<NodeId> = Vec::new();
     let mut measured_with_fallback: Vec<u64> = Vec::new();
     let mut batch_warnings: Vec<designos_doc::SpecWarning> = Vec::new();
+    let mut batch_issues: Vec<designos_doc::SpecIssue> = Vec::new();
 
     let default_page = engine.resolve_default_page().ok();
     let mut bound_text = BoundTextIndex::default();
@@ -1913,25 +1997,208 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                 let snapshots = engine.collect_library_snapshots(&spec_node);
                 let mut temp_doc = trial.clone();
                 let parent = cur_node.parent.or(default_page).unwrap_or(NodeId(1));
-                let (_cmd, built_id) =
+                let (generated_cmd, built_report) =
                     designos_doc::apply_spec_command_with(&mut temp_doc, parent, &spec_node, &snapshots, Some(&designos_render::RenderTextMeasure)).map_err(
                         |se| {
                             let cause = crate::tools::errors::from_spec_error(se, &format!("{op_path}/value"));
                             ToolError::batch_op_failed(op_idx, op_name, cause)
                         },
                     )?;
-                for fid in &built_id.measured_with_fallback {
+                // `apply_spec_command_with` validates/builds the fill and returns a command while
+                // restoring its input document. Materialize that command on the temporary copy so
+                // we can read the generated slot subtree, then replay every command except the
+                // temporary instance insertion against the real trial document.
+                generated_cmd.clone().apply(&mut temp_doc).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                let built_id = built_report.root_node_id;
+                for fid in &built_report.measured_with_fallback {
                     if !measured_with_fallback.contains(fid) {
                         measured_with_fallback.push(*fid);
                     }
                 }
+
+                let target_slot = resolve_slot_container(&trial, id, &a.slot).ok_or_else(|| {
+                    op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::InvalidArguments,
+                        &format!("{op_path}/slot"),
+                        format!("slot '{}' was not found on instance {}", a.slot, id.0),
+                    )
+                })?;
+                let built_slot = resolve_slot_container(&temp_doc, built_id, &a.slot).ok_or_else(|| {
+                    op_failed_error(
+                        op_idx,
+                        op_name,
+                        ErrorCode::InternalError,
+                        &format!("{op_path}/slot"),
+                        format!("validated slot '{}' disappeared from generated instance", a.slot),
+                    )
+                })?;
+
+                // The spec builder reports slot findings against the temporary instance. The
+                // generated slot roots keep their IDs when copied into the real instance, but
+                // the temporary instance and slot containers do not. Remap those two owners so
+                // the batch response points at nodes that exist after the operation.
+                for mut issue in built_report.issues.clone() {
+                    if issue.node_id == built_id.0 {
+                        issue.node_id = id.0;
+                    } else if issue.node_id == built_slot.0 {
+                        issue.node_id = target_slot.0;
+                    }
+                    batch_issues.push(issue);
+                }
+
+                let mut generated_parts = Vec::new();
+                flatten_batch_command(generated_cmd, &mut generated_parts);
+                for part in generated_parts {
+                    match &part {
+                        Command::Insert { nodes, .. } if nodes.first().is_some_and(|node| node.id == built_id) => {}
+                        _ => {
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &part).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            part.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(part);
+                        }
+                    }
+                }
+                let built_slot_children = temp_doc.get(built_slot).map(|node| node.children.clone()).unwrap_or_default();
+                let mut replacement_roots: Vec<(NodeId, Vec<designos_doc::Node>)> = Vec::with_capacity(built_slot_children.len());
+                for root in built_slot_children {
+                    let mut nodes = Vec::new();
+                    temp_doc.walk(root, |node, _| nodes.push(node.clone()));
+                    if let Some(first) = nodes.first_mut() {
+                        first.parent = Some(target_slot);
+                    }
+                    replacement_roots.push((root, nodes));
+                }
+
+                match &a.value {
+                    designos_doc::SlotFillSpec::Disabled(_) => {
+                        let mut slot = trial.get(target_slot).cloned().ok_or_else(|| {
+                            op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("slot node {} not found", target_slot.0))
+                        })?;
+                        slot.visible = false;
+                        slot.component.overrides.insert(designos_doc::OverrideField::Visible);
+                        if slot != *trial.get(target_slot).unwrap() {
+                            let cmd = Command::Update { node: Box::new(slot) };
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(cmd);
+                            changed.updated += 1;
+                        }
+                    }
+                    designos_doc::SlotFillSpec::Fill(_) => {
+                        let old_children = trial.get(target_slot).map(|node| node.children.clone()).unwrap_or_default();
+                        for old_child in old_children {
+                            let cmd = Command::Remove { id: old_child };
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(cmd);
+                            deleted_ids.push(old_child);
+                            changed.deleted += 1;
+                        }
+
+                        let mut slot = trial.get(target_slot).cloned().ok_or_else(|| {
+                            op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("slot node {} not found", target_slot.0))
+                        })?;
+                        slot.component.overrides.insert(designos_doc::OverrideField::SlotContent);
+                        if slot != *trial.get(target_slot).unwrap() {
+                            let slot_cmd = Command::Update { node: Box::new(slot) };
+                            if recording_live {
+                                let ops = live_ops_for_command(&trial, &slot_cmd)
+                                    .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            slot_cmd
+                                .clone()
+                                .apply(&mut trial)
+                                .map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(slot_cmd);
+                            changed.updated += 1;
+                        }
+
+                        for (index, (root, nodes)) in replacement_roots.into_iter().enumerate() {
+                            let cmd = Command::Insert { parent: target_slot, index, nodes };
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            let mut subtree_ids = BTreeSet::new();
+                            trial.walk(root, |node, _| {
+                                subtree_ids.insert(node.id);
+                            });
+                            let count = subtree_ids.len();
+                            if created_count + count > MAX_BATCH_CREATED_NODES {
+                                return Err(batch_error(
+                                    ErrorCode::BatchTooManyOps,
+                                    Some(op_idx),
+                                    Some(op_name),
+                                    &op_path,
+                                    format!("batch creates over {MAX_BATCH_CREATED_NODES} nodes"),
+                                ));
+                            }
+                            collected_cmds.push(cmd);
+                            created_root_ids.push(root.0);
+                            created_count += count;
+                            changed.inserted += count;
+                            all_created_ids.extend(subtree_ids.clone());
+                            created_roots.push(CreatedRootRecord { alias: None, root_id: root, created_ids: subtree_ids });
+                        }
+
+                        let generated_instance = temp_doc
+                            .get(built_id)
+                            .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, "generated instance disappeared"))?;
+                        let key = slot_value_key(generated_instance, &a.slot).ok_or_else(|| {
+                            op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, format!("generated slot value '{}' missing", a.slot))
+                        })?;
+                        let value = generated_instance
+                            .component
+                            .values
+                            .get(&key)
+                            .cloned()
+                            .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, "generated slot value missing"))?;
+                        let mut instance = trial
+                            .get(id)
+                            .cloned()
+                            .ok_or_else(|| op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("instance node {} not found", id.0)))?;
+                        instance.component.values.insert(key, value);
+                        if instance != *trial.get(id).unwrap() {
+                            let cmd = Command::Update { node: Box::new(instance) };
+                            if recording_live {
+                                let ops =
+                                    live_ops_for_command(&trial, &cmd).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e))?;
+                                recorded_live_ops.extend(ops);
+                            }
+                            cmd.clone().apply(&mut trial).map_err(|e| op_failed_error(op_idx, op_name, ErrorCode::InternalError, &op_path, e.to_string()))?;
+                            collected_cmds.push(cmd);
+                            changed.updated += 1;
+                        }
+                    }
+                }
+
                 if let Some(alias) = &a.alias {
                     alias_roots.insert(alias.clone(), id);
                 }
                 prev_node = Some(id);
-                let _ = built_id;
                 let before_bounds = node_page_bounds(&trial, id);
                 touched_records.push(TouchedRootRecord { op: op_idx, node_id: id, before_bounds });
+                relayout_for_node(&mut trial, target_slot);
+                relayout_for_node(&mut trial, id);
+                relayout_targets.push(target_slot);
+                relayout_targets.push(id);
             }
             ParsedOp::SetInProgress(a) => {
                 let flag = a.value.or(a.in_progress).unwrap_or(false);
@@ -2128,7 +2395,7 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
         batch_args.lint,
         &baseline,
         engine.lint_env(),
-        &[],
+        &batch_issues,
         &mut reply,
     );
     Ok(reply)
@@ -2529,6 +2796,113 @@ mod tests {
         assert_eq!(engine.doc.nodes, pre_nodes);
         assert_eq!(engine.doc.variables, pre_vars);
         assert_eq!(engine.doc.variable_collections, pre_collections);
+    }
+
+    #[test]
+    fn set_slot_mutates_existing_instance_and_undoes_as_one_batch_step() {
+        let mut engine = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+        let page = engine.doc.pages[0];
+        let created =
+            engine.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "name": "Card1", "component": "Card"}})).unwrap();
+        let instance_id = created["root_node_id"].as_u64().unwrap();
+        let mut before_json: Value = serde_json::from_str(&engine.doc.to_json().unwrap()).unwrap();
+        let before_depth = engine.history.undo_depth();
+
+        let reply = engine
+            .call(
+                "designos_apply_batch",
+                json!({
+                    "ops": [{
+                        "op": "set_slot",
+                        "node": instance_id,
+                        "slot": "body",
+                        "fill": [{"kind": "frame", "name": "Body"}]
+                    }]
+                }),
+            )
+            .expect("set_slot should commit");
+
+        let body_id = designos_doc::resolve_override_path(&engine.doc, designos_doc::NodeId(instance_id), "body").unwrap();
+        let body = engine.doc.get(body_id).unwrap();
+        assert_eq!(body.children.len(), 1, "set_slot must populate the existing instance slot");
+        let child_id = body.children[0];
+        assert_eq!(engine.doc.get(child_id).unwrap().name, "Body");
+        assert!(reply["created"].as_array().unwrap().iter().any(|id| id.as_u64() == Some(child_id.0)));
+        assert_eq!(engine.history.undo_depth(), before_depth + 1, "set_slot must be one undo step");
+
+        engine.call("designos_undo", json!({})).unwrap();
+        let mut after_json: Value = serde_json::from_str(&engine.doc.to_json().unwrap()).unwrap();
+        before_json.as_object_mut().unwrap().remove("next_id");
+        after_json.as_object_mut().unwrap().remove("next_id");
+        assert_eq!(after_json, before_json, "undo must restore the pre-slot document content exactly");
+    }
+
+    #[test]
+    fn set_slot_prefers_bound_slot_over_same_named_ordinary_child() {
+        let mut engine = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+        let page = engine.doc.pages[0];
+        let created =
+            engine.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "name": "Card1", "component": "Card"}})).unwrap();
+        let instance_id = NodeId(created["root_node_id"].as_u64().unwrap());
+        let body_slot_id = designos_doc::resolve_override_path(&engine.doc, instance_id, "body").unwrap();
+
+        // A component override can rename the mirrored layer while its SlotContent binding
+        // remains canonical. An ordinary child may then reuse the old display name.
+        engine.doc.get_mut(body_slot_id).unwrap().name = "Body Container".into();
+        let distractor_id = engine.doc.alloc_id();
+        let mut distractor = designos_doc::Node::frame(distractor_id, designos_doc::Rect::new(0.0, 0.0, 20.0, 20.0));
+        distractor.name = "body".into();
+        engine.doc.insert(instance_id, distractor).unwrap();
+
+        engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops": [{"op": "set_slot", "node": instance_id.0, "slot": "body", "fill": [{"kind": "frame", "name": "FilledBody"}]}]}),
+            )
+            .expect("set_slot should resolve the bound slot");
+
+        assert_eq!(engine.doc.get(body_slot_id).unwrap().children.len(), 1, "bound slot must receive the fill");
+        assert!(engine.doc.get(distractor_id).unwrap().children.is_empty(), "ordinary same-named child must remain untouched");
+    }
+
+    #[test]
+    fn set_slot_forwards_fill_issues_with_live_node_ids() {
+        let mut engine = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+        let page = engine.doc.pages[0];
+        let created =
+            engine.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "name": "Card1", "component": "Card"}})).unwrap();
+        let instance_id = created["root_node_id"].as_u64().unwrap();
+
+        let reply = engine
+            .call(
+                "designos_apply_batch",
+                json!({"ops": [{"op": "set_slot", "node": instance_id, "slot": "body", "fill": [{"kind": "frame", "name": "AdhocBody"}]}]}),
+            )
+            .expect("set_slot should commit");
+        let body_id = designos_doc::resolve_override_path(&engine.doc, NodeId(instance_id), "body").unwrap();
+        let child_id = engine.doc.get(body_id).unwrap().children[0];
+        let issues = reply["issues"].as_array().expect("issues array");
+        let slot_issue = issues.iter().find(|issue| issue["rule"] == "slot-non-recommended").expect("slot warning must be returned");
+        assert_eq!(slot_issue["node_id"], child_id.0, "slot warning must point at the inserted live node");
+    }
+
+    #[test]
+    fn set_slot_disabled_is_idempotent_without_a_second_undo_step() {
+        let mut engine = Engine { doc: designos_doc::fixtures::card_with_slots(), ..Engine::default() };
+        let page = engine.doc.pages[0];
+        let created =
+            engine.call("designos_apply_spec", json!({"parent_id": page.0, "spec": {"kind": "instance", "name": "Card1", "component": "Card"}})).unwrap();
+        let instance_id = created["root_node_id"].as_u64().unwrap();
+
+        engine
+            .call("designos_apply_batch", json!({"ops": [{"op": "set_slot", "node": instance_id, "slot": "footer", "fill": false}]}))
+            .expect("first disable should commit");
+        let depth_after_first = engine.history.undo_depth();
+        let second = engine
+            .call("designos_apply_batch", json!({"ops": [{"op": "set_slot", "node": instance_id, "slot": "footer", "fill": false}]}))
+            .expect("repeated disable should be a no-op");
+        assert_eq!(second["changed"], json!({"inserted": 0, "updated": 0, "moved": 0, "deleted": 0, "variables": 0, "styles": 0}));
+        assert_eq!(engine.history.undo_depth(), depth_after_first, "repeated disable must not add history");
     }
 
     #[test]
