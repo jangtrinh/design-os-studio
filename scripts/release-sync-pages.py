@@ -13,10 +13,14 @@ What it rewrites (only what the release actually lists, never a guess):
   * the `<lastmod>` of docs/sitemap.xml (release publish date, UTC).
 
 The previous version is read from the pages, never hardcoded. The script is idempotent:
-on an up-to-date tree it changes nothing. It exits non-zero when a link would point at a
-missing asset (the macOS .dmg is required; an optional Windows or Linux package that the
-release does not list is dropped from index.html with a warning), when the requested
-version is older than what the pages say, or when an old-version link is left over.
+on an up-to-date tree it changes nothing. A release numbered lower than the version the
+pages show (v0.7.1 published after v0.7.5) is skipped with a notice and exit 0: the pages
+and the homepage stay on the highest version. The skip only counts when `gh release view`
+finds the version the pages show as a published stable release; a stray higher version on
+the pages (a typo) fails the run instead. It exits non-zero when a link would point at
+a missing asset (the macOS .dmg is required; an optional Windows or Linux package that the
+release does not list is dropped from index.html with a warning) or when an old-version
+link is left over.
 
 Marketing copy that names a version ("New in 0.3.0", film captions, anchors) needs real
 new content, so it is never rewritten; the leftover mentions go to the `--report` file.
@@ -79,6 +83,42 @@ def load_release(version: str, repo: str, assets_json: str | None) -> dict:
         "assets": {a["name"]: int(a["size"]) for a in data["assets"]},
         "published": (data.get("publishedAt") or "")[:10],
     }
+
+
+def require_published_stable(version: str, repo: str, release_json: str | None) -> None:
+    """Raise unless v<version> is a published, non-draft, non-pre-release release.
+
+    The pages are the only evidence of "the version the pages show", and one typo on them
+    (`build-release.sh 7.0.5`) would make every real release look older. So a version found
+    on the pages only counts once a release by that name exists.
+    """
+    if release_json:
+        raw = Path(release_json).read_text()
+    else:
+        try:
+            out = subprocess.run(
+                ["gh", "release", "view", f"v{version}", "--repo", repo, "--json", "tagName,isDraft,isPrerelease"],
+                capture_output=True, text=True,
+            )
+        except OSError as err:
+            raise SyncError(f"could not confirm v{version} is a published release (the pages name it): {err}")
+        if out.returncode != 0:
+            # A missing release and a 401/network failure look alike here; do not claim which.
+            raise SyncError(f"could not confirm v{version} is a published release (the pages name it): "
+                            f"gh release view v{version} failed: {out.stderr.strip()}")
+        raw = out.stdout
+    try:
+        data = json.loads(raw)
+    except ValueError as err:
+        raise SyncError(f"pages name v{version}, but its release json is unreadable: {err}")
+    if not isinstance(data, dict):
+        raise SyncError(f"pages name v{version}, but its release json is not an object")
+    if data.get("tagName") not in (None, f"v{version}"):
+        raise SyncError(f"pages name v{version}, but the release json is for {data['tagName']}")
+    if not (isinstance(data.get("isDraft"), bool) and isinstance(data.get("isPrerelease"), bool)):
+        raise SyncError(f"pages name v{version}, but its release json has no boolean isDraft and isPrerelease: {data!r}")
+    if data["isDraft"] or data["isPrerelease"]:
+        raise SyncError(f"pages name v{version}, which is a draft or pre-release, not a published stable release")
 
 
 def download_re(repo: str) -> re.Pattern:
@@ -250,16 +290,20 @@ def run(args: argparse.Namespace) -> int:
     if not re.fullmatch(VERSION, version):
         raise SyncError(f"version must look like 1.2.3, got {args.version!r}")
     root = Path(args.root).resolve()
-    release = load_release(version, args.repo, args.assets_json)
-    if not any(n.endswith(REQUIRED_SUFFIX) for n in release["assets"]):
-        raise SyncError(f"release v{version} has no *{REQUIRED_SUFFIX} asset")
 
     files = [f for f in TARGETS if (root / f).is_file()]
     texts = {f: (root / f).read_text() for f in files}
     old = previous_versions(texts, args.repo)
     newest_seen = max(old | {version}, key=semver)
     if newest_seen != version:
-        raise SyncError(f"pages already point at v{newest_seen}, newer than v{version}; refusing to downgrade")
+        # Skip only for a real, newer release. No lookup of v<version> itself and no asset checks.
+        require_published_stable(newest_seen, args.repo, args.pages_release_json)
+        print(f"::notice::v{version} is older than the v{newest_seen} the pages show; nothing to do")
+        return 0
+
+    release = load_release(version, args.repo, args.assets_json)
+    if not any(n.endswith(REQUIRED_SUFFIX) for n in release["assets"]):
+        raise SyncError(f"release v{version} has no *{REQUIRED_SUFFIX} asset")
 
     warnings: list[str] = []
     changed: list[str] = []
@@ -315,6 +359,8 @@ def main() -> int:
     ap.add_argument("--root", default=".", help="repository root (default: cwd)")
     ap.add_argument("--repo", default=DEFAULT_REPO)
     ap.add_argument("--assets-json", help="gh release view --json tagName,publishedAt,isPrerelease,assets output")
+    ap.add_argument("--pages-release-json",
+                    help="gh release view --json tagName,isDraft,isPrerelease output for the version the pages show")
     ap.add_argument("--verify-urls", action="store_true", help="GET every new download URL")
     ap.add_argument("--report", help="write a markdown report (warnings + manual follow-ups) to this file")
     try:
