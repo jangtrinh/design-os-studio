@@ -153,14 +153,33 @@ class MissingAssetTests(SyncCase):
 
 
 class GuardTests(SyncCase):
-    def test_refuses_downgrade(self):
-        # The json matches the requested tag, so only the downgrade check can reject it.
+    def test_older_version_is_skipped_and_leaves_the_pages_alone(self):
+        # An older number published after a newer one (v0.7.1 after v0.7.5) must not move the
+        # pages back. The json matches the requested tag, so only the age check can stop it.
         self.assertEqual(self.sync_to("0.4.0").returncode, 0)
         before = self.snapshot()
         out = self.sync_to("0.3.0")
-        self.assertEqual(out.returncode, 1)
-        self.assertIn("pages already point at v0.4.0, newer than v0.3.0; refusing to downgrade", out.stderr)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("v0.3.0 is older than the v0.4.0 the pages show; nothing to do", out.stdout)
         self.assertEqual(before | {"release-0.3.0.json": ""}, self.snapshot() | {"release-0.3.0.json": ""})
+        self.assertIn("releases/download/v0.4.0/", self.read("docs/index.html"))
+        self.assertNotIn("releases/download/v0.3.0/", self.read("docs/index.html"))
+
+    def test_older_version_is_skipped_before_the_release_is_checked(self):
+        # No dmg in the release json: a sync would fail, a skip never looks at the assets.
+        self.assertEqual(self.sync_to("0.4.0").returncode, 0)
+        before = self.snapshot()
+        out = self.sync("release-0.4.0-no-dmg.json", "0.3.0")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("nothing to do", out.stdout)
+        self.assertEqual(before, self.snapshot())
+
+    def test_newer_version_is_synced(self):
+        out = self.sync_to("0.5.0")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("releases/download/v0.5.0/designos-0.5.0-macos.dmg", self.read("docs/index.html"))
+        self.assertNotIn("releases/download/v0.3.0/", self.read("docs/index.html"))
+        self.assertIn("build-release.sh 0.5.0", self.read("README.md"))
 
     def test_version_compare_is_numeric_not_lexicographic(self):
         # "0.10.0" < "0.9.0" as strings; as versions 0.10.0 is newer.
@@ -171,12 +190,14 @@ class GuardTests(SyncCase):
         self.assertNotIn("v0.9.0", self.read("docs/index.html"))
         self.assertIn("build-release.sh 0.10.0", self.read("README.md"))
 
-    def test_numeric_compare_refuses_0_10_0_to_0_9_0(self):
+    def test_numeric_compare_skips_0_9_0_after_0_10_0(self):
         self.assertEqual(self.sync_to("0.9.0").returncode, 0)
         self.assertEqual(self.sync_to("0.10.0").returncode, 0)
+        before = self.snapshot()
         out = self.sync_to("0.9.0")
-        self.assertEqual(out.returncode, 1)
-        self.assertIn("pages already point at v0.10.0, newer than v0.9.0; refusing to downgrade", out.stderr)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("v0.9.0 is older than the v0.10.0 the pages show; nothing to do", out.stdout)
+        self.assertEqual(before | {"release-0.9.0.json": ""}, self.snapshot() | {"release-0.9.0.json": ""})
 
     def test_refuses_prerelease_and_bad_version(self):
         self.assertEqual(self.sync("release-0.4.0-prerelease.json").returncode, 1)

@@ -171,8 +171,34 @@ jobs:
           cat dist/SHA256SUMS
           cat dist/release-manifest.json
 
+      # GitHub marks every new full release Latest. A release numbered below one that is
+      # already published (an older patch shipped late) must not take the badge, so Latest goes
+      # to the highest stable vX.Y.Z only. `gh` failing fails the job: it never publishes on a guess.
+      # A pre-release tag leaves the input empty, which the action reads as "unset" (GitHub's
+      # own behaviour; it never makes a pre-release Latest).
+      - name: Decide whether this release is Latest
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) echo "make_latest=" >> "$GITHUB_OUTPUT"; echo "${GITHUB_REF_NAME} is a pre-release; make_latest stays unset"; exit 0 ;;
+          esac
+          if ! releases="$(gh release list --limit 1000 --json tagName,isDraft,isPrerelease)"; then
+            echo "::error::could not list the published releases to decide which one is Latest"
+            exit 1
+          fi
+          if ! make_latest="$(printf '%s' "$releases" | python3 scripts/release-make-latest.py "$GITHUB_REF_NAME")"; then
+            echo "::error::could not decide make_latest for ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          echo "make_latest=${make_latest}" >> "$GITHUB_OUTPUT"
+          echo "${GITHUB_REF_NAME}: make_latest=${make_latest}"
+
       - uses: softprops/action-gh-release@v2
         with:
+          make_latest: ${{ steps.latest.outputs.make_latest }}
           generate_release_notes: true
           body: |
             ### Installing **design:os studio**

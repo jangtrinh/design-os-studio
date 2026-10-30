@@ -13,10 +13,12 @@ What it rewrites (only what the release actually lists, never a guess):
   * the `<lastmod>` of docs/sitemap.xml (release publish date, UTC).
 
 The previous version is read from the pages, never hardcoded. The script is idempotent:
-on an up-to-date tree it changes nothing. It exits non-zero when a link would point at a
-missing asset (the macOS .dmg is required; an optional Windows or Linux package that the
-release does not list is dropped from index.html with a warning), when the requested
-version is older than what the pages say, or when an old-version link is left over.
+on an up-to-date tree it changes nothing. A release numbered lower than the version the
+pages show (v0.7.1 published after v0.7.5) is skipped with a notice and exit 0: the pages
+and the homepage stay on the highest version. It exits non-zero when a link would point at
+a missing asset (the macOS .dmg is required; an optional Windows or Linux package that the
+release does not list is dropped from index.html with a warning) or when an old-version
+link is left over.
 
 Marketing copy that names a version ("New in 0.3.0", film captions, anchors) needs real
 new content, so it is never rewritten; the leftover mentions go to the `--report` file.
@@ -250,16 +252,19 @@ def run(args: argparse.Namespace) -> int:
     if not re.fullmatch(VERSION, version):
         raise SyncError(f"version must look like 1.2.3, got {args.version!r}")
     root = Path(args.root).resolve()
-    release = load_release(version, args.repo, args.assets_json)
-    if not any(n.endswith(REQUIRED_SUFFIX) for n in release["assets"]):
-        raise SyncError(f"release v{version} has no *{REQUIRED_SUFFIX} asset")
 
     files = [f for f in TARGETS if (root / f).is_file()]
     texts = {f: (root / f).read_text() for f in files}
     old = previous_versions(texts, args.repo)
     newest_seen = max(old | {version}, key=semver)
     if newest_seen != version:
-        raise SyncError(f"pages already point at v{newest_seen}, newer than v{version}; refusing to downgrade")
+        # Nothing about the release matters here, so no release lookup and no asset checks.
+        print(f"v{version} is older than the v{newest_seen} the pages show; nothing to do")
+        return 0
+
+    release = load_release(version, args.repo, args.assets_json)
+    if not any(n.endswith(REQUIRED_SUFFIX) for n in release["assets"]):
+        raise SyncError(f"release v{version} has no *{REQUIRED_SUFFIX} asset")
 
     warnings: list[str] = []
     changed: list[str] = []
