@@ -1,11 +1,11 @@
 # DESIGN:OS Studio (`design-os-studio`)
 
 <p align="center">
-  <a href="docs/images/v0.6/studio-hero.png">
-    <img src="docs/images/v0.6/studio-hero.png" alt="DESIGN:OS Studio 0.6.0 with a copy of the Untitled UI PRO Figma kit open. The Page header component set is selected on the canvas, the Pages and Layers panels are on the left, and the Design panel with its Properties is on the right" width="880">
+  <a href="docs/images/v0.7/studio-hero.png">
+    <img src="docs/images/v0.7/studio-hero.png" alt="DESIGN:OS Studio 0.7.5 with a copy of the Untitled UI PRO Figma kit open. The Page header component set is selected on the canvas, the Pages and Layers panels are on the left, and the Design panel with its Properties is on the right" width="880">
   </a>
   <br>
-  <sub>DESIGN:OS Studio 0.6.0 on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click for full size.</sub>
+  <sub>DESIGN:OS Studio 0.7.5 on a copy of the Untitled UI PRO v8.0 Figma kit, by Untitled UI. Click for full size.</sub>
 </p>
 
 **Native GPU-accelerated interface design studio in Rust. It opens and saves Figma `.fig` files, runs your own coding agent CLI in an Agents panel on the open file, and ships a Model Context Protocol server.**

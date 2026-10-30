@@ -9,7 +9,7 @@
   var V2 = window.V2 = window.V2 || {};
 
   var TRAVEL = 40;                                     // pinned scroll distance, in percent of the viewport height
-  var FROM_SRC = 'images/v0.6/studio-hero.png';        // close-up capture on the same Page headers page
+  var FROM_SRC = 'images/v0.7/studio-hero.png';        // close-up capture on the same Page headers page
   var FINAL = 207601;                                  // node_count of the kit file; the markup carries the same value
   var LAND = 0.9;                                      // a link to #scale lands this far into the pin, count final
 
