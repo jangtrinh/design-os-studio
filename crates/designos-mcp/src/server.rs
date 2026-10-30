@@ -1076,6 +1076,7 @@ impl Session {
                 let path = self.png_output_path(&a.path)?;
                 self.engine.settle_layout();
                 let id = designos_doc::NodeId(a.node_id);
+                self.engine.ensure_page_hydrated_for_node(id)?;
                 if self.engine.doc.get(id).is_none() {
                     return Err(
                         ToolError::new(ErrorCode::NodeNotFound, "/node_id", format!("Node {} does not exist", a.node_id)).with_received(json!(a.node_id))
