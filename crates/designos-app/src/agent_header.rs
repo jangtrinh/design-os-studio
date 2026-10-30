@@ -43,7 +43,7 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
     let mut select_idx: Option<usize> = None;
     let mut close_idx: Option<usize> = None;
     let mut close_new_chat = false;
-    let new_chat = state.picker_open || state.tabs.is_empty();
+    let new_chat = state.in_new_chat();
     let mut x = bar.left() + theme::SPACE_INLINE;
     for tab in &drawn {
         let t_rect = Rect::from_min_size(Pos2::new(x, bar.center().y - TAB_H * 0.5), Vec2::new(tab.width, TAB_H));
@@ -136,7 +136,7 @@ fn layout_tabs(state: &TerminalState, p: &egui::Painter, left: f32, right: f32) 
             width: 0.0,
         })
         .collect();
-    if state.picker_open || state.tabs.is_empty() {
+    if state.in_new_chat() {
         slots.push(DrawnTab {
             idx: None,
             tab_id: 0,

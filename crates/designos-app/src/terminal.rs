@@ -3233,7 +3233,7 @@ impl TerminalState {
             Ok(mut tab) => {
                 tab.preset = AgentCliPreset::Shell;
                 tab.title = clean_title.to_string();
-                if self.tabs.is_empty() {
+                if self.tabs.is_empty() || self.picker_open {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
                 let has_queued = tab.composer.pending_send.is_some();
@@ -3388,7 +3388,7 @@ impl TerminalState {
                         tab.usage.set_reading(Some(cached));
                     }
                 }
-                if self.tabs.is_empty() {
+                if self.tabs.is_empty() || self.picker_open {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
                 let has_queued = tab.composer.pending_send.is_some();
@@ -11545,6 +11545,11 @@ mod tests {
         let _ = paint(&mut st, click);
         assert!(st.tabs.is_empty(), "a disabled Send starts nothing");
         assert_eq!(st.composer_draft(), "hello", "the draft is kept");
+        // Enter takes the same path as Send: with no agent to start it does nothing and keeps the draft.
+        let outcome = st.send_from_composer_box("hello", None);
+        assert_eq!(outcome, crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NoAgent));
+        assert_eq!(st.composer_draft(), "hello", "Enter keeps the draft too");
+        assert!(st.tabs.is_empty() && st.active_composer().pending_send.is_none(), "and queues nothing for a later agent");
 
         // The agent menu names the way out: every built-in row offers Install.
         st.runtime_dropdown_open = true;

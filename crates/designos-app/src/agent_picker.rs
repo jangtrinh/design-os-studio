@@ -122,7 +122,7 @@ fn startable_preset(preset: AgentCliPreset) -> Option<AgentCliPreset> {
 
 /// Label and preset a Send in the New chat state would start.
 pub fn composer_pill(state: &mut TerminalState) -> (String, Option<AgentCliPreset>) {
-    let new_chat = state.picker_open || state.tabs.is_empty();
+    let new_chat = state.in_new_chat();
     if !new_chat {
         if let Some(tab) = state.active_tab() {
             return (tab.spawn_preset.display_name().to_string(), startable_preset(tab.spawn_preset));

@@ -5,14 +5,14 @@ use super::*;
 use crate::agent_cli_catalog::{CliProbe, SignIn};
 use crate::terminal::{AgentCliPreset, AgentTabStatus, TERMINAL_HEADER_H};
 
-fn frames(s: &mut Sim, n: usize) {
+pub(super) fn frames(s: &mut Sim, n: usize) {
     for _ in 0..n {
         s.frame(vec![]);
     }
 }
 
 /// Waits for the background version probes of the stub CLIs, so the agent pill and the menu rows stop changing.
-fn settle_probes(s: &mut Sim) {
+pub(super) fn settle_probes(s: &mut Sim) {
     for _ in 0..400 {
         s.frame(vec![]);
         if !s.shell.app.terminal.picker.cache.is_probing() {
@@ -24,7 +24,7 @@ fn settle_probes(s: &mut Sim) {
 }
 
 /// The Agents panel in the New chat state: no session, stub agent CLIs, Claude Code is the pill's agent.
-fn new_chat_sim() -> Sim {
+pub(super) fn new_chat_sim() -> Sim {
     let mut s = Sim::new();
     s.use_stub_agent_clis();
     s.shell.app.terminal.session_registry.last_cli = None;
@@ -35,7 +35,7 @@ fn new_chat_sim() -> Sim {
 }
 
 /// The Agents panel over one running stub Claude tab, the terminal holding the keyboard.
-fn session_sim() -> Sim {
+pub(super) fn session_sim() -> Sim {
     let mut s = new_chat_sim();
     s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("stub claude starts");
     s.shell.app.terminal.viewport_focused = false;
@@ -43,17 +43,17 @@ fn session_sim() -> Sim {
     s
 }
 
-fn finish(mut s: Sim) {
+pub(super) fn finish(mut s: Sim) {
     for mut tab in s.shell.app.terminal.tabs.drain(..) {
         let _ = tab.child.kill();
     }
 }
 
-fn recorded(s: &Sim, name: &str) -> Option<Rect> {
+pub(super) fn recorded(s: &Sim, name: &str) -> Option<Rect> {
     s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string()))))
 }
 
-fn painted(s: &Sim) -> Vec<String> {
+pub(super) fn painted(s: &Sim) -> Vec<String> {
     crate::lint::scan_shapes(&s.shapes).0.into_iter().map(|t| t.text).collect()
 }
 
@@ -247,6 +247,17 @@ fn placeholder_carries_the_at_hint() {
 fn plus_starts_new_chat_and_send_starts_the_pill_agent() {
     let mut s = session_sim();
     let before: Vec<u8> = s.shell.app.terminal.tabs[0].written_bytes.clone();
+    let now = crate::agent_sessions::unix_timestamp_secs();
+    s.shell.app.terminal.session_registry.sessions.push(crate::agent_sessions::SessionEntry {
+        tab_id: 77,
+        title: "Old Grok chat".into(),
+        cli: "grok".into(),
+        session_id: None,
+        created_at: now - 60,
+        last_active_at: now - 30,
+        status: crate::agent_sessions::SessionEntryStatus::Exited,
+        extra: Default::default(),
+    });
     let plus = recorded(&s, "agents-new-chat-btn").unwrap();
     s.click(plus.center());
     frames(&mut s, 3);
@@ -258,7 +269,8 @@ fn plus_starts_new_chat_and_send_starts_the_pill_agent() {
     s.key(Key::Enter);
     frames(&mut s, 3);
     assert_eq!(s.shell.app.terminal.tabs.len(), 2, "Send starts the pill's agent in a new tab");
-    assert_eq!(s.shell.app.terminal.tabs[1].spawn_preset, AgentCliPreset::Claude);
+    assert_eq!(s.shell.app.terminal.tabs[1].spawn_preset, AgentCliPreset::Claude, "the pill's agent, not the resumable Grok session");
+    assert!(!s.shell.app.terminal.tabs[1].is_resumed);
     assert!(s.shell.app.terminal.tabs[1].composer.pending_send.is_some() || s.shell.app.terminal.tabs[1].composer.send_count > 0, "with the text queued");
     assert_eq!(s.shell.app.terminal.tabs[0].written_bytes, before, "the old tab's PTY received no bytes");
     finish(s);

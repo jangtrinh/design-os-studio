@@ -468,18 +468,34 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, skills_block: &
 /// Who is sending: the user's composer (consumes draft, chips, mentions, history) or a system sender (touches none of them).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SendSource {
+    /// A prompt entry point such as Cmd+K or Make design: it uses the composer's path, and with no live tab it resumes the last
+    /// session or holds the prompt for the agent menu.
     Composer,
+    /// Send or Enter in the composer box on screen. In the New chat state it starts the pill's agent.
+    ComposerBox,
     System,
 }
 
 impl TerminalState {
-    /// Returns a shared reference to the active tab's [`ComposerState`] (or `unattached_composer` when no tab is open).
+    /// True while the panel shows the New chat state: asked for with `+`, or no session is open. It has its own composer
+    /// (`unattached_composer`) and starts its own agent on Send; the tab it covers is not involved.
+    pub fn in_new_chat(&self) -> bool {
+        self.picker_open || self.tabs.is_empty()
+    }
+
+    /// Returns a shared reference to the composer on screen: the active tab's, or `unattached_composer` in the New chat state.
     pub fn active_composer(&self) -> &ComposerState {
+        if self.in_new_chat() {
+            return &self.unattached_composer;
+        }
         self.active_tab().map(|t| &t.composer).unwrap_or(&self.unattached_composer)
     }
 
-    /// Returns a mutable reference to the active tab's [`ComposerState`] (or `unattached_composer` when no tab is open).
+    /// Returns a mutable reference to the composer on screen: the active tab's, or `unattached_composer` in the New chat state.
     pub fn active_composer_mut(&mut self) -> &mut ComposerState {
+        if self.in_new_chat() {
+            return &mut self.unattached_composer;
+        }
         let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
         if let Some(tab) = self.tabs.get_mut(idx) {
             &mut tab.composer
@@ -488,12 +504,12 @@ impl TerminalState {
         }
     }
 
-    /// Current draft text of the active tab's composer (or the unattached composer when no tab is open).
+    /// Current draft text of the composer on screen.
     pub fn composer_draft(&self) -> &str {
         &self.active_composer().draft
     }
 
-    /// Sets the draft text of the active tab's composer (or the unattached composer when no tab is open).
+    /// Sets the draft text of the composer on screen.
     pub fn set_composer_draft(&mut self, text: impl Into<String>) {
         self.active_composer_mut().set_draft(text);
     }
@@ -616,6 +632,12 @@ impl TerminalState {
         self.send_to_agent_from(text, file_path, SendSource::Composer)
     }
 
+    /// Send or Enter in the composer box. It is [`Self::send_to_agent`], except that in the New chat state it starts the pill's
+    /// agent in a new tab, never resumes an old session and, with no agent to start, keeps the draft.
+    pub fn send_from_composer_box(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
+        self.send_to_agent_from(text, file_path, SendSource::ComposerBox)
+    }
+
     /// Sends a system-generated prompt (image jobs) into the active agent tab. Unlike [`Self::send_to_agent`] it
     /// leaves the user's draft, layer chips, `@`-mentions and Up-arrow history alone, attaches none of their
     /// references, never starts a session by itself, and never returns an undelivered prompt to the draft.
@@ -695,9 +717,14 @@ impl TerminalState {
             payload = format!("@prd {payload}");
         }
 
-        // A new-chat cover starts a session instead of writing into the tab underneath.
+        // The New chat state starts its own session: the pill's agent in a new tab. It never resumes an old session and never
+        // writes into the tab underneath.
+        if source == SendSource::ComposerBox && self.in_new_chat() {
+            return self.start_new_chat_session(&payload, trimmed, file_path);
+        }
+
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
-        if !self.picker_open {
+        if !self.in_new_chat() {
             if let Some(tab) = self.tabs.get_mut(active_idx) {
                 if let Some(failure) = &tab.start_failure {
                     let headline = failure.headline();
@@ -813,6 +840,39 @@ impl TerminalState {
     }
 }
 
+impl TerminalState {
+    /// A Send in the New chat state: starts the pill's agent in a new tab and queues `payload` there. Nothing is consumed before
+    /// that tab exists, so with no agent to start, or when the start fails, the draft, chips and history stay as they were.
+    fn start_new_chat_session(&mut self, payload: &str, trimmed: &str, file_path: Option<&Path>) -> SendOutcome {
+        let Some(preset) = crate::agent_picker::composer_pill(self).1 else {
+            self.unattached_composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
+            return SendOutcome::Refused(RefuseReason::NoAgent);
+        };
+        if self.spawn_tab(preset, file_path).is_err() {
+            let comp = &mut self.unattached_composer;
+            comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
+            comp.notice = Some(RefuseReason::StartFailed.message().to_string());
+            return SendOutcome::Refused(RefuseReason::StartFailed);
+        }
+        // The new tab took over the New chat composer: its draft, chips and PRD chip are the message being sent.
+        let notice = format!("Starting {}… your message will be sent", preset.dropdown_entry().1);
+        let comp = self.active_composer_mut();
+        comp.send_count += 1;
+        comp.record_sent(trimmed);
+        comp.draft.clear();
+        comp.chips.clear();
+        comp.attach_prd = false;
+        comp.pending_send = Some(payload.to_string());
+        comp.pending_send_is_system = false;
+        comp.last_outcome = Some(SendOutcome::Queued);
+        comp.notice = Some(notice.clone());
+        self.active_mentions.clear();
+        self.mention_popup.close();
+        self.status_msg = Some(notice);
+        SendOutcome::Queued
+    }
+}
+
 fn composer_popup_open(state: &TerminalState) -> bool {
     state.mention_popup.is_open()
 }
@@ -883,7 +943,7 @@ pub fn show_composer(
 
     let p = ui.painter().clone();
     let is_shell_tab = state.active_tab().is_some_and(|t| t.is_shell_process());
-    let new_chat = state.picker_open || state.tabs.is_empty();
+    let new_chat = state.in_new_chat();
     let composer_live = !is_shell_tab || new_chat;
     let (pill_label, pill_preset) = crate::agent_picker::composer_pill(state);
     let draft_snapshot = state.composer_draft().to_string();
@@ -1007,7 +1067,7 @@ pub fn show_composer(
     widgets::record(ui, "agents-composer-input", input_rect);
 
     let hint_owned = if state.composer_draft().is_empty() {
-        let any_cli = pill_label != "Choose agent" || !state.picker.pill_cache_valid;
+        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_valid;
         crate::agent_composer_toolbar::placeholder(state, &pill_label, is_shell_tab, any_cli)
     } else {
         String::new()
@@ -1058,7 +1118,7 @@ pub fn show_composer(
         }
     }
 
-    let choose_agent = pill_label == "Choose agent";
+    let choose_agent = new_chat && pill_preset.is_none();
     let skills_violation = state.skills.limit_violation();
     let selection_live = state.composer_selection.count > 0
         && state.active_composer().selection_chip_dismissed != Some(crate::agent_selection_chip::selection_fingerprint(&state.composer_selection));
@@ -1107,7 +1167,7 @@ pub fn show_composer(
             }
         }
         let prompt = state.composer_draft().to_string();
-        let outcome = state.send_to_agent(&prompt, file_path);
+        let outcome = state.send_from_composer_box(&prompt, file_path);
         if outcome == SendOutcome::Written {
             if let Some(tab) = state.active_tab_mut() {
                 if tab.composer.pending_enter_deadline.is_some() {

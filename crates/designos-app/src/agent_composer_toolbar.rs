@@ -118,7 +118,7 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
 }
 
 pub fn placeholder(state: &TerminalState, pill: &str, shell: bool, any_cli: bool) -> String {
-    let new_chat = state.picker_open || state.tabs.is_empty();
+    let new_chat = state.in_new_chat();
     if !any_cli && new_chat {
         return "No agent CLI found. Open the agent menu to install one.".to_string();
     }
