@@ -7,7 +7,7 @@ use super::*;
 use crate::agent_cli_catalog::{CliProbe, SignIn};
 use crate::agent_composer::{RefuseReason, SendOutcome};
 use crate::agent_sessions::{SessionEntry, SessionEntryStatus};
-use crate::terminal::AgentCliPreset;
+use crate::terminal::{AgentCliPreset, AgentTabStatus};
 
 const ALL_CLIS: [AgentCliPreset; 6] =
     [AgentCliPreset::Claude, AgentCliPreset::Codex, AgentCliPreset::Grok, AgentCliPreset::Antigravity, AgentCliPreset::Gemini, AgentCliPreset::OpenCode];
@@ -49,6 +49,13 @@ fn type_in_composer(s: &mut Sim, text: &str) {
     let input = recorded(s, "agents-composer-input").expect("the composer is drawn");
     s.click(input.center());
     s.type_text(text);
+}
+
+fn selected_frame(s: &mut Sim) {
+    let page = s.shell.app.page;
+    let fid = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(page, designos_doc::Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+    s.shell.app.selection = vec![fid];
 }
 
 #[test]
@@ -142,5 +149,69 @@ fn a_disabled_send_changes_nothing_when_pressed() {
     let c = s.shell.app.terminal.active_composer();
     assert_eq!(c.last_outcome, None, "a disabled Send is not a refused send: the press did nothing");
     assert_eq!((c.draft.as_str(), c.send_count), ("hello", 0));
+    finish(s);
+}
+
+#[test]
+fn send_is_enabled_only_when_something_can_be_sent() {
+    let mut s = session_sim();
+    selected_frame(&mut s);
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    frames(&mut s, 3);
+    assert!(recorded(&s, "agent-selection-chip").is_some(), "the selection chip is drawn");
+    let send = recorded(&s, "agents-composer-send").unwrap();
+    s.click(send.center());
+    frames(&mut s, 2);
+    let c = s.shell.app.terminal.active_composer();
+    assert_eq!(c.last_outcome, None, "the selection chip alone is not a message: Send is disabled and the press does nothing");
+    assert_eq!(c.send_count, 0);
+
+    type_in_composer(&mut s, "make it blue");
+    frames(&mut s, 2);
+    let send = recorded(&s, "agents-composer-send").unwrap();
+    s.click(send.center());
+    frames(&mut s, 2);
+    assert_eq!(s.shell.app.terminal.tabs[0].composer.send_count, 1, "with text Send sends");
+    finish(s);
+}
+
+#[test]
+fn an_attached_prd_alone_sends_the_prd_reference() {
+    let mut s = session_sim();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    s.shell.app.terminal.active_composer_mut().attach_prd = true;
+    frames(&mut s, 3);
+    let before = s.shell.app.terminal.tabs[0].written_bytes.len();
+    let send = recorded(&s, "agents-composer-send").unwrap();
+    s.click(send.center());
+    frames(&mut s, 3);
+    let tab = &s.shell.app.terminal.tabs[0];
+    let written = String::from_utf8_lossy(&tab.written_bytes[before..]).into_owned();
+    assert!(written.contains("@prd"), "the PRD reference was sent: {written:?}");
+    assert!(!written.contains("@prd "), "with no trailing space: {written:?}");
+    assert!(!tab.composer.attach_prd, "the chip is spent");
+    assert!(tab.composer.history.is_empty(), "an attachment-only message adds no empty history entry: {:?}", tab.composer.history);
+    finish(s);
+}
+
+#[test]
+fn the_pill_and_placeholder_follow_a_cli_installed_after_the_menu_closed() {
+    let mut s = no_agent_sim();
+    assert!(painted(&s).iter().any(|t| t == "No agent CLI found. Open the agent menu to install one."), "{:?}", painted(&s));
+    // Open and close the menu once, so a cache that only the menu refreshes cannot explain the result.
+    let pill = recorded(&s, "agents-composer-agent-pill").unwrap();
+    s.click(pill.center());
+    frames(&mut s, 2);
+    s.key(Key::Escape);
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.runtime_dropdown_open, "the menu is closed");
+
+    install(&s, AgentCliPreset::Codex);
+    frames(&mut s, 3);
+    let texts = painted(&s);
+    assert!(texts.iter().any(|t| t == "Codex"), "the pill names the installed agent: {texts:?}");
+    assert!(texts.iter().any(|t| t == "Ask Codex…  @ to mention a layer"), "and so does the placeholder: {texts:?}");
+    assert!(!texts.iter().any(|t| t.starts_with("No agent CLI found")), "the no-CLI line is gone: {texts:?}");
+    assert!(!texts.iter().any(|t| t == "Choose agent"), "{texts:?}");
     finish(s);
 }

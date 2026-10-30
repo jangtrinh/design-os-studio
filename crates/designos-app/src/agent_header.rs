@@ -182,7 +182,8 @@ fn paint_tab(ui: &mut Ui, p: &egui::Painter, t_rect: Rect, tab: &DrawnTab, selec
     let hit = if show_close { Rect::from_min_max(t_rect.min, Pos2::new(close_rect.left(), t_rect.bottom())) } else { t_rect };
     let id = if tab.idx.is_none() { Id::new("agents-new-chat-tab") } else { Id::new(("agents-left-tab-select", tab.tab_id)) };
     let resp = ui.interact(hit, id, Sense::click()).on_hover_text(&tab.tip);
-    let close_resp = if show_close { Some(ui.interact(close_rect, id.with("close"), Sense::click())) } else { None };
+    let close_id = if tab.idx.is_none() { Id::new("agents-new-chat-tab-close") } else { Id::new(("agents-left-tab-close", tab.tab_id)) };
+    let close_resp = if show_close { Some(ui.interact(close_rect, close_id, Sense::click())) } else { None };
     let hot = resp.hovered() || close_resp.as_ref().is_some_and(|r| r.hovered());
     let state = if selected {
         kit::State::Selected
@@ -218,10 +219,15 @@ fn paint_tab(ui: &mut Ui, p: &egui::Painter, t_rect: Rect, tab: &DrawnTab, selec
     if focused {
         kit::focus_ring(p, t_rect, theme::RADIUS_CONTROL as f32);
     }
-    if let Some(_cr) = &close_resp {
-        if selected || hot || focused {
+    if let Some(cr) = &close_resp {
+        let close_focused = ui.memory(|m| m.has_focus(cr.id));
+        if selected || hot || focused || close_focused {
             icons::paint(p, Icon::Close, close_rect.center(), theme::FONT_SIZE_TEXT_XS, theme::ICON_TERTIARY);
         }
+        if close_focused {
+            kit::focus_ring(p, close_rect, theme::RADIUS_CONTROL as f32);
+        }
+        widgets::labelled(ui, cr.id, egui::accesskit::Role::Button, "Close tab");
     }
     let record_name = if tab.idx.is_none() { "agents-new-chat-tab" } else { "agents-left-tab-select" };
     widgets::record(ui, record_name, t_rect);

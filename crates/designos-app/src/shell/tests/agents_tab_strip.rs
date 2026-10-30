@@ -282,3 +282,40 @@ fn closing_the_agent_menu_with_the_pill_discards_the_other_cli_draft() {
     assert!(!s.shell.app.terminal.picker.other_form_open, "on its list, not on the old form");
     finish(s, dir);
 }
+
+#[test]
+fn the_tab_close_button_has_a_name_and_shows_keyboard_focus() {
+    let (mut s, dir) = strip_sim("close-button");
+    crate::agent_a11y::enable_accesskit(&s.ctx);
+    let tab_id = s.shell.app.terminal.tabs[0].id;
+    let close_id = egui::Id::new(("agents-left-tab-close", tab_id));
+
+    let mut named = false;
+    for _ in 0..4 {
+        s.frame(vec![]);
+        named |= s.accesskit_update.as_ref().is_some_and(|update| {
+            update
+                .nodes
+                .iter()
+                .any(|(id, node)| *id == close_id.accesskit_id() && node.role() == egui::accesskit::Role::Button && node.label() == Some("Close tab"))
+        });
+    }
+    assert!(named, "the close button of the only tab is a Button named Close tab");
+
+    let close = s.ctx.read_response(close_id).expect("the strip laid the close button out").rect;
+    let ring = |s: &Sim| {
+        flat_shapes(s).iter().any(|shape| match shape {
+            egui::epaint::Shape::Rect(r) => {
+                r.stroke.color == crate::theme::FOCUS_RING
+                    && (r.rect.width() - (close.width() + crate::theme::SPACE_FACT * 2.0)).abs() < 1.0
+                    && r.rect.contains(close.center())
+            }
+            _ => false,
+        })
+    };
+    assert!(!ring(&s), "no ring without keyboard focus");
+    s.ctx.memory_mut(|m| m.request_focus(close_id));
+    frames(&mut s, 3);
+    assert!(ring(&s), "keyboard focus on the close button draws the focus ring around it");
+    finish(s, dir);
+}

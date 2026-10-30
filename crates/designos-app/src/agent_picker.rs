@@ -28,10 +28,12 @@ pub struct AgentPickerState {
     pub settings_root_override: Option<PathBuf>,
     /// Memo of the OpenCode PATH check, which the probed catalog does not cover; cleared when a probe cycle starts.
     pub opencode_installed: Option<bool>,
-    /// Cached composer pill. Rebuilt when probes settle, not every frame.
+    /// Cached composer pill. Rebuilt when probes settle or a probe result changes, not every frame.
     pub pill_label_cache: String,
     pub pill_preset_cache: Option<AgentCliPreset>,
     pub pill_cache_valid: bool,
+    /// The probe generation the cached pill was built from.
+    pub pill_cache_generation: u64,
     /// `More…` in the agent menu stays open while the other-CLI form is open.
     pub menu_more_open: bool,
     /// Scroll of the agent menu when it is taller than the room above the pill.
@@ -39,6 +41,11 @@ pub struct AgentPickerState {
 }
 
 impl AgentPickerState {
+    /// True while the cached pill was built from settled probes and no probe result has changed since.
+    pub fn pill_cache_current(&self) -> bool {
+        self.pill_cache_valid && self.pill_cache_generation == self.cache.generation()
+    }
+
     /// Starts the background version + sign-in probe when the picker or `+` menu is opened (`#652` §3 rule 2 & §5).
     /// Cached probe results stay on screen while the fresh probe runs in the background.
     pub fn ensure_probed(&mut self) {
@@ -133,9 +140,10 @@ pub fn composer_pill(state: &mut TerminalState) -> (String, Option<AgentCliPrese
             return (preset.display_name().to_string(), Some(preset));
         }
     }
-    if state.picker.pill_cache_valid {
+    if state.picker.pill_cache_current() {
         return (state.picker.pill_label_cache.clone(), state.picker.pill_preset_cache);
     }
+    let generation = state.picker.cache.generation();
     let rows = rows_for_state(state);
     let found = rows.iter().find_map(|row| match &row.kind {
         PickerRowKind::CatalogCli { preset, installed, .. } if *installed && row.selectable => {
@@ -147,6 +155,7 @@ pub fn composer_pill(state: &mut TerminalState) -> (String, Option<AgentCliPrese
     state.picker.pill_label_cache = label.clone();
     state.picker.pill_preset_cache = preset;
     state.picker.pill_cache_valid = state.picker.open_row_order_settled;
+    state.picker.pill_cache_generation = generation;
     (label, preset)
 }
 

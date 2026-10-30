@@ -668,7 +668,8 @@ impl TerminalState {
 
         let trimmed = text.trim();
         let chips_snapshot = if system { Vec::new() } else { self.active_composer().chips.clone() };
-        if trimmed.is_empty() && chips_snapshot.is_empty() {
+        let prd_attached = !system && self.active_composer().attach_prd;
+        if trimmed.is_empty() && chips_snapshot.is_empty() && !prd_attached {
             let comp = self.active_composer_mut();
             comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::Empty));
             return SendOutcome::Refused(RefuseReason::Empty);
@@ -713,8 +714,8 @@ impl TerminalState {
                 payload = format!("{payload}\n{footer}");
             }
         }
-        if !system && self.active_composer().attach_prd && !payload.contains("@prd") {
-            payload = format!("@prd {payload}");
+        if prd_attached && !payload.contains("@prd") {
+            payload = if payload.is_empty() { "@prd".to_string() } else { format!("@prd {payload}") };
         }
 
         // The New chat state starts its own session: the pill's agent in a new tab. It never resumes an old session and never
@@ -1071,7 +1072,7 @@ pub fn show_composer(
     widgets::record(ui, "agents-composer-input", input_rect);
 
     let hint_owned = if state.composer_draft().is_empty() {
-        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_valid;
+        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current();
         crate::agent_composer_toolbar::placeholder(state, &pill_label, is_shell_tab, any_cli)
     } else {
         String::new()
@@ -1124,10 +1125,8 @@ pub fn show_composer(
 
     let choose_agent = new_chat && pill_preset.is_none();
     let skills_violation = state.skills.limit_violation();
-    let selection_live = state.composer_selection.count > 0
-        && state.active_composer().selection_chip_dismissed != Some(crate::agent_selection_chip::selection_fingerprint(&state.composer_selection));
-    let has_payload =
-        !state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty() || state.active_composer().attach_prd || selection_live;
+    // The selection chip is a suggestion, not a message. An attached PRD is: Send then sends its reference alone.
+    let has_payload = !state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty() || state.active_composer().attach_prd;
     let send_on = composer_live && !choose_agent && skills_violation.is_none() && has_payload;
     let bar = crate::agent_composer_toolbar::toolbar(ui, state, composer_rect, &pill_label, send_on, skills_violation.as_deref());
     if let Some(pick) = bar.attach {
