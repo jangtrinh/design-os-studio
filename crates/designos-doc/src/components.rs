@@ -5539,4 +5539,39 @@ mod tests {
         assert_eq!(l.size, Vec2::new(24.0, 24.0), "a pinned (Min/Min) logo keeps its 24x24 size after swap and sync; got {:?}", l.size);
         assert_eq!((l.transform.tx, l.transform.ty), (8.0, 8.0));
     }
+
+    #[test]
+    fn r3_name_rule_variant_instance_cross_family() {
+        let mut d = Document::new("nm");
+        let page = d.add_page("P");
+        let mut variants = Vec::new();
+        for (i, v) in ["Size=Sm", "Size=Md"].iter().enumerate() {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(i as f32 * 120.0, 0.0, 100.0, 40.0));
+            f.name = (*v).into();
+            let comp = d.insert(page, f).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            variants.push(comp);
+        }
+        let c = combine_as_variants(&mut d, &variants);
+        apply(&mut d, c);
+        let set = d.get(variants[0]).unwrap().parent.unwrap();
+        let mut sn = d.get(set).unwrap().clone();
+        sn.name = "Button".into();
+        apply(&mut d, Command::Update { node: Box::new(sn) });
+        let id = d.alloc_id();
+        let mut f = Node::frame(id, Rect::new(0.0, 200.0, 60.0, 24.0));
+        f.name = "Badge".into();
+        let badge = d.insert(page, f).unwrap();
+        let c = create_component(&mut d, badge);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, variants[0], page, Vec2::new(0.0, 400.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        assert_eq!(d.get(inst).unwrap().name, "Button");
+        let c = swap_instance(&mut d, inst, badge);
+        apply(&mut d, c);
+        assert_eq!(d.get(inst).unwrap().name, "Badge", "an auto-named (set-named) instance takes the new main's name");
+    }
 }
