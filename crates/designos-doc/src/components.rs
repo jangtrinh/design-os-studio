@@ -1406,15 +1406,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
                 continue;
             }
             let Some(mut child) = c.s.get(cid).cloned() else { continue };
-            let old_sz = child.size;
-            let old_tf = child.transform;
             crate::layout_constraints::apply_constrained_geometry(&mut child, new_tf, new_sz);
-            if child.size != old_sz {
-                child.component.overrides.insert(OverrideField::Size);
-            }
-            if child.transform != old_tf {
-                child.component.overrides.insert(OverrideField::Transform);
-            }
             c.update(child);
         }
     }
@@ -1468,6 +1460,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
 fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen: &mut Vec<NodeId>) {
     let (Some(mut rn), Some(mut inode)) = (c.s.get(r).cloned(), c.s.get(i).cloned()) else { return };
     let slot_comp = instance_component(&rn);
+    let inst_slot_size = inode.size;
     let values = c.s.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
 
     // --- which component should this instance show? ---
@@ -1516,15 +1509,14 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
             let mut node_ref = slot_rn.clone();
             let orig_slot_comp = slot_comp.and_then(|oc| c.s.get(oc));
             let slot_ov = orig_slot_comp.map(|oc| record_override(oc, &slot_rn)).unwrap_or_default();
-            if !slot_rn.component.overrides.contains(&OverrideField::Size) {
-                let keep_x = orig_slot_comp.is_some_and(|oc| (slot_rn.size.x - oc.size.x).abs() > 1e-4);
-                let keep_y = orig_slot_comp.is_some_and(|oc| (slot_rn.size.y - oc.size.y).abs() > 1e-4);
-                if !keep_x {
-                    node_ref.size.x = rn.size.x;
-                }
-                if !keep_y {
-                    node_ref.size.y = rn.size.y;
-                }
+            node_ref.size = inst_slot_size;
+            let keep_x = orig_slot_comp.is_some_and(|oc| (inst_slot_size.x - oc.size.x).abs() > 1e-4);
+            let keep_y = orig_slot_comp.is_some_and(|oc| (inst_slot_size.y - oc.size.y).abs() > 1e-4);
+            if !keep_x {
+                node_ref.size.x = rn.size.x;
+            }
+            if !keep_y {
+                node_ref.size.y = rn.size.y;
             }
             for f in [
                 OverrideField::Opacity,
@@ -1620,6 +1612,23 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
         let cur = c.s.get(i).map(|x| x.children.clone()).unwrap_or_default();
         if cur.get(k) != Some(id) {
             c.push(Command::Reparent { id: *id, parent: i, index: k });
+        }
+    }
+    if !top && instance_component(&inode) != slot_comp {
+        if let Some(slot_after) = c.s.get(i).map(|x| x.size).filter(|&sz| sz != rn.size) {
+            let plan = crate::layout_constraints::plan_constraint_pass(&c.s, i, rn.size, slot_after, 8);
+            for (cid, new_tf, new_sz) in plan {
+                if cid == i {
+                    continue;
+                }
+                let Some(mut child) = c.s.get(cid).cloned() else { continue };
+                let tf = if child.component.overrides.contains(&OverrideField::Transform) { child.transform } else { new_tf };
+                let sz = if child.component.overrides.contains(&OverrideField::Size) { child.size } else { new_sz };
+                if tf != child.transform || sz != child.size {
+                    crate::layout_constraints::apply_constrained_geometry(&mut child, tf, sz);
+                    c.update(child);
+                }
+            }
         }
     }
     seen.truncate(seen_before);
