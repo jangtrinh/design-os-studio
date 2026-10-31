@@ -376,3 +376,104 @@ fn effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect() {
     let _ = fx_field_rect(&s_panel, "fxp-b", 0);
 }
 
+#[test]
+fn bound_gradient_stop_locks_color_controls_until_detached() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _) = theme_ids(s.app());
+    let fill_stop_var = store.add_variable(&coll, "Grad/StopStart", VariableKind::Color).unwrap();
+    store.set_value(&fill_stop_var, &light, VariableValue::Color(Color::rgb(0xFF, 0x11, 0x22)));
+    set_scopes(&mut store, &fill_stop_var, &["ALL_FILLS"]);
+    s.shell.app.commit_store(store, &[], &[]);
+
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [
+                    designos_doc::Vec2::new(0.0, 0.5),
+                    designos_doc::Vec2::new(1.0, 0.5),
+                    designos_doc::Vec2::new(0.0, 1.0),
+                ],
+                stops: vec![
+                    GradientStop { pos: 0.0, color: Color::BLACK },
+                    GradientStop { pos: 1.0, color: Color::WHITE },
+                ],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+
+    // Open the fill paint picker and bind stop 0 (`fills/0/stops/0`).
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let stop_color_row = Pos2::new(picker.left() + 100.0, picker.top() + 423.0);
+    s.mv(stop_color_row);
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:fills/0/stops/0").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Grad/StopStart").center());
+    s.frame(vec![]);
+
+    let bound_color = Color::rgb(0xFF, 0x11, 0x22);
+    let before_node = s.app().doc.get(hero).unwrap().clone();
+    assert_eq!(before_node.variables.bindings.get("fills/0/stops/0"), Some(&fill_stop_var));
+
+    // 1. Clicking a swatch while stop 0 is bound leaves the document unchanged and the binding in place.
+    let swatch1 = Pos2::new(picker.left() + 16.0 + 24.0 + 8.0, picker.top() + 496.0 + 8.0);
+    s.click(swatch1);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "clicking a swatch on a bound stop must not change the node");
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), Some(&fill_stop_var));
+
+    // 2. Clicking the SV area, hue slider, and alpha slider while bound also leaves the document unchanged.
+    s.click(Pos2::new(picker.left() + 80.0, picker.top() + 200.0));
+    s.click(Pos2::new(picker.left() + 140.0, picker.top() + 363.0));
+    s.click(Pos2::new(picker.left() + 100.0, picker.top() + 391.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "SV/hue/alpha controls must be locked while stop is bound");
+
+    // 3. Eyedropper button click and canvas sampling path do nothing while the stop is bound.
+    let eye_btn = s.rect_of("picker-eyedrop");
+    s.click(eye_btn.center());
+    s.frame(vec![]);
+    assert!(!s.app().props.picker.as_ref().unwrap().eyedrop, "eyedropper button must be disabled when stop is bound");
+    assert!(s.app().props.eyedropper.is_none());
+    // Even if eyedropper state were armed before selecting a bound stop, sampling the canvas must not write.
+    s.shell.app.props.picker.as_mut().unwrap().eyedrop = true;
+    s.shell.app.props.eyedropper = Some(crate::panels::properties::PickTarget::Fill(0));
+    s.click(Pos2::new(500.0, 400.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "eyedropper canvas sample must not write to a bound stop");
+
+    // 4. The bound stop's position on the gradient bar stays editable.
+    let stop0_handle = Pos2::new(picker.left() + 16.0, picker.top() + 100.0);
+    let stop0_dragged = Pos2::new(picker.left() + 54.0, picker.top() + 100.0);
+    s.drag(stop0_handle, stop0_dragged);
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert!((stops[0].pos - 0.25).abs() < 0.05, "bound stop position must remain draggable, got {}", stops[0].pos);
+    assert_eq!(stops[0].color, bound_color);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), Some(&fill_stop_var));
+
+    // 5. After detaching via the pill's detach control, clicking a swatch writes to the stop.
+    let pill0 = s.rect_of("bound:fills/0/stops/0");
+    s.click(Pos2::new(pill0.right() - 13.0, pill0.center().y));
+    s.frame(vec![]);
+    assert!(!s.app().doc.get(hero).unwrap().variables.bindings.contains_key("fills/0/stops/0"));
+    s.click(swatch1);
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_ne!(stops[0].color, bound_color, "swatch click must write to the stop after detaching");
+}
+
+
