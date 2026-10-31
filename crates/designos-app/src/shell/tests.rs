@@ -1234,6 +1234,7 @@ mod tab_disk_state;
 mod text_styles;
 mod toast_clock;
 mod typography;
+mod typography_style_detach;
 mod undo_exact_layout;
 mod undo_layout_epoch;
 mod unsaved_dot;
