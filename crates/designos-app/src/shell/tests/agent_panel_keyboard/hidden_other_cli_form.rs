@@ -35,7 +35,7 @@ fn settle_probes(s: &mut Sim) {
     frames(s, 3);
 }
 
-/// The Agents panel with no session yet (the new-session list on screen) and one earlier session recorded as tab 7.
+/// The Agents panel with no session yet (the New chat state on screen) and one earlier session recorded as tab 7.
 /// The record comes after the panel opened: a panel that finds a session to resume opens it instead of the list.
 pub(super) fn list_sim() -> Sim {
     let mut s = Sim::new();
@@ -43,7 +43,7 @@ pub(super) fn list_sim() -> Sim {
     s.shell.app.terminal.session_registry.last_cli = None;
     s.cmd_key(Key::Backtick);
     settle_probes(&mut s);
-    assert!(s.app().terminal.picker_open && s.app().terminal.tabs.is_empty(), "precondition: the panel shows its new-session list");
+    assert!(s.app().terminal.picker_open && s.app().terminal.tabs.is_empty(), "precondition: the panel is in the New chat state");
     s.shell.app.terminal.session_registry.sessions.push(SessionEntry {
         tab_id: 7,
         title: "Old chat".into(),
@@ -58,19 +58,31 @@ pub(super) fn list_sim() -> Sim {
     s
 }
 
-/// The Agents panel on a stub Claude tab with its `+` menu open.
+/// The Agents panel on a stub Claude tab with its agent menu open.
 fn menu_sim() -> Sim {
     let mut s = agent_sim();
     s.shell.app.terminal.session_registry.last_cli = None;
-    let plus = s.rect_of("agents-runtime-add-btn");
-    s.click(plus.center());
+    let pill = s.rect_of("agents-composer-agent-pill");
+    s.click(pill.center());
     settle_probes(&mut s);
     s
+}
+
+/// Opens the agent menu from the composer pill when it is closed, and expands `More…` so the `Other CLI…` row is on screen.
+pub(super) fn open_menu_with_more(s: &mut Sim) {
+    if !s.app().terminal.runtime_dropdown_open {
+        let pill = s.rect_of("agents-composer-agent-pill");
+        s.click(pill.center());
+        frames(s, 2);
+    }
+    s.shell.app.terminal.picker.menu_more_open = true;
+    frames(s, 2);
 }
 
 /// Opens the `Other CLI…` form from its row (`row_key` names the rect the surface records the row under), puts the caret
 /// in the label field and types "ab".
 pub(super) fn open_form_and_type_in_it(s: &mut Sim, row_key: impl Fn(&str) -> String) {
+    open_menu_with_more(s);
     let other = rows_for_state(&mut s.shell.app.terminal).into_iter().find(|r| r.kind == PickerRowKind::OtherCli).expect("the Other CLI row");
     let row = s.rect_of(&row_key(&other.id));
     s.click(row.center());
@@ -109,32 +121,28 @@ pub(super) fn assert_letters_went_into_the_rename(s: &mut Sim, tab_id: u64, afte
 }
 
 #[test]
-fn a_hidden_form_in_the_new_session_list_gets_none_of_a_renames_letters() {
+fn a_hidden_form_in_the_new_chat_menu_gets_none_of_a_renames_letters() {
     let mut s = list_sim();
-    open_form_and_type_in_it(&mut s, |id| format!("picker-row-{id}"));
-    // The Sessions popover covers the list, and the form with it. The form stays open, with its text.
-    let sessions = s.rect_of("agents-sessions-btn");
+    open_form_and_type_in_it(&mut s, |id| id.to_string());
+    // The sessions popover replaces the agent menu, and the form with it. The form stays open, with its text.
+    let sessions = s.rect_of("agents-more-btn");
     s.click(sessions.center());
     frames(&mut s, 2);
-    assert!(s.app().terminal.picker.other_form_open, "precondition: the form is open but not drawn");
-    assert_form_has_no_caret(&s, "after the list was covered");
+    assert!(!s.app().terminal.picker.other_form_open, "the press away from the menu closed it, and the form with it");
+    assert_form_has_no_caret(&s, "after the menu was covered");
     let tab_id = press_rename(&mut s);
     assert_letters_went_into_the_rename(&mut s, tab_id, "after the form was hidden");
     let picker = &s.app().terminal.picker;
-    assert_eq!(
-        (picker.other_label_input.as_str(), picker.other_command_input.as_str()),
-        ("ab", ""),
-        "the hidden form kept its text and took none of the letters"
-    );
+    assert!(picker.other_label_input.is_empty() && picker.other_command_input.is_empty(), "the closed form discarded its text and took none of the letters");
     finish(s);
 }
 
 #[test]
-fn a_hidden_form_in_the_plus_menu_gets_none_of_a_renames_letters() {
+fn a_hidden_form_in_the_agent_menu_over_a_session_gets_none_of_a_renames_letters() {
     let mut s = menu_sim();
     open_form_and_type_in_it(&mut s, |id| id.to_string());
-    // The Sessions button closes the menu, and the form with it.
-    let sessions = s.rect_of("agents-sessions-btn");
+    // The more button closes the menu, and the form with it.
+    let sessions = s.rect_of("agents-more-btn");
     s.click(sessions.center());
     frames(&mut s, 2);
     assert_form_has_no_caret(&s, "after the menu closed");
@@ -148,20 +156,20 @@ fn a_hidden_form_in_the_plus_menu_gets_none_of_a_renames_letters() {
 #[test]
 fn closing_the_form_or_leaving_the_agents_panel_leaves_no_caret_in_it() {
     let mut s = list_sim();
-    open_form_and_type_in_it(&mut s, |id| format!("picker-row-{id}"));
+    open_form_and_type_in_it(&mut s, |id| id.to_string());
     s.key(Key::Escape);
     frames(&mut s, 2);
     assert!(!s.app().terminal.picker.other_form_open, "Esc closes the form");
     assert_form_has_no_caret(&s, "after Esc");
 
-    open_form_and_type_in_it(&mut s, |id| format!("picker-row-{id}"));
+    open_form_and_type_in_it(&mut s, |id| id.to_string());
     let file_rail = s.rect_of("rail-File");
     s.click(file_rail.center());
     frames(&mut s, 3);
-    assert!(s.app().terminal.picker.other_form_open, "precondition: the form is still open, behind the File panel");
+    assert!(!s.app().terminal.picker.other_form_open, "the press on the rail closed the menu, and the form with it");
     assert_form_has_no_caret(&s, "after the Agents panel was left");
     s.type_text("cd");
-    assert_eq!(s.app().terminal.picker.other_label_input, "ab", "the form behind the File panel took none of the letters");
+    assert!(s.app().terminal.picker.other_label_input.is_empty(), "the closed form took none of the letters");
     finish(s);
 }
 

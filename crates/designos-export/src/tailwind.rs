@@ -345,10 +345,14 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     }
     if let Some(al) = own_al {
         if al.direction == LayoutDirection::Grid {
+            let col_tracks = resolved_grid_col_tracks(doc, n, al);
             c.push("grid".into());
-            c.push(template_class("grid-cols", &al.grid_col_tracks, grid_column_count(al), STOCK_GRID_COLS));
+            c.push(template_class("grid-cols", &col_tracks, grid_column_count(al), STOCK_GRID_COLS));
             if al.grid_rows > 0 {
                 c.push(template_class("grid-rows", &al.grid_row_tracks, al.grid_rows as usize, STOCK_GRID_ROWS));
+            }
+            if grid_packs_auto_rows(doc, n, al) {
+                c.push("content-start".into());
             }
             let col_gap = al.item_spacing;
             let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
@@ -369,7 +373,11 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
                     c.push(spaced("gap-y", row_gap, row_var));
                 }
             }
-            c.extend(pad_classes(doc, n, al));
+            let pads = pad_classes(doc, n, al);
+            if !pads.is_empty() || al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) {
+                c.push("box-border".into());
+            }
+            c.extend(pads);
         } else {
             c.push("flex".into());
             if al.direction == LayoutDirection::Vertical {
@@ -681,7 +689,7 @@ mod tests {
         n1.layout_child.row_span = 1;
         d.insert(g, n1).unwrap();
 
-        let expected = "<div class=\"grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] gap-x-4 gap-y-6 px-4 py-3 w-[480px] h-[200px]\">\n  <div class=\"col-start-2 col-span-2 row-start-1 w-[200px] h-20\"></div>\n</div>";
+        let expected = "<div class=\"grid grid-cols-[minmax(0,1fr)_120px_auto] grid-rows-[80px_auto] content-start gap-x-4 gap-y-6 box-border px-4 py-3 w-[480px] h-[200px]\">\n  <div class=\"col-start-2 col-span-2 row-start-1 w-[200px] h-20\"></div>\n</div>";
         assert_eq!(tailwind_for(&d, g), expected);
     }
 
@@ -747,7 +755,7 @@ mod tests {
         assert_eq!(size, Vec2::new(180.0, 10.0), "the solver sizes the columns 100, 40 and 40 and the rows at their tallest child");
         let html = tailwind_for(&d, grid);
         let t = tokens(&html, 0);
-        for want in ["grid", "grid-cols-3", "grid-rows-2", "w-[180px]", "h-2.5"] {
+        for want in ["grid", "grid-cols-[100px_40px_40px]", "grid-rows-2", "w-[180px]", "h-2.5"] {
             assert!(t.iter().any(|c| c == want), "{want} missing in {html}");
         }
         assert!(!t.iter().any(|c| c.contains("max") || c.contains("auto")), "{html}");

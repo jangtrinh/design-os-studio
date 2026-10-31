@@ -1,0 +1,114 @@
+=== GATE 1: cargo fmt --all -- --check ===
+/dev/disk3s1s1   926Gi    12Gi    64Gi    16%    459k  669M    0%   /
+fmt_rc=0
+=== GATE 2: cargo clippy --workspace --all-targets --locked -- -D warnings ===
+clippy_rc=101
+--- grep -E '^(error|warning)' r6-clippy.log ---
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+error: unneeded `return` statement
+error: unneeded `return` statement
+error: writing `&mut Vec` instead of `&mut [_]` involves a new object where a slice will do
+error: could not compile `designos-app` (bin "designos-studio") due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `designos-app` (bin "designos") due to 3 previous errors
+error: items after a test module
+error: unused return value of `egui::Context::run_ui` that must be used
+error: could not compile `designos-app` (bin "designos-studio" test) due to 5 previous errors
+error: could not compile `designos-app` (bin "designos" test) due to 5 previous errors
+=== GATE 3a: cargo test -p designos-doc --locked ===
+running 706 tests
+test result: ok. 706 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.46s
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 2 tests
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+=== GATE 3b: cargo test -p designos-mcp --locked ===
+running 297 tests
+test result: ok. 297 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.01s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+running 28 tests
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+running 11 tests
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+running 16 tests
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+running 11 tests
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+running 22 tests
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.14s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+running 14 tests
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+running 9 tests
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+running 42 tests
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+running 8 tests
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+running 5 tests
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+running 6 tests
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+=== GATE 4a: cargo test -p designos-app --bin designos --locked component ===
+running 116 tests
+test result: ok. 116 passed; 0 failed; 0 ignored; 0 measured; 3848 filtered out; finished in 17.06s
+=== GATE 4b: cargo test -p designos-app --bin designos --locked instance ===
+running 98 tests
+test result: ok. 97 passed; 0 failed; 1 ignored; 0 measured; 3866 filtered out; finished in 8.55s
+=== GATE 4c: cargo test -p designos-app --bin designos --locked variant ===
+running 19 tests
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 3945 filtered out; finished in 1.34s
+=== GATE 4d (sibling HOME & TMPDIR): cargo test -p designos-app --bin designos --locked librar ===
+running 179 tests
+test result: ok. 179 passed; 0 failed; 0 ignored; 0 measured; 3785 filtered out; finished in 21.99s
+=== GATE 5: cargo test --workspace --locked --lib ===
+running 13 tests
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+running 706 tests
+test result: ok. 706 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.39s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 154 tests
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.22s
+running 143 tests
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.45s
+running 30 tests
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+running 37 tests
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.16s
+running 297 tests
+test result: ok. 297 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.88s
+running 58 tests
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 33.24s
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+running 8 tests
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s

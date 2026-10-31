@@ -1,0 +1,46 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 35.20s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-216412320a7d8d1f)
+
+running 34 tests
+test canvas::textsession::tests::typography_edit_detaches_a_linked_text_style_in_an_active_text_session ... ok
+test canvas::textsession::tests::typography_edit_detaches_a_linked_text_style_in_the_same_undo_step ... ok
+test check_designs::tests::rules::a_typography_number_match_or_binding_does_not_hide_the_text_style_rule ... ok
+test panels::inspect::tests::typography_and_assets ... ok
+test panels::inspect::tests::inspect_code_connect_redlines_mcp_and_typography_style_mutate_state ... ok
+test panels::typography::tests::alignment_and_fill_edits_keep_a_linked_text_style ... ok
+test shell::tests::typography::features_follow_the_selected_range_while_editing ... ok
+test shell::tests::typography::feature_checks_toggle_on_the_layer ... ok
+test shell::tests::typography::paragraph_settings_apply_to_the_layer ... ok
+test shell::tests::typography::popover_lists_only_the_stylistic_sets_the_font_has ... ok
+test shell::tests::typography::typography_header_has_no_var_pill_and_clicking_left_of_style_button_changes_nothing ... ok
+test shell::tests::typography::tab_in_a_text_session_nests_list_items_and_never_moves_egui_focus ... ok
+test shell::tests::typography_style_detach::active_text_session_typography_edit_detaches_while_alignment_and_fill_keep_link ... ok
+test shell::tests::typography_style_detach::cmd_b_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::alignment_and_fill_edits_keep_the_link_while_style_owned_edit_detaches ... ok
+test shell::tests::typography_style_detach::cmd_b_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::cmd_i_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::cmd_i_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::cmd_u_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::cmd_u_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::font_family_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::font_size_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::font_style_italic_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::font_weight_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::letter_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::line_height_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::list_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::menu_increase_font_size_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::menu_increase_font_size_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::paragraph_indent_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::paragraph_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::repicking_same_font_family_in_session_keeps_linked_text_style ... ok
+test shell::tests::typography_style_detach::repicking_same_font_family_outside_session_keeps_linked_text_style ... ok
+test shell::tests::typography_style_detach::vertical_trim_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 6.77s
+

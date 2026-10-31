@@ -592,7 +592,7 @@ mod tests {
         run_frame(&mut app, Some(agents_btn.center()));
         assert_eq!(app.ui.rail, Some(RailItem::Agents));
         run_frame(&mut app, None);
-        let agents_hdr = get_rect("agents-runtime-add-btn").or_else(|| get_rect("agents-header-back")).expect("agents header rect");
+        let agents_hdr = get_rect("agents-new-chat-btn").or_else(|| get_rect("agents-header-back")).expect("agents header rect");
         assert!(agents_hdr.top() < 60.0, "Agents header sits at top of Left Side Panel without duplicate file_header");
 
         // UF-01 & UF-02: Click Assets in Left Rail -> opens full-height Assets Left Side Panel without duplicate file_header.

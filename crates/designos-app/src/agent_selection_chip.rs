@@ -5,9 +5,13 @@
 //! PTY when selection changes; on click writes `selection.spec.json` and pastes one fixed sentence
 //! into the active agent tab without pressing Enter.
 
-use crate::{theme, widgets};
+#[cfg(test)]
+use crate::theme;
+use crate::widgets;
 use designos_doc::{BooleanOp, Document, NodeId, NodeKind};
-use egui::{Align2, FontId, Id, Painter, Pos2, Rect, Sense, Ui, Vec2};
+use egui::{FontId, Painter};
+#[cfg(test)]
+use egui::{Pos2, Rect, Vec2};
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 
@@ -96,6 +100,28 @@ pub fn with_selection_summary<R>(doc: &Document, page: NodeId, selection: &[Node
 /// Formats the selection chip text:
 /// - `count == 0` -> `None` (nothing selected: the chip is hidden)
 /// - `count > 0`  -> `"{page} · {count} selected · {first_names}"` (`A, B, +M` when `count > 2`).
+///
+/// Layer names for the composer chip: `Hero`, `Hero, Title`, `Hero, Title, +N`, or `N layers`.
+pub fn composer_chip_label(summary: &SelectionSummary) -> Option<String> {
+    if summary.count == 0 {
+        return None;
+    }
+    let names = format_names_part(summary.count, &summary.names);
+    if names.is_empty() {
+        Some(format!("{} layers", summary.count))
+    } else {
+        Some(names)
+    }
+}
+
+/// Identity of the names on the chip. A dismiss hides the chip until this changes.
+pub fn selection_fingerprint(summary: &SelectionSummary) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    summary.count.hash(&mut hasher);
+    summary.names.hash(&mut hasher);
+    hasher.finish()
+}
+
 pub fn selection_chip_text<S: AsRef<str>>(page: &str, count: usize, names: &[S]) -> Option<String> {
     if count == 0 {
         return None;
@@ -122,11 +148,13 @@ fn format_names_part<S: AsRef<str>>(count: usize, names: &[S]) -> String {
 /// Elides the chip text to fit `max_w` pixels in `font`, shrinking the layer names part first
 /// and the page name second so `· N selected` remains visible as long as possible. `None` while
 /// nothing is selected.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn elide_selection_chip_text(p: &Painter, summary: &SelectionSummary, font: &FontId, max_w: f32) -> Option<String> {
     let full = summary.chip_text()?;
     Some(elide_chip_text(p, summary, &full, font, max_w))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn elide_chip_text(p: &Painter, summary: &SelectionSummary, full: &str, font: &FontId, max_w: f32) -> String {
     if widgets::text_width(p, full, font) <= max_w {
         return full.to_string();
@@ -152,43 +180,6 @@ fn elide_chip_text(p: &Painter, summary: &SelectionSummary, full: &str, font: &F
     }
 
     widgets::elide(p, full, font, max_w)
-}
-
-/// Paints the `CONTROL_DENSE` (24px) selection pill inside `bounds` (either left-aligned or
-/// right-aligned depending on `align_right`). Returns `Some((pill_rect, clicked))`, or `None`
-/// without painting, recording or registering anything while nothing is selected.
-pub fn paint_selection_chip(ui: &mut Ui, id_salt: &'static str, summary: &SelectionSummary, bounds: Rect, align_right: bool) -> Option<(Rect, bool)> {
-    let font = theme::font_caption();
-    let max_pill_w = bounds.width().max(theme::TARGET_MIN);
-    let max_text_w = (max_pill_w - 2.0 * theme::INSET_CONTROL).max(0.0);
-    let p = ui.painter().clone();
-    let shown = elide_selection_chip_text(&p, summary, &font, max_text_w)?;
-    let h = theme::CONTROL_DENSE;
-    let text_w = widgets::text_width(&p, &shown, &font);
-    let pill_w = (text_w + 2.0 * theme::INSET_CONTROL).clamp(theme::TARGET_MIN.min(max_pill_w), max_pill_w);
-    let x = if align_right { bounds.right() - pill_w } else { bounds.left() };
-    let y = bounds.center().y - h * 0.5;
-    let pill_rect = Rect::from_min_size(Pos2::new(x, y), Vec2::new(pill_w, h));
-    let radius = theme::cr_pill(h);
-
-    let resp = ui.interact(pill_rect, Id::new(id_salt), Sense::click());
-    widgets::labelled(ui, Id::new(id_salt), egui::accesskit::Role::Button, "Send selection to agent");
-
-    let fill = if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED };
-    p.rect_filled(pill_rect, radius, fill);
-    p.text(Pos2::new(pill_rect.left() + theme::INSET_CONTROL, pill_rect.center().y), Align2::LEFT_CENTER, &shown, font, theme::TEXT);
-
-    widgets::record(ui, "agent-selection-chip", pill_rect);
-    widgets::record(ui, id_salt, pill_rect);
-    #[cfg(test)]
-    ui.ctx().data_mut(|d| {
-        d.insert_temp(Id::new(("test-text", "agent-selection-chip".to_string())), shown.clone());
-        d.insert_temp(Id::new(("test-text", id_salt.to_string())), shown);
-    });
-
-    let clicked = resp.clicked();
-    let _ = resp.on_hover_text("Send the selection to the agent");
-    Some((pill_rect, clicked))
 }
 
 fn node_kind_label(kind: &NodeKind) -> String {
@@ -260,6 +251,28 @@ pub fn build_selection_spec_json(doc: &Document, page: NodeId, selection: &[Node
 mod tests {
     use super::*;
     use designos_doc::{Node, Rect as DocRect};
+
+    fn summary(count: usize, names: &[&str]) -> SelectionSummary {
+        SelectionSummary { page: "Page 1".into(), count, names: names.iter().map(|n| n.to_string()).collect() }
+    }
+
+    // `selection_chip_label_and_dismiss`
+    #[test]
+    fn selection_chip_label_and_dismiss() {
+        assert_eq!(composer_chip_label(&summary(1, &["Hero"])).as_deref(), Some("Hero"));
+        assert_eq!(composer_chip_label(&summary(2, &["Hero", "Title"])).as_deref(), Some("Hero, Title"));
+        assert_eq!(composer_chip_label(&summary(3, &["Hero", "Title", "Body"])).as_deref(), Some("Hero, Title, +1"));
+        assert_eq!(composer_chip_label(&summary(3, &[])).as_deref(), Some("3 layers"), "a selection with no names is counted");
+        assert_eq!(composer_chip_label(&summary(0, &[])), None, "nothing selected, no chip");
+
+        // A dismiss hides the chip until what the chip names changes.
+        let hero = summary(1, &["Hero"]);
+        let dismissed = selection_fingerprint(&hero);
+        assert_eq!(selection_fingerprint(&hero.clone()), dismissed, "the same selection keeps the dismissal");
+        assert_ne!(selection_fingerprint(&summary(1, &["Title"])), dismissed, "another layer brings the chip back");
+        assert_ne!(selection_fingerprint(&summary(2, &["Hero", "Title"])), dismissed, "so does a larger selection");
+        assert_ne!(selection_fingerprint(&summary(3, &[])), selection_fingerprint(&summary(4, &[])), "and a count with no names");
+    }
 
     #[test]
     fn chip_text_formats() {

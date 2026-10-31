@@ -1,0 +1,2 @@
+server: {"name": "designos-mcp", "version": "0.7.5"}
+SWAP-OK #1427: 6 swapped variants keep colour, binding, opacity, visibility and the drawn glyph's bounds; SWAP_CHECK_FATAL can flip to True

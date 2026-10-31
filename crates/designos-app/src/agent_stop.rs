@@ -5,12 +5,13 @@
 //! - Turn close on stop: applies held live patches, folds the turn's contiguous agent undo steps into
 //!   one `Command::Batch` labelled `"Agent turn (stopped)"` via `History::fold_since`, clears
 //!   `Document::in_progress` flags for the agent, and records `"Stopped by you after <N>s"`.
-//! - Secondary header buttons `"Stop"` and `"Stop all"` (when 2+ tabs run) and chrome-only `Esc`.
+//! - Header button `"Stop"` while a turn runs. `"Stop all"` lives in the sessions menu. Chrome-only `Esc`.
 
 use crate::app::App;
 use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalAction, TerminalState, TerminalTab};
+use crate::widgets::kit::{self, button_look, paint_frame, Hierarchy};
 use crate::{theme, widgets};
-use egui::{Align2, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+use egui::{Align2, Id, Painter, Pos2, Rect, Sense, Ui, Vec2};
 
 /// Undo step label applied by [`designos_doc::History::fold_since`] when a turn is stopped (`§3.4`).
 pub const STOP_UNDO_LABEL: &str = "Agent turn (stopped)";
@@ -377,65 +378,37 @@ pub fn close_stopped_turn_on_app(app: &mut App, tab_id: usize, turn_start_depth:
     }
 }
 
-/// Paints the secondary `"Stop"` button (and `"Stop all"` when 2+ tabs are running) in the panel
-/// header strip at the right (`§7`), returning the left edge of the painted control group so the
-/// tab strip knows where to stop.
+/// Paints `Stop` in the header, left of `right_anchor_x`, while the active tab can be stopped or a stop
+/// is already in flight. Returns the button's left edge, or `right_anchor_x` when nothing is drawn.
 pub fn paint_header_stop_controls(ui: &mut Ui, p: &Painter, state: &mut TerminalState, bar_r: Rect, right_anchor_x: f32) -> f32 {
     let now = designos_doc::now_ms();
-    let running_count = running_tab_count(state);
-    let active_running = state.tabs.get(state.active_tab).is_some_and(is_tab_stoppable);
     let active_stopping = state.tabs.get(state.active_tab).is_some_and(|t| t.stop_state.is_some());
-
-    if !active_running && running_count < 2 {
+    let active_running = state.tabs.get(state.active_tab).is_some_and(is_tab_stoppable);
+    if !active_running && !active_stopping {
         return right_anchor_x;
     }
 
-    let btn_h = theme::CONTROL_STANDARD;
-    let btn_y = bar_r.center().y - btn_h * 0.5;
-    let mut cursor_right = right_anchor_x - theme::SPACE_INLINE;
-
-    if active_running {
-        let label = state.tabs.get(state.active_tab).and_then(|t| t.stop_state.as_ref()).map_or("Stop", StopState::button_label);
-        let btn_w = theme::CONTROL_MD + theme::SPACE_SECTION;
-        let stop_rect = Rect::from_min_size(Pos2::new(cursor_right - btn_w, btn_y), Vec2::new(btn_w, btn_h));
-        let resp = ui.interact(stop_rect, Id::new("agents-header-stop-btn"), Sense::click());
-        let bg = if !active_stopping && resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY };
-        p.rect_filled(stop_rect, theme::cr(theme::RADIUS_CONTROL), bg);
-        p.rect_stroke(stop_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
-
-        let sq_side = theme::SPACE_INLINE;
-        let sq_center = Pos2::new(stop_rect.left() + theme::INSET_BUTTON, stop_rect.center().y);
-        let sq_rect = Rect::from_center_size(sq_center, Vec2::splat(sq_side));
-        let fg = if active_stopping { theme::TEXT_SECONDARY } else { theme::TEXT };
-        p.rect_filled(sq_rect, theme::cr(theme::RADIUS_MARK), fg);
-        p.text(Pos2::new(sq_rect.right() + theme::SPACE_FACT, stop_rect.center().y), Align2::LEFT_CENTER, label, theme::font_caption_medium(), fg);
-        widgets::record(ui, "agents-header-stop-btn", stop_rect);
-        if !active_stopping && resp.clicked() {
-            start_stop_active(state, now);
-        }
-        cursor_right = stop_rect.left();
-        if state.tabs.get(state.active_tab).is_some_and(|t| t.stop_state.is_some() && t.still_running_notice.is_none()) {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
-        }
+    let btn_h = theme::TARGET_MIN;
+    let btn_w = 64.0;
+    let stop_rect = Rect::from_min_size(Pos2::new(right_anchor_x - theme::SPACE_ROW - btn_w, bar_r.center().y - btn_h * 0.5), Vec2::new(btn_w, btn_h));
+    let resp = ui.interact(stop_rect, Id::new("agents-header-stop-btn"), Sense::click());
+    let paint = button_look(Hierarchy::Destructive, kit::state_of(&resp, false, !active_stopping));
+    paint_frame(p, stop_rect, theme::RADIUS_CONTROL, &paint);
+    let label = state.tabs.get(state.active_tab).and_then(|t| t.stop_state.as_ref()).map_or("Stop", StopState::button_label);
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium);
+    p.text(stop_rect.center(), Align2::CENTER_CENTER, label, font, paint.text);
+    if ui.memory(|m| m.has_focus(resp.id)) {
+        kit::focus_ring(p, stop_rect, theme::RADIUS_CONTROL as f32);
     }
-
-    if running_count >= 2 {
-        let btn_w = theme::CONTROL_MD + theme::SPACE_SECTION + theme::SPACE_INLINE;
-        let right_x = if active_running { cursor_right - theme::SPACE_INLINE } else { cursor_right };
-        let all_rect = Rect::from_min_size(Pos2::new(right_x - btn_w, btn_y), Vec2::new(btn_w, btn_h));
-        let resp = ui.interact(all_rect, Id::new("agents-header-stop-all-btn"), Sense::click());
-        let bg = if resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY };
-        p.rect_filled(all_rect, theme::cr(theme::RADIUS_CONTROL), bg);
-        p.rect_stroke(all_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
-        p.text(all_rect.center(), Align2::CENTER_CENTER, "Stop all", theme::font_caption_medium(), theme::TEXT);
-        widgets::record(ui, "agents-header-stop-all-btn", all_rect);
-        if resp.clicked() {
-            stop_all(state, now);
-        }
-        cursor_right = all_rect.left();
+    widgets::record(ui, "agents-header-stop-btn", stop_rect);
+    widgets::labelled(ui, resp.id, egui::accesskit::Role::Button, "Stop");
+    if !active_stopping && resp.clicked() {
+        start_stop_active(state, now);
     }
-
-    cursor_right
+    if active_stopping && state.tabs.get(state.active_tab).is_some_and(|t| t.still_running_notice.is_none()) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+    }
+    stop_rect.left()
 }
 
 #[cfg(test)]

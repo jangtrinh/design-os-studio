@@ -1836,12 +1836,13 @@
   },
   {
     "name": "designos_open_file",
-    "description": "Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true.",
+    "description": "Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "discard_changes": {
           "default": false,
+          "description": "Set discard_changes=true only when the user has explicitly confirmed, in this conversation, that the unsaved changes may be thrown away. Never set it on your own to get past an unsaved-changes refusal; stop and ask the user instead.",
           "type": "boolean"
         },
         "path": {
@@ -1865,7 +1866,7 @@
   },
   {
     "name": "designos_save_file",
-    "description": "Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
+    "description": "Save this session to a .designos file inside the workspace, or in place when path is omitted. Untitled documents require path. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1877,9 +1878,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "path"
-      ],
+      "required": [],
       "type": "object"
     },
     "annotations": {
@@ -1890,6 +1889,38 @@
     },
     "_meta": {
       "risk_tier": "destructive"
+    }
+  },
+  {
+    "name": "designos_close_document",
+    "description": "Close this session document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "unsaved": {
+          "default": "fail",
+          "enum": [
+            "save",
+            "discard",
+            "fail"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {
@@ -1930,12 +1961,13 @@
   },
   {
     "name": "designos_new_document",
-    "description": "Start a blank document with one page. Unsaved changes require discard_changes=true.",
+    "description": "Start a blank document with one page. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "discard_changes": {
           "default": false,
+          "description": "Set discard_changes=true only when the user has explicitly confirmed, in this conversation, that the unsaved changes may be thrown away. Never set it on your own to get past an unsaved-changes refusal; stop and ask the user instead.",
           "type": "boolean"
         },
         "name": {
