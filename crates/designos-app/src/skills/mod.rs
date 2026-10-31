@@ -21,6 +21,8 @@
 pub(crate) mod delivery;
 pub(crate) mod hook_delivery;
 mod picker_popover;
+#[cfg(test)]
+mod picker_popover_tests;
 pub(crate) use picker_popover::remember_picker_anchor;
 pub(crate) mod pills;
 pub mod run_record;

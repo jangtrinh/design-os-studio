@@ -13,6 +13,9 @@ use crate::terminal::{AgentCliPreset, TerminalState};
 use crate::theme;
 use crate::widgets;
 
+/// How often the window repaints while the CLI probes are running, so a result shows without another input.
+pub const PROBE_REPAINT: std::time::Duration = std::time::Duration::from_millis(50);
+
 /// Per-terminal UI state for the new-session picker, compact `+` menu, and inline `"Other CLI…"` form (`#652`).
 #[derive(Clone, Default)]
 pub struct AgentPickerState {
@@ -29,7 +32,7 @@ pub struct AgentPickerState {
     /// Memo of the OpenCode PATH check, which the probed catalog does not cover; cleared when a probe cycle starts.
     pub opencode_installed: Option<bool>,
     /// Cached composer pill. Rebuilt when probes settle or a probe result changes, not every frame.
-    pub pill_label_cache: String,
+    pub pill_label_cache: &'static str,
     pub pill_preset_cache: Option<AgentCliPreset>,
     pub pill_cache_valid: bool,
     /// The probe generation the cached pill was built from.
@@ -127,21 +130,21 @@ fn startable_preset(preset: AgentCliPreset) -> Option<AgentCliPreset> {
     }
 }
 
-/// Label and preset a Send in the New chat state would start.
-pub fn composer_pill(state: &mut TerminalState) -> (String, Option<AgentCliPreset>) {
+/// Label and preset a Send in the New chat state would start. The label is one of the catalog's own names, so no frame builds a string.
+pub fn composer_pill(state: &mut TerminalState) -> (&'static str, Option<AgentCliPreset>) {
     let new_chat = state.in_new_chat();
     if !new_chat {
         if let Some(tab) = state.active_tab() {
-            return (tab.spawn_preset.display_name().to_string(), startable_preset(tab.spawn_preset));
+            return (tab.spawn_preset.display_name(), startable_preset(tab.spawn_preset));
         }
     }
     if let Some(preset) = startable_preset(state.active_runtime) {
         if state.picker.cache.is_preset_installed(preset) {
-            return (preset.display_name().to_string(), Some(preset));
+            return (preset.display_name(), Some(preset));
         }
     }
     if state.picker.pill_cache_current() {
-        return (state.picker.pill_label_cache.clone(), state.picker.pill_preset_cache);
+        return (state.picker.pill_label_cache, state.picker.pill_preset_cache);
     }
     // Starting the probe cycle writes seed probes, so it comes first: the generation read next is the one the rows are built from.
     state.picker.ensure_probed();
@@ -149,17 +152,20 @@ pub fn composer_pill(state: &mut TerminalState) -> (String, Option<AgentCliPrese
     let rows = rows_for_state(state);
     let found = rows.iter().find_map(|row| match &row.kind {
         PickerRowKind::CatalogCli { preset, installed, .. } if *installed && row.selectable => {
-            startable_preset(*preset).map(|preset| (row.label.clone(), Some(preset)))
+            startable_preset(*preset).map(|preset| (preset.display_name(), Some(preset)))
         }
         _ => None,
     });
-    let (label, preset) = found.unwrap_or_else(|| ("Choose agent".to_string(), None));
-    state.picker.pill_label_cache = label.clone();
+    let (label, preset) = found.unwrap_or((CHOOSE_AGENT, None));
+    state.picker.pill_label_cache = label;
     state.picker.pill_preset_cache = preset;
     state.picker.pill_cache_valid = state.picker.open_row_order_settled;
     state.picker.pill_cache_generation = generation;
     (label, preset)
 }
+
+/// The pill's label while no installed agent can be started.
+pub const CHOOSE_AGENT: &str = "Choose agent";
 
 pub fn rows_for_state(state: &mut TerminalState) -> Vec<PickerRow> {
     state.picker.ensure_probed();
@@ -402,7 +408,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     let (pill_label, pill_preset) = composer_pill(state);
     let rows = rows_for_state(state);
     if state.picker.cache.is_probing() {
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        ui.ctx().request_repaint_after(PROBE_REPAINT);
     }
     let show_folded = state.picker.menu_more_open || state.picker.other_form_open;
     let mut main_idx = Vec::new();

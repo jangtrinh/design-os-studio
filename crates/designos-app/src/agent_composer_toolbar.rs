@@ -3,12 +3,13 @@
 use egui::{Align2, Id, Pos2, Rect, Sense, Ui, Vec2};
 
 use crate::agent_composer_menus::{attach_menu, mode_menu, stamp_pass, AttachPick, ATTACH_PASS, MODE_PASS};
+use crate::agent_composer_text::{mode_label, mode_width, wants_icon_mode};
 use crate::icons::{self, Icon};
 use crate::terminal::{PermissionMode, TerminalState};
 use crate::theme;
 use crate::widgets::{self, kit};
 
-const PILL_MIN_W: f32 = 72.0;
+pub(super) const PILL_MIN_W: f32 = 72.0;
 const PILL_MAX_W: f32 = 220.0;
 
 pub struct ToolbarOut {
@@ -102,7 +103,9 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
         out.pill = true;
     }
     crate::agent_composer_menus::remember(ui.ctx(), "agents-composer-agent-pill-rect", pill_r);
-    widgets::labelled(ui, Id::new("agents-composer-agent-pill"), egui::accesskit::Role::Button, &format!("Agent: {pill}"));
+    if crate::agent_a11y::is_accesskit_active() {
+        widgets::labelled(ui, Id::new("agents-composer-agent-pill"), egui::accesskit::Role::Button, &format!("Agent: {pill}"));
+    }
     let skills_n = state.skills.selected_names.len();
     let prd_on = state.active_composer().attach_prd;
     if state.attach_menu_open {
@@ -116,37 +119,6 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
         out.mode_pick = pick;
     }
     out
-}
-
-pub fn placeholder(state: &TerminalState, pill: &str, shell: bool, any_cli: bool) -> String {
-    let new_chat = state.in_new_chat();
-    if !any_cli && new_chat {
-        return "No agent CLI found. Open the agent menu to install one.".to_string();
-    }
-    if shell && !new_chat {
-        return "Select an agent tab".to_string();
-    }
-    if state.active_composer().pending_send.is_some() {
-        return format!("Starting {pill}… your message will be sent");
-    }
-    if state.active_composer().send_count == 0 {
-        format!("Ask {pill}…  @ to mention a layer")
-    } else {
-        format!("Reply to {pill}…")
-    }
-}
-
-pub fn caption(state: &TerminalState) -> Option<String> {
-    if let Some(note) = state.still_running_notice_on_screen() {
-        return Some(note.to_string());
-    }
-    let comp = state.active_composer();
-    match comp.last_outcome {
-        Some(crate::agent_composer::SendOutcome::Refused(reason)) if reason != crate::agent_composer::RefuseReason::NoAgent => {
-            comp.notice.clone().or_else(|| Some(reason.message().to_string()))
-        }
-        _ => None,
-    }
 }
 
 struct IconPaint<'a> {
@@ -207,7 +179,7 @@ fn paint_text_button(ui: &Ui, p: &egui::Painter, spec: TextPaint<'_>) -> bool {
 fn mode_btn(ui: &mut Ui, p: &egui::Painter, rect: Rect, mode: PermissionMode, selected: bool, icon_only: bool) -> bool {
     let resp = ui.interact(rect, Id::new("agents-composer-mode-btn"), Sense::click());
     let icon = if mode == PermissionMode::Skip { Icon::Unlock } else { Icon::Lock };
-    let a11y = format!("Permissions: {}", mode_label(mode));
+    let a11y = if crate::agent_a11y::is_accesskit_active() { format!("Permissions: {}", mode_label(mode)) } else { String::new() };
     if icon_only {
         resp.clone().on_hover_text(mode_label(mode));
         paint_icon_button(
@@ -218,23 +190,5 @@ fn mode_btn(ui: &mut Ui, p: &egui::Painter, rect: Rect, mode: PermissionMode, se
     } else {
         widgets::labelled(ui, Id::new("agents-composer-mode-btn"), egui::accesskit::Role::Button, &a11y);
         paint_text_button(ui, p, TextPaint { rect, resp: &resp, id: "agents-composer-mode-btn", label: mode_label(mode), selected, chevron: true })
-    }
-}
-
-fn wants_icon_mode(p: &egui::Painter, width: f32, mode: PermissionMode) -> bool {
-    let fixed = theme::SPACE_ROW * 5.0 + theme::CONTROL_XS * 2.0 + PILL_MIN_W;
-    width - fixed < mode_width(p, mode)
-}
-
-fn mode_width(p: &egui::Painter, mode: PermissionMode) -> f32 {
-    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
-    widgets::text_width(p, mode_label(mode), &font) + theme::SPACE_INLINE * 2.0 + theme::LAYER_ICON_SIZE + theme::SPACE_ROW
-}
-
-pub fn mode_label(mode: PermissionMode) -> &'static str {
-    match mode {
-        PermissionMode::Ask => "Ask first",
-        PermissionMode::Skip => "Skip permissions",
-        PermissionMode::AskRisky => "Ask risky only",
     }
 }

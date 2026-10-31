@@ -686,3 +686,39 @@ fn the_skills_popover_treats_the_strip_of_a_detached_chip_as_outside() {
     assert!(!s.shell.app.terminal.overlay_owns_keyboard, "and the terminal hears the keyboard again");
     finish(s);
 }
+
+/// Starts `n` more stub Claude tabs, so the strip has more tabs than room.
+fn spawn_more_tabs(s: &mut Sim, n: usize) {
+    for _ in 0..n {
+        s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("stub claude starts");
+    }
+    s.shell.app.terminal.viewport_focused = false;
+    frames(s, 3);
+}
+
+/// How many recorded widgets carry `name` in the left panel, from the layout snapshot (a rect record keeps only the last one).
+fn drawn_count(s: &Sim, name: &str) -> usize {
+    let snap = crate::layout_snapshot::capture(&s.ctx, &s.shell.app.ui.regions);
+    snap.named.get(name).map_or(0, |w| w.count)
+}
+
+#[test]
+fn the_new_chat_tab_is_the_last_tab_hidden() {
+    let mut s = session_sim();
+    spawn_more_tabs(&mut s, 9);
+    let before = drawn_count(&s, "agents-left-tab-select");
+    assert!(before < 10, "ten tabs do not all fit the strip: {before} drawn");
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    s.ctx.data_mut(|d| d.remove_by_type::<Rect>());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.picker_open);
+    let new_chat = recorded(&s, "agents-new-chat-tab").expect("the New chat tab is drawn though the session tabs overflow");
+    let more = recorded(&s, "agents-more-btn").unwrap();
+    assert!(new_chat.right() <= more.left(), "inside the strip: {new_chat:?} before {more:?}");
+    assert!(drawn_count(&s, "agents-left-tab-select") >= 1, "at least one session tab is still reachable on the strip");
+    assert!(drawn_count(&s, "agents-left-tab-select") < before, "the session tabs gave way to it ({before} before)");
+    let tab = recorded(&s, "agents-left-tab-select").expect("a session tab");
+    assert!(tab.right() <= new_chat.left(), "New chat comes after the session tabs");
+    finish(s);
+}

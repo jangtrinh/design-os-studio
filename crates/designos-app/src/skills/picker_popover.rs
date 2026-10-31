@@ -36,7 +36,7 @@ fn dismissed(ui: &Ui, popover: Rect) -> bool {
 }
 
 /// `7300` as `7,300`.
-fn thousands(n: usize) -> String {
+pub(super) fn thousands(n: usize) -> String {
     let digits = n.to_string();
     let mut out = String::with_capacity(digits.len() + digits.len() / 3);
     for (i, ch) in digits.chars().enumerate() {
@@ -99,8 +99,10 @@ impl SkillsAttachmentState {
         let close_r = Rect::from_center_size(Pos2::new(header.right() - theme::TARGET_MIN * 0.5, header.center().y), Vec2::splat(theme::TARGET_MIN));
         let title_r = Rect::from_min_max(Pos2::new(header.left() + theme::SPACE_INLINE, header.top()), Pos2::new(close_r.left(), header.bottom()));
         p.text(Pos2::new(title_r.left(), title_r.center().y), Align2::LEFT_CENTER, "Attach skills", theme::font_large_strong(), theme::TEXT);
-        let folder = format!("User skills: {}/skills/<name>/SKILL.md", self.library_root.display());
-        ui.interact(title_r, Id::new("agents-skills-picker-title"), Sense::hover()).on_hover_text(folder);
+        let library_root = &self.library_root;
+        ui.interact(title_r, Id::new("agents-skills-picker-title"), Sense::hover()).on_hover_ui(|ui| {
+            ui.label(format!("User skills: {}/skills/<name>/SKILL.md", library_root.display()));
+        });
         let close = kit::button_icon(ui, close_r, "agents-skills-picker-close", Icon::Close, kit::Hierarchy::Icon, kit::Size::Xs, true, false);
         widgets::record(ui, "agents-skills-picker-close", close_r);
         widgets::labelled(ui, close.id, egui::accesskit::Role::Button, "Close skills");
@@ -141,7 +143,9 @@ impl SkillsAttachmentState {
             let check = kit::checkbox(&mut rows_ui, content, row_id.as_str(), self.is_entry_selected(entry), valid);
             widgets::record(ui, &row_id, row_r.intersect(rows_clip));
             widgets::labelled(ui, check.id, egui::accesskit::Role::CheckBox, &name);
-            check.clone().on_hover_text(format!("{name} @{} · {} · {} tokens", entry.version, entry.source.badge_label().to_lowercase(), entry.token_count));
+            check.clone().on_hover_ui(|ui| {
+                ui.label(format!("{name} @{} · {} · {} tokens", entry.version, entry.source.badge_label().to_lowercase(), entry.token_count));
+            });
             if valid && check.clicked() {
                 toggle_target = Some(sel_key);
             }
@@ -181,81 +185,5 @@ impl SkillsAttachmentState {
             p.text(Pos2::new(line.left() + theme::SPACE_INLINE, line.center().y), Align2::LEFT_CENTER, shown, theme::font_caption(), color);
             widgets::record(ui, "agents-skills-limit-warning", line);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    fn temp_lib_root(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("designos_skills_popover_{}_{tag}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn texts_of(state: &mut SkillsAttachmentState) -> Vec<String> {
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        crate::theme::apply(&ctx);
-        let panel = Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 900.0));
-        let input = egui::RawInput { screen_rect: Some(panel), ..Default::default() };
-        let out = ctx.run_ui(input, |ui| state.show_picker_popover(ui, panel, 800.0));
-        crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect()
-    }
-
-    #[test]
-    fn thousands_groups_by_three() {
-        assert_eq!(thousands(0), "0");
-        assert_eq!(thousands(447), "447");
-        assert_eq!(thousands(7_300), "7,300");
-        assert_eq!(thousands(8_000), "8,000");
-        assert_eq!(thousands(1_234_567), "1,234,567");
-    }
-
-    #[test]
-    fn skills_popover_rows_hold_name_description_and_check_only() {
-        let root = temp_lib_root("rows");
-        let mut state = SkillsAttachmentState::with_library_root(root.clone());
-        state.toggle_skill("design-system-rhythm");
-        state.toggle_skill("accessibility-wcag");
-        state.open_picker();
-        assert!(state.budget_line().is_none(), "two small skills are far from both limits");
-        let texts = texts_of(&mut state);
-        assert!(texts.iter().any(|t| t == "Attach skills"), "{texts:?}");
-        for banned in ["BUILT-IN", "built-in", " tokens", "READY", "User skills:", "/skills/", "@0."] {
-            assert!(!texts.iter().any(|t| t.contains(banned)), "{banned:?} is painted: {texts:?}");
-        }
-        assert!(!texts.iter().any(|t| t.contains("/3")), "no count pill in the header: {texts:?}");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn the_budget_line_shows_only_near_or_over_a_limit() {
-        let root = temp_lib_root("budget");
-        let mut state = SkillsAttachmentState::with_library_root(root.clone());
-        let dir = root.join("skills").join("big-one");
-        std::fs::create_dir_all(&dir).unwrap();
-        let body = "a".repeat(29_200);
-        std::fs::write(dir.join("SKILL.md"), format!("---\nname: big-one\ndescription: Near the token budget\nversion: 1.0.0\n---\n\n{body}\n")).unwrap();
-        state.reload_all();
-        state.set_selected_skills(vec!["big-one".into()]);
-        let (line, over) = state.budget_line().expect("7,300 tokens is within 10 % of the budget");
-        assert!(!over);
-        assert!(line.contains("7,3") && line.contains("of 8,000 tokens") && line.contains("1 of 3 skills"), "{line}");
-        state.open_picker();
-        assert!(texts_of(&mut state).iter().any(|t| t.contains("of 8,000 tokens")));
-
-        state.set_selected_skills(vec!["design-system-rhythm".into(), "accessibility-wcag".into(), "component-craft".into()]);
-        assert!(state.budget_line().is_some_and(|(l, over)| !over && l.contains("3 of 3 skills")), "three skills attached is the per-run limit");
-
-        let mut four = state.selected_names.clone();
-        four.push("big-one".into());
-        state.set_selected_skills(four);
-        let (text, over) = state.budget_line().expect("over the limit");
-        assert!(over && text.starts_with("Too many skills"), "{text}");
-        let _ = std::fs::remove_dir_all(&root);
     }
 }

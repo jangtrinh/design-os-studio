@@ -2,14 +2,12 @@
 
 use egui::{Align2, Id, Pos2, Rect, Sense, Ui, Vec2};
 
-use crate::agent_selection_chip::{composer_chip_label, selection_fingerprint};
+use crate::agent_composer_chip_layout::{chip_font, chip_rows, place, selection_visible, CHIP_MIN_W};
+use crate::agent_selection_chip::composer_chip_label;
 use crate::icons::{self, Icon};
 use crate::terminal::TerminalState;
 use crate::theme;
 use crate::widgets::{self, kit};
-
-pub const CHIP_MAX_W: f32 = 148.0;
-const CHIP_MIN_W: f32 = 72.0;
 
 pub struct ChipOut {
     pub rows: usize,
@@ -23,12 +21,8 @@ pub struct ChipOut {
     pub drop_layer: Option<designos_doc::NodeId>,
 }
 
-pub fn chip_rows(p: &egui::Painter, state: &TerminalState, inner_w: f32) -> usize {
-    let widths = chip_widths(p, state);
-    wrap_rows(&widths, inner_w)
-}
-
-pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
+/// Paints the chips in `row`. `widths` is what `chip_widths` measured for this same frame.
+pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect, widths: &[f32]) -> ChipOut {
     let p = ui.painter().clone();
     let mut out = ChipOut {
         rows: 0,
@@ -40,8 +34,7 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         skills_rect: None,
         drop_layer: None,
     };
-    let widths = chip_widths(&p, state);
-    out.rows = wrap_rows(&widths, row.width());
+    out.rows = chip_rows(widths, row.width());
     let mut x = row.left();
     let mut y = row.top();
     let mut slot = 0usize;
@@ -56,10 +49,11 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
             rect,
             TagSpec {
                 id: "agents-composer-chip-selection",
+                salt: 0,
                 label: &label,
                 error: false,
                 dismiss: Some("Dismiss selection"),
-                tip: Some("Send the selection to the agent"),
+                tip: Some(TagTip::Text("Send the selection to the agent")),
                 name: Some("Send selection to agent"),
             },
         );
@@ -77,7 +71,7 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
             ui,
             &p,
             rect,
-            TagSpec { id: "agents-composer-chip-prd", label: "PRD", error: false, dismiss: Some("Remove PRD"), tip: None, name: Some("PRD attached") },
+            TagSpec { id: "agents-composer-chip-prd", salt: 0, label: "PRD", error: false, dismiss: Some("Remove PRD"), tip: None, name: Some("PRD attached") },
         )
         .dismiss
         {
@@ -90,13 +84,20 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         slot += 1;
         let rect = place(&mut x, &mut y, row, w);
         let label = format!("{skills_n} skills");
-        let tip = state.skills.selected_names.join(", ");
         let bad = state.skills.limit_violation().is_some();
         let hit = paint_tag(
             ui,
             &p,
             rect,
-            TagSpec { id: "agents-composer-chip-skills", label: &label, error: bad, dismiss: Some("Detach skills"), tip: Some(&tip), name: None },
+            TagSpec {
+                id: "agents-composer-chip-skills",
+                salt: 0,
+                label: &label,
+                error: bad,
+                dismiss: Some("Detach skills"),
+                tip: Some(TagTip::Names(&state.skills.selected_names)),
+                name: None,
+            },
         );
         out.skills_rect = Some(rect);
         out.skills_clear = hit.dismiss;
@@ -105,67 +106,12 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
     for (i, chip) in state.active_composer().chips.iter().enumerate() {
         let w = widths.get(slot + i).copied().unwrap_or(CHIP_MIN_W);
         let rect = place(&mut x, &mut y, row, w);
-        let id = format!("agents-composer-chip-{}", chip.node_id.0);
-        if paint_tag(ui, &p, rect, TagSpec { id: &id, label: &chip.name, error: false, dismiss: None, tip: None, name: None }).body {
+        let spec = TagSpec { id: "agents-composer-chip", salt: chip.node_id.0 as usize, label: &chip.name, error: false, dismiss: None, tip: None, name: None };
+        if paint_tag(ui, &p, rect, spec).body {
             out.drop_layer = Some(chip.node_id);
         }
-        widgets::record(ui, "agents-composer-chip", rect);
     }
     out
-}
-
-pub(crate) fn selection_visible(state: &TerminalState) -> bool {
-    let summary = &state.composer_selection;
-    summary.count > 0 && state.active_composer().selection_chip_dismissed != Some(selection_fingerprint(summary))
-}
-
-fn chip_widths(p: &egui::Painter, state: &TerminalState) -> Vec<f32> {
-    let font = chip_font();
-    let mut widths = Vec::new();
-    if selection_visible(state) {
-        widths.push(tag_w(p, &composer_chip_label(&state.composer_selection).unwrap_or_default(), &font));
-    }
-    if state.active_composer().attach_prd {
-        widths.push(tag_w(p, "PRD", &font));
-    }
-    let n = state.skills.selected_names.len();
-    if n > 0 {
-        widths.push(tag_w(p, &format!("{n} skills"), &font));
-    }
-    for chip in &state.active_composer().chips {
-        widths.push(tag_w(p, &chip.name, &font));
-    }
-    widths
-}
-
-fn tag_w(p: &egui::Painter, label: &str, font: &egui::FontId) -> f32 {
-    (widgets::text_width(p, label, font) + theme::INSET_BUTTON * 2.0 + theme::TARGET_MIN).clamp(CHIP_MIN_W, CHIP_MAX_W)
-}
-
-fn wrap_rows(widths: &[f32], inner_w: f32) -> usize {
-    if widths.is_empty() {
-        return 0;
-    }
-    let mut rows = 1usize;
-    let mut x = 0.0;
-    for w in widths {
-        if x > 0.0 && x + w > inner_w {
-            rows += 1;
-            x = 0.0;
-        }
-        x += w + theme::SPACE_ROW;
-    }
-    rows
-}
-
-fn place(x: &mut f32, y: &mut f32, row: Rect, w: f32) -> Rect {
-    if *x > row.left() && *x + w > row.right() {
-        *x = row.left();
-        *y += theme::BADGE_MD + theme::SPACE_ROW;
-    }
-    let rect = Rect::from_min_size(Pos2::new(*x, *y), Vec2::new(w, theme::BADGE_MD));
-    *x = rect.right() + theme::SPACE_ROW;
-    rect
 }
 
 struct TagHit {
@@ -174,16 +120,24 @@ struct TagHit {
 }
 
 struct TagSpec<'a> {
-    id: &'a str,
+    /// The recorded name of the chip; with a non-zero `salt` it makes the widget id, so no frame builds an id string.
+    id: &'static str,
+    salt: usize,
     label: &'a str,
     error: bool,
     dismiss: Option<&'a str>,
-    tip: Option<&'a str>,
+    tip: Option<TagTip<'a>>,
     name: Option<&'a str>,
 }
 
+/// A chip tooltip, built only while it is shown.
+enum TagTip<'a> {
+    Text(&'static str),
+    Names(&'a [String]),
+}
+
 fn paint_tag(ui: &mut Ui, p: &egui::Painter, rect: Rect, spec: TagSpec<'_>) -> TagHit {
-    let resp = ui.interact(rect, Id::new(spec.id), Sense::click());
+    let resp = ui.interact(rect, if spec.salt == 0 { Id::new(spec.id) } else { Id::new((spec.id, spec.salt)) }, Sense::click());
     // The kit's `Tag/Chip`: control radius, text-xs medium label, a 14 px close glyph. The error chip swaps the colours only.
     let look = kit::tag_look(if resp.hovered() { kit::State::Hover } else { kit::State::Default });
     let (fill, border, text) =
@@ -201,12 +155,17 @@ fn paint_tag(ui: &mut Ui, p: &egui::Painter, rect: Rect, spec: TagSpec<'_>) -> T
         kit::focus_ring(p, rect, theme::RADIUS_CONTROL as f32);
     }
     if let Some(tip) = spec.tip {
-        resp.clone().on_hover_text(tip);
+        resp.clone().on_hover_ui(|ui| {
+            match tip {
+                TagTip::Text(text) => ui.label(text),
+                TagTip::Names(names) => ui.label(names.join(", ")),
+            };
+        });
     }
     let mut dismiss = false;
     if let Some(name) = spec.dismiss {
         let x = Rect::from_min_size(Pos2::new(rect.right() - theme::TARGET_MIN, rect.top()), Vec2::new(theme::TARGET_MIN, rect.height()));
-        let xr = ui.interact(x, Id::new(format!("{}-x", spec.id)), Sense::click());
+        let xr = ui.interact(x, Id::new((spec.id, spec.salt, "dismiss")), Sense::click());
         let glyph = kit::tag_look(if xr.hovered() { kit::State::Hover } else { kit::State::Default }).icon;
         icons::paint(p, Icon::Close, x.center(), theme::FONT_SIZE_TEXT_SM, glyph);
         widgets::labelled(ui, xr.id, egui::accesskit::Role::Button, name);
@@ -216,8 +175,4 @@ fn paint_tag(ui: &mut Ui, p: &egui::Painter, rect: Rect, spec: TagSpec<'_>) -> T
         dismiss = xr.clicked();
     }
     TagHit { body: resp.clicked() && !dismiss, dismiss }
-}
-
-fn chip_font() -> egui::FontId {
-    theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Medium)
 }

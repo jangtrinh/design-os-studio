@@ -305,3 +305,57 @@ fn the_next_new_chat_after_a_send_starts_empty() {
     assert!(s.shell.app.terminal.unattached_composer.history.is_empty(), "and holds none of the sent text in its history");
     finish(s);
 }
+
+#[test]
+fn the_pill_repaints_on_its_own_while_probes_run_and_names_the_agent_when_they_end() {
+    use crate::agent_cli_catalog::{CatalogProbeCache, CommandOutput, RunCommand, PROBE_TIMEOUT};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// Holds every probe until the test opens the gate, then answers as an installed, signed-in Claude Code.
+    struct GatedRunner {
+        open: Arc<AtomicBool>,
+    }
+    impl RunCommand for GatedRunner {
+        fn is_installed(&self, binary: &str, _install_folders: &[std::path::PathBuf]) -> bool {
+            let give_up = Instant::now() + Duration::from_secs(10);
+            while !self.open.load(Ordering::SeqCst) && Instant::now() < give_up {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            binary == "claude"
+        }
+        fn run(&self, argv: &[&str], _install_folders: &[std::path::PathBuf], _timeout: Duration) -> CommandOutput {
+            match argv {
+                ["claude", "--version"] => CommandOutput::ok("2.1.302 (Claude Code)\n"),
+                ["claude", "auth", "status"] => CommandOutput::ok(r#"{"loggedIn": true}"#),
+                _ => CommandOutput::exited(1, "", ""),
+            }
+        }
+    }
+
+    let gate = Arc::new(AtomicBool::new(false));
+    let mut s = Sim::new();
+    s.use_stub_agent_clis();
+    s.shell.app.terminal.session_registry.last_cli = None;
+    s.shell.app.terminal.picker.cache = CatalogProbeCache::new(Arc::new(GatedRunner { open: gate.clone() }), PROBE_TIMEOUT);
+    // egui keeps the `file:line` of every repaint request of a pass, whatever its delay.
+    let composer_asked = |s: &Sim| s.ctx.repaint_causes().iter().any(|cause| cause.to_string().contains("agent_composer.rs"));
+    s.cmd_key(Key::Backtick);
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.picker.cache.is_probing(), "the probes are held");
+    assert!(composer_asked(&s), "while probes run, the composer asks for a repaint soon: {:?}", s.ctx.repaint_causes());
+    assert!(!painted(&s).iter().any(|t| t == "Claude Code"), "nothing is known yet: {:?}", painted(&s));
+
+    gate.store(true, Ordering::SeqCst);
+    let give_up = Instant::now() + Duration::from_secs(10);
+    while s.shell.app.terminal.picker.cache.is_probing() && Instant::now() < give_up {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!s.shell.app.terminal.picker.cache.is_probing(), "the probes finished");
+    s.frame(vec![]);
+    assert!(painted(&s).iter().any(|t| t == "Claude Code"), "the next frame, with no input, names the agent: {:?}", painted(&s));
+    frames(&mut s, 2);
+    assert!(!composer_asked(&s), "and the poll stops once they are done: {:?}", s.ctx.repaint_causes());
+    finish(s);
+}

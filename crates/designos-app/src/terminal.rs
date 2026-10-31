@@ -6248,9 +6248,7 @@ fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, panel_re
     crate::agent_picker::render_runtime_dropdown_menu(state, ui, panel_rect, top_y, file_path);
 }
 
-/// Renders the one-line "Worked for" receipt row (`#683` §3.4, §5):
-/// 24px row height, 8px horizontal padding, `theme::font_caption()` in `theme::TEXT_SECONDARY` (`#A1A1AA`),
-/// numbers in `theme::font_mono()`. Clicking the receipt row toggles the per-turn summary (`#677`).
+/// Paints the remembered session grants above the composer and returns their height.
 fn paint_session_grants(state: &mut TerminalState, ui: &mut Ui, top: f32, panel: Rect) -> f32 {
     let now = crate::agent_sessions::unix_timestamp_secs();
     let grants = state.session_grants.list(&state.session_id, now);
@@ -6261,6 +6259,9 @@ fn paint_session_grants(state: &mut TerminalState, ui: &mut Ui, top: f32, panel:
     height
 }
 
+/// Renders the one-line "Worked for" receipt row (`#683` §3.4, §5):
+/// 24px row height, 8px horizontal padding, `theme::font_caption()` in `theme::TEXT_SECONDARY` (`#A1A1AA`),
+/// numbers in `theme::font_mono()`. Clicking the receipt row toggles the per-turn summary (`#677`).
 fn paint_turn_receipt_row(
     state: &mut TerminalState,
     actions: &mut Vec<TerminalAction>,

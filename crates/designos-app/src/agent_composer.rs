@@ -978,11 +978,17 @@ pub fn show_composer(
     let new_chat = state.in_new_chat();
     let composer_live = !is_shell_tab || new_chat;
     let (pill_label, pill_preset) = crate::agent_picker::composer_pill(state);
+    if state.picker.cache.is_probing() {
+        // The pill and the placeholder name the agent a Send would start. Probes finish on another thread and no input follows them, so
+        // poll until they are done: the pill then changes on its own and the window goes quiet again.
+        ui.ctx().request_repaint_after(crate::agent_picker::PROBE_REPAINT);
+    }
     let draft_snapshot = state.composer_draft().to_string();
     let margin = theme::SPACE_GROUP;
     let inner_w = (panel_rect.width() - margin * 2.0 - theme::SPACE_ROW * 2.0).max(theme::CONTROL_MD);
-    let chip_row_n = crate::agent_composer_chips::chip_rows(&p, state, inner_w);
-    let caption_text = crate::agent_composer_toolbar::caption(state);
+    let chip_widths = crate::agent_composer_chip_layout::chip_widths(&p, state);
+    let chip_row_n = crate::agent_composer_chip_layout::chip_rows(&chip_widths, inner_w);
+    let caption_text = crate::agent_composer_text::caption(state);
     let box_h = composer_chrome_height(&draft_snapshot, chip_row_n, caption_text.is_some());
     let comp_top = (panel_rect.bottom() - margin - box_h).max(min_top_y + MIN_CENTER_HEIGHT);
     let comp_bottom = (comp_top + box_h).min(panel_rect.bottom() - theme::SPACE_FACT);
@@ -1069,7 +1075,7 @@ pub fn show_composer(
     if chip_row_n > 0 {
         let chip_h = chip_row_n as f32 * (theme::BADGE_MD + theme::SPACE_ROW);
         let chip_row = Rect::from_min_size(Pos2::new(composer_rect.left() + theme::SPACE_ROW, content_top), Vec2::new(inner_w, chip_h));
-        let chips = crate::agent_composer_chips::paint_chips(ui, state, chip_row);
+        let chips = crate::agent_composer_chips::paint_chips(ui, state, chip_row, &chip_widths);
         skills_anchor = chips.skills_rect;
         if chips.select_hide {
             let finger = crate::agent_selection_chip::selection_fingerprint(&state.composer_selection);
@@ -1108,7 +1114,7 @@ pub fn show_composer(
 
     let hint_owned = if state.composer_draft().is_empty() {
         let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current();
-        crate::agent_composer_toolbar::placeholder(state, &pill_label, is_shell_tab, any_cli)
+        crate::agent_composer_text::placeholder(state, &pill_label, is_shell_tab, any_cli)
     } else {
         String::new()
     };

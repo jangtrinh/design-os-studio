@@ -1,31 +1,16 @@
 //! One-row agents header: session tabs, Stop, new chat and more.
 
+use crate::agent_header_tabs::{layout_tabs, paint_tab};
 use crate::agent_stop;
 use crate::icons::{self, Icon};
-use crate::terminal::{AgentTabStatus, TerminalState, TerminalTab, TERMINAL_HEADER_H, TERM_BG_BAR, TERM_BORDER};
+use crate::terminal::{TerminalState, TERMINAL_HEADER_H, TERM_BG_BAR, TERM_BORDER};
 use crate::theme;
 use crate::widgets;
-use crate::widgets::kit::{self, button_look, paint_frame, status_dot, tab_look, DotTone, Hierarchy};
-use egui::{Align2, Id, Pos2, Rect, Sense, Ui, Vec2};
+use crate::widgets::kit::{self, button_look, paint_frame, status_dot, DotTone, Hierarchy};
+use egui::{Id, Pos2, Rect, Sense, Ui, Vec2};
 
 const TAB_H: f32 = 24.0;
-const TAB_FLOOR: f32 = 56.0;
-const TAB_MANY: f32 = 82.0;
-const TAB_ONE_MIN: f32 = 104.0;
-const TAB_PAD: f32 = 40.0;
-const FIT_SLACK: f32 = 48.0;
 const MORE_DOT_RADIUS: f32 = 1.2;
-
-struct DrawnTab {
-    idx: Option<usize>,
-    tab_id: usize,
-    title: String,
-    /// Screen-reader name: the title, with `(exited)` once the agent ended.
-    a11y: String,
-    tip: String,
-    dot: Option<DotTone>,
-    width: f32,
-}
 
 /// Paints the header and returns its rect. A press on `+` opens New chat and focuses the composer.
 pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
@@ -67,8 +52,13 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
     icons::paint(&p, Icon::Plus, plus.center(), theme::LAYER_ICON_SIZE, icon_color(&plus_resp, state.picker_open));
     crate::agent_composer_menus::remember(ui.ctx(), "agents-new-chat-btn-rect", plus);
 
-    let more_tip = if hidden_needs > 0 { format!("{hidden_needs} waiting") } else { "More".to_string() };
-    let more_resp = ui.interact(more, Id::new("agents-more-btn"), Sense::click()).on_hover_text(more_tip);
+    let more_resp = ui.interact(more, Id::new("agents-more-btn"), Sense::click()).on_hover_ui(|ui| {
+        if hidden_needs > 0 {
+            ui.label(format!("{hidden_needs} waiting"));
+        } else {
+            ui.label("More");
+        }
+    });
     paint_icon_btn(ui, &p, more, &more_resp, state.sessions_popover_open, "agents-more-btn", "More");
     let dot_col = icon_color(&more_resp, state.sessions_popover_open);
     for dx in [-theme::SPACE_FACT, 0.0, theme::SPACE_FACT] {
@@ -123,122 +113,6 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
     bar
 }
 
-fn layout_tabs(state: &TerminalState, p: &egui::Painter, left: f32, right: f32) -> (Vec<DrawnTab>, usize) {
-    let now = crate::agent_sessions::unix_timestamp_secs();
-    let pending = !state.pending_approvals.is_empty();
-    let mut slots: Vec<DrawnTab> = state
-        .tabs
-        .iter()
-        .enumerate()
-        .map(|(idx, tab)| DrawnTab {
-            idx: Some(idx),
-            tab_id: tab.id,
-            title: tab.title.clone(),
-            a11y: tab.display_title(),
-            tip: tab_tip(tab, now),
-            dot: tab_dot(tab, idx == state.active_tab, pending),
-            width: 0.0,
-        })
-        .collect();
-    if state.in_new_chat() {
-        slots.push(DrawnTab {
-            idx: None,
-            tab_id: 0,
-            title: "New chat".to_string(),
-            a11y: "New chat".to_string(),
-            tip: "New chat".to_string(),
-            dot: None,
-            width: 0.0,
-        });
-    }
-    let total = slots.len();
-    let dots: Vec<Option<DotTone>> = slots.iter().map(|s| s.dot).collect();
-    let mut x = left;
-    let mut hidden_from = slots.len();
-    for (i, slot) in slots.iter_mut().enumerate() {
-        let room = right - x;
-        if x + FIT_SLACK > right || room < TAB_FLOOR {
-            hidden_from = i;
-            break;
-        }
-        let width = if total == 1 {
-            let title_w = widgets::text_width(p, &slot.title, &theme::font_caption()) + TAB_PAD;
-            TAB_ONE_MIN.max(title_w).min(room.max(TAB_FLOOR))
-        } else {
-            TAB_MANY.min(((right - x) / (total as f32)).max(TAB_FLOOR)).min(room)
-        };
-        if width < TAB_FLOOR {
-            hidden_from = i;
-            break;
-        }
-        slot.width = width;
-        x += width + theme::SPACE_ROW;
-    }
-    let hidden_needs = dots[hidden_from..].iter().filter(|d| d.is_some()).count();
-    let drawn = slots.into_iter().take(hidden_from).filter(|s| s.width >= TAB_FLOOR).collect();
-    (drawn, hidden_needs)
-}
-
-fn paint_tab(ui: &mut Ui, p: &egui::Painter, t_rect: Rect, tab: &DrawnTab, selected: bool, no_sessions: bool) -> (bool, bool) {
-    let close_w = theme::TARGET_MIN;
-    let close_rect = Rect::from_min_size(Pos2::new(t_rect.right() - close_w, t_rect.top()), Vec2::new(close_w, t_rect.height()));
-    let show_close = tab.idx.is_some() || !no_sessions;
-    let hit = if show_close { Rect::from_min_max(t_rect.min, Pos2::new(close_rect.left(), t_rect.bottom())) } else { t_rect };
-    let id = if tab.idx.is_none() { Id::new("agents-new-chat-tab") } else { Id::new(("agents-left-tab-select", tab.tab_id)) };
-    let resp = ui.interact(hit, id, Sense::click()).on_hover_text(&tab.tip);
-    let close_id = if tab.idx.is_none() { Id::new("agents-new-chat-tab-close") } else { Id::new(("agents-left-tab-close", tab.tab_id)) };
-    let close_resp = if show_close { Some(ui.interact(close_rect, close_id, Sense::click())) } else { None };
-    let hot = resp.hovered() || close_resp.as_ref().is_some_and(|r| r.hovered());
-    let state = if selected {
-        kit::State::Selected
-    } else if hot {
-        kit::State::Hover
-    } else {
-        kit::State::Default
-    };
-    let paint = tab_look(state);
-    paint_frame(p, t_rect, theme::RADIUS_CONTROL, &paint);
-    if selected {
-        p.rect_filled(
-            Rect::from_min_max(
-                Pos2::new(t_rect.left() + theme::SPACE_FACT, t_rect.bottom() - theme::INSET_SEGMENT),
-                Pos2::new(t_rect.right() - theme::SPACE_FACT, t_rect.bottom()),
-            ),
-            theme::cr_pill(theme::INSET_SEGMENT),
-            theme::BORDER_SELECTED,
-        );
-    }
-    let mut label_x = t_rect.left() + theme::SPACE_INLINE;
-    if let Some(tone) = tab.dot {
-        let center = Pos2::new(label_x + theme::SPACE_FACT, t_rect.center().y);
-        status_dot(p, center, tone);
-        widgets::record(ui, &format!("agents-tab-dot-{}", tab.tab_id), Rect::from_center_size(center, Vec2::splat(theme::SPACE_INLINE)));
-        label_x = center.x + theme::SPACE_INLINE;
-    }
-    let label_right = if show_close { close_rect.left() } else { t_rect.right() - theme::SPACE_INLINE };
-    let title = widgets::elide(p, &tab.title, &theme::font_caption(), (label_right - label_x).max(theme::SPACE_INLINE));
-    let color = if selected { theme::TEXT } else { paint.text };
-    p.text(Pos2::new(label_x, t_rect.center().y), Align2::LEFT_CENTER, title, theme::font_caption(), color);
-    let focused = ui.memory(|m| m.has_focus(resp.id));
-    if focused {
-        kit::focus_ring(p, t_rect, theme::RADIUS_CONTROL as f32);
-    }
-    if let Some(cr) = &close_resp {
-        let close_focused = ui.memory(|m| m.has_focus(cr.id));
-        if selected || hot || focused || close_focused {
-            icons::paint(p, Icon::Close, close_rect.center(), theme::FONT_SIZE_TEXT_XS, theme::ICON_TERTIARY);
-        }
-        if close_focused {
-            kit::focus_ring(p, close_rect, theme::RADIUS_CONTROL as f32);
-        }
-        widgets::labelled(ui, cr.id, egui::accesskit::Role::Button, "Close tab");
-    }
-    let record_name = if tab.idx.is_none() { "agents-new-chat-tab" } else { "agents-left-tab-select" };
-    widgets::record(ui, record_name, t_rect);
-    widgets::labelled(ui, resp.id, egui::accesskit::Role::Tab, &tab.a11y);
-    (resp.clicked(), close_resp.is_some_and(|r| r.clicked()))
-}
-
 fn paint_icon_btn(ui: &Ui, p: &egui::Painter, rect: Rect, resp: &egui::Response, selected: bool, name: &str, label: &str) {
     let paint = button_look(Hierarchy::Icon, kit::state_of(resp, selected, true));
     paint_frame(p, rect, theme::RADIUS_CONTROL, &paint);
@@ -251,27 +125,4 @@ fn paint_icon_btn(ui: &Ui, p: &egui::Painter, rect: Rect, resp: &egui::Response,
 
 fn icon_color(resp: &egui::Response, selected: bool) -> egui::Color32 {
     button_look(Hierarchy::Icon, kit::state_of(resp, selected, true)).icon
-}
-
-fn tab_dot(tab: &TerminalTab, active: bool, pending: bool) -> Option<DotTone> {
-    let crashed = !tab.exited_notice_shown && matches!(tab.effective_status(), AgentTabStatus::Error(_));
-    if crashed || tab.start_failure.is_some() || tab.session_failure.is_some() {
-        return Some(DotTone::Error);
-    }
-    if tab.exited_notice_shown {
-        return None;
-    }
-    let waiting = tab.needs_approval() || (active && pending) || matches!(tab.effective_status(), AgentTabStatus::WaitingForInput(_));
-    waiting.then_some(DotTone::Info)
-}
-
-fn tab_tip(tab: &TerminalTab, now: u64) -> String {
-    let mut lines = vec![tab.display_title()];
-    if let Some((_, text)) = tab.header_status_indicator(now) {
-        lines.push(text);
-    }
-    if let Some(usage) = tab.usage_tooltip_text() {
-        lines.push(usage);
-    }
-    lines.join("\n")
 }
