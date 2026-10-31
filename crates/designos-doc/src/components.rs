@@ -1515,10 +1515,9 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
     // --- node properties ---
     let mut n = inode.clone();
     if !top && instance_component(&inode) != slot_comp {
-        if let Some(slot_rn) = c.s.get(r).cloned() {
-            let mut node_ref = slot_rn.clone();
+        if let Some(mut node_ref) = c.s.get(r).cloned() {
             let orig_slot_comp = slot_comp.and_then(|oc| c.s.get(oc));
-            let slot_ov = orig_slot_comp.map(|oc| record_override(oc, &slot_rn)).unwrap_or_default();
+            let slot_ov = orig_slot_comp.map(|oc| record_override(oc, &node_ref)).unwrap_or_default();
             node_ref.size = inst_slot_size;
             let keep_x = orig_slot_comp.is_some_and(|oc| (inst_slot_size.x - oc.size.x).abs() > 1e-4);
             let keep_y = orig_slot_comp.is_some_and(|oc| (inst_slot_size.y - oc.size.y).abs() > 1e-4);
@@ -1537,7 +1536,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
                 OverrideField::CornerRadii,
                 OverrideField::Layout,
             ] {
-                if !slot_rn.component.overrides.contains(&f) && !slot_ov.contains(&f) {
+                if !node_ref.component.overrides.contains(&f) && !slot_ov.contains(&f) {
                     copy_field(f, &rn, &mut node_ref);
                 }
             }
