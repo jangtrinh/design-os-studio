@@ -326,7 +326,7 @@ fn append_inline_child(
 fn apply_semantic_tag_style(tag: &str, style: &mut TextStyle) {
     let lower = tag.to_ascii_lowercase();
     if matches!(lower.as_str(), "strong" | "b") && style.font_weight < 600 {
-        style.font_weight = 700;
+        style.set_font_weight(700);
     }
     if matches!(lower.as_str(), "em" | "i") {
         style.italic = true;

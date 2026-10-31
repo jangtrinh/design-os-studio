@@ -114,7 +114,7 @@ pub fn weight_in_step(f: impl Fn(&mut TextStyle)) -> impl Fn(&mut TextStyle) {
         let (weight, axis) = (st.font_weight, st.get_axis("wght"));
         f(st);
         if axis.is_some() && st.font_weight != weight && st.get_axis("wght") == axis {
-            st.set_axis("wght", f32::from(st.font_weight));
+            st.set_font_weight(st.font_weight);
         }
     }
 }

@@ -679,7 +679,7 @@ fn style_fn(cmd: TextCmd, sum: Option<&richtext::Summary>) -> impl Fn(&mut TextS
     let italic = sum.and_then(|s| s.italic) == Some(true);
     let underline = sum.and_then(|s| s.decoration) == Some(TextDecoration::Underline);
     move |st: &mut TextStyle| match cmd {
-        TextCmd::Bold => st.font_weight = if bold { 400 } else { 700 },
+        TextCmd::Bold => st.set_font_weight(if bold { 400 } else { 700 }),
         TextCmd::Italic => st.italic = !italic,
         TextCmd::Underline => st.decoration = if underline { TextDecoration::None } else { TextDecoration::Underline },
         TextCmd::SizeUp => st.font_size = (st.font_size + 1.0).min(1000.0),

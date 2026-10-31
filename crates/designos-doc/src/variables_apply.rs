@@ -223,7 +223,7 @@ fn apply_font_style_str(s: &mut TextStyle, val: &str) {
     let low = val.to_ascii_lowercase();
     s.italic = low.contains("italic") || low.contains("oblique");
     if let Some(w) = font_style_weight(val) {
-        s.font_weight = w;
+        s.set_font_weight(w);
     }
 }
 
@@ -449,7 +449,7 @@ pub fn set_bound_property(n: &mut Node, key: &str, value: &VariableValue) {
             if let NodeKind::Text(t) = &mut n.kind {
                 let apply = |s: &mut TextStyle| match key {
                     "fontSize" => s.font_size = x.max(1.0),
-                    "fontWeight" => s.font_weight = x.round().clamp(1.0, 1000.0) as u16,
+                    "fontWeight" => s.set_font_weight(x.round().clamp(1.0, 1000.0) as u16),
                     "lineHeight" => s.line_height = LineHeight::Pixels(x.max(0.0)),
                     "paragraphSpacing" => s.paragraph_spacing = x.max(0.0),
                     _ => s.letter_spacing = x,
@@ -505,7 +505,7 @@ pub fn set_bound_style_property(style: &mut Style, key: &str, value: &VariableVa
             }
             ("fontWeight", _) => {
                 if let Some(x) = number_of(value) {
-                    ts.font_weight = x.round().clamp(1.0, 1000.0) as u16;
+                    ts.set_font_weight(x.round().clamp(1.0, 1000.0) as u16);
                 }
             }
             ("lineHeight", _) => {
@@ -706,6 +706,19 @@ mod tests {
         assert!(t.visible);
         // raw node is untouched
         assert_eq!(d.get(frame).unwrap().size.x, 100.0);
+    }
+
+    #[test]
+    fn font_weight_binding_keeps_wght_axis_in_sync() {
+        let mut n = Node::text(NodeId(1), Rect::new(0.0, 0.0, 20.0, 20.0), "text", TextStyle::default());
+        let NodeKind::Text(t) = &mut n.kind else { panic!() };
+        t.style.set_axis("wght", 400.0);
+
+        set_bound_property(&mut n, "fontWeight", &VariableValue::Number(700.0));
+
+        let NodeKind::Text(t) = n.kind else { panic!() };
+        assert_eq!(t.style.font_weight, 700);
+        assert_eq!(t.style.get_axis("wght"), Some(700.0));
     }
 
     #[test]

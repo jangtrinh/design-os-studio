@@ -214,7 +214,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     let cur = sum.weight.map(weight_name).unwrap_or("Mixed");
     if let Some(i) = dropdown(ui, pane.col(0, 0.0), "font-weight", cur, &names) {
         let w = WEIGHTS[i].1;
-        set_style(app, sel, |s| s.font_weight = w);
+        set_style(app, sel, |s| s.set_font_weight(w));
     }
     let fs_r = pane.col(1, 0.0);
     if let Some(v) = var_bind::numeric(app, ui, fs_r, sel, &["fontSize"], |ui| field::num_field(ui, fs_r, "font-size", Prefix::Text("S"), sum.size, "")) {

@@ -866,7 +866,7 @@ impl Document {
             "text" => {
                 let mut style = TextStyle::default();
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(14.0);
-                style.font_weight = spec.font_weight.unwrap_or(400);
+                style.set_font_weight(spec.font_weight.unwrap_or(400));
                 style.fills = vec![Paint::solid(crate::default_text_colour(self, parent))];
                 let content = if text_var.is_some() { String::new() } else { spec.text.clone().unwrap_or_default() };
                 Node::text(id, rect, content, style)
@@ -1414,7 +1414,7 @@ impl Document {
                 })?;
                 let mut style = TextStyle::default();
                 style.font_size = spec.font_size.as_ref().and_then(NumberOrVar::as_num).unwrap_or(13.0);
-                style.font_weight = spec.font_weight.unwrap_or(500);
+                style.set_font_weight(spec.font_weight.unwrap_or(500));
                 style.fills = vec![Paint::solid(crate::default_text_colour(self, id))];
                 let initial = if text_var.is_some() { String::new() } else { label.clone() };
                 let mut tnode = Node::text(tid, Rect::new(0.0, 0.0, 60.0, 18.0), initial, style);
@@ -1558,7 +1558,7 @@ impl Document {
         if let Some(fw) = spec.font_weight {
             if let Some(n) = self.get_mut(id) {
                 if let NodeKind::Text(tp) = &mut n.kind {
-                    tp.style.font_weight = fw;
+                    tp.style.set_font_weight(fw);
                 }
             }
         }

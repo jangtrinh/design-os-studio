@@ -295,7 +295,7 @@ pub(crate) fn apply_type_style(ts: &mut TextStyle, v: &Value) {
         ts.font_family = f.to_string();
     }
     if let Some(w) = fnum(v, "fontWeight") {
-        ts.font_weight = w.round().clamp(1.0, 1000.0) as u16;
+        ts.set_font_weight(w.round().clamp(1.0, 1000.0) as u16);
     }
     if let Some(i) = fbool(v, "italic") {
         ts.italic = i;
