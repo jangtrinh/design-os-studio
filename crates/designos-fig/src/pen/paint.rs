@@ -581,10 +581,11 @@ pub fn parse_effects(effect_val: Option<&Value>, doc: &Document) -> Vec<Effect> 
                     .unwrap_or(4.0);
                 let radius = obj.get("blur").or_else(|| obj.get("radius")).and_then(|b| resolve_num_or_var(b, doc)).unwrap_or(8.0);
                 let spread = obj.get("spread").and_then(|s| resolve_num_or_var(s, doc)).unwrap_or(0.0);
+                let blend = obj.get("blend").or_else(|| obj.get("blendMode")).and_then(Value::as_str).map(parse_blend_mode).unwrap_or(BlendMode::Normal);
                 if stype == "inner" {
-                    out.push(Effect::InnerShadow { color, offset: Vec2::new(ox, oy), radius, spread, visible, blend: Default::default() });
+                    out.push(Effect::InnerShadow { color, offset: Vec2::new(ox, oy), radius, spread, visible, blend });
                 } else {
-                    out.push(Effect::DropShadow { color, offset: Vec2::new(ox, oy), radius, spread, visible, show_behind: false, blend: Default::default() });
+                    out.push(Effect::DropShadow { color, offset: Vec2::new(ox, oy), radius, spread, visible, show_behind: false, blend });
                 }
             }
             "blur" | "layer-blur" | "layer_blur" => {

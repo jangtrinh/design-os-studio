@@ -495,6 +495,9 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     if let Some(s) = shadow_value(n) {
         c.push(s);
     }
+    if n.effects.iter().any(|e| matches!(e, Effect::DropShadow { visible: true, blend, .. } | Effect::InnerShadow { visible: true, blend, .. } if !matches!(blend, BlendMode::Normal | BlendMode::PassThrough))) {
+        c.push("designos-shadow-blend-unsupported".into());
+    }
     for e in &n.effects {
         match e {
             Effect::LayerBlur { radius, visible: true } if *radius > 0.0 => c.push(format!("blur-[{}px]", num(radius / 2.0))),
@@ -651,6 +654,30 @@ mod tests {
         assert!(out.contains("w-[313px]"), "{out}");
         assert!(out.contains("rounded-tl-[10px] rounded-tr-[10px]"), "{out}");
         assert!(out.contains("opacity-[0.37]"), "{out}");
+    }
+
+    #[test]
+    fn non_normal_shadow_blend_is_marked_as_unsupported() {
+        let mut d = Document::new("shadow-blend");
+        let page = d.add_page("p");
+        let i = d.alloc_id();
+        let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.effects = vec![Effect::DropShadow {
+            color: Color::BLACK,
+            offset: Vec2::new(0.0, 2.0),
+            radius: 4.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: BlendMode::Multiply,
+        }];
+        let id = d.insert(page, n).unwrap();
+        assert!(tailwind_for(&d, id).contains("designos-shadow-blend-unsupported"));
+
+        if let Effect::DropShadow { blend, .. } = &mut d.get_mut(id).unwrap().effects[0] {
+            *blend = BlendMode::Normal;
+        }
+        assert!(!tailwind_for(&d, id).contains("designos-shadow-blend-unsupported"));
     }
 
     #[test]
