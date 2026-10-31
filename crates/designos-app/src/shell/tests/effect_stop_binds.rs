@@ -449,17 +449,30 @@ fn bound_gradient_stop_locks_color_controls_until_detached() {
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "SV/hue/alpha controls must be locked while stop is bound");
 
-    // 3. Eyedropper button click and canvas sampling path do nothing while the stop is bound.
+    // 3. Eyedropper button click is disabled on a bound stop; if armed on an unbound stop before
+    // switching to the bound stop, sampling the canvas closes the picker without writing to the bound stop.
     s.click(Pos2::new(picker.left() + 28.0, picker.top() + 377.0));
     s.frame(vec![]);
     assert!(!s.app().props.picker.as_ref().unwrap().eyedrop, "eyedropper button must be disabled when stop is bound");
     assert!(s.app().props.eyedropper.is_none());
-    // Even if eyedropper state were armed before selecting a bound stop, sampling the canvas must not write.
-    s.shell.app.props.picker.as_mut().unwrap().eyedrop = true;
-    s.shell.app.props.eyedropper = Some(crate::panels::properties::PickTarget::Fill(0));
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 28.0, picker.top() + 377.0));
+    s.frame(vec![]);
+    assert!(s.app().props.picker.as_ref().unwrap().eyedrop, "eyedropper button must arm on unbound stop 1");
+    s.click(Pos2::new(picker.left() + 16.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().props.picker.as_ref().unwrap().state.sel, 0);
+    assert!(s.app().props.picker.as_ref().unwrap().eyedrop);
     s.click(Pos2::new(500.0, 400.0));
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "eyedropper canvas sample must not write to a bound stop");
+    assert!(s.app().props.picker.is_none(), "canvas click after eyedropper closes the picker as on base");
+
+    // Re-open the fill picker for step 4.
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
 
     // 4. The bound stop's position on the gradient bar stays editable.
     let stop0_handle = Pos2::new(picker.left() + 16.0, picker.top() + 100.0);
@@ -922,4 +935,84 @@ fn deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down() {
     assert_eq!(n.effects.len(), 2);
     assert_eq!(n.variables.bindings.get("effects/0/radius"), Some(&v_blur0));
     assert_eq!(n.variables.bindings.get("effects/1/radius"), Some(&v_blur1));
+}
+
+#[test]
+fn eyedropper_sample_closes_picker_and_commits_one_undo_step() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let depth0 = s.app().hist.undo_depth();
+    s.click(Pos2::new(picker.left() + 28.0, picker.top() + 377.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().props.picker.as_ref().map(|p| p.eyedrop), Some(true), "guard: eyedropper button armed");
+
+    s.click(Pos2::new(500.0, 400.0));
+    s.frame(vec![]);
+    assert!(s.app().props.picker.is_none(), "picker must close after an eyedropper sample as on base");
+    assert_eq!(s.app().hist.undo_depth() - depth0, 1, "eyedropper sample must commit one undo step");
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_ne!(stops[0].color, Color::BLACK, "eyedropper sample must update the stop colour");
+
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_eq!(stops[0].color, Color::BLACK, "one undo restores the pre-sample stop colour");
+}
+
+#[test]
+fn unbound_gradient_picker_session_with_flip_stays_one_undo_step() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+    let original = s.app().doc.get(hero).unwrap().fills.clone();
+
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let depth0 = s.app().hist.undo_depth();
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 184.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 48.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    s.key(Key::Escape);
+    s.frame(vec![]);
+
+    assert!(s.app().props.picker.is_none());
+    assert_eq!(s.app().hist.undo_depth() - depth0, 1, "unbound picker session with flip must stay one undo step");
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().fills, original, "one undo restores original fills after unbound flip session");
 }
