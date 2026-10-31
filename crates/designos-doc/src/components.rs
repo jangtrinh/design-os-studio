@@ -41,6 +41,15 @@ fn nothing() -> Command {
     Command::Batch(Vec::new())
 }
 
+mod log {
+    macro_rules! log_warn {
+        ($($arg:tt)*) => {
+            eprintln!("WARN designos_doc::components: {}", format_args!($($arg)*))
+        };
+    }
+    pub(crate) use log_warn as warn;
+}
+
 // ---------------------------------------------------------------------------
 // Scratch context: applies commands to a private copy so later steps of a
 // multi-node operation see the effect of earlier ones.
@@ -1300,8 +1309,8 @@ fn effective_child_overrides(d: &Document, old_comp: Option<NodeId>, kn: &Node) 
 
 /// Rebuilds the children of instance `i` from `new_comp`, carrying overrides
 /// over to nodes with the same name path.
-fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
-    let Some(inode) = c.s.get(i).cloned() else { return };
+fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) -> usize {
+    let Some(inode) = c.s.get(i).cloned() else { return 0 };
     let old_comp = instance_component(&inode);
     let old_comp_node = old_comp.and_then(|oc| c.s.get(oc)).cloned();
     let top_swap = is_top(&inode);
@@ -1347,12 +1356,15 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
     collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried, &mut dropped_inner_swaps);
-    let _ = dropped_inner_swaps;
+    if dropped_inner_swaps > 0 {
+        log::warn!("swap_main on instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s)");
+    }
+    c.dropped_inner_swaps += dropped_inner_swaps;
 
     for k in inode.children.clone() {
         c.push(Command::Remove { id: k });
     }
-    let Some(comp) = c.s.get(new_comp).cloned() else { return };
+    let Some(comp) = c.s.get(new_comp).cloned() else { return dropped_inner_swaps };
     let mut idx = 0;
     for k in comp.children.clone() {
         let nodes = copy_tree(&mut c.s, k, true);
@@ -1448,6 +1460,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
         c.update(nn);
     }
+    dropped_inner_swaps
 }
 
 /// Brings instance node `i` in line with its reference `r`. `seen` holds the mains whose content `r` sits in or
@@ -6225,7 +6238,8 @@ mod tests {
         crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
         gn.component.overrides.extend(record_override(&before, &gn));
         apply(d, Command::Update { node: Box::new(gn) });
-        let c = add_prop(d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
+        let c =
+            add_prop(d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
         apply(d, c);
         let c = bind_prop(d, slot, OverrideField::MainComponent, Some("Icon"));
         apply(d, c);
@@ -6236,7 +6250,8 @@ mod tests {
     fn r4_cross_kind_size_carry_matrix() {
         let placed = |b: (f32, f32, f32, f32), t: Affine| (b.0 + t.tx, b.1 + t.ty, b.2 + t.tx, b.3 + t.ty);
         let mut bad = Vec::new();
-        for (ka, kb) in [("vector", "vector"), ("vector", "boolean"), ("boolean", "vector"), ("vector", "ellipse"), ("vector", "frame"), ("ellipse", "vector")] {
+        for (ka, kb) in [("vector", "vector"), ("vector", "boolean"), ("boolean", "vector"), ("vector", "ellipse"), ("vector", "frame"), ("ellipse", "vector")]
+        {
             let mut d = Document::new("xk");
             let page = d.add_page("P");
             let a = icon_of_kind(&mut d, page, "Icon/A", 0.0, ka);
