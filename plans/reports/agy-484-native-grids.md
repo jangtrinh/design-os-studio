@@ -357,3 +357,301 @@ Output:
 ```
 
 Status: DONE
+
+
+---
+
+## Round 2
+
+### 1. Summary of Round 2 Fixes (`B1`–`B3`, `M1`–`M5`, `D3`, Minor `9a`/`9b`/`9c`/`9d`)
+
+1. **B1 — Overlapping grid cells in SwiftUI, Compose, and UIKit (`codegen.rs`, `swiftui.rs`, `compose.rs`, `uikit.rs`):**
+   - Added `GridCellGroup`, `StackedGridChild`, `SolvedGrid::cell_origin`, `SolvedGrid::row_cells(r)`, and `SolvedGrid::overlap_comment` in `crates/designos-export/src/codegen.rs`.
+   - When multiple flow children land in the same `(row, col)` or inside an earlier child's `col_span` in row `r`, `row_cells(r)` groups the later children into the primary cell's `stacked` list with solver-derived relative offsets `(rect.x - cell_origin.x, rect.y - cell_origin.y)` and emits `// "<name>": overlapping grid cells stacked in the cell of "<primary>"`.
+   - **SwiftUI (`swiftui.rs`):** Wraps the primary child and stacked children in `ZStack(alignment: .topLeading) { ... }` inside the `GridRow` cell frame and applies `.offset(x:, y:)` to each stacked child.
+   - **Compose (`compose.rs`):** Emits the primary child and stacked children (via `emit_with_offset`) inside the `item { Box(Modifier.height(...), contentAlignment = ...) { ... } }` cell wrapper.
+   - **UIKit (`uikit.rs`):** Adds stacked children to the same `cell_v` `UIView` via `Host::Cell { parent: &cell_v, align_h: GridChildAlign::Start, align_v: GridChildAlign::Start, offset: Some(s.offset) }` with `leadingAnchor` and `topAnchor` constants equal to the solver offset.
+2. **B2 — Out-of-flow / variable-hidden children in Compose (`compose.rs`):**
+   - When `kids` contains children not in `grid.children` (`has_oof`), `compose.rs` wraps `LazyVerticalGrid` in an outer `Box` carrying the frame's size and visual style modifiers, gives the inner `LazyVerticalGrid` `.fillMaxSize()` + padding, and emits the out-of-flow children inside the outer `Box` after `LazyVerticalGrid` closes (never inside the `LazyGridScope` lambda).
+3. **B3 — Component slot frame with `LayoutDirection::Grid` (`swiftui.rs`, `compose.rs`):**
+   - Guarded the grid branch with `site.is_none()` in both `swiftui.rs` (`own_al.filter(|_| !kids.is_empty() && site.is_none()).and_then(|al| solved_grid(doc, n, al)...)`) and `compose.rs`, so a slot frame (`site.is_some()`) routes through the slot branch and preserves its generic `TilesContent: View` / `tiles: @Composable () -> Unit` slot parameter and instance slot overrides.
+   - **FOLLOW-UPS:** Laying out a slot's default block itself as a grid inside the `else` / default lambda (instead of the container stack) is tracked as a follow-up.
+4. **M1 & M4 — Compose grid height (`compose.rs`, Ruling 4):**
+   - Moved the `sz.h` override inside the non-instance grid branch (after `emit_instance` / vector / text early returns) so an `Instance` of a grid component keeps its own `sz.h` from `sizes(n, parent)` (`50.dp` on the `210×50` `TileGrid` instance).
+   - For a grid frame itself, `grid_h` defaults to content height (`rows.sum() + row_gap * (rows.len() - 1) + padding_top + padding_bottom`) for `Sizing::Hug` and `Sizing::Fill` (since `LazyVerticalGrid` cannot sit inside a scroll parent with `fillMaxHeight`), and uses `n.size.y` when `al.counter_sizing == Sizing::Fixed`.
+5. **M2 & R6 — Android `<GridLayout>` `<Space>` fillers and cell gap margins (`android_xml.rs`, Ruling 5):**
+   - Changed the `<Space>` coverage check on columns and rows to require a **single-span** child (`p.col == c && p.col_span == 1` for column `c`, `p.row == r && p.row_span == 1` for row `r`), so columns or rows covered only by multi-track spans still receive a 1-track `<Space>` anchor with `layout_marginStart` (`c > 0`) / `layout_marginTop` (`r > 0`).
+   - **R6 Contract (Option A):** Android XML emits column and row gaps as `android:layout_marginStart` (`col > 0`) and `android:layout_marginTop` (`row > 0`) on cell `<FrameLayout>` wrappers and `<Space>` fillers.
+6. **M3 — Out-of-flow and variable-hidden children in Android XML (`android_xml.rs`, Ruling 6):**
+   - When `kids` contains children not in `sg.children` (absolute children or children hidden by a bound Boolean variable), `android_xml.rs` opens an outer `<FrameLayout>` with the frame's size and background/border style, nests `<GridLayout android:layout_width="match_parent" android:layout_height="match_parent|wrap_content" ...>` inside it, and emits the out-of-flow/variable-hidden children after `</GridLayout>` inside the outer `<FrameLayout>`, so `android.widget.GridLayout` never auto-places them into `(0, 0)` and variable-hidden children are never dropped.
+7. **Minor `9a` / `9b` / `9c` / `9d`:**
+   - `9a`: `android_xml.rs` now uses `sg.cell_width(p)` and `sg.cell_height(p, true)`.
+   - `9b`: Updated `sizes` doc comment at `codegen.rs:423` to accurately describe why `row_parent` is `false` for grid children (`Sizing::Fill` drives horizontal stretch, while `grow` only stretches vertically when `row_parent` is `false`).
+   - `9c`: Named `#1454` next to each of the 5 acceptance scenes that fails `swiftc -typecheck` solely due to `.frame(maxWidth: .infinity, height: N)` (`swiftui.rs:280-291`).
+   - `9d`: Extracted `layout_frame_align` in `swiftui.rs` and `stack_padding` in `uikit.rs`.
+
+---
+
+### 2. Red-on-`2c58ed0c` (`r2-red.log`) and Green-on-HEAD (`r2-green.log`)
+
+#### Red Run on `2c58ed0c` Code (`plans/reports/agy-484-native-grids-evidence/r2-red.log`)
+All new Round 2 regression tests (`b1_overlap_same_cell_keeps_all_children_and_solver_offsets`, `b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets`, `b2_compose_out_of_flow_children_wrap_grid_in_outer_box`, `b3_grid_slot_keeps_slot_parameter`, `m1_compose_grid_component_instance_keeps_frame_height`, `m2_android_span_only_column_and_row_emit_space`, `m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout`, `m4_compose_grid_height_fixed_vs_hug_and_fill`, and `slot_codegen::grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose`) **FAIL** on `2c58ed0c`:
+
+```text
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-1e3dc0963dd7a310)
+
+failures:
+    absolute_child_in_grid_keeps_generator_handling_in_all_four_generators
+    b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets
+    b1_overlap_same_cell_keeps_all_children_and_solver_offsets
+    b2_compose_out_of_flow_children_wrap_grid_in_outer_box
+    b3_grid_slot_keeps_slot_parameter
+    equal_tracks_native_generators
+    fixed_first_column_native_generators
+    fixed_height_auto_rows_native_generators
+    item3_android_xml_all_six_scenes
+    item3_compose_all_six_scenes
+    m1_compose_grid_component_instance_keeps_frame_height
+    m2_android_span_only_column_and_row_emit_space
+    m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout
+    m4_compose_grid_height_fixed_vs_hug_and_fill
+    row_and_column_spans_native_generators
+    unequal_tracks_native_generators
+
+test result: FAILED. 9 passed; 16 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/slot_codegen.rs (out/cargo/debug/deps/slot_codegen-4403410596b6ad7e)
+
+failures:
+    grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose
+
+test result: FAILED. 28 passed; 1 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+#### Green Run on HEAD (`plans/reports/agy-484-native-grids-evidence/r2-green.log`)
+All unit and integration tests in `designos-doc` and `designos-export` **PASS** on HEAD:
+
+```text
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7b9249ef281ca924)
+test result: ok. 708 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.07s
+
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-cee0f0ff60625584)
+test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-1e3dc0963dd7a310)
+running 25 tests
+test absolute_child_in_grid_keeps_generator_handling_in_all_four_generators ... ok
+test b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets ... ok
+test b1_overlap_same_cell_keeps_all_children_and_solver_offsets ... ok
+test b2_compose_out_of_flow_children_wrap_grid_in_outer_box ... ok
+test b3_grid_slot_keeps_slot_parameter ... ok
+test bound_item_spacing_prints_token_in_all_four_generators ... ok
+test d3_explicit_trailing_grid_rows_exported ... ok
+test equal_tracks_native_generators ... ok
+test explicit_hole_emits_filler_and_keeps_column_width ... ok
+test fixed_first_column_native_generators ... ok
+test fixed_height_auto_rows_native_generators ... ok
+test hugging_grid_native_generators ... ok
+test item3_android_xml_all_six_scenes ... ok
+test item3_compose_all_six_scenes ... ok
+test item3_swiftui_all_six_scenes ... ok
+test item3_uikit_all_six_scenes ... ok
+test m1_compose_grid_component_instance_keeps_frame_height ... ok
+test m2_android_span_only_column_and_row_emit_space ... ok
+test m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout ... ok
+test m4_compose_grid_height_fixed_vs_hug_and_fill ... ok
+test m5_bound_counter_axis_spacing_and_non_start_cell_alignments ... ok
+test row_and_column_spans_native_generators ... ok
+test solver_row_heights_match_compute_grid_across_all_six_scenes ... ok
+test syntax_smoke_android_xml_and_swiftui_span_scene ... ok
+test unequal_tracks_native_generators ... ok
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/slot_codegen.rs (out/cargo/debug/deps/slot_codegen-4403410596b6ad7e)
+test grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose ... ok
+test result: ok. 29 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+---
+
+### 3. M5 — 17-Mutant Verification Table (`plans/reports/agy-484-native-grids-evidence/r2-mutants.log`)
+
+All **17 / 17** mutants from `mutants-1450.py` were applied one at a time against `cargo test -p designos-doc --locked --lib` and `cargo test -p designos-export --locked`, and all **17 / 17** were **KILLED**:
+
+| Mutant | Target File | Mutation | Verdict | Killing Test(s) |
+|---|---|---|---|---|
+| `M1` | `crates/designos-export/src/swiftui.rs` | `grid.cell_height(p, false)` → `grid.cell_height(p, true)` | **KILLED** | `item3_swiftui_all_six_scenes`, `row_and_column_spans_native_generators` |
+| `M2` | `crates/designos-export/src/codegen.rs` | `cell_width` drops inner `col_gap` | **KILLED** | `item3_swiftui_all_six_scenes`, `item3_uikit_all_six_scenes`, `item3_android_xml_all_six_scenes`, `row_and_column_spans_native_generators` |
+| `M3` | `crates/designos-export/src/compose.rs` | Compose `grid_h` drops `al.padding[0] + al.padding[2]` | **KILLED** | `compose::tests::grid_emits_lazy_vertical_grid_tracks_explicit_height_and_holes` |
+| `M4` | `crates/designos-export/src/compose.rs` | `sz.h = Dim::Fixed(grid_h)` → `sz.h = Dim::Fixed(n.size.y)` | **KILLED** | `m4_compose_grid_height_fixed_vs_hug_and_fill` |
+| `M5` | `crates/designos-export/src/swiftui.rs` | SwiftUI hole filler width uses `grid.rows[r]` | **KILLED** | `swiftui::tests::grid_emits_swiftui_grid_rows_spans_holes_and_abs_child` |
+| `M6` | `crates/designos-export/src/codegen.rs` | `grid_row_gap_key` always returns `"itemSpacing"` | **KILLED** | `m5_bound_counter_axis_spacing_and_non_start_cell_alignments` |
+| `M7` | `crates/designos-export/src/android_xml.rs` | Android drops `row_gap` `layout_marginTop` on cells | **KILLED** | `equal_tracks_native_generators`, `hugging_grid_native_generators`, `fixed_first_column_native_generators`, `item3_android_xml_all_six_scenes`, `fixed_height_auto_rows_native_generators`, `m5_bound_counter_axis_spacing_and_non_start_cell_alignments` |
+| `M8` | `crates/designos-export/src/codegen.rs` | `solved_grid` sets `row_gap = col_gap` | **KILLED** | `codegen::tests::solved_grid_matches_solver_accessors_and_place_children`, `compose::tests::grid_emits_lazy_vertical_grid_tracks_explicit_height_and_holes`, `swiftui::tests::grid_emits_swiftui_grid_rows_spans_holes_and_abs_child` |
+| `M9` | `crates/designos-export/src/android_xml.rs` | Android skips `<Space>` for uncovered columns (`covered = true`) | **KILLED** | `android_xml::tests::android_xml_grid_emits_grid_layout_spans_and_uncovered_spaces` |
+| `M10` | `crates/designos-export/src/compose.rs` | Compose never emits `GridItemSpan` | **KILLED** | `item3_compose_all_six_scenes`, `row_and_column_spans_native_generators` |
+| `M11` | `crates/designos-export/src/uikit.rs` | UIKit cell `heightAnchor` uses `cell_w` | **KILLED** | `fixed_height_auto_rows_native_generators`, `hugging_grid_native_generators`, `fixed_first_column_native_generators`, `equal_tracks_native_generators`, `item3_uikit_all_six_scenes`, `row_and_column_spans_native_generators` |
+| `M12` | `crates/designos-export/src/android_xml.rs` | Android cell height ignores `row_span` (`sg.cell_height(p, false)`) | **KILLED** | `item3_android_xml_all_six_scenes`, `row_and_column_spans_native_generators` |
+| `M13` | `crates/designos-export/src/codegen.rs` | `grid_cell_align` ignores child alignment (always `Start`) | **KILLED** | `m5_bound_counter_axis_spacing_and_non_start_cell_alignments` |
+| `M14` | `crates/designos-export/src/uikit.rs` | UIKit drops `row_span > 1` comment | **KILLED** | `uikit::tests::uikit_grid_emits_row_stacks_cell_views_and_holes` |
+| `D1` | `crates/designos-doc/src/layout_solver_grid.rs` | Solver skips span row leveling | **KILLED** | `layout_solver_grid::tests::margins_on_children_spanning_tracks_beyond_eight_size_and_inset_correctly` |
+| `D2` | `crates/designos-doc/src/layout_solver_grid.rs` | Solver skips flex auto-row leveling | **KILLED** | `layout_solver_grid::tests::flex_auto_row_track_distributes_leftover_height_in_a_fixed_grid` |
+| `D3` | `crates/designos-doc/src/layout_solver_grid.rs` | `grid_row_heights` ignores `al.grid_rows` | **KILLED** | `layout_solver_grid::tests::grid_row_heights_honors_explicit_grid_rows_beyond_placed_children`, `d3_explicit_trailing_grid_rows_exported` |
+
+Raw mutant runner output (`plans/reports/agy-484-native-grids-evidence/r2-mutants.log`):
+```text
+M1 swiftui cell height uses row span -> KILLED | killers=['test item3_swiftui_all_six_scenes ... FAILED', 'test row_and_column_spans_native_generators ... FAILED']
+M2 cell_width drops inner col gap -> KILLED | killers=['test item3_swiftui_all_six_scenes ... FAILED', 'test item3_uikit_all_six_scenes ... FAILED', 'test item3_android_xml_all_six_scenes ... FAILED', 'test row_and_column_spans_native_generators ... FAILED']
+M3 compose R6b height drops padding -> KILLED | killers=['test compose::tests::grid_emits_lazy_vertical_grid_tracks_explicit_height_and_holes ... FAILED']
+M4 compose R6b height = frame height -> KILLED | killers=['test m4_compose_grid_height_fixed_vs_hug_and_fill ... FAILED']
+M5 swiftui hole filler width = row height -> KILLED | killers=['test swiftui::tests::grid_emits_swiftui_grid_rows_spans_holes_and_abs_child ... FAILED']
+M6 row gap key always itemSpacing -> KILLED | killers=['test m5_bound_counter_axis_spacing_and_non_start_cell_alignments ... FAILED']
+M7 android drops row-gap marginTop on cells -> KILLED | killers=['test equal_tracks_native_generators ... FAILED', 'test hugging_grid_native_generators ... FAILED', 'test fixed_first_column_native_generators ... FAILED', 'test item3_android_xml_all_six_scenes ... FAILED', 'test fixed_height_auto_rows_native_generators ... FAILED', 'test m5_bound_counter_axis_spacing_and_non_start_cell_alignments ... FAILED']
+M8 solved_grid row_gap = col_gap -> KILLED | killers=['test compose::tests::grid_emits_lazy_vertical_grid_tracks_explicit_height_and_holes ... FAILED', 'test codegen::tests::solved_grid_matches_solver_accessors_and_place_children ... FAILED', 'test swiftui::tests::grid_emits_swiftui_grid_rows_spans_holes_and_abs_child ... FAILED']
+M9 android no Space for uncovered columns -> KILLED | killers=['test android_xml::tests::android_xml_grid_emits_grid_layout_spans_and_uncovered_spaces ... FAILED']
+M10 compose never emits GridItemSpan -> KILLED | killers=['test item3_compose_all_six_scenes ... FAILED', 'test row_and_column_spans_native_generators ... FAILED']
+M11 uikit cell height constraint = cell width -> KILLED | killers=['test fixed_height_auto_rows_native_generators ... FAILED', 'test hugging_grid_native_generators ... FAILED', 'test fixed_first_column_native_generators ... FAILED', 'test equal_tracks_native_generators ... FAILED', 'test item3_uikit_all_six_scenes ... FAILED', 'test row_and_column_spans_native_generators ... FAILED']
+M12 android cell height ignores row span -> KILLED | killers=['test item3_android_xml_all_six_scenes ... FAILED', 'test row_and_column_spans_native_generators ... FAILED']
+M13 cell alignment ignores child align (always Start) -> KILLED | killers=['test m5_bound_counter_axis_spacing_and_non_start_cell_alignments ... FAILED']
+M14 uikit row-span comment dropped -> KILLED | killers=['test uikit::tests::uikit_grid_emits_row_stacks_cell_views_and_holes ... FAILED']
+D1 solver: no span leveling -> KILLED | killers=['test layout_solver_grid::tests::margins_on_children_spanning_tracks_beyond_eight_size_and_inset_correctly ... FAILED']
+D2 solver: no flex auto-row leveling -> KILLED | killers=['test layout_solver_grid::tests::flex_auto_row_track_distributes_leftover_height_in_a_fixed_grid ... FAILED']
+D3 grid_row_heights ignores grid_rows -> KILLED | killers=['test layout_solver_grid::tests::grid_row_heights_honors_explicit_grid_rows_beyond_placed_children ... FAILED', 'test d3_explicit_trailing_grid_rows_exported ... FAILED']
+```
+
+---
+
+### 4. R7 — Non-Grid Test Output Byte-Identity (`plans/reports/agy-484-native-grids-evidence/r2-r7-fixtures-diff.log`)
+
+`git diff origin/main -- '*/fixtures/*'` produces **zero** changes (exit 0, empty output); every non-grid test output across CSS, Tailwind, React, SwiftUI, UIKit, Compose, and Android XML is byte-identical to `origin/main`.
+
+---
+
+### 5. Android `GridLayout` Line-Solver Model (`plans/reports/agy-484-native-grids-evidence/r2-gridlayout-model.log`)
+
+Running `gridlayout-model-1450.py` across all reviewer probes, Round 2 `M2`/`M3` scenes, and all 6 acceptance scenes confirms **0 mismatches** and `auto-placed children: []` on every scene:
+
+```text
+== overlap_same_cell.txt  column lines [0.0, 100.0, 210.0]  row lines [0.0, 40.0]  auto-placed children: []
+  Photo        cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  Badge        cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  Caption      cell (0,1) solver origin (110,0)  GridLayout model (110,0)
+== overlap_inside_col_span.txt  column lines [0.0, 100.0, 150.0, 220.0]  row lines [0.0, 40.0]  auto-placed children: []
+  Wide         cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  Inner        cell (0,1) solver origin (110,0)  GridLayout model (110,0)
+== android_span_only_column.txt  column lines [0.0, 100.0, 150.0, 220.0]  row lines [0.0, 30.0, 70.0]  auto-placed children: []
+  Wide         cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  Right        cell (0,2) solver origin (160,0)  GridLayout model (160,0)
+  Mid          cell (1,1) solver origin (110,40)  GridLayout model (110,40)
+== android_span_only_row.txt  column lines [0.0, 100.0, 210.0]  row lines [0.0, 50.0, 90.0]  auto-placed children: []
+  Tall         cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  Low          cell (1,1) solver origin (110,60)  GridLayout model (110,60)
+== absolute_child.txt  column lines [0.0, 100.0, 210.0]  row lines [0.0, 36.0]  auto-placed children: []
+  CellA        cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  CellB        cell (0,1) solver origin (110,0)  GridLayout model (110,0)
+== variable_hidden_child.txt  column lines [0.0, 100.0, 210.0]  row lines [0.0, 40.0]  auto-placed children: []
+  CellA        cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  CellB        cell (0,1) solver origin (110,0)  GridLayout model (110,0)
+== fixed_height_packed_rows.txt  column lines [0.0, 108.0, 228.0]  row lines [0.0, 24.0, 76.0]  auto-placed children: []
+  Tile         cell (0,0) solver origin (16,16)  GridLayout model (16,16)
+  Tile         cell (0,1) solver origin (136,16)  GridLayout model (136,16)
+  Tile         cell (1,0) solver origin (16,56)  GridLayout model (16,56)
+  Tile         cell (1,1) solver origin (136,56)  GridLayout model (136,56)
+== span_scene.txt  column lines [0.0, 92.0, 196.0, 300.0, 404.0]  row lines [0.0, 40.0, 92.0, 140.0]  auto-placed children: []
+  HeroTile     cell (0,0) solver origin (12,12)  GridLayout model (12,12)
+  TopWide      cell (0,2) solver origin (220,12)  GridLayout model (220,12)
+  MidA         cell (1,2) solver origin (220,64)  GridLayout model (220,64)
+  MidB         cell (1,3) solver origin (324,64)  GridLayout model (324,64)
+  FooterBar    cell (2,0) solver origin (12,116)  GridLayout model (12,116)
+== r2_m2_span_only_col.txt  column lines [0.0, 100.0, 210.0, 320.0]  row lines [0.0, 40.0, 90.0]  auto-placed children: []
+  WideTop      cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  TopRight     cell (0,2) solver origin (220,0)  GridLayout model (220,0)
+  BotLeft      cell (1,0) solver origin (0,50)  GridLayout model (0,50)
+  BotRight     cell (1,2) solver origin (220,50)  GridLayout model (220,50)
+== r2_m2_span_only_row.txt  column lines [0.0, 100.0, 210.0]  row lines [0.0, 40.0, 100.0]  auto-placed children: []
+  TallLeft     cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  ShortRight   cell (0,1) solver origin (110,0)  GridLayout model (110,0)
+== acc_1_equal_tracks.txt  column lines [0.0, 92.0, 196.0, 300.0]  row lines [0.0, 36.0, 84.0]  auto-placed children: []
+  Item1        cell (0,0) solver origin (12,12)  GridLayout model (12,12)
+  Item2        cell (0,1) solver origin (116,12)  GridLayout model (116,12)
+  Item3        cell (0,2) solver origin (220,12)  GridLayout model (220,12)
+  Item4        cell (1,0) solver origin (12,60)  GridLayout model (12,60)
+  Item5        cell (1,1) solver origin (116,60)  GridLayout model (116,60)
+  Item6        cell (1,2) solver origin (220,60)  GridLayout model (220,60)
+== acc_2_unequal_tracks.txt  column lines [0.0, 100.0, 140.0, 200.0]  row lines [0.0, 30.0, 70.0]  auto-placed children: []
+  Item1        cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  Item2        cell (0,1) solver origin (100,0)  GridLayout model (100,0)
+  Item3        cell (0,2) solver origin (140,0)  GridLayout model (140,0)
+  Item4        cell (1,0) solver origin (0,40)  GridLayout model (0,40)
+  Item5        cell (1,1) solver origin (100,40)  GridLayout model (100,40)
+  Item6        cell (1,2) solver origin (140,40)  GridLayout model (140,40)
+== acc_3_fixed_first_column.txt  column lines [0.0, 200.0, 320.0, 440.0]  row lines [0.0, 40.0, 90.0]  auto-placed children: []
+  Item1        cell (0,0) solver origin (0,0)  GridLayout model (0,0)
+  Item2        cell (0,1) solver origin (210,0)  GridLayout model (210,0)
+  Item3        cell (0,2) solver origin (330,0)  GridLayout model (330,0)
+  Item4        cell (1,0) solver origin (0,50)  GridLayout model (0,50)
+  Item5        cell (1,1) solver origin (210,50)  GridLayout model (210,50)
+  Item6        cell (1,2) solver origin (330,50)  GridLayout model (330,50)
+== acc_4_hugging_grid.txt  column lines [0.0, 100.0, 148.0, 196.0]  row lines [0.0, 28.0, 56.0]  auto-placed children: []
+  Item1        cell (0,0) solver origin (8,8)  GridLayout model (8,8)
+  Item2        cell (0,1) solver origin (116,8)  GridLayout model (116,8)
+  Item3        cell (0,2) solver origin (164,8)  GridLayout model (164,8)
+  Item4        cell (1,0) solver origin (8,44)  GridLayout model (8,44)
+  Item5        cell (1,1) solver origin (116,44)  GridLayout model (116,44)
+  Item6        cell (1,2) solver origin (164,44)  GridLayout model (164,44)
+== acc_5_fixed_height_auto_rows.txt  column lines [0.0, 108.0, 228.0]  row lines [0.0, 24.0, 76.0, 120.0]  auto-placed children: []
+  Item1        cell (0,0) solver origin (16,16)  GridLayout model (16,16)
+  Item2        cell (0,1) solver origin (136,16)  GridLayout model (136,16)
+  Item3        cell (1,0) solver origin (16,56)  GridLayout model (16,56)
+  Item4        cell (1,1) solver origin (136,56)  GridLayout model (136,56)
+  Item5        cell (2,0) solver origin (16,108)  GridLayout model (16,108)
+  Item6        cell (2,1) solver origin (136,108)  GridLayout model (136,108)
+== acc_6_row_and_column_spans.txt  column lines [0.0, 92.0, 196.0, 300.0, 404.0]  row lines [0.0, 40.0, 92.0, 140.0]  auto-placed children: []
+  HeroTile     cell (0,0) solver origin (12,12)  GridLayout model (12,12)
+  TopWide      cell (0,2) solver origin (220,12)  GridLayout model (220,12)
+  MidA         cell (1,2) solver origin (220,64)  GridLayout model (220,64)
+  MidB         cell (1,3) solver origin (324,64)  GridLayout model (324,64)
+  FooterBar    cell (2,0) solver origin (12,116)  GridLayout model (12,116)
+```
+
+---
+
+### 6. SwiftUI `xcrun swiftc -typecheck` (`plans/reports/agy-484-native-grids-evidence/r2-swiftc-typecheck.log`)
+
+| Scene | `xcrun swiftc -typecheck -target arm64-apple-macos13` | Notes |
+|---|---|---|
+| **B1 `overlap_same_cell`** | **PASS (`exit 0`)** | `ZStack(alignment: .topLeading)` + `.offset(x: 60, y: 20)` typechecks cleanly |
+| **B1 `overlap_inside_col_span`** | **PASS (`exit 0`)** | `ZStack(alignment: .topLeading)` + `.offset(x: 110, y: 18)` + `.gridCellColumns(2)` typechecks cleanly |
+| **B3 `grid_slot (comp + inst)`** | **PASS (`exit 0`)** | `CardWithGridSlot<TilesContent: View>` + `CardWithGridSlot { Text("PassedTile") }` typechecks cleanly |
+| **Acceptance 1 `equal_tracks`** | Fails only on **#1454** | Pre-existing `#1454` (`swiftui.rs:280-291`): `.frame(maxWidth: .infinity, height: 36)` on `Sizing::Fill` width + `Sizing::Fixed` height child |
+| **Acceptance 2 `unequal_tracks`** | Fails only on **#1454** | Pre-existing `#1454` (`swiftui.rs:280-291`): `.frame(maxWidth: .infinity, height: 30)` |
+| **Acceptance 3 `fixed_first_column`** | Fails only on **#1454** | Pre-existing `#1454` (`swiftui.rs:280-291`): `.frame(maxWidth: .infinity, height: 40)` |
+| **Acceptance 4 `hugging_grid`** | Fails only on **#1454** | Pre-existing `#1454` (`swiftui.rs:280-291`): `.frame(maxWidth: .infinity, height: 20)` |
+| **Acceptance 5 `fixed_height_auto_rows`** | Fails only on **#1454** | Pre-existing `#1454` (`swiftui.rs:280-291`): `.frame(maxWidth: .infinity, height: 24)` |
+| **Acceptance 6 `row_and_column_spans`** | **PASS (`exit 0`)** | Typechecks with 0 warnings/errors |
+
+---
+
+### 7. Final Harness Gates (`plans/reports/agy-484-native-grids-evidence/r2-gates.log` & `r2-chrome-compare.log`)
+
+- **`cargo fmt --all -- --check`:** `exit=0`
+- **`cargo clippy -p designos-doc -p designos-export --all-targets --locked -- -D warnings`:** `exit=0` (0 warnings, 0 errors)
+- **`cargo clippy --workspace --all-targets --locked -- -D warnings`:** Only `main`'s pre-existing `designos-app` errors (`crates/designos-app/src/agent_permissions.rs:1163,1181` needless return; `crates/designos-app/src/panels/components.rs:263,363,613` `items_after_test_module`, unused `ctx.run_ui`, `ptr_arg`).
+- **`cargo test -p designos-doc --locked --lib`:** `708 passed; 0 failed` (`exit=0`)
+- **`cargo test -p designos-export --locked`:** All 16 test targets pass (`158` unit + `25` `grid_native_fixtures` + `29` `slot_codegen` + all other export suites, `0 failed`, `exit=0`)
+- **`cargo test --workspace --locked --lib`:** All 12 workspace crates pass (`0 failed`, `exit=0`)
+- **`python3 scripts/qa/grid-chrome-compare.py`:** `38/38 passed` at `max_item_err=0.00px grid_err=(0.00px, 0.00px)` (`exit=0`)
+
+---
+
+### 8. Commit Log (`origin/main..HEAD`)
+
+```text
+a431100f fix(export): preserve overlapping, out-of-flow, and slot grid children (#484)
+b2ff5b82 test(export): add round 2 regression tests for grid export (#484)
+925b1e9e Merge remote-tracking branch 'origin/main' into jangtrinh/agy-484-native-grids
+2c58ed0c docs(report): add verification report and evidence for native grid export (#484)
+2943b874 fix(export): export grids with layout solver tracks in native generators (#484)
+7890220f test(export): add native grid generator fixtures and tests (#484)
+a41e8ebf refactor(layout): extract grid_row_heights solver accessor (#484)
+```
