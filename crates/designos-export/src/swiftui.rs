@@ -289,6 +289,18 @@ fn alignment(h: &str, v: &str) -> String {
     }
 }
 
+fn layout_frame_align(al: &AutoLayout, horizontal: bool) -> Option<String> {
+    let pos = |a: LayoutAlign| match a {
+        LayoutAlign::Center => 1,
+        LayoutAlign::End => 2,
+        _ => 0,
+    };
+    let (hp, vp) = if horizontal { (pos(al.primary_align), pos(al.counter_align)) } else { (pos(al.counter_align), pos(al.primary_align)) };
+    let (h, v) = (["leading", "center", "trailing"][hp], ["top", "center", "bottom"][vp]);
+    let al_s = alignment(h, v);
+    (al_s != ".center").then_some(al_s)
+}
+
 fn padding_mods(doc: &Document, n: &Node, al: &AutoLayout, m: &mut Vec<String>) {
     let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     let p = al.padding;
@@ -398,20 +410,12 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         if let Some(f) = frame_args(sz.w, sz.h, None, n, doc) {
             mods.push(f);
         }
-    } else if let Some((al, grid)) = own_al.and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
+    } else if let Some((al, grid)) = own_al.filter(|_| site.is_none()).and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
         let col_gap_s = dimension(doc, n, "itemSpacing", grid.col_gap);
         let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
         grid_body = Some((al, grid, col_gap_s, row_gap_s));
         padding_mods(doc, n, al, &mut mods);
-        let pos = |a: LayoutAlign| match a {
-            LayoutAlign::Center => 1,
-            LayoutAlign::End => 2,
-            _ => 0,
-        };
-        let (hp, vp) = (pos(al.primary_align), pos(al.counter_align));
-        let (h, v) = (["leading", "center", "trailing"][hp], ["top", "center", "bottom"][vp]);
-        let al_s = alignment(h, v);
-        let align = (al_s != ".center").then_some(al_s);
+        let align = layout_frame_align(al, true);
         if let Some(f) = frame_args(sz.w, sz.h, align.as_deref(), n, doc) {
             mods.push(f);
         }
@@ -448,15 +452,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         };
         body = Some(kids.iter().map(|k| k.id).collect());
         padding_mods(doc, n, al, &mut mods);
-        let pos = |a: LayoutAlign| match a {
-            LayoutAlign::Center => 1,
-            LayoutAlign::End => 2,
-            _ => 0,
-        };
-        let (hp, vp) = if horizontal { (pos(al.primary_align), pos(al.counter_align)) } else { (pos(al.counter_align), pos(al.primary_align)) };
-        let (h, v) = (["leading", "center", "trailing"][hp], ["top", "center", "bottom"][vp]);
-        let al_s = alignment(h, v);
-        let align = (al_s != ".center").then_some(al_s);
+        let align = layout_frame_align(al, horizontal);
         if let Some(f) = frame_args(sz.w, sz.h, align.as_deref(), n, doc) {
             mods.push(f);
         }
@@ -529,17 +525,49 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         let cols = grid.widths.len();
         for r in 0..grid.rows.len() {
             o.line(depth + 1, "GridRow {");
+            let groups = grid.row_cells(r);
             let mut c = 0usize;
             while c < cols {
-                if let Some((cid, p)) = grid.children.iter().find(|(_, p)| p.row == r && p.col == c) {
+                if let Some(group) = groups.iter().find(|g| g.placed.col == c) {
+                    let cid = group.id;
+                    let p = &group.placed;
                     if p.row_span > 1 {
-                        let cname = doc.get(*cid).map(|cn| cn.name.as_str()).unwrap_or("");
+                        let cname = doc.get(cid).map(|cn| cn.name.as_str()).unwrap_or("");
                         o.line(depth + 2, format!("// \"{}\": row span {} is not supported by SwiftUI Grid; placed in row {}", cname, p.row_span, p.row + 1));
                     }
-                    view(doc, *cid, me, depth + 2, o);
+                    for s in &group.stacked {
+                        if s.placed.row_span > 1 {
+                            let sname = doc.get(s.id).map(|cn| cn.name.as_str()).unwrap_or("");
+                            o.line(
+                                depth + 2,
+                                format!(
+                                    "// \"{}\": row span {} is not supported by SwiftUI Grid; placed in row {}",
+                                    sname,
+                                    s.placed.row_span,
+                                    s.placed.row + 1
+                                ),
+                            );
+                        }
+                    }
+                    if let Some(comment) = SolvedGrid::overlap_comment(doc, group) {
+                        o.line(depth + 2, comment);
+                    }
+                    if group.stacked.is_empty() {
+                        view(doc, cid, me, depth + 2, o);
+                    } else {
+                        o.line(depth + 2, "ZStack(alignment: .topLeading) {");
+                        view(doc, cid, me, depth + 3, o);
+                        for s in &group.stacked {
+                            view(doc, s.id, me, depth + 3, o);
+                            if s.offset.0 != 0.0 || s.offset.1 != 0.0 {
+                                o.line(depth + 4, format!(".offset(x: {}, y: {})", num(s.offset.0), num(s.offset.1)));
+                            }
+                        }
+                        o.line(depth + 2, "}");
+                    }
                     let cell_w = grid.cell_width(p);
                     let cell_h = grid.cell_height(p, false);
-                    let (ah, av) = grid_cell_align(doc, *cid, al);
+                    let (ah, av) = grid_cell_align(doc, cid, al);
                     let h_word = match ah {
                         GridChildAlign::Center => "center",
                         GridChildAlign::End => "trailing",

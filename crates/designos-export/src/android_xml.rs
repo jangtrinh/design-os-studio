@@ -351,16 +351,31 @@ impl Cx<'_> {
             self.style(n, &mut attrs);
             self.open(depth, "TextView", &attrs, true);
         } else if let Some((al, sg)) = own_al.and_then(|al| solved_grid(doc, n, al).map(|sg| (al, sg))) {
-            attr(&mut attrs, "columnCount", sg.widths.len().to_string());
-            attr(&mut attrs, "rowCount", sg.rows.len().to_string());
-            self.padding(n, al, &mut attrs);
-            self.style(n, &mut attrs);
-            self.open(depth, "GridLayout", &attrs, false);
+            let out_of_flow: Vec<&Node> = kids.iter().copied().filter(|k| !sg.children.iter().any(|(cid, _)| *cid == k.id)).collect();
+            let has_oof = !out_of_flow.is_empty();
+            let g_depth = if has_oof { depth + 1 } else { depth };
+            if has_oof {
+                self.style(n, &mut attrs);
+                self.open(depth, "FrameLayout", &attrs, false);
+                let mut g_attrs: Attrs = Vec::new();
+                attr(&mut g_attrs, "layout_width", "match_parent");
+                attr(&mut g_attrs, "layout_height", if sz.h == Dim::Hug { "wrap_content" } else { "match_parent" });
+                attr(&mut g_attrs, "columnCount", sg.widths.len().to_string());
+                attr(&mut g_attrs, "rowCount", sg.rows.len().to_string());
+                self.padding(n, al, &mut g_attrs);
+                self.open(g_depth, "GridLayout", &g_attrs, false);
+            } else {
+                attr(&mut attrs, "columnCount", sg.widths.len().to_string());
+                attr(&mut attrs, "rowCount", sg.rows.len().to_string());
+                self.padding(n, al, &mut attrs);
+                self.style(n, &mut attrs);
+                self.open(depth, "GridLayout", &attrs, false);
+            }
             let col_gap_val = (sg.col_gap > 0.0 || bound(doc, n, "itemSpacing").is_some()).then(|| dp(doc, n, "itemSpacing", sg.col_gap));
             let row_gap_key = grid_row_gap_key(doc, n, al);
             let row_gap_val = (sg.row_gap > 0.0 || bound(doc, n, row_gap_key).is_some()).then(|| dp(doc, n, row_gap_key, sg.row_gap));
             for (c, &col_w) in sg.widths.iter().enumerate() {
-                let covered = sg.children.iter().any(|(_, p)| c >= p.col && c < p.col + p.col_span);
+                let covered = sg.children.iter().any(|(_, p)| p.col == c && p.col_span == 1);
                 if !covered {
                     let mut s: Attrs = Vec::new();
                     attr(&mut s, "layout_width", format!("{}dp", num(col_w)));
@@ -372,11 +387,11 @@ impl Cx<'_> {
                             attr(&mut s, "layout_marginStart", cg.clone());
                         }
                     }
-                    self.open(depth + 1, "Space", &s, true);
+                    self.open(g_depth + 1, "Space", &s, true);
                 }
             }
             for (r, &row_h) in sg.rows.iter().enumerate() {
-                let covered = sg.children.iter().any(|(_, p)| r >= p.row && r < p.row + p.row_span);
+                let covered = sg.children.iter().any(|(_, p)| p.row == r && p.row_span == 1);
                 if !covered {
                     let mut s: Attrs = Vec::new();
                     attr(&mut s, "layout_width", "0dp");
@@ -388,13 +403,13 @@ impl Cx<'_> {
                             attr(&mut s, "layout_marginTop", rg.clone());
                         }
                     }
-                    self.open(depth + 1, "Space", &s, true);
+                    self.open(g_depth + 1, "Space", &s, true);
                 }
             }
             let me = Parent::of(n);
             for &(child_id, ref p) in &sg.children {
-                let cell_w: f32 = sg.widths[p.col..p.col + p.col_span].iter().sum::<f32>() + sg.col_gap * (p.col_span.saturating_sub(1) as f32);
-                let cell_h: f32 = sg.rows[p.row..p.row + p.row_span].iter().sum::<f32>() + sg.row_gap * (p.row_span.saturating_sub(1) as f32);
+                let cell_w = sg.cell_width(p);
+                let cell_h = sg.cell_height(p, true);
                 let mut c_attrs: Attrs = Vec::new();
                 attr(&mut c_attrs, "layout_width", format!("{}dp", num(cell_w)));
                 attr(&mut c_attrs, "layout_height", format!("{}dp", num(cell_h)));
@@ -416,16 +431,19 @@ impl Cx<'_> {
                         attr(&mut c_attrs, "layout_marginTop", rg.clone());
                     }
                 }
-                self.open(depth + 1, "FrameLayout", &c_attrs, false);
+                self.open(g_depth + 1, "FrameLayout", &c_attrs, false);
                 let (h_align, v_align) = grid_cell_align(doc, child_id, al);
                 let grav = android_cell_gravity(h_align, v_align);
-                self.emit(child_id, me, depth + 2, Some(Slot { horizontal: true, gap: None, linear: false, gravity: Some(grav) }));
-                self.out.line(depth + 1, "</FrameLayout>");
+                self.emit(child_id, me, g_depth + 2, Some(Slot { horizontal: true, gap: None, linear: false, gravity: Some(grav) }));
+                self.out.line(g_depth + 1, "</FrameLayout>");
             }
-            for k in kids.iter().filter(|k| k.layout_child.absolute) {
-                self.emit(k.id, me, depth + 1, Some(Slot { horizontal: true, gap: None, linear: false, gravity: None }));
+            self.out.line(g_depth, "</GridLayout>");
+            if has_oof {
+                for k in out_of_flow {
+                    self.emit(k.id, me, depth + 1, Some(Slot { horizontal: true, gap: None, linear: false, gravity: None }));
+                }
+                self.out.line(depth, "</FrameLayout>");
             }
-            self.out.line(depth, "</GridLayout>");
         } else if let Some(al) = own_al.filter(|_| !kids.is_empty()) {
             let horizontal = al.direction == LayoutDirection::Horizontal;
             attr(&mut attrs, "orientation", if horizontal { "horizontal" } else { "vertical" });

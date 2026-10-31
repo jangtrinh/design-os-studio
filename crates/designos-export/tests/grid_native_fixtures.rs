@@ -242,7 +242,7 @@ fn effective_align(k: &ChildIn) -> (GridChildAlign, GridChildAlign) {
 
 fn assert_swiftui_scene(scene: &NativeGridScene) {
     let name = scene.name;
-    let (widths, rows, placed, col_gap, _, _) = solver_expectations(scene);
+    let (widths, rows, placed, col_gap, row_gap, _) = solver_expectations(scene);
     let kids = solver_kids(scene);
     let swift = swiftui_for(&scene.doc, scene.grid);
     assert!(swift.contains("Grid("), "{name} SwiftUI missing Grid(: {swift}");
@@ -272,6 +272,17 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
         };
         let needle = format!(".frame(width: {}, height: {}, alignment: {swift_align})", fmt_num(cell_w), fmt_num(cell_h_first));
         assert!(swift.contains(&needle), "{name} SwiftUI missing cell frame {needle}: {swift}");
+        if p.row_span > 1 {
+            let cell_h_span: f32 = (0..p.row_span).map(|dr| rows[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
+            if (cell_h_span - cell_h_first).abs() > 1e-4 {
+                let bad_needle = format!(".frame(width: {}, height: {}, alignment: {swift_align})", fmt_num(cell_w), fmt_num(cell_h_span));
+                assert!(
+                    !swift.contains(&bad_needle),
+                    "{name} SwiftUI row-span cell must use first-row height {}, not span height {bad_needle}: {swift}",
+                    fmt_num(cell_h_first)
+                );
+            }
+        }
         if p.col_span > 1 {
             assert!(swift.contains(&format!(".gridCellColumns({})", p.col_span)), "{name} SwiftUI missing .gridCellColumns({}): {swift}", p.col_span);
         }
@@ -306,6 +317,17 @@ fn assert_compose_scene(scene: &NativeGridScene) {
         };
         let box_needle = format!("Box(Modifier.height({}.dp), contentAlignment = {compose_align})", fmt_num(cell_h_first));
         assert!(compose.contains(&box_needle), "{name} Compose missing cell box {box_needle}: {compose}");
+        if p.row_span > 1 {
+            let cell_h_span: f32 = (0..p.row_span).map(|dr| rows[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
+            if (cell_h_span - cell_h_first).abs() > 1e-4 {
+                let bad_box = format!("Box(Modifier.height({}.dp), contentAlignment = {compose_align})", fmt_num(cell_h_span));
+                assert!(
+                    !compose.contains(&bad_box),
+                    "{name} Compose row-span cell must use first-row height {}, not span height {bad_box}: {compose}",
+                    fmt_num(cell_h_first)
+                );
+            }
+        }
         if p.col_span > 1 {
             assert!(compose.contains(&format!("GridItemSpan({})", p.col_span)), "{name} Compose missing GridItemSpan({}): {compose}", p.col_span);
         }

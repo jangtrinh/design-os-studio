@@ -420,8 +420,9 @@ pub(crate) struct Sizes {
     pub cross_stretch: bool,
 }
 
-/// Sizing as the stack-based generators (SwiftUI, UIKit, Compose, Android XML) need it. They emit a
-/// grid as a column, so every parent that is not `Horizontal` counts as one.
+/// Sizing as the native generators (SwiftUI, UIKit, Compose, Android XML) need it. For grid children,
+/// `row_parent` stays `false` because horizontal stretch is driven by `Sizing::Fill`, while `grow`
+/// only stretches along the vertical axis when `row_parent` is `false`.
 pub(crate) fn sizes(n: &Node, parent: Parent<'_>) -> Sizes {
     let row_parent = parent.al.map(|a| a.direction == LayoutDirection::Horizontal).unwrap_or(true);
     sizes_along(n, parent, row_parent)
@@ -585,12 +586,28 @@ pub(crate) fn grid_packs_auto_rows(doc: &Document, n: &Node, al: &AutoLayout) ->
     designos_doc::layout_solver::grid_packs_auto_rows(al, &kids)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct StackedGridChild {
+    pub id: NodeId,
+    pub placed: designos_doc::layout_solver::Placed,
+    pub offset: (f32, f32),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct GridCellGroup {
+    pub id: NodeId,
+    pub placed: designos_doc::layout_solver::Placed,
+    pub stacked: Vec<StackedGridChild>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SolvedGrid {
     pub widths: Vec<f32>,
     pub rows: Vec<f32>,
     pub col_gap: f32,
     pub row_gap: f32,
+    pub pad_tl: (f32, f32),
+    pub rects: Vec<Rect>,
     pub children: Vec<(NodeId, designos_doc::layout_solver::Placed)>,
 }
 
@@ -602,6 +619,44 @@ impl SolvedGrid {
     pub fn cell_height(&self, p: &designos_doc::layout_solver::Placed, allow_row_span: bool) -> f32 {
         let span = if allow_row_span { p.row_span } else { 1 };
         (0..span).map(|dr| self.rows[p.row + dr]).sum::<f32>() + self.row_gap * (span.saturating_sub(1) as f32)
+    }
+
+    pub fn cell_origin(&self, p: &designos_doc::layout_solver::Placed) -> (f32, f32) {
+        let x = self.pad_tl.0 + self.widths[..p.col].iter().sum::<f32>() + self.col_gap * (p.col as f32);
+        let y = self.pad_tl.1 + self.rows[..p.row].iter().sum::<f32>() + self.row_gap * (p.row as f32);
+        (x, y)
+    }
+
+    pub fn row_cells(&self, r: usize) -> Vec<GridCellGroup> {
+        let mut groups: Vec<GridCellGroup> = Vec::new();
+        for (idx, (id, p)) in self.children.iter().enumerate() {
+            if p.row != r {
+                continue;
+            }
+            let c_start = p.col;
+            let c_end = p.col + p.col_span.max(1);
+            if let Some(host) = groups.iter_mut().find(|g| {
+                let g_start = g.placed.col;
+                let g_end = g.placed.col + g.placed.col_span.max(1);
+                c_start < g_end && g_start < c_end
+            }) {
+                let (hx, hy) = self.cell_origin(&host.placed);
+                let rect = self.rects[idx];
+                host.stacked.push(StackedGridChild { id: *id, placed: *p, offset: (rect.x - hx, rect.y - hy) });
+            } else {
+                groups.push(GridCellGroup { id: *id, placed: *p, stacked: Vec::new() });
+            }
+        }
+        groups
+    }
+
+    pub fn overlap_comment(doc: &Document, group: &GridCellGroup) -> Option<String> {
+        if group.stacked.is_empty() {
+            return None;
+        }
+        let primary_name = doc.get(group.id).map(|n| n.name.as_str()).unwrap_or("");
+        let stacked_names: Vec<String> = group.stacked.iter().map(|s| swift_quote(doc.get(s.id).map(|n| n.name.as_str()).unwrap_or(""))).collect();
+        Some(format!("// {}: overlapping grid cells stacked in the cell of {}", stacked_names.join(", "), swift_quote(primary_name)))
     }
 }
 
@@ -624,11 +679,12 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
     let widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
     let rows = designos_doc::layout_solver::grid_row_heights(&al_s, n.size, own, &kids);
+    let out = designos_doc::layout_solver::compute_grid(&al_s, n.size, own, &kids);
     let col_gap = al_s.item_spacing.max(0.0);
     let row_gap = if al_s.counter_spacing > 0.0 { al_s.counter_spacing } else { col_gap };
     let placed = designos_doc::layout_solver::place_children(&kids, widths.len());
     let children = ids.into_iter().zip(placed).collect();
-    Some(SolvedGrid { widths, rows, col_gap, row_gap, children })
+    Some(SolvedGrid { widths, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), rects: out.rects, children })
 }
 
 pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'static str {

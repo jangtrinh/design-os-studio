@@ -318,21 +318,21 @@ fn compose_cell_align(ah: GridChildAlign, av: GridChildAlign) -> &'static str {
 }
 
 fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Out) {
+    emit_with_offset(doc, id, parent, depth, None, o);
+}
+
+fn emit_with_offset(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, extra_offset: Option<(f32, f32)>, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
     if !n.visible {
         return;
     }
     let mut sz = sizes(n, parent);
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
-    let grid_opt = own_al.and_then(|al| solved_grid(doc, n, al).map(|g| (al, g)));
-    if let Some((al, ref grid)) = grid_opt {
-        let grid_h = grid.rows.iter().sum::<f32>() + grid.row_gap * (grid.rows.len().saturating_sub(1) as f32) + al.padding[0] + al.padding[2];
-        sz.h = Dim::Fixed(grid_h);
-    }
     let site = slot_site(doc, id);
+    let grid_opt = own_al.filter(|_| site.is_none()).and_then(|al| solved_grid(doc, n, al).map(|g| (al, g)));
     let kids = if site.is_some() { Vec::new() } else { visible_children(doc, n) };
     let mut mods: Vec<String> = Vec::new();
-    if let Some((x, y)) = offset(n, parent, &sz) {
+    if let Some((x, y)) = extra_offset.or_else(|| offset(n, parent, &sz)) {
         if x != 0.0 || y != 0.0 {
             mods.push(format!(".offset(x = {}.dp, y = {}.dp)", num(x), num(y)));
         }
@@ -402,57 +402,100 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let mut args: Vec<Arg> = Vec::new();
     let name;
     let block;
+    if let Some((al, ref grid)) = grid_opt {
+        let mut grid_h = grid.rows.iter().sum::<f32>() + grid.row_gap * (grid.rows.len().saturating_sub(1) as f32) + al.padding[0] + al.padding[2];
+        if al.counter_sizing == Sizing::Fixed {
+            grid_h = n.size.y;
+        }
+        sz.h = Dim::Fixed(grid_h);
+    }
     size_mods(doc, n, &sz, parent, &mut mods);
     style_mods(doc, n, &mut mods);
     if let Some((al, grid)) = grid_opt {
-        padding_mods(doc, n, al, &mut mods);
-        finish_mods(doc, n, rot, &mut mods);
+        let out_of_flow: Vec<&Node> = kids.iter().copied().filter(|k| !grid.children.iter().any(|(cid, _)| *cid == k.id)).collect();
+        let has_oof = !out_of_flow.is_empty();
+        let g_depth = if has_oof { depth + 1 } else { depth };
         let widths_dp = grid.widths.iter().map(|w| format!("{}.dp", num(*w))).collect::<Vec<_>>().join(", ");
         args.push(arg(format!(
             "columns = object : GridCells {{ override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf({widths_dp}).map {{ it.roundToPx() }} }}"
         )));
-        args.extend(modifier_arg(o, parent, &mods));
+        if has_oof {
+            finish_mods(doc, n, rot, &mut mods);
+            let box_args: Vec<Arg> = modifier_arg(o, parent, &mods).into_iter().collect();
+            open_call(o, depth, "Box", box_args, true);
+            let mut grid_mods = vec![".fillMaxSize()".to_string()];
+            padding_mods(doc, n, al, &mut grid_mods);
+            args.extend(modifier_arg(o, Parent { al: None, root: false }, &grid_mods));
+        } else {
+            padding_mods(doc, n, al, &mut mods);
+            finish_mods(doc, n, rot, &mut mods);
+            args.extend(modifier_arg(o, parent, &mods));
+        }
         let col_gap_s = dp(doc, n, "itemSpacing", grid.col_gap);
         let row_gap_s = dp(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
         args.push(arg(format!("horizontalArrangement = Arrangement.spacedBy({col_gap_s})")));
         args.push(arg(format!("verticalArrangement = Arrangement.spacedBy({row_gap_s})")));
         args.push(arg("userScrollEnabled = false"));
-        open_call(o, depth, "LazyVerticalGrid", args, true);
+        open_call(o, g_depth, "LazyVerticalGrid", args, true);
         let me = Parent::of(n);
         let cols = grid.widths.len();
         for r in 0..grid.rows.len() {
+            let groups = grid.row_cells(r);
             let mut c = 0usize;
             while c < cols {
-                if let Some((cid, p)) = grid.children.iter().find(|(_, p)| p.row == r && p.col == c) {
+                if let Some(group) = groups.iter().find(|g| g.placed.col == c) {
+                    let cid = group.id;
+                    let p = &group.placed;
                     if p.row_span > 1 {
-                        let cname = doc.get(*cid).map(|cn| cn.name.as_str()).unwrap_or("");
+                        let cname = doc.get(cid).map(|cn| cn.name.as_str()).unwrap_or("");
                         o.line(
-                            depth + 1,
+                            g_depth + 1,
                             format!("// \"{}\": row span {} is not supported by Compose LazyVerticalGrid; placed in row {}", cname, p.row_span, p.row + 1),
                         );
                     }
+                    for s in &group.stacked {
+                        if s.placed.row_span > 1 {
+                            let sname = doc.get(s.id).map(|cn| cn.name.as_str()).unwrap_or("");
+                            o.line(
+                                g_depth + 1,
+                                format!(
+                                    "// \"{}\": row span {} is not supported by Compose LazyVerticalGrid; placed in row {}",
+                                    sname,
+                                    s.placed.row_span,
+                                    s.placed.row + 1
+                                ),
+                            );
+                        }
+                    }
+                    if let Some(comment) = SolvedGrid::overlap_comment(doc, group) {
+                        o.line(g_depth + 1, comment);
+                    }
                     let item_head = if p.col_span > 1 { format!("item(span = {{ GridItemSpan({}) }}) {{", p.col_span) } else { "item {".to_string() };
-                    o.line(depth + 1, item_head);
+                    o.line(g_depth + 1, item_head);
                     let cell_h = grid.cell_height(p, false);
-                    let (ah, av) = grid_cell_align(doc, *cid, al);
+                    let (ah, av) = grid_cell_align(doc, cid, al);
                     let align = compose_cell_align(ah, av);
-                    o.line(depth + 2, format!("Box(Modifier.height({}.dp), contentAlignment = {align}) {{", num(cell_h)));
-                    emit(doc, *cid, me, depth + 3, o);
-                    o.line(depth + 2, "}");
-                    o.line(depth + 1, "}");
+                    o.line(g_depth + 2, format!("Box(Modifier.height({}.dp), contentAlignment = {align}) {{", num(cell_h)));
+                    emit(doc, cid, me, g_depth + 3, o);
+                    for s in &group.stacked {
+                        emit_with_offset(doc, s.id, me, g_depth + 3, Some(s.offset), o);
+                    }
+                    o.line(g_depth + 2, "}");
+                    o.line(g_depth + 1, "}");
                     c += p.col_span;
                 } else {
-                    o.line(depth + 1, format!("item {{ Spacer(Modifier.height({}.dp)) }}", num(grid.rows[r])));
+                    o.line(g_depth + 1, format!("item {{ Spacer(Modifier.height({}.dp)) }}", num(grid.rows[r])));
                     c += 1;
                 }
             }
         }
-        for k in &kids {
-            if !grid.children.iter().any(|(cid, _)| *cid == k.id) {
+        o.line(g_depth, "}");
+        if has_oof {
+            for k in out_of_flow {
                 emit(doc, k.id, me, depth + 1, o);
             }
+            o.line(depth, "}");
         }
-        o.line(depth, "}");
         return;
     } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
