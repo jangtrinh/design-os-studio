@@ -3342,9 +3342,11 @@ impl TerminalState {
         self.status_msg = Some(format!("Active agent CLI shell: {} ({})", runtime.tab_title(), runtime.binary_name()));
     }
 
-    /// Submits a user message from the Agent composer into the active tab's live CLI session (`#689` §3 rules 1, 8).
+    /// Submits a prompt a feature built (a spec Ask, a fixture) into the active tab's live CLI session (`#689` §3 rules 1, 8). It is a
+    /// prompt entry point: it leaves the draft, chips and PRD chip of the composer on screen alone. The composer's own Send is
+    /// [`Self::send_from_composer_box`].
     pub fn submit_chat_prompt(&mut self, prompt: &str, file_path: Option<&Path>) {
-        let _ = self.send_to_agent_as_typed(prompt, file_path);
+        let _ = self.send_to_agent(prompt, file_path);
     }
 
     /// Submits a system-generated image task prompt to the target agent runtime (`#667`).
@@ -11478,7 +11480,7 @@ mod tests {
             name: "Deleted/Layer".to_string(),
             page: Some("Landing".to_string()),
         });
-        st.submit_chat_prompt("Check @Hero/Title and @Hero/Title spacing", None);
+        st.send_from_composer_box("Check @Hero/Title and @Hero/Title spacing", None);
         let written = String::from_utf8_lossy(&st.active_tab().unwrap().written_bytes).into_owned();
         assert!(written.contains("References: @Hero/Title = designos:node/4521"), "the live session gets the reference footer: {written:?}");
         assert!(!written.contains("9999"), "deleted mention must not be included in sent prompt");

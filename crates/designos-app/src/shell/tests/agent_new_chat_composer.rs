@@ -285,6 +285,64 @@ fn a_prompt_entry_point_leaves_the_composer_on_screen_alone() {
     finish(s);
 }
 
+/// The prompt `specs.rs` builds for "Ask @agent about this Spec" and hands to `submit_chat_prompt`.
+const SPEC_ASK: &str = "@prd @spec://pricing/prd (C-1) implement the pricing card";
+
+fn layer_chip() -> crate::agent_composer::LayerChip {
+    crate::agent_composer::LayerChip { node_id: designos_doc::NodeId(42), name: "Hero".into(), is_component: false, reference: "designos:node/42".into() }
+}
+
+#[test]
+fn spec_ask_on_a_live_tab_sends_its_own_text_and_keeps_the_draft_the_chips_and_the_prd_chip() {
+    let mut s = session_sim();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    {
+        let composer = &mut s.shell.app.terminal.tabs[0].composer;
+        composer.draft = "half a thought".into();
+        composer.attach_prd = true;
+        composer.chips.push(layer_chip());
+    }
+    frames(&mut s, 3);
+    s.shell.app.terminal.submit_chat_prompt(SPEC_ASK, None);
+    s.shell.app.terminal.flush_pending_enter_now();
+    frames(&mut s, 2);
+    let terminal = &s.shell.app.terminal;
+    let composer = &terminal.tabs[0].composer;
+    let written = String::from_utf8_lossy(&terminal.tabs[0].written_bytes).into_owned();
+    assert!(written.contains("@spec://pricing/prd"), "the Ask reached the live session: {written:?}");
+    assert_eq!(composer.draft, "half a thought", "the user's draft is still on screen, not deleted unsent");
+    assert!(composer.attach_prd, "the PRD chip is still attached");
+    assert_eq!(composer.chips.len(), 1, "and the layer chip");
+    assert!(!written.contains("half a thought"), "the draft was not sent with the Ask: {written:?}");
+    assert!(!written.contains("designos:node/42"), "the chip's References footer does not ride on the Ask: {written:?}");
+    finish(s);
+}
+
+#[test]
+fn spec_ask_over_new_chat_leaves_the_new_chat_draft_and_prd_chip_alone() {
+    let mut s = session_sim();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    frames(&mut s, 3);
+    type_in_composer(&mut s, "my new chat draft");
+    frames(&mut s, 2);
+    s.shell.app.terminal.unattached_composer.attach_prd = true;
+    assert!(s.shell.app.terminal.picker_open, "precondition: New chat is on screen");
+    s.shell.app.terminal.submit_chat_prompt(SPEC_ASK, None);
+    frames(&mut s, 3);
+    let terminal = &s.shell.app.terminal;
+    assert_eq!(terminal.unattached_composer.draft, "my new chat draft", "the New chat draft is not taken");
+    assert!(terminal.unattached_composer.attach_prd, "nor its PRD chip");
+    assert!(terminal.unattached_composer.history.is_empty(), "and nothing is recorded in its history: {:?}", terminal.unattached_composer.history);
+    assert!(
+        terminal.tabs[0].composer.pending_send.as_deref().is_some_and(|p| p.contains("@spec://pricing/prd")) || terminal.tabs[0].composer.send_count > 0,
+        "the Ask went to the covered tab: {:?}",
+        terminal.tabs[0].composer.pending_send
+    );
+    finish(s);
+}
+
 #[test]
 fn the_next_new_chat_after_a_send_starts_empty() {
     let mut s = session_sim();

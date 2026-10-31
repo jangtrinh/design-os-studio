@@ -473,9 +473,6 @@ enum SendSource {
     /// A prompt entry point such as Cmd+K or Make design: it uses the composer's path, and with no live tab it resumes the last
     /// session or holds the prompt for the agent menu. It brings its own text and takes nothing from the composer on screen.
     Composer,
-    /// A message the user typed into a field of their own (the classic chat): it sends and spends the composer on screen, and
-    /// never starts the pill's agent.
-    Typed,
     /// Send or Enter in the composer box on screen. In the New chat state it starts the pill's agent.
     ComposerBox,
     System,
@@ -652,12 +649,6 @@ impl TerminalState {
         self.send_to_agent_from(text, file_path, SendSource::ComposerBox)
     }
 
-    /// Sends a message the user typed (the classic chat) the way the composer box does, except that it never starts the pill's agent:
-    /// the composer on screen is spent, its chips, mentions and PRD chip go with the text.
-    pub fn send_to_agent_as_typed(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
-        self.send_to_agent_from(text, file_path, SendSource::Typed)
-    }
-
     /// Sends a system-generated prompt (image jobs) into the active agent tab. Unlike [`Self::send_to_agent`] it
     /// leaves the user's draft, layer chips, `@`-mentions and Up-arrow history alone, attaches none of their
     /// references, never starts a session by itself, and never returns an undelivered prompt to the draft.
@@ -685,9 +676,10 @@ impl TerminalState {
         let early_actions = self.poll_live_agent_bridge();
         self.deferred_bridge_actions.extend(early_actions);
         let system = source == SendSource::System;
-        // Only a message the user typed (the composer box, the classic chat) spends the composer on screen: its draft, chips, mentions
-        // and PRD chip. A prompt entry point (Make design, Cmd+K, an Ask) brings its own text and leaves the composer as the user left it.
-        let from_box = matches!(source, SendSource::ComposerBox | SendSource::Typed);
+        // Only Send or Enter in the composer box (the classic chat's Send is the same call) spends the composer on screen: its draft,
+        // chips, mentions and PRD chip. A prompt entry point (Make design, Cmd+K, a spec Ask) brings its own text and leaves the
+        // composer as the user left it.
+        let from_box = source == SendSource::ComposerBox;
 
         let trimmed = text.trim();
         let chips_snapshot = if from_box { self.active_composer().chips.clone() } else { Vec::new() };
