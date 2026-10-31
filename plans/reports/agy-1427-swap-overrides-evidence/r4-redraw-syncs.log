@@ -1,0 +1,105 @@
+
+running 2 tests
+test r3_main_resize_instance_shape_render ... PROBE cf-render main dot size=Vec2 { x: 24.0, y: 24.0 } fill_geom=None | instance dot size=Vec2 { x: 24.0, y: 24.0 } fill_geom=None
+ok
+test r3_redraw_swapped_glyph_after_syncs ... PROBE redraw mode=all mains to sync: 13
+PROBE redraw sync0 swapck-0-control: main slot id=616 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync0 swapck-0-control: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4782844, 0.6243671, 19.376194, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync0 swapck-0-swap: main slot id=616 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync0 swapck-0-swap: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) direct=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync0 swapck-1-control: main slot id=637 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync0 swapck-1-control: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((2.9508293, 2.9508288, 13.0491705, 13.0491705)) direct=None max|d|=NaN ov={}
+PROBE redraw sync0 swapck-1-swap: main slot id=637 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync0 swapck-1-swap: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) direct=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) max|d|=0.0000 ov={Fills}
+PROBE redraw sync0 swapck-2-control: main slot id=586 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync0 swapck-2-control: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) direct=None max|d|=NaN ov={}
+PROBE redraw sync0 swapck-2-swap: main slot id=586 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync0 swapck-2-swap: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((1.9508288, 3.9509292, 14.5491705, 13.000344)) direct=Some((1.9508288, 3.9509292, 14.5491705, 13.000344)) max|d|=0.0000 ov={Fills}
+PROBE redraw sync0 swapck-3-control: main slot id=307 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync0 swapck-3-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync0 swapck-3-swap: main slot id=307 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync0 swapck-3-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync0 swapck-4-control: main slot id=533 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync0 swapck-4-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync0 swapck-4-swap: main slot id=533 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync0 swapck-4-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 1.25, 17.5, 17.5)) direct=Some((2.5, 1.25, 17.5, 17.5)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync0 swapck-5-control: main slot id=338 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync0 swapck-5-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync0 swapck-5-swap: main slot id=338 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync0 swapck-5-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync1 swapck-0-control: main slot id=616 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync1 swapck-0-control: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4782844, 0.6243671, 19.376194, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync1 swapck-0-swap: main slot id=616 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync1 swapck-0-swap: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) direct=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync1 swapck-1-control: main slot id=637 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync1 swapck-1-control: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((2.9508293, 2.9508288, 13.0491705, 13.0491705)) direct=None max|d|=NaN ov={}
+PROBE redraw sync1 swapck-1-swap: main slot id=637 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync1 swapck-1-swap: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) direct=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) max|d|=0.0000 ov={Fills}
+PROBE redraw sync1 swapck-2-control: main slot id=586 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync1 swapck-2-control: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) direct=None max|d|=NaN ov={}
+PROBE redraw sync1 swapck-2-swap: main slot id=586 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync1 swapck-2-swap: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((1.9508288, 3.9509292, 14.5491705, 13.000344)) direct=Some((1.9508288, 3.9509292, 14.5491705, 13.000344)) max|d|=0.0000 ov={Fills}
+PROBE redraw sync1 swapck-3-control: main slot id=307 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync1 swapck-3-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync1 swapck-3-swap: main slot id=307 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync1 swapck-3-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync1 swapck-4-control: main slot id=533 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync1 swapck-4-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync1 swapck-4-swap: main slot id=533 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync1 swapck-4-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 1.25, 17.5, 17.5)) direct=Some((2.5, 1.25, 17.5, 17.5)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync1 swapck-5-control: main slot id=338 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync1 swapck-5-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync1 swapck-5-swap: main slot id=338 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync1 swapck-5-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync2 swapck-0-control: main slot id=616 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync2 swapck-0-control: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4782844, 0.6243671, 19.376194, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync2 swapck-0-swap: main slot id=616 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync2 swapck-0-swap: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) direct=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync2 swapck-1-control: main slot id=637 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync2 swapck-1-control: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((2.9508293, 2.9508288, 13.0491705, 13.0491705)) direct=None max|d|=NaN ov={}
+PROBE redraw sync2 swapck-1-swap: main slot id=637 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync2 swapck-1-swap: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) direct=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) max|d|=0.0000 ov={Fills}
+PROBE redraw sync2 swapck-2-control: main slot id=586 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync2 swapck-2-control: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) direct=None max|d|=NaN ov={}
+PROBE redraw sync2 swapck-2-swap: main slot id=586 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync2 swapck-2-swap: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((1.9508288, 3.9509292, 14.5491705, 13.000344)) direct=Some((1.9508288, 3.9509292, 14.5491705, 13.000344)) max|d|=0.0000 ov={Fills}
+PROBE redraw sync2 swapck-3-control: main slot id=307 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync2 swapck-3-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync2 swapck-3-swap: main slot id=307 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync2 swapck-3-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync2 swapck-4-control: main slot id=533 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync2 swapck-4-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync2 swapck-4-swap: main slot id=533 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync2 swapck-4-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 1.25, 17.5, 17.5)) direct=Some((2.5, 1.25, 17.5, 17.5)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync2 swapck-5-control: main slot id=338 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync2 swapck-5-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync2 swapck-5-swap: main slot id=338 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync2 swapck-5-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync3 swapck-0-control: main slot id=616 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync3 swapck-0-control: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4782844, 0.6243671, 19.376194, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync3 swapck-0-swap: main slot id=616 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync3 swapck-0-swap: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) direct=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync3 swapck-1-control: main slot id=637 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync3 swapck-1-control: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((2.9508293, 2.9508288, 13.0491705, 13.0491705)) direct=None max|d|=NaN ov={}
+PROBE redraw sync3 swapck-1-swap: main slot id=637 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync3 swapck-1-swap: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) direct=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) max|d|=0.0000 ov={Fills}
+PROBE redraw sync3 swapck-2-control: main slot id=586 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync3 swapck-2-control: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((0.94104373, 0.9411439, 14.549071, 14.5491705)) direct=None max|d|=NaN ov={}
+PROBE redraw sync3 swapck-2-swap: main slot id=586 size=Vec2 { x: 16.0, y: 16.0 } ov={} | slot ov={}
+PROBE redraw sync3 swapck-2-swap: slot="Icon" size=Vec2 { x: 16.0, y: 16.0 } glyph size=Vec2 { x: 16.0, y: 16.0 } at=(0,0) drawn=Some((1.9508288, 3.9509292, 14.5491705, 13.000344)) direct=Some((1.9508288, 3.9509292, 14.5491705, 13.000344)) max|d|=0.0000 ov={Fills}
+PROBE redraw sync3 swapck-3-control: main slot id=307 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync3 swapck-3-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync3 swapck-3-swap: main slot id=307 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync3 swapck-3-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync3 swapck-4-control: main slot id=533 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync3 swapck-4-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync3 swapck-4-swap: main slot id=533 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync3 swapck-4-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 1.25, 17.5, 17.5)) direct=Some((2.5, 1.25, 17.5, 17.5)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync3 swapck-5-control: main slot id=338 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync3 swapck-5-control: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 2.5, 17.5, 17.5)) direct=None max|d|=NaN ov={}
+PROBE redraw sync3 swapck-5-swap: main slot id=338 size=Vec2 { x: 20.0, y: 20.0 } ov={Size} | slot ov={}
+PROBE redraw sync3 swapck-5-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
