@@ -307,6 +307,26 @@ fn text_becomes_an_editable_text_node() {
 }
 
 #[test]
+fn text_id_becomes_a_stable_layer_name() {
+    let (mut doc, id) = import(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100">
+          <text id="label" x="20" y="40" font-family="Inter" font-size="24" fill="#000">Build passed</text>
+          <text x="20" y="80" font-family="Inter" font-size="24" fill="#000">Fallback</text>
+        </svg>"##,
+    );
+    let children = doc.get(id).unwrap().children.clone();
+    let text_id = children[0];
+    assert_eq!(doc.get(text_id).unwrap().name, "label");
+    assert_eq!(doc.get(children[1]).unwrap().name, "Fallback");
+
+    let mut updated = doc.get(text_id).unwrap().clone();
+    let NodeKind::Text(props) = &mut updated.kind else { panic!("text expected") };
+    props.content = "Tests passed".into();
+    Command::Update { node: Box::new(updated) }.apply(&mut doc).unwrap();
+    assert_eq!(doc.get(text_id).unwrap().name, "label");
+}
+
+#[test]
 fn multiline_tspans_merge_into_one_node() {
     let (doc, id) = import(
         r##"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><text font-size="16" fill="#000"><tspan x="10" y="30">one</tspan><tspan x="10" y="50">two</tspan><tspan x="10" y="70">three</tspan></text></svg>"##,
