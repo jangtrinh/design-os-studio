@@ -1,0 +1,9 @@
+
+running 4 tests
+test color_space::tests::known_values_srgb_to_oklab_and_oklch ... ok
+test color_space::tests::gamut_clamping_and_non_finite_inputs ... ok
+test color_space::tests::positive_infinity_srgb_and_huge_oklab_l_clamp_to_white ... ok
+test color_space::tests::round_trip_17_step_srgb_grid_4913_colours ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 706 filtered out; finished in 0.01s
+

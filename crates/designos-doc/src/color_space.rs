@@ -5,10 +5,10 @@
 
 #[inline]
 fn sanitize_unit(v: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(0.0, 1.0)
-    } else {
+    if v.is_nan() {
         0.0
+    } else {
+        v.clamp(0.0, 1.0)
     }
 }
 
@@ -67,9 +67,9 @@ pub fn srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
 }
 
 /// Converts `OKLab` `[L, a, b]` to straight sRGB channels (`0.0..=1.0`),
-/// clamping each linear sRGB channel to `[0.0, 1.0]`.
+/// clamping `L` to `[0.0, 1.0]` before cubing and each linear sRGB channel to `[0.0, 1.0]`.
 pub fn oklab_to_srgb(l: f32, a: f32, b: f32) -> [f32; 3] {
-    let l = sanitize_finite(l);
+    let l = sanitize_unit(l);
     let a = sanitize_finite(a);
     let b = sanitize_finite(b);
 
@@ -172,7 +172,11 @@ mod tests {
         let red_lch = srgb_to_oklch(1.0, 0.0, 0.0);
         assert_near(red_lch[0], 0.6280, tol, "red OKLCH L");
         assert_near(red_lch[1], 0.2577, tol, "red OKLCH C");
-        assert_near(red_lch[2], 29.23, 1e-2, "red OKLCH H");
+        assert_near(red_lch[2], 29.2339, tol, "red OKLCH H");
+
+        // sRGB mid-grey #808080 -> exact achromatic C == 0
+        let grey_lch = srgb_u8_to_oklch([0x80, 0x80, 0x80]);
+        assert_eq!(grey_lch[1], 0.0, "#808080 OKLCH C must be 0");
 
         // sRGB green -> OKLab (0.8664, -0.2339, 0.1795)
         let green_lab = srgb_to_oklab(0.0, 1.0, 0.0);
@@ -199,15 +203,16 @@ mod tests {
 
     #[test]
     fn round_trip_17_step_srgb_grid_4913_colours() {
-        let tol = 1.0 / 255.0;
+        let tol = 1e-4;
         let mut count = 0usize;
         for ri in 0..17u8 {
             for gi in 0..17u8 {
                 for bi in 0..17u8 {
                     count += 1;
-                    let r = (ri * 15) as f32 / 255.0;
-                    let g = (gi * 15) as f32 / 255.0;
-                    let b = (bi * 15) as f32 / 255.0;
+                    let rgb_u8 = [ri * 15, gi * 15, bi * 15];
+                    let r = rgb_u8[0] as f32 / 255.0;
+                    let g = rgb_u8[1] as f32 / 255.0;
+                    let b = rgb_u8[2] as f32 / 255.0;
 
                     let [l, a, b_ok] = srgb_to_oklab(r, g, b);
                     let [r_lab, g_lab, b_lab] = oklab_to_srgb(l, a, b_ok);
@@ -215,6 +220,7 @@ mod tests {
                         (r_lab - r).abs() <= tol && (g_lab - g).abs() <= tol && (b_lab - b).abs() <= tol,
                         "OKLab round-trip failed for ({ri}, {gi}, {bi}): got ({r_lab}, {g_lab}, {b_lab}) vs ({r}, {g}, {b})"
                     );
+                    assert_eq!(oklab_to_srgb_u8(l, a, b_ok), rgb_u8, "u8 OKLab round-trip failed for {rgb_u8:?}");
 
                     let [l2, c, h] = srgb_to_oklch(r, g, b);
                     let [r_lch, g_lch, b_lch] = oklch_to_srgb(l2, c, h);
@@ -222,10 +228,21 @@ mod tests {
                         (r_lch - r).abs() <= tol && (g_lch - g).abs() <= tol && (b_lch - b).abs() <= tol,
                         "OKLCH round-trip failed for ({ri}, {gi}, {bi}): got ({r_lch}, {g_lch}, {b_lch}) vs ({r}, {g}, {b})"
                     );
+                    assert_eq!(oklch_to_srgb_u8(l2, c, h), rgb_u8, "u8 OKLCH round-trip failed for {rgb_u8:?}");
                 }
             }
         }
         assert_eq!(count, 4_913);
+    }
+
+    #[test]
+    fn positive_infinity_srgb_and_huge_oklab_l_clamp_to_white() {
+        let lab_inf = srgb_to_oklab(f32::INFINITY, f32::INFINITY, f32::INFINITY);
+        assert_eq!(lab_inf, [1.0, 0.0, 0.0], "srgb_to_oklab(+inf, +inf, +inf) must be white");
+        let rgb_huge_l = oklab_to_srgb(1e13, 0.0, 0.0);
+        for (idx, ch) in rgb_huge_l.iter().copied().enumerate() {
+            assert!((ch - 1.0).abs() <= 1e-6, "oklab_to_srgb(1e13, 0, 0) channel {idx} must be 1.0 (white), got {rgb_huge_l:?}");
+        }
     }
 
     #[test]
