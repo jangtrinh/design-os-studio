@@ -41,6 +41,12 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
+    // The headless CLI (`designos <file> --inspect-json` and friends) runs on the main thread, and its frames need
+    // close to 1 MiB, which is the whole MSVC default. `RUST_MIN_STACK` only sizes spawned threads, so give the
+    // main thread of the app binaries 8 MiB at link time.
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        println!("cargo:rustc-link-arg-bins=/STACK:8388608");
+    }
     let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
     let mut res = winresource::WindowsResource::new();
     res.set_icon("../../assets/icon/designos.ico");
