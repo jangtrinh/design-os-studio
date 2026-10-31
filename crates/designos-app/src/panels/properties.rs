@@ -2039,7 +2039,9 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         app.doc.images.insert(key, bytes);
         changed = true;
     }
-    if out.eyedrop || app.props.eyedropper.is_some() {
+    let stop_bound =
+        widgets::picker::mode_of(&pk.paint.kind).is_gradient() && super::var_bind::picker_stop_is_bound(&ctx, pk.state.sel);
+    if !stop_bound && (out.eyedrop || app.props.eyedropper.is_some()) {
         pk.eyedrop = true;
         app.props.eyedropper = Some(pk.target);
     }
@@ -2047,6 +2049,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         changed |= choose_image_fill(app, &mut pk.paint, &crate::io::SystemDialogs);
     }
     // Eyedropper: the next canvas click samples the colour under the pointer.
+    let was_eyedrop = pk.eyedrop;
     if pk.eyedrop {
         ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
         let (clicked, ptr, esc, shift) =
@@ -2057,14 +2060,16 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         } else if let (true, Some(p)) = (clicked, ptr) {
             if app.canvas_rect.contains(p) && !panel.contains(p) {
                 let ids = pk.ids.clone();
-                if shift && try_sample_color_token(app, p, pk.target, &ids) {
+                if !stop_bound && shift && try_sample_color_token(app, p, pk.target, &ids) {
                     pk.eyedrop = false;
                     app.props.eyedropper = None;
                 } else {
-                    if let Some([r, g, b]) = sample_canvas(app, p) {
-                        let a = widgets::picker::active_rgba(&pk.paint, pk.state.sel)[3];
-                        widgets::picker::set_active(&mut pk.paint, pk.state.sel, [r, g, b, a]);
-                        changed = true;
+                    if !stop_bound {
+                        if let Some([r, g, b]) = sample_canvas(app, p) {
+                            let a = widgets::picker::active_rgba(&pk.paint, pk.state.sel)[3];
+                            widgets::picker::set_active(&mut pk.paint, pk.state.sel, [r, g, b, a]);
+                            changed = true;
+                        }
                     }
                     pk.eyedrop = false;
                     app.props.eyedropper = None;
@@ -2096,8 +2101,11 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         remove = true;
     }
     let (pressed, ptr, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(egui::Key::Escape)));
-    let outside =
-        !pk.eyedrop && !pk.state.menu_open && pressed && ptr.map(|p| !panel.contains(p) && !pk.anchor.contains(p) && !handle_hit(&pk, app, p)).unwrap_or(false);
+    let outside = !was_eyedrop
+        && !pk.eyedrop
+        && !pk.state.menu_open
+        && pressed
+        && ptr.map(|p| !panel.contains(p) && !pk.anchor.contains(p) && !handle_hit(&pk, app, p)).unwrap_or(false);
     let esc = esc && !pk.eyedrop && !pk.state.menu_open;
     if let Some((lib, key)) = out.apply_library_style.take() {
         let ids = pk.ids.clone();

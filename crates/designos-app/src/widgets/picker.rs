@@ -610,13 +610,19 @@ fn round_corners(p: &Painter, r: Rect, radius: f32, bg: Color32) {
 }
 
 fn checker(p: &Painter, r: Rect, cell: f32) {
+    checker_dim(p, r, cell, false);
+}
+
+fn checker_dim(p: &Painter, r: Rect, cell: f32, dim: bool) {
     let p = p.with_clip_rect(r);
-    p.rect_filled(r, 0.0, theme::CHECKER_A);
+    let ca = if dim { kit::half_color(theme::CHECKER_A) } else { theme::CHECKER_A };
+    let cb = if dim { kit::half_color(theme::CHECKER_B) } else { theme::CHECKER_B };
+    p.rect_filled(r, 0.0, ca);
     let (nx, ny) = ((r.width() / cell).ceil() as i32, (r.height() / cell).ceil() as i32);
     for j in 0..ny {
         for i in 0..nx {
             if (i + j) % 2 == 1 {
-                p.rect_filled(Rect::from_min_size(r.min + Vec2::new(i as f32 * cell, j as f32 * cell), Vec2::splat(cell)), 0.0, theme::CHECKER_B);
+                p.rect_filled(Rect::from_min_size(r.min + Vec2::new(i as f32 * cell, j as f32 * cell), Vec2::splat(cell)), 0.0, cb);
             }
         }
     }
@@ -634,14 +640,15 @@ fn quad_mesh(p: &Painter, r: Rect, tl: Color32, tr: Color32, br: Color32, bl: Co
 }
 
 /// Saturation (x) / value (y) square for `hue`.
-fn sv_area(p: &Painter, r: Rect, hue: f32) {
+fn sv_area(p: &Painter, r: Rect, hue: f32, dim: bool) {
     const N: usize = 24;
     let mut m = Mesh::default();
     for j in 0..=N {
         for i in 0..=N {
             let (s, v) = (i as f32 / N as f32, 1.0 - j as f32 / N as f32);
-            let c = Hsva::new(hue, s, v, 1.0).to_srgba_unmultiplied();
-            m.colored_vertex(Pos2::new(r.left() + r.width() * i as f32 / N as f32, r.top() + r.height() * j as f32 / N as f32), c32(c));
+            let c = c32(Hsva::new(hue, s, v, 1.0).to_srgba_unmultiplied());
+            let col = if dim { kit::half_color(c) } else { c };
+            m.colored_vertex(Pos2::new(r.left() + r.width() * i as f32 / N as f32, r.top() + r.height() * j as f32 / N as f32), col);
         }
     }
     let w = (N + 1) as u32;
@@ -655,13 +662,14 @@ fn sv_area(p: &Painter, r: Rect, hue: f32) {
     p.add(Shape::mesh(m));
 }
 
-fn hue_bar(p: &Painter, r: Rect) {
+fn hue_bar(p: &Painter, r: Rect, dim: bool) {
     let mut m = Mesh::default();
     for i in 0..=6 {
         let x = r.left() + r.width() * i as f32 / 6.0;
         let c = c32(Hsva::new(i as f32 / 6.0, 1.0, 1.0, 1.0).to_srgba_unmultiplied());
-        m.colored_vertex(Pos2::new(x, r.top()), c);
-        m.colored_vertex(Pos2::new(x, r.bottom()), c);
+        let col = if dim { kit::half_color(c) } else { c };
+        m.colored_vertex(Pos2::new(x, r.top()), col);
+        m.colored_vertex(Pos2::new(x, r.bottom()), col);
     }
     for i in 0..6u32 {
         let a = i * 2;
@@ -671,12 +679,13 @@ fn hue_bar(p: &Painter, r: Rect) {
     p.add(Shape::mesh(m));
 }
 
-fn thumb_ring(p: &Painter, c: Pos2, outer: f32, ring: f32, fill: Option<Color32>) {
-    p.circle_stroke(c, outer + 0.5, Stroke::new(1.0, Color32::from_black_alpha(0x4D)));
+fn thumb_ring(p: &Painter, c: Pos2, outer: f32, ring: f32, fill: Option<Color32>, dim: bool) {
+    let shadow = Color32::from_black_alpha(0x4D);
+    p.circle_stroke(c, outer + 0.5, Stroke::new(1.0, if dim { kit::half_color(shadow) } else { shadow }));
     if let Some(f) = fill {
-        p.circle_filled(c, outer - ring, f);
+        p.circle_filled(c, outer - ring, if dim { kit::half_color(f) } else { f });
     }
-    p.circle_stroke(c, outer - ring / 2.0, Stroke::new(ring, Color32::WHITE));
+    p.circle_stroke(c, outer - ring / 2.0, Stroke::new(ring, if dim { kit::half_color(Color32::WHITE) } else { Color32::WHITE }));
 }
 
 /// Inspector swatch of a paint: the colour (checkerboard behind transparency), a left-to-right
@@ -944,6 +953,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     }
     let rgba = active_rgba(paint, st.sel);
     st.sync(rgba);
+    let stop_bound = mode.is_gradient() && crate::panels::var_bind::picker_stop_is_bound(ui.ctx(), st.sel);
 
     let cur_lum = relative_luminance([rgba[0], rgba[1], rgba[2]]);
     let ref_lum = if cur_lum < 0.35 { 1.0 } else { relative_luminance([0x1E, 0x1E, 0x1E]) };
@@ -976,8 +986,9 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     // ---- colour area
     let area = Rect::from_min_size(Pos2::new(rect.left() + PAD, y + PAD), Vec2::splat(AREA));
     let mut new_hsv = st.hsv;
-    let ar = ui.interact(area, ui.id().with("picker-area"), Sense::click_and_drag());
-    if (ar.dragged() || ar.clicked() || ar.drag_started()) && ar.interact_pointer_pos().is_some() {
+    let drag_sense = if stop_bound { Sense::hover() } else { Sense::click_and_drag() };
+    let ar = ui.interact(area, ui.id().with("picker-area"), drag_sense);
+    if !stop_bound && (ar.dragged() || ar.clicked() || ar.drag_started()) && ar.interact_pointer_pos().is_some() {
         if let Some(pt) = ar.interact_pointer_pos() {
             new_hsv.s = ((pt.x - area.left()) / area.width()).clamp(0.0, 1.0);
             new_hsv.v = 1.0 - ((pt.y - area.top()) / area.height()).clamp(0.0, 1.0);
@@ -985,7 +996,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     }
     {
         let p = ui.painter();
-        sv_area(p, area, st.hsv.h);
+        sv_area(p, area, st.hsv.h, stop_bound);
         round_corners(p, area, theme::RADIUS_CONTROL as f32, theme::BG);
         if mode == Mode::Solid {
             // Dotted 4.5:1 AA contrast threshold curve across 24 saturation steps
@@ -1014,7 +1025,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             }
         }
         let c = Pos2::new(area.left() + st.hsv.s * area.width(), area.top() + (1.0 - st.hsv.v) * area.height());
-        thumb_ring(p, c, 7.0, 2.0, None);
+        thumb_ring(p, c, 7.0, 2.0, None, stop_bound);
     }
 
     // ---- sliders
@@ -1023,40 +1034,48 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     let hue_r = Rect::from_min_max(Pos2::new(sl_x, hue_c - 6.0), Pos2::new(sl_x + 172.0, hue_c + 6.0));
     let al_r = hue_r.translate(Vec2::new(0.0, 28.0));
     let eye_r = Rect::from_min_size(Pos2::new(rect.left() + PAD, (hue_c + al_r.center().y) / 2.0 - 12.0), Vec2::splat(24.0));
-    if icon_button(ui, eye_r, "picker-eyedrop", Icon::Eyedropper, false, "Pick color from canvas").clicked() {
+    super::record(ui, "picker-eyedrop", eye_r);
+    if kit::button_icon(ui, eye_r, "picker-eyedrop", Icon::Eyedropper, kit::Hierarchy::Icon, kit::Size::Xs, !stop_bound, false)
+        .on_hover_text("Pick color from canvas")
+        .clicked()
+        && !stop_bound
+    {
         out.eyedrop = true;
     }
-    let hr = ui.interact(hue_r.expand2(Vec2::new(8.0, 4.0)), ui.id().with("picker-hue"), Sense::click_and_drag());
-    if hr.dragged() || hr.clicked() {
+    let hr = ui.interact(hue_r.expand2(Vec2::new(8.0, 4.0)), ui.id().with("picker-hue"), drag_sense);
+    if !stop_bound && (hr.dragged() || hr.clicked()) {
         if let Some(t) = slider_pos(&hr, hue_r) {
             new_hsv.h = t;
         }
     }
-    let ar2 = ui.interact(al_r.expand2(Vec2::new(8.0, 4.0)), ui.id().with("picker-alpha"), Sense::click_and_drag());
-    if ar2.dragged() || ar2.clicked() {
+    let ar2 = ui.interact(al_r.expand2(Vec2::new(8.0, 4.0)), ui.id().with("picker-alpha"), drag_sense);
+    if !stop_bound && (ar2.dragged() || ar2.clicked()) {
         if let Some(t) = slider_pos(&ar2, al_r) {
             new_hsv.a = t;
         }
     }
     {
         let p = ui.painter();
-        hue_bar(p, hue_r);
+        hue_bar(p, hue_r, stop_bound);
         round_corners(p, hue_r, 6.0, theme::BG);
         let base = new_hsv.to_srgba_unmultiplied();
-        checker(p, al_r, 4.0);
-        quad_mesh(
-            p,
-            al_r,
-            c32([base[0], base[1], base[2], 0]),
-            c32([base[0], base[1], base[2], 255]),
-            c32([base[0], base[1], base[2], 255]),
-            c32([base[0], base[1], base[2], 0]),
-        );
+        checker_dim(p, al_r, 4.0, stop_bound);
+        let c_start = c32([base[0], base[1], base[2], 0]);
+        let c_end = c32([base[0], base[1], base[2], 255]);
+        let (c0, c1) = if stop_bound { (kit::half_color(c_start), kit::half_color(c_end)) } else { (c_start, c_end) };
+        quad_mesh(p, al_r, c0, c1, c1, c0);
         round_corners(p, al_r, 6.0, theme::BG);
         let hx = hue_r.left() + 6.0 + new_hsv.h * (hue_r.width() - 12.0);
-        thumb_ring(p, Pos2::new(hx, hue_r.center().y), 8.0, 3.0, Some(c32(Hsva::new(new_hsv.h, 1.0, 1.0, 1.0).to_srgba_unmultiplied())));
+        thumb_ring(
+            p,
+            Pos2::new(hx, hue_r.center().y),
+            8.0,
+            3.0,
+            Some(c32(Hsva::new(new_hsv.h, 1.0, 1.0, 1.0).to_srgba_unmultiplied())),
+            stop_bound,
+        );
         let ax = al_r.left() + 6.0 + new_hsv.a * (al_r.width() - 12.0);
-        thumb_ring(p, Pos2::new(ax, al_r.center().y), 8.0, 3.0, Some(c32(base)));
+        thumb_ring(p, Pos2::new(ax, al_r.center().y), 8.0, 3.0, Some(c32(base)), stop_bound);
     }
     if new_hsv != st.hsv {
         st.hsv = new_hsv;
@@ -1065,8 +1084,8 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     // ---- value row
     let vy = area.bottom() + 67.0;
     let row = Rect::from_min_size(Pos2::new(rect.left() + PAD, vy), Vec2::new(AREA, 24.0));
-    let stop_bound = mode.is_gradient() && crate::panels::var_bind::picker_stop_pill_field(ui, st, row, st.sel);
-    if !stop_bound {
+    let pill_drawn = mode.is_gradient() && crate::panels::var_bind::picker_stop_pill_field(ui, st, row, st.sel);
+    if !stop_bound && !pill_drawn {
         let mut typed: Option<[u8; 4]> = None;
         // format dropdown
         {
@@ -1193,25 +1212,27 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     }
     let colors: &[Color32] = env.sources.get(st.source).map(|s| s.1.as_slice()).unwrap_or(&[]);
     let top = dd.bottom() + 8.0;
+    let swatch_sense = if stop_bound { Sense::hover() } else { Sense::click() };
     for (i, col) in colors.iter().take(PER_ROW * MAX_ROWS).enumerate() {
         let r = Rect::from_min_size(
             Pos2::new(rect.left() + PAD + (i % PER_ROW) as f32 * SWATCH_PITCH, top + (i / PER_ROW) as f32 * SWATCH_PITCH),
             Vec2::splat(SWATCH),
         );
-        let resp = ui.interact(r, ui.id().with(("picker-sw", i)), Sense::click());
+        let resp = ui.interact(r, ui.id().with(("picker-sw", i)), swatch_sense);
         let p = ui.painter();
         let rad = theme::cr((SWATCH * 0.2).round() as u8);
         if col.a() < 255 {
-            checker(&p.with_clip_rect(r), r, 4.0);
+            checker_dim(&p.with_clip_rect(r), r, 4.0, stop_bound);
         }
-        p.rect_filled(r, rad, *col);
+        p.rect_filled(r, rad, if stop_bound { kit::half_color(*col) } else { *col });
         if luminance(*col) < 0.3 || col.a() < 255 {
-            p.rect_stroke(r, rad, Stroke::new(2.0, Color32::from_white_alpha(0x1A)), StrokeKind::Inside);
+            let stroke_col = Color32::from_white_alpha(0x1A);
+            p.rect_stroke(r, rad, Stroke::new(2.0, if stop_bound { kit::half_color(stroke_col) } else { stroke_col }), StrokeKind::Inside);
         }
-        if resp.hovered() {
+        if !stop_bound && resp.hovered() {
             p.rect_stroke(r.expand(1.0), theme::cr(4), Stroke::new(1.0, theme::TEXT_TERTIARY), StrokeKind::Outside);
         }
-        if resp.clicked() {
+        if !stop_bound && resp.clicked() {
             let [r8, g8, b8, a8] = col.to_srgba_unmultiplied();
             let c = [r8, g8, b8, a8];
             st.sync(c);

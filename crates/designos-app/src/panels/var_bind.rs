@@ -136,6 +136,14 @@ pub(crate) fn picker_keep_open(ctx: &Context, st: &mut crate::widgets::picker::S
     }
 }
 
+/// Whether gradient stop `stop_idx` on the currently edited fill/stroke paint is bound to a variable.
+pub(crate) fn picker_stop_is_bound(ctx: &Context, stop_idx: usize) -> bool {
+    let Some(st_ctx) = ctx.data(|d| d.get_temp::<PickerStopBindState>(picker_state_id())) else { return false };
+    let Some((pfx, pi)) = st_ctx.prefix else { return false };
+    let key = format!("{pfx}/{pi}/stops/{stop_idx}");
+    st_ctx.bound_stops.contains_key(&key)
+}
+
 /// Draws the bound-variable pill in place of the colour picker's value row when gradient stop `stop_idx` is bound.
 pub(crate) fn picker_stop_pill_field(ui: &mut Ui, st: &mut crate::widgets::picker::State, rect: Rect, stop_idx: usize) -> bool {
     let Some(st_ctx) = ui.ctx().data(|d| d.get_temp::<PickerStopBindState>(picker_state_id())) else { return false };
