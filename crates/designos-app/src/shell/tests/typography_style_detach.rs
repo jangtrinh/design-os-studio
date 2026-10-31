@@ -609,3 +609,127 @@ fn repicking_same_font_family_in_session_keeps_linked_text_style() {
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "re-picking the same font family in a session must keep the text style link");
     assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "no-op family repick in a session must not record a session undo step");
 }
+
+#[test]
+fn paragraph_spacing_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    open_type_details(&mut s);
+
+    let r = s.field_rect("det-pspacing");
+    s.click(Pos2::new(r.left() + 30.0, r.center().y));
+    s.type_text("12");
+    s.key(Key::Enter);
+
+    assert_eq!(text_of(&s, id).style.paragraph_spacing, 12.0);
+    assert_eq!(link_of(&s, id), None, "editing paragraph spacing in a session must detach the text style");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.paragraph_spacing, 0.0, "in-session undo restores paragraph spacing");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session undo restores text style link");
+    assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "paragraph spacing edit in session is one session undo step");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.paragraph_spacing, 12.0, "in-session redo reapplies paragraph spacing");
+    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+
+    s.key(Key::Escape);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "committing session adds one document undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.paragraph_spacing, 0.0, "document undo restores paragraph spacing");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "document undo restores text style link");
+}
+
+#[test]
+fn paragraph_indent_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    open_type_details(&mut s);
+
+    let r = s.field_rect("det-indent");
+    s.click(Pos2::new(r.left() + 30.0, r.center().y));
+    s.type_text("8");
+    s.key(Key::Enter);
+
+    assert_eq!(text_of(&s, id).paragraph.indent, 8.0);
+    assert_eq!(link_of(&s, id), None, "editing paragraph indent in a session must detach the text style");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.indent, 0.0, "in-session undo restores paragraph indent");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session undo restores text style link");
+    assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "paragraph indent edit in session is one session undo step");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.indent, 8.0, "in-session redo reapplies paragraph indent");
+    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+
+    s.key(Key::Escape);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "committing session adds one document undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.indent, 0.0, "document undo restores paragraph indent");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "document undo restores text style link");
+}
+
+#[test]
+fn run_merge_into_base_on_cmd_i_detaches_linked_text_style() {
+    let (mut s, id) = linked_sim();
+    s.shell.app.edit_nodes(&[id], |n| {
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.style.italic = true;
+            let mut rs = t.style.clone();
+            rs.italic = false;
+            t.runs = vec![designos_doc::TextRun { start: 0, end: 3, style: rs }];
+        }
+    });
+    s.frame(vec![]);
+    let depth = s.app().hist.undo_depth();
+
+    s.cmd_key(Key::I);
+    assert!(text_of(&s, id).style.italic);
+    assert!(text_of(&s, id).runs.is_empty(), "making the non-italic run italic merges it into the italic base");
+    assert_eq!(link_of(&s, id), None, "merging a run into the base via Cmd+I must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1);
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).runs.len(), 1);
+    assert!(!text_of(&s, id).runs[0].style.italic);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores the run and text style link");
+}
+
+#[test]
+fn run_only_style_change_on_cmd_i_detaches_linked_text_style() {
+    let (mut s, id) = linked_sim();
+    s.shell.app.edit_nodes(&[id], |n| {
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.style.italic = true;
+            let mut rs = t.style.clone();
+            rs.italic = false;
+            rs.font_weight = 700;
+            t.runs = vec![designos_doc::TextRun { start: 0, end: 3, style: rs }];
+        }
+    });
+    s.frame(vec![]);
+    let depth = s.app().hist.undo_depth();
+
+    s.cmd_key(Key::I);
+    assert!(text_of(&s, id).style.italic);
+    assert_eq!(text_of(&s, id).runs.len(), 1);
+    assert!(text_of(&s, id).runs[0].style.italic, "Cmd+I makes the bold non-italic run italic");
+    assert_eq!(link_of(&s, id), None, "a style-owned change on a single run must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1);
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).runs.len(), 1);
+    assert!(!text_of(&s, id).runs[0].style.italic);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores the run style and text style link");
+}
