@@ -4450,8 +4450,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p1_sync_instances_does_not_double_scale_fill_geometry() {
-        let mut d = Document::new("P1");
+    fn sync_instances_does_not_double_scale_fill_geometry() {
+        let mut d = Document::new("SyncScale");
         let page = d.add_page("Page");
 
         let make_icon = |d: &mut Document, name: &str, x: f32| -> NodeId {
@@ -4537,8 +4537,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p2_swap_instance_same_family_preserves_custom_name() {
-        let mut d = Document::new("P2");
+    fn swap_instance_same_family_preserves_custom_name() {
+        let mut d = Document::new("CustomName");
         let page = d.add_page("Page");
         let id1 = d.alloc_id();
         let mut v1 = Node::frame(id1, Rect::new(0.0, 0.0, 100.0, 40.0));
@@ -4571,8 +4571,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p3_swap_instance_preserves_overridden_size() {
-        let mut d = Document::new("P3");
+    fn swap_instance_preserves_overridden_size() {
+        let mut d = Document::new("OverriddenSize");
         let page = d.add_page("Page");
         let id1 = d.alloc_id();
         let mut c1 = Node::frame(id1, Rect::new(0.0, 0.0, 100.0, 40.0));
@@ -4601,7 +4601,7 @@ mod tests {
         apply(&mut d, c);
         assert_eq!(d.get(inst).unwrap().size, Vec2::new(240.0, 80.0), "top-level swap_instance must preserve explicit Size override");
 
-        // Per-axis rule (m1): when only width was resized (240x40 vs CompA's 100x40), width keeps 240 and height takes CompB's 60.
+        // Per-axis rule: when only width was resized (240x40 vs CompA's 100x40), width keeps 240 and height takes CompB's 60.
         let c = create_instance(&mut d, c1, page, Vec2::new(300.0, 200.0));
         apply(&mut d, c);
         let inst_w = *d.get(page).unwrap().children.last().unwrap();
@@ -4615,8 +4615,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p4_variant_switch_keeps_new_variant_child_offsets() {
-        let mut d = Document::new("P4");
+    fn variant_switch_keeps_new_variant_child_offsets() {
+        let mut d = Document::new("VariantOffsets");
         let page = d.add_page("Page");
 
         let id1 = d.alloc_id();
@@ -4664,8 +4664,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p5_swap_main_matches_renamed_child_by_source_name() {
-        let mut d = Document::new("P5");
+    fn swap_main_matches_renamed_child_by_source_name() {
+        let mut d = Document::new("RenamedChild");
         let page = d.add_page("Page");
 
         let make_icon = |d: &mut Document, name: &str, x: f32| -> NodeId {
@@ -4710,8 +4710,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p6_variant_switch_without_size_override_takes_new_variant_size() {
-        let mut d = Document::new("P6");
+    fn variant_switch_without_size_override_takes_new_variant_size() {
+        let mut d = Document::new("VariantSize");
         let page = d.add_page("Page");
 
         let id1 = d.alloc_id();
@@ -4748,8 +4748,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size() {
-        let mut d = Document::new("P7");
+    fn slot_swap_scales_inset_glyph_by_scale_not_slot_size() {
+        let mut d = Document::new("InsetGlyph");
         let page = d.add_page("Page");
 
         // Icon/A has a 16x16 full-bleed vector.
@@ -4863,11 +4863,11 @@ mod tests {
     }
 
     #[test]
-    fn ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards() {
-        let mut d = Document::new("RulingsAndMutants");
+    fn swap_transfers_matching_overrides_across_node_types_and_preserves_slot_bindings() {
+        let mut d = Document::new("CrossTypeOverrides");
         let page = d.add_page("Page");
 
-        // 1. M1 (no discriminant check, field-exists guard):
+        // 1. Field-exists and originally-matched override transfer across node types:
         // CompRect has a Rectangle "Shape" (white fill) + Text "Item" + Frame "Box".
         let comp_rect = {
             let id = d.alloc_id();
@@ -4893,7 +4893,7 @@ mod tests {
         };
 
         // CompEllipse has an Ellipse "Shape" with the SAME default white fill (so originally-matched passes),
-        // a Frame "Item" (not Text -> M7 guard), and a Frame "Box" (same default FrameProps -> M11 guard).
+        // a Frame "Item" (not Text, so text overrides are dropped), and a Frame "Box" (same default FrameProps).
         let comp_ellipse_same_fill = {
             let id = d.alloc_id();
             let mut f = Node::frame(id, Rect::new(60.0, 0.0, 40.0, 40.0));
@@ -4981,10 +4981,10 @@ mod tests {
         }
 
         // Swap to Comp/EllipseSame:
-        // - M3: auto-named instance ("Comp/Rect") takes new main's name ("Comp/EllipseSame").
-        // - M1: "Shape" fill override transfers from Rectangle onto Ellipse because old & new mains share default white fill.
-        // - M7: "Item" in Comp/EllipseSame is a Frame, so Characters/TextStyle do NOT transfer onto it.
-        // - M11: "Box" in Comp/EllipseSame is a Frame with same default FrameProps, so Layout (clips_content = true) transfers.
+        // - auto-named instance ("Comp/Rect") takes new main's name ("Comp/EllipseSame").
+        // - "Shape" fill override transfers from Rectangle onto Ellipse because old & new mains share default white fill.
+        // - "Item" in Comp/EllipseSame is a Frame, so Characters/TextStyle do NOT transfer onto it.
+        // - "Box" in Comp/EllipseSame is a Frame with same default FrameProps, so Layout (clips_content = true) transfers.
         let swap_same = swap_instance(&mut d, inst, comp_ellipse_same_fill);
         let inv_same = apply(&mut d, swap_same);
         assert_eq!(d.get(inst).unwrap().name, "Comp/EllipseSame", "auto-named instance takes new main's name on swap");
@@ -5000,11 +5000,11 @@ mod tests {
             "fill override transfers from Rectangle to Ellipse when originally matched"
         );
         let item_after = d.get(child_named(&d, inst, "Item")).unwrap();
-        assert!(!item_after.component.overrides.contains(&OverrideField::Characters), "Characters override must not mark a non-Text target (M7)");
-        assert!(!item_after.component.overrides.contains(&OverrideField::TextStyle), "TextStyle override must not mark a non-Text target (M7)");
+        assert!(!item_after.component.overrides.contains(&OverrideField::Characters), "Characters override must not mark a non-Text target");
+        assert!(!item_after.component.overrides.contains(&OverrideField::TextStyle), "TextStyle override must not mark a non-Text target");
         let box_after = d.get(child_named(&d, inst, "Box")).unwrap();
         assert!(box_after.component.overrides.contains(&OverrideField::Layout));
-        assert!(box_after.kind.frame_props().unwrap().clips_content, "Layout override must copy FrameProps onto target Frame (M11)");
+        assert!(box_after.kind.frame_props().unwrap().clips_content, "Layout override must copy FrameProps onto target Frame");
 
         apply(&mut d, inv_same);
 
@@ -5030,7 +5030,7 @@ mod tests {
         }
         apply(&mut d, inv_diff);
 
-        // 2. M10 guard: variant switch (`top_swap && same_family`) where a Frame child with `OverrideField::Layout`
+        // 2. Variant switch (`top_swap && same_family`) where a Frame child with `OverrideField::Layout`
         // matches a Rectangle child in the target variant -> `OverrideField::Layout` must not mark the Rectangle.
         let v_frame = {
             let id = d.alloc_id();
@@ -5075,15 +5075,15 @@ mod tests {
         let c = set_instance_prop(&mut d, v_inst, "Kind", Some(PropValue::Variant("Rect".into())));
         apply(&mut d, c);
         let vbox_after = d.get(child_named(&d, v_inst, "Box")).unwrap();
-        assert!(!vbox_after.component.overrides.contains(&OverrideField::Layout), "Layout override must not be inserted onto a Rectangle target (M10)");
+        assert!(!vbox_after.component.overrides.contains(&OverrideField::Layout), "Layout override must not be inserted onto a Rectangle target");
 
-        // 3. M4 and M9 guards: outer component slot child has:
-        // - a "width" variable binding on "Glyph" (with no other override on "Glyph" -> M4)
-        // - an explicit `OverrideField::Layout` (`clips_content = true`) on a child frame "Wrap" recorded in the outer component's slot (`chain_fields` -> M9)
-        let icon_m1 = {
+        // 3. Outer component slot child has:
+        // - a "width" variable binding on "Glyph" (with no other override on "Glyph")
+        // - an explicit `OverrideField::Layout` (`clips_content = true`) on a child frame "Wrap" recorded in the outer component's slot
+        let icon_first = {
             let id = d.alloc_id();
             let mut f = Node::frame(id, Rect::new(400.0, 0.0, 16.0, 16.0));
-            f.name = "Icon/M1".into();
+            f.name = "Icon/First".into();
             let comp = d.insert(page, f).unwrap();
             let gid = d.alloc_id();
             let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
@@ -5097,10 +5097,10 @@ mod tests {
             apply(&mut d, c);
             comp
         };
-        let icon_m2 = {
+        let icon_second = {
             let id = d.alloc_id();
             let mut f = Node::frame(id, Rect::new(440.0, 0.0, 16.0, 16.0));
-            f.name = "Icon/M2".into();
+            f.name = "Icon/Second".into();
             let comp = d.insert(page, f).unwrap();
             let gid = d.alloc_id();
             let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
@@ -5121,7 +5121,7 @@ mod tests {
             let comp = d.insert(page, f).unwrap();
             let c = create_component(&mut d, comp);
             apply(&mut d, c);
-            let c = create_instance(&mut d, icon_m1, comp, Vec2::new(4.0, 4.0));
+            let c = create_instance(&mut d, icon_first, comp, Vec2::new(4.0, 4.0));
             apply(&mut d, c);
             let slot = d.get(comp).unwrap().children[0];
             let slot_glyph = child_named(&d, slot, "Glyph");
@@ -5144,8 +5144,8 @@ mod tests {
                 comp,
                 ComponentPropDef {
                     name: "Icon".into(),
-                    kind: PropKind::InstanceSwap { preferred: vec![icon_m1, icon_m2] },
-                    default: PropValue::Instance(icon_m1),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_first, icon_second] },
+                    default: PropValue::Instance(icon_first),
                 },
             );
             apply(&mut d, c);
@@ -5157,16 +5157,16 @@ mod tests {
         apply(&mut d, c);
         let holder_inst = *d.get(page).unwrap().children.last().unwrap();
         let holder_slot = d.get(holder_inst).unwrap().children[0];
-        let c = set_instance_prop(&mut d, holder_inst, "Icon", Some(PropValue::Instance(icon_m2)));
+        let c = set_instance_prop(&mut d, holder_inst, "Icon", Some(PropValue::Instance(icon_second)));
         apply(&mut d, c);
-        let glyph_m4 = d.get(child_named(&d, holder_slot, "Glyph")).unwrap();
+        let glyph_after_swap = d.get(child_named(&d, holder_slot, "Glyph")).unwrap();
         assert_eq!(
-            glyph_m4.variables.bindings.get("width").map(String::as_str),
+            glyph_after_swap.variables.bindings.get("width").map(String::as_str),
             Some("size.icon.w"),
-            "width variable binding on slot child must survive swap (M4)"
+            "width variable binding on slot child must survive swap"
         );
-        let wrap_m9 = d.get(child_named(&d, holder_slot, "Wrap")).unwrap();
-        assert!(wrap_m9.kind.frame_props().unwrap().clips_content, "explicit Layout override on outer slot child must survive swap via chain_fields (M9)");
+        let wrap_after_swap = d.get(child_named(&d, holder_slot, "Wrap")).unwrap();
+        assert!(wrap_after_swap.kind.frame_props().unwrap().clips_content, "explicit Layout override on outer slot child must survive swap");
     }
 
     fn path_bbox(paths: &[crate::Path]) -> (f32, f32, f32, f32) {
@@ -5204,7 +5204,7 @@ mod tests {
     }
 
     #[test]
-    fn r3_copy_field_size_on_imported_shapes_after_main_resize() {
+    fn copy_field_size_on_imported_shapes_after_main_resize() {
         let mut stale = Vec::new();
         for (label, kind) in [
             ("rect", NodeKind::Rectangle),
@@ -5256,8 +5256,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p2_swap_drops_override_on_type_mismatch() {
-        let mut d = Document::new("p2");
+    fn swap_drops_override_when_old_and_new_mains_differ() {
+        let mut d = Document::new("DiffMains");
         let page = d.add_page("P");
         let a = {
             let id = d.alloc_id();
@@ -5314,8 +5314,8 @@ mod tests {
     }
 
     #[test]
-    fn r3_m1_nested_slot_widened_by_outer_instance() {
-        let mut d = Document::new("m1n");
+    fn nested_slot_widened_by_outer_instance_keeps_width_on_swap() {
+        let mut d = Document::new("WidenedSlot");
         let page = d.add_page("P");
         let mkbtn = |d: &mut Document, name: &str, x: f32, h: f32| -> NodeId {
             let id = d.alloc_id();
@@ -5381,8 +5381,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p5_size_rule_is_per_axis() {
-        let mut d = Document::new("p5");
+    fn nested_slot_size_rule_is_per_axis_across_swap_and_sync() {
+        let mut d = Document::new("PerAxisSize");
         let page = d.add_page("P");
         let mkbtn = |d: &mut Document, name: &str, x: f32, h: f32| -> NodeId {
             let id = d.alloc_id();
@@ -5437,12 +5437,12 @@ mod tests {
     }
 
     #[test]
-    fn r3_m4_minmin_glyph_swap_vs_shared_solver() {
+    fn pinned_and_scale_glyphs_follow_constraint_solver_on_slot_swap() {
         const MINMIN: Constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
         const SCALE: Constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
         let mut bad = Vec::new();
         for (label, cons) in [("minmin", MINMIN), ("scale", SCALE)] {
-            let mut d = Document::new("m4");
+            let mut d = Document::new("Solver");
             let page = d.add_page("P");
             let mk_icon = |d: &mut Document, name: &str, x: f32, at: (f32, f32), sz: f32| -> NodeId {
                 let id = d.alloc_id();
@@ -5522,8 +5522,8 @@ mod tests {
     }
 
     #[test]
-    fn r3_m4_minmin_logo_distorts_on_per_axis_kept_width() {
-        let mut d = Document::new("m4b");
+    fn pinned_logo_keeps_size_when_outer_width_is_kept_per_axis() {
+        let mut d = Document::new("PinnedLogoWidth");
         let page = d.add_page("P");
         let mk = |d: &mut Document, name: &str, y: f32| -> NodeId {
             let id = d.alloc_id();
@@ -5559,8 +5559,8 @@ mod tests {
     }
 
     #[test]
-    fn r3_m4_minmin_logo_distorts_on_user_resized_card() {
-        let mut d = Document::new("m4c");
+    fn pinned_logo_keeps_size_on_user_resized_card_after_swap_and_sync() {
+        let mut d = Document::new("PinnedLogoCard");
         let page = d.add_page("P");
         let mk = |d: &mut Document, name: &str, y: f32| -> NodeId {
             let id = d.alloc_id();
@@ -5601,7 +5601,7 @@ mod tests {
     }
 
     #[test]
-    fn r3_name_rule_variant_instance_cross_family() {
+    fn set_named_variant_instance_takes_new_main_name_on_cross_family_swap() {
         let mut d = Document::new("nm");
         let page = d.add_page("P");
         let mut variants = Vec::new();
@@ -5636,9 +5636,9 @@ mod tests {
     }
 
     #[test]
-    fn r3_inner_swap_below_swapped_slot_by_index() {
+    fn inner_swap_below_swapped_slot_is_dropped_and_counted() {
         const MINMIN: Constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
-        let mut d = Document::new("inner2");
+        let mut d = Document::new("InnerSwap");
         let page = d.add_page("P");
         let badge = |d: &mut Document, name: &str, x: f32, rgb: (u8, u8, u8)| -> NodeId {
             let id = d.alloc_id();
@@ -5760,8 +5760,8 @@ mod tests {
     }
 
     #[test]
-    fn r4c_count_unswapped_nested_chain_is_zero() {
-        let mut d = Document::new("c0");
+    fn swap_reports_zero_dropped_inner_swaps_on_unswapped_nested_chain() {
+        let mut d = Document::new("ZeroDropped");
         let page = d.add_page("P");
         let badge = frame_main_with_dot(&mut d, page, "Badge", 0.0, 500.0, 8.0, 8.0);
         let btn = frame_main_with_dot(&mut d, page, "Btn", 0.0, 400.0, 40.0, 20.0);
@@ -5779,8 +5779,8 @@ mod tests {
     }
 
     #[test]
-    fn r4c_count_two_inner_swaps_then_overwrite() {
-        let mut d = Document::new("c2");
+    fn swap_reports_dropped_inner_swaps_per_call() {
+        let mut d = Document::new("TwoDropped");
         let page = d.add_page("P");
         let red = frame_main_with_dot(&mut d, page, "Badge/Red", 0.0, 500.0, 8.0, 8.0);
         let blue = frame_main_with_dot(&mut d, page, "Badge/Blue", 20.0, 500.0, 8.0, 8.0);
@@ -5863,8 +5863,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p4_variant_switch_does_not_turn_refit_size_into_override() {
-        let mut d = Document::new("p4");
+    fn variant_switch_does_not_turn_refit_text_size_into_override() {
+        let mut d = Document::new("RefitText");
         let page = d.add_page("P");
         let mk = |d: &mut Document, name: &str, y: f32, h: f32, fs: f32| -> NodeId {
             let id = d.alloc_id();
@@ -5906,8 +5906,8 @@ mod tests {
     }
 
     #[test]
-    fn probe_p6_top_level_variant_switch_children_match_root() {
-        let mut d = Document::new("p6");
+    fn top_level_variant_switch_children_match_root_size() {
+        let mut d = Document::new("VariantRoot");
         let page = d.add_page("P");
         let mk = |d: &mut Document, name: &str, y: f32, h: f32| -> NodeId {
             let id = d.alloc_id();
@@ -5949,9 +5949,9 @@ mod tests {
     }
 
     #[test]
-    fn r3_b1_swap_then_three_syncs_matches_direct_20px_glyph() {
+    fn swapped_slot_glyph_after_three_syncs_matches_direct_20px_glyph() {
         const MINMIN: Constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
-        let mut d = Document::new("b1");
+        let mut d = Document::new("DirectGlyph");
         let page = d.add_page("P");
         let mk_icon = |d: &mut Document, name: &str, x: f32| -> NodeId {
             let id = d.alloc_id();
@@ -6051,8 +6051,8 @@ mod tests {
     }
 
     #[test]
-    fn r4_top_level_swap_does_not_carry_diff_derived_overrides() {
-        let mut d = Document::new("rm2");
+    fn top_level_swap_does_not_carry_diff_derived_overrides() {
+        let mut d = Document::new("TopSwapDiff");
         let page = d.add_page("P");
         let mk_comp = |d: &mut Document, name: &str, x: f32| -> (NodeId, NodeId) {
             let id = d.alloc_id();
@@ -6087,7 +6087,7 @@ mod tests {
         let c = swap_instance(&mut d, inst, comp_b);
         apply(&mut d, c);
         let badge_after = d.get(child_named(&d, inst, "Badge")).unwrap();
-        assert!(badge_after.visible, "top-level swap must not carry diff-derived overrides onto Comp/B (R-M2)");
+        assert!(badge_after.visible, "top-level swap must not carry diff-derived overrides onto Comp/B");
         assert!(!badge_after.component.overrides.contains(&OverrideField::Visible));
     }
 
@@ -6158,7 +6158,7 @@ mod tests {
     }
 
     #[test]
-    fn r4_swapped_slot_follows_new_main_resize_prop() {
+    fn swapped_nested_slot_follows_new_main_resize_by_property() {
         let mut d = Document::new("follow");
         let page = d.add_page("P");
         let ba = mkbtn_stretch(&mut d, page, "Btn/A", 0.0, 32.0);
@@ -6179,7 +6179,7 @@ mod tests {
     }
 
     #[test]
-    fn r4_swapped_slot_follows_new_main_resize_direct() {
+    fn swapped_nested_slot_follows_new_main_resize_by_direct_swap() {
         let mut d = Document::new("follow2");
         let page = d.add_page("P");
         let ba = mkbtn_stretch(&mut d, page, "Btn/A", 0.0, 32.0);
@@ -6200,7 +6200,7 @@ mod tests {
     }
 
     #[test]
-    fn r4_reswap_takes_new_main_size() {
+    fn reswapped_nested_slot_takes_new_main_size() {
         let mut d = Document::new("reswap");
         let page = d.add_page("P");
         let ba = mkbtn_stretch(&mut d, page, "Btn/A", 0.0, 32.0);
@@ -6293,7 +6293,7 @@ mod tests {
     }
 
     #[test]
-    fn r4_cross_kind_size_carry_matrix() {
+    fn glyph_type_change_with_carried_size_draws_new_outline() {
         let placed = |b: (f32, f32, f32, f32), t: Affine| (b.0 + t.tx, b.1 + t.ty, b.2 + t.tx, b.3 + t.ty);
         let mut bad = Vec::new();
         for (ka, kb) in [("vector", "vector"), ("vector", "boolean"), ("boolean", "vector"), ("vector", "ellipse"), ("vector", "frame"), ("ellipse", "vector")]

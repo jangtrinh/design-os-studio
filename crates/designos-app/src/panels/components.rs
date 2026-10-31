@@ -563,8 +563,8 @@ mod props_panel_tests {
     }
 
     #[test]
-    fn review_r4_app_swapped_slot_follows_new_main_height_edit() {
-        let mut doc = Document::new("r4follow");
+    fn swapped_slot_follows_new_main_height_edit_in_app() {
+        let mut doc = Document::new("FollowHeight");
         let page = doc.add_page("Page 1");
         let mut app = App::new(doc);
         app.page = page;
