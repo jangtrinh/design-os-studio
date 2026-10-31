@@ -1,0 +1,183 @@
+=== RUST: cargo test -p designos-export --test grid_chrome_fixtures --locked (against 64960b21 sources) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-doc)
+   Compiling designos-fonts v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-fonts)
+   Compiling designos-render v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-render)
+   Compiling designos-svg v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-svg)
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-export)
+   Compiling designos-webcapture v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-webcapture)
+   Compiling designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.14s
+     Running tests/grid_chrome_fixtures.rs (out/cargo/debug/deps/grid_chrome_fixtures-68e44f521f53a4ec)
+
+running 25 tests
+test mutation_m11_fixed_height_grid_with_flex_auto_rows_omits_align_content_start ... ok
+test mutation_r3_flex_zero_auto_tracks_packs_rows_at_top ... ok
+test mutation_m4_hugging_grid_min_w_distributes_extra_across_flex_columns ... ok
+test mutation_m7_non_fill_child_width_wins_over_stale_wider_fill_child ... ok
+test equal_tracks_css_and_tailwind ... ok
+test fixed_height_auto_rows_css_and_tailwind ... ok
+test mutation_m13_fixed_width_grid_with_weighted_flex_columns_keeps_fractional_tracks ... ok
+test n1_explicit_hug_rows_flex_auto_css_and_tailwind ... FAILED
+test mutation_r1_stroked_hug_grid_uses_effective_padding_for_column_tracks ... ok
+test fixed_first_column_css_and_tailwind ... ok
+test mutation_m14_flex_unit_tolerance_distinguishes_unequal_and_weighted_equal_columns ... ok
+test n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind ... FAILED
+test n6_stroke_v0_unpadded_hug_css_and_tailwind ... FAILED
+test hugging_grid_css_and_tailwind ... ok
+test n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind ... FAILED
+test n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind ... FAILED
+test row_and_column_spans_css_and_tailwind ... ok
+test s2_empty_hug_column_css_and_tailwind ... ok
+test s1_stretch_child_hug_css_and_tailwind ... ok
+test s5_hug_height_min_h_css_and_tailwind ... ok
+test s5b_hug_height_min_h_flex_auto_css_and_tailwind ... ok
+test n6c_stroke_v0_unpadded_fixed_css_and_tailwind ... FAILED
+test s3_hug_grid_max_w_css_and_tailwind ... ok
+test s7_explicit_rows_hug_css_and_tailwind ... ok
+test unequal_tracks_css_and_tailwind ... ok
+
+failures:
+
+---- n1_explicit_hug_rows_flex_auto_css_and_tailwind stdout ----
+
+thread 'n1_explicit_hug_rows_flex_auto_css_and_tailwind' (40217629) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:665:5:
+assertion `left == right` failed: n1_explicit_hug_rows_flex_auto CSS mismatch
+  left: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: auto auto;\ngap: 10px;"
+ right: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: auto auto;\ngap: 10px;\nalign-content: start;"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind stdout ----
+
+thread 'n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind' (40217632) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:665:5:
+assertion `left == right` failed: n2c_hug_equal_flex_fill_only_hug_col CSS mismatch
+  left: "display: grid;\nwidth: 130px;\nheight: 30px;\ngrid-template-columns: repeat(2, minmax(0, 1fr)) auto;\nalign-content: start;"
+ right: "display: grid;\nwidth: 130px;\nheight: 30px;\ngrid-template-columns: 50px 50px 30px;\nalign-content: start;"
+
+---- n6_stroke_v0_unpadded_hug_css_and_tailwind stdout ----
+
+thread 'n6_stroke_v0_unpadded_hug_css_and_tailwind' (40217633) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:665:5:
+assertion `left == right` failed: n6_stroke_v0_unpadded_hug CSS mismatch
+  left: "display: grid;\nwidth: 204px;\nheight: 34px;\ngrid-template-columns: 100px 40px 60px;\nalign-content: start;\nborder: 2px solid #333;"
+ right: "display: grid;\nwidth: 204px;\nheight: 34px;\nbox-sizing: border-box;\ngrid-template-columns: 100px 40px 60px;\nalign-content: start;\nborder: 2px solid #333;"
+
+---- n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind stdout ----
+
+thread 'n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind' (40217630) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:665:5:
+assertion `left == right` failed: n2_hug_equal_flex_two_empty_hug_cols CSS mismatch
+  left: "display: grid;\nwidth: 102px;\nheight: 30px;\ngrid-template-columns: repeat(2, minmax(0, 1fr)) auto auto;\nalign-content: start;"
+ right: "display: grid;\nwidth: 102px;\nheight: 30px;\ngrid-template-columns: 50px 50px 1px 1px;\nalign-content: start;"
+
+---- n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind stdout ----
+
+thread 'n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind' (40217631) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:665:5:
+assertion `left == right` failed: n2b_hug_equal_flex_one_empty_hug_col CSS mismatch
+  left: "display: grid;\nwidth: 101px;\nheight: 30px;\ngrid-template-columns: repeat(2, minmax(0, 1fr)) auto;\nalign-content: start;"
+ right: "display: grid;\nwidth: 101px;\nheight: 30px;\ngrid-template-columns: 50px 50px 1px;\nalign-content: start;"
+
+---- n6c_stroke_v0_unpadded_fixed_css_and_tailwind stdout ----
+
+thread 'n6c_stroke_v0_unpadded_fixed_css_and_tailwind' (40217634) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:665:5:
+assertion `left == right` failed: n6c_stroke_v0_unpadded_fixed CSS mismatch
+  left: "display: grid;\nwidth: 200px;\nheight: 34px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nborder: 2px solid #333;"
+ right: "display: grid;\nwidth: 200px;\nheight: 34px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nborder: 2px solid #333;"
+
+
+failures:
+    n1_explicit_hug_rows_flex_auto_css_and_tailwind
+    n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind
+    n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind
+    n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind
+    n6_stroke_v0_unpadded_hug_css_and_tailwind
+    n6c_stroke_v0_unpadded_fixed_css_and_tailwind
+
+test result: FAILED. 19 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-export --test grid_chrome_fixtures`
+RUST_RED_EXIT=101
+=== PYTHON: python3 -m unittest discover -s scripts/tests -p test_grid_chrome_compare.py (against 64960b21 sources) ===
+EFusage: python3.14 -m unittest [-h] [--screenshot SCREENSHOT]
+                              [--screenshot-scene SCREENSHOT_SCENE]
+                              [--json-out JSON_OUT]
+python3.14 -m unittest: error: unrecognized arguments: --chrome /fake/chrome --fixtures-json /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpjgssmen4/fixtures.json
+E..EEE
+======================================================================
+ERROR: test_box_border_and_border_tokens_map_to_css_declarations (test_grid_chrome_compare.GridChromeCompareTests.test_box_border_and_border_tokens_map_to_css_declarations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/tests/test_grid_chrome_compare.py", line 61, in test_box_border_and_border_tokens_map_to_css_declarations
+    self.assertEqual(tailwind_token_to_decls("border"), ["border-width: 1px;", "border-style: solid;"])
+                     ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/qa/grid_chrome/tailwind_css_map.py", line 144, in tailwind_token_to_decls
+    raise ValueError(f"Unsupported Tailwind token in grid harness: {tok!r}")
+ValueError: Unsupported Tailwind token in grid harness: 'border'
+
+======================================================================
+ERROR: test_cli_supports_fixtures_json_flag (test_grid_chrome_compare.GridChromeCompareTests.test_cli_supports_fixtures_json_flag)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/tests/test_grid_chrome_compare.py", line 204, in test_cli_supports_fixtures_json_flag
+    rc = cli.main(["--chrome", "/fake/chrome", "--fixtures-json", str(fjson)])
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/qa/grid-chrome-compare.py", line 26, in main
+    args = ap.parse_args(argv)
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2009, in parse_args
+    self.error(msg)
+    ~~~~~~~~~~^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2782, in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/argparse.py", line 2769, in exit
+    _sys.exit(status)
+    ~~~~~~~~~^^^^^^^^
+SystemExit: 2
+
+======================================================================
+ERROR: test_probe_and_screenshot_pages_do_not_inject_global_border_box_reset (test_grid_chrome_compare.GridChromeCompareTests.test_probe_and_screenshot_pages_do_not_inject_global_border_box_reset)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/tests/test_grid_chrome_compare.py", line 75, in test_probe_and_screenshot_pages_do_not_inject_global_border_box_reset
+    shot_html = build_screenshot_html(scene, max_abs_drift=0.0)
+TypeError: build_screenshot_html() got an unexpected keyword argument 'max_abs_drift'
+
+======================================================================
+ERROR: test_screenshot_subtitle_uses_real_tracks_and_real_drift_and_out_of_flow_labels (test_grid_chrome_compare.GridChromeCompareTests.test_screenshot_subtitle_uses_real_tracks_and_real_drift_and_out_of_flow_labels)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/tests/test_grid_chrome_compare.py", line 96, in test_screenshot_subtitle_uses_real_tracks_and_real_drift_and_out_of_flow_labels
+    shot_html = build_screenshot_html(scene, max_abs_drift=75.0)
+TypeError: build_screenshot_html() got an unexpected keyword argument 'max_abs_drift'
+
+======================================================================
+ERROR: test_tailwind_child_count_mismatch_reports_scene_fail_without_aborting_batch (test_grid_chrome_compare.GridChromeCompareTests.test_tailwind_child_count_mismatch_reports_scene_fail_without_aborting_batch)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/tests/test_grid_chrome_compare.py", line 166, in test_tailwind_child_count_mismatch_reports_scene_fail_without_aborting_batch
+    rc, lines, rep, _ = run_comparison("fake-chrome", fixtures=[bad_scene, good_scene])
+                        ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/qa/grid_chrome/screenshot.py", line 131, in run_comparison
+    probe_html = build_batch_probe_html(fixtures)
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/qa/grid_chrome/probe_page.py", line 30, in build_batch_probe_html
+    tw_grid_decls, tw_item_decls = parse_tailwind_html(scene["tailwind_html"], expected_children=len(solver_items))
+                                   ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/qa/grid_chrome/tailwind_css_map.py", line 160, in parse_tailwind_html
+    raise ValueError(
+        f"Tailwind HTML child count mismatch: got {len(parser.child_classes)}, expected {expected_children}"
+    )
+ValueError: Tailwind HTML child count mismatch: got 1, expected 2
+
+======================================================================
+FAIL: test_chrome_bin_missing_does_not_fallback_and_cli_exits_2 (test_grid_chrome_compare.GridChromeCompareTests.test_chrome_bin_missing_does_not_fallback_and_cli_exits_2)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/scripts/tests/test_grid_chrome_compare.py", line 107, in test_chrome_bin_missing_does_not_fallback_and_cli_exits_2
+    self.assertIsNone(find_chrome())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+AssertionError: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' is not None
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.004s
+
+FAILED (failures=1, errors=5)
+PYTHON_RED_EXIT=1

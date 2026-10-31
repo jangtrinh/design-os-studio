@@ -575,6 +575,64 @@ pub(crate) fn grid_column_count(al: &AutoLayout) -> usize {
     stored.clamp(1, MAX_GRID_TRACKS)
 }
 
+/// Whether the solver packs a grid's rows at the top (`pt + r * row_gap + sum(0..r)`).
+/// Delegates directly to [`designos_doc::layout_solver::grid_packs_auto_rows`].
+pub(crate) fn grid_packs_auto_rows(doc: &Document, n: &Node, al: &AutoLayout) -> bool {
+    if al.direction != LayoutDirection::Grid {
+        return false;
+    }
+    let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| doc.flow_child_input(*id, true)).collect();
+    designos_doc::layout_solver::grid_packs_auto_rows(al, &kids)
+}
+
+/// Column tracks for `n`: when a hugging grid has any `GridTrack::Hug` column or its solved `Flex`
+/// columns have unequal unit widths (such as `100 / 40 / 60` or `100 / 40 / 40`), returns their
+/// solved pixel widths as fixed tracks so the browser places items at the same x coordinates as
+/// `compute_grid`.
+pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a AutoLayout) -> std::borrow::Cow<'a, [GridTrack]> {
+    if al.primary_sizing != Sizing::Hug {
+        return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
+    }
+    let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| doc.flow_child_input(*id, true)).collect();
+    if kids.is_empty() {
+        return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
+    }
+    let al_s = al.with_stroke(&n.stroke);
+    let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
+    let solved = designos_doc::layout_solver::compute_grid(&al_s, n.size, own, &kids);
+    if (n.size.x - solved.frame.x).abs() > 0.5 {
+        return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
+    }
+    let col_widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
+    let mut ref_unit: Option<f32> = None;
+    let mut needs_px_tracks = false;
+    for (c, &w) in col_widths.iter().enumerate() {
+        match al.grid_col_tracks.get(c).copied().unwrap_or_default() {
+            GridTrack::Hug => {
+                needs_px_tracks = true;
+                break;
+            }
+            GridTrack::Flex(fr) => {
+                let weight = if fr.is_finite() && fr > 0.0 { fr } else { 1.0 };
+                let unit = w / weight;
+                match ref_unit {
+                    None => ref_unit = Some(unit),
+                    Some(r) if (unit - r).abs() > 0.5 => {
+                        needs_px_tracks = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            GridTrack::Fixed(_) => {}
+        }
+    }
+    if !needs_px_tracks {
+        return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
+    }
+    std::borrow::Cow::Owned(col_widths.into_iter().map(GridTrack::Fixed).collect())
+}
+
 /// One track. A flex track is `minmax(0, {n}fr)`: the solver hands it a weighted share of the inner
 /// width and lets it shrink to a pixel, while a bare `{n}fr` is `minmax(auto, {n}fr)` and cannot
 /// shrink under its content.

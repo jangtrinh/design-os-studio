@@ -119,3 +119,7 @@ Each tool takes the tier of the most severe effect a call can have. The tiers ar
 | 39 | `weave_find_model` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
 | 40 | `weave_run_model` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
 | 41 | `weave_get_model_run_output` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
+
+## 3. Loop detection
+
+`LOOP_SUSPECTED` on a repeated identical successful read-only call is a top-level `warning` object `{code, message, next_step, safe_to_retry: false}` on the unchanged result. The same detector returns a named tool error (`safe_to_retry: false`) for a repeated identical failing call (read-only or mutating), a repeated identical mutating call, a write tool failing with the same code, or a ping-pong that ends on a write. A first mutating call that actually changes the document has a different result and resets the window, so K identical no-op results after that fire on the Kth of those no-ops. Thresholds are `DESIGNOS_LOOP_GUARD_K` (default 3) and `DESIGNOS_LOOP_GUARD_N` hashed records (default 20), one window per session, cleared on reconnect, on a document revision change, and by a different call. The detector never mutates the document and never kills the session.

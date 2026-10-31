@@ -2,19 +2,17 @@
 
 ## Build-Verify-Fix Workflow
 
-Follow this 7-step loop:
-
-1. **Orient (Read first)** — Use bootstrap context or call `designos_get_document` and `designos_list_nodes` to inspect pages, frames, variables, styles, and components; do not dump the full document.
-2. **Plan & Ground** — Plan sections and choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"`, `"archetypes"`, or `"web-app"`, `"mobile-app"`, `"landing-page"`, `"slides"`, `"table"`). Place new frames beside existing ones — never stack at `(0, 0)`.
+1. **Orient** — Call `designos_get_document` and `designos_list_nodes` for pages, frames, variables, styles, and components; do not dump the full document.
+2. **Plan & Ground** — Choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"` or a surface). Place new frames beside existing ones — never stack at `(0, 0)`.
 
 3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, `var:` / `style:` tokens, and auto layout (`layout`).
-4. **Verify (`issues` + screenshot)** — Check `issues` (`{total, new_in_this_call, items}`) first; then render the finished frame with `designos_render_png` (<= 1024px) or `diff_image`, and inspect for hierarchy, alignment, clipping, and contrast.
-5. **Fix in place** — Fix in place with update ops (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
+4. **Verify (`issues` + screenshot)** — Check `issues` first; then render the finished frame with `designos_render_png` (<= 1024px) or `diff_image`, and inspect for hierarchy, alignment, clipping, and contrast.
+5. **Fix in place** — Update with (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
 6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `node_ids: [root]`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
 7. **Errors & retries** — Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry` is `true`; re-read state when `safe_to_retry` is `false`; pass `idempotency_key` on writes.
 
-Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you run yourself, and a `designos-mcp` started by another host, are not gated by Studio; that host approves its own MCP calls.
+Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not gated by Studio.
 
 ## Enabled MCP Tools
 
@@ -112,7 +110,7 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0...
 - **Args:** required: `spec` (optional: `diff_image`, `idempotency_key`, `lint`, `parent_id`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
-- **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","layout":{"direction":"column","gap":12,"padding":[20,20,20,20]},"children":[{"kind":"text","name":"Label","text":"Net Revenue","font_size":13},{"kind":"text","name":"Value","text":"$148,920","font_size":28,"font_weight":600}]}}`
+- **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","children":[{"kind":"text","name":"Label","text":"Net Revenue"},{"kind":"text","name":"Value","text":"$148,920"}]}}`
 
 ### `designos_export_spec`
 - **Purpose:** Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev...
@@ -240,9 +238,9 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Errors:** `INVALID_ARGUMENTS`, `UNSAVED_CHANGES`, `TEXT_TOO_LONG`
 - **Example:** `{"name":"Fintech Workspace","discard_changes":true}`
 
-## Declarative `NodeSpec` Reference (Generated from Schema)
+## `NodeSpec` Reference
 
-Used by `designos_apply_spec`, `designos_export_spec`, and `$DESIGNOS_LIVE_SPEC`.
+Used by `designos_apply_spec` / `designos_export_spec`.
 
 ### `NodeSpec` Fields
 
@@ -350,18 +348,17 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 
 ## Per-Call `issues` Block & Error Recovery
 
-- **Per-call `issues` block (E15-12):** Mutating responses attach `issues: {total, new_in_this_call, truncated, items, issues_skipped_rules}` with `{rule_id, severity, node_id, node_path, message, fix_hint, auto_fixable}`. Resolve `new_in_this_call > 0` before continuing.
-- **Session lint tuning:** Use `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false` when bulk-loading scaffolding.
-- **Structured errors (E15-5):** Error responses include `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, and `next_step`.
-- **Retry contract:** Retry a `safe_to_retry` error once, after the repair in step 7. For `TOOL_DISABLED`, follow `next_step` (ask the user to enable the tool).
+- **Per-call `issues`:** Mutating replies attach `issues: {total, new_in_this_call, truncated, items}`. Resolve `new_in_this_call > 0` before continuing.
+- **Session lint:** `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false`.
+- **Structured errors:** `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.
+- **Retry:** Retry a `safe_to_retry` error once after step 7. For `TOOL_DISABLED`, follow `next_step`.
+- **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,message,next_step,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
 
 ## Design Quality & Anti-Generic Rules
 
-Enforce these qualitative standards alongside automated linting:
-
-- **Visual hierarchy**: Establish one primary action per view and one focal point per screen, with >= 3:1 size ratio between display headlines and body copy.
-- **Layout rhythm & cards**: Do not wrap every group in a card or nest cards. Avoid a uniform grid of identical cards when a domain layout fits. Use the file's type scale and spacing scale (`var:` / `style:` tokens), <= 3 gap values per screen, and padding increasing with hierarchy (`page >= section >= card >= control`).
-- **Buttons & centred controls**: Build buttons, pills, and badges with `"preset": "easeui-button-primary"` / `"easeui-button-secondary"` / `"easeui-badge"` or `"layout": {"direction": "row", "justify": "center", "align": "center"}` (a plain `"frame"` without `preset` or `layout` places labels at top-left).
-- **Surface & colour discipline**: Keep gradients, shadows, and corner radii restrained. Use one primary accent per screen, reserve red/amber/green for status, and express dark-mode depth via surface luminance and borders.
-- **Icons & illustrations**: Never hand-draw logos, illustrations, or icons with vector paths — use library instances (`kind: "instance"`) or labelled placeholders.
-- **Typography & content realism**: Use <= 2 font families, <= 4 font sizes, 45–75 char lines, and `tabular-nums` for numbers. Use real domain copy, never lorem ipsum.
+- **Visual hierarchy**: One primary action per view, >= 3:1 headline-to-body.
+- **Layout rhythm & cards**: Do not wrap every group in a card or nest cards. Avoid a uniform grid of identical cards. Use the type scale and spacing scale (`var:` / `style:` tokens), <= 3 gaps, padding `page >= section >= card >= control`.
+- **Buttons & centred controls**: Buttons, pills, badges: `"preset": "easeui-button-primary"` / `"easeui-button-secondary"` / `"easeui-badge"` or `"layout": {"direction": "row", "justify": "center", "align": "center"}` (a plain `"frame"` puts labels at top-left).
+- **Surface & colour**: Restrain gradients, shadows, and corner radii. One primary accent per screen; red/amber/green for status.
+- **Icons & illustrations**: Never hand-draw logos, illustrations, or icons as vector paths. Use library instances or labelled placeholders.
+- **Typography**: <= 2 font families, <= 4 sizes, 45–75 char lines. Real copy, no lorem ipsum.

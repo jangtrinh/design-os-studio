@@ -4503,4 +4503,122 @@ mod tests {
         assert_eq!(bound_node.size.y.fract(), 0.0, "set_variables height {} is not a whole pixel", bound_node.size.y);
         assert_eq!(bound_node.size, expected, "set_variables size {:?} must match the resolved measure {:?}", bound_node.size, expected);
     }
+
+    #[test]
+    fn apply_batch_and_apply_spec_instance_swap_name_and_override_rules() {
+        use designos_doc::{
+            add_prop, bind_prop, create_component, create_instance, Color, ComponentPropDef, OverrideField, Paint, PaintKind, PropKind, PropValue, Vec2,
+        };
+
+        let mut e = Engine::default();
+        let page = e.resolve_default_page().unwrap();
+
+        let make_icon = |e: &mut Engine, name: &str, fill: Color, x: f32| -> NodeId {
+            let id = e.doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = e.doc.insert(page, f).unwrap();
+            let gid = e.doc.alloc_id();
+            let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            g.name = "Glyph".into();
+            g.fills = vec![Paint::solid(fill)];
+            e.doc.insert(comp, g).unwrap();
+            create_component(&mut e.doc, comp).apply(&mut e.doc).unwrap();
+            comp
+        };
+
+        let icon_plus = make_icon(&mut e, "Icon/Plus", Color::rgb(255, 255, 255), 0.0);
+        let icon_check = make_icon(&mut e, "Icon/Check", Color::rgb(255, 255, 255), 40.0);
+        let icon_diff = make_icon(&mut e, "Icon/Diff", Color::rgb(0, 255, 0), 80.0);
+
+        let btn = {
+            let id = e.doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 60.0, 120.0, 40.0));
+            f.name = "Button/Primary".into();
+            let comp = e.doc.insert(page, f).unwrap();
+            create_component(&mut e.doc, comp).apply(&mut e.doc).unwrap();
+            create_instance(&mut e.doc, icon_plus, comp, Vec2::new(8.0, 10.0)).apply(&mut e.doc).unwrap();
+            let slot = e.doc.get(comp).unwrap().children[0];
+            {
+                let sn = e.doc.get_mut(slot).unwrap();
+                sn.name = "Leading icon".into();
+                sn.visible = false;
+                sn.size = Vec2::new(20.0, 20.0);
+            }
+            let glyph = e.doc.get(slot).unwrap().children[0];
+            {
+                let gn = e.doc.get_mut(glyph).unwrap();
+                gn.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+                gn.component.overrides.insert(OverrideField::Fills);
+            }
+            add_prop(&mut e.doc, comp, ComponentPropDef { name: "Has Leading Icon".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) })
+                .apply(&mut e.doc)
+                .unwrap();
+            add_prop(
+                &mut e.doc,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_plus, icon_check, icon_diff] },
+                    default: PropValue::Instance(icon_plus),
+                },
+            )
+            .apply(&mut e.doc)
+            .unwrap();
+            bind_prop(&mut e.doc, slot, OverrideField::Visible, Some("Has Leading Icon")).apply(&mut e.doc).unwrap();
+            bind_prop(&mut e.doc, slot, OverrideField::MainComponent, Some("Icon")).apply(&mut e.doc).unwrap();
+            comp
+        };
+
+        let _ = btn;
+
+        // 1. Button instance swapped via `designos_apply_batch` `apply_spec` with `props` and `overrides[].swap`:
+        // - keeps "Leading icon" name, hidden visibility, 20x20 size, and red fill override when swapping to Icon/Check (same default fill)
+        e.call(
+            "designos_apply_batch",
+            json!({
+                "ops": [{
+                    "op": "apply_spec",
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "component": "Button/Primary",
+                        "props": { "Icon": "Icon/Check" }
+                    }
+                }]
+            }),
+        )
+        .unwrap();
+        let btn_check = *e.doc.get(page).unwrap().children.last().unwrap();
+        let slot_check_id = e.doc.get(btn_check).unwrap().children[0];
+        let slot_check = e.doc.get(slot_check_id).unwrap();
+        assert_eq!(slot_check.name, "Leading icon");
+        assert!(!slot_check.visible);
+        assert_eq!(slot_check.size, Vec2::new(20.0, 20.0));
+        let glyph_check = e.doc.get(slot_check.children[0]).unwrap();
+        assert_eq!(glyph_check.fills[0].kind, PaintKind::Solid(Color::rgb(255, 0, 0)));
+
+        // 2. Button instance swapped via `designos_apply_spec` `overrides[].swap` to Icon/Diff (different default fill):
+        // - drops red fill override under the originally-matched gate.
+        let applied_diff = e
+            .call(
+                "designos_apply_spec",
+                json!({
+                    "parent_id": page.0,
+                    "spec": {
+                        "kind": "instance",
+                        "component": "Button/Primary",
+                        "overrides": [
+                            { "path": "Leading icon", "swap": "Icon/Diff" }
+                        ]
+                    }
+                }),
+            )
+            .unwrap();
+        let btn_diff = NodeId(applied_diff["root_node_id"].as_u64().unwrap());
+        let slot_diff = e.doc.get(e.doc.get(btn_diff).unwrap().children[0]).unwrap();
+        assert_eq!(slot_diff.name, "Leading icon");
+        let glyph_diff = e.doc.get(slot_diff.children[0]).unwrap();
+        assert_eq!(glyph_diff.fills[0].kind, PaintKind::Solid(Color::rgb(0, 255, 0)), "non-matching default fill drops override on MCP apply_spec swap");
+    }
 }

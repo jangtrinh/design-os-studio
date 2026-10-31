@@ -681,7 +681,7 @@ class P7PinnedSiteTests(GateFixture):
 
     def test_new_upper_case_tag_literal_is_red(self) -> None:
         copy_real_sources(self.root)
-        self.edit("skills/mod.rs", '"READY"', '"BETA"')
+        self.edit("specs.rs", '"ON THIS PAGE"', '"BETA"')
         self.assert_red("P7", needle="BETA")
 
     def test_second_monospace_call_in_a_pinned_function_is_red(self) -> None:
@@ -721,8 +721,8 @@ class P7PinnedSiteTests(GateFixture):
 
     def test_a_removed_site_must_leave_the_pin(self) -> None:
         copy_real_sources(self.root)
-        self.edit("skills/mod.rs", '"READY"', '"Ready"')
-        out = self.assert_red("P7", needle="READY")
+        self.edit("specs.rs", '"ON THIS PAGE"', '"On this page"')
+        out = self.assert_red("P7", needle="ON THIS PAGE")
         self.assertIn("pin", out)
 
     def test_acronyms_are_allowed(self) -> None:

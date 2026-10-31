@@ -1,0 +1,84 @@
+[PASS] S1_stretch_child_hug           (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S1_stretch_child_hug           (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S2_empty_hug_column            (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S2_empty_hug_column            (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S3_hug_grid_max_w              (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S3_hug_grid_max_w              (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S4_hug_grid_min_w              (css     ) max_item_err=0.01px grid_err=(0.00px, 0.00px)
+[PASS] S4_hug_grid_min_w              (tailwind) max_item_err=0.01px grid_err=(0.00px, 0.00px)
+[PASS] S5_hug_height_min_h            (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S5_hug_height_min_h            (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S5b_hug_height_min_h_flex_auto (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S5b_hug_height_min_h_flex_auto (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[FAIL] S6_explicit_rows_flex          (css     ) max_item_err=75.00px grid_err=(0.00px, 0.00px)
+       item[2] solver=(0.0,30.0,95.0,20.0) chrome=(0.0,105.0,95.0,20.0) max_abs=75.00px
+       item[3] solver=(105.0,30.0,95.0,20.0) chrome=(105.0,105.0,95.0,20.0) max_abs=75.00px
+[FAIL] S6_explicit_rows_flex          (tailwind) max_item_err=75.00px grid_err=(0.00px, 0.00px)
+       item[2] solver=(0.0,30.0,95.0,20.0) chrome=(0.0,105.0,95.0,20.0) max_abs=75.00px
+       item[3] solver=(105.0,30.0,95.0,20.0) chrome=(105.0,105.0,95.0,20.0) max_abs=75.00px
+[PASS] S7_explicit_rows_hug           (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S7_explicit_rows_hug           (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[FAIL] S8_auto_tracks_fixed           (css     ) max_item_err=30.00px grid_err=(0.00px, 0.00px)
+       item[2] solver=(0.0,60.0,95.0,20.0) chrome=(0.0,30.0,95.0,20.0) max_abs=30.00px
+       item[3] solver=(105.0,60.0,95.0,20.0) chrome=(105.0,30.0,95.0,20.0) max_abs=30.00px
+[FAIL] S8_auto_tracks_fixed           (tailwind) max_item_err=30.00px grid_err=(0.00px, 0.00px)
+       item[2] solver=(0.0,60.0,95.0,20.0) chrome=(0.0,30.0,95.0,20.0) max_abs=30.00px
+       item[3] solver=(105.0,60.0,95.0,20.0) chrome=(105.0,30.0,95.0,20.0) max_abs=30.00px
+[FAIL] S9_auto_tracks_flex_unequal    (css     ) max_item_err=40.00px grid_err=(0.00px, 0.00px)
+       item[2] solver=(0.0,100.0,100.0,200.0) chrome=(0.0,60.0,100.0,200.0) max_abs=40.00px
+       item[3] solver=(100.0,100.0,100.0,200.0) chrome=(100.0,60.0,100.0,200.0) max_abs=40.00px
+[FAIL] S9_auto_tracks_flex_unequal    (tailwind) max_item_err=40.00px grid_err=(0.00px, 0.00px)
+       item[2] solver=(0.0,100.0,100.0,200.0) chrome=(0.0,60.0,100.0,200.0) max_abs=40.00px
+       item[3] solver=(100.0,100.0,100.0,200.0) chrome=(100.0,60.0,100.0,200.0) max_abs=40.00px
+[FAIL] S10_fixed_width_hug_tracks     (css     ) max_item_err=100.00px grid_err=(0.00px, 0.00px)
+       item[1] solver=(50.0,0.0,50.0,20.0) chrome=(150.0,0.0,50.0,20.0) max_abs=100.00px
+[FAIL] S10_fixed_width_hug_tracks     (tailwind) max_item_err=100.00px grid_err=(0.00px, 0.00px)
+       item[1] solver=(50.0,0.0,50.0,20.0) chrome=(150.0,0.0,50.0,20.0) max_abs=100.00px
+[PASS] S11_hug_span                   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S11_hug_span                   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S12_hug_span_fill              (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S12_hug_span_fill              (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S13_weighted_equal_unit        (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] S13_weighted_equal_unit        (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N1_S7b_explicit_hug_rows_flex_auto (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N1_S7b_explicit_hug_rows_flex_auto (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[FAIL] N1b_explicit_hug_rows_flex_auto_overflow (css     ) max_item_err=80.00px grid_err=(0.00px, 0.00px)
+       item[2] solver=(0.0,30.0,95.0,20.0) chrome=(0.0,70.0,95.0,20.0) max_abs=40.00px
+       item[3] solver=(105.0,30.0,95.0,20.0) chrome=(105.0,70.0,95.0,20.0) max_abs=40.00px
+       item[4] solver=(0.0,60.0,95.0,20.0) chrome=(0.0,140.0,95.0,20.0) max_abs=80.00px
+       item[5] solver=(105.0,60.0,95.0,20.0) chrome=(105.0,140.0,95.0,20.0) max_abs=80.00px
+[FAIL] N1b_explicit_hug_rows_flex_auto_overflow (tailwind) max_item_err=80.00px grid_err=(0.00px, 0.00px)
+       item[2] solver=(0.0,30.0,95.0,20.0) chrome=(0.0,70.0,95.0,20.0) max_abs=40.00px
+       item[3] solver=(105.0,30.0,95.0,20.0) chrome=(105.0,70.0,95.0,20.0) max_abs=40.00px
+       item[4] solver=(0.0,60.0,95.0,20.0) chrome=(0.0,140.0,95.0,20.0) max_abs=80.00px
+       item[5] solver=(105.0,60.0,95.0,20.0) chrome=(105.0,140.0,95.0,20.0) max_abs=80.00px
+[PASS] N2_hug_equal_flex_two_empty_hug_cols (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N2_hug_equal_flex_two_empty_hug_cols (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N2b_hug_equal_flex_one_empty_hug_col (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N2b_hug_equal_flex_one_empty_hug_col (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N2c_hug_equal_flex_fill_only_hug_col (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N2c_hug_equal_flex_fill_only_hug_col (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N3_hug_mixed_tracks_gap_padding (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N3_hug_mixed_tracks_gap_padding (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N3b_hug_mixed_tracks_equal_units (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N3b_hug_mixed_tracks_equal_units (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N4_fixed_mixed_tracks_gap_padding (css     ) max_item_err=0.01px grid_err=(0.00px, 0.00px)
+[PASS] N4_fixed_mixed_tracks_gap_padding (tailwind) max_item_err=0.01px grid_err=(0.00px, 0.00px)
+[PASS] N6_stroke_v0_unpadded_hug      (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N6_stroke_v0_unpadded_hug      (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N6b_stroke_v0_padded_hug       (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N6b_stroke_v0_padded_hug       (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N6c_stroke_v0_unpadded_fixed   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] N6c_stroke_v0_unpadded_fixed   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[FAIL] N6d_stroke_v1_padded_fixed     (css     ) max_item_err=2.00px grid_err=(0.00px, 0.00px)
+       item[0] solver=(8.0,8.0,92.0,30.0) chrome=(10.0,10.0,90.0,30.0) max_abs=2.00px
+       item[1] solver=(100.0,8.0,92.0,30.0) chrome=(100.0,10.0,90.0,30.0) max_abs=2.00px
+[FAIL] N6d_stroke_v1_padded_fixed     (tailwind) max_item_err=2.00px grid_err=(0.00px, 0.00px)
+       item[0] solver=(8.0,8.0,92.0,30.0) chrome=(10.0,10.0,90.0,30.0) max_abs=2.00px
+       item[1] solver=(100.0,8.0,92.0,30.0) chrome=(100.0,10.0,90.0,30.0) max_abs=2.00px
+[FAIL] N2d_fixed_fill_only_hug_col    (css     ) max_item_err=30.00px grid_err=(0.00px, 0.00px)
+       item[1] solver=(85.0,0.0,50.0,30.0) chrome=(100.0,0.0,50.0,30.0) max_abs=15.00px
+       item[2] solver=(170.0,0.0,30.0,30.0) chrome=(200.0,0.0,0.0,30.0) max_abs=30.00px
+[FAIL] N2d_fixed_fill_only_hug_col    (tailwind) max_item_err=30.00px grid_err=(0.00px, 0.00px)
+       item[1] solver=(85.0,0.0,50.0,30.0) chrome=(100.0,0.0,50.0,30.0) max_abs=15.00px
+       item[2] solver=(170.0,0.0,30.0,30.0) chrome=(200.0,0.0,0.0,30.0) max_abs=30.00px

@@ -414,10 +414,14 @@ impl Shell {
         let screenshot_mode =
             if screenshot_ask_risky { crate::agent_permissions::AgentPermissionMode::AskRisky } else { crate::agent_permissions::AgentPermissionMode::Ask };
         match opts.panel.as_deref() {
-            Some("agents" | "agents-picker") => {
+            Some(panel @ ("agents" | "agents-picker")) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.open_for_agent_use(app.file_path.as_deref());
+                // `agents-picker` is the same New chat state with the composer pill's agent menu open.
+                if panel == "agents-picker" {
+                    app.terminal.runtime_dropdown_open = true;
+                }
                 if screenshot_ask_risky {
                     app.terminal.permission_mode = screenshot_mode;
                     app.terminal.seed_screenshot_cli_probes();
@@ -1826,6 +1830,7 @@ impl Shell {
         // An agent that writes while no frame runs (Agents panel closed, no input) still reaches the canvas.
         self.app.terminal.live_patch.wake_on_writes(&ctx, &self.app.terminal.live_spec_path);
         self.app.terminal.overlay_owns_keyboard = crate::terminal::overlay_owns_keyboard(&self.app, &ctx);
+        self.app.terminal.modal_owns_keyboard = crate::terminal::modal_owns_keyboard(&self.app);
         let bridge_actions = self.app.terminal.poll_live_agent_bridge();
         if !bridge_actions.is_empty() {
             execute_terminal_actions_with_ctx(&mut self.app, bridge_actions, Some(&ctx));
@@ -2060,6 +2065,9 @@ pub fn execute_terminal_actions_with_ctx(app: &mut App, actions: Vec<crate::term
             }
             crate::terminal::TerminalAction::CloseStoppedTurn { tab_id, turn_start_depth, run_id } => {
                 crate::agent_stop::close_stopped_turn_on_app(app, tab_id, turn_start_depth, run_id.as_deref());
+            }
+            crate::terminal::TerminalAction::SetAgentPermissionMode(mode) => {
+                app.set_agent_permission_mode(mode);
             }
             crate::terminal::TerminalAction::ClearInProgress { run_id, .. } => {
                 if !app.doc.clear_in_progress_for_run_or_agent(run_id.as_deref(), None).is_empty() {

@@ -3,7 +3,7 @@
 use crate::agent_turn_ledger::{RevertReport, TouchKind, TurnRecord, TurnState};
 use crate::app::App;
 use crate::theme;
-use crate::widgets;
+use crate::widgets::{self, kit};
 use designos_doc::NodeId;
 use egui::{Align2, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use std::collections::HashMap;
@@ -12,8 +12,10 @@ use std::time::Instant;
 
 pub const MAX_PREVIEW_LAYERS: usize = 5;
 const MAX_CALL_ROWS: usize = 8;
-/// One call row in the expanded card. Sits on the pointer floor (24 px), the same value the row had as `CONTROL_DENSE`.
+/// One call row in the expanded card. Sits on the pointer floor (24 px).
 const CALL_ROW_H: f32 = theme::TARGET_MIN;
+/// One changed-layer row, and the Show all / Show less toggle under the list: rows on the pointer floor.
+const LAYER_ROW_H: f32 = theme::TARGET_MIN;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TabScrollScope {
@@ -172,13 +174,13 @@ fn compute_turn_card_height(turn: &TurnRecord) -> f32 {
     let pad = theme::INSET_FRAME;
     let calls_h = call_block_height(turn);
     match turn.state {
-        TurnState::Reverted => pad * 2.0 + theme::CONTROL_DENSE + calls_h,
+        TurnState::Reverted => pad * 2.0 + theme::CONTROL_XS + calls_h,
         TurnState::Active | TurnState::Completed => {
             let visible_rows = if turn.expanded { turn.touched_layers.len() } else { turn.touched_layers.len().min(MAX_PREVIEW_LAYERS) };
             let has_toggle = turn.touched_layers.len() > MAX_PREVIEW_LAYERS;
             let total_rows = visible_rows + usize::from(has_toggle);
-            let rows_h = if total_rows > 0 { total_rows as f32 * theme::CONTROL_DENSE + (total_rows.saturating_sub(1)) as f32 * theme::SPACE_ROW } else { 0.0 };
-            let buttons_h = if turn.has_edits() { theme::SPACE_INLINE + theme::CONTROL_STANDARD } else { 0.0 };
+            let rows_h = if total_rows > 0 { total_rows as f32 * LAYER_ROW_H + (total_rows.saturating_sub(1)) as f32 * theme::SPACE_ROW } else { 0.0 };
+            let buttons_h = if turn.has_edits() { theme::SPACE_INLINE + theme::CONTROL_XS } else { 0.0 };
             pad * 2.0 + theme::LINE_BODY + theme::SPACE_FACT + theme::LINE_CAPTION + theme::SPACE_INLINE + rows_h + calls_h + buttons_h
         }
         TurnState::Kept => 0.0,
@@ -224,15 +226,14 @@ pub fn show(ui: &mut Ui, app: &mut App, tab_idx: usize) {
     match turn_snapshot.state {
         TurnState::Reverted => {
             let report = turn_snapshot.last_revert_report.clone().unwrap_or_default();
-            let row_rect = Rect::from_min_size(inner.min, Vec2::new(inner.width(), theme::CONTROL_DENSE));
+            let row_rect = Rect::from_min_size(inner.min, Vec2::new(inner.width(), theme::CONTROL_XS));
             let dismiss_w = 60.0;
             let dismiss_rect =
-                Rect::from_min_size(Pos2::new((row_rect.right() - dismiss_w).max(row_rect.left()), row_rect.top()), Vec2::new(dismiss_w, theme::CONTROL_DENSE));
-            let dismiss_resp = ui.interact(dismiss_rect, Id::new(("agent-turn-dismiss", turn_snapshot.id)), Sense::click());
-            p.rect_filled(dismiss_rect, theme::cr(theme::RADIUS_CONTROL), if dismiss_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY });
-            p.rect_stroke(dismiss_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
-            p.text(dismiss_rect.center(), Align2::CENTER_CENTER, "Dismiss", theme::font_caption_medium(), theme::TEXT_SECONDARY);
+                Rect::from_min_size(Pos2::new((row_rect.right() - dismiss_w).max(row_rect.left()), row_rect.top()), Vec2::new(dismiss_w, theme::CONTROL_XS));
+            let dismiss_resp =
+                kit::button(ui, dismiss_rect, ("agent-turn-dismiss", turn_snapshot.id), "Dismiss", kit::Hierarchy::Secondary, kit::Size::Xs, true);
             widgets::record(ui, "agent-turn-dismiss", dismiss_rect);
+            widgets::labelled(ui, dismiss_resp.id, egui::accesskit::Role::Button, "Dismiss");
             if dismiss_resp.clicked() {
                 action = Some(TurnCardAction::Keep(turn_snapshot.id));
             }
@@ -369,8 +370,7 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
     let has_toggle = total_layers > MAX_PREVIEW_LAYERS;
     let list_top = y;
     // No Keep/Revert row means the height omits that gap, so the anchor sits one SPACE_INLINE past the bottom and the call block lands on the bottom edge.
-    let buttons_top =
-        if turn.has_edits() { (inner.bottom() - theme::CONTROL_STANDARD).max(list_top) } else { (inner.bottom() + theme::SPACE_INLINE).max(list_top) };
+    let buttons_top = if turn.has_edits() { (inner.bottom() - theme::CONTROL_XS).max(list_top) } else { (inner.bottom() + theme::SPACE_INLINE).max(list_top) };
     // Height puts calls_h between the layer rows and the buttons, then SPACE_INLINE. With no calls
     // the anchor stays the button row, so the list matches the card from before auto-allow rows.
     let calls_h = call_block_height(turn);
@@ -378,7 +378,7 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
     let gap_before_anchor = if calls_h > 0.0 { 0.0 } else { theme::SPACE_INLINE };
     let (list_bottom, toggle_top) = if has_toggle {
         let toggle_bottom = (rows_anchor - gap_before_anchor).max(list_top);
-        let t_top = (toggle_bottom - theme::CONTROL_DENSE).max(list_top);
+        let t_top = (toggle_bottom - LAYER_ROW_H).max(list_top);
         let l_bottom = (t_top - theme::SPACE_ROW).max(list_top);
         (l_bottom, t_top)
     } else {
@@ -387,8 +387,8 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
     };
 
     let list_rect = Rect::from_min_max(Pos2::new(inner.left(), list_top), Pos2::new(inner.right(), list_bottom));
-    let row_step = theme::CONTROL_DENSE + theme::SPACE_ROW;
-    let content_h = if limit > 0 { limit as f32 * theme::CONTROL_DENSE + (limit.saturating_sub(1)) as f32 * theme::SPACE_ROW } else { 0.0 };
+    let row_step = LAYER_ROW_H + theme::SPACE_ROW;
+    let content_h = if limit > 0 { limit as f32 * LAYER_ROW_H + (limit.saturating_sub(1)) as f32 * theme::SPACE_ROW } else { 0.0 };
 
     let scope = tab_scroll_scope(app, tab_idx);
     if did_card_target_change(&scope, turn.id, turn.created_at) {
@@ -409,7 +409,7 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
         for (idx, layer) in turn.touched_layers.iter().take(limit).enumerate() {
             let offset_y = idx as f32 * row_step - scroll;
             let row_y = list_rect.top() + offset_y;
-            let row_rect = Rect::from_min_size(Pos2::new(list_rect.left(), row_y), Vec2::new(list_rect.width(), theme::CONTROL_DENSE));
+            let row_rect = Rect::from_min_size(Pos2::new(list_rect.left(), row_y), Vec2::new(list_rect.width(), LAYER_ROW_H));
             if row_rect.bottom() <= list_rect.top() || row_rect.top() >= list_rect.bottom() {
                 continue;
             }
@@ -452,7 +452,7 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
     crate::panels::scrollbar(ui, list_rect, scroll, content_h);
 
     if has_toggle {
-        let toggle_rect = Rect::from_min_size(Pos2::new(inner.left(), toggle_top), Vec2::new(inner.width(), theme::CONTROL_DENSE));
+        let toggle_rect = Rect::from_min_size(Pos2::new(inner.left(), toggle_top), Vec2::new(inner.width(), LAYER_ROW_H));
         if turn.expanded {
             let less_id = Id::new(("agent-turn-show-less", turn.id));
             let less_resp = ui.interact(toggle_rect, less_id, Sense::click());
@@ -500,25 +500,21 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
         return;
     }
 
-    // 4. Two secondary buttons: `Revert` and `Keep`, `CONTROL_STANDARD` high, `RADIUS_CONTROL`, `SPACE_INLINE` apart.
+    // 4. Two secondary buttons: `Revert` and `Keep`: `Button/Secondary` xs (`CONTROL_XS` high), `SPACE_INLINE` apart.
     let btn_w = ((inner.width() - theme::SPACE_INLINE) * 0.5).max(48.0);
-    let revert_rect = Rect::from_min_size(Pos2::new(inner.left(), buttons_top), Vec2::new(btn_w, theme::CONTROL_STANDARD));
-    let keep_rect = Rect::from_min_size(Pos2::new(revert_rect.right() + theme::SPACE_INLINE, buttons_top), Vec2::new(btn_w, theme::CONTROL_STANDARD));
+    let revert_rect = Rect::from_min_size(Pos2::new(inner.left(), buttons_top), Vec2::new(btn_w, theme::CONTROL_XS));
+    let keep_rect = Rect::from_min_size(Pos2::new(revert_rect.right() + theme::SPACE_INLINE, buttons_top), Vec2::new(btn_w, theme::CONTROL_XS));
 
-    let revert_resp = ui.interact(revert_rect, Id::new(("agent-turn-revert", turn.id)), Sense::click());
-    p.rect_filled(revert_rect, theme::cr(theme::RADIUS_CONTROL), if revert_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY });
-    p.rect_stroke(revert_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
-    p.text(revert_rect.center(), Align2::CENTER_CENTER, "Revert", theme::font_body_medium(), theme::TEXT);
+    let revert_resp = kit::button(ui, revert_rect, ("agent-turn-revert", turn.id), "Revert", kit::Hierarchy::Secondary, kit::Size::Xs, true);
     widgets::record(ui, "agent-turn-revert", revert_rect);
+    widgets::labelled(ui, revert_resp.id, egui::accesskit::Role::Button, "Revert");
     if revert_resp.clicked() {
         *action = Some(TurnCardAction::Revert(turn.id));
     }
 
-    let keep_resp = ui.interact(keep_rect, Id::new(("agent-turn-keep", turn.id)), Sense::click());
-    p.rect_filled(keep_rect, theme::cr(theme::RADIUS_CONTROL), if keep_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY });
-    p.rect_stroke(keep_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
-    p.text(keep_rect.center(), Align2::CENTER_CENTER, "Keep", theme::font_body_medium(), theme::TEXT);
+    let keep_resp = kit::button(ui, keep_rect, ("agent-turn-keep", turn.id), "Keep", kit::Hierarchy::Secondary, kit::Size::Xs, true);
     widgets::record(ui, "agent-turn-keep", keep_rect);
+    widgets::labelled(ui, keep_resp.id, egui::accesskit::Role::Button, "Keep");
     if keep_resp.clicked() {
         *action = Some(TurnCardAction::Keep(turn.id));
     }
