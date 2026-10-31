@@ -111,7 +111,7 @@ pub(crate) fn pick_family(app: &mut App, sel: &[NodeId], family: &str) {
 }
 
 /// Applies `f` to the base style only (paragraph level fields such as alignment).
-pub(crate) fn set_base(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
+fn set_base(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
     if editing(app, sel) {
         ts::base_style(app, &f);
         return;
