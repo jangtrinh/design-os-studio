@@ -406,7 +406,9 @@ fn test_8_backdrop_variable_suggestion_scores_roles_and_drops_failing_candidate(
     assert_eq!(finding.suggested_fix, None, "must drop candidate that does not pass in the role it would change");
 
     // Part B: When fills/1 is bound to v_bg_b0 (#B0B0B0) in the same collection as v_bg_60 (#606060),
-    // v_bg_60 passes in the backdrop role against white text (6.33:1 >= 4.5:1) and emits property "fills/1".
+    // v_bg_60 passes in the backdrop role against white text (6.33:1 >= 4.5:1), but it fails as a
+    // text foreground on the current #B0B0B0 backdrop. The finding cannot safely expose a parent
+    // `fills/1` path, so it must not emit a suggestion.
     doc.variable_collections.get_mut("c1").unwrap().variables.push("v_bg_b0".to_string());
     doc.variables.insert(
         "v_bg_b0".to_string(),
@@ -429,15 +431,64 @@ fn test_8_backdrop_variable_suggestion_scores_roles_and_drops_failing_candidate(
 
     let report2 = lint_subtree(&doc, &[page], &cfg, &RenderLintEnv, &mut Budget::unlimited());
     let finding2 = report2.findings.iter().find(|f| f.rule == "contrast" && f.node == tid).expect("expected contrast finding");
-    let fix2 = finding2.suggested_fix.as_ref().expect("expected backdrop variable suggestion on fills/1");
-    assert_eq!(fix2.kind, "bind");
-    assert_eq!(fix2.property, "fills/1");
-    assert_eq!(fix2.from, json!("#B0B0B0"));
-    assert_eq!(fix2.to, json!("var:surface/dark"));
+    assert_eq!(finding2.suggested_fix, None, "parent fill suggestions must not be attached to text findings");
 }
 
 #[test]
-fn test_9_white_on_white_with_adjacent_overlapping_icon_keeps_ratio_message() {
+fn test_9_backdrop_variable_is_not_suggested_as_a_text_fix() {
+    let mut doc = Document::new("invalid-text-property-suggestion");
+    doc.variable_collections.insert(
+        "color".to_string(),
+        VariableCollection {
+            id: "color".to_string(),
+            name: "Color".to_string(),
+            modes: vec![VariableMode { id: "light".to_string(), name: "Light".to_string() }],
+            default_mode: "light".to_string(),
+            variables: vec!["color/danger".to_string(), "color/primary".to_string()],
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        },
+    );
+    for (id, name, color) in [("color/danger", "Danger", Color::rgb(0xDC, 0x26, 0x26)), ("color/primary", "Primary", Color::rgb(0x25, 0x63, 0xEB))] {
+        doc.variables.insert(
+            id.to_string(),
+            Variable {
+                id: id.to_string(),
+                name: name.to_string(),
+                collection: "color".to_string(),
+                kind: VariableKind::Color,
+                values: BTreeMap::from([("light".to_string(), VariableValue::Color(color))]),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: BTreeMap::new(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+    }
+
+    let page = doc.add_page("Page 1");
+    let button_id = doc.alloc_id();
+    let mut button = Node::frame(button_id, Rect::new(0.0, 0.0, 200.0, 80.0));
+    button.fills = vec![Paint::solid(Color::rgb(0xDC, 0x26, 0x26))];
+    button.variables.bindings.insert("fills/0".to_string(), "color/danger".to_string());
+    doc.insert(page, button).unwrap();
+
+    let label_id = doc.alloc_id();
+    let label = make_text_node(label_id, Rect::new(16.0, 16.0, 120.0, 24.0), "Button label", "Delete", Color::rgb(0xF4, 0xF4, 0xF5), 16.0, 400);
+    doc.insert(button_id, label).unwrap();
+
+    let cfg = LintConfig::from_preset(LintPreset::Recommended);
+    let report = lint_subtree(&doc, &[page], &cfg, &RenderLintEnv, &mut Budget::unlimited());
+    let finding = report.findings.iter().find(|f| f.rule == "contrast" && f.node == label_id).expect("expected contrast finding");
+    assert!(finding.suggested_fix.is_none(), "a backdrop variable cannot be applied to the text node: {:?}", finding.suggested_fix);
+}
+
+#[test]
+fn test_10_white_on_white_with_adjacent_overlapping_icon_keeps_ratio_message() {
     let mut doc = Document::new("white-on-white-icon");
     let page = doc.add_page("Page 1");
 
