@@ -17,7 +17,7 @@
 | **Workspace Library Tests** | `env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib` | `0` | **PASS (1,380 passed, 0 failed across 12 crates)** |
 | **App Binary Tests (`designos`)** | `env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked` | `0` | **PASS (3,811 passed, 0 failed, 0 flakes)** |
 | **Zero Fake UI Gate** | `python3 scripts/zero_fake_ui_gate.py` | `0` | **PASS (17/17 invariants satisfied)** |
-| **Contributor Credit Preserved** | `git log -2` | `0` | **PASS (`198a4689` authored by `NamAIEngineer`; `9dd8f21c` has `Co-authored-by: NamAIEngineer <NamAIEngineer@users.noreply.github.com>`)** |
+| **Contributor Credit Preserved** | `git log -2` | `0` | **PASS (`198a4689` authored by `NamAIEngineer`; `1090fa72` has `Co-authored-by: NamAIEngineer <NamAIEngineer@users.noreply.github.com>`, followed by Round 2 commits `712a4cf3`, `0f176b20`, `9269c066`, `0035df42`, `94b4b75e`, `20c41790`)** |
 | **Temporary Build Target Removed** | `test ! -e out/cargo` | `0` | **PASS (`out/cargo` deleted)** |
 
 ### 2.1 Red Log (`plans/reports/agy-1026-typography-detach-evidence/red.log`)
@@ -383,5 +383,221 @@ Z17   | PASS   | terminal.rs + mcp/server.rs      | No global /tmp/designos-live
    - **What changed**: Diagnosed the `f0f2985d` vs `8dfaee931` conflict in `textsession.rs` before editing, noticed during initial `red.log` capture that combining `font-weight` and `italic` into one `#[test]` hid the second assertion on panic, split them into independent `#[test]` functions so every style-owned field failed independently in `red.log`, and verified all acceptance gates on the final committed state.
 5. **`es:designer`** (`/Users/jangtrinh/.gemini/config/skills/es-designer/SKILL.md`):
    - **What changed**: Verified that the Typography inspector header transitions cleanly from the linked style pill (`Body/Regular` + unlink button) back to the unlinked `+` ("Create text style") action immediately after any style-owned Typography edit, while keeping the linked style pill intact across horizontal alignment and text fill edits.
+
+---
+
+## Round 2
+
+### Root cause
+
+1. **`canvas/textsession.rs::text_command` bypassed style detach (`MAJOR-1`)**:
+   - Keyboard shortcuts (`Cmd+B`, `Cmd+I`, `Cmd+U` in `input.rs:265-272` and `textsession.rs:235-237`) and the top-bar **Text** menu (`Bold`, `Italic`, `Underline`, `Increase font size`, `Decrease font size` in `panels/menus.rs:110-115` -> `actions.rs:148-152`) dispatch through `canvas::textsession::text_command`.
+   - In an active text session, `text_command` called `style_selection(app, f)` (`detach_style: false` / `LinkEdit::Keep`) instead of `style_selection_detaching_as(app, f, EditKind::Other)`.
+   - Outside a text session, `text_command` called `app.edit_nodes(&[id], |n| { richtext::apply_all(t, &f); ... })` directly without removing `n.style_refs[text_ref()]`.
+2. **Paragraph fields in `panels/typography.rs` bypassed style detach (`MINOR-2`)**:
+   - In the Typography **Type settings -> Details** popover (`panels/typography.rs:828-858`), `Paragraph spacing` (`:833`) goes through `set_base`, and `Paragraph indent` (`:828`), `List spacing` (`:838`), and `Vertical trim` (`:856`) go through `set_text_props`.
+   - Both `set_base` and `set_text_props` mutated `NodeKind::Text(t)` (outside a session) or `ts::base_style` / `ts::edit_text_props` (inside a session) without detaching `n.style_refs[text_ref()]`, even though `designos_doc::lint::token_match::same_text_style` and `styles/text_style_ops.rs` treat `paragraph_spacing`, `paragraph.indent`, `paragraph.list_spacing`, and `paragraph.leading_trim` as shared-text-style-owned fields (while `align_h`, `fills`, `hanging_punctuation`, `hanging_lists`, `direction`, and `wrap` are not style-owned).
+3. **Unified shared helper**:
+   - Extracted `style_owned_changed` / `style_owned_props_changed` and `pub fn edit_node_text_detaching(n: &mut Node, f: impl FnOnce(&mut TextProps))` in `crates/designos-app/src/canvas/textsession.rs:333-362`, comparing style-owned fields before and after via `designos_doc::lint::token_match::same_text_style` plus `(paragraph.indent, paragraph.list_spacing, paragraph.leading_trim)` and per-run styles, then removing `n.style_refs[text_ref()]` when any style-owned field changed.
+   - Routed `panels/typography.rs::set_style`, `panels/typography.rs::set_base`, `panels/typography.rs::set_text_props`, and `canvas/textsession.rs::text_command` (outside a session) through `ts::edit_node_text_detaching`, and routed `canvas/textsession.rs::text_command` (in a session) through `style_selection_detaching_as(app, f, EditKind::Other)` and `base_style` / `edit_text_props` through `LinkEdit::DetachIfStyleOwnedChanged`.
+
+### Files changed
+
+| File | Line Ranges | Commits | Summary of Changes |
+|---|---|---|---|
+| `crates/designos-app/src/canvas/textsession.rs` | `L16`, `L331-L363`, `L369`, `L408-L411`, `L570-L571`, `L607`, `L619`, `L644`, `L669` | `9269c066`, `94b4b75e`, `20c41790` | Added `style_owned_changed`, `style_owned_props_changed`, and `pub fn edit_node_text_detaching`; added `LinkEdit::DetachIfStyleOwnedChanged` for `base_style` and `edit_text_props`; routed `text_command` through `style_selection_detaching_as` (in session) and `edit_node_text_detaching` (outside session); removed unused `style_selection` wrapper. |
+| `crates/designos-app/src/panels/typography.rs` | `L78`, `L114-L120`, `L568-L574`, `L943` | `712a4cf3`, `9269c066`, `94b4b75e`, `20c41790` | Routed `set_style`, `set_base` (`pub(crate)`), and `set_text_props` through `ts::edit_node_text_detaching`; removed duplicate `#[path = "../shell/tests/typography_style_detach.rs"]` module mount. |
+| `crates/designos-app/src/shell/tests.rs` | `L4-L5`, `L1235` | `712a4cf3`, `20c41790` | Registered `mod typography_style_detach;` next to `mod typography;` so it shares `shell::tests::Sim`, and re-exported `typography::{pick_family, set_base, set_style, set_text_props}` for test submodules/probes. |
+| `crates/designos-app/src/shell/tests/typography_style_detach.rs` | `L1-L611` | `712a4cf3`, `0f176b20`, `0035df42`, `20c41790` | Removed the copied `Sim` struct to use shared `super::Sim`; added 8 `Sim` tests for `Cmd+B`, `Cmd+I`, `Cmd+U`, and menu `Increase font size` (outside and inside a session); added 4 `Sim` tests for `paragraph_spacing`, `paragraph.indent`, `paragraph.list_spacing`, and `paragraph.leading_trim` (`Vertical trim`); added 2 `Sim` tests for no-op same-family re-pick (`pick_family` / `"Inter"`) outside and inside a session. |
+| `plans/reports/agy-1026-typography-detach-evidence/r2-*` | `r2-red.log`, `r2-green.log`, `r2-probes.log`, `r2-mutations.log` | — | Round 2 red/green logs, reviewer probe output, and 5-mutation (`M1`, `M2`, `M2b`, `M4a`, `M4b`) verification log. |
+
+**Branch commit log (`git log --oneline 198a4689~1..HEAD`)**:
+
+- `198a4689` — `fix(app): detach text styles on typography edits` (`NamAIEngineer`)
+- `1090fa72` — `test(app): add sim tests for typography style detach and avoid unlinked clone`
+- `712a4cf3` — `test(app): mount typography_style_detach in shell::tests with shared Sim`
+- `0f176b20` — `test(app): add sim tests for text_command style detach` (red before `9269c066`)
+- `9269c066` — `fix(app): detach linked text style in text_command via shared helper`
+- `0035df42` — `test(app): add sim tests for paragraph field style detach` (red before `94b4b75e`)
+- `94b4b75e` — `fix(app): detach linked text style on style-owned paragraph edits`
+- `20c41790` — `test(app): add no-op family repick tests that keep text style link`
+
+### Red -> Green
+
+- **`plans/reports/agy-1026-typography-detach-evidence/r2-red.log`** (running the full 34-test `typography` suite against pre-Round-2 `textsession.rs` + `typography.rs`, `exit=101`):
+
+```text
+failures:
+    shell::tests::typography_style_detach::cmd_b_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::cmd_b_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::cmd_i_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::cmd_i_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::cmd_u_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::cmd_u_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::list_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::menu_increase_font_size_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::menu_increase_font_size_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::paragraph_indent_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::paragraph_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+    shell::tests::typography_style_detach::vertical_trim_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo
+
+test result: FAILED. 22 passed; 12 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 5.94s
+```
+
+- **`plans/reports/agy-1026-typography-detach-evidence/r2-green.log`** (running on Round 2 `HEAD` `20c41790`, `exit=0`):
+
+```text
+running 34 tests
+test canvas::textsession::tests::typography_edit_detaches_a_linked_text_style_in_an_active_text_session ... ok
+test canvas::textsession::tests::typography_edit_detaches_a_linked_text_style_in_the_same_undo_step ... ok
+test check_designs::tests::rules::a_typography_number_match_or_binding_does_not_hide_the_text_style_rule ... ok
+test panels::inspect::tests::typography_and_assets ... ok
+test panels::inspect::tests::inspect_code_connect_redlines_mcp_and_typography_style_mutate_state ... ok
+test panels::typography::tests::alignment_and_fill_edits_keep_a_linked_text_style ... ok
+test shell::tests::typography::features_follow_the_selected_range_while_editing ... ok
+test shell::tests::typography::feature_checks_toggle_on_the_layer ... ok
+test shell::tests::typography::popover_lists_only_the_stylistic_sets_the_font_has ... ok
+test shell::tests::typography::paragraph_settings_apply_to_the_layer ... ok
+test shell::tests::typography::typography_header_has_no_var_pill_and_clicking_left_of_style_button_changes_nothing ... ok
+test shell::tests::typography::tab_in_a_text_session_nests_list_items_and_never_moves_egui_focus ... ok
+test shell::tests::typography_style_detach::active_text_session_typography_edit_detaches_while_alignment_and_fill_keep_link ... ok
+test shell::tests::typography_style_detach::cmd_b_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::alignment_and_fill_edits_keep_the_link_while_style_owned_edit_detaches ... ok
+test shell::tests::typography_style_detach::cmd_b_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::cmd_i_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::cmd_u_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::cmd_i_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::cmd_u_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::font_family_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::font_size_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::font_style_italic_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::font_weight_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::letter_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::line_height_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::list_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::menu_increase_font_size_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::menu_increase_font_size_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::paragraph_indent_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::paragraph_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+test shell::tests::typography_style_detach::repicking_same_font_family_in_session_keeps_linked_text_style ... ok
+test shell::tests::typography_style_detach::repicking_same_font_family_outside_session_keeps_linked_text_style ... ok
+test shell::tests::typography_style_detach::vertical_trim_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 6.53s
+```
+
+### Verification
+
+#### 1. Six Mandatory Acceptance Commands
+
+```text
+=== 1. cargo fmt --all -- --check ===
+fmt exit=0
+
+=== 2. cargo clippy --workspace --all-targets --locked -- -D warnings ===
+    Checking designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-doc)
+    Checking designos-diff v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-diff)
+    Checking designos-fonts v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-fonts)
+    Checking designos-render v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-render)
+    Checking designos-svg v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-svg)
+    Checking designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-export)
+    Checking designos-gpu v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-gpu)
+    Checking designos-webcapture v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-webcapture)
+    Checking designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-fig)
+    Checking designos-library v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-library)
+    Checking designos-eval v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-eval)
+    Checking designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-mcp)
+    Checking designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 174.12s
+clippy exit=0
+
+=== 3. cargo test -p designos-app --bin designos --locked typography ===
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 6.62s
+
+=== 4. cargo test -p designos-app --bin designos --locked textsession ===
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 3794 filtered out; finished in 0.84s
+
+=== 5. cargo test -p designos-app --bin designos --locked text_style ===
+test result: ok. 77 passed; 0 failed; 0 ignored; 0 measured; 3759 filtered out; finished in 13.41s
+
+=== 6. cargo test --workspace --locked --lib ===
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-84b9f79dcf53b1e4)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-815df7cac2f24cbf)
+test result: ok. 672 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.87s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-875c5e9aa7515b1d)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-ab132beff113d839)
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.35s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-b26ed997a061f36b)
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.16s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-45d3e160fa7875ce)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-071f7214381262c2)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-7d0983952c42b7d7)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.27s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-440ebce98f1a928a)
+test result: ok. 262 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.74s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-25f4198b0cded696)
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 50.65s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-82f009e569d124ef)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-a99dd1a1e2689cdb)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+```
+
+#### 2. Reviewer Probes (`plans/reports/agy-1026-typography-detach-evidence/r2-probes.log`)
+
+All 5 `text_command` probes (`cmdB-out`, `cmdB-in`, `cmdI-out`, `cmdU-out`, `menuSizeUp-out`) plus the paragraph probes (`pspacing`, `indent`) now report `link=None`, `repick-same-family` reports `link=Some("Body/Regular")`, and `cmdShiftDot` (`cmdShiftDot-in` `size=18`, `cmdShiftDot-out` `size=17`) is unchanged:
+
+```text
+PROBE cmdB-in before: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=true
+PROBE cmdB-in after: content="Continue" size=16 weight=700 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=1 session=true
+PROBE cmdB-out before: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=false
+PROBE cmdB-out after: content="Continue" size=16 weight=700 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+PROBE cmdI-out after: content="Continue" size=16 weight=400 italic=true deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+PROBE cmdU-out after: content="Continue" size=16 weight=400 italic=true deco=Underline pspacing=0 indent=0 runs=[] link=None depth=3 session=false
+PROBE menuSizeUp-out after: content="Continue" size=17 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+PROBE pspacing after: content="Continue" size=16 weight=400 italic=false deco=None pspacing=12 indent=0 runs=[] link=None depth=2 session=false
+PROBE indent after: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=8 runs=[] link=None depth=2 session=false
+PROBE repick-same-family after: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=false
+PROBE cmdShiftDot-in before: content="Continue" size=16 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=Some("Body/Regular") depth=1 session=true
+PROBE cmdShiftDot-in after: content="Continue" size=18 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=1 session=true
+PROBE cmdShiftDot-out after: content="Continue" size=17 weight=400 italic=false deco=None pspacing=0 indent=0 runs=[] link=None depth=2 session=false
+```
+
+#### 3. Mutation Testing (`plans/reports/agy-1026-typography-detach-evidence/r2-mutations.log`)
+
+All 5 reviewer mutations (`M1`, `M2`, `M2b`, `M4a`, `M4b`) fail at least one test in `cargo test -p designos-app --bin designos --locked typography`:
+
+| Mutation | Description | Result | Failing Tests |
+|---|---|---|---|
+| **`M1`** | Remove `n.style_refs.remove(text_ref())` in `edit_node_text_detaching` | **KILLED (`18 passed; 16 failed`)** | 16 out-of-session style/command/paragraph detach tests fail |
+| **`M2`** | Call `style_selection_as` instead of `style_selection_detaching_as` in `set_style` | **KILLED (`32 passed; 2 failed`)** | `active_text_session_typography_edit_detaches_while_alignment_and_fill_keep_link`, `canvas::textsession::tests::typography_edit_detaches_a_linked_text_style_in_an_active_text_session` |
+| **`M2b`** | Call `style_selection_detaching_as` instead of `style_selection_as` in `set_style_preserving_link` | **KILLED (`33 passed; 1 failed`)** | `active_text_session_typography_edit_detaches_while_alignment_and_fill_keep_link` |
+| **`M4a`** | Remove `style_owned_changed` guard in `edit_node_text_detaching` (unconditional detach) | **KILLED (`31 passed; 3 failed`)** | `panels::typography::tests::alignment_and_fill_edits_keep_a_linked_text_style`, `alignment_and_fill_edits_keep_the_link_while_style_owned_edit_detaches`, `repicking_same_font_family_outside_session_keeps_linked_text_style` |
+| **`M4b`** | Remove `if props_changed` guard on `LinkEdit::DetachIfChanged` in `edit_props_with_link` | **KILLED (`33 passed; 1 failed`)** | `repicking_same_font_family_in_session_keeps_linked_text_style` |
+
+```text
+=== M1 ===
+test result: FAILED. 18 passed; 16 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 5.10s
+=== M2 ===
+test result: FAILED. 32 passed; 2 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 53.14s
+=== M2b ===
+test result: FAILED. 33 passed; 1 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 7.04s
+=== M4a ===
+test result: FAILED. 31 passed; 3 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 6.62s
+=== M4b ===
+test result: FAILED. 33 passed; 1 failed; 0 ignored; 0 measured; 3802 filtered out; finished in 7.55s
+```
+
+### Residual risks
+
+The following three behaviors noted in the Round 1 review remain intentionally out of scope for `#1026`:
+
+1. **Collapsed-caret pending typing style + subsequent typing (`MINOR-1`)**: When a text session has a collapsed caret on non-empty text (`range.is_empty() && !empty_text`), `style_selection_impl` (`canvas/textsession.rs:610-619`) only updates the transient `sess.typing: Option<TextStyle>` without mutating `TextProps` or recording an undo entry; subsequent character insertion (`insert_text`, `canvas/textsession.rs:480-496`) splices `sess.typing` into `t.runs` via `edit_props` (`LinkEdit::Keep`). Changing `insert_text` to detach on typing-style divergence is a separate typing-pipeline policy change outside `#1026`'s Typography/shortcut style-edit scope.
+2. **Double font-size step on `Cmd+Shift+.` / `Cmd+Shift+,` inside an active text session**: Both `canvas/textsession.rs:238-243` (`handle_keys`) and `input.rs:274-279` (`shortcuts`) match `Cmd+Shift+.` / `Cmd+Shift+,` in the same frame when a text session is open, stepping font size by `+2.0` (`16 -> 18`) in-session vs `+1.0` (`16 -> 17`) outside a session. Both paths now detach the linked text style; deduplicating the key routing across `textsession::handle_keys` and `input::shortcuts` is orthogonal to `#1026`.
+3. **In-session undo coalescing of consecutive `EditKind::Style` edits (`fill` + `size`)**: `TextEditLog::record` (`textedit.rs:146-152`) coalesces consecutive `EditKind::Style` steps within `COALESCE_SECS` (`0.6s`) by retaining the earlier `Snap` (`props` + `style_ref`), so an in-session fill edit followed within `0.6s` by an in-session size edit shares one session undo step. Adjusting `EditKind` coalescing boundaries in `textedit.rs` is outside `#1026`'s scope and file boundary.
 
 Status: DONE
