@@ -575,13 +575,13 @@ pub(crate) fn grid_column_count(al: &AutoLayout) -> usize {
     stored.clamp(1, MAX_GRID_TRACKS)
 }
 
-/// Whether a grid frame has a fixed height and auto-sized rows that the solver packs at the top
-/// instead of stretching across the container height.
+/// Whether the solver packs a grid's rows at the top (`pt + r * row_gap + sum(0..r)`). It levels
+/// rows across the container height only when the height is `Sizing::Fixed` and `grid_auto_tracks`
+/// is a positive `GridTrack::Flex`; in every other grid (including a `Hug` height raised by
+/// `min_h` or explicit `GridTrack::Hug` rows) rows stay packed at the top.
 pub(crate) fn grid_packs_auto_rows(al: &AutoLayout) -> bool {
     al.direction == LayoutDirection::Grid
-        && al.counter_sizing == Sizing::Fixed
-        && al.grid_rows == 0
-        && !matches!(al.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Flex(fr)) if fr.is_finite() && fr > 0.0)
+        && !(al.counter_sizing == Sizing::Fixed && matches!(al.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Flex(fr)) if fr > 0.0))
 }
 
 /// Column tracks for `n`: when a hugging grid's solved `Flex` columns have unequal widths (such as
