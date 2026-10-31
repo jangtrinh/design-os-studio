@@ -2149,7 +2149,7 @@ mod tests {
                 let mut shell = Shell::build(&ctx, opts);
                 if panel == Some("agents-chat") {
                     assert_eq!(
-                        shell.app.terminal.active_composer().pending_send.as_deref(),
+                        shell.app.terminal.active_composer().pending_send.front().map(|e| e.text.as_str()),
                         Some("Create a SaaS analytics card in Claude Code"),
                         "agents-chat must queue prompt right after Shell::build before any frame runs"
                     );

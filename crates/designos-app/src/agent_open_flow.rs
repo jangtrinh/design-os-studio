@@ -1080,7 +1080,7 @@ mod tests {
         assert!(!st_empty.picker_open);
         assert!(st_empty.pending_prompt.is_none(), "Held prompt must be consumed once a CLI is spawned");
         assert!(
-            st_empty.tabs[0].composer.pending_send.as_deref() == Some("Build hero section")
+            st_empty.tabs[0].composer.pending_send.front().map(|e| e.text.as_str()) == Some("Build hero section")
                 || st_empty.tabs[0].composer.history.iter().any(|h| h.contains("Build hero section"))
         );
 
@@ -1208,7 +1208,7 @@ mod tests {
         st.submit_chat_prompt("Create a card", None);
         assert_eq!(st.tabs.len(), 1, "submit_chat_prompt must lazily start the tab's agent on submit");
         assert!(!st.tabs[0].is_shell_process());
-        assert_eq!(st.tabs[0].composer.pending_send.as_deref(), Some("Create a card"));
+        assert_eq!(st.tabs[0].composer.pending_send.front().map(|e| e.text.as_str()), Some("Create a card"));
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

@@ -71,7 +71,7 @@ fn send_in_new_chat_starts_the_pill_agent_and_never_resumes_an_old_session() {
     let tabs: Vec<(AgentCliPreset, bool)> = terminal.tabs.iter().map(|t| (t.spawn_preset, t.is_resumed)).collect();
     assert_eq!(tabs, vec![(AgentCliPreset::Claude, false)], "Send starts the pill's agent and resumes nothing");
     let composer = &terminal.tabs[0].composer;
-    assert!(composer.pending_send.is_some() || composer.send_count > 0, "the message went to the new Claude tab: {:?}", composer.pending_send);
+    assert!(!composer.pending_send.is_empty() || composer.send_count > 0, "the message went to the new Claude tab: {:?}", composer.pending_send);
     assert!(terminal.session_registry.sessions.iter().any(|e| e.tab_id == 77 && e.status == SessionEntryStatus::Exited), "the old session is left alone");
     finish(s);
 }
@@ -117,7 +117,7 @@ fn enter_with_no_startable_agent_keeps_the_draft_and_queues_nothing() {
     {
         let c = s.shell.app.terminal.active_composer();
         assert_eq!(c.draft, "hello", "Enter did nothing: the draft stays");
-        assert!(c.pending_send.is_none(), "and nothing is queued for a later agent: {:?}", c.pending_send);
+        assert!(c.pending_send.is_empty(), "and nothing is queued for a later agent: {:?}", c.pending_send);
         assert!(c.history.is_empty(), "and nothing is recorded as sent");
         assert_eq!(c.last_outcome, Some(SendOutcome::Refused(RefuseReason::NoAgent)));
     }
@@ -133,7 +133,7 @@ fn enter_with_no_startable_agent_keeps_the_draft_and_queues_nothing() {
     frames(&mut s, 3);
     let tabs = &s.shell.app.terminal.tabs;
     assert_eq!(tabs.iter().map(|t| t.spawn_preset).collect::<Vec<_>>(), vec![AgentCliPreset::Codex]);
-    assert!(tabs[0].composer.pending_send.is_none(), "nothing was sent to Codex: {:?}", tabs[0].composer.pending_send);
+    assert!(tabs[0].composer.pending_send.is_empty(), "nothing was sent to Codex: {:?}", tabs[0].composer.pending_send);
     assert_eq!(tabs[0].composer.draft, "hello", "the draft is waiting in the new tab's composer");
     finish(s);
 }
@@ -258,7 +258,7 @@ fn a_prompt_entry_point_leaves_the_composer_on_screen_alone() {
     assert!(terminal.unattached_composer.history.is_empty(), "and nothing is recorded in its history: {:?}", terminal.unattached_composer.history);
     assert_eq!(terminal.tabs[0].composer.draft, "covered draft", "the covered tab's draft is not taken either");
     assert!(
-        terminal.tabs[0].composer.pending_send.as_deref().is_some_and(|p| p.contains("pricing card")) || terminal.tabs[0].composer.send_count > 0,
+        terminal.tabs[0].composer.pending_send.iter().any(|e| e.text.contains("pricing card")) || terminal.tabs[0].composer.send_count > 0,
         "the prompt went to the covered tab: {:?}",
         terminal.tabs[0].composer.pending_send
     );
@@ -336,7 +336,7 @@ fn spec_ask_over_new_chat_leaves_the_new_chat_draft_and_prd_chip_alone() {
     assert!(terminal.unattached_composer.attach_prd, "nor its PRD chip");
     assert!(terminal.unattached_composer.history.is_empty(), "and nothing is recorded in its history: {:?}", terminal.unattached_composer.history);
     assert!(
-        terminal.tabs[0].composer.pending_send.as_deref().is_some_and(|p| p.contains("@spec://pricing/prd")) || terminal.tabs[0].composer.send_count > 0,
+        terminal.tabs[0].composer.pending_send.iter().any(|e| e.text.contains("@spec://pricing/prd")) || terminal.tabs[0].composer.send_count > 0,
         "the Ask went to the covered tab: {:?}",
         terminal.tabs[0].composer.pending_send
     );
@@ -415,5 +415,152 @@ fn the_pill_repaints_on_its_own_while_probes_run_and_names_the_agent_when_they_e
     assert!(painted(&s).iter().any(|t| t == "Claude Code"), "the next frame, with no input, names the agent: {:?}", painted(&s));
     frames(&mut s, 2);
     assert!(!composer_asked(&s), "and the poll stops once they are done: {:?}", s.ctx.repaint_causes());
+    finish(s);
+}
+
+#[test]
+fn p12_spec_ask_then_send_queues_both_and_writes_in_order() {
+    let mut s = new_chat_sim();
+    type_in_composer(&mut s, "my own draft");
+    frames(&mut s, 2);
+    s.shell.app.terminal.submit_chat_prompt("@prd HELD spec ask", None);
+    frames(&mut s, 2);
+    assert_eq!(s.shell.app.terminal.unattached_composer.draft, "my own draft", "spec Ask must not touch the typed draft");
+    assert!(s.shell.app.terminal.tabs.is_empty(), "spec Ask in a fresh profile holds the prompt without starting a tab");
+
+    let input = recorded(&s, "agents-composer-input").expect("composer input");
+    s.click(input.center());
+    s.key(Key::Enter);
+    assert_eq!(s.shell.app.terminal.tabs.len(), 1, "Enter starts the pill agent tab");
+    assert_eq!(
+        s.shell.app.terminal.tabs[0].composer.notice.as_deref(),
+        Some("2 messages waiting to send"),
+        "both the held spec Ask and the typed send are waiting"
+    );
+
+    // Ready state 1: flushes the first waiting prompt ("@prd HELD spec ask") only.
+    {
+        let tab = &mut s.shell.app.terminal.tabs[0];
+        tab.parser.lock().unwrap().process(b"\x1b[?2004h");
+        *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
+        tab.spawned_at = std::time::Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - std::time::Duration::from_secs(1);
+    }
+    s.shell.app.terminal.tick_composer();
+    let written_1 = String::from_utf8_lossy(&s.shell.app.terminal.tabs[0].written_bytes).into_owned();
+    assert!(written_1.contains("@prd HELD spec ask"), "first ready state must write the held spec Ask: {written_1:?}");
+    assert!(!written_1.contains("my own draft"), "second prompt must wait for the next ready state: {written_1:?}");
+
+    // Ready state 2: after the first turn's Enter is sent, the second prompt flushes in order.
+    s.shell.app.terminal.flush_pending_enter_now();
+    {
+        let tab = &mut s.shell.app.terminal.tabs[0];
+        *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
+    }
+    s.shell.app.terminal.tick_composer();
+    s.shell.app.terminal.flush_pending_enter_now();
+    let written_2 = String::from_utf8_lossy(&s.shell.app.terminal.tabs[0].written_bytes).into_owned();
+    let first_pos = written_2.find("@prd HELD spec ask").expect("held spec Ask written");
+    let second_pos = written_2.find("my own draft").expect("typed draft written");
+    assert!(first_pos < second_pos, "held spec Ask must be written before typed draft: {written_2:?}");
+    finish(s);
+}
+
+#[test]
+fn p12b_make_design_then_send_queues_both_and_writes_in_order() {
+    let mut s = new_chat_sim();
+    type_in_composer(&mut s, "my own draft");
+    frames(&mut s, 2);
+    s.shell.app.terminal.dispatch_figma_ai_prompt("Make Design", "HELD pricing card", None);
+    frames(&mut s, 2);
+    assert_eq!(s.shell.app.terminal.unattached_composer.draft, "my own draft", "Make design must not touch the typed draft");
+    assert!(s.shell.app.terminal.tabs.is_empty(), "Make design in a fresh profile holds the prompt without starting a tab");
+
+    let input = recorded(&s, "agents-composer-input").expect("composer input");
+    s.click(input.center());
+    s.key(Key::Enter);
+    assert_eq!(s.shell.app.terminal.tabs.len(), 1, "Enter starts the pill agent tab");
+    assert_eq!(
+        s.shell.app.terminal.tabs[0].composer.notice.as_deref(),
+        Some("2 messages waiting to send"),
+        "both the held Make design prompt and the typed send are waiting"
+    );
+
+    // Ready state 1: flushes "HELD pricing card" only.
+    {
+        let tab = &mut s.shell.app.terminal.tabs[0];
+        tab.parser.lock().unwrap().process(b"\x1b[?2004h");
+        *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
+        tab.spawned_at = std::time::Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - std::time::Duration::from_secs(1);
+    }
+    s.shell.app.terminal.tick_composer();
+    let written_1 = String::from_utf8_lossy(&s.shell.app.terminal.tabs[0].written_bytes).into_owned();
+    assert!(written_1.contains("HELD pricing card"), "first ready state must write HELD pricing card: {written_1:?}");
+    assert!(!written_1.contains("my own draft"), "second prompt must wait for the next ready state: {written_1:?}");
+
+    // Ready state 2: flushes "my own draft" in order.
+    s.shell.app.terminal.flush_pending_enter_now();
+    {
+        let tab = &mut s.shell.app.terminal.tabs[0];
+        *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
+    }
+    s.shell.app.terminal.tick_composer();
+    s.shell.app.terminal.flush_pending_enter_now();
+    let written_2 = String::from_utf8_lossy(&s.shell.app.terminal.tabs[0].written_bytes).into_owned();
+    let first_pos = written_2.find("HELD pricing card").expect("HELD pricing card written");
+    let second_pos = written_2.find("my own draft").expect("my own draft written");
+    assert!(first_pos < second_pos, "HELD pricing card must be written before my own draft: {written_2:?}");
+    assert_eq!(written_2.matches("HELD pricing card").count(), 1, "HELD pricing card must be sent once: {written_2:?}");
+    finish(s);
+}
+
+#[test]
+fn p13_queued_first_message_then_spec_ask_queues_both_in_order() {
+    let mut s = new_chat_sim();
+    type_in_composer(&mut s, "FIRST message");
+    s.key(Key::Enter);
+    assert_eq!(s.shell.app.terminal.tabs.len(), 1, "Enter starts the tab");
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(Some("Allow?".into()));
+    frames(&mut s, 2);
+
+    let plus = recorded(&s, "agents-new-chat-btn").expect("new chat + button");
+    s.click(plus.center());
+    frames(&mut s, 2);
+    assert!(s.shell.app.terminal.picker_open, "+ opens New chat over the waiting tab");
+
+    s.shell.app.terminal.submit_chat_prompt("@prd SPEC ask", None);
+    frames(&mut s, 2);
+    assert!(!s.shell.app.terminal.picker_open, "spec Ask closes New chat back to the covered tab");
+    assert_eq!(
+        s.shell.app.terminal.tabs[0].composer.notice.as_deref(),
+        Some("2 messages waiting to send"),
+        "both FIRST message and @prd SPEC ask are waiting on the tab"
+    );
+    assert!(s.shell.app.terminal.tabs[0].written_bytes.is_empty(), "nothing is written while the tab is WaitingForInput");
+
+    // Tab leaves WaitingForInput and becomes ready -> flushes FIRST message first.
+    {
+        let tab = &mut s.shell.app.terminal.tabs[0];
+        *tab.agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        tab.parser.lock().unwrap().process(b"\x1b[?2004h");
+        *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
+        tab.spawned_at = std::time::Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - std::time::Duration::from_secs(1);
+    }
+    s.shell.app.terminal.tick_composer();
+    let written_1 = String::from_utf8_lossy(&s.shell.app.terminal.tabs[0].written_bytes).into_owned();
+    assert!(written_1.contains("FIRST message"), "first ready state must write FIRST message: {written_1:?}");
+    assert!(!written_1.contains("@prd SPEC ask"), "second prompt must wait for the next ready state: {written_1:?}");
+
+    // Ready state 2 -> flushes @prd SPEC ask after FIRST message.
+    s.shell.app.terminal.flush_pending_enter_now();
+    {
+        let tab = &mut s.shell.app.terminal.tabs[0];
+        *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
+    }
+    s.shell.app.terminal.tick_composer();
+    s.shell.app.terminal.flush_pending_enter_now();
+    let written_2 = String::from_utf8_lossy(&s.shell.app.terminal.tabs[0].written_bytes).into_owned();
+    let first_pos = written_2.find("FIRST message").expect("FIRST message written");
+    let second_pos = written_2.find("@prd SPEC ask").expect("@prd SPEC ask written");
+    assert!(first_pos < second_pos, "FIRST message must be written before @prd SPEC ask: {written_2:?}");
     finish(s);
 }

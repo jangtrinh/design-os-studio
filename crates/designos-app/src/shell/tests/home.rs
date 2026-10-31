@@ -562,7 +562,7 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
 
     s.shell.app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", None);
     assert!(
-        s.app().terminal.active_composer().pending_send.as_deref() == Some("Create a SaaS analytics card in Claude Code")
+        s.app().terminal.active_composer().pending_send.front().map(|e| e.text.as_str()) == Some("Create a SaaS analytics card in Claude Code")
             || s.app().terminal.active_composer().history.back().map(String::as_str) == Some("Create a SaaS analytics card in Claude Code")
             || s.app().terminal.active_composer().last_outcome.is_some()
     );

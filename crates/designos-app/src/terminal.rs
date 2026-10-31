@@ -3419,7 +3419,6 @@ impl TerminalState {
                 if self.tabs.is_empty() || self.picker_open {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
-                let has_queued = tab.composer.pending_send.is_some();
                 tab.spawned_command = Some(command.to_string());
                 self.tabs.push(tab);
                 self.active_tab = self.tabs.len() - 1;
@@ -3428,7 +3427,8 @@ impl TerminalState {
                 self.viewport_focused = true;
                 self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    if !has_queued {
+                    let already_queued = self.tabs[self.active_tab].composer.pending_send.iter().any(|e| e.text == held_prompt);
+                    if !already_queued {
                         self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
                     }
                 }
@@ -3577,7 +3577,6 @@ impl TerminalState {
                 if self.tabs.is_empty() || self.picker_open {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
-                let has_queued = tab.composer.pending_send.is_some();
                 if register_new_entry && crate::agent_sessions::is_agent_cli_preset(preset) {
                     self.session_registry.last_cli = Some(preset.binary_name().to_string());
                     if crate::agent_sessions::is_registrable_cli_scoped(preset, self.agy_cwd_scoped) {
@@ -3617,7 +3616,8 @@ impl TerminalState {
                     None => spawned,
                 });
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    if !has_queued {
+                    let already_queued = self.tabs[self.active_tab].composer.pending_send.iter().any(|e| e.text == held_prompt);
+                    if !already_queued {
                         self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
                     }
                 }
@@ -11771,7 +11771,7 @@ mod tests {
         let outcome = st.send_from_composer_box("hello", None);
         assert_eq!(outcome, crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NoAgent));
         assert_eq!(st.composer_draft(), "hello", "Enter keeps the draft too");
-        assert!(st.tabs.is_empty() && st.active_composer().pending_send.is_none(), "and queues nothing for a later agent");
+        assert!(st.tabs.is_empty() && st.active_composer().pending_send.is_empty(), "and queues nothing for a later agent");
 
         // The agent menu names the way out: every built-in row offers Install.
         st.runtime_dropdown_open = true;
@@ -12056,7 +12056,7 @@ mod tests {
         }
         let outcome = st.send_system_prompt("make the hero card blue", None);
         assert_eq!(outcome, crate::agent_composer::SendOutcome::Queued, "a busy tab queues the prompt");
-        assert!(st.active_tab().is_some_and(|t| t.composer.pending_send.is_some()), "the prompt waits for a quiet tab");
+        assert!(st.active_tab().is_some_and(|t| !t.composer.pending_send.is_empty()), "the prompt waits for a quiet tab");
         assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "a queued prompt starts a new turn and clears the banner when it is sent");
 
         // A new failure arrives while the prompt still waits, then the tab turns ready and the prompt is written.
@@ -12066,7 +12066,7 @@ mod tests {
             t.spawned_at = std::time::Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - std::time::Duration::from_secs(1);
         }
         st.tick_composer();
-        assert!(st.active_tab().is_some_and(|t| t.composer.pending_send.is_none()), "the ready tab flushed the queued prompt");
+        assert!(st.active_tab().is_some_and(|t| t.composer.pending_send.is_empty()), "the ready tab flushed the queued prompt");
         assert_eq!(st.active_tab().and_then(|t| t.last_user_prompt.as_deref()), Some("make the hero card blue"));
         assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "the queued write must not wipe a failure that arrived while it waited");
         kill_tabs(&mut st);
