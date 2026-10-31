@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::theme;
-use designos_doc::{LineHeight, PaintKind, TextAlignH};
+use designos_doc::{LineHeight, PaintKind, TextAlignH, TextDecoration};
 
 impl Sim {
     fn seed_families(&self) {
@@ -269,4 +269,204 @@ fn active_text_session_typography_edit_detaches_while_alignment_and_fill_keep_li
     s.cmd_shift_key(Key::Z);
     assert_eq!(text_of(&s, id).style.font_size, 22.0);
     assert_eq!(link_of(&s, id), None, "in-session redo detaches the text style link again");
+}
+
+#[test]
+fn cmd_b_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+
+    s.cmd_key(Key::B);
+    assert_eq!(text_of(&s, id).style.font_weight, 700);
+    assert_eq!(link_of(&s, id), None, "Cmd+B outside a session must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+B + style detach must be one undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_weight, 400, "undo restores font weight");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores text style link");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_weight, 700, "redo reapplies font weight");
+    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+}
+
+#[test]
+fn cmd_b_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    s.cmd_key(Key::B);
+    assert_eq!(text_of(&s, id).style.font_weight, 700);
+    assert_eq!(link_of(&s, id), None, "Cmd+B in a session must detach the text style");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_weight, 400, "in-session undo restores font weight");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session undo restores text style link");
+    assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "Cmd+B in session is one session undo step");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_weight, 700, "in-session redo reapplies font weight");
+    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+
+    s.key(Key::Escape);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "committing session adds one document undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_weight, 400, "document undo restores font weight");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "document undo restores text style link");
+}
+
+#[test]
+fn cmd_i_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+
+    s.cmd_key(Key::I);
+    assert!(text_of(&s, id).style.italic);
+    assert_eq!(link_of(&s, id), None, "Cmd+I outside a session must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+I + style detach must be one undo step");
+
+    s.cmd_key(Key::Z);
+    assert!(!text_of(&s, id).style.italic, "undo restores italic");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores text style link");
+
+    s.cmd_shift_key(Key::Z);
+    assert!(text_of(&s, id).style.italic, "redo reapplies italic");
+    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+}
+
+#[test]
+fn cmd_i_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    s.cmd_key(Key::I);
+    assert!(text_of(&s, id).style.italic);
+    assert_eq!(link_of(&s, id), None, "Cmd+I in a session must detach the text style");
+
+    s.cmd_key(Key::Z);
+    assert!(!text_of(&s, id).style.italic, "in-session undo restores italic");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session undo restores text style link");
+    assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "Cmd+I in session is one session undo step");
+
+    s.cmd_shift_key(Key::Z);
+    assert!(text_of(&s, id).style.italic, "in-session redo reapplies italic");
+    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+
+    s.key(Key::Escape);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "committing session adds one document undo step");
+
+    s.cmd_key(Key::Z);
+    assert!(!text_of(&s, id).style.italic, "document undo restores italic");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "document undo restores text style link");
+}
+
+#[test]
+fn cmd_u_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+
+    s.cmd_key(Key::U);
+    assert_eq!(text_of(&s, id).style.decoration, TextDecoration::Underline);
+    assert_eq!(link_of(&s, id), None, "Cmd+U outside a session must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "Cmd+U + style detach must be one undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.decoration, TextDecoration::None, "undo restores decoration");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores text style link");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.decoration, TextDecoration::Underline, "redo reapplies decoration");
+    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+}
+
+#[test]
+fn cmd_u_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    s.cmd_key(Key::U);
+    assert_eq!(text_of(&s, id).style.decoration, TextDecoration::Underline);
+    assert_eq!(link_of(&s, id), None, "Cmd+U in a session must detach the text style");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.decoration, TextDecoration::None, "in-session undo restores decoration");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session undo restores text style link");
+    assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "Cmd+U in session is one session undo step");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.decoration, TextDecoration::Underline, "in-session redo reapplies decoration");
+    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+
+    s.key(Key::Escape);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "committing session adds one document undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.decoration, TextDecoration::None, "document undo restores decoration");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "document undo restores text style link");
+}
+
+#[test]
+fn menu_increase_font_size_outside_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, crate::panels::menus::Action::TextSizeUp);
+    s.frame(vec![]);
+    assert_eq!(text_of(&s, id).style.font_size, 17.0);
+    assert_eq!(link_of(&s, id), None, "Text menu > Increase font size outside a session must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "menu size up + style detach must be one undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_size, 16.0, "undo restores font size");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores text style link");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_size, 17.0, "redo reapplies font size");
+    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+}
+
+#[test]
+fn menu_increase_font_size_in_session_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, crate::panels::menus::Action::TextSizeUp);
+    s.frame(vec![]);
+    assert_eq!(text_of(&s, id).style.font_size, 17.0);
+    assert_eq!(link_of(&s, id), None, "Text menu > Increase font size in a session must detach the text style");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_size, 16.0, "in-session undo restores font size");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "in-session undo restores text style link");
+    assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "menu size up in session is one session undo step");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_size, 17.0, "in-session redo reapplies font size");
+    assert_eq!(link_of(&s, id), None, "in-session redo detaches text style link again");
+
+    s.key(Key::Escape);
+    s.frame(vec![]);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "committing session adds one document undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.font_size, 16.0, "document undo restores font size");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "document undo restores text style link");
 }
