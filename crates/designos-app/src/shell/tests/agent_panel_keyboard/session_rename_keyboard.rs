@@ -30,3 +30,19 @@ fn a_rename_takes_the_keyboard_from_the_agent_terminal() {
     assert_eq!(s.app().terminal.session_registry.sessions[0].title, "xyz", "and keeps what was typed");
     finish(s);
 }
+
+#[test]
+fn same_frame_rename_click_routes_text_to_the_rename_field() {
+    let mut s = popover_sim();
+    let tab_id = s.shell.app.terminal.sessions_popover_rows().first().map(|r| r.tab_id).expect("a session row");
+    let rename = s.rect_of(&format!("agents-session-rename-{tab_id}"));
+
+    // Keep the pointer click and the first typed text in one egui frame. The terminal is
+    // painted before the popover, so this is the ordering that used to lose the first text.
+    s.one_frame().move_to(rename.center()).press().release().text("same frame").send();
+
+    assert_eq!(s.app().terminal.renaming_session_tab_id, Some(tab_id), "the click starts the rename");
+    assert_eq!(s.app().terminal.rename_session_input, "same frame", "same-frame text belongs to the rename field");
+    assert_eq!(typed_into_the_agent(&s), "", "the terminal must not receive same-frame rename text");
+    finish(s);
+}
