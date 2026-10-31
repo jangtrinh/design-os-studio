@@ -1801,18 +1801,9 @@ fn picker_color(p: &Picker) -> Color {
     Color::rgba(r, g, b, a)
 }
 
-fn remap_stop_bindings(
-    bindings: &mut std::collections::BTreeMap<String, String>,
-    prefix: &str,
-    pi: usize,
-    stop_origins: &[Option<usize>],
-    is_gradient: bool,
-) {
+fn remap_stop_bindings(bindings: &mut std::collections::BTreeMap<String, String>, prefix: &str, pi: usize, stop_origins: &[Option<usize>], is_gradient: bool) {
     let stop_prefix = format!("{prefix}/{pi}/stops/");
-    let old: Vec<(usize, String)> = bindings
-        .keys()
-        .filter_map(|k| k.strip_prefix(&stop_prefix)?.parse::<usize>().ok().map(|idx| (idx, k.clone())))
-        .collect();
+    let old: Vec<(usize, String)> = bindings.keys().filter_map(|k| k.strip_prefix(&stop_prefix)?.parse::<usize>().ok().map(|idx| (idx, k.clone()))).collect();
     if old.is_empty() {
         return;
     }
@@ -2078,8 +2069,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         app.doc.images.insert(key, bytes);
         changed = true;
     }
-    let stop_bound =
-        widgets::picker::mode_of(&pk.paint.kind).is_gradient() && super::var_bind::picker_stop_is_bound(&ctx, pk.state.sel);
+    let stop_bound = widgets::picker::mode_of(&pk.paint.kind).is_gradient() && super::var_bind::picker_stop_is_bound(&ctx, pk.state.sel);
     if !stop_bound && (out.eyedrop || app.props.eyedropper.is_some()) {
         pk.eyedrop = true;
         app.props.eyedropper = Some(pk.target);
@@ -2404,14 +2394,13 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
                 pk.state.stop_origins = (0..stops.len()).map(Some).collect();
             }
             let color = widgets::picker::stop_color_at(stops, t);
-            let mut pairs: Vec<(GradientStop, Option<usize>)> =
-                stops.iter().cloned().zip(pk.state.stop_origins.iter().copied()).collect();
+            let mut pairs: Vec<(GradientStop, Option<usize>)> = stops.iter().cloned().zip(pk.state.stop_origins.iter().copied()).collect();
             pairs.push((GradientStop { pos: t, color }, None));
             pairs.sort_by(|a, b| a.0.pos.partial_cmp(&b.0.pos).unwrap_or(std::cmp::Ordering::Equal));
             if let Some(idx) = pairs.iter().position(|(s, orig)| orig.is_none() && (s.pos - t).abs() < 1e-4) {
                 pk.state.sel = idx;
             }
-            *stops = pairs.iter().map(|(s, _)| s.clone()).collect();
+            *stops = pairs.iter().map(|(s, _)| *s).collect();
             pk.state.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
             *changed = true;
             *stop_list_changed = true;

@@ -102,13 +102,17 @@ fn node_effect_rows_bind_filter_scopes_detach_and_undo() {
     assert_eq!(radius, 18.0);
     s.rect_of("bound:effects/0/radius");
 
-    // Undo removes the binding in one step; redo restores it.
+    // Undo removes the binding in one step and restores the original radius; redo restores it.
     s.cmd_key(Key::Z);
     assert!(!s.app().doc.get(hero).unwrap().variables.bindings.contains_key("effects/0/radius"));
+    let Effect::DropShadow { radius, .. } = s.app().doc.get(hero).unwrap().effects[0] else { panic!("expected DropShadow") };
+    assert_eq!(radius, 8.0, "undo must restore the original shadow radius in one step");
     s.mods = Modifiers::COMMAND | Modifiers::SHIFT;
     s.key(Key::Z);
     s.mods = Modifiers::NONE;
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("effects/0/radius"), Some(&fx_radius));
+    let Effect::DropShadow { radius, .. } = s.app().doc.get(hero).unwrap().effects[0] else { panic!("expected DropShadow") };
+    assert_eq!(radius, 18.0);
 
     // 2. Bind X offset (`effects/0/offsetX`), Y offset (`effects/0/offsetY`), and Spread (`effects/0/spread`).
     let x_field = fx_field_rect(&s, "fxp-x", 0);
@@ -356,21 +360,11 @@ fn effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect() {
     s.shell.app.ui.screenshot_chrome = true;
     s.shell.app.props.pop = None;
     s.scroll_inspector_down();
-    assert!(
-        s.app().props.pop.is_none(),
-        "screenshot_chrome must not auto-open the effect popover inside effects::section"
-    );
+    assert!(s.app().props.pop.is_none(), "screenshot_chrome must not auto-open the effect popover inside effects::section");
 
-    let s_panel = Sim::with(Options {
-        select: Some("Hero".into()),
-        panel: Some("effect".into()),
-        ..Default::default()
-    });
+    let s_panel = Sim::with(Options { select: Some("Hero".into()), panel: Some("effect".into()), ..Default::default() });
     assert!(
-        matches!(
-            s_panel.app().props.pop.as_ref().map(|p| &p.kind),
-            Some(crate::panels::effects::PopKind::Effect(0))
-        ),
+        matches!(s_panel.app().props.pop.as_ref().map(|p| &p.kind), Some(crate::panels::effects::PopKind::Effect(0))),
         "--panel effect must open PopKind::Effect(0) on the selected node"
     );
     let _ = fx_field_rect(&s_panel, "fxp-b", 0);
@@ -391,15 +385,8 @@ fn bound_gradient_stop_locks_color_controls_until_detached() {
     s.shell.app.edit_nodes(&[hero], |n| {
         n.fills = vec![Paint {
             kind: PaintKind::LinearGradient {
-                handles: [
-                    designos_doc::Vec2::new(0.0, 0.5),
-                    designos_doc::Vec2::new(1.0, 0.5),
-                    designos_doc::Vec2::new(0.0, 1.0),
-                ],
-                stops: vec![
-                    GradientStop { pos: 0.0, color: Color::BLACK },
-                    GradientStop { pos: 1.0, color: Color::WHITE },
-                ],
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
             },
             opacity: 1.0,
             visible: true,
@@ -439,8 +426,7 @@ fn bound_gradient_stop_locks_color_controls_until_detached() {
     assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "SV/hue/alpha controls must be locked while stop is bound");
 
     // 3. Eyedropper button click and canvas sampling path do nothing while the stop is bound.
-    let eye_btn = s.rect_of("picker-eyedrop");
-    s.click(eye_btn.center());
+    s.click(Pos2::new(picker.left() + 28.0, picker.top() + 377.0));
     s.frame(vec![]);
     assert!(!s.app().props.picker.as_ref().unwrap().eyedrop, "eyedropper button must be disabled when stop is bound");
     assert!(s.app().props.eyedropper.is_none());
@@ -503,15 +489,8 @@ fn gradient_stop_bindings_follow_stop_across_flip_add_and_delete() {
     s.shell.app.edit_nodes(&[hero], |n| {
         n.fills = vec![Paint {
             kind: PaintKind::LinearGradient {
-                handles: [
-                    designos_doc::Vec2::new(0.0, 0.5),
-                    designos_doc::Vec2::new(1.0, 0.5),
-                    designos_doc::Vec2::new(0.0, 1.0),
-                ],
-                stops: vec![
-                    GradientStop { pos: 0.0, color: Color::BLACK },
-                    GradientStop { pos: 1.0, color: Color::WHITE },
-                ],
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
             },
             opacity: 1.0,
             visible: true,
@@ -540,29 +519,20 @@ fn gradient_stop_bindings_follow_stop_across_flip_add_and_delete() {
     s.click(s.rect_of("pick:Grad/Start").center());
     s.frame(vec![]);
 
-    assert_eq!(resolved_fill_stops(&s), vec![
-        GradientStop { pos: 0.0, color: start_col },
-        GradientStop { pos: 1.0, color: Color::WHITE },
-    ]);
+    assert_eq!(resolved_fill_stops(&s), vec![GradientStop { pos: 0.0, color: start_col }, GradientStop { pos: 1.0, color: Color::WHITE },]);
 
     // 1. Flip: stop 0 (bound to Grad/Start) moves to pos = 1.0 (index 1); unbound white stop moves to pos = 0.0 (index 0).
     s.click(Pos2::new(picker.left() + 184.0, picker.top() + 100.0));
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), None);
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&grad_start));
-    assert_eq!(resolved_fill_stops(&s), vec![
-        GradientStop { pos: 0.0, color: Color::WHITE },
-        GradientStop { pos: 1.0, color: start_col },
-    ]);
+    assert_eq!(resolved_fill_stops(&s), vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: start_col },]);
 
     // Undo restores both the stop order and the binding on `fills/0/stops/0` in one step.
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), Some(&grad_start));
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), None);
-    assert_eq!(resolved_fill_stops(&s), vec![
-        GradientStop { pos: 0.0, color: start_col },
-        GradientStop { pos: 1.0, color: Color::WHITE },
-    ]);
+    assert_eq!(resolved_fill_stops(&s), vec![GradientStop { pos: 0.0, color: start_col }, GradientStop { pos: 1.0, color: Color::WHITE },]);
 
     // Bind stop 1 (`pos = 1.0`) to `Grad/End` as well.
     s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
@@ -593,10 +563,7 @@ fn gradient_stop_bindings_follow_stop_across_flip_add_and_delete() {
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), Some(&grad_start));
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&grad_end));
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/2"), None);
-    assert_eq!(resolved_fill_stops(&s), vec![
-        GradientStop { pos: 0.0, color: start_col },
-        GradientStop { pos: 1.0, color: end_col },
-    ]);
+    assert_eq!(resolved_fill_stops(&s), vec![GradientStop { pos: 0.0, color: start_col }, GradientStop { pos: 1.0, color: end_col },]);
 
     // 3. Delete stop: add the midpoint stop back, detach stop 0, bind middle stop 1 to `Grad/Start`, then delete stop 1.
     s.click(bar_mid);
@@ -642,15 +609,8 @@ fn gradient_stop_bindings_follow_stop_across_flip_add_and_delete() {
     s.shell.app.edit_nodes(&[hero], |n| {
         n.stroke.paints = vec![Paint {
             kind: PaintKind::LinearGradient {
-                handles: [
-                    designos_doc::Vec2::new(0.0, 0.5),
-                    designos_doc::Vec2::new(1.0, 0.5),
-                    designos_doc::Vec2::new(0.0, 1.0),
-                ],
-                stops: vec![
-                    GradientStop { pos: 0.0, color: Color::BLACK },
-                    GradientStop { pos: 1.0, color: Color::WHITE },
-                ],
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
             },
             opacity: 1.0,
             visible: true,
@@ -691,15 +651,8 @@ fn picker_resync_runs_in_picker_popup_not_unrelated_sections() {
     s.shell.app.edit_nodes(&[hero], |n| {
         n.fills = vec![Paint {
             kind: PaintKind::LinearGradient {
-                handles: [
-                    designos_doc::Vec2::new(0.0, 0.5),
-                    designos_doc::Vec2::new(1.0, 0.5),
-                    designos_doc::Vec2::new(0.0, 1.0),
-                ],
-                stops: vec![
-                    GradientStop { pos: 0.0, color: Color::BLACK },
-                    GradientStop { pos: 1.0, color: Color::WHITE },
-                ],
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
             },
             opacity: 1.0,
             visible: true,
@@ -734,6 +687,54 @@ fn picker_resync_runs_in_picker_popup_not_unrelated_sections() {
     assert_eq!(stops[0].color, updated, "properties::picker_popup must resync the colour picker from the document");
 }
 
-
-
-
+#[test]
+fn probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _dark) = theme_ids(s.app());
+    let v = store.add_variable(&coll, "Probe/Red", VariableKind::Color).unwrap();
+    store.set_value(&v, &light, VariableValue::Color(Color::rgb(0xFF, 0x11, 0x22)));
+    s.shell.app.commit_store(store, &[], &[]);
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let swatch0 = Pos2::new(picker.left() + 24.0, picker.top() + 504.0);
+    // Stop 1: edit its colour through a swatch, so the picker transaction is live.
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(swatch0);
+    s.frame(vec![]);
+    let touched = !s.app().props.picker.as_ref().unwrap().tx.ed.touched().is_empty();
+    // Stop 0: bind it.
+    s.click(Pos2::new(picker.left() + 16.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.mv(Pos2::new(picker.left() + 100.0, picker.top() + 423.0));
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:fills/0/stops/0").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Probe/Red").center());
+    s.frame(vec![]);
+    let bound_after_pick = s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0").cloned();
+    // Stop 1 again: one more picker edit.
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(swatch0);
+    s.frame(vec![]);
+    let bound_after_edit = s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0").cloned();
+    assert!(touched, "guard: the first swatch click opened a live picker transaction");
+    assert_eq!(bound_after_pick.as_ref(), Some(&v));
+    assert_eq!(bound_after_edit.as_ref(), Some(&v), "the binding survives the next picker edit");
+}

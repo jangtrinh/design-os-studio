@@ -950,13 +950,12 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                 if st.stop_origins.len() != sv.len() {
                     st.stop_origins = (0..sv.len()).map(Some).collect();
                 }
-                let mut pairs: Vec<(GradientStop, Option<usize>)> =
-                    sv.iter().cloned().zip(st.stop_origins.iter().copied()).collect();
+                let mut pairs: Vec<(GradientStop, Option<usize>)> = sv.iter().copied().zip(st.stop_origins.iter().copied()).collect();
                 for (s, _) in pairs.iter_mut() {
                     s.pos = (1.0 - s.pos).clamp(0.0, 1.0);
                 }
                 pairs.sort_by(|a, b| a.0.pos.total_cmp(&b.0.pos));
-                *sv = pairs.iter().map(|(s, _)| s.clone()).collect();
+                *sv = pairs.iter().map(|(s, _)| *s).collect();
                 st.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
                 st.sel = sv.len().saturating_sub(1).saturating_sub(st.sel);
                 out.changed = true;
@@ -1063,7 +1062,6 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     let hue_r = Rect::from_min_max(Pos2::new(sl_x, hue_c - 6.0), Pos2::new(sl_x + 172.0, hue_c + 6.0));
     let al_r = hue_r.translate(Vec2::new(0.0, 28.0));
     let eye_r = Rect::from_min_size(Pos2::new(rect.left() + PAD, (hue_c + al_r.center().y) / 2.0 - 12.0), Vec2::splat(24.0));
-    super::record(ui, "picker-eyedrop", eye_r);
     if kit::button_icon(ui, eye_r, "picker-eyedrop", Icon::Eyedropper, kit::Hierarchy::Icon, kit::Size::Xs, !stop_bound, false)
         .on_hover_text("Pick color from canvas")
         .clicked()
@@ -1095,14 +1093,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         quad_mesh(p, al_r, c0, c1, c1, c0);
         round_corners(p, al_r, 6.0, theme::BG);
         let hx = hue_r.left() + 6.0 + new_hsv.h * (hue_r.width() - 12.0);
-        thumb_ring(
-            p,
-            Pos2::new(hx, hue_r.center().y),
-            8.0,
-            3.0,
-            Some(c32(Hsva::new(new_hsv.h, 1.0, 1.0, 1.0).to_srgba_unmultiplied())),
-            stop_bound,
-        );
+        thumb_ring(p, Pos2::new(hx, hue_r.center().y), 8.0, 3.0, Some(c32(Hsva::new(new_hsv.h, 1.0, 1.0, 1.0).to_srgba_unmultiplied())), stop_bound);
         let ax = al_r.left() + 6.0 + new_hsv.a * (al_r.width() - 12.0);
         thumb_ring(p, Pos2::new(ax, al_r.center().y), 8.0, 3.0, Some(c32(base)), stop_bound);
     }
@@ -1546,12 +1537,11 @@ fn gradient_bar(ui: &mut Ui, bar: Rect, st: &mut State, paint: &mut Paint, out: 
                         st.stop_origins = (0..s.len()).map(Some).collect();
                     }
                     let c = stop_color_at(s, t);
-                    let mut pairs: Vec<(GradientStop, Option<usize>)> =
-                        s.iter().cloned().zip(st.stop_origins.iter().copied()).collect();
+                    let mut pairs: Vec<(GradientStop, Option<usize>)> = s.iter().copied().zip(st.stop_origins.iter().copied()).collect();
                     pairs.push((GradientStop { pos: t, color: c }, None));
                     pairs.sort_by(|a, b| a.0.pos.total_cmp(&b.0.pos));
                     st.sel = pairs.iter().position(|(x, orig)| orig.is_none() && x.pos == t).unwrap_or(0);
-                    *s = pairs.iter().map(|(x, _)| x.clone()).collect();
+                    *s = pairs.iter().map(|(x, _)| *x).collect();
                     st.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
                     out.changed = true;
                     out.stop_list_changed = true;
