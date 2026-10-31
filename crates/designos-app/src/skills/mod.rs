@@ -20,21 +20,16 @@
 
 pub(crate) mod delivery;
 pub(crate) mod hook_delivery;
+mod picker_popover;
+#[cfg(test)]
+mod picker_popover_tests;
+pub(crate) use picker_popover::remember_picker_anchor;
 pub(crate) mod pills;
 pub mod run_record;
 
 pub use run_record::{AttachedSkillRecord, RunSkillRecord};
 
 use crate::comments::settings as app_settings;
-use crate::icons::{self, Icon};
-use crate::terminal::{
-    STATUS_BAD_BG, STATUS_BAD_BORDER, STATUS_BAD_TEXT, STATUS_INFO_BG, STATUS_INFO_BORDER, STATUS_INFO_TEXT, STATUS_OK_BG, STATUS_OK_BORDER, STATUS_OK_TEXT,
-    STATUS_WARN_BG, STATUS_WARN_BORDER, STATUS_WARN_TEXT, TERM_BG_ELEVATED, TERM_BG_HOVER, TERM_BORDER,
-};
-use crate::theme;
-use crate::widgets;
-use egui::accesskit::Role;
-use egui::{Align2, Color32, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -50,9 +45,6 @@ pub const CHARS_PER_TOKEN: usize = 4;
 
 /// Maximum combined body token budget (`chars / 4`) across all selected skills.
 pub const MAX_COMBINED_TOKENS: usize = 8_000;
-
-/// Label of the Skills chip and of the Agents header button; the chosen count is a pill next to it.
-pub const CHIP_LABEL: &str = "Skills";
 
 /// Built-in skills embedded at compile time from `assets/skills/<name>/SKILL.md`.
 pub const BUILTIN_SKILLS_RAW: &[(&str, &str)] = &[
@@ -485,6 +477,8 @@ pub struct SkillsAttachmentState {
     pub entries: Vec<SkillEntry>,
     pub selected_names: Vec<String>,
     pub picker_open: bool,
+    /// True once the open popover was drawn in an earlier pass: the pass that opens it ignores the press that picked its item.
+    picker_drawn: bool,
     pub scroll_offset: f32,
     watcher_dirty: Arc<AtomicBool>,
     watcher_stop: Arc<AtomicBool>,
@@ -524,7 +518,16 @@ impl SkillsAttachmentState {
         let selected_names = app_settings::load_default_skills(&library_root);
         let watcher_dirty = Arc::new(AtomicBool::new(false));
         let watcher_stop = Arc::new(AtomicBool::new(false));
-        let mut st = Self { library_root, entries: Vec::new(), selected_names, picker_open: false, scroll_offset: 0.0, watcher_dirty, watcher_stop };
+        let mut st = Self {
+            library_root,
+            entries: Vec::new(),
+            selected_names,
+            picker_open: false,
+            picker_drawn: false,
+            scroll_offset: 0.0,
+            watcher_dirty,
+            watcher_stop,
+        };
         st.reload_all();
         st.spawn_background_watcher();
         st
@@ -752,283 +755,13 @@ impl SkillsAttachmentState {
         let record = RunSkillRecord { session_id: session_id.to_string(), tab_id, runtime: runtime.to_string(), skills: self.attached_records() };
         run_record::append_run_record(session_dir, record)
     }
-
-    /// Text of the count pill next to the chip label: the chosen skills out of the per-run cap, once any skill is chosen.
-    pub fn chip_pill_text(&self) -> Option<String> {
-        let selected_count = self.selected_entries().len();
-        (selected_count > 0).then(|| format!("{selected_count}/{MAX_SKILLS_PER_RUN}"))
-    }
-
-    /// Screen-reader name of the chip: `Skills`, or `Skills, 2 of 3 selected` once any skill is chosen.
-    pub fn chip_accessible_name(&self) -> String {
-        match self.chip_pill_text() {
-            Some(_) => format!("{CHIP_LABEL}, {} of {MAX_SKILLS_PER_RUN} selected", self.selected_entries().len()),
-            None => CHIP_LABEL.to_string(),
-        }
-    }
-
-    /// Width the chip needs for its label and, when skills are chosen, its count pill.
-    pub fn chip_width(&self, p: &egui::Painter) -> f32 {
-        let label_w = widgets::text_width(p, CHIP_LABEL, &theme::font_caption_strong());
-        let pill_w = self.chip_pill_text().map_or(0.0, |t| theme::SPACE_ROW + pills::pill_width(p, &t));
-        label_w + pill_w + theme::INSET_CONTROL * 2.0
-    }
-
-    /// Renders the `Skills` chip with its count pill and toggles the picker on a click. The composer row and the Agents header
-    /// each draw one; both open the same picker.
-    pub fn paint_chip(&mut self, ui: &mut Ui, p: &egui::Painter, rect: Rect, id_str: &str) {
-        self.poll_watcher(Some(ui.ctx()));
-        let resp = ui.interact(rect, Id::new(id_str), Sense::click());
-        let selected_count = self.selected_entries().len();
-        let has_violation = !self.can_start_run();
-        let (bg, border, fg) = if has_violation {
-            (STATUS_BAD_BG, STATUS_BAD_BORDER, STATUS_BAD_TEXT)
-        } else if self.picker_open || selected_count > 0 {
-            (STATUS_INFO_BG, STATUS_INFO_BORDER, STATUS_INFO_TEXT)
-        } else if resp.hovered() {
-            (TERM_BG_HOVER, TERM_BORDER, Color32::WHITE)
-        } else {
-            (Color32::from_rgb(0x28, 0x28, 0x2C), Color32::from_rgb(0x3C, 0x3C, 0x42), Color32::from_rgb(0xB3, 0xB3, 0xB3))
-        };
-        p.rect_filled(rect, theme::cr(theme::RADIUS_CONTROL), bg);
-        p.rect_stroke(rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, border), StrokeKind::Inside);
-        let pill = self.chip_pill_text();
-        let label_w = widgets::text_width(p, CHIP_LABEL, &theme::font_caption_strong());
-        let pill_w = pill.as_deref().map_or(0.0, |t| theme::SPACE_ROW + pills::pill_width(p, t));
-        let left = rect.center().x - (label_w + pill_w) * 0.5;
-        p.text(Pos2::new(left, rect.center().y), Align2::LEFT_CENTER, CHIP_LABEL, theme::font_caption_strong(), fg);
-        if let Some(text) = pill {
-            pills::paint_pill(p, left + label_w + theme::SPACE_ROW, rect.center().y, &text, fg, theme::TEXT_ON_LIGHT_CANVAS);
-        }
-        widgets::record(ui, id_str, rect);
-        widgets::labelled(ui, Id::new(id_str), Role::Button, &self.chip_accessible_name());
-        if resp.clicked() {
-            if self.picker_open {
-                self.picker_open = false;
-            } else {
-                self.open_picker();
-            }
-        }
-    }
-
-    /// Renders the floating Skills Picker popover inside `panel_rect`. Choosing a skill only changes the selection: skills reach
-    /// an agent with its next send (`delivery`), not when they are ticked.
-    pub fn show_picker_popover(&mut self, ui: &mut Ui, panel_rect: Rect, anchor_bottom_y: f32) {
-        if !self.picker_open {
-            return;
-        }
-        self.poll_watcher(Some(ui.ctx()));
-
-        let min_pop_w = theme::CONTROL_MD * 5.0 + theme::SPACE_SECTION;
-        let max_pop_w = theme::CONTROL_MD * 8.0;
-        let pop_w = (panel_rect.width() - theme::INSET_PANEL).clamp(min_pop_w, max_pop_w);
-        let row_h = theme::CONTROL_MD + theme::SPACE_ROW;
-        let header_h = theme::CONTROL_STANDARD;
-        let footer_h = if self.limit_violation().is_some() { theme::CONTROL_MD } else { theme::CONTROL_DENSE };
-        let min_pop_h = theme::CONTROL_MD * 4.0 + theme::SPACE_SECTION;
-        let pop_h =
-            (header_h + (self.entries.len() as f32) * row_h + footer_h + theme::SPACE_INLINE).min((panel_rect.height() - theme::SPACE_SECTION).max(min_pop_h));
-        let pop_x = (panel_rect.left() + theme::SPACE_INLINE).min(panel_rect.right() - pop_w - theme::SPACE_ROW);
-        let pop_y = (anchor_bottom_y - pop_h - theme::SPACE_INLINE).max(panel_rect.top() + theme::CONTROL_MD);
-        let pop_r = Rect::from_min_size(Pos2::new(pop_x, pop_y), Vec2::new(pop_w, pop_h));
-
-        let p = ui.painter().clone();
-        p.rect_filled(pop_r, theme::cr(theme::RADIUS_FRAME), Color32::from_rgb(0x1F, 0x20, 0x24));
-        p.rect_stroke(pop_r, theme::cr(theme::RADIUS_FRAME), Stroke::new(theme::BORDER_WIDTH, Color32::from_rgb(0x3E, 0x3E, 0x46)), StrokeKind::Inside);
-        widgets::record(ui, "agents-skills-picker-popover", pop_r);
-
-        // Header: the title, then the chosen count and the token total as pills.
-        let close_r = Rect::from_center_size(Pos2::new(pop_r.right() - theme::INSET_PANEL, pop_r.top() + theme::INSET_PANEL), Vec2::splat(theme::TARGET_MIN));
-        let selected_count = self.selected_entries().len();
-        let tokens = self.combined_tokens();
-        let title = "Attach skills";
-        let title_font = theme::font_caption_strong();
-        let header_y = pop_r.top() + theme::INSET_PANEL;
-        let mut header_x = pop_r.left() + theme::INSET_BUTTON;
-        p.text(Pos2::new(header_x, header_y), Align2::LEFT_CENTER, title, title_font.clone(), Color32::WHITE);
-        header_x += widgets::text_width(&p, title, &title_font) + theme::SPACE_INLINE;
-        let counts = [
-            (format!("{selected_count}/{MAX_SKILLS_PER_RUN}"), selected_count > MAX_SKILLS_PER_RUN),
-            (format!("{tokens}/{MAX_COMBINED_TOKENS} tokens"), tokens > MAX_COMBINED_TOKENS),
-        ];
-        for (text, over_limit) in counts {
-            let w = pills::pill_width(&p, &text);
-            if header_x + w > close_r.left() - theme::SPACE_ROW {
-                break;
-            }
-            let (fill, fg) = if over_limit { (STATUS_BAD_TEXT, theme::TEXT_ON_LIGHT_CANVAS) } else { (theme::BG_TERTIARY, theme::TEXT) };
-            pills::paint_pill(&p, header_x, header_y, &text, fill, fg);
-            header_x += w + theme::SPACE_ROW;
-        }
-
-        let close_resp = ui.interact(close_r, Id::new("agents-skills-picker-close"), Sense::click());
-        icons::paint(&p, Icon::Close, close_r.center(), theme::SPACE_GROUP, if close_resp.hovered() { STATUS_BAD_TEXT } else { theme::TEXT_SECONDARY });
-        widgets::record(ui, "agents-skills-picker-close", close_r);
-        if close_resp.clicked() {
-            self.picker_open = false;
-            return;
-        }
-        widgets::hline(&p, pop_r.left() + theme::SPACE_INLINE, pop_r.right() - theme::SPACE_INLINE, pop_r.top() + header_h, TERM_BORDER);
-
-        // Scrollable rows viewport (`RD-4` §11: up to 100+ skills)
-        let rows_top = pop_r.top() + header_h + theme::SPACE_ROW;
-        let max_rows_bottom = pop_r.bottom() - footer_h - theme::INSET_SEGMENT;
-        let rows_clip_r = Rect::from_min_max(Pos2::new(pop_r.left(), rows_top), Pos2::new(pop_r.right(), max_rows_bottom.max(rows_top + row_h)));
-        let total_rows_h = (self.entries.len() as f32) * row_h;
-        let max_scroll = (total_rows_h - rows_clip_r.height()).max(0.0);
-        if ui.rect_contains_pointer(pop_r) {
-            let delta_y = ui.input(|i| i.smooth_scroll_delta.y);
-            if delta_y.abs() > 0.0 {
-                self.scroll_offset = (self.scroll_offset - delta_y).clamp(0.0, max_scroll);
-            }
-        }
-        self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
-
-        let row_p = p.with_clip_rect(rows_clip_r);
-        let mut toggle_target: Option<String> = None;
-        let mut ry = rows_clip_r.top() - self.scroll_offset;
-
-        for entry in &self.entries {
-            let row_r = Rect::from_min_size(Pos2::new(pop_r.left() + theme::INSET_FRAME, ry), Vec2::new(pop_w - theme::INSET_PANEL, row_h - theme::SPACE_ROW));
-            if row_r.bottom() < rows_clip_r.top() || row_r.top() > rows_clip_r.bottom() {
-                ry += row_h;
-                continue;
-            }
-            let is_valid = entry.status.is_valid();
-            let is_selected = self.is_entry_selected(entry);
-            let sel_key = entry.selection_key();
-            let row_id = format!("agents-skill-row-{}", sel_key.replace(':', "-"));
-            let interact_r = row_r.intersect(rows_clip_r);
-            let resp = ui.interact(interact_r, Id::new(&row_id), Sense::click());
-
-            let row_bg = if !is_valid {
-                STATUS_BAD_BG.gamma_multiply(0.45)
-            } else if is_selected {
-                STATUS_INFO_BG.gamma_multiply(0.75)
-            } else if resp.hovered() {
-                TERM_BG_HOVER
-            } else {
-                TERM_BG_ELEVATED
-            };
-            let row_border = if !is_valid {
-                STATUS_BAD_BORDER
-            } else if is_selected {
-                STATUS_INFO_BORDER
-            } else {
-                TERM_BORDER
-            };
-            row_p.rect_filled(row_r, theme::cr(theme::RADIUS_CONTROL), row_bg);
-            row_p.rect_stroke(row_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, row_border), StrokeKind::Inside);
-
-            // Checkbox
-            let cb_r = Rect::from_center_size(Pos2::new(row_r.left() + theme::INSET_BUTTON, row_r.top() + theme::SPACE_GROUP), Vec2::splat(theme::SPACE_GROUP));
-            let cb_bg = if is_selected { STATUS_INFO_TEXT } else { Color32::from_rgb(0x16, 0x17, 0x1B) };
-            row_p.rect_filled(cb_r, theme::cr(theme::RADIUS_SEGMENT), cb_bg);
-            row_p.rect_stroke(
-                cb_r,
-                theme::cr(theme::RADIUS_SEGMENT),
-                Stroke::new(theme::BORDER_WIDTH, if is_selected { STATUS_INFO_TEXT } else { TERM_BORDER }),
-                StrokeKind::Inside,
-            );
-            if is_selected {
-                icons::paint(&row_p, Icon::Check, cb_r.center(), theme::SPACE_INLINE, Color32::from_rgb(0x0E, 0x0E, 0x12));
-            }
-
-            // Right side: an error badge, or the source and token count. The title yields to it.
-            let meta_str = format!("{} · {} tokens", entry.source.badge_label(), entry.token_count);
-            let right_w = match entry.status.error_badge() {
-                Some(err_label) => (err_label.len() as f32 * theme::SPACE_ROW + theme::SPACE_GROUP).min(theme::CONTROL_MD * 3.0),
-                None => widgets::text_width(&row_p, &meta_str, &theme::font_caption()),
-            };
-
-            // Title + Version (disambiguated with `(yours)` or `(<folder>)` per §3.1 / §8.2)
-            let disp_name = entry.display_name(&self.entries);
-            let title_str = if is_valid { format!("{disp_name} @{}", entry.version) } else { disp_name };
-            let title_room = row_r.width() - theme::SPACE_SECTION - right_w - theme::SPACE_INLINE * 2.0;
-            let title_elided = widgets::elide(&row_p, &title_str, &theme::font_caption_strong(), title_room.max(theme::CONTROL_MD));
-            row_p.text(
-                Pos2::new(row_r.left() + theme::SPACE_SECTION, row_r.top() + theme::SPACE_GROUP),
-                Align2::LEFT_CENTER,
-                title_elided,
-                theme::font_caption_strong(),
-                if is_valid { Color32::WHITE } else { STATUS_BAD_TEXT },
-            );
-
-            if let Some(err_label) = entry.status.error_badge() {
-                let badge_w = right_w;
-                let badge_r = Rect::from_min_size(
-                    Pos2::new(row_r.right() - badge_w - theme::INSET_SEGMENT, row_r.top() + theme::INSET_SEGMENT),
-                    Vec2::new(badge_w, theme::INSET_PANEL),
-                );
-                row_p.rect_filled(badge_r, theme::cr(theme::RADIUS_SEGMENT), STATUS_BAD_BG);
-                row_p.rect_stroke(badge_r, theme::cr(theme::RADIUS_SEGMENT), Stroke::new(theme::BORDER_WIDTH, STATUS_BAD_BORDER), StrokeKind::Inside);
-                let err_elided = widgets::elide(&row_p, err_label, &theme::font_caption(), badge_w - theme::SPACE_INLINE);
-                row_p.text(badge_r.center(), Align2::CENTER_CENTER, err_elided, theme::font_caption(), STATUS_BAD_TEXT);
-            } else {
-                row_p.text(
-                    Pos2::new(row_r.right() - theme::SPACE_INLINE, row_r.top() + theme::SPACE_GROUP),
-                    Align2::RIGHT_CENTER,
-                    meta_str,
-                    theme::font_caption(),
-                    if is_selected { STATUS_INFO_TEXT } else { theme::TEXT_SECONDARY },
-                );
-            }
-
-            // Description line
-            let desc_elided = widgets::elide(&row_p, &entry.description, &theme::font_caption(), (row_r.width() - theme::CONTROL_XS).max(theme::CONTROL_MD));
-            row_p.text(
-                Pos2::new(row_r.left() + theme::SPACE_SECTION, row_r.top() + theme::CONTROL_STANDARD),
-                Align2::LEFT_CENTER,
-                desc_elided,
-                theme::font_caption(),
-                theme::TEXT_SECONDARY,
-            );
-
-            widgets::record(ui, &row_id, interact_r);
-            if is_valid && resp.clicked() {
-                toggle_target = Some(sel_key);
-            }
-            ry += row_h;
-        }
-
-        if let Some(target_key) = toggle_target {
-            self.toggle_skill(&target_key);
-        }
-
-        // Footer: limit notice or user skills directory hint
-        widgets::hline(&p, pop_r.left() + theme::SPACE_INLINE, pop_r.right() - theme::SPACE_INLINE, pop_r.bottom() - footer_h, TERM_BORDER);
-        if let Some(violation) = self.limit_violation() {
-            let warn_r = Rect::from_min_max(
-                Pos2::new(pop_r.left() + theme::INSET_FRAME, pop_r.bottom() - footer_h + theme::SPACE_ROW),
-                Pos2::new(pop_r.right() - theme::INSET_FRAME, pop_r.bottom() - theme::SPACE_ROW),
-            );
-            p.rect_filled(warn_r, theme::cr(theme::RADIUS_CONTROL), STATUS_WARN_BG);
-            p.rect_stroke(warn_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, STATUS_WARN_BORDER), StrokeKind::Inside);
-            let msg = widgets::elide(&p, &violation, &theme::font_caption_strong(), warn_r.width() - theme::SPACE_GROUP);
-            p.text(warn_r.center(), Align2::CENTER_CENTER, msg, theme::font_caption_strong(), STATUS_WARN_TEXT);
-            widgets::record(ui, "agents-skills-limit-warning", warn_r);
-        } else {
-            let ok_r = Rect::from_min_size(
-                Pos2::new(pop_r.right() - theme::SPACE_REGION - theme::SPACE_INLINE, pop_r.bottom() - theme::SPACE_SECTION),
-                Vec2::new(theme::SPACE_REGION, theme::INSET_PANEL),
-            );
-            // The path yields to the badge instead of running under it.
-            let footer_left = pop_r.left() + theme::INSET_BUTTON;
-            let footer_msg = format!("User skills: {}/skills/<name>/SKILL.md", self.library_root.display());
-            let footer_elided =
-                widgets::elide(&p, &footer_msg, &theme::font_caption(), (ok_r.left() - footer_left - theme::SPACE_INLINE).max(theme::SPACE_REGION));
-            p.text(Pos2::new(footer_left, pop_r.bottom() - theme::SPACE_GROUP), Align2::LEFT_CENTER, footer_elided, theme::font_caption(), STATUS_OK_TEXT);
-            p.rect_filled(ok_r, theme::cr(theme::RADIUS_SEGMENT), STATUS_OK_BG);
-            p.rect_stroke(ok_r, theme::cr(theme::RADIUS_SEGMENT), Stroke::new(theme::BORDER_WIDTH, STATUS_OK_BORDER), StrokeKind::Inside);
-            p.text(ok_r.center(), Align2::CENTER_CENTER, "READY", theme::font_caption_strong(), STATUS_OK_TEXT);
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::run_record::{read_run_manifest, RunSkillManifest};
     use super::*;
+    use egui::{Id, Pos2, Rect, Vec2};
 
     fn temp_lib_root(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("designos_skills_test_{}_{tag}", std::process::id()));
@@ -1289,6 +1022,25 @@ mod tests {
     }
 
     #[test]
+    fn skills_popover_title_has_no_count_pills_and_no_ready_footer() {
+        let root = temp_lib_root("popover_chrome");
+        let mut state = SkillsAttachmentState::with_library_root(root.clone());
+        state.open_picker();
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let panel_r = Rect::from_min_size(Pos2::ZERO, Vec2::new(360.0, 500.0));
+            state.show_picker_popover(ui, panel_r, 480.0);
+        });
+        let texts: Vec<String> = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        assert!(texts.iter().any(|t| t == "Attach skills"), "{texts:?}");
+        assert!(!texts.iter().any(|t| t == "READY"), "the footer drops the ready badge: {texts:?}");
+        assert!(!texts.iter().any(|t| t.contains("BUILT-IN")), "the source tag moves off the row: {texts:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn run_json_not_overwritten_by_page_sync_or_picker_open() {
         let root = temp_lib_root("run_json_sync");
         let mut doc = designos_doc::Document::new("test-doc");
@@ -1358,10 +1110,12 @@ mod tests {
             );
         };
 
-        // 1. Render initial PTY Agents panel (`side_panel_pty_open == true`), click Skills chip to open picker.
+        // 1. Render initial PTY Agents panel (`side_panel_pty_open == true`), open the composer + menu and pick `Skills…`.
         run_frame(&mut term, Vec::new());
-        click_widget(&mut term, "agents-composer-skills");
-        assert!(term.skills.picker_open, "clicking Skills chip must open the picker");
+        click_widget(&mut term, "agents-composer-add-btn");
+        run_frame(&mut term, Vec::new());
+        click_widget(&mut term, "agents-composer-skills-item");
+        assert!(term.skills.picker_open, "picking Skills… must open the picker");
 
         // 2. Check `design-system-rhythm` row inside the popover, then close with the `X` control.
         click_widget(&mut term, "agents-skill-row-builtin-design-system-rhythm");
@@ -1491,27 +1245,6 @@ mod tests {
         state.reload_all();
         state.set_selected_skills(vec!["huge-tokens".into()]);
         assert_eq!(state.limit_violation().as_deref(), Some("Skills too long: 9000/8000 tokens. Uncheck some to start."));
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn the_chip_shows_a_count_pill_beside_the_label_and_names_itself_for_screen_readers() {
-        let root = temp_lib_root("chip_pill");
-        let mut state = SkillsAttachmentState::with_library_root(root.clone());
-        assert_eq!((state.chip_pill_text(), state.chip_accessible_name().as_str()), (None, "Skills"));
-        state.toggle_skill("design-system-rhythm");
-        state.toggle_skill("accessibility-wcag");
-        assert_eq!(state.chip_pill_text().as_deref(), Some("2/3"), "the count is a pill, not text in parentheses");
-        assert_eq!(state.chip_accessible_name(), "Skills, 2 of 3 selected");
-
-        let ctx = egui::Context::default();
-        crate::theme::install_fonts(&ctx);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-            let p = ui.painter().clone();
-            let with_pill = state.chip_width(&p);
-            state.set_selected_skills(Vec::new());
-            assert!(with_pill > state.chip_width(&p), "the pill takes room beside the label");
-        });
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -149,3 +149,24 @@ fn toggle_focus_ring_uses_the_pill_radius() {
     assert_eq!(rings.len(), 1, "the toggle paints one focus band");
     assert_eq!(rings[0].corner_radius, egui::CornerRadius::same(want));
 }
+
+#[test]
+fn radio_card_focus_ring_is_concentric_with_the_card() {
+    let rect = egui::Rect::from_min_size(egui::pos2(16.0, 16.0), egui::vec2(240.0, 72.0));
+    let shapes = focused_shapes(|ui| {
+        radio_card(ui, rect, "mode", "Ask", true, true).request_focus();
+    });
+    let rings = ring_strokes(&shapes);
+    assert_eq!(rings.len(), 1, "the card paints one focus band");
+    assert_eq!(rings[0].rect, rect.expand(theme::SPACE_FACT), "the band sits SPACE_FACT outside the card on every side");
+    let card = shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Rect(shape) if shape.rect == rect && shape.stroke.color != theme::FOCUS_RING => Some(shape.clone()),
+            _ => None,
+        })
+        .expect("the card frame");
+    let want = (theme::RADIUS_XL as f32 + theme::SPACE_FACT).round() as u8;
+    assert_eq!(card.corner_radius, egui::CornerRadius::same(theme::RADIUS_XL), "the card keeps its own radius");
+    assert_eq!(rings[0].corner_radius, egui::CornerRadius::same(want), "the band follows the card's corners");
+}

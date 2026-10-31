@@ -7,7 +7,7 @@
 //!   canvas rect at `INSET_PANEL` below its top edge and clear of the ruler strip.
 //! - Left: an 8 px dot (`SPACE_INLINE`) in the agent's colour (`#682` token), then the sentence
 //!   `"<agent name> is working here"` in body type (`font_body_medium`), `TEXT`, elided to fit.
-//! - Right: two buttons of `CONTROL_STANDARD` (`28 px`), `RADIUS_CONTROL`:
+//! - Right: two buttons of `CONTROL_XS` (`32 px`), `RADIUS_CONTROL`:
 //!   - `"Duplicate frame"` (primary action): `BG_BRAND` fill with `AGENT_LABEL_TEXT` dark label.
 //!   - `"Edit anyway"` (neutral action): `BG_TERTIARY` fill with `TEXT` label.
 //! - No animation, no timer; repaints on events only.
@@ -38,7 +38,7 @@ pub fn paint(app: &mut App, ui: &mut Ui, canvas_rect: ERect) {
     let copy_galley = painter.layout_no_wrap(copy_label.to_string(), btn_font.clone(), theme::AGENT_LABEL_TEXT);
     let edit_galley = painter.layout_no_wrap(edit_label.to_string(), body_font.clone(), theme::TEXT);
 
-    let btn_h = theme::CONTROL_STANDARD.max(theme::TARGET_MIN);
+    let btn_h = theme::CONTROL_XS;
     let copy_btn_w = (copy_galley.size().x + theme::INSET_BUTTON * 2.0).max(theme::TARGET_MIN);
     let edit_btn_w = (edit_galley.size().x + theme::INSET_BUTTON * 2.0).max(theme::TARGET_MIN);
 

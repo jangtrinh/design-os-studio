@@ -1,0 +1,29 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.10s
+     Running tests/grid_chrome_fixtures.rs (out/cargo/debug/deps/grid_chrome_fixtures-68e44f521f53a4ec)
+
+running 17 tests
+test mutation_m4_hugging_grid_min_w_distributes_extra_across_flex_columns ... ok
+test mutation_m7_non_fill_child_width_wins_over_stale_wider_fill_child ... ok
+test fixed_height_auto_rows_css_and_tailwind ... ok
+test s2_empty_hug_column_css_and_tailwind ... ok
+test s3_hug_grid_max_w_css_and_tailwind ... ok
+test hugging_grid_css_and_tailwind ... ok
+test mutation_m11_fixed_height_grid_with_flex_auto_rows_omits_align_content_start ... ok
+test mutation_m13_fixed_width_grid_with_weighted_flex_columns_keeps_fractional_tracks ... ok
+test s5_hug_height_min_h_css_and_tailwind ... ok
+test mutation_m14_flex_unit_tolerance_distinguishes_unequal_and_weighted_equal_columns ... ok
+test s5b_hug_height_min_h_flex_auto_css_and_tailwind ... ok
+test equal_tracks_css_and_tailwind ... ok
+test s7_explicit_rows_hug_css_and_tailwind ... ok
+test s1_stretch_child_hug_css_and_tailwind ... ok
+test row_and_column_spans_css_and_tailwind ... ok
+test fixed_first_column_css_and_tailwind ... ok
+test unequal_tracks_css_and_tailwind ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+GREEN_EXIT=0
