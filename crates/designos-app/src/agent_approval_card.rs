@@ -33,7 +33,8 @@ pub struct GrantRevoke {
 pub fn approval_card_outer_height(preset: AgentCliPreset) -> f32 {
     let is_claude = preset == AgentCliPreset::Claude;
     let summary_and_gap = if is_claude { theme::SPACE_ROW + theme::CONTROL_STANDARD } else { 0.0 };
-    let card_h = theme::INSET_FRAME + theme::CONTROL_DENSE + summary_and_gap + theme::SPACE_ROW + theme::CONTROL_STANDARD + theme::INSET_FRAME;
+    let hint_h = if is_claude { 0.0 } else { theme::LINE_CAPTION + theme::SPACE_FACT };
+    let card_h = theme::INSET_FRAME + theme::CONTROL_DENSE + summary_and_gap + hint_h + theme::SPACE_ROW + theme::CONTROL_STANDARD + theme::INSET_FRAME;
     card_h + theme::SPACE_ROW + theme::SPACE_ROW
 }
 
@@ -75,7 +76,8 @@ pub fn paint_approval_card_for_tab(
     }
     let is_claude = preset == AgentCliPreset::Claude && in_active_terminal;
     let summary_and_gap = if is_claude { theme::SPACE_ROW + theme::CONTROL_STANDARD } else { 0.0 };
-    let card_h = theme::INSET_FRAME + theme::CONTROL_DENSE + summary_and_gap + theme::SPACE_ROW + theme::CONTROL_STANDARD + theme::INSET_FRAME;
+    let hint_h = if is_claude { 0.0 } else { theme::LINE_CAPTION + theme::SPACE_FACT };
+    let card_h = theme::INSET_FRAME + theme::CONTROL_DENSE + summary_and_gap + hint_h + theme::SPACE_ROW + theme::CONTROL_STANDARD + theme::INSET_FRAME;
     let card_rect = Rect::from_min_size(
         Pos2::new(viewport_rect.left() + theme::SPACE_ROW, viewport_rect.top() + theme::SPACE_ROW),
         Vec2::new((viewport_rect.width() - theme::SPACE_ROW - theme::SPACE_ROW).max(theme::CONTROL_MD), card_h),
@@ -123,7 +125,19 @@ pub fn paint_approval_card_for_tab(
     let title_elided = widgets::elide(&p, &raw_title, &title_font, title_max_w);
     p.text(Pos2::new(title_x, header_r.center().y), Align2::LEFT_CENTER, title_elided, title_font, theme::TEXT);
 
-    let mut y = header_r.bottom() + theme::SPACE_ROW;
+    let mut y = header_r.bottom();
+    let hint_h = if is_claude { 0.0 } else { theme::LINE_CAPTION + theme::SPACE_FACT };
+    if !is_claude {
+        p.text(
+            Pos2::new(inner.left(), y + theme::SPACE_FACT),
+            Align2::LEFT_TOP,
+            "Use ↑/↓ and Enter in terminal to choose",
+            theme::font_caption(),
+            theme::TEXT_SECONDARY,
+        );
+        y += hint_h;
+    }
+    y += theme::SPACE_ROW;
 
     // Summary block (Claude only)
     if let Some(req) = first_req.filter(|_| is_claude) {
@@ -476,6 +490,25 @@ mod tests {
         }
         let output = output.expect("autosave modal did not produce a frame");
         (crate::lint::scan_shapes(&output.shapes).0, painted_rects(&output.shapes), root)
+    }
+
+    #[test]
+    fn native_cli_approval_card_explains_terminal_keyboard_menu() {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0))), ..Default::default() }, |ui| {
+            let _ = paint_approval_card(
+                ui,
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(900.0, 400.0)),
+                AgentCliPreset::Codex,
+                &[],
+                "test-approval",
+                AgentPermissionMode::Ask,
+            );
+        });
+        let texts = crate::lint::scan_shapes(&out.shapes).0;
+        assert!(texts.iter().any(|t| t.text.contains("Use ↑/↓ and Enter in terminal to choose")), "native CLI card hint missing: {texts:?}");
     }
 
     fn modal_texts(mode: AgentPermissionMode) -> Vec<String> {
