@@ -59,19 +59,19 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        652.0,
+        690.0,
         312.0,
-        68.0
+        92.0
       ],
       "count": 1
     },
-    "agent-mention-btn-left": {
+    "agent-autosave-switch": {
       "region": "overlay:Foreground/0",
       "rect": [
-        363.25,
-        70.0,
-        77.75,
-        20.0
+        912.0,
+        728.0,
+        28.0,
+        16.0
       ],
       "count": 1
     },
@@ -79,9 +79,9 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        470.0,
+        410.0,
         312.0,
-        68.0
+        116.0
       ],
       "count": 1
     },
@@ -89,9 +89,9 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        542.0,
+        530.0,
         312.0,
-        68.0
+        116.0
       ],
       "count": 1
     },
@@ -99,9 +99,19 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        398.0,
+        290.0,
         312.0,
-        68.0
+        116.0
+      ],
+      "count": 1
+    },
+    "agent-permissions-cancel": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        823.75,
+        794.0,
+        71.0,
+        40.0
       ],
       "count": 1
     },
@@ -109,49 +119,49 @@
       "region": "overlay:Foreground/0",
       "rect": [
         620.0,
-        344.0,
+        230.0,
         360.0,
-        400.0
+        628.0
+      ],
+      "count": 1
+    },
+    "agent-permissions-save": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        898.75,
+        794.0,
+        57.25,
+        40.0
       ],
       "count": 1
     },
     "agent-selection-chip": {
       "region": "overlay:Foreground/0",
       "rect": [
-        57.0,
-        68.0,
-        295.0,
+        65.0,
+        990.0,
+        148.0,
         24.0
       ],
       "count": 1
     },
-    "agent-selection-chip-left": {
+    "agents-composer-add-btn": {
       "region": "overlay:Foreground/0",
       "rect": [
-        57.0,
-        68.0,
-        295.0,
-        24.0
+        65.0,
+        1040.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
-    "agents-composer-attach": {
+    "agents-composer-agent-pill": {
       "region": "overlay:Foreground/0",
       "rect": [
-        69.0,
-        1022.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
-    "agents-composer-book": {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        97.0,
-        1022.0,
-        24.0,
-        24.0
+        101.0,
+        1040.0,
+        199.25,
+        32.0
       ],
       "count": 1
     },
@@ -159,18 +169,18 @@
       "region": "overlay:Foreground/0",
       "rect": [
         61.0,
-        974.0,
+        982.0,
         376.0,
-        80.0
+        94.0
       ],
       "count": 1
     },
-    "agents-composer-context": {
+    "agents-composer-chip-selection": {
       "region": "overlay:Foreground/0",
       "rect": [
-        129.0,
-        1022.0,
-        40.0,
+        65.0,
+        990.0,
+        148.0,
         24.0
       ],
       "count": 1
@@ -179,39 +189,19 @@
       "region": "overlay:Foreground/0",
       "rect": [
         73.0,
-        982.0,
+        1018.0,
         352.0,
+        22.0
+      ],
+      "count": 1
+    },
+    "agents-composer-mode-btn": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        304.25,
+        1040.0,
+        92.75,
         32.0
-      ],
-      "count": 1
-    },
-    "agents-composer-notice": {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        69.0,
-        1056.0,
-        360.0,
-        18.0
-      ],
-      "count": 1
-    },
-    "agents-composer-plus": {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        69.0,
-        1022.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
-    "agents-composer-prd": {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        129.0,
-        1022.0,
-        40.0,
-        24.0
       ],
       "count": 1
     },
@@ -219,48 +209,38 @@
       "region": "overlay:Foreground/0",
       "rect": [
         401.0,
-        1020.0,
-        28.0,
-        28.0
+        1040.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
-    "agents-composer-skills": {
+    "agents-left-tab-select": {
       "region": "overlay:Foreground/0",
       "rect": [
-        173.0,
-        1022.0,
-        46.75,
+        57.0,
+        38.0,
+        104.0,
         24.0
       ],
       "count": 1
     },
-    "agents-header-skills": {
+    "agents-more-btn": {
       "region": "overlay:Foreground/0",
       "rect": [
-        287.0,
-        36.0,
-        46.75,
-        28.0
-      ],
-      "count": 1
-    },
-    "agents-runtime-add-btn": {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        251.0,
+        417.0,
         38.0,
-        28.0,
+        24.0,
         24.0
       ],
       "count": 1
     },
-    "agents-sessions-btn": {
+    "agents-new-chat-btn": {
       "region": "overlay:Foreground/0",
       "rect": [
-        167.0,
+        389.0,
         38.0,
-        76.0,
+        24.0,
         24.0
       ],
       "count": 1
@@ -1823,9 +1803,9 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        55.0,
+        57.0,
         38.0,
-        86.0,
+        80.0,
         24.0
       ],
       "sense": [
@@ -1836,10 +1816,10 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        143.0,
-        44.0,
-        12.0,
-        12.0
+        137.0,
+        38.0,
+        24.0,
+        24.0
       ],
       "sense": [
         "click",
@@ -1849,13 +1829,14 @@
     {
       "region": "overlay:Foreground/0",
       "rect": [
-        363.25,
+        49.0,
         68.0,
-        77.75,
-        24.0
+        400.0,
+        906.0
       ],
       "sense": [
         "click",
+        "drag",
         "focus"
       ]
     },
@@ -1869,20 +1850,6 @@
       ],
       "sense": [
         "click",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        49.0,
-        92.0,
-        400.0,
-        874.0
-      ],
-      "sense": [
-        "click",
-        "drag",
         "focus"
       ]
     },
@@ -2453,6 +2420,19 @@
         906.0,
         184.0,
         32.0
+      ],
+      "sense": [
+        "click",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        189.0,
+        990.0,
+        24.0,
+        24.0
       ],
       "sense": [
         "click",

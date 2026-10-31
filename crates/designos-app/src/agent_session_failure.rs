@@ -10,7 +10,9 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use egui::{Align2, Id, Painter, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
+#[cfg(test)]
+use egui::Id;
+use egui::{Align2, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::agent_failure_redact::format_copy_details;
 use crate::agent_start_failure::{self, FixAction};
@@ -881,64 +883,65 @@ pub fn paint_banner(
     let inset = theme::INSET_FRAME;
     let is_unknown = failure.class == SessionFailureClass::Unknown;
     let tail_count = if is_unknown { failure.output_tail.len().min(3) } else { 0 };
-    let banner_h =
-        if is_unknown { inset * 2.0 + theme::CONTROL_DENSE.max((tail_count as f32) * theme::LINE_CAPTION) } else { inset * 2.0 + theme::CONTROL_STANDARD };
+    let banner_h = if is_unknown { inset * 2.0 + theme::CONTROL_XS.max((tail_count as f32) * theme::LINE_CAPTION) } else { inset * 2.0 + theme::CONTROL_XS };
 
+    let warn = matches!(failure.class, SessionFailureClass::RateLimited | SessionFailureClass::NetworkOffline);
     let banner_rect = Rect::from_min_size(viewport_rect.min, Vec2::new(viewport_rect.width(), banner_h));
-    p.rect_filled(banner_rect, 0.0, theme::BG_SECONDARY);
-    widgets::hline(&p, banner_rect.left(), banner_rect.right(), banner_rect.bottom() - theme::BORDER_WIDTH, theme::BORDER);
+    p.rect_filled(banner_rect, 0.0, if warn { theme::BG_WARNING_PRIMARY } else { theme::BG_ERROR_PRIMARY });
+    p.rect_stroke(
+        banner_rect,
+        0.0,
+        Stroke::new(theme::BORDER_WIDTH, if warn { theme::BADGE_WARNING_BORDER } else { theme::BADGE_ERROR_BORDER }),
+        StrokeKind::Inside,
+    );
     widgets::record(ui, &format!("agents-session-failure-banner-{surface_id}"), banner_rect);
 
-    let dot_col = match failure.class {
-        SessionFailureClass::RateLimited | SessionFailureClass::NetworkOffline => theme::WARNING,
-        _ => theme::DANGER,
-    };
-    let dot_center = Pos2::new(banner_rect.left() + inset + theme::SPACE_ROW, banner_rect.center().y);
-    p.circle_filled(dot_center, theme::SPACE_ROW, dot_col);
+    let dot_center = Pos2::new(banner_rect.left() + inset + theme::SPACE_FACT, banner_rect.center().y);
+    if warn {
+        p.circle_filled(dot_center, theme::SPACE_FACT, theme::WARNING);
+    } else {
+        crate::widgets::kit::status_dot(&p, dot_center, crate::widgets::kit::DotTone::Error);
+    }
 
     let mut right_x = banner_rect.right() - inset;
     let mut event: Option<BannerEvent> = None;
 
-    // Primary action button (`CONTROL_STANDARD` = 28px high, `RADIUS_CONTROL`, neutral fill)
     if let (Some(label), Some(fix)) = (failure.action_label(), failure.fix.as_ref()) {
         let enabled = failure.is_action_enabled(tab_alive, now_hhmm);
-        let btn_font = theme::font_body_medium();
+        let btn_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
         let text_w = widgets::text_width(&p, label, &btn_font);
         let btn_w = (text_w + theme::INSET_BUTTON * 2.0).max(theme::TARGET_MIN);
-        let btn_rect =
-            Rect::from_min_size(Pos2::new(right_x - btn_w, banner_rect.center().y - theme::CONTROL_STANDARD * 0.5), Vec2::new(btn_w, theme::CONTROL_STANDARD));
-        let sense = if enabled { Sense::click() } else { Sense::hover() };
-        let resp = ui.interact(btn_rect, Id::new((surface_id, "agents-session-failure-action")), sense);
-        let bg = if !enabled {
-            theme::BG_PRIMARY
-        } else if resp.hovered() {
-            theme::BG_SELECTED_HOVER
-        } else {
-            theme::BG_SELECTED
-        };
-        let fg = if enabled { theme::TEXT } else { theme::TEXT_DISABLED };
-        p.rect_filled(btn_rect, theme::cr(theme::RADIUS_CONTROL), bg);
-        p.rect_stroke(btn_rect, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
-        p.text(btn_rect.center(), Align2::CENTER_CENTER, label, btn_font, fg);
+        let btn_rect = Rect::from_min_size(Pos2::new(right_x - btn_w, banner_rect.center().y - theme::CONTROL_XS * 0.5), Vec2::new(btn_w, theme::CONTROL_XS));
         widgets::record(ui, &format!("agents-session-failure-action-{surface_id}"), btn_rect);
+        let resp = crate::widgets::kit::button(
+            ui,
+            btn_rect,
+            (surface_id, "agents-session-failure-action"),
+            label,
+            crate::widgets::kit::Hierarchy::Secondary,
+            crate::widgets::kit::Size::Xs,
+            enabled,
+        );
         if enabled && resp.clicked() {
             event = Some(BannerEvent::RunFix(fix.clone()));
         }
         right_x = btn_rect.left() - theme::SPACE_INLINE;
     }
 
-    // "Copy details" text button (`CONTROL_DENSE` = 24px high) left of the action button
     let copy_label = "Copy details";
-    let copy_font = theme::font_caption_medium();
-    let copy_w = (widgets::text_width(&p, copy_label, &copy_font) + theme::INSET_CONTROL * 2.0).max(theme::TARGET_MIN);
-    let copy_rect =
-        Rect::from_min_size(Pos2::new(right_x - copy_w, banner_rect.center().y - theme::CONTROL_DENSE * 0.5), Vec2::new(copy_w, theme::CONTROL_DENSE));
-    let copy_resp = ui.interact(copy_rect, Id::new((surface_id, "agents-session-failure-copy")), Sense::click());
-    if copy_resp.hovered() {
-        p.rect_filled(copy_rect, theme::cr(theme::RADIUS_CONTROL), theme::BG_HOVER);
-    }
-    p.text(copy_rect.center(), Align2::CENTER_CENTER, copy_label, copy_font, theme::TEXT_SECONDARY);
+    let copy_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    let copy_w = (widgets::text_width(&p, copy_label, &copy_font) + theme::INSET_BUTTON * 2.0).max(theme::TARGET_MIN);
+    let copy_rect = Rect::from_min_size(Pos2::new(right_x - copy_w, banner_rect.center().y - theme::CONTROL_XS * 0.5), Vec2::new(copy_w, theme::CONTROL_XS));
     widgets::record(ui, &format!("agents-session-failure-copy-{surface_id}"), copy_rect);
+    let copy_resp = crate::widgets::kit::button(
+        ui,
+        copy_rect,
+        (surface_id, "agents-session-failure-copy"),
+        copy_label,
+        crate::widgets::kit::Hierarchy::Tertiary,
+        crate::widgets::kit::Size::Xs,
+        true,
+    );
     if copy_resp.clicked() && event.is_none() {
         let payload = failure.format_copy_details_payload(&failure.cli_version, session_id);
         event = Some(BannerEvent::CopyDetails(payload));

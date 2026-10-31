@@ -1,0 +1,33 @@
+=== M4 (ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards) -> KILLED (exit=101) ===
+   test components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards ... FAILED
+   thread 'components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards' (41429653) panicked at crates/designos-doc/src/components.rs:5136:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+=== M6a (probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size) -> KILLED (exit=101) ===
+   test components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size ... FAILED
+   thread 'components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size' (41430165) panicked at crates/designos-doc/src/components.rs:4822:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+=== M6b (probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size) -> KILLED (exit=101) ===
+   test components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size ... FAILED
+   thread 'components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size' (41430592) panicked at crates/designos-doc/src/components.rs:4823:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+=== M7 (ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards) -> KILLED (exit=101) ===
+   test components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards ... FAILED
+   thread 'components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards' (41431120) panicked at crates/designos-doc/src/components.rs:4975:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+=== M9 (ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards) -> KILLED (exit=101) ===
+   test components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards ... FAILED
+   thread 'components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards' (41431831) panicked at crates/designos-doc/src/components.rs:5144:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+=== M10 (ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards) -> KILLED (exit=101) ===
+   test components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards ... FAILED
+   thread 'components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards' (41432347) panicked at crates/designos-doc/src/components.rs:5051:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+=== M11 (ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards) -> KILLED (exit=101) ===
+   test components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards ... FAILED
+   thread 'components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards' (41432805) panicked at crates/designos-doc/src/components.rs:4966:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.00s
+=== M12 (probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size) -> KILLED (exit=101) ===
+   test components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size ... FAILED
+   thread 'components::tests::probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size' (41433279) panicked at crates/designos-doc/src/components.rs:4824:9:
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+ALL 8 MUTANTS KILLED AND SOURCE RESTORED.

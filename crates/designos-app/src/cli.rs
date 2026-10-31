@@ -164,7 +164,7 @@ impl Options {
 
 /// Values of `--panel`: `agents`, `agents-chat`, `specs`, `assets`, `variables` / `variables-floating` open the local views,
 /// `libraries` the Libraries modal; the others are inspector popups opened on the selection for screenshots.
-pub const PANELS: [&str; 66] = [
+pub const PANELS: [&str; 67] = [
     "agents",
     "agents-chat",
     "agents-picker",
@@ -208,6 +208,7 @@ pub const PANELS: [&str; 66] = [
     "edit-style-grid",
     "stroke-settings",
     "type-details",
+    "effect",
     "effect-noise",
     "effect-texture",
     "effect-glass",
@@ -588,6 +589,7 @@ mod tests {
         assert_eq!(p(&["--panel", "assets"]).unwrap().panel.as_deref(), Some("assets"));
         assert_eq!(p(&["--panel", "variables"]).unwrap().panel.as_deref(), Some("variables"));
         assert_eq!(p(&["--panel", "variables-floating"]).unwrap().panel.as_deref(), Some("variables-floating"));
+        assert_eq!(p(&["--panel", "effect"]).unwrap().panel.as_deref(), Some("effect"));
         assert_eq!(p(&["--panel", "web-capture-report"]).unwrap().panel.as_deref(), Some("web-capture-report"));
         assert!(p(&["--panel", "nope"]).is_err());
         assert!(p(&["--panel"]).is_err());

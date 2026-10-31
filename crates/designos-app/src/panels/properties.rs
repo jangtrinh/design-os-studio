@@ -1801,6 +1801,31 @@ fn picker_color(p: &Picker) -> Color {
     Color::rgba(r, g, b, a)
 }
 
+fn has_stop_bindings(doc: &Document, pk: &Picker) -> bool {
+    let prefix = match pk.target {
+        PickTarget::Fill(i) => format!("fills/{i}/stops/"),
+        PickTarget::Stroke(i) => format!("strokes/{i}/stops/"),
+        _ => return false,
+    };
+    pk.ids.iter().any(|&id| {
+        doc.get(id).is_some_and(|n| n.variables.bindings.keys().any(|k| k.starts_with(&prefix) && super::var_bind::doc_bound_var(doc, id, k).is_some()))
+    })
+}
+
+fn preserve_bound_stop_colors(doc: &Document, id: NodeId, pt: &mut Paint, old_stops: &[GradientStop], prefix: &str, pi: usize, stop_origins: &[Option<usize>]) {
+    let Some(stops) = widgets::picker::stops_mut(&mut pt.kind) else { return };
+    let stop_prefix = format!("{prefix}/{pi}/stops/");
+    for (new_idx, stop) in stops.iter_mut().enumerate() {
+        if super::var_bind::doc_bound_var(doc, id, &format!("{stop_prefix}{new_idx}")).is_some() {
+            if let Some(Some(orig_idx)) = stop_origins.get(new_idx) {
+                if let Some(old) = old_stops.get(*orig_idx) {
+                    stop.color = old.color;
+                }
+            }
+        }
+    }
+}
+
 fn apply_picker(doc: &mut Document, p: &mut Picker) {
     let c = picker_color(p);
     if let PickTarget::SelColor(old) = p.target {
@@ -1809,19 +1834,30 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
         }
         return;
     }
+    let is_grad = widgets::picker::mode_of(&p.paint.kind).is_gradient();
     for id in &p.ids {
         let Some(n) = p.tx.ed.node(doc, *id) else { continue };
         match p.target {
             PickTarget::Fill(i) => {
-                if let Some(pt) = n.fills.get_mut(i) {
-                    let visible = pt.visible;
-                    *pt = Paint { visible, ..p.paint.clone() };
+                let old_stops = n.fills.get(i).and_then(|pt| widgets::picker::stops_of(&pt.kind)).map(|s| s.to_vec()).unwrap_or_default();
+                let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
+                super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("fills/{i}/stops/"), origins);
+                let Some(visible) = n.fills.get(i).map(|pt| pt.visible) else { continue };
+                let mut next = Paint { visible, ..p.paint.clone() };
+                preserve_bound_stop_colors(doc, *id, &mut next, &old_stops, "fills", i, &p.state.stop_origins);
+                if let Some(pt) = doc.nodes.get_mut(id).and_then(|n| n.fills.get_mut(i)) {
+                    *pt = next;
                 }
             }
             PickTarget::Stroke(i) => {
-                if let Some(pt) = n.stroke.paints.get_mut(i) {
-                    let visible = pt.visible;
-                    *pt = Paint { visible, ..p.paint.clone() };
+                let old_stops = n.stroke.paints.get(i).and_then(|pt| widgets::picker::stops_of(&pt.kind)).map(|s| s.to_vec()).unwrap_or_default();
+                let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
+                super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("strokes/{i}/stops/"), origins);
+                let Some(visible) = n.stroke.paints.get(i).map(|pt| pt.visible) else { continue };
+                let mut next = Paint { visible, ..p.paint.clone() };
+                preserve_bound_stop_colors(doc, *id, &mut next, &old_stops, "strokes", i, &p.state.stop_origins);
+                if let Some(pt) = doc.nodes.get_mut(id).and_then(|n| n.stroke.paints.get_mut(i)) {
+                    *pt = next;
                 }
             }
             PickTarget::SelColor(_) => {}
@@ -1928,6 +1964,9 @@ fn try_sample_color_token(app: &mut App, p: Pos2, target: PickTarget, ids: &[Nod
 pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
     use widgets::picker;
     let ctx = ui.ctx().clone();
+    if app.props.picker.is_some() {
+        super::var_bind::sync_picker_context(app, &ctx);
+    }
     let Some(mut pk) = app.props.picker.take() else {
         if let Some(target) = app.props.eyedropper {
             ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -2039,7 +2078,8 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         app.doc.images.insert(key, bytes);
         changed = true;
     }
-    if out.eyedrop || app.props.eyedropper.is_some() {
+    let stop_bound = widgets::picker::mode_of(&pk.paint.kind).is_gradient() && super::var_bind::picker_stop_is_bound(&ctx, pk.state.sel);
+    if !stop_bound && (out.eyedrop || app.props.eyedropper.is_some()) {
         pk.eyedrop = true;
         app.props.eyedropper = Some(pk.target);
     }
@@ -2057,14 +2097,16 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         } else if let (true, Some(p)) = (clicked, ptr) {
             if app.canvas_rect.contains(p) && !panel.contains(p) {
                 let ids = pk.ids.clone();
-                if shift && try_sample_color_token(app, p, pk.target, &ids) {
+                if !stop_bound && shift && try_sample_color_token(app, p, pk.target, &ids) {
                     pk.eyedrop = false;
                     app.props.eyedropper = None;
                 } else {
-                    if let Some([r, g, b]) = sample_canvas(app, p) {
-                        let a = widgets::picker::active_rgba(&pk.paint, pk.state.sel)[3];
-                        widgets::picker::set_active(&mut pk.paint, pk.state.sel, [r, g, b, a]);
-                        changed = true;
+                    if !stop_bound {
+                        if let Some([r, g, b]) = sample_canvas(app, p) {
+                            let a = widgets::picker::active_rgba(&pk.paint, pk.state.sel)[3];
+                            widgets::picker::set_active(&mut pk.paint, pk.state.sel, [r, g, b, a]);
+                            changed = true;
+                        }
                     }
                     pk.eyedrop = false;
                     app.props.eyedropper = None;
@@ -2072,7 +2114,8 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             }
         }
     }
-    gradient_handles(app, &ctx, &mut pk, &mut changed);
+    let mut stop_list_changed = out.stop_list_changed;
+    gradient_handles(app, &ctx, &mut pk, &mut changed, &mut stop_list_changed);
     if changed {
         if pk.target == PickTarget::TextFill && app.canvas.text.is_some() {
             // Colour of the characters being edited: goes through the text session.
@@ -2081,8 +2124,14 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             crate::canvas::textsession::style_selection_as(app, |st| super::typography::set_solid(st, col, Some(c.a)), crate::textedit::EditKind::Style);
         } else {
             pk.tx.ed.revert(&mut app.doc);
+            let stop_list_changed = stop_list_changed && has_stop_bindings(&app.doc, &pk);
             apply_picker(&mut app.doc, &mut pk);
             app.changed();
+            if stop_list_changed {
+                let tx = std::mem::replace(&mut pk.tx, Tx::new());
+                app.run_tx(tx);
+                pk.state.reset_stop_origins(&pk.paint);
+            }
         }
     }
     if out.add_style {
@@ -2147,6 +2196,9 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
         crate::widgets::popup_open::mark_open(&ctx);
         app.props.picker = Some(pk);
+        if changed {
+            super::var_bind::sync_picker_context(app, &ctx);
+        }
     }
 }
 
@@ -2208,7 +2260,7 @@ fn handle_points(pk: &Picker, app: &App) -> Vec<(usize, Pos2)> {
 }
 
 /// On-canvas gradient editing: the start/end/width handles and interactive stops of the edited paint.
-fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed: &mut bool) {
+fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed: &mut bool, stop_list_changed: &mut bool) {
     let pts = handle_points(pk, app);
     if pts.len() != 3 || !matches!(pk.target, PickTarget::Fill(_) | PickTarget::Stroke(_)) {
         return;
@@ -2323,10 +2375,15 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
     }
     if let Some((si, t)) = stop_duplicated {
         if let Some(stops) = widgets::picker::stops_mut(&mut pk.paint.kind) {
+            if pk.state.stop_origins.len() != stops.len() {
+                pk.state.stop_origins = (0..stops.len()).map(Some).collect();
+            }
             if let Some(src) = stops.get(si).cloned() {
                 stops.push(GradientStop { pos: t, color: src.color });
+                pk.state.stop_origins.push(None);
                 pk.state.sel = stops.len() - 1;
                 *changed = true;
+                *stop_list_changed = true;
             }
         }
     } else if let Some((si, t)) = stop_moved {
@@ -2339,13 +2396,20 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
         }
     } else if let Some(t) = line_inserted {
         if let Some(stops) = widgets::picker::stops_mut(&mut pk.paint.kind) {
+            if pk.state.stop_origins.len() != stops.len() {
+                pk.state.stop_origins = (0..stops.len()).map(Some).collect();
+            }
             let color = widgets::picker::stop_color_at(stops, t);
-            stops.push(GradientStop { pos: t, color });
-            stops.sort_by(|a, b| a.pos.partial_cmp(&b.pos).unwrap_or(std::cmp::Ordering::Equal));
-            if let Some(idx) = stops.iter().position(|s| (s.pos - t).abs() < 1e-4) {
+            let mut pairs: Vec<(GradientStop, Option<usize>)> = stops.iter().cloned().zip(pk.state.stop_origins.iter().copied()).collect();
+            pairs.push((GradientStop { pos: t, color }, None));
+            pairs.sort_by(|a, b| a.0.pos.partial_cmp(&b.0.pos).unwrap_or(std::cmp::Ordering::Equal));
+            if let Some(idx) = pairs.iter().position(|(s, orig)| orig.is_none() && (s.pos - t).abs() < 1e-4) {
                 pk.state.sel = idx;
             }
+            *stops = pairs.iter().map(|(s, _)| *s).collect();
+            pk.state.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
             *changed = true;
+            *stop_list_changed = true;
         }
     }
     if let Some((i, v, shift_snapped)) = moved {
@@ -2582,21 +2646,28 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             let anchor = Rect::from_min_size(Pos2::new(screen.x - 48.0, 330.0), Vec2::splat(24.0));
             app.props.pop = Some(super::effects::PopState { kind: super::effects::PopKind::TextDetails, anchor, ids: vec![id] });
         }
-        "effect-noise" | "effect-texture" | "effect-glass" => {
+        "effect" | "effect-noise" | "effect-texture" | "effect-glass" => {
             app.props.scroll = 1.0e6;
-            let kind = match spec {
-                "effect-noise" => 4,
-                "effect-texture" => 5,
-                _ => 6,
-            };
-            let e = super::effects::default_effect(kind, 1);
-            app.edit_nodes(&[id], |n| {
-                n.effects.push(e.clone());
-                if kind == 6 {
-                    // Glass shows what is behind it: make the fill a faint tint.
-                    n.fills = vec![Paint { opacity: 0.12, ..Paint::solid(Color::WHITE) }];
+            if spec == "effect" {
+                if app.doc.get(id).is_some_and(|n| n.effects.is_empty()) {
+                    let e = super::effects::default_effect(1, 1);
+                    app.edit_nodes(&[id], |n| n.effects.push(e.clone()));
                 }
-            });
+            } else {
+                let kind = match spec {
+                    "effect-noise" => 4,
+                    "effect-texture" => 5,
+                    _ => 6,
+                };
+                let e = super::effects::default_effect(kind, 1);
+                app.edit_nodes(&[id], |n| {
+                    n.effects.push(e.clone());
+                    if kind == 6 {
+                        // Glass shows what is behind it: make the fill a faint tint.
+                        n.fills = vec![Paint { opacity: 0.12, ..Paint::solid(Color::WHITE) }];
+                    }
+                });
+            }
             let i = app.doc.get(id).map(|n| n.effects.len().saturating_sub(1)).unwrap_or(0);
             let anchor = Rect::from_min_size(Pos2::new(screen.x - 80.0, 800.0), Vec2::splat(24.0));
             app.props.pop = Some(super::effects::PopState { kind: super::effects::PopKind::Effect(i), anchor, ids: vec![id] });

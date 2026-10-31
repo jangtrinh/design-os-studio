@@ -192,7 +192,7 @@ LINE	skills/mod.rs	1	("design-system-rhythm", include_str!("../../../../assets/s
 LINE	skills/mod.rs	1	SkillStatus::TooLarge(_) => Some("Too large (> 64 KB)"),	text, not a file or a command
 LINE	skills/mod.rs	2	let Ok(rd) = std::fs::read_dir(&skills_dir) else {	the user's skills folder in the library root, not a session folder
 LINE	skills/mod.rs	1	let bytes = std::fs::read(&skill_md).ok()?;	the user's skills folder in the library root, not a session folder
-LINE	skills/mod.rs	1	let footer_msg = format!("User skills: {}/skills/<name>/SKILL.md", self.library_root.display());	the SKILL.md of a skill in the library's skills folder (or built in), not a session file
+LINE	skills/picker_popover.rs	1	ui.label(format!("User skills: {}/skills/<name>/SKILL.md", library_root.display()));	the SKILL.md of a skill in the library's skills folder (or built in), not a session file
 LINE	skills/mod.rs	1	let meta = std::fs::metadata(&p).ok()?;	the user's skills folder in the library root, not a session folder
 LINE	skills/mod.rs	1	let meta = std::fs::metadata(&skill_md).ok()?;	the user's skills folder in the library root, not a session folder
 LINE	skills/mod.rs	1	let p = e.path().join("SKILL.md");	the SKILL.md of a skill in the library's skills folder (or built in), not a session file

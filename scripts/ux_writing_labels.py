@@ -64,6 +64,10 @@ LABEL_CALLS: List[Tuple[str, str, int]] = [
     (r"(?<![\w.])(?:ui::|buttons::|modal::)?button", "libraries/", 3),
     (r"(?<![\w.])button", "home/", 4),
     (r"(?<![\w.])paint_card_button", "agent_approval_card.rs", 6),
+    (r"(?<![\w.])paint_icon_btn", "agent_header.rs", 6),
+    (r"(?<![\w.])paint_icon_button", "agent_composer_toolbar.rs", 5),
+    (r"(?<![\w.])paint_text_button", "agent_composer_toolbar.rs", 5),
+    (r"(?<![\w.])menu_row", "agent_composer_menus.rs", 3),
     (r"(?<![\w.])add_row", "panels/proto_actions.rs", 3),
     (r"(?<![\w.])add_row_indented", "panels/proto_actions.rs", 3),
 ]
@@ -74,6 +78,7 @@ LABEL_FNS: List[Tuple[str, str]] = [
     ("action_label", "agent_"),
     ("button_label", "agent_"),
     ("button_label", "terminal.rs"),
+    ("mode_label", "agent_composer_toolbar.rs"),
 ]
 
 # Row headings: only rule 3 applies (they are not actions), and only when the argument formats a `.len()` count.
