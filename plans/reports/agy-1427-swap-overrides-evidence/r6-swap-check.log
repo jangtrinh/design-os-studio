@@ -1,0 +1,3 @@
+server: {"name": "designos-mcp", "version": "0.7.5"}
+studio-ui.designos sha1 before=8c39a339c7cda89e9fd0a7cecc9bc84a6c37c991 after=8c39a339c7cda89e9fd0a7cecc9bc84a6c37c991 unchanged=True
+SWAP-OK #1427: 6 swapped variants keep colour, binding, opacity, visibility and the drawn glyph's bounds; SWAP_CHECK_FATAL can flip to True
