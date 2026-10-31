@@ -2116,6 +2116,25 @@
     "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
   },
   {
+    "case": "e-layers-selected",
+    "region": "right_panel",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dy": 28,
+    "inventory_max_delta": 1,
+    "spec": "E",
+    "reason": "rule 5 (R5): source line always shown in props panel v0.7.6 (design/props-panel-2026-10-30/spec.md AC6), adding 28 px (20 px row + 8 px gap) below instance header; right_panel unnamed inventory gains one 6 px clipped fragment"
+  },
+  {
+    "case": "e-layers-selected",
+    "region": "unknown",
+    "anchor_x": "left",
+    "anchor_y": "top",
+    "dy": 28,
+    "spec": "E",
+    "reason": "rule 5 (R5): source line always shown in props panel v0.7.6 (design/props-panel-2026-10-30/spec.md AC6), adding 28 px (20 px row + 8 px gap) below instance header; the progress and icons mode widget baseline region is updated to unknown because its shifted rect is past the right_panel bottom"
+  },
+  {
     "case": "e-no-selection",
     "region": "left_panel",
     "h_base": 24,

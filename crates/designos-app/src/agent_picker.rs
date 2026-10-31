@@ -177,7 +177,31 @@ pub fn rows_for_state(state: &mut TerminalState) -> Vec<PickerRow> {
         let order = state.picker.open_row_order.clone();
         rows.sort_by_key(|r| order.iter().position(|id| id == &r.id).unwrap_or(usize::MAX));
     }
+    apply_ask_risky_availability(state, &mut rows);
     rows
+}
+
+/// In Ask for risky only, a CLI with no shared approval hook cannot be started from the picker.
+fn apply_ask_risky_availability(state: &TerminalState, rows: &mut [PickerRow]) {
+    if state.permission_mode != crate::terminal::PermissionMode::AskRisky {
+        return;
+    }
+    for row in rows.iter_mut() {
+        if !row.selectable {
+            continue;
+        }
+        let reason = match &row.kind {
+            PickerRowKind::CatalogCli { preset, .. } => crate::agent_permissions::ask_risky_unsupported_reason(*preset),
+            PickerRowKind::CustomCli { .. } | PickerRowKind::OtherCli => {
+                Some("A custom command does not share the approval hook, so Ask for risky only is unavailable.")
+            }
+            PickerRowKind::Shell => None,
+        };
+        let Some(reason) = reason else { continue };
+        row.selectable = false;
+        row.state_label = Some("Unavailable".to_string());
+        row.caption = Some(reason.to_string());
+    }
 }
 
 /// Saves the inline `"Other CLI…"` form (`other_label_input`, `other_command_input`) to Studio's
@@ -970,6 +994,62 @@ mod tests {
         assert_eq!(grok_fix, Some(FixAction::OpenInstallPage("https://x.ai/cli")));
         assert!(st.tabs.is_empty(), "uninstalled Grok must not spawn a tab");
 
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ask_risky_disables_clis_without_a_shared_hook() {
+        let root = temp_test_dir("ask-risky-rows");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        let rows = rows_for_state(&mut st);
+        let claude = rows.iter().find(|r| r.label == "Claude Code").expect("Claude");
+        assert!(claude.selectable, "Claude shares the approval hook");
+        let codex = rows.iter().find(|r| r.label == "Codex").expect("Codex");
+        assert!(!codex.selectable);
+        assert_eq!(codex.state_label.as_deref(), Some("Unavailable"));
+        assert!(codex.caption.as_deref().is_some_and(|c| c.contains("Codex")));
+        let grok = rows.iter().find(|r| r.label == "Grok").expect("Grok");
+        assert!(!grok.selectable);
+        let shell = rows.iter().find(|r| r.label == "Shell").expect("Shell");
+        assert!(shell.selectable);
+        let other = rows.iter().find(|r| r.kind == PickerRowKind::OtherCli).expect("Other CLI");
+        assert!(!other.selectable);
+        st.permission_mode = crate::terminal::PermissionMode::Ask;
+        let ask_rows = rows_for_state(&mut st);
+        assert!(ask_rows.iter().find(|r| r.label == "Codex").expect("Codex").selectable, "Ask still offers Codex");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ask_risky_menu_rows_without_a_hook_are_disabled_and_keep_the_reason_in_the_tooltip() {
+        let root = temp_test_dir("ask-risky-menu");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        st.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        let rows = rows_for_state(&mut st);
+        let codex = rows.iter().find(|r| r.label == "Codex").expect("Codex");
+        let reason = codex.caption.clone().expect("the reason");
+        assert_eq!(row_tooltip(codex).as_deref(), Some(format!("Codex 0.163.0\n{reason}").as_str()), "the version and the reason sit in the tooltip");
+        assert!(!is_row_clickable_on_pointer(&st, codex), "an unavailable row does not start an agent");
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 900.0));
+        st.runtime_dropdown_open = true;
+        let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+            render_runtime_dropdown_menu(&mut st, ui, panel_rect, 40.0, None);
+        });
+        let (texts, _) = crate::lint::scan_shapes(&out.shapes);
+        let joined: String = texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join(" ");
+        assert!(!joined.contains("Unavailable") && !joined.contains(&reason), "the menu paints no state label and no caption: {joined}");
+        assert!(joined.contains("Codex"), "the row itself is still listed: {joined}");
         st.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }

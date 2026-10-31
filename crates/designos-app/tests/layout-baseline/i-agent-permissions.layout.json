@@ -55,11 +55,41 @@
     }
   ],
   "named": {
+    "agent-autosave-ai": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        644.0,
+        690.0,
+        312.0,
+        92.0
+      ],
+      "count": 1
+    },
+    "agent-autosave-switch": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        912.0,
+        728.0,
+        28.0,
+        16.0
+      ],
+      "count": 1
+    },
     "agent-perm-ask": {
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        522.0,
+        410.0,
+        312.0,
+        116.0
+      ],
+      "count": 1
+    },
+    "agent-perm-ask-risky": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        644.0,
+        530.0,
         312.0,
         116.0
       ],
@@ -69,7 +99,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         644.0,
-        402.0,
+        290.0,
         312.0,
         116.0
       ],
@@ -79,7 +109,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         823.75,
-        682.0,
+        794.0,
         71.0,
         40.0
       ],
@@ -89,9 +119,9 @@
       "region": "overlay:Foreground/0",
       "rect": [
         620.0,
-        342.0,
+        230.0,
         360.0,
-        404.0
+        628.0
       ],
       "count": 1
     },
@@ -99,7 +129,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         898.75,
-        682.0,
+        794.0,
         57.25,
         40.0
       ],

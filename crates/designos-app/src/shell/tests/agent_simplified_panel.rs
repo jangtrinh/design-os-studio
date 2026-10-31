@@ -279,7 +279,7 @@ fn plus_starts_new_chat_and_send_starts_the_pill_agent() {
 #[test]
 fn tab_click_clears_picker_open_and_new_chat_card_reads_open_tab() {
     let mut s = new_chat_sim();
-    s.shell.app.terminal.open_approval_fixture("agents-approval-command", None);
+    s.shell.app.terminal.open_approval_fixture("agents-approval-command", None, crate::agent_permissions::AgentPermissionMode::Ask);
     frames(&mut s, 3);
     assert!(recorded(&s, "agent-approval-approve").is_some(), "on the live tab the card has Approve");
     let plus = recorded(&s, "agents-new-chat-btn").unwrap();

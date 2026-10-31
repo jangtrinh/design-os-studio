@@ -61,7 +61,7 @@ pub(super) fn attach_menu(ui: &mut Ui, anchor: Rect, prd_on: bool, skills_n: usi
 }
 
 pub(super) fn mode_menu(ui: &mut Ui, anchor: Rect, current: PermissionMode) -> (Option<PermissionMode>, bool) {
-    let modes = [PermissionMode::Skip, PermissionMode::Ask];
+    let modes = [PermissionMode::Skip, PermissionMode::Ask, PermissionMode::AskRisky];
     let h = theme::INSET_FRAME * 2.0 + (modes.len() as f32 + 1.0) * theme::MENU_ITEM_HEIGHT;
     let w = MENU_W_WIDE;
     let rect = Rect::from_min_size(Pos2::new(anchor.right() - w, anchor.top() - theme::SPACE_ROW - h), Vec2::new(w, h));
@@ -95,6 +95,7 @@ fn mode_tip(mode: PermissionMode) -> &'static str {
     match mode {
         PermissionMode::Skip => "Launch CLIs with their auto-approve flag. Fastest inside a trusted project.",
         PermissionMode::Ask => "Launch CLIs without skip flags and surface tool approvals in the Agents panel.",
+        PermissionMode::AskRisky => "Reads and additions run. A change on one target can be allowed for this session. Deletes always ask.",
     }
 }
 
@@ -102,6 +103,7 @@ fn mode_id(mode: PermissionMode) -> &'static str {
     match mode {
         PermissionMode::Ask => "agents-composer-mode-ask",
         PermissionMode::Skip => "agents-composer-mode-skip",
+        PermissionMode::AskRisky => "agents-composer-mode-ask-risky",
     }
 }
 

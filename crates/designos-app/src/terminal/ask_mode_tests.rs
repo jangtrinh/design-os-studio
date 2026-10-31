@@ -46,6 +46,7 @@ fn session_in(mode: PermissionMode) -> TerminalState {
 
 fn finish(st: TerminalState) {
     crate::agent_approval_channel::remove_channel(&st.session_dir);
+    crate::agent_permissions::remove_auto_allow_log(&st.session_dir);
     let _ = std::fs::remove_dir_all(&st.session_dir);
 }
 
@@ -284,6 +285,23 @@ fn claude_ask_launches_without_the_skip_flag_and_writes_no_allow_rule() {
 }
 
 #[test]
+fn ask_risky_keeps_turn_marks_and_auto_allows_only_safe_tool_names() {
+    let risky = session_in(PermissionMode::AskRisky);
+    let hooks_path = crate::agent_permissions::claude_hooks_path(&risky);
+    assert!(!hooks_path.starts_with(&risky.session_dir), "Ask for risky only reads hooks from the private channel");
+    let hooks = std::fs::read_to_string(&hooks_path).unwrap_or_else(|e| panic!("{}: {e}", hooks_path.display()));
+    assert!(hooks.contains("turn-marks.jsonl"), "Ask for risky only still records turn boundaries");
+    assert!(hooks.contains("approve-hook.sh"), "risky calls still go through the approval hook");
+    let script_path = crate::agent_approval_channel::hook_script_path(&risky.session_dir).expect("approve-hook.sh");
+    assert!(!script_path.starts_with(&risky.session_dir), "the approval hook must not sit in the session folder");
+    let script = std::fs::read_to_string(&script_path).expect("approve-hook.sh");
+    assert!(script.contains("designos_get_document"), "a read is on the generated allow list");
+    assert!(!script.contains("designos_delete_node"), "a delete is not on the generated allow list");
+    assert!(!script.contains("designos_update_node"), "a modify is not on the generated allow list");
+    finish(risky);
+}
+
+#[test]
 fn codex_ask_launches_without_the_bypass_flag_and_sets_no_approval_override() {
     for cmd in launch_commands(AgentCliPreset::Codex, "codex", PermissionMode::Ask) {
         assert!(!cmd.contains("--dangerously-bypass-approvals-and-sandbox"), "Codex Ask must not bypass approvals: {cmd}");
@@ -421,4 +439,181 @@ fn a_tab_started_without_a_prepared_command_asks() {
             assert!(!fallback.contains(flag), "{preset:?}: a caller that passed no command must never start an agent that skips approvals: {fallback}");
         }
     }
+}
+
+fn fresh_terminal() -> TerminalState {
+    let st = TerminalState::for_tab(crate::live_sync_tests::unique_tab_id());
+    let _ = std::fs::remove_dir_all(&st.session_dir);
+    std::fs::create_dir_all(&st.session_dir).expect("session dir");
+    st
+}
+
+fn modify_request(id: &str) -> crate::agent_permissions::ApprovalRequest {
+    crate::agent_permissions::ApprovalRequest {
+        id: id.into(),
+        tool_name: "designos_update_node".into(),
+        input_summary: "node_id:2".into(),
+        target: "node_id:2".into(),
+        timestamp: 10,
+    }
+}
+
+fn settle_answers(st: &mut TerminalState, id: &str) -> bool {
+    let dir = std::env::temp_dir().join(format!("designos-1288-settle-{id}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("settle dir");
+    let mut pending = vec![modify_request(id)];
+    crate::agent_permissions::settle_granted_requests(&mut st.session_grants, &st.session_id, &dir, &mut pending, 40);
+    let answered = pending.is_empty() && dir.join(format!("{id}.answer")).is_file();
+    crate::agent_permissions::remove_auto_allow_log(&crate::agent_permissions::auto_allow_session_key(&dir));
+    let _ = std::fs::remove_dir_all(&dir);
+    answered
+}
+
+fn insert_modify_grant(st: &mut TerminalState) {
+    assert!(st.session_grants.insert(&st.session_id, "designos_update_node", "node_id:2", 10), "a modify grant inserts");
+}
+
+fn drop_terminal(st: TerminalState) {
+    crate::agent_permissions::remove_auto_allow_log(&st.session_dir);
+    let _ = std::fs::remove_dir_all(&st.session_dir);
+}
+
+#[test]
+fn shutdown_clears_grants_and_the_next_call_asks() {
+    let mut st = fresh_terminal();
+    insert_modify_grant(&mut st);
+    assert!(settle_answers(&mut st, "before-shutdown"), "the grant answers before shutdown");
+    st.shutdown();
+    assert!(st.session_grants.is_empty(), "shutdown clears grants");
+    assert!(!settle_answers(&mut st, "after-shutdown"), "the same modify call asks again");
+    drop_terminal(st);
+}
+
+#[test]
+fn closing_the_last_tab_clears_grants_and_the_next_call_asks() {
+    let mut st = fresh_terminal();
+    st.spawn_tab(AgentCliPreset::Shell, None).expect("shell tab");
+    insert_modify_grant(&mut st);
+    assert!(settle_answers(&mut st, "before-last-tab"), "the grant answers before the last tab closes");
+    st.close_tab(0);
+    assert!(st.tabs.is_empty(), "the last tab closed");
+    assert!(st.session_grants.is_empty(), "closing the last tab clears grants");
+    assert!(!settle_answers(&mut st, "after-last-tab"), "the same modify call asks again");
+    drop_terminal(st);
+}
+
+#[test]
+fn bind_session_to_a_different_id_clears_grants_and_the_next_call_asks() {
+    let mut st = fresh_terminal();
+    let previous_dir = st.session_dir.clone();
+    insert_modify_grant(&mut st);
+    assert!(settle_answers(&mut st, "before-bind"), "the grant answers before the session id changes");
+    let next_id = format!("{}-other", st.session_id);
+    st.bind_session(&next_id);
+    assert_eq!(st.session_id, next_id);
+    assert!(st.session_grants.is_empty(), "binding a different session id clears grants");
+    assert!(!settle_answers(&mut st, "after-bind"), "the same modify call asks again");
+    crate::agent_permissions::remove_auto_allow_log(&previous_dir);
+    let _ = std::fs::remove_dir_all(&previous_dir);
+    drop_terminal(st);
+}
+
+#[test]
+fn a_session_dir_change_clears_grants_and_the_next_call_asks() {
+    let mut st = fresh_terminal();
+    let previous_dir = st.session_dir.clone();
+    let session_id = st.session_id.clone();
+    insert_modify_grant(&mut st);
+    assert!(settle_answers(&mut st, "before-dir"), "the grant answers before the session directory changes");
+    let next = std::env::temp_dir().join(format!("designos-1288-dir-{}", crate::live_sync_tests::unique_tab_id()));
+    let _ = std::fs::remove_dir_all(&next);
+    std::fs::create_dir_all(&next).expect("next session dir");
+    st.update_session_dir_paths(next.clone());
+    assert_eq!(st.session_id, session_id, "a directory change keeps the session id");
+    assert!(st.session_grants.is_empty(), "a session directory change clears grants");
+    assert!(!settle_answers(&mut st, "after-dir"), "the same modify call asks again");
+    crate::agent_permissions::remove_auto_allow_log(&previous_dir);
+    let _ = std::fs::remove_dir_all(&previous_dir);
+    drop_terminal(st);
+}
+
+#[test]
+fn bind_session_on_a_library_file_with_a_held_lock_clears_grants_and_keeps_the_dir() {
+    let mut st = fresh_terminal();
+    let lib = std::env::temp_dir().join(format!("designos-1288-lib-{}", crate::live_sync_tests::unique_tab_id()));
+    let _ = std::fs::remove_dir_all(&lib);
+    std::fs::create_dir_all(&lib).expect("library root");
+    st.bind_library_file(&lib, "file-a", "win-1");
+    assert!(st.lock_owner.is_some(), "the test holds session.lock");
+    let dir = st.session_dir.clone();
+    insert_modify_grant(&mut st);
+    assert!(settle_answers(&mut st, "before-lib-rebind"), "the grant answers before the session id changes");
+    let next_id = format!("{}-other", st.session_id);
+    st.bind_session(&next_id);
+    assert_eq!(st.session_id, next_id);
+    assert_eq!(st.session_dir, dir, "a library file with a lock keeps the session dir");
+    assert!(st.session_grants.is_empty(), "binding a different session id clears grants");
+    assert!(!settle_answers(&mut st, "after-lib-rebind"), "the same modify call asks again");
+    crate::agent_permissions::remove_auto_allow_log(&dir);
+    drop_terminal(st);
+    let _ = std::fs::remove_dir_all(&lib);
+}
+
+#[test]
+fn auto_allow_rows_from_a_background_tab_stay_on_that_tab() {
+    let mut st = fresh_terminal();
+    st.spawn_tab(AgentCliPreset::Shell, None).expect("first shell");
+    st.spawn_tab(AgentCliPreset::Shell, None).expect("second shell");
+    let t0 = st.tabs[0].id as u64;
+    let t1 = st.tabs[1].id as u64;
+    crate::agent_permissions::append_auto_allow_row(
+        &st.session_dir,
+        "designos_get_document",
+        "a",
+        crate::agent_permissions::AutoAllowReason::Tier,
+        1,
+        Some(t0),
+    )
+    .unwrap();
+    crate::agent_permissions::append_auto_allow_row(
+        &st.session_dir,
+        "designos_get_document",
+        "b",
+        crate::agent_permissions::AutoAllowReason::Tier,
+        2,
+        Some(t1),
+    )
+    .unwrap();
+    st.poll_auto_allow_into_tab(0);
+    let now = std::time::Instant::now();
+    let start = crate::agent_turn_marks::TurnMarkLine {
+        v: crate::agent_turn_marks::TURN_MARK_VERSION,
+        turn_mark: crate::agent_turn_marks::TurnPhase::Start,
+        cli: Some("claude".into()),
+        patch_bytes: 0,
+    };
+    st.ledger_for_tab_mut(0).ingest_marks(std::iter::once(start.clone()), now);
+    st.ledger_for_tab_mut(1).ingest_marks(std::iter::once(start), now);
+    let a = st.ledger_for_tab(0).visible_turn(now).expect("tab 0 turn");
+    let b = st.ledger_for_tab(1).visible_turn(now).expect("tab 1 turn");
+    assert_eq!(a.calls.len(), 1);
+    assert_eq!(a.calls[0].target, "a");
+    assert_eq!(b.calls.len(), 1);
+    assert_eq!(b.calls[0].target, "b");
+    drop_terminal(st);
+}
+
+#[test]
+fn closing_one_of_several_tabs_does_not_clear_grants() {
+    let mut st = fresh_terminal();
+    st.spawn_tab(AgentCliPreset::Shell, None).expect("first shell");
+    st.spawn_tab(AgentCliPreset::Shell, None).expect("second shell");
+    insert_modify_grant(&mut st);
+    st.close_tab(0);
+    assert_eq!(st.tabs.len(), 1, "one tab remains");
+    assert!(!st.session_grants.list(&st.session_id, 20).is_empty(), "closing one of several tabs keeps the grant");
+    assert!(settle_answers(&mut st, "still-granted"), "the same modify call still auto-answers");
+    st.shutdown();
+    drop_terminal(st);
 }

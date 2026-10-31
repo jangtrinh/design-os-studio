@@ -242,6 +242,7 @@ impl TabsState {
     /// Takes the terminal out of the window for a parked tab. Its log watcher stops here and starts again when
     /// the tab shows (`LivePatchLog::stop_wake`).
     fn park_terminal(app: &mut App) -> crate::terminal::TerminalState {
+        crate::live_patch_apply::abandon_queued_close(app);
         let mut terminal = std::mem::take(&mut app.terminal);
         terminal.live_patch.stop_wake();
         terminal

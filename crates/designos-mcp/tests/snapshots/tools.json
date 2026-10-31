@@ -1865,7 +1865,7 @@
   },
   {
     "name": "designos_save_file",
-    "description": "Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
+    "description": "Save this session to a .designos file inside the workspace, or in place when path is omitted. Untitled documents require path. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1877,9 +1877,7 @@
           "type": "string"
         }
       },
-      "required": [
-        "path"
-      ],
+      "required": [],
       "type": "object"
     },
     "annotations": {
@@ -1890,6 +1888,38 @@
     },
     "_meta": {
       "risk_tier": "destructive"
+    }
+  },
+  {
+    "name": "designos_close_document",
+    "description": "Close this session document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "unsaved": {
+          "default": "fail",
+          "enum": [
+            "save",
+            "discard",
+            "fail"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "annotations": {
+      "destructiveHint": true,
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+    },
+    "_meta": {
+      "risk_tier": "modify"
     }
   },
   {

@@ -9,7 +9,7 @@ use crate::tools::ledger::{
 };
 use crate::tools::ledger_reconnect::replay_unabsorbed_patches;
 use crate::tools::session_options::SessionOptions;
-use designos_doc::live_patch::{DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
+use designos_doc::live_patch::{CloseIntent, DocEpoch, LivePatch, MAX_LIVE_PATCH_LINE_BYTES};
 use rmcp::{model::*, service::RequestContext, ErrorData, RoleServer, ServerHandler};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -20,6 +20,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Mutex,
+    thread,
+    time::{Duration, Instant},
 };
 
 pub struct DesignOSServer {
@@ -147,6 +149,12 @@ pub struct Session {
     pub enabled_tools_config: crate::rules::EnabledToolsConfig,
     /// What went wrong reading or writing a session file, until a tool reply tells the agent (`session_file_warnings`).
     file_problems: SessionFileProblems,
+    close_ack_timeout: Duration,
+    next_close_id: u64,
+    /// The last close was cancelled or refused by the editor: the close line it left in the log is no change to the document.
+    close_retry_safe: bool,
+    /// A live close of this session's tab succeeded: the tab is gone, so another close can only be refused.
+    live_tab_closed: bool,
 }
 
 #[derive(Deserialize)]
@@ -159,9 +167,56 @@ struct OpenArgs {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SaveArgs {
-    path: String,
+    path: Option<String>,
     #[serde(default)]
     overwrite: bool,
+}
+
+/// The first close id of a session. The high 32 bits are random (the keys of `RandomState` come from the operating system) and the
+/// low 32 count up, so two sessions, or two runs of the server, do not share an id. A result file a former session left behind
+/// therefore never matches the id of this session's close.
+fn fresh_close_id_base() -> u64 {
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = RandomState::new().build_hasher();
+    hasher.write_u32(std::process::id());
+    (hasher.finish() & 0xFFFF_FFFF_0000_0000).max(1 << 32)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UnsavedPolicy {
+    Save,
+    Discard,
+    Fail,
+}
+
+impl UnsavedPolicy {
+    fn parse(raw: Option<&str>) -> Result<Self, ToolError> {
+        match raw {
+            None | Some("fail") => Ok(Self::Fail),
+            Some("save") => Ok(Self::Save),
+            Some("discard") => Ok(Self::Discard),
+            Some(other) => Err(ToolError::new(ErrorCode::InvalidArguments, "/unsaved", "unsaved must be save, discard, or fail")
+                .with_received(json!(other))
+                .with_valid_options(["save", "discard", "fail"])),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Save => "save",
+            Self::Discard => "discard",
+            Self::Fail => "fail",
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloseArgs {
+    #[serde(default)]
+    unsaved: Option<String>,
+    path: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -235,6 +290,10 @@ impl Session {
             last_call_meta: None,
             enabled_tools_config,
             file_problems,
+            close_ack_timeout: Duration::from_secs(2),
+            next_close_id: fresh_close_id_base(),
+            close_retry_safe: false,
+            live_tab_closed: false,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
         s.load_session_options();
@@ -273,6 +332,10 @@ impl Session {
             last_call_meta: None,
             enabled_tools_config,
             file_problems,
+            close_ack_timeout: Duration::from_secs(2),
+            next_close_id: fresh_close_id_base(),
+            close_retry_safe: false,
+            live_tab_closed: false,
         };
         s.engine.enabled_tools = s.enabled_tools_config.enabled.clone();
         s.load_session_options();
@@ -713,6 +776,216 @@ impl Session {
         Ok(resolved)
     }
 
+    fn titled_save_path(&self) -> Option<String> {
+        let raw = self.engine.file_path.as_deref()?.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let p = Path::new(raw);
+        if p.is_absolute() {
+            p.strip_prefix(&self.root).ok()?.to_str().map(str::to_string)
+        } else {
+            Some(raw.to_string())
+        }
+    }
+
+    fn path_required() -> ToolError {
+        ToolError::new(ErrorCode::PathRequired, "/path", "Untitled documents need a path to save")
+            .with_next_step("Pass path to a .designos file inside the workspace, then retry.")
+    }
+
+    pub fn set_close_ack_timeout(&mut self, timeout: Duration) {
+        self.close_ack_timeout = timeout;
+    }
+
+    fn doc_revision(&self) -> u64 {
+        self.engine
+            .base_doc_revision
+            .map(|base| base.saturating_add(self.engine.history.undo_depth() as u64))
+            .unwrap_or_else(|| self.engine.doc.mutation_epoch())
+    }
+
+    fn live_editor(&self) -> bool {
+        self.bridge.live_doc_patch_path.is_some()
+    }
+
+    fn target_tab_id(&self) -> Option<u64> {
+        self.bridge.session_dir.as_ref().and_then(|d| d.file_name()?.to_str()?.rsplit_once("-tab-")?.1.parse().ok())
+    }
+
+    fn save_current(&mut self, path: &str, overwrite: bool, files_created: &mut usize) -> Result<PathBuf, ToolError> {
+        let resolved = self.output_path_allow_overwrite(path, overwrite)?;
+        self.engine.settle_layout();
+        let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        crate::engine::write_checked_output_file(&resolved, path, "/path", bytes.as_bytes(), overwrite, true)?;
+        *files_created += 1;
+        self.dirty = false;
+        self.engine.file_path = Some(path.to_string());
+        Ok(resolved)
+    }
+
+    fn reset_closed_session(&mut self) {
+        let next_rev = self.engine.revision.wrapping_add(1);
+        self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
+        self.save_session_options();
+        self.record_live_ops();
+        self.dirty = false;
+        self.ledger.clear();
+    }
+
+    fn publish_live_close(&mut self, intent: &CloseIntent) -> Result<(), String> {
+        let Some(log) = self.bridge.live_doc_patch_path.clone() else {
+            return Ok(());
+        };
+        let line = serde_json::to_string(intent).map_err(|e| format!("serialize close: {e}"))? + "\n";
+        append_log_line(&log, &line)
+    }
+
+    /// Deletes the answer and the cancel a former close left in the session folder, so that nothing of an earlier close is
+    /// read as this one's. (An answer is also only taken when its `close_id` is this close's.)
+    fn clear_close_answer_files(&mut self) {
+        let Some(dir) = self.bridge.session_dir.clone().or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
+        else {
+            return;
+        };
+        for name in [CloseIntent::RESULT_FILE, CloseIntent::CANCEL_FILE] {
+            let path = dir.join(name);
+            let removed = session_file_io::remove(&path);
+            if let Err(e) = removed {
+                self.file_problems.keep(&path, session_file_io::explain("write", &path, &e));
+            }
+        }
+    }
+
+    fn wait_for_close_ack(&mut self, close_id: u64, policy: UnsavedPolicy) -> Result<Value, ToolError> {
+        let dir = self
+            .bridge
+            .session_dir
+            .clone()
+            .or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
+            .ok_or_else(|| Self::close_timeout_error(close_id, policy))?;
+        let result_path = dir.join(CloseIntent::RESULT_FILE);
+        let cancel_path = dir.join(CloseIntent::CANCEL_FILE);
+        let deadline = Instant::now() + self.close_ack_timeout;
+        loop {
+            if let Some(out) = self.read_close_ack(&result_path, close_id) {
+                return out;
+            }
+            if Instant::now() >= deadline {
+                let bytes = json!({"close_id": close_id}).to_string();
+                self.file_problems.wrote(&cancel_path, session_file_io::write_atomic(&cancel_path, bytes.as_bytes(), false));
+                if let Some(out) = self.read_close_ack(&result_path, close_id) {
+                    return out;
+                }
+                return Err(Self::close_timeout_error(close_id, policy));
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn read_close_ack(&mut self, path: &Path, close_id: u64) -> Option<Result<Value, ToolError>> {
+        let raw = self.file_problems.read_to_string(path)?;
+        let v: Value = serde_json::from_str(&raw).ok()?;
+        if v.get("close_id").and_then(Value::as_u64) != Some(close_id) {
+            return None;
+        }
+        Some(Self::close_ack_to_result(v))
+    }
+
+    /// The wait ended with no answer. The close is cancelled, so the editor will not act on it later: for `save` and `fail`
+    /// asking again is safe. A `discard` the editor may already have begun is not, so the state is checked first.
+    fn close_timeout_error(close_id: u64, policy: UnsavedPolicy) -> ToolError {
+        let err = ToolError::new(ErrorCode::EditorNotNotified, "", "The editor did not close the tab in time.").with_received(json!(close_id));
+        match policy {
+            UnsavedPolicy::Discard => err.with_safe_to_retry(false).with_next_step("Check the document state with designos_get_document, then ask the user."),
+            UnsavedPolicy::Save | UnsavedPolicy::Fail => err.with_safe_to_retry(true).with_next_step(
+                "The close was cancelled and the document stayed open. Make sure the editor is running and showing the tab, then call designos_close_document again.",
+            ),
+        }
+    }
+
+    const TAB_CLOSED_NEXT_STEP: &'static str =
+        "That tab is already closed, so there is nothing to close. Open the document again with designos_open_file, or ask the user.";
+
+    /// Whether the editor tab this session's folder belonged to is closed, learnt from the folder itself, so a tab the person closed, and
+    /// a tab closed before this process started, are told apart from a tab that is merely slow to answer. A scratch folder is removed
+    /// with its tab; a library file's folder stays and carries the editor's `tab-closed.json` until the file is opened again.
+    fn editor_tab_is_gone(&self) -> bool {
+        let Some(dir) = self.bridge.session_dir.clone().or_else(|| self.bridge.live_doc_patch_path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)))
+        else {
+            return false;
+        };
+        let missing = matches!(std::fs::symlink_metadata(&dir), Err(e) if e.kind() == std::io::ErrorKind::NotFound);
+        missing || crate::session_file_io::stat(&dir.join(CloseIntent::TAB_CLOSED_FILE)).is_ok()
+    }
+
+    /// A close of a tab this session already closed: no editor is asked, and the answer is not retryable.
+    fn tab_already_closed_error() -> ToolError {
+        ToolError::new(ErrorCode::EditorNotNotified, "", "The tab is already closed, so there is nothing to close.")
+            .with_safe_to_retry(false)
+            .with_next_step(Self::TAB_CLOSED_NEXT_STEP)
+    }
+
+    fn close_ack_to_result(v: Value) -> Result<Value, ToolError> {
+        if v.get("ok").and_then(Value::as_bool) == Some(false) {
+            let code = v.get("code").and_then(Value::as_str).and_then(ErrorCode::from_code_str).unwrap_or(ErrorCode::UnsavedChanges);
+            let msg = v.get("message").and_then(Value::as_str).unwrap_or("The editor did not close the document.");
+            let mut err = ToolError::new(code, if code == ErrorCode::PathRequired { "/path" } else { "/unsaved" }, msg)
+                .with_safe_to_retry(matches!(code, ErrorCode::PathRequired | ErrorCode::EditorNotNotified));
+            // The editor's refusal carries only a code and a message, so the next step must not point at fields it lacks.
+            match code {
+                ErrorCode::UnsavedChanges => {
+                    err = err.with_next_step("Call designos_save_file, or call designos_close_document with unsaved set to save.");
+                }
+                ErrorCode::InvalidArguments => {
+                    err = err.with_next_step(
+                        "The document stayed open. Make the file writable and call designos_close_document again, or pass path to a new writable file.",
+                    );
+                }
+                ErrorCode::EditorNotNotified if v.get("reason").and_then(Value::as_str) == Some("tab_closed") => {
+                    // The tab is gone, so there is nothing to close and asking again can never work.
+                    err = err.with_safe_to_retry(false).with_next_step(Self::TAB_CLOSED_NEXT_STEP);
+                }
+                ErrorCode::EditorNotNotified => {
+                    err = err.with_next_step("The document stayed open. Show the tab in the editor, then call designos_close_document again.");
+                }
+                ErrorCode::InternalError => {
+                    err = err
+                        .with_next_step("The document stayed open. Check the file's permissions and free disk space, then call designos_close_document again.");
+                }
+                _ => {}
+            }
+            return Err(err);
+        }
+        if v.get("closed").and_then(Value::as_bool) != Some(true) {
+            return Err(ToolError::new(ErrorCode::EditorNotNotified, "", "The editor did not close the tab.")
+                .with_safe_to_retry(false)
+                .with_next_step("Call designos_get_document. The tab may still be open."));
+        }
+        let mut out = json!({
+            "closed": true,
+            "unsaved": v.get("unsaved").cloned().unwrap_or(json!("fail")),
+            "saved": v.get("saved").and_then(Value::as_bool).unwrap_or(false),
+        });
+        if let Some(p) = v.get("path").cloned() {
+            out["path"] = p;
+        }
+        if let Some(r) = v.get("doc_revision").cloned() {
+            out["doc_revision"] = r;
+        }
+        if let Some(t) = v.get("tab_id").cloned() {
+            out["tab_id"] = t;
+        }
+        Ok(out)
+    }
+
+    fn leave_is_asking(&mut self) -> bool {
+        let Some(dir) = self.bridge.session_dir.as_ref() else {
+            return false;
+        };
+        self.file_problems.read_to_string(&dir.join("leave-asking")).is_some()
+    }
+
     fn png_output_path(&self, path: &str) -> Result<PathBuf, ToolError> {
         if path.trim().is_empty() {
             crate::engine::validate_output_name(path, "/path")?;
@@ -859,13 +1132,16 @@ impl Session {
         let before = self.state_tuple();
         let raw_args = args.clone();
         let mut files_created: usize = 0;
+        self.close_retry_safe = false;
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.call_inner(name, args, &mut files_created)));
         match outcome {
             Ok(Ok(val)) => Ok(val),
             Ok(Err(mut err)) => {
                 crate::tools::errors::contextualize_corrected_example(&mut err, &raw_args);
                 let after = self.state_tuple();
-                let safe = err.safe_to_retry && (after == before) && (files_created == 0);
+                // The close line a cancelled close leaves in the log grows the log, not the document.
+                let unchanged = (after == before) || (self.close_retry_safe && after.0 == before.0 && after.1 == before.1);
+                let safe = err.safe_to_retry && unchanged && (files_created == 0);
                 #[cfg(test)]
                 if self.verify_corrected_examples {
                     if let Some(ex) = err.corrected_example.clone() {
@@ -990,6 +1266,7 @@ impl Session {
                     ToolError::new(code, "/path", e).with_received(json!(a.path))
                 })?;
                 let next_rev = self.engine.revision.wrapping_add(1);
+                self.live_tab_closed = false;
                 self.engine = Engine {
                     revision: next_rev,
                     active_page_id: doc.pages.first().copied(),
@@ -1000,6 +1277,7 @@ impl Session {
                 self.save_session_options();
                 self.record_live_ops();
                 self.dirty = false;
+                self.engine.file_path = Some(a.path.clone());
                 self.ledger.clear();
                 self.publish_live_doc_sync().map_err(|e| {
                     ToolError::new(
@@ -1038,8 +1316,10 @@ impl Session {
                         .with_corrected_example(json!({"name": a.name, "discard_changes": true})));
                 }
                 let next_rev = self.engine.revision.wrapping_add(1);
+                self.live_tab_closed = false;
                 self.engine = Engine { revision: next_rev, enabled_tools: self.enabled_tools_config.enabled.clone(), ..Engine::default() };
                 self.engine.doc.name = a.name;
+                self.engine.file_path = None;
                 self.save_session_options();
                 self.record_live_ops();
                 self.dirty = true;
@@ -1058,13 +1338,104 @@ impl Session {
             }
             "designos_save_file" => {
                 let a: SaveArgs = parse(args)?;
-                let path = self.output_path_allow_overwrite(&a.path, a.overwrite)?;
-                self.engine.settle_layout();
-                let bytes = self.engine.doc.to_json().map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
-                crate::engine::write_checked_output_file(&path, &a.path, "/path", bytes.as_bytes(), a.overwrite, true)?;
-                *files_created += 1;
-                self.dirty = false;
-                Ok(json!({"path": path, "saved": true}))
+                let (path, overwrite) = match a.path.as_deref() {
+                    Some(path) => (path.to_string(), a.overwrite),
+                    None => (self.titled_save_path().ok_or_else(Self::path_required)?, true),
+                };
+                let resolved = self.save_current(&path, overwrite, files_created)?;
+                Ok(json!({"path": resolved, "saved": true, "doc_revision": self.doc_revision()}))
+            }
+            "designos_close_document" => {
+                let a: CloseArgs = parse(args)?;
+                let policy = UnsavedPolicy::parse(a.unsaved.as_deref())?;
+                if self.leave_is_asking() {
+                    return Err(ToolError::new(ErrorCode::UnsavedChanges, "/unsaved", "Unsaved changes. The editor is already asking about this document.")
+                        .with_safe_to_retry(false)
+                        .with_next_step("Wait for the person at the editor, or call designos_save_file."));
+                }
+                let live = self.live_editor();
+                if live && (self.live_tab_closed || self.editor_tab_is_gone()) {
+                    return Err(Self::tab_already_closed_error());
+                }
+                if !live && self.dirty && policy == UnsavedPolicy::Fail {
+                    return Err(ToolError::new(ErrorCode::UnsavedChanges, "/unsaved", "Unsaved changes. The document stayed open.")
+                        .with_received(json!("fail"))
+                        .with_safe_to_retry(false)
+                        .with_next_step("Call designos_save_file, or call designos_close_document with unsaved set to save."));
+                }
+                let mut saved = false;
+                let mut saved_path: Option<String> = None;
+                if policy == UnsavedPolicy::Save {
+                    if live {
+                        saved_path = match a.path.as_deref() {
+                            Some(path) if Path::new(path).is_absolute() => Some(path.to_string()),
+                            Some(path) => Some(self.output_path_allow_overwrite(path, true)?.to_string_lossy().into_owned()),
+                            None => self.engine.file_path.clone().filter(|s| !s.trim().is_empty()),
+                        };
+                        // No path is not "untitled": a library file has none either. The editor knows which it is, so it is
+                        // asked, and answers PATH_REQUIRED itself for a document that really has no file.
+                    } else if self.dirty || a.path.is_some() {
+                        let (path, overwrite) = match a.path.as_deref() {
+                            Some(path) => (path.to_string(), true),
+                            None => (self.titled_save_path().ok_or_else(Self::path_required)?, true),
+                        };
+                        let resolved = self.save_current(&path, overwrite, files_created)?;
+                        saved = true;
+                        saved_path = Some(resolved.to_string_lossy().into_owned());
+                    }
+                }
+                let mut intent = CloseIntent::of(policy.as_str(), saved_path.clone().or_else(|| a.path.clone()));
+                self.next_close_id = self.next_close_id.wrapping_add(1);
+                let close_id = self.next_close_id;
+                if let Some(tab_id) = self.target_tab_id() {
+                    intent = intent.targeting(tab_id, close_id);
+                } else if live {
+                    intent.close_id = Some(close_id);
+                }
+                if live {
+                    self.clear_close_answer_files();
+                }
+                self.publish_live_close(&intent).map_err(|e| {
+                    if live {
+                        // Nothing was told to the editor and nothing was saved or closed: the same call can be made again.
+                        return ToolError::new(ErrorCode::EditorNotNotified, "", format!("The editor could not be told to close the document: {e}"))
+                            .with_safe_to_retry(true)
+                            .with_next_step("The document stayed open. Make sure the editor is running, then call designos_close_document again.");
+                    }
+                    ToolError::new(
+                        ErrorCode::EditorNotNotified,
+                        "",
+                        format!("Closed the session, but the editor was not told, so it still shows the document: {e}"),
+                    )
+                    .with_next_step("Call designos_get_document before editing.")
+                    .with_safe_to_retry(false)
+                })?;
+                if live {
+                    let out = match self.wait_for_close_ack(close_id, policy) {
+                        Ok(out) => out,
+                        Err(e) => {
+                            self.close_retry_safe = e.code == ErrorCode::EditorNotNotified && e.safe_to_retry;
+                            return Err(e);
+                        }
+                    };
+                    if out.get("closed").and_then(Value::as_bool) == Some(true) {
+                        self.reset_closed_session();
+                        self.live_tab_closed = true;
+                    }
+                    return Ok(out);
+                }
+                let revision = self.doc_revision();
+                self.reset_closed_session();
+                let mut out = json!({
+                    "closed": true,
+                    "unsaved": policy.as_str(),
+                    "saved": saved,
+                    "doc_revision": revision,
+                });
+                if let Some(p) = saved_path {
+                    out["path"] = json!(p);
+                }
+                Ok(out)
             }
             "designos_render_png" => {
                 let a: RenderArgs = parse(args)?;
@@ -1466,14 +1837,30 @@ pub fn tools() -> Vec<Tool> {
         ),
         (
             "designos_save_file",
-            "Save this session to a .designos file inside the workspace. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
+            "Save this session to a .designos file inside the workspace, or in place when path is omitted. Untitled documents require path. Existing files are not overwritten unless overwrite=true. Parent directory must exist.",
             json!({"path":{"type":"string"},"overwrite":{"type":"boolean","default":false}}),
-            vec!["path"],
+            vec![],
             json!({
                 "path": {"type": "string"},
-                "saved": {"type": "boolean"}
+                "saved": {"type": "boolean"},
+                "doc_revision": {"type": "integer"}
             }),
-            vec!["path", "saved"],
+            vec!["path", "saved", "doc_revision"],
+        ),
+        (
+            "designos_close_document",
+            "Close this session document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard.",
+            json!({"unsaved":{"type":"string","enum":["save","discard","fail"],"default":"fail"},"path":{"type":"string"}}),
+            vec![],
+            json!({
+                "closed": {"type": "boolean"},
+                "unsaved": {"type": "string"},
+                "saved": {"type": "boolean"},
+                "path": {"type": "string"},
+                "doc_revision": {"type": "integer"},
+                "tab_id": {"type": "integer"}
+            }),
+            vec!["closed", "unsaved", "saved"],
         ),
         (
             "designos_render_png",
@@ -2663,6 +3050,9 @@ mod tests {
 
         // 71. NameTooLong (output filename component > 255 bytes)
         record(s.call("designos_save_file", json!({"path": format!("{}.designos", "a".repeat(260))})).unwrap_err(), ErrorCode::NameTooLong, true);
+
+        // 72. PathRequired (in-place save of an untitled document)
+        record(Session::new(&ws_dir).unwrap().call("designos_save_file", json!({})).unwrap_err(), ErrorCode::PathRequired, true);
 
         for code in ErrorCode::ALL {
             assert!(seen.contains(code.as_str()), "ErrorCode::{code:?} ({}) was not covered by every_code_has_a_fixture", code.as_str());
