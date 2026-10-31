@@ -11,7 +11,7 @@
 //! Flow frames (`Horizontal` / `Vertical`) live here; the 2D `Grid` solver is in
 //! `layout_solver_grid.rs` and is reached through [`compute`] too.
 
-use crate::{AlignSelf, AutoLayout, CounterAlignContent, LayoutAlign, LayoutDirection, Rect, Sizing, Vec2};
+use crate::{AlignSelf, AutoLayout, CounterAlignContent, LayoutAlign, LayoutDirection, NodeId, Rect, Sizing, Vec2};
 
 pub use crate::layout_solver_grid::{compute_grid, placed_grid_rows};
 pub use crate::layout_solver_grid_placement::{place_children, Placed};
@@ -99,6 +99,34 @@ impl Axes {
 /// (border inside the box).
 pub fn compute_with_stroke(al: &AutoLayout, frame: Vec2, own: SizeLimits, stroke: &crate::Stroke, kids: &[ChildIn]) -> LayoutOut {
     compute(&al.with_stroke(stroke), frame, own, kids)
+}
+
+/// First solve, then rewrite wrapping text children's intrinsic height to the lines at the solved
+/// width and solve once more. `height_at(id, width)` returns `None` for children that are not
+/// wrapping height-resize text.
+pub fn compute_then_refit_wrapped(
+    al: &AutoLayout,
+    frame: Vec2,
+    own: SizeLimits,
+    stroke: &crate::Stroke,
+    ids: &[NodeId],
+    kids: &mut [ChildIn],
+    mut height_at: impl FnMut(NodeId, f32) -> Option<f32>,
+) -> LayoutOut {
+    let out = compute_with_stroke(al, frame, own, stroke, kids);
+    let mut changed = false;
+    for ((id, kid), r) in ids.iter().zip(kids.iter_mut()).zip(&out.rects) {
+        let Some(h) = height_at(*id, r.w) else { continue };
+        if (kid.size.y - h).abs() > 1e-3 {
+            kid.size.y = h;
+            changed = true;
+        }
+    }
+    if changed {
+        compute_with_stroke(al, frame, own, stroke, kids)
+    } else {
+        out
+    }
 }
 
 /// The axes of an auto-layout frame that [`compute`] sizes from its content, as `(width, height)`.

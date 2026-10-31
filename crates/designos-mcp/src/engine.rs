@@ -126,6 +126,7 @@ impl Engine {
 
 impl Default for Engine {
     fn default() -> Self {
+        designos_doc::text_measure::set_layout_measurer(Some(std::sync::Arc::new(designos_render::RenderTextMeasure)));
         let mut doc = Document::new("Untitled");
         let page = doc.add_page("Page 1");
         Self {
