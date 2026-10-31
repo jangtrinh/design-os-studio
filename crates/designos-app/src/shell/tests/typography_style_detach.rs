@@ -2,98 +2,15 @@
 //! detaches the text style in the same undo step, while non-style-owned fields (alignment, fill)
 //! preserve the link, and undo/redo restore and reapply both the value and the link.
 
-use crate::app::App;
-use crate::cli::Options;
-use crate::shell::Shell;
+use super::*;
 use crate::theme;
-use designos_doc::{Color, LineHeight, NodeId, NodeKind, PaintKind, TextAlignH, TextProps};
-use egui::{Context, Event, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Vec2};
-
-fn no_clip_text() -> Option<String> {
-    None
-}
-
-fn no_clip_image() -> Option<crate::system_paste::ClipImage> {
-    None
-}
-
-struct Sim {
-    ctx: Context,
-    shell: Shell,
-    t: f64,
-    pos: Pos2,
-    mods: Modifiers,
-}
+use designos_doc::{LineHeight, PaintKind, TextAlignH};
 
 impl Sim {
-    fn new_selected(name: &str) -> Self {
-        let opts = Options { select: Some(name.into()), fixture: Some("demo".into()), ..Options::default() };
-        let ctx = Context::default();
-        let mut shell = Shell::build(&ctx, opts);
-        shell.app.system_html = no_clip_text;
-        shell.app.system_text = no_clip_text;
-        shell.app.system_image = no_clip_image;
-        let mut s = Self { ctx, shell, t: 0.0, pos: Pos2::new(700.0, 500.0), mods: Modifiers::NONE };
-        s.seed_families();
-        s.frame(vec![]);
-        s.frame(vec![]);
-        s
-    }
-
     fn seed_families(&self) {
         let gen = designos_render::font_generation();
         let list = std::sync::Arc::new(vec!["Inter".to_string(), "TestLato".to_string()]);
         self.ctx.data_mut(|d| d.insert_temp(egui::Id::new("typo-families"), (gen, list)));
-    }
-
-    fn frame(&mut self, events: Vec<Event>) {
-        self.t += 0.05;
-        let mut raw = RawInput {
-            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 1088.0))),
-            time: Some(self.t),
-            events,
-            modifiers: self.mods,
-            ..Default::default()
-        };
-        let ctx = self.ctx.clone();
-        let shell = &mut self.shell;
-        eframe::App::raw_input_hook(shell, &ctx, &mut raw);
-        let _ = ctx.run_ui(raw, |ui| shell.draw(ui));
-        self.shell.app.settle_paste_jobs();
-    }
-
-    fn app(&self) -> &App {
-        &self.shell.app
-    }
-
-    fn mv(&mut self, p: Pos2) {
-        self.pos = p;
-        self.frame(vec![Event::PointerMoved(p)]);
-    }
-
-    fn button(&mut self, pressed: bool) {
-        let ev = Event::PointerButton { pos: self.pos, button: PointerButton::Primary, pressed, modifiers: self.mods };
-        self.frame(vec![ev]);
-    }
-
-    fn click(&mut self, p: Pos2) {
-        self.mv(p);
-        self.button(true);
-        self.button(false);
-        self.frame(vec![]);
-    }
-
-    fn key(&mut self, key: Key) {
-        let m = self.mods;
-        self.frame(vec![Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers: m }]);
-        self.frame(vec![Event::Key { key, physical_key: Some(key), pressed: false, repeat: false, modifiers: m }]);
-    }
-
-    fn cmd_key(&mut self, key: Key) {
-        let is_mac = self.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
-        self.mods = Modifiers { alt: false, ctrl: !is_mac, shift: false, mac_cmd: is_mac, command: true };
-        self.key(key);
-        self.mods = Modifiers::NONE;
     }
 
     fn cmd_shift_key(&mut self, key: Key) {
@@ -101,29 +18,6 @@ impl Sim {
         self.mods = Modifiers { alt: false, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
         self.key(key);
         self.mods = Modifiers::NONE;
-    }
-
-    fn type_text(&mut self, s: &str) {
-        self.frame(vec![Event::Text(s.into())]);
-    }
-
-    fn field_rect(&self, key: &str) -> Rect {
-        self.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}"))))).unwrap_or_else(|| panic!("no field {key}"))
-    }
-
-    fn rect_of(&self, name: &str) -> Rect {
-        self.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", name.to_string())))).unwrap_or_else(|| panic!("nothing recorded for {name}"))
-    }
-
-    fn by_name(&self, name: &str) -> NodeId {
-        self.app().doc.nodes.values().find(|n| n.name == name).map(|n| n.id).unwrap_or_else(|| panic!("no node {name}"))
-    }
-}
-
-fn text_of(s: &Sim, id: NodeId) -> TextProps {
-    match &s.app().doc.get(id).unwrap().kind {
-        NodeKind::Text(t) => t.clone(),
-        other => panic!("expected text layer, got {other:?}"),
     }
 }
 
@@ -133,7 +27,8 @@ fn link_of(s: &Sim, id: NodeId) -> Option<String> {
 
 /// Selects `"Continue"` and links it to the demo file's `"Body/Regular"` text style via the Typography style menu.
 fn linked_sim() -> (Sim, NodeId) {
-    let mut s = Sim::new_selected("Continue");
+    let mut s = Sim::with(Options { select: Some("Continue".into()), ..Options::default() });
+    s.seed_families();
     let id = s.by_name("Continue");
     let btn = s.rect_of("text-style-button");
     s.click(btn.center());

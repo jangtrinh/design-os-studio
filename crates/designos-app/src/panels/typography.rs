@@ -961,7 +961,3 @@ mod tests {
         assert!(matches!(t.style.fills.first().map(|p| &p.kind), Some(PaintKind::Solid(c)) if *c == Color::rgb(0, 0, 255)));
     }
 }
-
-#[cfg(test)]
-#[path = "../shell/tests/typography_style_detach.rs"]
-mod typography_style_detach;
