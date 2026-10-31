@@ -406,6 +406,17 @@ $ python3 scripts/zero_fake_ui_gate.py
  Gate Verdict: PASS (17/17 invariants satisfied)
 ```
 
+#### Acceptance 5 — Pushed Branch Log (`git log --oneline origin/main..HEAD`)
+
+```text
+$ git log --oneline origin/main..HEAD
+6fd237b5 fix(picker): render OKLCH/OKLAB as a single readable cell and fit all mode labels (#137)
+d1a007de Merge remote-tracking branch 'origin/main' into jangtrinh/agy-137-oklch-picker
+f82be3e0 docs(report): add verification report and gate logs for #137
+95d55aa1 feat(picker): OKLCH and OKLAB colour modes (#137)
+42049287 test(picker): add failing tests for OKLCH/OKLAB conversion and picker modes (#137)
+```
+
 ---
 
 ### 7. Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`), Weakest Link & Unresolved Questions
