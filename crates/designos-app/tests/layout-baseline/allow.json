@@ -1334,127 +1334,6 @@
     "reason": "File tab body stops 3px short of the 24px close target (R5)."
   },
   {
-    "case": "i-agents",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "i-agents-chat",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "i-agents-picker",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "i-agents-start-failure",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "i-agents-approval-command",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "i-agent-permissions",
-    "region": "overlay:Foreground/0",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "R5, rule 5: the file tab body ends 2px left of the 24px close target, so it is 3px narrower (measured -3). The gate reports this tab body under the overlay region because the full-screen overlay covers it."
-  },
-  {
-    "case": "i-terminal",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "agents-skills",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "agents-approval-queued",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "agents-approval-open-tab",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "kit-agents",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
     "case": "j-palette",
     "region": "tab_bar",
     "h_base": 26,
@@ -3655,6 +3534,7 @@
   {
     "case": "ai-image-expand",
     "region": "overlay:Foreground/0",
+    "name_prefix": "ai-expand-popover",
     "anchor_y": "top",
     "min_dh": 0,
     "max_dh": 8,
@@ -3664,6 +3544,7 @@
   {
     "case": "ai-image-erase",
     "region": "overlay:Foreground/0",
+    "name_prefix": "ai-erase-popover",
     "anchor_y": "top",
     "min_dh": 0,
     "max_dh": 8,
