@@ -404,7 +404,15 @@ fn bound_gradient_stop_locks_color_controls_until_detached() {
     let fill_stop_var = store.add_variable(&coll, "Grad/StopStart", VariableKind::Color).unwrap();
     store.set_value(&fill_stop_var, &light, VariableValue::Color(Color::rgb(0xFF, 0x11, 0x22)));
     set_scopes(&mut store, &fill_stop_var, &["ALL_FILLS"]);
+    let donor_token_var = store.add_variable(&coll, "Token/Donor", VariableKind::Color).unwrap();
+    store.set_value(&donor_token_var, &light, VariableValue::Color(Color::rgb(0x11, 0x88, 0xEE)));
+    set_scopes(&mut store, &donor_token_var, &["ALL_FILLS"]);
     s.shell.app.commit_store(store, &[], &[]);
+
+    let donor = crate::canvas::interact::hit_under(s.app(), s.app().view.to_page(s.app().canvas_rect.min, Pos2::new(500.0, 400.0)), true)
+        .filter(|&id| id != hero)
+        .unwrap_or_else(|| s.app().doc.nodes.values().find(|n| n.name == "Hero" && n.id != hero).unwrap().id);
+    s.shell.app.bind_variable(&[donor], &["fills/0"], &donor_token_var);
 
     s.shell.app.edit_nodes(&[hero], |n| {
         n.fills = vec![Paint {
@@ -468,6 +476,26 @@ fn bound_gradient_stop_locks_color_controls_until_detached() {
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "eyedropper canvas sample must not write to a bound stop");
     assert!(s.app().props.picker.is_none(), "canvas click after eyedropper closes the picker as on base");
+
+    // Re-open the fill picker and verify Shift+eyedropper token sampling on the canvas is also blocked on a bound stop.
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 28.0, picker.top() + 377.0));
+    s.frame(vec![]);
+    assert!(s.app().props.picker.as_ref().unwrap().eyedrop);
+    s.click(Pos2::new(picker.left() + 16.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().props.picker.as_ref().unwrap().state.sel, 0);
+    s.shell.app.hover = Some(donor);
+    s.mods = Modifiers::SHIFT;
+    s.click(Pos2::new(500.0, 400.0));
+    s.mods = Modifiers::NONE;
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap(), &before_node, "Shift+eyedropper token sample must not write to or rebind a bound stop");
+    assert!(s.app().props.picker.is_none());
 
     // Re-open the fill picker for step 4.
     s.click(s.rect_of("sw:false:0").center());
@@ -709,7 +737,13 @@ fn picker_resync_runs_in_picker_popup_not_unrelated_sections() {
         }
     }
 
-    // Calling `var_bind::bind_picker` when no bind picker is open must not reach into the colour picker.
+    // Calling `effects::section` or `var_bind::bind_picker` when no bind picker is open must not reach into the colour picker.
+    crate::panels::effects::section_for_test(&mut s.shell.app, &s.ctx, &[hero], &[]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().props.picker.as_ref().unwrap().paint.kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_eq!(stops[0].color, Color::BLACK, "effects::section must not resync the colour picker");
+
     crate::panels::var_bind::bind_picker(&mut s.shell.app, &s.ctx);
     let PaintKind::LinearGradient { stops, .. } = &s.app().props.picker.as_ref().unwrap().paint.kind else {
         panic!("expected LinearGradient");
@@ -1015,4 +1049,117 @@ fn unbound_gradient_picker_session_with_flip_stays_one_undo_step() {
     s.cmd_key(Key::Z);
     s.frame(vec![]);
     assert_eq!(s.app().doc.get(hero).unwrap().fills, original, "one undo restores original fills after unbound flip session");
+}
+
+#[test]
+fn canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _dark) = theme_ids(s.app());
+    let v = store.add_variable(&coll, "Probe/Red", VariableKind::Color).unwrap();
+    let red = Color::rgb(0xFF, 0x11, 0x22);
+    store.set_value(&v, &light, VariableValue::Color(red));
+    set_scopes(&mut store, &v, &["ALL_FILLS"]);
+    s.shell.app.commit_store(store, &[], &[]);
+
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.mv(Pos2::new(picker.left() + 100.0, picker.top() + 423.0));
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:fills/0/stops/1").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Probe/Red").center());
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&v));
+
+    let depth0 = s.app().hist.undo_depth();
+    let n = s.app().doc.get(hero).unwrap();
+    let (w, h) = (n.size.x, n.size.y);
+    let xf = s.app().doc.world_transform(hero);
+    let hit = [0.5_f32, 0.4, 0.6, 0.3, 0.7, 0.25, 0.75]
+        .into_iter()
+        .map(|t| {
+            let pg = xf.apply(designos_doc::Vec2::new(w * t, h * 0.5));
+            s.screen(pg.x, pg.y)
+        })
+        .find(|&p| s.app().canvas_rect.contains(p) && !picker.expand(4.0).contains(p))
+        .expect("a visible point on the gradient line");
+
+    s.click(hit);
+    s.frame(vec![]);
+
+    let n = s.app().doc.get(hero).unwrap();
+    let PaintKind::LinearGradient { stops: raw_stops, .. } = &n.fills[0].kind else { panic!("expected LinearGradient") };
+    let resolved = designos_doc::resolve_node(&s.app().doc, n);
+    let PaintKind::LinearGradient { stops: res_stops, .. } = &resolved.fills[0].kind else { panic!("expected LinearGradient") };
+    assert_eq!(raw_stops.len(), 3, "guard: the canvas click inserted a stop");
+    assert_eq!(n.variables.bindings.get("fills/0/stops/1"), None);
+    assert_eq!(n.variables.bindings.get("fills/0/stops/2"), Some(&v), "binding follows the end stop to index 2");
+    assert_eq!(res_stops[2].color, red);
+    assert_ne!(res_stops[1].color, red, "the new middle stop is not painted by the binding");
+    assert_eq!(s.app().hist.undo_depth() - depth0, 1);
+
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    let n = s.app().doc.get(hero).unwrap();
+    let PaintKind::LinearGradient { stops: raw_stops, .. } = &n.fills[0].kind else { panic!("expected LinearGradient") };
+    assert_eq!(raw_stops.len(), 2, "one undo removes the inserted stop");
+    assert_eq!(n.variables.bindings.get("fills/0/stops/1"), Some(&v), "and puts the binding back on index 1");
+    assert_eq!(n.variables.bindings.get("fills/0/stops/2"), None);
+}
+
+#[test]
+fn dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    let four = vec![
+        GradientStop { pos: 0.0, color: Color::BLACK },
+        GradientStop { pos: 0.33, color: Color::rgb(0x40, 0x40, 0x40) },
+        GradientStop { pos: 0.66, color: Color::rgb(0x90, 0x90, 0x90) },
+        GradientStop { pos: 1.0, color: Color::WHITE },
+    ];
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: four.clone(),
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let a = Pos2::new(picker.left() + 16.0 + 152.0 * 0.33, picker.top() + 100.0);
+    s.mv(a);
+    s.button(true);
+    for dy in [10.0, 20.0, 35.0, 40.0, 45.0, 50.0] {
+        s.mv(Pos2::new(a.x, a.y + dy));
+    }
+    s.button(false);
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_eq!(stops.len(), 3, "holding a drag off the gradient bar must delete only one stop (4 -> 3)");
 }

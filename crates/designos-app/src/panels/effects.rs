@@ -253,6 +253,14 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     }
 }
 
+#[cfg(test)]
+pub(crate) fn section_for_test(app: &mut App, ctx: &egui::Context, sel: &[NodeId], effects: &[Effect]) {
+    let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let mut pane = super::properties::Pane { x0: 0.0, oy: 0.0, y: 0.0, title_end: 0.0 };
+        section(app, ui, &mut pane, sel, effects);
+    });
+}
+
 // ---------------------------------------------------------------- popover
 /// What the effect settings rows edit: the effects of layers, or those of a shared effect style
 /// (the "Edit style" popover).
