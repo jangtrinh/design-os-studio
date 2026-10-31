@@ -365,7 +365,6 @@ pub fn edit_node_text_detaching(n: &mut Node, f: impl FnOnce(&mut TextProps)) {
 enum LinkEdit<'a> {
     Keep,
     Set(Option<&'a str>),
-    DetachIfChanged,
     DetachIfStyleOwnedChanged,
 }
 
@@ -402,13 +401,10 @@ fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: Link
                 LinkEdit::Set(None) => {
                     n.style_refs.remove(text_ref());
                 }
-                LinkEdit::DetachIfChanged if props_changed => {
-                    n.style_refs.remove(text_ref());
-                }
                 LinkEdit::DetachIfStyleOwnedChanged if style_owned_props_changed(&snap.props, t) => {
                     n.style_refs.remove(text_ref());
                 }
-                LinkEdit::Keep | LinkEdit::DetachIfChanged | LinkEdit::DetachIfStyleOwnedChanged => {}
+                LinkEdit::Keep | LinkEdit::DetachIfStyleOwnedChanged => {}
             }
             if props_changed {
                 added_faces = designos_fonts::new_faces(&snap.props, t);
@@ -592,13 +588,18 @@ fn style_selection_impl(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditKin
         }
         return true;
     }
-    edit_props_with_link(app, Some((kind, kind == EditKind::Other)), if detach_style { LinkEdit::DetachIfChanged } else { LinkEdit::Keep }, |t, _, _| {
-        if empty_text {
-            richtext::apply_all(t, &f);
-        } else {
-            richtext::apply_style(t, range.clone(), &f);
-        }
-    });
+    edit_props_with_link(
+        app,
+        Some((kind, kind == EditKind::Other)),
+        if detach_style { LinkEdit::DetachIfStyleOwnedChanged } else { LinkEdit::Keep },
+        |t, _, _| {
+            if empty_text {
+                richtext::apply_all(t, &f);
+            } else {
+                richtext::apply_style(t, range.clone(), &f);
+            }
+        },
+    );
     true
 }
 
