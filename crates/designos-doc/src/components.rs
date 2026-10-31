@@ -1334,8 +1334,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             let Some(kn) = d.get(*k) else { continue };
             let orig = orig_in_main(d, old_comp, kn);
             if matches!(kn.kind, NodeKind::Instance { .. })
-                && (kn.component.overrides.contains(&OverrideField::MainComponent)
-                    || orig.and_then(instance_component) != instance_component(kn))
+                && (kn.component.overrides.contains(&OverrideField::MainComponent) || orig.and_then(instance_component) != instance_component(kn))
             {
                 *dropped += 1;
             }
@@ -1378,12 +1377,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
     let auto_named = old_comp_node.as_ref().is_some_and(|oc| {
-        oc.name == n.name
-            || oc
-                .parent
-                .and_then(|p| c.s.get(p))
-                .filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)))
-                .is_some_and(|set| set.name == n.name)
+        oc.name == n.name || oc.parent.and_then(|p| c.s.get(p)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))).is_some_and(|set| set.name == n.name)
     });
     if !same_family && !n.component.overrides.contains(&OverrideField::Name) && auto_named {
         n.name = comp.name.clone();
@@ -5163,7 +5157,7 @@ mod tests {
         assert!(wrap_m9.kind.frame_props().unwrap().clips_content, "explicit Layout override on outer slot child must survive swap via chain_fields (M9)");
     }
 
-    fn path_bbox(paths: &[ crate::Path ]) -> (f32, f32, f32, f32) {
+    fn path_bbox(paths: &[crate::Path]) -> (f32, f32, f32, f32) {
         let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for p in paths {
             for c in &p.cmds {
@@ -5299,7 +5293,11 @@ mod tests {
         let c = swap_instance(&mut d, inst, b);
         apply(&mut d, c);
         let ng = d.get(child_named(&d, inst, "Glyph")).unwrap();
-        assert_eq!(ng.fills[0].kind, crate::PaintKind::Solid(Color::rgb(0, 128, 0)), "originally-matched gate drops fill override when old and new mains differ");
+        assert_eq!(
+            ng.fills[0].kind,
+            crate::PaintKind::Solid(Color::rgb(0, 128, 0)),
+            "originally-matched gate drops fill override when old and new mains differ"
+        );
         assert!(ng.fill_geometry.is_none(), "a frame must not take the vector's outline as its fill_geometry");
     }
 
@@ -5338,7 +5336,11 @@ mod tests {
             sn.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Min };
             apply(&mut d, Command::Update { node: Box::new(sn) });
         }
-        let c = add_prop(&mut d, card, ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) });
+        let c = add_prop(
+            &mut d,
+            card,
+            ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) },
+        );
         apply(&mut d, c);
         let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Btn"));
         apply(&mut d, c);
@@ -5400,7 +5402,11 @@ mod tests {
             sn.size = Vec2::new(280.0, 32.0);
             apply(&mut d, Command::Update { node: Box::new(sn) });
         }
-        let c = add_prop(&mut d, card, ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) });
+        let c = add_prop(
+            &mut d,
+            card,
+            ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) },
+        );
         apply(&mut d, c);
         let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Btn"));
         apply(&mut d, c);
@@ -5458,7 +5464,11 @@ mod tests {
                 sn.component.overrides.insert(OverrideField::Name);
                 sn.component.overrides.insert(OverrideField::Size);
                 apply(&mut d, Command::Update { node: Box::new(sn) });
-                let c = add_prop(&mut d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
+                let c = add_prop(
+                    &mut d,
+                    btn,
+                    ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) },
+                );
                 apply(&mut d, c);
                 let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
                 apply(&mut d, c);
@@ -5677,7 +5687,11 @@ mod tests {
             sn.component.overrides.insert(OverrideField::Name);
             sn.component.overrides.insert(OverrideField::Size);
             apply(&mut d, Command::Update { node: Box::new(sn) });
-            let c = add_prop(&mut d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
+            let c = add_prop(
+                &mut d,
+                btn,
+                ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) },
+            );
             apply(&mut d, c);
             let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
             apply(&mut d, c);
@@ -5853,7 +5867,11 @@ mod tests {
             crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
             gn.component.overrides.extend(record_override(&before, &gn));
             apply(&mut d, Command::Update { node: Box::new(gn) });
-            let c = add_prop(&mut d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
+            let c = add_prop(
+                &mut d,
+                btn,
+                ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) },
+            );
             apply(&mut d, c);
             let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
             apply(&mut d, c);
