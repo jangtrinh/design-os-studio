@@ -1,0 +1,129 @@
+
+running 17 tests
+test shell::tests::typography_style_detach::rv1424_in_session_list_spacing ... ok
+test shell::tests::typography_style_detach::rv1424_in_session_paragraph_indent ... ok
+test shell::tests::typography_style_detach::rv1424_in_session_paragraph_spacing ... ok
+test shell::tests::typography_style_detach::rv1424_in_session_paragraph_spacing_through_the_popover ... ok
+test shell::tests::typography_style_detach::rv1424_in_session_vertical_trim ... ok
+test shell::tests::typography_style_detach::rv1424_mixed_text_and_sticky_selection ... ok
+test shell::tests::typography_style_detach::rv1424_non_owned_fields_keep_link ... ok
+test shell::tests::typography_style_detach::rv1424_noop_on_redundant_run ... ok
+test shell::tests::typography_style_detach::rv1424_r1_cmd_b_i_u_in_session ... ok
+test shell::tests::typography_style_detach::rv1424_r1_cmd_b_outside_session ... ok
+test shell::tests::typography_style_detach::rv1424_r1_cmd_i_u_outside_session ... ok
+test shell::tests::typography_style_detach::rv1424_r1_cmd_shift_period_in_and_out_of_session ... ok
+test shell::tests::typography_style_detach::rv1424_r1_menu_text_commands_in_and_out_of_session ... ok
+test shell::tests::typography_style_detach::rv1424_r1_same_family_repick_keeps_link ... ok
+test shell::tests::typography_style_detach::rv1424_run_merge_change_detaches ... ok
+test shell::tests::typography_style_detach::rv1424_run_only_change_detaches ... ok
+test shell::tests::typography_style_detach::rv1424_set_style_fill_only_in_vs_out_of_session ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 3843 filtered out; finished in 7.53s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1026-typography-detach/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.25s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE lspacing-in before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE lspacing-in after-edit: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=6 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+PROBE lspacing-in after-session-undo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE lspacing-in after-session-redo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=6 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+PROBE lspacing-in after-escape (d0=1): size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=6 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+PROBE lspacing-in after-app-undo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE indent-in before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE indent-in after-edit: size=16 weight=400 italic=false deco=None pspacing=0 indent=8 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+PROBE indent-in after-session-undo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE indent-in after-session-redo: size=16 weight=400 italic=false deco=None pspacing=0 indent=8 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+PROBE indent-in after-escape (d0=1): size=16 weight=400 italic=false deco=None pspacing=0 indent=8 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+PROBE indent-in after-app-undo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE pspacing-in before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE pspacing-in after-edit: size=16 weight=400 italic=false deco=None pspacing=12 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+PROBE pspacing-in after-session-undo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE pspacing-in after-session-redo: size=16 weight=400 italic=false deco=None pspacing=12 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+PROBE pspacing-in after-escape (d0=1): size=16 weight=400 italic=false deco=None pspacing=12 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+PROBE pspacing-in after-app-undo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE pspacing-ui-in after-open: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE pspacing-ui-in after-edit: size=16 weight=400 italic=false deco=None pspacing=12 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE trim-in before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE trim-in after-edit: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=CapHeight hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+PROBE trim-in after-session-undo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE trim-in after-session-redo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=CapHeight hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+PROBE trim-in after-escape (d0=1): size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=CapHeight hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+PROBE trim-in after-app-undo: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE mixed before: sticky(size,lh,ls)=(32.0, Auto, 0.0) text_size=16 depth=1
+PROBE mixed after Cmd+Shift+.: sticky(size,lh,ls)=(33.0, Auto, 0.0) text_size=17 depth=2
+PROBE mixed after Alt+Right: sticky(size,lh,ls)=(33.0, Auto, 0.5) depth=3
+PROBE mixed after set_style(30): sticky(size,lh,ls)=(30.0, Auto, 0.5) text_size=30
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE nonowned-out after: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=true hangl=true align=Center runs=[] link=Some("Body/Regular") depth=6 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE nonowned-in after: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=true hangl=true align=Center runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE redundant-out before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[(0, 3, 16.0, 400, false)] link=Some("Body/Regular") depth=2 session=false log(can_undo)=None
+PROBE redundant-out after same-family repick: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=3 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE redundant-in before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[(0, 3, 16.0, 400, false)] link=Some("Body/Regular") depth=2 session=true log(can_undo)=Some(false)
+PROBE redundant-in after same-family repick: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdB-in before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE cmdB-in after: size=16 weight=700 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdI-in before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE cmdI-in after: size=16 weight=400 italic=true deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdU-in before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+PROBE cmdU-in after: size=16 weight=400 italic=false deco=Underline pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdB-out before: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=false log(can_undo)=None
+PROBE cmdB-out after: size=16 weight=700 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdI-out after: size=16 weight=400 italic=true deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdU-out after (fresh sim): size=16 weight=400 italic=false deco=Underline pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdShiftDot-in after: size=18 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE cmdShiftDot-out after: size=17 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuBold-out after: size=16 weight=700 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuBold-in after: size=16 weight=700 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuItalic-out after: size=16 weight=400 italic=true deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuItalic-in after: size=16 weight=400 italic=true deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuUnderline-out after: size=16 weight=400 italic=false deco=Underline pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuUnderline-in after: size=16 weight=400 italic=false deco=Underline pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuSizeUp-out after: size=17 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuSizeUp-in after: size=17 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuSizeDown-out after: size=15 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE menuSizeDown-in after: size=15 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=1 session=true log(can_undo)=Some(true)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE repick-same-family-out after: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE repick-same-family-in after: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(false)
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE runmerge before: size=16 weight=400 italic=true deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[(0, 3, 16.0, 400, false)] link=Some("Body/Regular") depth=2 session=false log(can_undo)=None
+PROBE runmerge after Cmd+I: size=16 weight=400 italic=true deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=None depth=3 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE runonly before: size=16 weight=400 italic=true deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[(0, 3, 16.0, 700, false)] link=Some("Body/Regular") depth=2 session=false log(can_undo)=None
+PROBE runonly after Cmd+I: size=16 weight=400 italic=true deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[(0, 3, 16.0, 700, true)] link=None depth=3 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE setstyle-fill-out after: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=2 session=false log(can_undo)=None
+designos: --select "Continue" matched 2 layers; selected id 10 (first in page order; use id:<n> for another)
+PROBE setstyle-fill-in after: size=16 weight=400 italic=false deco=None pspacing=0 indent=0 lspacing=0 trim=None hangp=false hangl=false align=Left runs=[] link=Some("Body/Regular") depth=1 session=true log(can_undo)=Some(true)
