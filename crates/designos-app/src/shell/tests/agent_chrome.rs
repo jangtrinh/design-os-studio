@@ -122,7 +122,7 @@ fn flat(shapes: &[egui::epaint::ClippedShape]) -> Vec<&egui::epaint::Shape> {
 }
 
 /// The filled rects that cover `rect` exactly: what a button paints as its face.
-fn faces<'a>(shapes: &'a [egui::epaint::ClippedShape], rect: egui::Rect) -> Vec<&'a egui::epaint::RectShape> {
+fn faces(shapes: &[egui::epaint::ClippedShape], rect: egui::Rect) -> Vec<&egui::epaint::RectShape> {
     flat(shapes)
         .into_iter()
         .filter_map(|shape| match shape {

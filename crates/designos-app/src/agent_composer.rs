@@ -1114,7 +1114,7 @@ pub fn show_composer(
 
     let hint_owned = if state.composer_draft().is_empty() {
         let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current();
-        crate::agent_composer_text::placeholder(state, &pill_label, is_shell_tab, any_cli)
+        crate::agent_composer_text::placeholder(state, pill_label, is_shell_tab, any_cli)
     } else {
         String::new()
     };
@@ -1169,7 +1169,7 @@ pub fn show_composer(
     // The selection chip is a suggestion, not a message. An attached PRD is: Send then sends its reference alone.
     let has_payload = !state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty() || state.active_composer().attach_prd;
     let send_on = composer_live && !choose_agent && skills_violation.is_none() && has_payload;
-    let bar = crate::agent_composer_toolbar::toolbar(ui, state, composer_rect, &pill_label, send_on, skills_violation.as_deref());
+    let bar = crate::agent_composer_toolbar::toolbar(ui, state, composer_rect, pill_label, send_on, skills_violation.as_deref());
     if let Some(pick) = bar.attach {
         match pick {
             crate::agent_composer_menus::AttachPick::Selection => {

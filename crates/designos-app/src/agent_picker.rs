@@ -476,7 +476,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
 
     for idx in main_idx {
         let row_r = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
-        let hit = paint_agent_menu_row(state, ui, &rows[idx], idx, row_r, &pill_label, pill_preset);
+        let hit = paint_agent_menu_row(state, ui, &rows[idx], idx, row_r, pill_label, pill_preset);
         if matches!(interaction, PickerInteraction::None) {
             interaction = hit;
         }
@@ -490,7 +490,7 @@ pub fn render_runtime_dropdown_menu(state: &mut TerminalState, ui: &mut Ui, pane
     if show_folded {
         for idx in folded_idx {
             let row_r = Rect::from_min_size(Pos2::new(inner_left, y), Vec2::new(inner_w, row_h));
-            let hit = paint_agent_menu_row(state, ui, &rows[idx], idx, row_r, &pill_label, pill_preset);
+            let hit = paint_agent_menu_row(state, ui, &rows[idx], idx, row_r, pill_label, pill_preset);
             if matches!(interaction, PickerInteraction::None) {
                 interaction = hit;
             }
