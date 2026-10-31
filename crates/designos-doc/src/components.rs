@@ -41,15 +41,6 @@ fn nothing() -> Command {
     Command::Batch(Vec::new())
 }
 
-thread_local! {
-    static LAST_DROPPED_INNER_SWAPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-/// Number of inner instance swaps below a swapped slot that were dropped during the most recent swap operation.
-pub fn last_dropped_inner_swaps() -> usize {
-    LAST_DROPPED_INNER_SWAPS.with(|c| c.get())
-}
-
 // ---------------------------------------------------------------------------
 // Scratch context: applies commands to a private copy so later steps of a
 // multi-node operation see the effect of earlier ones.
@@ -66,12 +57,14 @@ struct Ctx<'a> {
     /// Whether a main holds an instance of itself, asked the first time a sync meets it inside its own mirror. The
     /// answer holds for the whole sync: a mirror only repeats what the main already reaches.
     holds_itself: BTreeMap<NodeId, bool>,
+    /// Number of inner instance swaps below a swapped slot dropped during this context's swap operations.
+    dropped_inner_swaps: usize,
 }
 
 impl<'a> Ctx<'a> {
     fn new(doc: &'a mut Document) -> Self {
         let saved_dirty = doc.dirty.clone();
-        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: Vec::new(), holds_itself: BTreeMap::new() }
+        Ctx { s: doc, cmds: Vec::new(), invs: Vec::new(), saved_dirty, refused_swap: Vec::new(), holds_itself: BTreeMap::new(), dropped_inner_swaps: 0 }
     }
     fn push(&mut self, c: Command) {
         if let Ok(inv) = c.clone().apply(self.s) {
@@ -1354,7 +1347,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
     collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried, &mut dropped_inner_swaps);
-    LAST_DROPPED_INNER_SWAPS.with(|cell| cell.set(dropped_inner_swaps));
+    let _ = dropped_inner_swaps;
 
     for k in inode.children.clone() {
         c.push(Command::Remove { id: k });
@@ -1650,26 +1643,35 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
 /// Swaps an instance to another component (manual "Swap instance"). The
 /// instance keeps its position and records a `MainComponent` override.
 pub fn swap_instance(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> Command {
+    swap_instance_inner(doc, instance, new_comp).0
+}
+
+fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize) {
     let mut c = Ctx::new(doc);
-    let Some(n) = c.s.get(instance) else { return nothing() };
+    let Some(n) = c.s.get(instance) else { return (nothing(), 0) };
     if instance_component(n) == Some(new_comp) || !matches!(c.s.get(new_comp).map(|x| &x.kind), Some(NodeKind::Component(_))) {
-        return nothing();
+        return (nothing(), 0);
     }
     // not inside the new component, nor inside a main it holds an instance of: that main would hold itself
     if new_comp == instance || would_hold_itself(c.s, new_comp, instance) {
-        return nothing();
+        return (nothing(), 0);
     }
     swap_main(&mut c, instance, new_comp);
     if let Some(mut n) = c.s.get(instance).cloned() {
         n.component.overrides.insert(OverrideField::MainComponent);
         c.update(n);
     }
-    c.finish()
+    let dropped = c.dropped_inner_swaps;
+    (c.finish(), dropped)
 }
 
 /// Sets (or with `None` clears) a component property value on an instance
 /// root and re-syncs it: toggles visibility, swaps text, instance or variant.
 pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> Command {
+    set_instance_prop_inner(doc, instance, name, value).0
+}
+
+fn set_instance_prop_inner(doc: &mut Document, instance: NodeId, name: &str, value: Option<PropValue>) -> (Command, usize) {
     let mut c = Ctx::new(doc);
     if let Some(mut n) = c.s.get(instance).cloned() {
         match value {
@@ -1684,18 +1686,19 @@ pub fn set_instance_prop(doc: &mut Document, instance: NodeId, name: &str, value
     }
     sync_one(&mut c, instance);
     let refused = std::mem::take(&mut c.refused_swap);
+    let dropped = c.dropped_inner_swaps;
     let cmd = c.finish();
     if refused.is_empty() {
-        return cmd;
+        return (cmd, dropped);
     }
     // A value that would swap the instance to a main that holds itself in it is not stored: nothing changes. A swap
     // the instance already refuses without this value (a stored variant that a rename or an older build left pointing
     // at such a main) is not this value's doing, so it does not stop the edit.
     let stored = refused_swaps(doc, instance);
     if refused.iter().any(|r| !stored.contains(r)) {
-        nothing()
+        (nothing(), 0)
     } else {
-        cmd
+        (cmd, dropped)
     }
 }
 
@@ -5718,10 +5721,86 @@ mod tests {
         let bi = *d.get(page).unwrap().children.last().unwrap();
         let si = d.get(bi).unwrap().children[0];
         assert_eq!(instance_component(d.get(badge_of(&d, si)).unwrap()), Some(blue));
-        let c = set_instance_prop(&mut d, bi, "Icon", Some(PropValue::Instance(b)));
+        let (c, dropped) = set_instance_prop_inner(&mut d, bi, "Icon", Some(PropValue::Instance(b)));
         apply(&mut d, c);
         assert_eq!(instance_component(d.get(badge_of(&d, si)).unwrap()), Some(red), "inner swap below swapped slot is dropped as base does (#1433)");
-        assert_eq!(last_dropped_inner_swaps(), 1, "swap must count the dropped inner swap below the swapped slot");
+        assert_eq!(dropped, 1, "swap must return the dropped inner swap count below the swapped slot");
+    }
+
+    fn frame_main_with_dot(d: &mut Document, page: NodeId, name: &str, x: f32, y: f32, w: f32, h: f32) -> NodeId {
+        let id = d.alloc_id();
+        let mut f = Node::frame(id, Rect::new(x, y, w, h));
+        f.name = name.into();
+        let comp = d.insert(page, f).unwrap();
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 0.0, 4.0, 4.0));
+        r.name = "Dot".into();
+        d.insert(comp, r).unwrap();
+        let c = create_component(d, comp);
+        apply(d, c);
+        comp
+    }
+
+    fn put_named_instance(d: &mut Document, comp: NodeId, into: NodeId, name: &str) -> NodeId {
+        let c = create_instance(d, comp, into, Vec2::new(0.0, 0.0));
+        apply(d, c);
+        let k = *d.get(into).unwrap().children.last().unwrap();
+        let mut n = d.get(k).unwrap().clone();
+        n.name = name.into();
+        n.component.overrides.insert(OverrideField::Name);
+        apply(d, Command::Update { node: Box::new(n) });
+        k
+    }
+
+    #[test]
+    fn r4c_count_unswapped_nested_chain_is_zero() {
+        let mut d = Document::new("c0");
+        let page = d.add_page("P");
+        let badge = frame_main_with_dot(&mut d, page, "Badge", 0.0, 500.0, 8.0, 8.0);
+        let btn = frame_main_with_dot(&mut d, page, "Btn", 0.0, 400.0, 40.0, 20.0);
+        put_named_instance(&mut d, badge, btn, "Badge");
+        let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, btn, card, "Btn");
+        let card2 = frame_main_with_dot(&mut d, page, "Card2", 200.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, btn, card2, "Btn");
+        let c = create_instance(&mut d, card, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let ci = *d.get(page).unwrap().children.last().unwrap();
+        let (c, dropped) = swap_instance_inner(&mut d, ci, card2);
+        apply(&mut d, c);
+        assert_eq!(dropped, 0, "nothing was swapped below the top instance");
+    }
+
+    #[test]
+    fn r4c_count_two_inner_swaps_then_overwrite() {
+        let mut d = Document::new("c2");
+        let page = d.add_page("P");
+        let red = frame_main_with_dot(&mut d, page, "Badge/Red", 0.0, 500.0, 8.0, 8.0);
+        let blue = frame_main_with_dot(&mut d, page, "Badge/Blue", 20.0, 500.0, 8.0, 8.0);
+        let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, red, card, "B1");
+        put_named_instance(&mut d, red, card, "B2");
+        let card2 = frame_main_with_dot(&mut d, page, "Card2", 200.0, 0.0, 100.0, 100.0);
+        put_named_instance(&mut d, red, card2, "B1");
+        put_named_instance(&mut d, red, card2, "B2");
+        let c = create_instance(&mut d, card, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let ci = *d.get(page).unwrap().children.last().unwrap();
+        for k in d.get(ci).unwrap().children.clone() {
+            if matches!(d.get(k).unwrap().kind, NodeKind::Instance { .. }) {
+                let c = swap_instance(&mut d, k, blue);
+                apply(&mut d, c);
+            }
+        }
+        let (c, after_outer) = swap_instance_inner(&mut d, ci, card2);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, red, page, Vec2::new(900.0, 0.0));
+        apply(&mut d, c);
+        let lone = *d.get(page).unwrap().children.last().unwrap();
+        let (c, after_unrelated) = swap_instance_inner(&mut d, lone, blue);
+        apply(&mut d, c);
+        assert_eq!(after_outer, 2, "two inner swaps dropped and returned per call");
+        assert_eq!(after_unrelated, 0, "subsequent unrelated swap drops 0");
     }
 
     #[test]
