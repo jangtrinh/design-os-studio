@@ -1279,3 +1279,66 @@ fn multiselect_stroke_gradient_bound_stop_preserves_bound_color_on_every_layer()
     assert_eq!(b_raw[0].1, red, "layer b's bound stroke stop 0 raw colour stays red");
     assert_eq!(b_raw[0].1, b_res[0].1, "layer b's bound stroke stop 0 raw colour equals its resolved colour");
 }
+
+#[test]
+fn dangling_only_gradient_stop_flip_session_stays_one_undo_step_and_remaps_key() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    let green = Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 };
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: green }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+        n.variables.bindings.insert("fills/0/stops/0".into(), "VariableID:missing".into());
+    });
+    s.frame(vec![]);
+    let stop_binds = |s: &Sim| -> Vec<(String, String)> {
+        s.app().doc.get(hero).unwrap().variables.bindings.iter().filter(|(k, _)| k.contains("/stops/")).map(|(k, v)| (k.clone(), v.clone())).collect()
+    };
+    let stop_colors = |p: &Paint| -> Vec<Color> {
+        match &p.kind {
+            PaintKind::LinearGradient { stops, .. } => stops.iter().map(|st| st.color).collect(),
+            _ => vec![],
+        }
+    };
+    let original = (s.app().doc.get(hero).unwrap().fills.clone(), stop_binds(&s));
+
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let d0 = s.app().hist.undo_depth();
+    // Edit stop 1, flip gradient, then edit the dangling stop (now at index 1).
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 184.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    let binds_after_flip = stop_binds(&s);
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 48.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    let pk_stops = s.app().props.picker.as_ref().map(|p| stop_colors(&p.paint)).unwrap_or_default();
+    let n = s.app().doc.get(hero).unwrap();
+    let raw_after_edit = stop_colors(&n.fills[0]);
+    let res_after_edit = stop_colors(&designos_doc::resolve_node(&s.app().doc, n).fills[0]);
+    s.key(Key::Escape);
+    s.frame(vec![]);
+    let steps = s.app().hist.undo_depth() - d0;
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    let back = (s.app().doc.get(hero).unwrap().fills.clone(), stop_binds(&s));
+
+    assert_eq!(binds_after_flip, vec![("fills/0/stops/1".to_string(), "VariableID:missing".to_string())], "dangling key follows its stop on flip");
+    assert_eq!(raw_after_edit[1], pk_stops[1], "edit on the dangling stop lands in the doc");
+    assert_eq!(raw_after_edit, res_after_edit, "raw == resolved");
+    assert_eq!(steps, 1, "an unbound (dangling-only) session is one undo step");
+    assert_eq!(back, original, "one undo restores fills and the dangling key");
+}
