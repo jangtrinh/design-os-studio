@@ -25,16 +25,17 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
     let stop_left = agent_stop::paint_header_stop_controls(ui, &p, state, bar, plus.left());
     let tabs_right = stop_left - theme::SPACE_ROW;
 
-    let (drawn, hidden_needs) = layout_tabs(state, &p, bar.left() + theme::SPACE_INLINE, tabs_right);
     let mut select_idx: Option<usize> = None;
     let mut close_idx: Option<usize> = None;
     let mut close_new_chat = false;
     let new_chat = state.in_new_chat();
-    let mut x = bar.left() + theme::SPACE_INLINE;
-    for tab in &drawn {
+    let (active_tab, no_sessions) = (state.active_tab, state.tabs.is_empty());
+    let strip_left = bar.left() + theme::SPACE_INLINE;
+    let mut x = strip_left;
+    let hidden_needs = layout_tabs(state, &p, strip_left, tabs_right, |tab| {
         let t_rect = Rect::from_min_size(Pos2::new(x, bar.center().y - TAB_H * 0.5), Vec2::new(tab.width, TAB_H));
-        let selected = if tab.idx.is_none() { new_chat } else { !new_chat && tab.idx == Some(state.active_tab) };
-        let (clicked, close) = paint_tab(ui, &p, t_rect, tab, selected, state.tabs.is_empty());
+        let selected = if tab.idx.is_none() { new_chat } else { !new_chat && tab.idx == Some(active_tab) };
+        let (clicked, close) = paint_tab(ui, &p, t_rect, &tab, selected, no_sessions);
         if close {
             if tab.idx.is_none() {
                 close_new_chat = true;
@@ -45,7 +46,7 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
             select_idx = tab.idx;
         }
         x = t_rect.right() + theme::SPACE_ROW;
-    }
+    });
 
     let plus_resp = ui.interact(plus, Id::new("agents-new-chat-btn"), Sense::click());
     paint_icon_btn(ui, &p, plus, &plus_resp, state.picker_open, "agents-new-chat-btn", "New chat");

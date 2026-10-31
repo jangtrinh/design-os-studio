@@ -30,10 +30,11 @@ impl DrawnTab<'_> {
     }
 }
 
-/// Lays the session tabs out between `left` and `right`. The New chat tab claims its width first and sits after the session tabs,
-/// so on a narrow strip the session tabs go (they stay reachable from `⋯`) and New chat is the last to be hidden. The second value
-/// counts the hidden session tabs that need the user.
-pub(super) fn layout_tabs<'a>(state: &'a TerminalState, p: &egui::Painter, left: f32, right: f32) -> (Vec<DrawnTab<'a>>, usize) {
+/// Lays the session tabs out between `left` and `right` and hands each one that fits to `draw`, in strip order. The New chat tab
+/// claims its width first and sits after the session tabs, so on a narrow strip the session tabs go (they stay reachable from `⋯`)
+/// and New chat is the last to be hidden. Returns how many hidden session tabs need the user. A callback instead of a returned `Vec`
+/// keeps the strip, which is laid out on every frame the panel is open, free of an allocation.
+pub(super) fn layout_tabs<'a>(state: &'a TerminalState, p: &egui::Painter, left: f32, right: f32, mut draw: impl FnMut(DrawnTab<'a>)) -> usize {
     let pending = !state.pending_approvals.is_empty();
     let new_chat = state.in_new_chat();
     let total = state.tabs.len() + usize::from(new_chat);
@@ -45,7 +46,6 @@ pub(super) fn layout_tabs<'a>(state: &'a TerminalState, p: &egui::Painter, left:
         TAB_MANY.min(((right - left) / (total as f32)).max(TAB_FLOOR))
     };
     let tabs_right = if new_chat && !state.tabs.is_empty() { right - new_chat_w - theme::SPACE_ROW } else { right };
-    let mut drawn: Vec<DrawnTab<'a>> = Vec::with_capacity(total);
     let mut x = left;
     let mut hidden_from = state.tabs.len();
     for (idx, tab) in state.tabs.iter().enumerate() {
@@ -67,14 +67,13 @@ pub(super) fn layout_tabs<'a>(state: &'a TerminalState, p: &egui::Painter, left:
             hidden_from = idx;
             break;
         }
-        drawn.push(DrawnTab { idx: Some(idx), tab: Some(tab), dot, width });
+        draw(DrawnTab { idx: Some(idx), tab: Some(tab), dot, width });
         x += width + theme::SPACE_ROW;
     }
     if new_chat && new_chat_w >= TAB_FLOOR {
-        drawn.push(DrawnTab { idx: None, tab: None, dot: None, width: new_chat_w });
+        draw(DrawnTab { idx: None, tab: None, dot: None, width: new_chat_w });
     }
-    let hidden_needs = state.tabs[hidden_from..].iter().enumerate().filter(|(i, t)| tab_dot(t, hidden_from + i == state.active_tab, pending).is_some()).count();
-    (drawn, hidden_needs)
+    state.tabs[hidden_from..].iter().enumerate().filter(|(i, t)| tab_dot(t, hidden_from + i == state.active_tab, pending).is_some()).count()
 }
 
 /// Paints one tab. Returns `(clicked, close clicked)`.
@@ -117,7 +116,7 @@ pub(super) fn paint_tab(ui: &mut Ui, p: &egui::Painter, t_rect: Rect, tab: &Draw
     if let Some(tone) = tab.dot {
         let center = Pos2::new(label_x + theme::SPACE_FACT, t_rect.center().y);
         status_dot(p, center, tone);
-        widgets::record(ui, &format!("agents-tab-dot-{tab_id}"), Rect::from_center_size(center, Vec2::splat(theme::SPACE_INLINE)));
+        widgets::record_with(ui, || format!("agents-tab-dot-{tab_id}"), Rect::from_center_size(center, Vec2::splat(theme::SPACE_INLINE)));
         label_x = center.x + theme::SPACE_INLINE;
     }
     let label_right = if show_close { close_rect.left() } else { t_rect.right() - theme::SPACE_INLINE };
