@@ -8,6 +8,7 @@ mod agent_cli_export_fig_tests;
 #[cfg(test)]
 mod agent_cli_select_tests;
 pub mod agent_composer;
+mod agent_composer_buttons;
 mod agent_composer_chip_layout;
 mod agent_composer_chips;
 mod agent_composer_menus;

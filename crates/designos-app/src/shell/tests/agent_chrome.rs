@@ -61,6 +61,7 @@ const AGENT_SOURCES: &[(&str, &str)] = &[
     ("terminal.rs", include_str!("../../terminal.rs")),
     ("agent_approval_card.rs", include_str!("../../agent_approval_card.rs")),
     ("agent_composer.rs", include_str!("../../agent_composer.rs")),
+    ("agent_composer_buttons.rs", include_str!("../../agent_composer_buttons.rs")),
     ("agent_composer_chip_layout.rs", include_str!("../../agent_composer_chip_layout.rs")),
     ("agent_composer_chips.rs", include_str!("../../agent_composer_chips.rs")),
     ("agent_composer_menus.rs", include_str!("../../agent_composer_menus.rs")),

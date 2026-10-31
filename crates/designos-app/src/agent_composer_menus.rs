@@ -2,7 +2,7 @@
 
 use egui::{Align2, Id, Key, Pos2, Rect, Sense, Ui, Vec2};
 
-use crate::agent_composer_text::mode_label;
+use crate::agent_composer_toolbar::mode_label;
 use crate::terminal::PermissionMode;
 use crate::theme;
 use crate::widgets::{self, kit};

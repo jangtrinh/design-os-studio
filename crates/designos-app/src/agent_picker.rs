@@ -1074,7 +1074,7 @@ mod tests {
         crate::theme::apply(&ctx);
         let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
         let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 800.0));
-        let mut frame = |st: &mut TerminalState, events: Vec<egui::Event>| {
+        let frame = |st: &mut TerminalState, events: Vec<egui::Event>| {
             let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
                 render_runtime_dropdown_menu(st, ui, panel_rect, 40.0, None);
             });

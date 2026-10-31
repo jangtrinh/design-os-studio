@@ -1,5 +1,6 @@
-//! The composer's words: the placeholder, the caption under a refusal, and the permission mode label with the room it needs.
+//! The composer's words: the placeholder, the caption under a refusal, and the room the permission mode label needs.
 
+use crate::agent_composer_toolbar::mode_label;
 use crate::terminal::{PermissionMode, TerminalState};
 use crate::theme;
 use crate::widgets;
@@ -43,12 +44,4 @@ pub(super) fn wants_icon_mode(p: &egui::Painter, width: f32, mode: PermissionMod
 pub(crate) fn mode_width(p: &egui::Painter, mode: PermissionMode) -> f32 {
     let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
     widgets::text_width(p, mode_label(mode), &font) + theme::SPACE_INLINE * 2.0 + theme::LAYER_ICON_SIZE + theme::SPACE_ROW
-}
-
-pub fn mode_label(mode: PermissionMode) -> &'static str {
-    match mode {
-        PermissionMode::Ask => "Ask first",
-        PermissionMode::Skip => "Skip permissions",
-        PermissionMode::AskRisky => "Ask risky only",
-    }
 }

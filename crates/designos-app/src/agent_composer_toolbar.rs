@@ -1,10 +1,11 @@
 //! Composer toolbar: add button, agent pill, permission mode, and Send. Menus and chips live in their own modules.
 
-use egui::{Align2, Id, Pos2, Rect, Sense, Ui, Vec2};
+use egui::{Id, Pos2, Rect, Sense, Ui, Vec2};
 
+use crate::agent_composer_buttons::{paint_icon_button, paint_text_button, IconPaint, TextPaint};
 use crate::agent_composer_menus::{attach_menu, mode_menu, stamp_pass, AttachPick, ATTACH_PASS, MODE_PASS};
-use crate::agent_composer_text::{mode_label, mode_width, wants_icon_mode};
-use crate::icons::{self, Icon};
+use crate::agent_composer_text::{mode_width, wants_icon_mode};
+use crate::icons::Icon;
 use crate::terminal::{PermissionMode, TerminalState};
 use crate::theme;
 use crate::widgets::{self, kit};
@@ -121,61 +122,6 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
     out
 }
 
-struct IconPaint<'a> {
-    rect: Rect,
-    resp: &'a egui::Response,
-    id: &'a str,
-    name: &'a str,
-    icon: Icon,
-    selected: bool,
-    enabled: bool,
-    kind: kit::Hierarchy,
-}
-
-struct TextPaint<'a> {
-    rect: Rect,
-    resp: &'a egui::Response,
-    id: &'a str,
-    label: &'a str,
-    selected: bool,
-    chevron: bool,
-}
-
-fn paint_icon_button(ui: &Ui, p: &egui::Painter, spec: IconPaint<'_>) -> bool {
-    let look = kit::button_look(spec.kind, kit::state_of(spec.resp, spec.selected, spec.enabled));
-    kit::paint_frame(p, spec.rect, theme::RADIUS_CONTROL, &look);
-    widgets::paint_icon_in(p, spec.rect, spec.icon, theme::LAYER_ICON_SIZE, look.icon);
-    if spec.resp.has_focus() {
-        kit::focus_ring(p, spec.rect, theme::RADIUS_CONTROL as f32);
-    }
-    widgets::record(ui, spec.id, spec.rect);
-    widgets::labelled(ui, Id::new(spec.id), egui::accesskit::Role::Button, spec.name);
-    spec.resp.clicked() && spec.enabled
-}
-
-fn paint_text_button(ui: &Ui, p: &egui::Painter, spec: TextPaint<'_>) -> bool {
-    let look = kit::button_look(kit::Hierarchy::Tertiary, kit::state_of(spec.resp, spec.selected, true));
-    kit::paint_frame(p, spec.rect, theme::RADIUS_CONTROL, &look);
-    let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
-    let reserve = if spec.chevron { theme::LAYER_ICON_SIZE + theme::SPACE_ROW } else { 0.0 };
-    let shown = widgets::elide(p, spec.label, &font, (spec.rect.width() - theme::SPACE_INLINE * 2.0 - reserve).max(theme::SPACE_BLOCK));
-    p.text(Pos2::new(spec.rect.left() + theme::SPACE_INLINE, spec.rect.center().y), Align2::LEFT_CENTER, shown, font, look.text);
-    if spec.chevron {
-        icons::paint(
-            p,
-            Icon::ChevronDown,
-            Pos2::new(spec.rect.right() - theme::SPACE_INLINE - theme::LAYER_ICON_SIZE * 0.5, spec.rect.center().y),
-            theme::LAYER_ICON_SIZE,
-            look.icon,
-        );
-    }
-    if spec.resp.has_focus() {
-        kit::focus_ring(p, spec.rect, theme::RADIUS_CONTROL as f32);
-    }
-    widgets::record(ui, spec.id, spec.rect);
-    spec.resp.clicked()
-}
-
 fn mode_btn(ui: &mut Ui, p: &egui::Painter, rect: Rect, mode: PermissionMode, selected: bool, icon_only: bool) -> bool {
     let resp = ui.interact(rect, Id::new("agents-composer-mode-btn"), Sense::click());
     let icon = if mode == PermissionMode::Skip { Icon::Unlock } else { Icon::Lock };
@@ -190,5 +136,13 @@ fn mode_btn(ui: &mut Ui, p: &egui::Painter, rect: Rect, mode: PermissionMode, se
     } else {
         widgets::labelled(ui, Id::new("agents-composer-mode-btn"), egui::accesskit::Role::Button, &a11y);
         paint_text_button(ui, p, TextPaint { rect, resp: &resp, id: "agents-composer-mode-btn", label: mode_label(mode), selected, chevron: true })
+    }
+}
+
+pub fn mode_label(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Ask => "Ask first",
+        PermissionMode::Skip => "Skip permissions",
+        PermissionMode::AskRisky => "Ask risky only",
     }
 }
