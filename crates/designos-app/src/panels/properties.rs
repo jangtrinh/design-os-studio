@@ -1801,6 +1801,15 @@ fn picker_color(p: &Picker) -> Color {
     Color::rgba(r, g, b, a)
 }
 
+fn has_stop_bindings(doc: &Document, pk: &Picker) -> bool {
+    let prefix = match pk.target {
+        PickTarget::Fill(i) => format!("fills/{i}/stops/"),
+        PickTarget::Stroke(i) => format!("strokes/{i}/stops/"),
+        _ => return false,
+    };
+    pk.ids.iter().any(|&id| doc.get(id).is_some_and(|n| n.variables.bindings.keys().any(|k| k.starts_with(&prefix))))
+}
+
 fn preserve_bound_stop_colors(
     pt: &mut Paint,
     old_stops: &[GradientStop],
@@ -2081,7 +2090,6 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         changed |= choose_image_fill(app, &mut pk.paint, &crate::io::SystemDialogs);
     }
     // Eyedropper: the next canvas click samples the colour under the pointer.
-    let was_eyedrop = pk.eyedrop;
     if pk.eyedrop {
         ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
         let (clicked, ptr, esc, shift) =
@@ -2119,6 +2127,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             crate::canvas::textsession::style_selection_as(app, |st| super::typography::set_solid(st, col, Some(c.a)), crate::textedit::EditKind::Style);
         } else {
             pk.tx.ed.revert(&mut app.doc);
+            let stop_list_changed = stop_list_changed && has_stop_bindings(&app.doc, &pk);
             apply_picker(&mut app.doc, &mut pk);
             app.changed();
             if stop_list_changed {
@@ -2139,8 +2148,7 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         remove = true;
     }
     let (pressed, ptr, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(egui::Key::Escape)));
-    let outside = !was_eyedrop
-        && !pk.eyedrop
+    let outside = !pk.eyedrop
         && !pk.state.menu_open
         && pressed
         && ptr.map(|p| !panel.contains(p) && !pk.anchor.contains(p) && !handle_hit(&pk, app, p)).unwrap_or(false);
