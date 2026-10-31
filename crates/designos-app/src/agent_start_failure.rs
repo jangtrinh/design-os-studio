@@ -4,7 +4,9 @@
 
 use std::time::Duration;
 
-use egui::{Align2, Id, Painter, Pos2, Rect, Sense, Ui, Vec2};
+#[cfg(test)]
+use egui::Id;
+use egui::{Painter, Pos2, Rect, Ui, Vec2};
 
 use crate::terminal::{strip_ansi_codes, AgentCliPreset};
 use crate::{theme, widgets};
@@ -230,8 +232,8 @@ impl StartFailure {
     }
 }
 
-const PAD: f32 = theme::INSET_PANEL;
-const BTN_H: f32 = theme::CONTROL_STANDARD;
+const PAD: f32 = theme::INSET_BUTTON;
+const BTN_H: f32 = theme::CONTROL_XS;
 const CODE_PAD: f32 = theme::INSET_CONTROL;
 const BTN_MIN_W: f32 = 96.0;
 
@@ -243,37 +245,34 @@ pub fn paint(ui: &mut Ui, rect: Rect, failure: &StartFailure, surface_id: &'stat
     let card_w = (rect.width() - theme::SPACE_SECTION).clamp(160.0, 460.0);
     let inner_w = card_w - 2.0 * PAD;
     let card_left = rect.center().x - card_w / 2.0;
+    let dot_d = theme::SPACE_FACT * 2.0;
+    let text_w = (inner_w - dot_d - theme::SPACE_ROW).max(theme::TARGET_MIN);
 
-    let title = p.layout(format!("{} failed to start", failure.preset.button_label()), theme::font_large_strong(), theme::TEXT, inner_w - theme::SPACE_BLOCK);
-    let headline = p.layout(failure.headline(), theme::font_body_medium(), theme::DANGER, inner_w);
+    let headline = p.layout(failure.headline(), theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold), theme::BADGE_ERROR_TEXT, text_w);
     let explanation = p.layout(failure.explanation(), theme::font_body(), theme::TEXT_SECONDARY, inner_w);
     let caption = p.layout_no_wrap("Last output".to_string(), theme::font_caption_medium(), theme::TEXT_SECONDARY);
     let code_lines: Vec<_> =
         failure.output_tail.iter().map(|l| p.layout(l.clone(), theme::font_mono(), theme::TEXT_SECONDARY, inner_w - 2.0 * CODE_PAD)).collect();
     let code_h = if code_lines.is_empty() { 0.0 } else { code_lines.iter().map(|g| g.size().y).sum::<f32>() + 2.0 * CODE_PAD };
     let fix_label = failure.fix_label();
-    let fix_galley = p.layout_no_wrap(fix_label, theme::font_body_medium(), theme::TEXT_BRAND);
-    let btn_w = (fix_galley.size().x + theme::SPACE_BLOCK * 2.0).clamp(BTN_MIN_W, inner_w);
+    let fix_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+    let btn_w = (widgets::text_width(&p, &fix_label, &fix_font) + theme::INSET_BUTTON * 2.0).clamp(BTN_MIN_W, inner_w);
 
-    let gap = theme::SPACE_INLINE;
-    let mut h = PAD + title.size().y + gap + headline.size().y + theme::SPACE_ROW + explanation.size().y;
+    let mut h = PAD + headline.size().y + theme::SPACE_ROW + explanation.size().y;
     if code_h > 0.0 {
         h += theme::SPACE_BLOCK + caption.size().y + theme::SPACE_ROW + code_h;
     }
     h += theme::SPACE_BLOCK + BTN_H + PAD;
     let card = Rect::from_min_size(Pos2::new(card_left, rect.top() + theme::SPACE_BLOCK), Vec2::new(card_w, h));
 
-    p.rect_filled(card, theme::cr(theme::RADIUS_FRAME), theme::BG_SECONDARY);
-    p.rect_stroke(card, theme::cr(theme::RADIUS_FRAME), egui::Stroke::new(1.0, theme::BORDER), egui::StrokeKind::Inside);
+    p.rect_filled(card, theme::cr(theme::RADIUS_XL), theme::BG_ERROR_PRIMARY);
+    p.rect_stroke(card, theme::cr(theme::RADIUS_XL), egui::Stroke::new(theme::BORDER_WIDTH, theme::BADGE_ERROR_BORDER), egui::StrokeKind::Inside);
 
     let x = card.left() + PAD;
     let mut y = card.top() + PAD;
-    p.circle_filled(Pos2::new(x + theme::SPACE_ROW, y + title.size().y / 2.0), theme::SPACE_ROW, theme::DANGER);
-    let title_h = title.size().y;
-    p.galley(Pos2::new(x + theme::SPACE_BLOCK, y), title, theme::TEXT);
-    y += title_h + gap;
+    crate::widgets::kit::status_dot(&p, Pos2::new(x + theme::SPACE_FACT, y + headline.size().y * 0.5), crate::widgets::kit::DotTone::Error);
     let headline_h = headline.size().y;
-    p.galley(Pos2::new(x, y), headline, theme::DANGER);
+    p.galley(Pos2::new(x + dot_d + theme::SPACE_ROW, y), headline, theme::BADGE_ERROR_TEXT);
     y += headline_h + theme::SPACE_ROW;
     let explanation_h = explanation.size().y;
     p.galley(Pos2::new(x, y), explanation, theme::TEXT_SECONDARY);
@@ -285,7 +284,7 @@ pub fn paint(ui: &mut Ui, rect: Rect, failure: &StartFailure, surface_id: &'stat
         y += caption_h + theme::SPACE_ROW;
         let block = Rect::from_min_size(Pos2::new(x, y), Vec2::new(inner_w, code_h));
         p.rect_filled(block, theme::cr(theme::RADIUS_CONTROL), theme::BG);
-        p.rect_stroke(block, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER_SUBTLE), egui::StrokeKind::Inside);
+        p.rect_stroke(block, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(theme::BORDER_WIDTH, theme::BORDER_SUBTLE), egui::StrokeKind::Inside);
         let mut cy = block.top() + CODE_PAD;
         for g in code_lines {
             let gh = g.size().y;
@@ -297,14 +296,16 @@ pub fn paint(ui: &mut Ui, rect: Rect, failure: &StartFailure, surface_id: &'stat
     y += theme::SPACE_BLOCK;
 
     let btn = Rect::from_min_size(Pos2::new(x, y), Vec2::new(btn_w, BTN_H));
-    let name = format!("agents-start-failure-fix-{surface_id}");
-    widgets::record(ui, &name, btn);
-    let resp = ui.interact(btn, Id::new((surface_id, "agents-start-failure-fix")), Sense::click());
-    // Brand text on the brand-tinted surface (8.1:1), not white on `BG_BRAND` (3.5:1).
-    let bg = if resp.hovered() { theme::BG_SELECTED_HOVER } else { theme::BG_SELECTED };
-    p.rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), bg);
-    p.rect_stroke(btn, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(1.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
-    p.text(btn.center(), Align2::CENTER_CENTER, failure.fix_label(), theme::font_body_medium(), theme::TEXT_BRAND);
+    widgets::record(ui, &format!("agents-start-failure-fix-{surface_id}"), btn);
+    let resp = crate::widgets::kit::button(
+        ui,
+        btn,
+        (surface_id, "agents-start-failure-fix"),
+        &fix_label,
+        crate::widgets::kit::Hierarchy::Primary,
+        crate::widgets::kit::Size::Xs,
+        true,
+    );
     resp.clicked().then(|| failure.fix.clone())
 }
 
@@ -491,9 +492,12 @@ mod tests {
         let out = run_frame(&ctx, vec![], rect, &failure, &mut clicked);
         let (texts, boxes) = crate::lint::scan_shapes(&out.shapes);
         let all: Vec<&str> = texts.iter().map(|t| t.text.as_str()).collect();
-        for expected in ["Antigravity failed to start", "agy rejected a launch flag", "Last output", "Open a shell"] {
+        for expected in ["agy rejected a launch flag", "Last output", "Open a shell"] {
             assert!(all.contains(&expected), "{expected:?} not painted: {all:?}");
         }
+        let joined = all.join(" ").split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(joined.contains("does not accept an option Studio passed"), "explanation not painted: {all:?}");
+        assert!(!all.iter().any(|t| t.contains("failed to start")), "repeated title still painted: {all:?}");
         // A long line wraps onto several painted rows (the break follows a space): join them before matching.
         assert!(all.iter().any(|t| t.replace('\n', "").contains("flags provided but not defined")), "stderr tail not painted: {all:?}");
         let findings = crate::lint::check_text(&texts, &boxes);

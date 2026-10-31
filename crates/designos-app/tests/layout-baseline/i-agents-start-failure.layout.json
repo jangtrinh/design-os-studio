@@ -45,53 +45,33 @@
   },
   "overlays": [],
   "named": {
-    "agent-mention-btn-left": {
-      "region": "left_panel",
-      "rect": [
-        363.25,
-        70.0,
-        77.75,
-        20.0
-      ],
-      "count": 1
-    },
     "agent-selection-chip": {
       "region": "left_panel",
       "rect": [
-        57.0,
-        68.0,
-        295.0,
+        65.0,
+        990.0,
+        148.0,
         24.0
       ],
       "count": 1
     },
-    "agent-selection-chip-left": {
+    "agents-composer-add-btn": {
       "region": "left_panel",
       "rect": [
-        57.0,
-        68.0,
-        295.0,
-        24.0
+        65.0,
+        1040.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
-    "agents-composer-attach": {
+    "agents-composer-agent-pill": {
       "region": "left_panel",
       "rect": [
-        69.0,
-        1044.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
-    "agents-composer-book": {
-      "region": "left_panel",
-      "rect": [
-        97.0,
-        1044.0,
-        24.0,
-        24.0
+        101.0,
+        1040.0,
+        199.25,
+        32.0
       ],
       "count": 1
     },
@@ -99,18 +79,18 @@
       "region": "left_panel",
       "rect": [
         61.0,
-        996.0,
+        982.0,
         376.0,
-        80.0
+        94.0
       ],
       "count": 1
     },
-    "agents-composer-context": {
+    "agents-composer-chip-selection": {
       "region": "left_panel",
       "rect": [
-        129.0,
-        1044.0,
-        40.0,
+        65.0,
+        990.0,
+        148.0,
         24.0
       ],
       "count": 1
@@ -119,29 +99,19 @@
       "region": "left_panel",
       "rect": [
         73.0,
-        1004.0,
+        1018.0,
         352.0,
+        22.0
+      ],
+      "count": 1
+    },
+    "agents-composer-mode-btn": {
+      "region": "left_panel",
+      "rect": [
+        304.25,
+        1040.0,
+        92.75,
         32.0
-      ],
-      "count": 1
-    },
-    "agents-composer-plus": {
-      "region": "left_panel",
-      "rect": [
-        69.0,
-        1044.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
-    "agents-composer-prd": {
-      "region": "left_panel",
-      "rect": [
-        129.0,
-        1044.0,
-        40.0,
-        24.0
       ],
       "count": 1
     },
@@ -149,48 +119,38 @@
       "region": "left_panel",
       "rect": [
         401.0,
-        1042.0,
-        28.0,
-        28.0
+        1040.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
-    "agents-composer-skills": {
+    "agents-left-tab-select": {
       "region": "left_panel",
       "rect": [
-        173.0,
-        1044.0,
-        46.75,
+        57.0,
+        38.0,
+        129.0,
         24.0
       ],
       "count": 1
     },
-    "agents-header-skills": {
+    "agents-more-btn": {
       "region": "left_panel",
       "rect": [
-        301.5,
-        36.0,
-        46.75,
-        28.0
-      ],
-      "count": 1
-    },
-    "agents-runtime-add-btn": {
-      "region": "left_panel",
-      "rect": [
-        265.5,
+        417.0,
         38.0,
-        28.0,
+        24.0,
         24.0
       ],
       "count": 1
     },
-    "agents-sessions-btn": {
+    "agents-new-chat-btn": {
       "region": "left_panel",
       "rect": [
-        181.5,
+        389.0,
         38.0,
-        76.0,
+        24.0,
         24.0
       ],
       "count": 1
@@ -198,10 +158,20 @@
     "agents-start-failure-fix-agents-left-pty": {
       "region": "left_panel",
       "rect": [
-        77.0,
-        281.0,
-        103.0,
-        28.0
+        73.0,
+        230.0,
+        107.25,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-tab-dot-1": {
+      "region": "left_panel",
+      "rect": [
+        65.0,
+        46.0,
+        8.0,
+        8.0
       ],
       "count": 1
     },
@@ -342,6 +312,16 @@
         1056.0,
         28.0,
         28.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-band": {
+      "region": "left_panel",
+      "rect": [
+        438.0,
+        32.0,
+        15.0,
+        1056.0
       ],
       "count": 1
     },
@@ -1475,6 +1455,16 @@
       ],
       "count": 1
     },
+    "tab-close-hit-1": {
+      "region": "tab_bar",
+      "rect": [
+        307.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "tab-unsaved-dot-1": {
       "region": "unknown",
       "rect": [
@@ -1561,6 +1551,56 @@
         808.0,
         1036.0,
         16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-0": {
+      "region": "canvas",
+      "rect": [
+        584.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-1": {
+      "region": "canvas",
+      "rect": [
+        640.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-2": {
+      "region": "canvas",
+      "rect": [
+        696.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-3": {
+      "region": "canvas",
+      "rect": [
+        752.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-4": {
+      "region": "canvas",
+      "rect": [
+        808.0,
+        1036.0,
+        24.0,
         32.0
       ],
       "count": 1
@@ -1746,9 +1786,9 @@
     {
       "region": "left_panel",
       "rect": [
-        55.0,
+        57.0,
         38.0,
-        100.5,
+        105.0,
         24.0
       ],
       "sense": [
@@ -1759,10 +1799,10 @@
     {
       "region": "left_panel",
       "rect": [
-        157.5,
-        44.0,
-        12.0,
-        12.0
+        162.0,
+        38.0,
+        24.0,
+        24.0
       ],
       "sense": [
         "click",
@@ -1772,9 +1812,9 @@
     {
       "region": "left_panel",
       "rect": [
-        363.25,
-        68.0,
-        77.75,
+        189.0,
+        990.0,
+        24.0,
         24.0
       ],
       "sense": [
@@ -1786,7 +1826,7 @@
       "region": "left_panel",
       "rect": [
         73.0,
-        1004.0,
+        1018.0,
         352.0,
         15.0
       ],
@@ -2400,7 +2440,7 @@
       "rect": [
         92.0,
         3.0,
-        216.0,
+        213.0,
         26.0
       ],
       "sense": [

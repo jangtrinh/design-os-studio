@@ -1,0 +1,2 @@
+[FAIL] equal_tracks (css) max_item_err=inf rows=[{'index': -1, 'solver': {'count': 6}, 'chrome': {'count': 5}, 'dx': inf, 'dy': inf, 'dw': inf, 'dh': inf, 'max_abs': inf, 'error': 'item count mismatch: solver=6 vs chrome=5 (diff=1)'}]
+MISSING_ITEM_EXIT=1

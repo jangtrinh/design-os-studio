@@ -8,9 +8,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use designos_doc::{Document, NodeId, NodeKind};
-use egui::{Align2, Event, Id, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextEdit, Ui, Vec2};
+use egui::{Align2, Event, Id, Key, Pos2, Rect, RichText, Stroke, StrokeKind, TextEdit, Ui, Vec2};
 
-use crate::icons::{self, Icon};
 use crate::terminal::{AgentCliPreset, AgentTabStatus, TerminalAction, TerminalState, TerminalTab};
 use crate::theme;
 use crate::widgets;
@@ -46,11 +45,8 @@ pub const READY_QUIET_OUTPUT: Duration = Duration::from_millis(180);
 pub const UNCONFIRMED_TIMEOUT: Duration = Duration::from_secs(10);
 
 const ZERO: f32 = 0.0;
-const HALF: f32 = 0.5;
-const FOCUS_RING_WIDTH: f32 = 1.5;
-const CHIP_MAX_WIDTH: f32 = 148.0;
-const CHIP_TEXT_PAD: f32 = theme::INSET_BUTTON * 2.0;
-const PRD_CHIP_WIDTH: f32 = theme::CONTROL_MD;
+/// Stroke width of the composer box while its field has the caret.
+const FOCUS_STROKE_W: f32 = 2.0;
 const MIN_CENTER_HEIGHT: f32 = theme::CONTROL_XS * 2.0;
 
 /// Why [`TerminalState::send_to_agent`] refused to write a prompt (`#689` §3 rules 3, 7, 10 & §8).
@@ -167,6 +163,10 @@ pub struct ComposerState {
     pub skills_hook_chunks: Vec<String>,
     /// When the prompt that carries `skills_hook_chunks` was seen submitted; the chunks leave the replies a moment after.
     pub skills_hook_submitted_at: Option<Instant>,
+    /// Prepend `@prd ` on the next send. The chip's dismiss clears it without sending.
+    pub attach_prd: bool,
+    /// Fingerprint of a selection chip the user dismissed. `None` shows the chip.
+    pub selection_chip_dismissed: Option<u64>,
 }
 
 impl ComposerState {
@@ -339,22 +339,27 @@ pub fn visible_line_count(text: &str) -> usize {
     raw_lines.clamp(MIN_COMPOSER_LINES, MAX_COMPOSER_LINES)
 }
 
-/// Height of the composer box for `text` and `has_chips` (`#689` §7 & §10 `field_grows_to_eight_lines_then_scrolls`).
-/// Minimum height is `CONTROL_MD` (40 px) plus the control row (`CONTROL_MD`, 40 px), growing by `LINE_BODY`
-/// per line from 1 to 8 lines and then capping while scrolling.
+/// Height of the composer box. `has_chips` is one chip row and no caption.
+/// Top inset, chip rows, input lines (one through eight), then the control row.
 pub fn composer_box_height(text: &str, has_chips: bool) -> f32 {
-    let lines = visible_line_count(text);
-    let extra_lines = (lines.saturating_sub(MIN_COMPOSER_LINES)) as f32;
-    let chips_h = if has_chips { theme::CONTROL_DENSE + theme::SPACE_ROW } else { ZERO };
-    theme::CONTROL_MD + theme::CONTROL_MD + extra_lines * theme::LINE_BODY + chips_h
+    composer_chrome_height(text, usize::from(has_chips), false)
+}
+
+/// Box height with an explicit chip-row count and an in-box caption.
+pub fn composer_chrome_height(text: &str, chip_rows: usize, caption: bool) -> f32 {
+    let lines = visible_line_count(text) as f32;
+    let chips = chip_rows as f32 * (theme::BADGE_MD + theme::SPACE_ROW);
+    let caption_h = if caption { theme::LINE_CAPTION } else { ZERO };
+    theme::INSET_FRAME + chips + lines * theme::LINE_BODY + caption_h + theme::SPACE_ROW + theme::CONTROL_XS + theme::SPACE_ROW
 }
 
 /// Total vertical space reserved at the bottom of `show_left` for the composer box and its margins/caption.
 pub fn composer_reserved_height(state: &TerminalState) -> f32 {
     let comp = state.active_composer();
-    let box_h = composer_box_height(&comp.draft, !comp.chips.is_empty());
-    let notice_h = if comp.notice.is_some() { theme::LINE_CAPTION + theme::SPACE_FACT } else { ZERO };
-    box_h + theme::SPACE_GROUP * 2.0 + notice_h
+    let caption = comp.notice.is_some() || state.still_running_notice_on_screen().is_some();
+    let chip_rows = usize::from(!comp.chips.is_empty() || comp.attach_prd);
+    let box_h = composer_chrome_height(&comp.draft, chip_rows, caption);
+    box_h + theme::SPACE_GROUP * 2.0
 }
 
 fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
@@ -465,18 +470,43 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, skills_block: &
 /// Who is sending: the user's composer (consumes draft, chips, mentions, history) or a system sender (touches none of them).
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SendSource {
+    /// A prompt entry point such as Cmd+K or Make design: it uses the composer's path, and with no live tab it resumes the last
+    /// session or holds the prompt for the agent menu. It brings its own text and takes nothing from the composer on screen.
     Composer,
+    /// Send or Enter in the composer box on screen. In the New chat state it starts the pill's agent.
+    ComposerBox,
     System,
 }
 
 impl TerminalState {
-    /// Returns a shared reference to the active tab's [`ComposerState`] (or `unattached_composer` when no tab is open).
+    /// True while the panel shows the New chat state: asked for with `+`, or no session is open. It has its own composer
+    /// (`unattached_composer`) and starts its own agent on Send; the tab it covers is not involved.
+    pub fn in_new_chat(&self) -> bool {
+        self.picker_open || self.tabs.is_empty()
+    }
+
+    /// The active tab's "still running" notice, while its composer is the one on screen. The New chat state covers that tab, so it
+    /// neither shows the notice nor makes room for it.
+    pub fn still_running_notice_on_screen(&self) -> Option<&str> {
+        if self.in_new_chat() {
+            return None;
+        }
+        self.active_tab().and_then(|t| t.still_running_notice.as_deref())
+    }
+
+    /// Returns a shared reference to the composer on screen: the active tab's, or `unattached_composer` in the New chat state.
     pub fn active_composer(&self) -> &ComposerState {
+        if self.in_new_chat() {
+            return &self.unattached_composer;
+        }
         self.active_tab().map(|t| &t.composer).unwrap_or(&self.unattached_composer)
     }
 
-    /// Returns a mutable reference to the active tab's [`ComposerState`] (or `unattached_composer` when no tab is open).
+    /// Returns a mutable reference to the composer on screen: the active tab's, or `unattached_composer` in the New chat state.
     pub fn active_composer_mut(&mut self) -> &mut ComposerState {
+        if self.in_new_chat() {
+            return &mut self.unattached_composer;
+        }
         let idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
         if let Some(tab) = self.tabs.get_mut(idx) {
             &mut tab.composer
@@ -485,12 +515,12 @@ impl TerminalState {
         }
     }
 
-    /// Current draft text of the active tab's composer (or the unattached composer when no tab is open).
+    /// Current draft text of the composer on screen.
     pub fn composer_draft(&self) -> &str {
         &self.active_composer().draft
     }
 
-    /// Sets the draft text of the active tab's composer (or the unattached composer when no tab is open).
+    /// Sets the draft text of the composer on screen.
     pub fn set_composer_draft(&mut self, text: impl Into<String>) {
         self.active_composer_mut().set_draft(text);
     }
@@ -613,6 +643,12 @@ impl TerminalState {
         self.send_to_agent_from(text, file_path, SendSource::Composer)
     }
 
+    /// Send or Enter in the composer box. It is [`Self::send_to_agent`], except that in the New chat state it starts the pill's
+    /// agent in a new tab, never resumes an old session and, with no agent to start, keeps the draft.
+    pub fn send_from_composer_box(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
+        self.send_to_agent_from(text, file_path, SendSource::ComposerBox)
+    }
+
     /// Sends a system-generated prompt (image jobs) into the active agent tab. Unlike [`Self::send_to_agent`] it
     /// leaves the user's draft, layer chips, `@`-mentions and Up-arrow history alone, attaches none of their
     /// references, never starts a session by itself, and never returns an undelivered prompt to the draft.
@@ -640,10 +676,15 @@ impl TerminalState {
         let early_actions = self.poll_live_agent_bridge();
         self.deferred_bridge_actions.extend(early_actions);
         let system = source == SendSource::System;
+        // Only Send or Enter in the composer box (the classic chat's Send is the same call) spends the composer on screen: its draft,
+        // chips, mentions and PRD chip. A prompt entry point (Make design, Cmd+K, a spec Ask) brings its own text and leaves the
+        // composer as the user left it.
+        let from_box = source == SendSource::ComposerBox;
 
         let trimmed = text.trim();
-        let chips_snapshot = if system { Vec::new() } else { self.active_composer().chips.clone() };
-        if trimmed.is_empty() && chips_snapshot.is_empty() {
+        let chips_snapshot = if from_box { self.active_composer().chips.clone() } else { Vec::new() };
+        let prd_attached = from_box && self.active_composer().attach_prd;
+        if trimmed.is_empty() && chips_snapshot.is_empty() && !prd_attached {
             let comp = self.active_composer_mut();
             comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::Empty));
             return SendOutcome::Refused(RefuseReason::Empty);
@@ -671,9 +712,9 @@ impl TerminalState {
         }
 
         // Format payload including any `#655` `@`-mention references and layer chip references.
-        let mut live_mentions = if system { Vec::new() } else { self.active_mentions.clone() };
+        let mut live_mentions = if from_box { self.active_mentions.clone() } else { Vec::new() };
         crate::agent_mention::prune_deleted_mentions(trimmed, &mut live_mentions);
-        let mut payload = if system {
+        let mut payload = if !from_box {
             trimmed.to_string()
         } else if trimmed.is_empty() {
             chips_snapshot.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
@@ -688,71 +729,84 @@ impl TerminalState {
                 payload = format!("{payload}\n{footer}");
             }
         }
+        if prd_attached && !payload.contains("@prd") {
+            payload = if payload.is_empty() { "@prd".to_string() } else { format!("@prd {payload}") };
+        }
 
-        // Check active tab gates when a tab is already open (`#689` §3 rule 7 & §8 edge cases 5, 9).
+        // The New chat state starts its own session: the pill's agent in a new tab. It never resumes an old session and never
+        // writes into the tab underneath.
+        if source == SendSource::ComposerBox && self.in_new_chat() {
+            return self.start_new_chat_session(&payload, trimmed, file_path);
+        }
+
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
-        if let Some(tab) = self.tabs.get_mut(active_idx) {
-            if let Some(failure) = &tab.start_failure {
-                let headline = failure.headline();
-                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
-                tab.composer.notice = Some(headline.clone());
-                self.status_msg = Some(headline);
-                return SendOutcome::Refused(RefuseReason::StartFailed);
-            }
-            if tab.is_shell_process() {
-                let msg = RefuseReason::NoAgent.message().to_string();
-                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
-                tab.composer.notice = Some(msg.clone());
-                self.status_msg = Some(msg);
-                return SendOutcome::Refused(RefuseReason::NoAgent);
-            }
-            if tab.composer.not_ready_gate {
-                let msg = RefuseReason::NotReady.message().to_string();
-                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
-                tab.composer.notice = Some(msg.clone());
-                self.status_msg = Some(msg);
-                return SendOutcome::Refused(RefuseReason::NotReady);
-            }
-            // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
-            if waits_on_the_user(tab) {
-                let msg = RefuseReason::Permission.message().to_string();
-                tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
-                tab.composer.notice = Some(msg.clone());
-                self.status_msg = Some(msg);
-                return SendOutcome::Refused(RefuseReason::Permission);
-            }
-            if tab.is_alive() {
-                if system {
-                    if is_tab_ready_for_queued_send(tab) {
-                        return write_prompt_to_live_tab(tab, &payload, "", &mut self.status_msg, true);
-                    }
-                    if tab.composer.pending_send.is_some() {
-                        tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
-                        return SendOutcome::Refused(RefuseReason::NotReady);
-                    }
-                    tab.composer.pending_send = Some(payload);
-                    tab.composer.pending_send_is_system = true;
-                    tab.composer.last_outcome = Some(SendOutcome::Queued);
-                    return SendOutcome::Queued;
+        if !self.in_new_chat() {
+            if let Some(tab) = self.tabs.get_mut(active_idx) {
+                if let Some(failure) = &tab.start_failure {
+                    let headline = failure.headline();
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
+                    tab.composer.notice = Some(headline.clone());
+                    self.status_msg = Some(headline);
+                    return SendOutcome::Refused(RefuseReason::StartFailed);
                 }
-                tab.composer.send_count += 1;
-                tab.composer.record_sent(trimmed);
-                tab.composer.draft.clear();
-                tab.composer.chips.clear();
-                self.active_mentions.clear();
-                self.mention_popup.close();
-                // A run's first send attaches the selected skills, and so does the first send after the set changed (`#573`).
-                let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir);
-                let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
-                let outcome = write_prompt_to_live_tab(tab, &payload, skills_block, &mut self.status_msg, false);
-                if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
-                    if let Err(e) = crate::skills::delivery::commit_attachment(&self.skills, tab, &attachment, &self.session_dir, &self.session_id) {
-                        self.status_msg = Some(e);
-                    }
+                if tab.is_shell_process() {
+                    let msg = RefuseReason::NoAgent.message().to_string();
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
+                    tab.composer.notice = Some(msg.clone());
+                    self.status_msg = Some(msg);
+                    return SendOutcome::Refused(RefuseReason::NoAgent);
                 }
-                // Skills for a Claude Code tab go into its hook reply now, before the delayed Enter submits the prompt.
-                self.sync_hook_reply();
-                return outcome;
+                if tab.composer.not_ready_gate {
+                    let msg = RefuseReason::NotReady.message().to_string();
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
+                    tab.composer.notice = Some(msg.clone());
+                    self.status_msg = Some(msg);
+                    return SendOutcome::Refused(RefuseReason::NotReady);
+                }
+                // A Gemini dialog on the tab's screen refuses a send whatever the status says: the paste could pick one of its options.
+                if waits_on_the_user(tab) {
+                    let msg = RefuseReason::Permission.message().to_string();
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::Permission));
+                    tab.composer.notice = Some(msg.clone());
+                    self.status_msg = Some(msg);
+                    return SendOutcome::Refused(RefuseReason::Permission);
+                }
+                if tab.is_alive() {
+                    if system {
+                        if is_tab_ready_for_queued_send(tab) {
+                            return write_prompt_to_live_tab(tab, &payload, "", &mut self.status_msg, true);
+                        }
+                        if tab.composer.pending_send.is_some() {
+                            tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NotReady));
+                            return SendOutcome::Refused(RefuseReason::NotReady);
+                        }
+                        tab.composer.pending_send = Some(payload);
+                        tab.composer.pending_send_is_system = true;
+                        tab.composer.last_outcome = Some(SendOutcome::Queued);
+                        return SendOutcome::Queued;
+                    }
+                    tab.composer.send_count += 1;
+                    tab.composer.record_sent(trimmed);
+                    if from_box {
+                        tab.composer.draft.clear();
+                        tab.composer.chips.clear();
+                        tab.composer.attach_prd = false;
+                        self.active_mentions.clear();
+                        self.mention_popup.close();
+                    }
+                    // A run's first send attaches the selected skills, and so does the first send after the set changed (`#573`).
+                    let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir);
+                    let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
+                    let outcome = write_prompt_to_live_tab(tab, &payload, skills_block, &mut self.status_msg, false);
+                    if let (SendOutcome::Written, Some(attachment)) = (outcome, attachment) {
+                        if let Err(e) = crate::skills::delivery::commit_attachment(&self.skills, tab, &attachment, &self.session_dir, &self.session_id) {
+                            self.status_msg = Some(e);
+                        }
+                    }
+                    // Skills for a Claude Code tab go into its hook reply now, before the delayed Enter submits the prompt.
+                    self.sync_hook_reply();
+                    return outcome;
+                }
             }
         }
 
@@ -763,16 +817,18 @@ impl TerminalState {
             return SendOutcome::Refused(RefuseReason::NoAgent);
         }
 
-        // Not running (`#689` §3 rule 2): record in history, clear draft, run `open_for_agent_use`, and queue until ready.
-        {
+        // Not running (`#689` §3 rule 2): record in history, clear draft, run `open_for_agent_use`, and queue until ready. A prompt
+        // entry point clears nothing: its text was never in the composer.
+        if from_box {
             let comp = self.active_composer_mut();
             comp.send_count += 1;
             comp.record_sent(trimmed);
             comp.draft.clear();
             comp.chips.clear();
+            comp.attach_prd = false;
+            self.active_mentions.clear();
+            self.mention_popup.close();
         }
-        self.active_mentions.clear();
-        self.mention_popup.close();
         let tabs_before = self.tabs.len();
         self.open_for_agent_use(file_path);
 
@@ -780,7 +836,8 @@ impl TerminalState {
         // was explicitly set to a registrable agent CLI that is installed on PATH, spawn it now so the queued
         // prompt starts that agent.
         let runtime_installed = self.active_runtime.is_installed() || self.path_prepend.iter().any(|d| d.join(self.active_runtime.binary_name()).is_file());
-        if self.tabs.len() == tabs_before && crate::agent_sessions::is_registrable_cli(self.active_runtime) && runtime_installed {
+        let startable = !matches!(self.active_runtime, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp);
+        if self.tabs.len() == tabs_before && startable && runtime_installed {
             let _ = self.spawn_tab(self.active_runtime, file_path);
         }
 
@@ -793,6 +850,11 @@ impl TerminalState {
         });
         let notice = format!("Starting {agent_name}… your message will be sent");
         let comp = self.active_composer_mut();
+        if !from_box {
+            // The prompt queues on the composer that now holds the session; that composer remembers it, the one that was on screen does not.
+            comp.send_count += 1;
+            comp.record_sent(trimmed);
+        }
         comp.pending_send = Some(payload);
         comp.pending_send_is_system = false;
         comp.last_outcome = Some(SendOutcome::Queued);
@@ -802,8 +864,41 @@ impl TerminalState {
     }
 }
 
+impl TerminalState {
+    /// A Send in the New chat state: starts the pill's agent in a new tab and queues `payload` there. Nothing is consumed before
+    /// that tab exists, so with no agent to start, or when the start fails, the draft, chips and history stay as they were.
+    fn start_new_chat_session(&mut self, payload: &str, trimmed: &str, file_path: Option<&Path>) -> SendOutcome {
+        let Some(preset) = crate::agent_picker::composer_pill(self).1 else {
+            self.unattached_composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
+            return SendOutcome::Refused(RefuseReason::NoAgent);
+        };
+        if self.spawn_tab(preset, file_path).is_err() {
+            let comp = &mut self.unattached_composer;
+            comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
+            comp.notice = Some(RefuseReason::StartFailed.message().to_string());
+            return SendOutcome::Refused(RefuseReason::StartFailed);
+        }
+        // The new tab took over the New chat composer: its draft, chips and PRD chip are the message being sent.
+        let notice = format!("Starting {}… your message will be sent", preset.dropdown_entry().1);
+        let comp = self.active_composer_mut();
+        comp.send_count += 1;
+        comp.record_sent(trimmed);
+        comp.draft.clear();
+        comp.chips.clear();
+        comp.attach_prd = false;
+        comp.pending_send = Some(payload.to_string());
+        comp.pending_send_is_system = false;
+        comp.last_outcome = Some(SendOutcome::Queued);
+        comp.notice = Some(notice.clone());
+        self.active_mentions.clear();
+        self.mention_popup.close();
+        self.status_msg = Some(notice);
+        SendOutcome::Queued
+    }
+}
+
 fn composer_popup_open(state: &TerminalState) -> bool {
-    state.mention_popup.is_open() && state.mention_popup.mode == crate::agent_mention_popup::MentionPopupMode::Composer
+    state.mention_popup.is_open()
 }
 
 /// Runs `f` with the active composer draft, the `@`-mention popup and the active mentions as disjoint borrows.
@@ -872,14 +967,22 @@ pub fn show_composer(
 
     let p = ui.painter().clone();
     let is_shell_tab = state.active_tab().is_some_and(|t| t.is_shell_process());
-    let has_chips = !state.active_composer().chips.is_empty();
+    let new_chat = state.in_new_chat();
+    let composer_live = !is_shell_tab || new_chat;
+    let (pill_label, pill_preset) = crate::agent_picker::composer_pill(state);
+    if state.picker.cache.is_probing() {
+        // The pill and the placeholder name the agent a Send would start. Probes finish on another thread and no input follows them, so
+        // poll until they are done: the pill then changes on its own and the window goes quiet again.
+        ui.ctx().request_repaint_after(crate::agent_picker::PROBE_REPAINT);
+    }
     let draft_snapshot = state.composer_draft().to_string();
-    let box_h = composer_box_height(&draft_snapshot, has_chips);
-    let notice_text = if is_shell_tab { Some(RefuseReason::NoAgent.message().to_string()) } else { state.active_composer().notice.clone() };
-    let notice_h = if notice_text.is_some() { theme::LINE_CAPTION + theme::SPACE_FACT } else { ZERO };
     let margin = theme::SPACE_GROUP;
-    let bottom_pad = margin + notice_h;
-    let comp_top = (panel_rect.bottom() - bottom_pad - box_h).max(min_top_y + MIN_CENTER_HEIGHT);
+    let inner_w = (panel_rect.width() - margin * 2.0 - theme::SPACE_ROW * 2.0).max(theme::CONTROL_MD);
+    let chip_widths = crate::agent_composer_chip_layout::chip_widths(&p, state);
+    let chip_row_n = crate::agent_composer_chip_layout::chip_rows(&chip_widths, inner_w);
+    let caption_text = crate::agent_composer_text::caption(state);
+    let box_h = composer_chrome_height(&draft_snapshot, chip_row_n, caption_text.is_some());
+    let comp_top = (panel_rect.bottom() - margin - box_h).max(min_top_y + MIN_CENTER_HEIGHT);
     let comp_bottom = (comp_top + box_h).min(panel_rect.bottom() - theme::SPACE_FACT);
     let composer_rect = Rect::from_min_max(Pos2::new(panel_rect.left() + margin, comp_top), Pos2::new(panel_rect.right() - margin, comp_bottom));
 
@@ -887,19 +990,20 @@ pub fn show_composer(
     let was_focused = ui.memory(|m| m.has_focus(input_id));
 
     // `@`-mention picker keys (`#655`) are consumed before the composer reads Enter/Up/Down so a pick never also submits.
-    if !is_shell_tab {
+    if composer_live {
         let draft_now = state.composer_draft().to_string();
         let pre_cursor = composer_cursor_byte(ui, input_id, &draft_now, state.composer_cursor_byte);
         state.mention_popup.sync_from_composer_text(&draft_now, pre_cursor, doc, current_page);
         if composer_popup_open(state) {
             let ctx = ui.ctx().clone();
-            let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions, doc, current_page));
+            let _ = with_composer_draft(state, |draft, popup, mentions| popup.handle_keyboard(&ctx, draft, mentions));
             apply_post_pick_cursor(ui, state, input_id);
         }
     }
 
     let mut submit_composer = false;
-    if was_focused && !is_shell_tab {
+    let menu_owns_keys = state.runtime_dropdown_open || state.attach_menu_open || state.mode_menu_open;
+    if was_focused && composer_live && !menu_owns_keys {
         state.viewport_focused = false;
         let can_start_history = state.active_composer().draft.trim().is_empty() || state.active_composer().cursor.is_some();
         let browsing_history = state.active_composer().cursor.is_some();
@@ -951,57 +1055,61 @@ pub fn show_composer(
         }
     }
 
-    // Composer container (`RADIUS_FRAME`, `BG_SECONDARY`, `BORDER` hairline, `BG_BRAND` focus ring — `#689` §7).
-    p.rect_filled(composer_rect, theme::cr(theme::RADIUS_FRAME), theme::BG_SECONDARY);
-    let stroke = if was_focused && !is_shell_tab { Stroke::new(FOCUS_RING_WIDTH, theme::BG_BRAND) } else { Stroke::new(theme::BORDER_WIDTH, theme::BORDER) };
-    p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_FRAME), stroke, StrokeKind::Inside);
+    let focused_box = was_focused && composer_live;
+    p.rect_filled(composer_rect, theme::cr(theme::RADIUS_XL), theme::BG_SECONDARY);
+    let stroke = if focused_box { Stroke::new(FOCUS_STROKE_W, theme::BORDER_SELECTED) } else { Stroke::new(theme::BORDER_WIDTH, theme::BORDER) };
+    p.rect_stroke(composer_rect, theme::cr(theme::RADIUS_XL), stroke, StrokeKind::Inside);
     widgets::record(ui, "agents-composer-box", composer_rect);
 
-    let mut content_top = composer_rect.top() + theme::INSET_CONTROL;
+    let mut content_top = composer_rect.top() + theme::INSET_FRAME;
+    let mut skills_anchor = None;
 
-    // Optional reference chip row (`CONTROL_DENSE` 24 px, `cr_pill`, `BG_TERTIARY`, `theme::COMPONENT` cyan for components).
-    let chips_snapshot = state.active_composer().chips.clone();
-    let mut chip_to_remove: Option<NodeId> = None;
-    if !chips_snapshot.is_empty() {
-        let mut chip_x = composer_rect.left() + theme::INSET_BUTTON;
-        let max_chip_right = composer_rect.right() - theme::INSET_BUTTON;
-        for chip in &chips_snapshot {
-            let text_w = widgets::text_width(&p, &chip.name, &theme::font_caption());
-            let pill_w = (text_w + CHIP_TEXT_PAD).min(CHIP_MAX_WIDTH).min((max_chip_right - chip_x).max(theme::CONTROL_MD));
-            if chip_x + pill_w > max_chip_right {
-                break;
-            }
-            let chip_rect = Rect::from_min_size(Pos2::new(chip_x, content_top), Vec2::new(pill_w, theme::CONTROL_DENSE));
-            let chip_resp = ui.interact(chip_rect, Id::new(("agents-composer-chip", chip.node_id.0)), Sense::click());
-            p.rect_filled(chip_rect, theme::cr_pill(theme::CONTROL_DENSE), theme::BG_TERTIARY);
-            let fg = if chip.is_component { theme::COMPONENT } else { theme::TEXT };
-            if chip.is_component {
-                p.rect_stroke(chip_rect, theme::cr_pill(theme::CONTROL_DENSE), Stroke::new(theme::BORDER_WIDTH, theme::COMPONENT), StrokeKind::Inside);
-            }
-            let max_label_w = (pill_w - theme::INSET_BUTTON * 2.0).max(theme::SPACE_BLOCK);
-            let elided = widgets::elide(&p, &chip.name, &theme::font_caption(), max_label_w);
-            p.text(Pos2::new(chip_rect.left() + theme::INSET_CONTROL, chip_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), fg);
-            widgets::record(ui, "agents-composer-chip", chip_rect);
-            widgets::record(ui, &format!("agents-composer-chip-{}", chip.node_id.0), chip_rect);
-            if chip_resp.clicked() {
-                chip_to_remove = Some(chip.node_id);
-            }
-            chip_x = chip_rect.right() + theme::SPACE_FACT;
+    if chip_row_n > 0 {
+        let chip_h = chip_row_n as f32 * (theme::BADGE_MD + theme::SPACE_ROW);
+        let chip_row = Rect::from_min_size(Pos2::new(composer_rect.left() + theme::SPACE_ROW, content_top), Vec2::new(inner_w, chip_h));
+        let chips = crate::agent_composer_chips::paint_chips(ui, state, chip_row, &chip_widths);
+        skills_anchor = chips.skills_rect;
+        if chips.select_hide {
+            let finger = crate::agent_selection_chip::selection_fingerprint(&state.composer_selection);
+            state.active_composer_mut().selection_chip_dismissed = Some(finger);
         }
-        if let Some(rm_id) = chip_to_remove {
+        if chips.select_send {
+            actions.push(TerminalAction::SendSelectionToAgent);
+        }
+        if chips.prd_hide {
+            state.active_composer_mut().attach_prd = false;
+        }
+        if chips.skills_clear {
+            state.skills.set_selected_skills(Vec::new());
+        }
+        if chips.skills_open {
+            if state.skills.picker_open {
+                state.skills.picker_open = false;
+            } else {
+                state.skills.open_picker();
+            }
+        }
+        if let Some(rm_id) = chips.drop_layer {
             state.active_composer_mut().chips.retain(|c| c.node_id != rm_id);
         }
-        content_top += theme::CONTROL_DENSE + theme::SPACE_ROW;
+        content_top += chip_h;
     }
+    // Once per frame, `None` when no chip row is drawn: a rect left over from the chip that went away would keep swallowing presses.
+    crate::skills::remember_picker_anchor(ui.ctx(), skills_anchor);
 
-    let control_row_top = composer_rect.bottom() - theme::CONTROL_MD;
+    let control_row_top = composer_rect.bottom() - theme::SPACE_ROW - theme::CONTROL_XS - if caption_text.is_some() { theme::LINE_CAPTION } else { ZERO };
     let input_rect = Rect::from_min_max(
         Pos2::new(composer_rect.left() + theme::INSET_BUTTON, content_top),
         Pos2::new(composer_rect.right() - theme::INSET_BUTTON, control_row_top.max(content_top + theme::LINE_BODY)),
     );
     widgets::record(ui, "agents-composer-input", input_rect);
 
-    let hint = if is_shell_tab { "Select an agent tab" } else { "Ask for changes" };
+    let hint_owned = if state.composer_draft().is_empty() {
+        let any_cli = pill_preset.is_some() || !state.picker.pill_cache_current();
+        crate::agent_composer_text::placeholder(state, pill_label, is_shell_tab, any_cli)
+    } else {
+        String::new()
+    };
     let prev_draft = state.composer_draft().to_string();
     ui.scope_builder(egui::UiBuilder::new().max_rect(input_rect), |ui| {
         egui::ScrollArea::vertical().id_salt("agents-composer-scroll").max_height(input_rect.height()).show(ui, |ui| {
@@ -1012,10 +1120,13 @@ pub fn show_composer(
                 .desired_rows(1)
                 .frame(egui::Frame::NONE)
                 .font(theme::font_body())
-                .text_color(if is_shell_tab { theme::TEXT_DISABLED } else { theme::TEXT })
-                .interactive(!is_shell_tab)
-                .hint_text(RichText::new(hint).font(theme::font_body()).color(theme::TEXT_TERTIARY));
+                .text_color(if composer_live { theme::TEXT } else { theme::TEXT_DISABLED })
+                .interactive(composer_live)
+                .hint_text(RichText::new(hint_owned).font(theme::font_body()).color(theme::TEXT_TERTIARY));
             let out = te.show(ui);
+            if std::mem::take(&mut state.pending_composer_focus) {
+                out.response.request_focus();
+            }
             // After `show`: a click elsewhere has already taken the focus by now, which is what the next frame starts from.
             state.record_composer_focus(ui.memory(|m| m.has_focus(input_id)));
             if let Some(cr) = out.cursor_range {
@@ -1027,7 +1138,7 @@ pub fn show_composer(
             }
         });
     });
-    if !is_shell_tab {
+    if composer_live {
         let draft_after = state.composer_draft().to_string();
         let post_cursor = state.composer_cursor_byte.unwrap_or(draft_after.len()).min(draft_after.len());
         state.mention_popup.sync_from_composer_text(&draft_after, post_cursor, doc, current_page);
@@ -1045,126 +1156,54 @@ pub fn show_composer(
         }
     }
 
-    let icon_y = composer_rect.bottom() - theme::CONTROL_MD * HALF;
-
-    // Bottom-left `+` attach button (`agents-composer-plus` / `agents-composer-attach`).
-    let plus_center = Pos2::new(composer_rect.left() + theme::INSET_PANEL + theme::SPACE_FACT, icon_y);
-    let plus_r = Rect::from_center_size(plus_center, Vec2::splat(theme::CONTROL_DENSE));
-    let plus_resp = ui.interact(plus_r, Id::new("agents-composer-plus"), Sense::click());
-    if plus_resp.hovered() {
-        p.rect_filled(plus_r, theme::cr(theme::RADIUS_SEGMENT), theme::BG_HOVER);
-    }
-    icons::paint(&p, Icon::Plus, plus_r.center(), theme::LINE_CAPTION, theme::ICON_SECONDARY);
-    widgets::record(ui, "agents-composer-plus", plus_r);
-    widgets::record(ui, "agents-composer-attach", plus_r);
-    if plus_resp.clicked() {
-        let cur = state.composer_draft().trim().to_string();
-        if !cur.contains("@selection") {
-            let next = if cur.is_empty() { "@selection @prd ".to_string() } else { format!("@selection @prd {cur}") };
-            state.set_composer_draft(next);
-        }
-        actions.push(TerminalAction::ExportSelectionToTerminal);
-    }
-
-    // Bottom-left open-book button (`agents-composer-book`).
-    let book_center = Pos2::new(plus_r.right() + theme::SPACE_FACT + theme::CONTROL_DENSE * HALF, icon_y);
-    let book_r = Rect::from_center_size(book_center, Vec2::splat(theme::CONTROL_DENSE));
-    let book_resp = ui.interact(book_r, Id::new("agents-composer-book"), Sense::click());
-    if book_resp.hovered() {
-        p.rect_filled(book_r, theme::cr(theme::RADIUS_SEGMENT), theme::BG_HOVER);
-    }
-    icons::paint(&p, Icon::BookOpen, book_r.center(), theme::LINE_CAPTION, theme::ICON_SECONDARY);
-    widgets::record(ui, "agents-composer-book", book_r);
-    if book_resp.clicked() {
-        state.side_panel_pty_open = !state.side_panel_pty_open;
-    }
-
-    // Bottom-left `PRD` context chip button (`agents-composer-prd` / `agents-composer-context`).
-    let prd_center = Pos2::new(book_r.right() + theme::SPACE_INLINE + PRD_CHIP_WIDTH * HALF, icon_y);
-    let prd_r = Rect::from_center_size(prd_center, Vec2::new(PRD_CHIP_WIDTH, theme::CONTROL_DENSE));
-    let prd_resp = ui.interact(prd_r, Id::new("agents-composer-prd"), Sense::click());
-    let lower_in = state.composer_draft().to_ascii_lowercase();
-    let has_prd_tag = lower_in.contains("@prd") || lower_in.contains("@selection") || lower_in.contains("@tokens");
-    let prd_bg = if has_prd_tag {
-        theme::BG_SELECTED
-    } else if prd_resp.hovered() {
-        theme::BG_HOVER
-    } else {
-        theme::BG_TERTIARY
-    };
-    p.rect_filled(prd_r, theme::cr(theme::RADIUS_CONTROL), prd_bg);
-    p.rect_stroke(
-        prd_r,
-        theme::cr(theme::RADIUS_CONTROL),
-        Stroke::new(theme::BORDER_WIDTH, if has_prd_tag { theme::BORDER_SELECTED } else { theme::BORDER }),
-        StrokeKind::Inside,
-    );
-    p.text(prd_r.center(), Align2::CENTER_CENTER, "PRD", theme::font_caption_strong(), if has_prd_tag { theme::TEXT_BRAND } else { theme::TEXT_SECONDARY });
-    widgets::record(ui, "agents-composer-prd", prd_r);
-    widgets::record(ui, "agents-composer-context", prd_r);
-    if prd_resp.clicked() {
-        let next_tag = if !lower_in.contains("@prd") {
-            "@prd"
-        } else if !lower_in.contains("@selection") {
-            "@selection"
-        } else {
-            "@tokens"
-        };
-        let cur = state.composer_draft().trim().to_string();
-        if cur.is_empty() {
-            state.set_composer_draft(format!("{next_tag} "));
-        } else if !lower_in.contains(next_tag) {
-            state.set_composer_draft(format!("{next_tag} {cur}"));
-        }
-    }
-
-    // `Skills` chip (`#573`) right of `PRD`: opens the picker of built-in and user `SKILL.md` files attached to a run.
-    let skills_w = state.skills.chip_width(&p).max(PRD_CHIP_WIDTH);
-    let skills_r = Rect::from_min_size(Pos2::new(prd_r.right() + theme::SPACE_ROW, prd_r.top()), Vec2::new(skills_w, prd_r.height()));
-    state.skills.paint_chip(ui, &p, skills_r, "agents-composer-skills");
-
-    // Bottom-right Send circle button (`CONTROL_STANDARD` 28 px, `BG_BRAND` with dark arrow; disabled and `TEXT_SECONDARY` when empty — `#689` §7).
-    // Over the skill limit the circle turns red and stops being a button (hover only, with the reason); Enter still runs the send,
-    // which names the limit in the notice and keeps the draft (`RD-4` §3.3: the start action is disabled).
+    let choose_agent = new_chat && pill_preset.is_none();
     let skills_violation = state.skills.limit_violation();
-    let skills_over_limit = skills_violation.is_some();
-    let has_sendable = !is_shell_tab && (!state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty());
-    let send_radius = theme::radius_full(theme::CONTROL_STANDARD);
-    let send_center = Pos2::new(composer_rect.right() - theme::INSET_CONTROL - send_radius, icon_y);
-    let send_r = Rect::from_center_size(send_center, Vec2::splat(theme::CONTROL_STANDARD));
-    let send_resp = ui.interact(send_r, Id::new("agents-composer-send"), if skills_over_limit { Sense::hover() } else { Sense::click() });
-    let send_resp = match &skills_violation {
-        Some(reason) => send_resp.on_hover_text(reason.as_str()),
-        None => send_resp,
-    };
-    let send_bg = if skills_over_limit {
-        crate::terminal::STATUS_BAD_BG
-    } else if has_sendable {
-        if send_resp.hovered() {
-            theme::BG_BRAND_HOVER
-        } else {
-            theme::BG_BRAND
+    // The selection chip is a suggestion, not a message. An attached PRD is: Send then sends its reference alone.
+    let has_payload = !state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty() || state.active_composer().attach_prd;
+    let send_on = composer_live && !choose_agent && skills_violation.is_none() && has_payload;
+    let bar = crate::agent_composer_toolbar::toolbar(ui, state, composer_rect, pill_label, send_on, skills_violation.as_deref());
+    if let Some(pick) = bar.attach {
+        match pick {
+            crate::agent_composer_menus::AttachPick::Selection => {
+                let cur = state.composer_draft().to_string();
+                if !cur.contains("@selection") {
+                    let next = if cur.trim().is_empty() { "@selection ".to_string() } else { format!("@selection {cur}") };
+                    state.set_composer_draft(next);
+                }
+                actions.push(TerminalAction::ExportSelectionToTerminal);
+            }
+            crate::agent_composer_menus::AttachPick::Prd => {
+                let on = state.active_composer().attach_prd;
+                state.active_composer_mut().attach_prd = !on;
+            }
+            crate::agent_composer_menus::AttachPick::Skills => state.skills.open_picker(),
         }
-    } else {
-        theme::BG_TERTIARY
-    };
-    let send_fg = if skills_over_limit {
-        crate::terminal::STATUS_BAD_TEXT
-    } else if has_sendable {
-        theme::TEXT_ON_LIGHT_CANVAS
-    } else {
-        theme::TEXT_SECONDARY
-    };
-    p.circle_filled(send_center, send_radius, send_bg);
-    icons::paint(&p, Icon::ArrowUp, send_center, theme::LINE_CAPTION, send_fg);
-    widgets::record(ui, "agents-composer-send", send_r);
-    if send_resp.clicked() && has_sendable {
+    }
+    if let Some(mode) = bar.mode_pick {
+        actions.push(TerminalAction::SetAgentPermissionMode(mode));
+    }
+    if bar.send {
         submit_composer = true;
+    }
+    if let Some(note) = caption_text.as_deref() {
+        let note_top = composer_rect.bottom() - theme::SPACE_ROW - theme::CONTROL_XS - theme::LINE_CAPTION;
+        let note_rect = Rect::from_min_size(
+            Pos2::new(composer_rect.left() + theme::SPACE_ROW, note_top),
+            Vec2::new((composer_rect.width() - theme::SPACE_ROW * 2.0).max(theme::CONTROL_MD), theme::LINE_CAPTION),
+        );
+        let elided = widgets::elide(&p, note, &theme::font_caption(), note_rect.width());
+        p.text(Pos2::new(note_rect.left(), note_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_WARNING);
+        widgets::record(ui, "agents-composer-notice", note_rect);
     }
 
     if submit_composer {
+        if new_chat {
+            if let Some(preset) = pill_preset {
+                state.active_runtime = preset;
+            }
+        }
         let prompt = state.composer_draft().to_string();
-        let outcome = state.send_to_agent(&prompt, file_path);
+        let outcome = state.send_from_composer_box(&prompt, file_path);
         if outcome == SendOutcome::Written {
             if let Some(tab) = state.active_tab_mut() {
                 if tab.composer.pending_enter_deadline.is_some() {
@@ -1172,17 +1211,6 @@ pub fn show_composer(
                 }
             }
         }
-    }
-
-    // Caption under the field for queued messages, refusal reasons, or unconfirmed receipts (`#689` §3 rules 7, 7a & §7).
-    if let Some(note) = notice_text {
-        let note_rect = Rect::from_min_size(
-            Pos2::new(composer_rect.left() + theme::INSET_CONTROL, composer_rect.bottom() + theme::SPACE_FACT * HALF),
-            Vec2::new(composer_rect.width() - theme::INSET_CONTROL * 2.0, theme::LINE_CAPTION),
-        );
-        let elided = widgets::elide(&p, &note, &theme::font_caption(), note_rect.width().max(theme::CONTROL_MD));
-        p.text(Pos2::new(note_rect.left(), note_rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_SECONDARY);
-        widgets::record(ui, "agents-composer-notice", note_rect);
     }
 
     // Schedule repaint when any tab has a pending delayed `\r` or queued send (`#689` §3 rule 1 & §11).
@@ -1212,6 +1240,11 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn composer_box_is_66_with_one_line_and_nothing_else() {
+        assert_eq!(composer_box_height("", false), 66.0);
+    }
 
     struct SharedBufferWriter {
         buf: Arc<Mutex<Vec<u8>>>,
@@ -1771,12 +1804,59 @@ mod tests {
         assert!(st.composer_draft().contains("Primary Button"), "Plain layer name must be inserted into the draft");
 
         let prompt = format!("{} — align spacing", st.composer_draft());
-        assert_eq!(st.send_to_agent(&prompt, None), SendOutcome::Written);
+        assert_eq!(st.send_from_composer_box(&prompt, None), SendOutcome::Written);
         st.flush_pending_enter_now();
         let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
         assert!(sent.contains("designos:node/42"), "Sent payload must include #655 layer reference: {sent}");
         assert!(sent.contains("designos:node/99 (component)"), "Sent payload must include component reference: {sent}");
 
+        st.shutdown();
+    }
+
+    fn claude_tab_with_recorder() -> (crate::test_timing::ScopedTerminalState, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
+        let mut st = crate::test_timing::ScopedTerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+            if let Ok(mut p) = tab.parser.lock() {
+                p.process(b"\x1b[?2004h");
+            }
+        }
+        let rec = attach_recording_writer(st.active_tab_mut().unwrap());
+        (st, rec)
+    }
+
+    // `attached_prd_chip_sends_the_prd_tag_first`
+    #[test]
+    fn attached_prd_chip_sends_the_prd_tag_first() {
+        let (mut st, rec) = claude_tab_with_recorder();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_from_composer_box("fix it", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(sent.contains("@prd fix it"), "the PRD tag leads the message: {sent:?}");
+        assert!(!sent.contains("fix it @prd"), "and is not appended: {sent:?}");
+        assert!(!st.active_composer().attach_prd, "the chip is spent by the send");
+
+        // A `@prd` the user typed is sent once, as typed.
+        rec.lock().unwrap().clear();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_from_composer_box("@prd review REQ-01", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert_eq!(sent.matches("@prd").count(), 1, "a typed @prd is not doubled by the chip: {sent:?}");
+        assert!(sent.contains("@prd review REQ-01"), "{sent:?}");
+
+        // A prompt entry point brings its own text: the chip stays attached and the tag is not added.
+        rec.lock().unwrap().clear();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_to_agent("pricing card", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(!sent.contains("@prd"), "Make design does not carry the composer's PRD tag: {sent:?}");
+        assert!(st.active_composer().attach_prd, "and leaves the chip where it was");
         st.shutdown();
     }
 
@@ -1833,7 +1913,7 @@ mod tests {
         st.flush_pending_enter_now();
         assert_eq!(st.active_composer().send_count, 3);
 
-        // Entry point 4: a sample prompt row fills the composer, and the Send button then sends it through the same path.
+        // Entry point 4: a draft typed into the composer, sent with the Send button through the same path.
         st.side_panel_pty_open = false;
         let frame = |st: &mut TerminalState, events: Vec<Event>| {
             let _ = ctx.run_ui(
@@ -1850,12 +1930,8 @@ mod tests {
                 Event::PointerButton { pos: rect.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
             ]
         };
-        frame(&mut st, Vec::new());
-        let sample_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-sample-prompt-0".to_string())))).expect("agents-sample-prompt-0 rect");
-        frame(&mut st, click(sample_rect));
-        let sample_text = crate::agent_sample_prompts::sample_prompts(st.prompt_context)[0].text.clone();
-        assert_eq!(st.composer_draft(), sample_text, "the sample prompt row must only fill the composer");
-        assert_eq!(st.active_composer().send_count, 3, "filling the composer must not send");
+        let typed_text = "Entry 4 typed in the composer".to_string();
+        st.set_composer_draft(typed_text.clone());
         frame(&mut st, Vec::new());
         let send_rect: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", "agents-composer-send".to_string())))).expect("agents-composer-send rect");
         frame(&mut st, click(send_rect));
@@ -1863,7 +1939,7 @@ mod tests {
         assert_eq!(st.active_composer().send_count, 4);
 
         let all_written = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
-        for expected in ["Entry 1 from composer button", "Entry 2 from submit_chat_prompt", "Entry 3 from dispatch_figma_ai_prompt", sample_text.as_str()] {
+        for expected in ["Entry 1 from composer button", "Entry 2 from submit_chat_prompt", "Entry 3 from dispatch_figma_ai_prompt", typed_text.as_str()] {
             assert!(all_written.contains(expected), "Entry point prompt `{expected}` missing from PTY stream: {all_written:?}");
             assert!(st.active_composer().history.iter().any(|h| h.contains(expected)), "Entry point prompt `{expected}` missing from composer history");
         }
@@ -2767,32 +2843,46 @@ mod tests {
     }
 
     #[test]
-    fn the_agents_header_has_a_28px_skills_button_beside_the_runtime_selector_that_opens_the_picker() {
+    fn composer_plus_menu_holds_three_items() {
         let _turn = one_pty_test_at_a_time();
         let ctx = themed_context();
-        let dir = temp_composer_dir("skills-header-button");
-        let mut st = TerminalState::new_for_session("doc-skills-header", "Skill Send", Some(&dir));
-        assert!(st.side_panel_pty_open, "the default Agents panel is the PTY view with the `+` runtime selector");
+        let dir = temp_composer_dir("plus-menu-items");
+        let mut st = TerminalState::new_for_session("doc-plus-menu", "Plus Menu", Some(&dir));
+        assert!(st.side_panel_pty_open, "the default Agents panel is the PTY view");
 
         panel_frame(&ctx, &mut st, Vec::new());
-        let add = drawn_rect(&ctx, "agents-runtime-add-btn").expect("runtime selector");
-        let skills = drawn_rect(&ctx, "agents-header-skills").expect("header Skills button");
-        assert_eq!(skills.height(), theme::CONTROL_STANDARD, "RD-4 §7: a 28 px button");
-        assert!(skills.left() >= add.right() && skills.left() - add.right() <= theme::SPACE_GROUP, "next to the runtime selector: {add:?} {skills:?}");
-        assert!((skills.center().y - add.center().y).abs() < 1.0, "same row as the selector: {add:?} {skills:?}");
-        assert!(!st.skills.picker_open);
+        for retired in ["agents-header-skills", "agents-runtime-add-btn", "agents-composer-book", "agents-composer-prd", "agents-composer-skills"] {
+            assert!(drawn_rect(&ctx, retired).is_none(), "{retired} is gone");
+        }
+        let add = drawn_rect(&ctx, "agents-composer-add-btn").expect("composer +");
+        assert_eq!((add.width(), add.height()), (theme::CONTROL_XS, theme::CONTROL_XS), "Button/Icon at xs");
+        assert!(drawn_rect(&ctx, "agents-composer-attach-menu").is_none(), "the menu starts closed");
 
+        panel_frame(&ctx, &mut st, click_events(add));
+        panel_frame(&ctx, &mut st, Vec::new());
+        assert!(drawn_rect(&ctx, "agents-composer-attach-menu").is_some(), "the + opens the attach menu");
+        let items = ["agents-composer-add-selection", "agents-composer-attach-prd", "agents-composer-skills-item"];
+        for item in items {
+            let r = drawn_rect(&ctx, item).unwrap_or_else(|| panic!("{item} is a row of the menu"));
+            assert_eq!(r.height(), theme::MENU_ITEM_HEIGHT, "{item} is a 32 px menu item");
+        }
+
+        // `Attach PRD` toggles the chip state, and the next send prepends the tag.
+        let prd = drawn_rect(&ctx, "agents-composer-attach-prd").unwrap();
+        panel_frame(&ctx, &mut st, click_events(prd));
+        assert!(st.active_composer().attach_prd, "Attach PRD sets the flag");
+        panel_frame(&ctx, &mut st, Vec::new());
+        assert!(drawn_rect(&ctx, "agents-composer-chip-prd").is_some(), "and the PRD chip is drawn");
+
+        // `Skills…` opens the same popover the chip opens.
+        panel_frame(&ctx, &mut st, click_events(add));
+        panel_frame(&ctx, &mut st, Vec::new());
+        let skills = drawn_rect(&ctx, "agents-composer-skills-item").expect("Skills… row");
+        assert!(!st.skills.picker_open);
         panel_frame(&ctx, &mut st, click_events(skills));
-        assert!(st.skills.picker_open, "the button opens the same picker as the composer chip");
+        assert!(st.skills.picker_open, "Skills… opens the picker");
         panel_frame(&ctx, &mut st, Vec::new());
         assert!(drawn_rect(&ctx, "agents-skills-picker-popover").is_some(), "the picker is drawn");
-
-        // The strip makes room for it: with a tab open the button still sits right of `+` and inside the panel (`panel_frame`: x 48..408).
-        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn tab");
-        panel_frame(&ctx, &mut st, Vec::new());
-        let add = drawn_rect(&ctx, "agents-runtime-add-btn").expect("runtime selector");
-        let skills = drawn_rect(&ctx, "agents-header-skills").expect("header Skills button");
-        assert!(skills.left() >= add.right() && skills.right() <= 48.0 + 360.0, "{add:?} {skills:?}");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

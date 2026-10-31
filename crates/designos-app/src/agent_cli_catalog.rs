@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -29,15 +30,6 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Warning caption shown on `"Other CLI…"` and saved custom CLI rows (`#652` §3 rule 7).
 pub const CUSTOM_CLI_WARNING: &str = "Plain command: Studio tools not connected";
-
-/// Footer permission caption while agents launch with their skip flag (`#652` §3 rule 9).
-pub const SKIP_PERMISSION_CAPTION: &str = "Skip permissions";
-
-/// Footer permission caption while agents ask before acting, the default (`#656`, `#841`).
-pub const ASK_PERMISSION_CAPTION: &str = "Ask before acting";
-
-/// Footer permission caption while only risky designos calls ask (`#1288`).
-pub const ASK_RISKY_PERMISSION_CAPTION: &str = "Ask for risky only";
 
 /// Sign-in state reported for a CLI descriptor (`#652` §4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -405,12 +397,23 @@ pub fn probe_descriptor(desc: &CliDescriptor, runner: &Arc<dyn RunCommand>, time
     CliProbe { installed: true, version, signed_in }
 }
 
+/// Stores `probe` for `preset` and bumps `generation` only when the stored answer changes, so a re-probe that finds the same answer
+/// leaves everything derived from the cache valid.
+fn store_probe(map: &mut HashMap<AgentCliPreset, CliProbe>, generation: &AtomicU64, preset: AgentCliPreset, probe: CliProbe) {
+    if map.get(&preset) != Some(&probe) {
+        map.insert(preset, probe);
+        generation.fetch_add(1, Ordering::Release);
+    }
+}
+
 /// In-memory cache of [`CliProbe`] results per [`AgentCliPreset`], refreshed asynchronously off the UI thread (`#652` §3 rule 2).
 #[derive(Clone)]
 pub struct CatalogProbeCache {
     probes: Arc<Mutex<HashMap<AgentCliPreset, CliProbe>>>,
     pinned: Arc<Mutex<HashMap<AgentCliPreset, CliProbe>>>,
     in_flight: Arc<Mutex<bool>>,
+    /// Counts the writes to `probes`, so a reader that keeps a copy of what they said knows when the copy went stale.
+    generation: Arc<AtomicU64>,
     runner: Arc<dyn RunCommand>,
     timeout: Duration,
 }
@@ -456,9 +459,15 @@ impl CatalogProbeCache {
             probes: Arc::new(Mutex::new(HashMap::new())),
             pinned: Arc::new(Mutex::new(HashMap::new())),
             in_flight: Arc::new(Mutex::new(false)),
+            generation: Arc::new(AtomicU64::new(0)),
             runner,
             timeout,
         }
+    }
+
+    /// Changes whenever a probe result is written. A copy derived from [`Self::snapshot`] is current while this number is the one it saw.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(Ordering::Acquire)
     }
 
     /// Triggers an asynchronous background refresh of all catalog descriptors off the UI thread.
@@ -473,7 +482,10 @@ impl CatalogProbeCache {
         {
             let mut map = self.probes.lock().unwrap();
             for desc in &descriptors {
-                map.entry(desc.preset).or_insert_with(|| CliProbe { installed: false, version: None, signed_in: SignIn::Checking });
+                if !map.contains_key(&desc.preset) {
+                    let seed = CliProbe { installed: false, version: None, signed_in: SignIn::Checking };
+                    store_probe(&mut map, &self.generation, desc.preset, seed);
+                }
             }
         }
         if let Ok(mut active) = self.in_flight.lock() {
@@ -483,6 +495,7 @@ impl CatalogProbeCache {
         let probes_ref = Arc::clone(&self.probes);
         let pinned_ref = Arc::clone(&self.pinned);
         let in_flight_ref = Arc::clone(&self.in_flight);
+        let generation_ref = Arc::clone(&self.generation);
         let runner = Arc::clone(&self.runner);
         let timeout = self.timeout;
 
@@ -492,18 +505,19 @@ impl CatalogProbeCache {
                 let r = Arc::clone(&runner);
                 let p_map = Arc::clone(&probes_ref);
                 let pin_map = Arc::clone(&pinned_ref);
+                let generation = Arc::clone(&generation_ref);
                 handles.push(std::thread::spawn(move || {
                     if let Ok(pinned) = pin_map.lock() {
                         if let Some(existing) = pinned.get(&desc.preset).cloned() {
                             if let Ok(mut guard) = p_map.lock() {
-                                guard.insert(desc.preset, existing);
+                                store_probe(&mut guard, &generation, desc.preset, existing);
                             }
                             return;
                         }
                     }
                     let res = probe_descriptor(&desc, &r, timeout);
                     if let Ok(mut guard) = p_map.lock() {
-                        guard.insert(desc.preset, res);
+                        store_probe(&mut guard, &generation, desc.preset, res);
                     }
                 }));
             }
@@ -521,7 +535,7 @@ impl CatalogProbeCache {
         for desc in catalog() {
             let res = probe_descriptor(&desc, &self.runner, self.timeout);
             if let Ok(mut guard) = self.probes.lock() {
-                guard.insert(desc.preset, res);
+                store_probe(&mut guard, &self.generation, desc.preset, res);
             }
         }
         if let Ok(mut active) = self.in_flight.lock() {
@@ -545,7 +559,7 @@ impl CatalogProbeCache {
             pinned.insert(preset, probe.clone());
         }
         if let Ok(mut guard) = self.probes.lock() {
-            guard.insert(preset, probe);
+            store_probe(&mut guard, &self.generation, preset, probe);
         }
     }
 

@@ -598,13 +598,6 @@ pub fn format_mention_reference_line(mention: &Mention) -> String {
     format!("References: @{} = {uri} ({detail})", mention.label)
 }
 
-/// Formats the reference snippet pasted into the active agent PTY tab when picking from the
-/// terminal header `Mention` button (`#655` §4).
-pub fn format_terminal_paste_mention(mention: &Mention) -> String {
-    let uri = format_reference_uri(mention.kind, &mention.id);
-    format!("@{} ({uri}) ", mention.label)
-}
-
 /// True when `@<label>` is still present as a mention token in `prompt`.
 pub fn mention_present_in_prompt(prompt: &str, label: &str) -> bool {
     let clean = label.trim();
