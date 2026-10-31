@@ -374,10 +374,10 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
                 }
             }
             let pads = pad_classes(doc, n, al);
-            if !pads.is_empty() {
+            if !pads.is_empty() || al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) {
                 c.push("box-border".into());
-                c.extend(pads);
             }
+            c.extend(pads);
         } else {
             c.push("flex".into());
             if al.direction == LayoutDirection::Vertical {
