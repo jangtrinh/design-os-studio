@@ -418,14 +418,14 @@ workspace lib exit=0 (1,438 unit tests passed across all 12 workspace lib target
 
 ### 1. What Could NOT Be Verified (Round 5 — Stated First)
 
-1. **Interactive desktop OS pointer click on the Properties panel combo box**: Verified headlessly through the App's `App::set_instance_prop` (`crates/designos-app/src/panels/components.rs:673`), `App::swap_instance` (`crates/designos-app/src/panels/components.rs:104`), and `App::edit_nodes` (`crates/designos-app/src/panels/components.rs:607`) entry points in `properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo` (`:409`) and `review_r4_app_swapped_slot_follows_new_main_height_edit` (`:566`), plus live `designos-mcp` subprocess verification in `plans/reports/agy-1427-swap-overrides-evidence/r5-swap-check.log`, `r5-redraw-bounds.log`, and `r5-redraw-syncs.log`.
+1. **Interactive desktop OS pointer click on the Properties panel combo box**: Verified headlessly through the App's `App::set_instance_prop` (`crates/designos-app/src/comp_ops.rs:452`), `App::swap_instance` (`crates/designos-app/src/comp_ops.rs:462`), and `App::edit_nodes` (`crates/designos-app/src/ops.rs:244`) entry points in `properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo` (`crates/designos-app/src/panels/components.rs:409`) and `review_r4_app_swapped_slot_follows_new_main_height_edit` (`crates/designos-app/src/panels/components.rs:566`), plus live `designos-mcp` subprocess verification in `plans/reports/agy-1427-swap-overrides-evidence/r5-swap-check.log`, `r5-redraw-bounds.log`, and `r5-redraw-syncs.log`.
 2. **Pre-existing Clippy errors on `origin/main` in `designos-app`**: Running `cargo clippy --workspace --all-targets --locked -- -D warnings` (with no `-A` flags) exits `101` solely because of 5 pre-existing lint errors in untouched `origin/main` lines of `crates/designos-app/src/agent_permissions.rs:1163,1181` (`clippy::needless_return`) and `crates/designos-app/src/panels/components.rs:263,363,613` (`clippy::items_after_test_module`, `unused_must_use`, `clippy::ptr_arg`), which were left untouched per Round 3 `m4` (`plans/reports/agy-1427-swap-overrides-evidence/r5-gates.log`). Zero warnings or errors occur in `designos-doc`, `designos-mcp`, or any modified line.
-3. **Full unfiltered `designos-app` binary test suite (`~3,964` tests)**: Per Acceptance Item 3 of the Round 5 brief, ran the four mandatory targeted filter suites (`component` 116 passed, `instance` 97 passed, `variant` 19 passed, `librar` 179 passed; `0 failed`).
+3. **Full unfiltered `designos-app` binary test suite (`~3,964` tests)**: Per Acceptance Item 3 of the Round 5 brief, ran the four mandatory targeted filter suites (`component` 116 passed, `instance` 97 passed, `variant` 19 passed, `librar` 179 passed; `0 failed` when `HOME` and `TMPDIR` are siblings, and `178 passed, 1 failed` on `terminal::ask_mode_tests::bind_session_on_a_library_file_with_a_held_lock_clears_grants_and_keeps_the_dir` when `HOME=$S/home` sits inside `TMPDIR=$S/`).
 
 ### 2. Skills Loaded & Changes Made Because of Them
 
 - **`es:dev` & `es:feature-dev`** (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`): Enforced red-test-commit-before-green-fix-commit sequencing for each ruling (`54c9be78` -> `4bb74244`, `814dbb49` -> `38a649d5`, `f9f20edb` -> `00f711c6`) and strict scope discipline (touching only `crates/designos-doc/src/components.rs`, `crates/designos-app/src/panels/components.rs`, and `plans/reports/agy-1427-swap-overrides*`).
-- **`es:rust` & `es:rust-gpu-canvas`** (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Replaced the `thread_local!` `LAST_DROPPED_INNER_SWAPS` state with a per-context `Ctx::dropped_inner_swaps` counter (`crates/designos-doc/src/components.rs:61,1362`) returned by `swap_main` (`:1312,1463`), `swap_instance_inner` (`:1649,1665`), and `set_instance_prop_inner` (`:1674,1689`), and avoided adding any extra node clones in `sync_pair` (`:1476,1524-1535`).
+- **`es:rust` & `es:rust-gpu-canvas`** (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Replaced the `thread_local!` `LAST_DROPPED_INNER_SWAPS` state with a per-context `Ctx::dropped_inner_swaps` counter (`crates/designos-doc/src/components.rs:70,1362`) returned by `swap_main` (`:1312,1463`), `swap_instance_inner` (`:1662,1678`), and `set_instance_prop_inner` (`:1687,1702`), and avoided adding any extra node clones in `sync_pair` (`:1476,1524-1535`).
 - **`es:fable-thinking` & `es:astra-work`** (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`): Used falsification-first mutation testing across all 11 reviewer mutants (`r5-mutants.log`), which caught that `probe_p5_size_rule_is_per_axis` needed a post-swap `sync_instances(&mut d, card)` step (`crates/designos-doc/src/components.rs:5443-5446`) so that `sync_pair`'s `!swapped_here` per-axis branch (`:1526-1535`) is exercised and kills `R-AXIS-SYNC`.
 
 ### 3. Round 5 Rulings, Commit Pairs & Exact `file:line` References (`fc0c7805`)
@@ -435,7 +435,7 @@ workspace lib exit=0 (1,438 unit tests passed across all 12 workspace lib target
 | **0. Merge `origin/main`** | — | `185370d3` | `crates/designos-doc/src/components.rs` | Merged latest `origin/main` cleanly onto `b970a463`. |
 | **1. `NEW-1` (blocker: swapped nested instance keeps following its new main on later syncs)** | `54c9be78` | `4bb74244` | `crates/designos-doc/src/components.rs:1476`, `:1499-1500`, `:1524-1535` (`sync_pair`); tests at `crates/designos-doc/src/components.rs:6115-6175` and `crates/designos-app/src/panels/components.rs:566-610` | Dropped `inst_slot_size`. Tracked `let mut swapped_here = false;` (`:1476`), set `swapped_here = true;` right after `swap_main(c, i, desired)` (`:1499-1500`). On the swap sync (`if swapped_here`, `:1524-1525`), `node_ref.size = inode.size;` preserves `swap_main`'s per-axis decision (including outer-instance constraint widening). On every later sync (`else`, `:1526-1535`), keeps an axis only where `node_ref.size` was resized away from `orig_slot_comp` (`(node_ref.size.x - oc.size.x).abs() > 1e-4` / `(node_ref.size.y - oc.size.y).abs() > 1e-4`), otherwise takes `rn.size` (the new main's size). Added `r4_swapped_slot_follows_new_main_resize_prop` (`:6115`), `r4_swapped_slot_follows_new_main_resize_direct` (`:6136`), `r4_reswap_takes_new_main_size` (`:6157`), and `review_r4_app_swapped_slot_follows_new_main_height_edit` (`panels/components.rs:566`). |
 | **2. `NEW-2` (Cross-type glyph outlines on carried `Size`)** | `814dbb49` | `38a649d5` | `crates/designos-doc/src/components.rs:1455-1460` (`swap_main`); test at `crates/designos-doc/src/components.rs:6249-6315` | Removed `own_geo` save/restore before `copy_overridden`. Instead, after `copy_overridden(&old, &mut nn, &fields);` (`:1456`), if `kinds_differ && fields.contains(&OverrideField::Size) && !matches!(nn.kind, NodeKind::Vector { .. } \| NodeKind::BooleanOp(_))` (`:1457`), clears `nn.fill_geometry = None; nn.stroke_geometry = None;` (`:1458-1459`). Thus `Vector ↔ BooleanOp` and `Ellipse → Vector` keep the 20 px scaled `fill_geometry`/`stroke_geometry` copied from `old` (which `apply_reference` then rescales to the new main's outline at 20 px), while `Vector → Ellipse` and `Vector → Frame` clear stale vector geometry. Added `r4_cross_kind_size_carry_matrix` (`:6249`). |
-| **3. `MIN-1` (Log and return per-call dropped inner-swap count without `thread_local!`)** | `f9f20edb` | `00f711c6` | `crates/designos-doc/src/components.rs:44-51` (`mod log`), `:61` (`Ctx::dropped_inner_swaps`), `:1312,1359-1362,1463` (`swap_main`), `:1649-1666` (`swap_instance_inner`), `:1674-1702` (`set_instance_prop_inner`); tests at `:5649-5817` | Removed `thread_local! LAST_DROPPED_INNER_SWAPS` and `pub fn last_dropped_inner_swaps()`. `swap_main` logs `log::warn!("swap_main on instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s)");` whenever `dropped_inner_swaps > 0` (`:1359-1361`), accumulates `c.dropped_inner_swaps += dropped_inner_swaps;` (`:1362`), and returns `dropped_inner_swaps` (`:1463`). `swap_instance_inner` and `set_instance_prop_inner` return `(Command, usize)` per call; `r3_inner_swap_below_swapped_slot_by_index` (`:5649`), `r4c_count_unswapped_nested_chain_is_zero` (`:5773`), and `r4c_count_two_inner_swaps_then_overwrite` (`:5792`) pin the returned per-call counts (`1`, `0`, and `2` then `0`). |
+| **3. `MIN-1` (Log and return per-call dropped inner-swap count without `thread_local!`)** | `f9f20edb` | `00f711c6` | `crates/designos-doc/src/components.rs:44-51` (`mod log`), `:70` (`Ctx::dropped_inner_swaps`), `:1312,1359-1362,1463` (`swap_main`), `:1662-1679` (`swap_instance_inner`), `:1687-1716` (`set_instance_prop_inner`); tests at `:5649-5817` | Removed `thread_local! LAST_DROPPED_INNER_SWAPS` and `pub fn last_dropped_inner_swaps()`. `swap_main` logs `log::warn!("swap_main on instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s)");` whenever `dropped_inner_swaps > 0` (`:1359-1361`), accumulates `c.dropped_inner_swaps += dropped_inner_swaps;` (`:1362`), and returns `dropped_inner_swaps` (`:1463`). `swap_instance_inner` and `set_instance_prop_inner` return `(Command, usize)` per call; `r3_inner_swap_below_swapped_slot_by_index` (`:5649`), `r4c_count_unswapped_nested_chain_is_zero` (`:5773`), and `r4c_count_two_inner_swaps_then_overwrite` (`:5792`) pin the returned per-call counts (`1`, `0`, and `2` then `0`). |
 | **4. `MIN-2` (Rename `probe_p5_size_rule_is_per_axis`, pin post-swap sync, and correct Round 4 report)** | — | `fc0c7805` | `crates/designos-doc/src/components.rs:5394-5447` (`probe_p5_size_rule_is_per_axis`); `plans/reports/agy-1427-swap-overrides.md:295-308,394-400` | Renamed `probe_p5_size_rule_is_whole_vector` to `probe_p5_size_rule_is_per_axis` (`:5394`) and added a post-swap `sync_instances(&mut d, card)` + assertion (`:5443-5446`) so `sync_pair`'s `!swapped_here` per-axis check is exercised and kills `R-AXIS-SYNC`. Corrected the Round 4 report's `R-AXIS-SYNC` kill attribution and exact clippy commands/flags. |
 
 ### 4. Acceptance Table & Pasted Command Outputs
@@ -456,8 +456,8 @@ Durable Round 5 evidence logs are committed in `plans/reports/agy-1427-swap-over
 | **3. Redraw swap check, bounds & 1/3-sync render check** | `run_swap_check_r4.py`, `redraw_bounds_r4.py`, and `cargo test -p designos-render --test review_probe_1427_render_r4 --locked -- --ignored --nocapture r3_redraw_swapped_glyph_after_syncs` | **PASS** (`SWAP-OK #1427`, `WORST swapped max\|delta\| vs direct = 0.0000 px <= 0.5 px` at `sync0`, `sync1`, `sync2`, `sync3`) | `r5-swap-check.log`, `r5-redraw-bounds.log`, `r5-redraw-syncs.log` |
 | **4a. `cargo fmt`** | `cargo fmt --all -- --check` | **PASS** (`exit=0`) | `r5-gates.log` |
 | **4b. `cargo clippy` (no `-A` flags)** | `cargo clippy --workspace --all-targets --locked -- -D warnings` | **PASS** (`0` warnings/errors in `designos-doc`, `designos-mcp`, or any modified line; only `origin/main`'s pre-existing errors in `agent_permissions.rs:1163,1181` and `panels/components.rs:263,363,613`) | `r5-gates.log` |
-| **4c. `designos-doc` & `designos-mcp` tests** | `cargo test -p designos-doc --locked` & `cargo test -p designos-mcp --locked` | **PASS** (`designos-doc`: `703 + 3 + 5 + 2 = 713 passed, 0 failed`; `designos-mcp`: `297 unit + 199 integration = 496 passed, 0 failed`) | `r5-gates.log` |
-| **4d. `designos-app --bin designos` filters** | `cargo test -p designos-app --bin designos --locked -- {component,instance,variant,librar}` | **PASS** (`component`: `116 passed`; `instance`: `97 passed`; `variant`: `19 passed`; `librar`: `179 passed`; `0 failed`) | `r5-gates.log` |
+| **4c. `designos-doc` & `designos-mcp` tests** | `cargo test -p designos-doc --locked` & `cargo test -p designos-mcp --locked` | **PASS** (`designos-doc`: `703 + 3 + 5 + 2 = 713 passed, 0 failed`; `designos-mcp`: `297 unit + 200 integration = 497 passed, 0 failed`) | `r5-gates.log` |
+| **4d. `designos-app --bin designos` filters** | `cargo test -p designos-app --bin designos --locked -- {component,instance,variant,librar}` | **PASS** (`component`: `116 passed`; `instance`: `97 passed`; `variant`: `19 passed`; `librar`: `179 passed, 0 failed` with sibling `HOME` & `TMPDIR`; `178 passed, 1 failed` when `HOME=$S/home` is inside `TMPDIR=$S/`) | `r5-gates.log` |
 | **4e. Workspace lib tests** | `cargo test --workspace --locked --lib` | **PASS** (`1,446 passed, 0 failed` across all 12 workspace library targets) | `r5-gates.log` |
 
 ```text
@@ -519,9 +519,9 @@ cargo clippy exit: 101
 === GATE 3a: cargo test -p designos-doc --locked ===
 test result: ok. 703 passed; 0 failed (lib) + 3 + 5 + 2 passed; 0 failed
 === GATE 3b: cargo test -p designos-mcp --locked ===
-test result: ok. 297 passed; 0 failed (lib) + 199 integration tests passed; 0 failed
+test result: ok. 297 passed; 0 failed (lib) + 200 integration tests passed; 0 failed (497 total)
 === GATE 4a..4d: cargo test -p designos-app --bin designos --locked -- {component,instance,variant,librar} ===
-component: 116 passed; 0 failed | instance: 97 passed; 0 failed | variant: 19 passed; 0 failed | librar: 179 passed; 0 failed
+component: 116 passed; 0 failed | instance: 97 passed; 0 failed | variant: 19 passed; 0 failed | librar: 179 passed; 0 failed (sibling HOME/TMPDIR; 178/1 when HOME sits inside TMPDIR)
 === GATE 5: cargo test --workspace --locked --lib ===
 test result: ok. 1,446 passed; 0 failed across all 12 workspace lib targets
 ```
@@ -534,6 +534,184 @@ test result: ok. 1,446 passed; 0 failed across all 12 workspace lib targets
 - **`INFERENCE`**: When an outer instance widens its root (e.g. `Card` widened from `100` to `300`, stretching its `Action` slot from `80` to `280` without setting `OverrideField::Size` on `Action`), `set_instance_prop` performs the swap inside `sync_pair` (`swapped_here = true`, keeping `280x40`), and any subsequent `sync_instances(&mut d, card)` or `sync_instances(&mut d, bb)` re-applies `rn.size` (`80x40` or `80x48`) to `Action` unless the outer `Card` instance's own constraint pass re-stretches `Action` or the main's slot was widened.
 - **`ASSUMPTION`**: Using a crate-local `mod log` (`crates/designos-doc/src/components.rs:44-51`) that formats `WARN designos_doc::components: ...` to `stderr` satisfies `log::warn!` without modifying `crates/designos-doc/Cargo.toml` (which is outside the allowed-files list).
 - **Weakest link**: If an outer instance (`ci`) is widened (`100 -> 300`, stretching its child slot `si` via `Stretch` constraint without recording `OverrideField::Size` on `si`), `si` keeps width `280` on the swap sync (`swapped_here == true`), but a later `sync_instances(&mut d, card)` will reset `si.size.x` to `rn.size.x` (`80`) because `sync_pair` for the outer `ci` does not re-run a constraint pass for `ci`'s own `OverrideField::Size` after syncing `ci`'s children.
+- **Unresolved questions**: None.
+
+Status: DONE
+
+---
+
+## Round 6: Test Gaps (`MINOR-2`), Warning Line & Single Channel (`MINOR-1`), Behaviour Test Names (`MINOR-3`), Report Fixes (`MINOR-4`), and PR (`#1427` DEV Round 6)
+
+### 1. What Could NOT Be Verified (Round 6 — Stated First)
+
+1. **Interactive desktop OS pointer click and live Figma comparison**: Verified headlessly through `App::set_instance_prop` (`crates/designos-app/src/comp_ops.rs:452`), `App::swap_instance` (`crates/designos-app/src/comp_ops.rs:462`), and `App::edit_nodes` (`crates/designos-app/src/ops.rs:244`) in `crates/designos-app/src/panels/components.rs:409,566`, and through `designos-mcp` on a scratch copy of `ff815148:design/studio-ui.designos` (`plans/reports/agy-1427-swap-overrides-evidence/r6-swap-check.log`).
+2. **Pre-existing `r5_row1..6` test names in `crates/designos-doc/src/styles_ops.rs:2504..3080`**: After renaming all 28 audit-labeled test functions on this branch (`crates/designos-doc/src/components.rs` and `crates/designos-app/src/panels/components.rs`), `git grep -nE 'fn (r[0-9]+_|r4c_|probe_p[0-9]+_|review_r[0-9]+_|ruling_m[0-9]+_)' -- crates/designos-doc/src/components.rs crates/designos-app/src/panels/components.rs` prints nothing (`0` matches), while `git grep -nE 'fn (r[0-9]+_|r4c_|probe_p[0-9]+_|review_r[0-9]+_|ruling_m[0-9]+_)' -- crates` prints 6 lines in `crates/designos-doc/src/styles_ops.rs` that landed on `origin/main` in `ccdac946` (`#1424`) and are outside this task's allowed-files list (`crates/designos-doc/src/components.rs` and `crates/designos-app/src/panels/components.rs`).
+3. **Pre-existing Clippy errors on `origin/main` in `designos-app`**: Running `cargo clippy --workspace --all-targets --locked -- -D warnings` (with no `-A` flags) exits `101` solely because of `origin/main`'s 5 known errors (`crates/designos-app/src/agent_permissions.rs:1163,1181` and `crates/designos-app/src/panels/components.rs:263,363,613`; `plans/reports/agy-1427-swap-overrides-evidence/r6-clippy.log`).
+
+### 2. Skills Loaded & Changes Made Because of Them
+
+- **`es:dev` & `es:feature-dev`** (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`): Executed the accepted Round 6 controller rulings in order (merge `origin/main` `c73b53bc` -> three individual `test(doc): ...` commits `8728c34b`, `8baa3ec5`, `cfacb45e` verified red on their review mutant and green on head -> `fix(doc): ...` commit `f26136f3` for `MINOR-1` -> `test(doc,app): ...` commit `e542545c` for `MINOR-3` -> PR creation `https://github.com/jangtrinh/design-os-studio/pull/1449`), modifying only the allowed files.
+- **`es:rust` & `es:rust-gpu-canvas`** (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Removed the crate-local `mod log` shim and `swap_main`'s duplicate `usize` return value (`crates/designos-doc/src/components.rs:1303,1350-1353`), using the crate's `eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s) (#1433)");` convention and keeping a single channel (`Ctx::dropped_inner_swaps`, `:61`).
+- **`es:fable-thinking` & `es:astra-work`** (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`): Applied falsification-first mutation testing (`r6-mutants.log`) to confirm each of the 3 new `MINOR-2` tests fails on its review mutant (`V-COUNT-ASSIGN`, `V-CLEAR-NO-SIZE`, `V-CLEAR-FILL-ONLY`) and passes on head, and that all 11 Round 5 mutants remain killed (`14 / 14 KILLED`).
+
+### 3. Round 6 Commits & Exact `file:line` References (`e542545c`)
+
+| Step / Ruling | Commit | File, Symbol & Exact Line Range (`e542545c`) | Summary |
+|---|---|---|---|
+| **0. Merge `origin/main`** | `c73b53bc` | `scripts/tests/test_check_ds_ontology_parity.py` | Merged `origin/main` (`53d571c7`) into `c76004ca` with a merge commit. |
+| **1a. `MINOR-2` (`V-COUNT-ASSIGN`)** | `8728c34b` | `crates/designos-doc/src/components.rs:5814-5863` (`property_swap_accumulates_dropped_inner_swaps_across_bound_slots`) | Pins one property bound to two slots swapped in one call returning `(cmd, 2)` from `set_instance_prop_inner` (fails on `V-COUNT-ASSIGN` with `left: (1, 0, 1, 0), right: (1, 0, 2, 0)`, passes on head). |
+| **1b. `MINOR-2` (`V-CLEAR-NO-SIZE`)** | `8baa3ec5` | `crates/designos-doc/src/components.rs:6360-6422` (`direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync`) | Pins a `Fills`-only cross-type swap on the direct `swap_instance` path (`Vector -> Frame` and `Vector -> Ellipse` with an imported outline) keeping the new main's imported outline right at the swap before any sync (fails on `V-CLEAR-NO-SIZE` with `left: None, right: Some((3.0, 2.0, 13.0, 14.0))`, passes on head). |
+| **1c. `MINOR-2` (`V-CLEAR-FILL-ONLY`)** | `cfacb45e` | `crates/designos-doc/src/components.rs:6425-6451` (`cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph`) | Pins a stroked cross-type cell (`Vector -> Frame` with an imported `stroke_geometry`) clearing `stroke_geometry` to `None` at the swap and after 1 sync (fails on `V-CLEAR-FILL-ONLY`, passes on head). |
+| **2. `MINOR-1` (Warning line & single channel)** | `f26136f3` | `crates/designos-doc/src/components.rs:61` (`Ctx::dropped_inner_swaps`), `:1303,1350-1353` (`swap_main`), `:1652-1669` (`swap_instance_inner`), `:1677-1706` (`set_instance_prop_inner`) | Deleted `mod log`. `swap_main` now returns `()`, writes `eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s) (#1433)");` when `dropped_inner_swaps > 0`, and adds to `Ctx::dropped_inner_swaps`. `swap_instance_inner` and `set_instance_prop_inner` read and return the per-call count from `Ctx`. |
+| **3. `MINOR-3` (Behaviour test names & comment cleanup)** | `e542545c` | `crates/designos-doc/src/components.rs:4453..6295` (27 test renames) and `crates/designos-app/src/panels/components.rs:566` (`swapped_slot_follows_new_main_height_edit_in_app`) | Renamed all 28 audit-labeled tests on this branch to behaviour names and removed `(R-M2)` and all review/mutant finding codes from comments and assertion messages. |
+| **4. `MINOR-4` (Round 5 report fixes & PR)** | (this commit) | `plans/reports/agy-1427-swap-overrides.md` | Corrected the Round 5 App entry-point citations (`comp_ops.rs:452`, `comp_ops.rs:462`, `ops.rs:244`), the three doc line citations (`:70`, `:1662`, `:1687`), the `designos-mcp` test count (`497`), and the `librar` harness count (`179 passed, 0 failed` with sibling `HOME` and `TMPDIR`), and opened PR [#1449](https://github.com/jangtrinh/design-os-studio/pull/1449). |
+
+### 4. Acceptance Table & Pasted Command Outputs
+
+Durable Round 6 evidence logs are committed in `plans/reports/agy-1427-swap-overrides-evidence/`:
+- `plans/reports/agy-1427-swap-overrides-evidence/r6-mutants.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r6-clippy.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r6-gates.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r6-swap-check.log`
+
+| Acceptance Check | Command | Result | Evidence File |
+|---|---|---|---|
+| **1a. Three new `MINOR-2` tests red on mutant, green on head** | `python3` harness applying `V-COUNT-ASSIGN`, `V-CLEAR-NO-SIZE`, and `V-CLEAR-FILL-ONLY` to `crates/designos-doc/src/components.rs` | **PASS** (all 3 fail with `exit=101` on their review mutant and pass with `exit=0` on head) | `r6-mutants.log` |
+| **1b. Round 5's 11 mutants + 3 review mutants** | `cargo test -p designos-doc --lib --locked` against all 14 mutants | **PASS** (`14 / 14 KILLED`) | `r6-mutants.log` |
+| **2a. `cargo fmt`** | `cargo fmt --all -- --check` | **PASS** (`exit=0`) | `r6-gates.log` |
+| **2b. `cargo clippy` (no `-A` flags)** | `cargo clippy --workspace --all-targets --locked -- -D warnings` | **PASS** (only `origin/main`'s 5 known errors in `agent_permissions.rs:1163,1181` and `panels/components.rs:263,363,613`) | `r6-clippy.log`, `r6-gates.log` |
+| **2c. `designos-doc` & `designos-mcp` tests** | `cargo test -p designos-doc --locked` & `cargo test -p designos-mcp --locked` | **PASS** (`designos-doc`: `706 + 3 + 5 + 2 = 716 passed, 0 failed`; `designos-mcp`: `497 passed, 0 failed`) | `r6-gates.log` |
+| **2d. `designos-app --bin designos` filters** | `cargo test -p designos-app --bin designos --locked {component,instance,variant,librar}` | **PASS** (`component`: `116 passed`; `instance`: `97 passed, 1 ignored`; `variant`: `19 passed`; `librar` with sibling `HOME` & `TMPDIR`: `179 passed, 0 failed`) | `r6-gates.log` |
+| **2e. Workspace lib tests** | `cargo test --workspace --locked --lib` | **PASS** (`1,449 passed, 0 failed, 3 ignored`) | `r6-gates.log` |
+| **3. `swap_check` on scratch copy of `ff815148`** | `git show ff815148:design/studio-ui.designos` + head `designos-mcp` | **PASS** (`SWAP-OK #1427`, `sha1=8c39a339c7cda89e9fd0a7cecc9bc84a6c37c991` unchanged) | `r6-swap-check.log` |
+| **4. Open PR against `main`** | `gh pr create --base main --head jangtrinh/agy-1427-swap-overrides ...` | **PASS** ([`https://github.com/jangtrinh/design-os-studio/pull/1449`](https://github.com/jangtrinh/design-os-studio/pull/1449)) | — |
+
+```text
+=== 1. r6-mutants.log (3 New Tests Red on Review Mutant -> Green on Head + All 14 Mutants Killed) ===
+=== PART 1: The Three New Tests (Red on Review Mutant -> Green on Head) ===
+
+--- V-COUNT-ASSIGN :: property_swap_accumulates_dropped_inner_swaps_across_bound_slots ---
+[mutant applied] exit=101
+  running 1 test
+  test components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots ... FAILED
+  thread 'components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots' (45232889) panicked at crates/designos-doc/src/components.rs:5862:9:
+  assertion `left == right` failed
+    left: (1, 0, 1, 0)
+   right: (1, 0, 2, 0)
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+[head] exit=0
+  running 1 test
+  test components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots ... ok
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+
+--- V-CLEAR-NO-SIZE :: direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync ---
+[mutant applied] exit=101
+  running 1 test
+  test components::tests::direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync ... FAILED
+  thread 'components::tests::direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync' (45234755) panicked at crates/designos-doc/src/components.rs:6406:13:
+  assertion `left == right` failed: vector->frame Fills-only direct swap must keep new main's imported outline before sync
+    left: None
+   right: Some((3.0, 2.0, 13.0, 14.0))
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+[head] exit=0
+  running 1 test
+  test components::tests::direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync ... ok
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+
+--- V-CLEAR-FILL-ONLY :: cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph ---
+[mutant applied] exit=101
+  running 1 test
+  test components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph ... FAILED
+  thread 'components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph' (45236387) panicked at crates/designos-doc/src/components.rs:6443:9:
+  assertion `left == right` failed: vector->frame with carried Size must clear stroke_geometry at swap
+    left: Some([Path { cmds: [MoveTo(Vec2 { x: 0.0, y: 0.0 }), LineTo(Vec2 { x: 20.0, y: 0.0 }), LineTo(Vec2 { x: 20.0, y: 20.0 }), LineTo(Vec2 { x: 0.0, y: 20.0 }), Close], fill_rule: NonZero }])
+   right: None
+  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+[head] exit=0
+  running 1 test
+  test components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph ... ok
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 705 filtered out; finished in 0.01s
+
+=== PART 2: All 11 Round-5 Worker Mutants + 3 MINOR-2 Review Mutants ===
+KILLED        R-AXIS-SYNC sync_pair whole-vector keep on later syncs  (14.9s) ['components::tests::nested_slot_size_rule_is_per_axis_across_swap_and_sync']
+KILLED        R-COPYFIELD r3 Vector/BooleanOp guard back in shared copy_field  (15.3s) ['components::tests::copy_field_size_on_imported_shapes_after_main_resize']
+KILLED        R-M2 top-level swaps carry diff-derived overrides  (16.5s) ['components::tests::top_level_swap_does_not_carry_diff_derived_overrides']
+KILLED        R-PROMO Min/Min -> Scale promotion added back  (16.1s) ['components::tests::pinned_logo_keeps_size_on_user_resized_card_after_swap_and_sync', 'components::tests::pinned_logo_keeps_size_when_outer_width_is_kept_per_axis', 'components::tests::pinned_and_scale_glyphs_follow_constraint_solver_on_slot_swap']
+KILLED        N-STAMP constraint pass stamps Size/Transform overrides again  (15.0s) ['components::tests::nested_slot_widened_by_outer_instance_keeps_width_on_swap', 'components::tests::slot_swap_scales_inset_glyph_by_scale_not_slot_size']
+KILLED        N-NO-POSTPASS drop sync_pair's post-children constraint pass  (15.2s) ['components::tests::nested_slot_widened_by_outer_instance_keeps_width_on_swap', 'components::tests::pinned_and_scale_glyphs_follow_constraint_solver_on_slot_swap', 'components::tests::slot_swap_scales_inset_glyph_by_scale_not_slot_size']
+KILLED        N-NO-RESTORE drop the kinds_differ geometry clear  (14.6s) ['components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph', 'components::tests::swap_drops_override_when_old_and_new_mains_differ', 'components::tests::glyph_type_change_with_carried_size_draws_new_outline']
+KILLED        N-SLOTRN swap sync uses the MAIN's slot reference too (r3)  (14.8s) ['components::tests::nested_slot_widened_by_outer_instance_keeps_width_on_swap']
+KILLED        N-COUNT-OFF dropped inner swaps never counted  (15.7s) ['components::tests::inner_swap_below_swapped_slot_is_dropped_and_counted', 'components::tests::swap_reports_dropped_inner_swaps_per_call', 'components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots']
+KILLED        N-SETNAME auto-name ignores the set name  (16.2s) ['components::tests::set_named_variant_instance_takes_new_main_name_on_cross_family_swap']
+KILLED        N-LAYOUT root Layout override survives a swap again  (15.8s) ['components::tests::swap_transfers_matching_overrides_across_node_types_and_preserves_slot_bindings']
+KILLED        V-COUNT-ASSIGN per-call count overwritten instead of accumulated  (15.7s) ['components::tests::property_swap_accumulates_dropped_inner_swaps_across_bound_slots']
+KILLED        V-CLEAR-NO-SIZE clear geometry on any cross-kind non-vector target, Size carried or not  (14.9s) ['components::tests::direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync']
+KILLED        V-CLEAR-FILL-ONLY stroke_geometry kept on the cleared target  (15.5s) ['components::tests::cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph']
+
+=== 2. MINOR-3 Test Name Audit Grep ===
+$ git grep -nE 'fn (r[0-9]+_|r4c_|probe_p[0-9]+_|review_r[0-9]+_|ruling_m[0-9]+_)' -- crates/designos-doc/src/components.rs crates/designos-app/src/panels/components.rs
+(prints nothing)
+
+$ git grep -nE 'fn (r[0-9]+_|r4c_|probe_p[0-9]+_|review_r[0-9]+_|ruling_m[0-9]+_)' -- crates
+crates/designos-doc/src/styles_ops.rs:2504:    fn r5_row1_three_modes_mixed_override_uses_fallback_preserves_delete_time_mode_and_reports_pair() {
+crates/designos-doc/src/styles_ops.rs:2645:    fn r5_row2_three_modes_same_style_opacity_in_every_style_won_mode_is_exact_and_reports_nothing() {
+crates/designos-doc/src/styles_ops.rs:2747:    fn r5_row3_style_variable_in_second_collection_brand_and_own_in_theme() {
+crates/designos-doc/src/styles_ops.rs:2892:    fn r5_row4_style_font_weight_missing_in_light_with_own_font_style_italic_and_bold_italic() {
+crates/designos-doc/src/styles_ops.rs:2963:    fn r5_row5_value_stored_only_under_light_plus_compact_key_classified_with_resolve_variable() {
+crates/designos-doc/src/styles_ops.rs:3080:    fn r5_row6_mixed_stop_keys_keep_binding_and_match_every_mode() {
+
+=== 3. r6-gates.log & grep -E '^(error|warning)' r6-clippy.log ===
+=== GATE 1: cargo fmt --all -- --check ===
+fmt_rc=0
+=== GATE 2: cargo clippy --workspace --all-targets --locked -- -D warnings ===
+clippy_rc=101
+--- grep -E '^(error|warning)' r6-clippy.log ---
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1427-swap-overrides/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+error: unneeded `return` statement
+error: unneeded `return` statement
+error: writing `&mut Vec` instead of `&mut [_]` involves a new object where a slice will do
+error: could not compile `designos-app` (bin "designos-studio") due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `designos-app` (bin "designos") due to 3 previous errors
+error: items after a test module
+error: unused return value of `egui::Context::run_ui` that must be used
+error: could not compile `designos-app` (bin "designos-studio" test) due to 5 previous errors
+error: could not compile `designos-app` (bin "designos" test) due to 5 previous errors
+=== GATE 3a: cargo test -p designos-doc --locked ===
+test result: ok. 706 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.46s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+=== GATE 3b: cargo test -p designos-mcp --locked ===
+297 + 4 + 28 + 11 + 1 + 16 + 11 + 4 + 3 + 3 + 22 + 1 + 14 + 9 + 42 + 8 + 5 + 1 + 7 + 6 + 4 = 497 passed; 0 failed
+=== GATE 4a: cargo test -p designos-app --bin designos --locked component ===
+test result: ok. 116 passed; 0 failed; 0 ignored; 0 measured; 3848 filtered out; finished in 17.06s
+=== GATE 4b: cargo test -p designos-app --bin designos --locked instance ===
+test result: ok. 97 passed; 0 failed; 1 ignored; 0 measured; 3866 filtered out; finished in 8.55s
+=== GATE 4c: cargo test -p designos-app --bin designos --locked variant ===
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 3945 filtered out; finished in 1.34s
+=== GATE 4d (sibling HOME & TMPDIR): cargo test -p designos-app --bin designos --locked librar ===
+test result: ok. 179 passed; 0 failed; 0 ignored; 0 measured; 3785 filtered out; finished in 21.99s
+=== GATE 5: cargo test --workspace --locked --lib ===
+13 + 706 + 1 + 153 + 143 + 30 + 4 + 37 + 297 + 56 + 1 + 8 = 1,449 passed; 0 failed; 3 ignored
+
+=== 4. r6-swap-check.log ===
+server: {"name": "designos-mcp", "version": "0.7.5"}
+studio-ui.designos sha1 before=8c39a339c7cda89e9fd0a7cecc9bc84a6c37c991 after=8c39a339c7cda89e9fd0a7cecc9bc84a6c37c991 unchanged=True
+SWAP-OK #1427: 6 swapped variants keep colour, binding, opacity, visibility and the drawn glyph's bounds; SWAP_CHECK_FATAL can flip to True
+
+=== 5. Pull Request URL ===
+https://github.com/jangtrinh/design-os-studio/pull/1449
+```
+
+### 5. Round 6 Epistemic Ledger, Assumptions, Weakest Link & Unresolved Questions
+
+- **`FACT`**: Each of the 3 new `MINOR-2` tests (`property_swap_accumulates_dropped_inner_swaps_across_bound_slots`, `direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync`, `cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph`) fails with `exit=101` when its review mutant (`V-COUNT-ASSIGN`, `V-CLEAR-NO-SIZE`, `V-CLEAR-FILL-ONLY`) is applied and passes with `exit=0` on head (`r6-mutants.log`).
+- **`FACT`**: All 11 Round 5 worker mutants plus the 3 `MINOR-2` review mutants are killed (`14 / 14 KILLED` in `r6-mutants.log`).
+- **`FACT`**: `mod log` is deleted from `crates/designos-doc/src/components.rs`, `swap_main` returns `()` and writes `eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s) (#1433)");`, and `Ctx::dropped_inner_swaps` is the single channel read by `swap_instance_inner` and `set_instance_prop_inner`.
+- **`FACT`**: `swap_check` prints `SWAP-OK #1427` on a scratch copy of `ff815148:design/studio-ui.designos` (`sha1=8c39a339c7cda89e9fd0a7cecc9bc84a6c37c991` unchanged), and PR [#1449](https://github.com/jangtrinh/design-os-studio/pull/1449) is open against `main`.
+- **`ASSUMPTION`**: The 6 `fn r5_row1..6_*` functions in `crates/designos-doc/src/styles_ops.rs:2504..3080` (which entered `origin/main` in `ccdac946`, PR `#1424`) must not be renamed here because `MINOR-3` specifies "Rename every test fn on the branch that matches..." and `## Files you may modify` restricts edits to `crates/designos-doc/src/components.rs` and `crates/designos-app/src/panels/components.rs`.
+- **Weakest link**: Pre-existing `#1445` (when an outer instance stretches a nested slot via `Stretch` constraints without an explicit `Size` override on the slot, a subsequent `sync_instances` on the outer main resets the slot's width back to the main's width) remains tracked as a follow-up outside this PR's scope.
 - **Unresolved questions**: None.
 
 Status: DONE
