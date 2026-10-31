@@ -373,7 +373,11 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
                     c.push(spaced("gap-y", row_gap, row_var));
                 }
             }
-            c.extend(pad_classes(doc, n, al));
+            let pads = pad_classes(doc, n, al);
+            if !pads.is_empty() {
+                c.push("box-border".into());
+                c.extend(pads);
+            }
         } else {
             c.push("flex".into());
             if al.direction == LayoutDirection::Vertical {

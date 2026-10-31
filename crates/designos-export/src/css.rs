@@ -119,6 +119,9 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
+            if t + r + b + l > 0.0 {
+                push("box-sizing", "border-box".into());
+            }
             let cols = crate::codegen::grid_column_count(al);
             let col_tracks = crate::codegen::resolved_grid_col_tracks(doc, n, al);
             push("grid-template-columns", crate::codegen::grid_tracks_css(&col_tracks, cols));
