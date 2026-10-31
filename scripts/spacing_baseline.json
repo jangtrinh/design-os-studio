@@ -8,15 +8,6 @@
     "legacy_control_refs"
   ],
   "files": {
-    "agent_mention_popup.rs": {
-      "legacy_control_refs": 1
-    },
-    "agent_open_flow.rs": {
-      "legacy_control_refs": 1
-    },
-    "agent_turn_card.rs": {
-      "legacy_control_refs": 13
-    },
     "app.rs": {
       "offset_literals": 2
     },
@@ -30,15 +21,6 @@
     "board/toolbar.rs": {
       "inset_literals": 3,
       "offset_literals": 12
-    },
-    "canvas/agent_banner.rs": {
-      "legacy_control_refs": 1
-    },
-    "canvas/agent_changes_chip.rs": {
-      "legacy_control_refs": 1
-    },
-    "canvas/agent_overlay.rs": {
-      "legacy_control_refs": 1
     },
     "canvas/create.rs": {
       "offset_literals": 6
@@ -322,7 +304,7 @@
   "totals": {
     "font_literals": 23,
     "inset_literals": 41,
-    "legacy_control_refs": 24,
+    "legacy_control_refs": 6,
     "nonconcentric_pairs": 2,
     "offset_literals": 1526,
     "radius_literals": 171
@@ -330,7 +312,7 @@
   "totals_excluding_own_palette": {
     "font_literals": 2,
     "inset_literals": 41,
-    "legacy_control_refs": 24,
+    "legacy_control_refs": 6,
     "nonconcentric_pairs": 1,
     "offset_literals": 1250,
     "radius_literals": 76
