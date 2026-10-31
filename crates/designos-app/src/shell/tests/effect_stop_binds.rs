@@ -1211,3 +1211,71 @@ fn dangling_gradient_stop_binding_edit_is_kept() {
     assert_eq!(Some(res_stops[0].color), pk_col, "the canvas shows the colour the picker shows");
 }
 
+#[test]
+fn multiselect_stroke_gradient_bound_stop_preserves_bound_color_on_every_layer() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _dark) = theme_ids(s.app());
+    let v_red = store.add_variable(&coll, "Probe/StrokeRed", VariableKind::Color).unwrap();
+    let red = Color::rgb(0xFF, 0x11, 0x22);
+    store.set_value(&v_red, &light, VariableValue::Color(red));
+    set_scopes(&mut store, &v_red, &["STROKE_COLOR"]);
+    let v_blue = store.add_variable(&coll, "Probe/StrokeBlue", VariableKind::Color).unwrap();
+    let blue = Color::rgb(0x22, 0x66, 0xFF);
+    store.set_value(&v_blue, &light, VariableValue::Color(blue));
+    set_scopes(&mut store, &v_blue, &["STROKE_COLOR"]);
+    s.shell.app.commit_store(store, &[], &[]);
+
+    let mut heroes: Vec<NodeId> = s.app().doc.nodes.values().filter(|n| n.name == "Hero").map(|n| n.id).collect();
+    heroes.sort();
+    assert!(heroes.len() >= 2, "fixture has two Hero layers");
+    let (a, b) = (heroes[0], heroes[1]);
+
+    let two_stop_grad = || Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    let stroke_stops_of = |n: &designos_doc::Node| -> Vec<(f32, Color)> {
+        match &n.stroke.paints[0].kind {
+            PaintKind::LinearGradient { stops, .. } => stops.iter().map(|st| (st.pos, st.color)).collect(),
+            _ => vec![],
+        }
+    };
+
+    s.shell.app.edit_nodes(&[a, b], |n| {
+        n.stroke.paints = vec![two_stop_grad()];
+        n.stroke.weight = 2.0;
+    });
+    s.shell.app.bind_variable(&[a], &["strokes/0/stops/0"], &v_blue);
+    s.shell.app.bind_variable(&[b], &["strokes/0/stops/0"], &v_red);
+    s.shell.app.selection = vec![a, b];
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    s.click(s.rect_of("sw:true:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    // Select unbound stop 1 and edit its colour with a swatch.
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+
+    let na = s.app().doc.get(a).unwrap();
+    let nb = s.app().doc.get(b).unwrap();
+    let a_raw = stroke_stops_of(na);
+    let a_res = stroke_stops_of(&designos_doc::resolve_node(&s.app().doc, na));
+    let b_raw = stroke_stops_of(nb);
+    let b_res = stroke_stops_of(&designos_doc::resolve_node(&s.app().doc, nb));
+    assert_ne!(a_raw[1].1, Color::WHITE, "guard: editing stop 1 updated layer a's stop 1");
+    assert_eq!(a_raw[1].1, b_raw[1].1, "guard: editing stop 1 updated layer b's stop 1");
+    assert_eq!(a_raw[0].1, blue, "layer a's bound stroke stop 0 raw colour stays blue");
+    assert_eq!(a_raw[0].1, a_res[0].1, "layer a's bound stroke stop 0 raw colour equals its resolved colour");
+    assert_eq!(b_raw[0].1, red, "layer b's bound stroke stop 0 raw colour stays red");
+    assert_eq!(b_raw[0].1, b_res[0].1, "layer b's bound stroke stop 0 raw colour equals its resolved colour");
+}
