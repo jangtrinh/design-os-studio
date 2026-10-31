@@ -4951,8 +4951,8 @@ mod tests {
         let inv_same = apply(&mut d, swap_same);
         assert_eq!(d.get(inst).unwrap().name, "Comp/EllipseSame", "auto-named instance takes new main's name on swap");
         assert!(
-            d.get(inst).unwrap().kind.frame_props().unwrap().clips_content,
-            "instance root Layout override must preserve frame.clips_content across swap (M11)"
+            !d.get(inst).unwrap().kind.frame_props().unwrap().clips_content,
+            "swap_main copies the new main's FrameProps onto the instance root (base behaviour)"
         );
         let shape_after = d.get(child_named(&d, inst, "Shape")).unwrap();
         assert!(matches!(shape_after.kind, NodeKind::Ellipse { .. }));
