@@ -70,10 +70,21 @@ fn editing(app: &App, sel: &[NodeId]) -> bool {
 /// Applies `f` to the character range being edited, or to every selected text layer.
 pub fn set_style(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
     if editing(app, sel) {
-        ts::style_selection_as(app, &f, crate::textedit::EditKind::Style);
+        ts::style_selection_detaching_as(app, &f, crate::textedit::EditKind::Style);
         return;
     }
     // The edit asks for any font face it introduces (family, weight, italic), so no caller does.
+    ts::requesting_new_faces(app, sel, |app| {
+        app.edit_nodes(sel, |n| ts::edit_node_text_detaching(n, |t| richtext::apply_all(t, &f)));
+    });
+}
+
+/// Applies a text fill edit while preserving the layer's text-style link.
+fn set_style_preserving_link(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
+    if editing(app, sel) {
+        ts::style_selection_as(app, &f, crate::textedit::EditKind::Style);
+        return;
+    }
     ts::requesting_new_faces(app, sel, |app| {
         app.edit_nodes(sel, |n| {
             if let NodeKind::Text(t) = &mut n.kind {
@@ -105,12 +116,7 @@ fn set_base(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
         ts::base_style(app, &f);
         return;
     }
-    app.edit_nodes(sel, |n| {
-        if let NodeKind::Text(t) = &mut n.kind {
-            f(&mut t.style);
-            n.size = layout::fit_text(t, n.size);
-        }
-    });
+    app.edit_nodes(sel, |n| ts::edit_node_text_detaching(n, |t| f(&mut t.style)));
 }
 
 /// Segmented control with short text labels instead of icons.
@@ -318,7 +324,7 @@ fn color_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], sum: &
             if !bound {
                 if let Some(s) = field::text_input(ui, hex_r, "text-hex", &c.to_hex()) {
                     if let Some(nc) = Color::from_hex(&s) {
-                        set_style(app, sel, |st| set_solid(st, Color { a: c.a, ..nc }, None));
+                        set_style_preserving_link(app, sel, |st| set_solid(st, Color { a: c.a, ..nc }, None));
                     }
                 }
                 // Not offered while a character range is being edited: bindings are per layer.
@@ -328,7 +334,7 @@ fn color_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], sum: &
             }
             if let Some(v) = field::num_field(ui, op_r, "text-op", Prefix::None, Some((op * 100.0).round()), "%") {
                 let o = (v / 100.0).clamp(0.0, 1.0);
-                set_style(app, sel, |st| set_solid(st, c, Some(o)));
+                set_style_preserving_link(app, sel, |st| set_solid(st, c, Some(o)));
             }
         }
         (None, _) => {
@@ -559,12 +565,7 @@ pub fn set_text_props(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextProps))
         ts::edit_text_props(app, &f);
         return;
     }
-    app.edit_nodes(sel, |n| {
-        if let NodeKind::Text(t) = &mut n.kind {
-            f(t);
-            n.size = layout::fit_text(t, n.size);
-        }
-    });
+    app.edit_nodes(sel, |n| ts::edit_node_text_detaching(n, &f));
 }
 
 /// Sets (`Some`) or removes (`None`) OpenType features on the edited range / selected layers.
@@ -908,5 +909,35 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
     });
     if pop {
         app.props.pop = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn linked_text_app() -> (App, NodeId) {
+        let mut d = Document::new("typography-test");
+        let page = d.add_page("page");
+        let id = d.alloc_id();
+        let mut n = Node::text(id, designos_doc::Rect::new(0.0, 0.0, 120.0, 24.0), "hello", TextStyle { font_size: 16.0, ..Default::default() });
+        n.style_refs.insert("text".into(), "Body".into());
+        d.insert(page, n).unwrap();
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 16.0, ..Default::default() }));
+        (App::new(d), id)
+    }
+
+    #[test]
+    fn alignment_and_fill_edits_keep_a_linked_text_style() {
+        let (mut app, id) = linked_text_app();
+
+        set_base(&mut app, &[id], |s| s.align_h = TextAlignH::Center);
+        assert_eq!(app.doc.get(id).unwrap().style_refs.get("text").map(String::as_str), Some("Body"));
+
+        set_style_preserving_link(&mut app, &[id], |s| set_solid(s, Color::rgb(0, 0, 255), None));
+        let n = app.doc.get(id).unwrap();
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert!(matches!(t.style.fills.first().map(|p| &p.kind), Some(PaintKind::Solid(c)) if *c == Color::rgb(0, 0, 255)));
     }
 }
