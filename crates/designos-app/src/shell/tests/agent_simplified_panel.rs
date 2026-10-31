@@ -341,6 +341,20 @@ fn a_single_tab_with_a_dot_shows_its_full_title_at_the_default_panel_width() {
 }
 
 #[test]
+fn the_agents_picker_capture_panel_opens_the_agent_menu_and_the_agents_panel_does_not() {
+    for (panel, menu_open) in [("agents", false), ("agents-picker", true)] {
+        let mut s = Sim::with_starter(Options { panel: Some(panel.into()), ..Options::default() });
+        s.use_stub_agent_clis();
+        s.shell.app.terminal.session_registry.last_cli = None;
+        settle_probes(&mut s);
+        assert!(s.shell.app.terminal.picker_open, "--panel {panel} shows New chat");
+        assert_eq!(s.shell.app.terminal.runtime_dropdown_open, menu_open, "--panel {panel}: the agent menu is open only for agents-picker");
+        assert_eq!(recorded(&s, "agents-agent-menu").is_some(), menu_open, "--panel {panel}: the menu is drawn only when it is open");
+        finish(s);
+    }
+}
+
+#[test]
 fn mode_control_sets_the_permission_mode() {
     let mut s = new_chat_sim();
     assert!(s.app().lib.is_none(), "the window has no library, so nothing is saved to disk");

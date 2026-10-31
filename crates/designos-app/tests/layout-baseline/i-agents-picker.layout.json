@@ -55,6 +55,16 @@
       ],
       "count": 1
     },
+    "agents-agent-menu": {
+      "region": "left_panel",
+      "rect": [
+        101.0,
+        828.0,
+        232.0,
+        208.0
+      ],
+      "count": 1
+    },
     "agents-composer-add-btn": {
       "region": "left_panel",
       "rect": [
@@ -121,6 +131,66 @@
         401.0,
         1040.0,
         32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-dropdown-antigravity": {
+      "region": "left_panel",
+      "rect": [
+        109.0,
+        932.0,
+        216.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-dropdown-claude": {
+      "region": "left_panel",
+      "rect": [
+        109.0,
+        836.0,
+        216.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-dropdown-codex": {
+      "region": "left_panel",
+      "rect": [
+        109.0,
+        868.0,
+        216.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-dropdown-gemini": {
+      "region": "left_panel",
+      "rect": [
+        109.0,
+        964.0,
+        216.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-dropdown-grok": {
+      "region": "left_panel",
+      "rect": [
+        109.0,
+        900.0,
+        216.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-menu-more-row": {
+      "region": "left_panel",
+      "rect": [
+        109.0,
+        996.0,
+        216.0,
         32.0
       ],
       "count": 1

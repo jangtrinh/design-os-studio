@@ -414,10 +414,14 @@ impl Shell {
         let screenshot_mode =
             if screenshot_ask_risky { crate::agent_permissions::AgentPermissionMode::AskRisky } else { crate::agent_permissions::AgentPermissionMode::Ask };
         match opts.panel.as_deref() {
-            Some("agents" | "agents-picker") => {
+            Some(panel @ ("agents" | "agents-picker")) => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;
                 app.terminal.open_for_agent_use(app.file_path.as_deref());
+                // `agents-picker` is the same New chat state with the composer pill's agent menu open.
+                if panel == "agents-picker" {
+                    app.terminal.runtime_dropdown_open = true;
+                }
                 if screenshot_ask_risky {
                     app.terminal.permission_mode = screenshot_mode;
                     app.terminal.seed_screenshot_cli_probes();
