@@ -991,8 +991,10 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
         OverrideField::Blend => to.blend = from.blend,
         OverrideField::Size => {
             to.size = from.size;
-            to.fill_geometry = from.fill_geometry.clone();
-            to.stroke_geometry = from.stroke_geometry.clone();
+            if matches!(to.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                to.fill_geometry = from.fill_geometry.clone();
+                to.stroke_geometry = from.stroke_geometry.clone();
+            }
         }
         OverrideField::Transform => to.transform = from.transform,
         OverrideField::Fills => {
@@ -1198,8 +1200,10 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
     }
     if ov.contains(&OverrideField::Size) && n.size != r.size && !matches!(n.kind, NodeKind::Text(_)) && n.kind.frame_props().is_none() {
         let target_size = n.size;
+        let own = (n.fill_geometry.take(), n.stroke_geometry.take());
         n.size = r.size;
         crate::layout_constraints::apply_constrained_geometry(n, n.transform, target_size);
+        (n.fill_geometry, n.stroke_geometry) = own;
     }
 }
 
@@ -1216,6 +1220,23 @@ fn apply_bindings(n: &mut Node, values: &BTreeMap<String, PropValue>) {
             _ => {}
         }
     }
+}
+
+fn orig_in_main<'a>(d: &'a Document, comp: Option<NodeId>, kn: &Node) -> Option<&'a Node> {
+    let oc = comp?;
+    let mut cur_src = kn.component.source;
+    let mut hops = 0;
+    while let Some(sid) = cur_src {
+        hops += 1;
+        if hops > 64 {
+            break;
+        }
+        if sid == oc || d.is_ancestor(oc, sid) {
+            return d.get(sid);
+        }
+        cur_src = d.get(sid)?.component.source;
+    }
+    None
 }
 
 fn effective_child_overrides(d: &Document, old_comp: Option<NodeId>, kn: &Node) -> BTreeSet<OverrideField> {
@@ -1242,8 +1263,7 @@ fn effective_child_overrides(d: &Document, old_comp: Option<NodeId>, kn: &Node) 
         for f in record_override(orig, kn) {
             if matches!(
                 f,
-                OverrideField::Size
-                    | OverrideField::Fills
+                OverrideField::Fills
                     | OverrideField::Stroke
                     | OverrideField::Opacity
                     | OverrideField::Blend
@@ -1284,22 +1304,35 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     let Some(inode) = c.s.get(i).cloned() else { return };
     let old_comp = instance_component(&inode);
     let old_comp_node = old_comp.and_then(|oc| c.s.get(oc)).cloned();
-    // Snapshot overridden descendants by name path, including overrides inherited from an enclosing component slot.
-    let mut carried: Vec<(Vec<String>, Node, BTreeSet<OverrideField>)> = Vec::new();
-    fn collect(d: &Document, id: NodeId, old_comp: Option<NodeId>, path: &mut Vec<String>, out: &mut Vec<(Vec<String>, Node, BTreeSet<OverrideField>)>) {
+    let top_swap = is_top(&inode);
+    let same_family = old_comp
+        .zip(Some(new_comp))
+        .and_then(|(a, b)| Some((c.s.get(a)?.parent?, c.s.get(b)?.parent?)))
+        .is_some_and(|(pa, pb)| pa == pb && matches!(c.s.get(pa).map(|n| &n.kind), Some(NodeKind::ComponentSet(_))));
+    // Snapshot overridden descendants by base-name path, including overrides inherited from an enclosing component slot.
+    type CarriedOverride = (Vec<String>, Node, Option<NodeId>, BTreeSet<OverrideField>);
+    let mut carried: Vec<CarriedOverride> = Vec::new();
+    fn collect(d: &Document, id: NodeId, old_comp: Option<NodeId>, top_swap: bool, path: &mut Vec<String>, out: &mut Vec<CarriedOverride>) {
         let Some(n) = d.get(id) else { return };
         for k in &n.children {
             let Some(kn) = d.get(*k) else { continue };
-            path.push(kn.name.clone());
-            let fields = effective_child_overrides(d, old_comp, kn);
+            let orig = orig_in_main(d, old_comp, kn);
+            path.push(orig.map(|o| o.name.clone()).unwrap_or_else(|| kn.name.clone()));
+            let fields = if top_swap {
+                let mut f = kn.component.overrides.clone();
+                f.remove(&OverrideField::MainComponent);
+                f
+            } else {
+                effective_child_overrides(d, old_comp, kn)
+            };
             if !fields.is_empty() {
-                out.push((path.clone(), kn.clone(), fields));
+                out.push((path.clone(), kn.clone(), orig.map(|o| o.id), fields));
             }
-            collect(d, *k, old_comp, path, out);
+            collect(d, *k, old_comp, top_swap, path, out);
             path.pop();
         }
     }
-    collect(&c.s, i, old_comp, &mut Vec::new(), &mut carried);
+    collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried);
 
     for k in inode.children.clone() {
         c.push(Command::Remove { id: k });
@@ -1323,18 +1356,54 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             }
         }
     }
-    if !n.component.overrides.contains(&OverrideField::Size) && old_comp_node.as_ref().is_none_or(|oc| oc.size == n.size) {
-        n.size = comp.size;
+    if !same_family && !n.component.overrides.contains(&OverrideField::Name) && old_comp_node.as_ref().is_some_and(|oc| oc.name == n.name) {
+        n.name = comp.name.clone();
+    }
+    if top_swap && same_family {
+        if !n.component.overrides.contains(&OverrideField::Size) {
+            n.size = comp.size;
+        }
+    } else {
+        let keep_x = old_comp_node.as_ref().is_some_and(|oc| (n.size.x - oc.size.x).abs() > 1e-4);
+        let keep_y = old_comp_node.as_ref().is_some_and(|oc| (n.size.y - oc.size.y).abs() > 1e-4);
+        if !keep_x {
+            n.size.x = comp.size.x;
+        }
+        if !keep_y {
+            n.size.y = comp.size.y;
+        }
     }
     let target_size = n.size;
-    if is_top(&inode) {
+    if top_swap {
         n.component.source = Some(new_comp);
     }
     n.component.overrides.remove(&OverrideField::MainComponent);
     c.update(n);
 
-    if target_size != comp.size {
-        for (cid, new_tf, new_sz) in crate::layout_constraints::plan_constraint_pass(&c.s, i, comp.size, target_size, 8) {
+    if !(top_swap && same_family) && target_size != comp.size {
+        let mut default_vec_ids = Vec::new();
+        for cid in subtree_ids(&c.s, i) {
+            if cid == i {
+                continue;
+            }
+            if let Some(cn) = c.s.get(cid) {
+                if matches!(cn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) && cn.constraints == Constraints::default() {
+                    default_vec_ids.push(cid);
+                }
+            }
+        }
+        for &cid in &default_vec_ids {
+            if let Some(cn) = c.s.get_mut(cid) {
+                cn.constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
+            }
+        }
+        let plan = crate::layout_constraints::plan_constraint_pass(&c.s, i, comp.size, target_size, 8);
+        for &cid in &default_vec_ids {
+            if let Some(cn) = c.s.get_mut(cid) {
+                cn.constraints = Constraints::default();
+            }
+        }
+        for (cid, new_tf, new_sz) in plan {
             if cid == i {
                 continue;
             }
@@ -1365,7 +1434,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
     index(&c.s, i, &mut Vec::new(), &mut by_path);
-    for (path, old, mut fields) in carried {
+    for (path, old, orig_id, mut fields) in carried {
         let Some(&nid) = by_path.get(&path) else { continue };
         let Some(mut nn) = c.s.get(nid).cloned() else { continue };
         if !matches!((&old.kind, &nn.kind), (NodeKind::Text(_), NodeKind::Text(_))) {
@@ -1374,6 +1443,12 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
         if old.kind.frame_props().is_none() || nn.kind.frame_props().is_none() {
             fields.remove(&OverrideField::Layout);
+        }
+        if !(top_swap && same_family) {
+            if let (Some(orig), Some(new_orig)) = (orig_id.and_then(|id| c.s.get(id)), nn.component.source.and_then(|s| c.s.get(s))) {
+                let diff = record_override(orig, new_orig);
+                fields.retain(|f| matches!(f, OverrideField::Characters | OverrideField::TextStyle | OverrideField::Name) || !diff.contains(f));
+            }
         }
         if fields.is_empty() {
             continue;
@@ -1389,8 +1464,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
 /// subtree it has.
 fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen: &mut Vec<NodeId>) {
     let (Some(mut rn), Some(mut inode)) = (c.s.get(r).cloned(), c.s.get(i).cloned()) else { return };
-    let slot_rn = rn.clone();
-    let orig_slot_comp = instance_component(&slot_rn).and_then(|oc| c.s.get(oc)).cloned();
+    let slot_comp = instance_component(&rn);
     let values = c.s.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
 
     // --- which component should this instance show? ---
@@ -1434,24 +1508,38 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
 
     // --- node properties ---
     let mut n = inode.clone();
-    if !top && instance_component(&inode) != instance_component(&slot_rn) {
-        let mut node_ref = slot_rn.clone();
-        let slot_ov = orig_slot_comp.as_ref().map(|oc| record_override(oc, &slot_rn)).unwrap_or_default();
-        for f in [
-            OverrideField::Size,
-            OverrideField::Opacity,
-            OverrideField::Blend,
-            OverrideField::Fills,
-            OverrideField::Stroke,
-            OverrideField::Effects,
-            OverrideField::CornerRadii,
-            OverrideField::Layout,
-        ] {
-            if !slot_rn.component.overrides.contains(&f) && !slot_ov.contains(&f) {
-                copy_field(f, &rn, &mut node_ref);
+    if !top && instance_component(&inode) != slot_comp {
+        if let Some(slot_rn) = c.s.get(r).cloned() {
+            let mut node_ref = slot_rn.clone();
+            let orig_slot_comp = slot_comp.and_then(|oc| c.s.get(oc));
+            let slot_ov = orig_slot_comp.map(|oc| record_override(oc, &slot_rn)).unwrap_or_default();
+            if !slot_rn.component.overrides.contains(&OverrideField::Size) {
+                let keep_x = orig_slot_comp.is_some_and(|oc| (slot_rn.size.x - oc.size.x).abs() > 1e-4);
+                let keep_y = orig_slot_comp.is_some_and(|oc| (slot_rn.size.y - oc.size.y).abs() > 1e-4);
+                if !keep_x {
+                    node_ref.size.x = rn.size.x;
+                }
+                if !keep_y {
+                    node_ref.size.y = rn.size.y;
+                }
             }
+            for f in [
+                OverrideField::Opacity,
+                OverrideField::Blend,
+                OverrideField::Fills,
+                OverrideField::Stroke,
+                OverrideField::Effects,
+                OverrideField::CornerRadii,
+                OverrideField::Layout,
+            ] {
+                if !slot_rn.component.overrides.contains(&f) && !slot_ov.contains(&f) {
+                    copy_field(f, &rn, &mut node_ref);
+                }
+            }
+            apply_reference(&node_ref, &mut n, top, &values);
+        } else {
+            apply_reference(&rn, &mut n, top, &values);
         }
-        apply_reference(&node_ref, &mut n, top, &values);
     } else {
         apply_reference(&rn, &mut n, top, &values);
     }
@@ -4869,7 +4957,10 @@ mod tests {
         let swap_same = swap_instance(&mut d, inst, comp_ellipse_same_fill);
         let inv_same = apply(&mut d, swap_same);
         assert_eq!(d.get(inst).unwrap().name, "Comp/EllipseSame", "auto-named instance takes new main's name on swap");
-        assert!(d.get(inst).unwrap().kind.frame_props().unwrap().clips_content, "instance root Layout override must preserve frame.clips_content across swap (M11)");
+        assert!(
+            d.get(inst).unwrap().kind.frame_props().unwrap().clips_content,
+            "instance root Layout override must preserve frame.clips_content across swap (M11)"
+        );
         let shape_after = d.get(child_named(&d, inst, "Shape")).unwrap();
         assert!(matches!(shape_after.kind, NodeKind::Ellipse { .. }));
         assert_eq!(

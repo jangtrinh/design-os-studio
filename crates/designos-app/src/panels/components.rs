@@ -2,8 +2,6 @@
 //! swap picker, component properties, property definitions on main
 //! components and binding a layer to a property.
 
-#![allow(clippy::items_after_test_module)]
-
 use super::properties::{row_end, section_sep, sublabel, title, Pane};
 use crate::app::App;
 use crate::icons::Icon;
@@ -362,7 +360,7 @@ mod props_panel_tests {
         };
 
         // Request focus on frame one, then let egui register and retain the widget for two frames.
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        ctx.run_ui(egui::RawInput::default(), |ui| {
             let response = ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle"))).inner;
             first_id.set(response.id);
             response.request_focus();
@@ -563,7 +561,7 @@ mod props_panel_tests {
     }
 }
 
-fn sort_props_by_kind(defs: &mut [ComponentPropDef]) {
+fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
     defs.sort_by_key(|def| kind_rank(&def.kind));
 }
 
