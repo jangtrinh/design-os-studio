@@ -269,9 +269,7 @@ fn the_unsaved_changes_hint_names_the_real_next_step_and_only_a_workspace_path()
     assert!(next_step.to_lowercase().contains("stop"), "next_step tells the agent to stop: {next_step}");
     assert!(next_step.to_lowercase().contains("user"), "next_step tells the agent to tell the user: {next_step}");
     assert!(!next_step.contains("discard_changes=true"), "next_step must not invite discard: {next_step}");
-    let example = err["corrected_example"].as_object().expect("corrected_example object");
-    assert_ne!(example.get("discard_changes"), Some(&json!(true)), "corrected_example must not set discard_changes:true: {err}");
-    assert_eq!(example.get("path"), Some(&json!("first.designos")), "{err}");
+    assert!(err.get("corrected_example").is_none(), "needs_human offers no corrected_example: {err}");
 
     let new_doc = s.call("designos_new_document", json!({"name": "Fresh"})).unwrap_err().to_json_value();
     assert_eq!(new_doc["code"], "UNSAVED_CHANGES", "{new_doc}");
@@ -279,8 +277,7 @@ fn the_unsaved_changes_hint_names_the_real_next_step_and_only_a_workspace_path()
     assert_eq!(new_doc["safe_to_retry"], false, "{new_doc}");
     assert!(!new_doc["next_step"].as_str().unwrap().contains("force"), "{new_doc}");
     assert!(!new_doc["next_step"].as_str().unwrap().contains("discard_changes=true"), "{new_doc}");
-    let new_ex = new_doc["corrected_example"].as_object().expect("new_document corrected_example");
-    assert_ne!(new_ex.get("discard_changes"), Some(&json!(true)), "{new_doc}");
+    assert!(new_doc.get("corrected_example").is_none(), "{new_doc}");
 }
 
 #[test]
@@ -332,20 +329,20 @@ fn path_outside_workspace_is_needs_human_and_not_safe_to_retry() {
 }
 
 #[test]
-fn unsupported_node_kind_and_extension_are_fatal_live() {
+fn unsupported_node_kind_and_extension_are_retryable_live() {
     let dir = Workspace::new();
     let mut s = Session::new(&dir.0).unwrap();
     let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["node_id"].clone();
 
     let kind_err = s.call("designos_create_node", json!({"parent_id": page, "kind": "group"})).unwrap_err().to_json_value();
     assert_eq!(kind_err["code"], "UNSUPPORTED_NODE_KIND", "{kind_err}");
-    assert_eq!(kind_err["error_kind"], "fatal", "{kind_err}");
-    assert_eq!(kind_err["safe_to_retry"], false, "{kind_err}");
+    assert_eq!(kind_err["error_kind"], "retryable", "{kind_err}");
+    assert_eq!(kind_err["safe_to_retry"], true, "{kind_err}");
 
     let ext_err = s.call("designos_save_file", json!({"path": "wrong.txt"})).unwrap_err().to_json_value();
     assert_eq!(ext_err["code"], "UNSUPPORTED_EXTENSION", "{ext_err}");
-    assert_eq!(ext_err["error_kind"], "fatal", "{ext_err}");
-    assert_eq!(ext_err["safe_to_retry"], false, "{ext_err}");
+    assert_eq!(ext_err["error_kind"], "retryable", "{ext_err}");
+    assert_eq!(ext_err["safe_to_retry"], true, "{ext_err}");
 }
 
 #[test]
@@ -411,14 +408,14 @@ fn open_file_unknown_extension_missing_file_is_not_a_file_type_error() {
 }
 
 #[test]
-fn unsupported_node_kind_is_fatal_but_keeps_its_corrected_example() {
+fn unsupported_node_kind_is_retryable_and_keeps_its_corrected_example() {
     let dir = Workspace::new();
     let mut s = Session::new(&dir.0).unwrap();
     let page = s.call("designos_get_document", json!({})).unwrap()["pages"][0]["id"].clone();
     let err = s.call("designos_create_node", json!({"parent_id": page, "kind": "not_a_kind"})).unwrap_err().to_json_value();
     assert_eq!(err["code"], "UNSUPPORTED_NODE_KIND", "{err}");
-    assert_eq!(err["error_kind"], "fatal", "{err}");
-    assert_eq!(err["safe_to_retry"], false, "{err}");
+    assert_eq!(err["error_kind"], "retryable", "{err}");
+    assert_eq!(err["safe_to_retry"], true, "{err}");
     assert_eq!(err["corrected_example"]["kind"], "frame", "{err}");
 }
 

@@ -861,3 +861,29 @@ fn trailing_slash_is_refused_as_folder_and_extension_messages_put_cause_first() 
         assert_eq!(err.message, format!("{bidi_mark} has a name with a line break or a direction-control character. Rename it, then try again."));
     }
 }
+
+/// A write the user's permissions refuse is `needs_human`: the agent stops and tells the user, and is never told it is safe to retry.
+#[test]
+fn a_save_into_a_read_only_folder_is_needs_human_and_not_safe_to_retry() {
+    let ws = TempDir::new("readonly-save");
+    let locked = ws.0.join("locked");
+    fs::create_dir_all(&locked).unwrap();
+    let mut s = Session::new(&ws.0).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o555)).unwrap();
+    let probe = fs::write(locked.join("probe"), b"x");
+    if probe.is_ok() {
+        // Running as a user the mode does not bind (root): the refusal cannot be produced here.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        return;
+    }
+    let res = s.call("designos_save_file", json!({"path": "locked/doc.designos"}));
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+    let err = res.expect_err("a read-only folder must refuse the save");
+    let wire = err.to_json_value();
+    assert_eq!(wire["error_kind"], "needs_human", "{wire}");
+    assert_eq!(wire["safe_to_retry"], false, "{wire}");
+    let step = wire["next_step"].as_str().unwrap();
+    assert!(step.starts_with("Stop and tell the user"), "{step}");
+    assert!(!step.contains("before retrying"), "{step}");
+    assert!(!locked.join("doc.designos").exists(), "nothing was written");
+}

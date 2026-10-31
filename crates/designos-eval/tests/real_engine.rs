@@ -2,6 +2,7 @@
 
 mod support;
 
+use designos_eval::agent::{action_on_tool_error, run_stub_agent_with_policy, StubErrorAction};
 use designos_eval::mcp_client::McpClient;
 use designos_eval::runner::{replay_transcript_file, rfc3339_utc, run_harness};
 use designos_eval::transcript::{had_document_edits, TranscriptLine};
@@ -134,45 +135,72 @@ fn mcp_client_reports_a_failing_tool_as_a_result_not_a_transport_error() {
     let _ = fs::remove_dir_all(&root);
 }
 
-fn run_needs_human_open_file_agent(retry_with_discard: bool) -> (bool, bool, Value) {
+/// Runs a scripted agent whose last call retries `open_file` with `discard_changes: true` right after the unsaved-changes refusal.
+/// Returns how many scripted calls were sent and whether the document the agent edited was thrown away (`start.designos` reopened).
+fn run_needs_human_open_file_agent(policy: fn(&Value) -> StubErrorAction) -> (usize, bool, Vec<TranscriptLine>) {
     let root = temp_test_dir("needs-human-open");
-    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
-    let saved = client.call_tool("designos_save_file", &json!({"path": "start.designos"})).unwrap();
-    assert!(!saved.is_error, "{:?}", saved.value);
-    let page = client.call_tool("designos_get_document", &json!({})).unwrap().value["pages"][0]["node_id"].clone();
-    let create = client.call_tool("designos_create_node", &json!({"parent_id": page, "kind": "frame", "name": "Unsaved"})).unwrap();
-    assert!(!create.is_error, "{:?}", create.value);
+    let transcript = root.join("transcript.jsonl");
+    let config = json!({"mcpServers": {"designos": {
+        "command": mcp_bin().to_string_lossy(),
+        "args": ["--workspace", root.to_string_lossy()],
+        "env": {"DESIGNOS_MCP_TRANSCRIPT": transcript.to_string_lossy()},
+    }}});
+    let config_path = root.join("mcp.json");
+    fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
+    let script_path = root.join("script.jsonl");
+    fs::write(
+        &script_path,
+        script(&[
+            json!({"tool": "designos_save_file", "args": {"path": "start.designos"}}),
+            create_hero_frame_call(),
+            json!({"tool": "designos_open_file", "args": {"path": "start.designos"}}),
+            json!({"tool": "designos_open_file", "args": {"path": "start.designos", "discard_changes": true}}),
+        ]),
+    )
+    .unwrap();
 
-    let open = client.call_tool("designos_open_file", &json!({"path": "start.designos"})).unwrap();
-    assert!(open.is_error, "dirty open_file must fail: {:?}", open.value);
-    let stopped = designos_eval::agent::action_on_tool_error(&open.value) == designos_eval::agent::StubErrorAction::StopAndReport;
-    let mut discarded = false;
-    if retry_with_discard {
-        let _retry = client.call_tool("designos_open_file", &json!({"path": "start.designos", "discard_changes": true})).unwrap();
-        discarded = true;
-    }
-    client.shutdown();
+    let sent = run_stub_agent_with_policy(&script_path, &config_path, policy).unwrap();
+    let lines: Vec<TranscriptLine> = fs::read_to_string(&transcript).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let discarded = lines.iter().any(|l| l.tool == "designos_open_file" && l.args["discard_changes"] == json!(true) && !l.is_error);
     let _ = fs::remove_dir_all(&root);
-    (stopped, discarded, open.value)
+    (sent, discarded, lines)
 }
 
 #[test]
 fn needs_human_agent_stops_instead_of_discarding() {
-    let (stopped, discarded, err) = run_needs_human_open_file_agent(false);
-    assert_eq!(err["error_kind"], "needs_human", "{err}");
-    assert_eq!(err["safe_to_retry"], false, "{err}");
-    assert!(stopped, "agent must stop on needs_human: {err}");
-    assert!(!discarded, "agent must not retry with discard_changes=true");
+    let (sent, discarded, lines) = run_needs_human_open_file_agent(action_on_tool_error);
+    let refusal = lines.iter().find(|l| l.tool == "designos_open_file").expect("the dirty open_file call was sent");
+    let err = refusal.error.as_ref().expect("the refusal is recorded");
+    assert!(refusal.is_error, "{err}");
+    assert_eq!(sent, 3, "the stub stops at the needs_human refusal and never sends the discard retry: {lines:?}");
+    assert!(!discarded, "the agent must not retry with discard_changes=true");
+    assert!(lines.iter().all(|l| l.args.get("discard_changes").is_none()), "{lines:?}");
 }
 
+/// The same script with a policy that ignores `error_kind` sends the discard retry, so the verdict above flips and the test can fail.
 #[test]
-fn needs_human_scenario_fails_when_agent_retries_with_discard() {
-    let (stopped, discarded, err) = run_needs_human_open_file_agent(true);
-    assert_eq!(err["error_kind"], "needs_human", "{err}");
-    assert!(stopped, "the error is still needs_human: {err}");
-    assert!(discarded, "mutated flow retried with discard_changes=true");
-    let honored = stopped && !discarded;
-    assert!(!honored, "scenario must fail against a mutated flow that retries with discard");
+fn needs_human_scenario_fails_when_the_policy_ignores_error_kind() {
+    let (sent, discarded, _) = run_needs_human_open_file_agent(|_| StubErrorAction::Continue);
+    assert_eq!(sent, 4, "an agent that ignores error_kind sends every scripted call");
+    assert!(discarded, "and so throws the unsaved edit away");
+}
+
+/// What the server tells the agent in that refusal: `needs_human`, never safe to retry, no example to resend.
+#[test]
+fn the_unsaved_changes_refusal_is_needs_human_with_no_example() {
+    let root = temp_test_dir("needs-human-open-wire");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    assert!(!client.call_tool("designos_save_file", &json!({"path": "start.designos"})).unwrap().is_error);
+    let page = client.call_tool("designos_get_document", &json!({})).unwrap().value["pages"][0]["node_id"].clone();
+    assert!(!client.call_tool("designos_create_node", &json!({"parent_id": page, "kind": "frame", "name": "Unsaved"})).unwrap().is_error);
+    let open = client.call_tool("designos_open_file", &json!({"path": "start.designos"})).unwrap();
+    assert!(open.is_error, "{:?}", open.value);
+    assert_eq!(open.value["error_kind"], "needs_human", "{:?}", open.value);
+    assert_eq!(open.value["safe_to_retry"], false);
+    assert!(open.value.get("corrected_example").is_none(), "{:?}", open.value);
+    assert_eq!(action_on_tool_error(&open.value), StubErrorAction::StopAndReport);
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
 }
 
 fn line(undo_depth: usize, is_error: bool) -> TranscriptLine {

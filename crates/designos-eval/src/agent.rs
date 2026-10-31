@@ -292,10 +292,18 @@ pub fn action_on_tool_error(error: &Value) -> StubErrorAction {
 }
 
 /// Starts the `designos-mcp` server described by the `mcpServers.designos` entry of `mcp_config_path` and
-/// replays every `{tool, args}` line from `script_path` against it, exactly like a model-driven agent would.
+/// replays every `{tool, args}` line from `script_path` against it, exactly like a model-driven agent would,
+/// except that it stops at the first `needs_human` error (see [`action_on_tool_error`]): a model told to stop and ask the user does not
+/// carry on with the next scripted call, so neither does the stub.
 /// The server itself writes the transcript (`DESIGNOS_MCP_TRANSCRIPT` in the config's `env`). A failing tool
 /// is a recorded result, not a harness failure; a transport failure or a failed transcript append is.
 pub fn run_stub_agent(script_path: &Path, mcp_config_path: &Path) -> Result<(), String> {
+    run_stub_agent_with_policy(script_path, mcp_config_path, action_on_tool_error).map(|_| ())
+}
+
+/// [`run_stub_agent`] with the error policy a caller chooses; returns how many scripted calls were sent.
+/// A test passes a policy that ignores `error_kind` to show what an agent that does not stop would do.
+pub fn run_stub_agent_with_policy(script_path: &Path, mcp_config_path: &Path, on_tool_error: fn(&Value) -> StubErrorAction) -> Result<usize, String> {
     let raw_cfg =
         std::fs::read_to_string(mcp_config_path).map_err(|e| format!("stub_agent_error: cannot read mcp config '{}': {e}", mcp_config_path.display()))?;
     let cfg_val: Value = serde_json::from_str(&raw_cfg).map_err(|e| format!("stub_agent_error: invalid mcp config JSON: {e}"))?;
@@ -322,12 +330,17 @@ pub fn run_stub_agent(script_path: &Path, mcp_config_path: &Path) -> Result<(), 
     }
 
     let mut client = McpClient::spawn(Path::new(command), &args, &env, SCRUBBED_STUDIO_ENV_VARS)?;
+    let mut sent = 0;
     for call in &calls {
         let out = client.call_tool(&call.tool, &call.args)?;
+        sent += 1;
         if let Some(message) = out.error_message().filter(|m| m.starts_with("Transcript logging failed")) {
             return Err(message.to_string());
         }
+        if out.is_error && on_tool_error(&out.value) == StubErrorAction::StopAndReport {
+            break;
+        }
     }
     client.shutdown();
-    Ok(())
+    Ok(sent)
 }

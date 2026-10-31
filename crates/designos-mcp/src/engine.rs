@@ -1,5 +1,5 @@
 //! Typed, local document operations shared by the MCP transport and future bridges.
-use crate::tools::errors::{tool_output_schema, ErrorCode, ToolError};
+use crate::tools::errors::{tool_output_schema, ErrorCode, ErrorKind, ToolError};
 use designos_doc::live_patch::{live_ops_for_command, live_ops_for_independent, LiveOp};
 use designos_doc::{Annotation, Command, Comment, CommentAnchor, CommentThread, DevStatus, Document, History, Node, NodeId, NodeKind, NodeSpec, Vec2};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -1710,6 +1710,12 @@ pub(crate) fn validate_existing_output_target(
     Ok(())
 }
 
+/// Whether a failed write is something only the user can fix (see `write_checked_output_file`).
+pub(crate) fn write_needs_human(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind as Io;
+    matches!(e.kind(), Io::PermissionDenied | Io::StorageFull | Io::ReadOnlyFilesystem | Io::FileTooLarge)
+}
+
 pub(crate) fn write_checked_output_file(
     resolved: &std::path::Path,
     display_path: &str,
@@ -1732,13 +1738,17 @@ pub(crate) fn write_checked_output_file(
             ToolError::new(ErrorCode::InvalidArguments, ptr, format!("{display_path} is not a plain file. Delete it, then try again."))
                 .with_received(json!(display_path))
         }
+        // Permissions, a full disk, a read-only disk or a size limit: only the user can change those, so the agent stops.
+        None if write_needs_human(&e) => {
+            ToolError::new(ErrorCode::InternalError, ptr, format!("{display_path} can't be written: {e}. Check its permissions and free space."))
+                .with_error_kind(ErrorKind::NeedsHuman)
+                .with_next_step("Stop and tell the user: this file can't be written (permissions, free space, or a size limit). Do not retry.")
+        }
         None => ToolError::new(
             ErrorCode::InternalError,
             ptr,
             format!("{display_path} can't be written: {e}. Check its permissions and free space, then try again."),
-        )
-        // A failed write changed nothing on disk (callers that did change it override this).
-        .with_safe_to_retry(true),
+        ),
     };
     if !overwrite {
         let mut opts = std::fs::OpenOptions::new();

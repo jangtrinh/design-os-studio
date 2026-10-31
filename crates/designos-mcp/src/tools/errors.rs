@@ -347,9 +347,10 @@ impl ErrorCode {
             Self::FileTooLarge => "This file is over the limit in `expected`. Open it in DESIGN:OS Studio, or use a smaller file.",
             Self::PathOutsideWorkspace => "Stop and tell the user: the path is outside the workspace. Do not work around it.",
             Self::DocumentInvalid => "The file is corrupt or is not a design file. Stop and tell the user, then open another file.",
-            Self::UnsupportedNodeKind => "This node kind is not supported. Pick a supported kind from valid_options, or tell the user.",
-            Self::UnsupportedExtension => "This file extension is not supported. Choose a supported extension, or tell the user.",
+            Self::UnsupportedNodeKind => "Pick a supported kind from valid_options, then retry.",
+            Self::UnsupportedExtension => "Choose a path whose extension matches `expected`, then retry.",
             Self::UnsupportedFileType => "Stop and tell the user: this file type is not supported. Do not retry with the same path.",
+            Self::ToolDisabled => "Stop and tell the user: this tool is disabled in this session. Do not work around it.",
             Self::AnotherWindowOwnsSession => {
                 "Stop and tell the user: another window owns this file's agent session. Switch to that window. Do not work around it."
             }
@@ -508,7 +509,8 @@ impl ErrorCode {
             | Self::DuplicateAs
             | Self::BatchTooLarge
             | Self::UnknownTool
-            | Self::ToolDisabled
+            | Self::UnsupportedNodeKind
+            | Self::UnsupportedExtension
             | Self::FileExists
             | Self::EditorNotNotified
             | Self::EditorPublishFailed
@@ -540,16 +542,11 @@ impl ErrorCode {
             | Self::PathRequired
             | Self::PathOutsideWorkspace
             | Self::LoopSuspected
+            | Self::ToolDisabled
             | Self::AnotherWindowOwnsSession
             | Self::ApprovalDenied
             | Self::ApprovalTimeout => ErrorKind::NeedsHuman,
-            Self::FileTooLarge
-            | Self::DocumentInvalid
-            | Self::HistoryDropped
-            | Self::InternalError
-            | Self::UnsupportedNodeKind
-            | Self::UnsupportedExtension
-            | Self::UnsupportedFileType => ErrorKind::Fatal,
+            Self::FileTooLarge | Self::DocumentInvalid | Self::HistoryDropped | Self::InternalError | Self::UnsupportedFileType => ErrorKind::Fatal,
         }
     }
 }
@@ -698,8 +695,9 @@ impl ToolError {
         self
     }
 
+    /// A `needs_human` error carries no example: the agent must stop, and an identical call would only fail again.
     pub fn with_corrected_example(mut self, example: Value) -> Self {
-        if self.code != ErrorCode::PathOutsideWorkspace {
+        if self.error_kind != ErrorKind::NeedsHuman {
             self.corrected_example = Some(example);
         }
         self
@@ -719,10 +717,11 @@ impl ToolError {
         self
     }
 
+    /// Sets `safe_to_retry`. Only a `retryable` error can be safe to retry, so any other kind stays `false`.
     pub fn with_safe_to_retry(mut self, safe: bool) -> Self {
-        self.safe_to_retry = safe;
+        self.safe_to_retry = safe && self.error_kind == ErrorKind::Retryable;
         if let Some(cause) = &mut self.cause {
-            cause.safe_to_retry = safe;
+            cause.safe_to_retry = safe && cause.error_kind == ErrorKind::Retryable;
         }
         self
     }
@@ -780,7 +779,8 @@ impl ToolError {
             map.insert("op".into(), json!(op));
         }
         map.insert("error_kind".into(), json!(self.error_kind.as_str()));
-        map.insert("safe_to_retry".into(), json!(self.safe_to_retry));
+        // Sent clamped, so a `pub` field set directly can never put `safe_to_retry: true` next to a kind that must not be retried.
+        map.insert("safe_to_retry".into(), json!(self.safe_to_retry && self.error_kind == ErrorKind::Retryable));
         map.insert("next_step".into(), json!(self.effective_next_step()));
         map
     }
@@ -2155,7 +2155,8 @@ mod error_kind_tests {
             | ErrorCode::DuplicateAs
             | ErrorCode::BatchTooLarge
             | ErrorCode::UnknownTool
-            | ErrorCode::ToolDisabled
+            | ErrorCode::UnsupportedNodeKind
+            | ErrorCode::UnsupportedExtension
             | ErrorCode::FileExists
             | ErrorCode::EditorNotNotified
             | ErrorCode::EditorPublishFailed
@@ -2187,16 +2188,13 @@ mod error_kind_tests {
             | ErrorCode::PathRequired
             | ErrorCode::PathOutsideWorkspace
             | ErrorCode::LoopSuspected
+            | ErrorCode::ToolDisabled
             | ErrorCode::AnotherWindowOwnsSession
             | ErrorCode::ApprovalDenied
             | ErrorCode::ApprovalTimeout => "needs_human",
-            ErrorCode::FileTooLarge
-            | ErrorCode::DocumentInvalid
-            | ErrorCode::HistoryDropped
-            | ErrorCode::InternalError
-            | ErrorCode::UnsupportedNodeKind
-            | ErrorCode::UnsupportedExtension
-            | ErrorCode::UnsupportedFileType => "fatal",
+            ErrorCode::FileTooLarge | ErrorCode::DocumentInvalid | ErrorCode::HistoryDropped | ErrorCode::InternalError | ErrorCode::UnsupportedFileType => {
+                "fatal"
+            }
         }
     }
 
@@ -2243,16 +2241,8 @@ mod error_kind_tests {
     }
 
     #[test]
-    fn internal_and_unsupported_errors_are_fatal() {
-        for code in [
-            ErrorCode::InternalError,
-            ErrorCode::FileTooLarge,
-            ErrorCode::DocumentInvalid,
-            ErrorCode::HistoryDropped,
-            ErrorCode::UnsupportedNodeKind,
-            ErrorCode::UnsupportedExtension,
-            ErrorCode::UnsupportedFileType,
-        ] {
+    fn internal_and_unsupported_file_type_errors_are_fatal() {
+        for code in [ErrorCode::InternalError, ErrorCode::FileTooLarge, ErrorCode::DocumentInvalid, ErrorCode::HistoryDropped, ErrorCode::UnsupportedFileType] {
             let json = ToolError::new(code, "", "m").to_json_value();
             assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
             assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
@@ -2287,6 +2277,7 @@ mod error_kind_tests {
             ErrorCode::UnsavedChanges,
             ErrorCode::PathRequired,
             ErrorCode::LoopSuspected,
+            ErrorCode::ToolDisabled,
             ErrorCode::PathOutsideWorkspace,
             ErrorCode::AnotherWindowOwnsSession,
             ErrorCode::ApprovalDenied,
@@ -2298,19 +2289,90 @@ mod error_kind_tests {
         }
     }
 
+    /// A wrong node kind or file extension is an argument typo: the corrected example works on retry, so both are `retryable`.
+    /// A file type that is not importable has no fix the agent can make, so it stays `fatal`.
     #[test]
-    fn unsupported_codes_are_their_own_fatal_kind() {
+    fn unsupported_node_kind_and_extension_are_retryable_and_file_type_is_fatal() {
         assert_eq!(ErrorCode::UnsupportedNodeKind.as_str(), "UNSUPPORTED_NODE_KIND");
         assert_eq!(ErrorCode::UnsupportedExtension.as_str(), "UNSUPPORTED_EXTENSION");
-        for code in [ErrorCode::UnsupportedNodeKind, ErrorCode::UnsupportedExtension, ErrorCode::UnsupportedFileType] {
+        for code in [ErrorCode::UnsupportedNodeKind, ErrorCode::UnsupportedExtension] {
             let json = ToolError::new(code, "/x", "m").to_json_value();
-            assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
-            assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
-            let step = json["next_step"].as_str().unwrap().to_lowercase();
-            assert!(step.contains("not supported") || step.contains("unsupported"), "{}: {step}", code.as_str());
+            assert_eq!(json["error_kind"], "retryable", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], true, "{}", code.as_str());
+            assert!(json["next_step"].as_str().unwrap().contains("retry"), "{}: {json}", code.as_str());
         }
+        let json = ToolError::new(ErrorCode::UnsupportedFileType, "/x", "m").to_json_value();
+        assert_eq!(json["error_kind"], "fatal");
+        assert_eq!(json["safe_to_retry"], false);
+        assert!(json["next_step"].as_str().unwrap().contains("not supported"), "{json}");
         assert_ne!(ErrorCode::UnsupportedNodeKind, ErrorCode::InvalidArguments);
         assert_ne!(ErrorCode::UnsupportedExtension, ErrorCode::InvalidArguments);
+    }
+
+    /// No MCP call can re-enable a tool, so an agent that retries `TOOL_DISABLED` would loop forever: it is `needs_human`.
+    #[test]
+    fn tool_disabled_is_needs_human_and_never_safe_to_retry() {
+        let err = ToolError::new(ErrorCode::ToolDisabled, "", "disabled");
+        assert_eq!(err.error_kind, ErrorKind::NeedsHuman);
+        assert!(!err.safe_to_retry);
+        let json = err.to_json_value();
+        assert_eq!(json["error_kind"], "needs_human");
+        assert_eq!(json["safe_to_retry"], false);
+        let step = json["next_step"].as_str().unwrap();
+        assert!(step.starts_with("Stop and tell the user") && step.contains("Do not"), "{step}");
+        // Both construction sites keep that: the session tool pack and the mcp-config.json list.
+        let pack = crate::rules::EnabledToolsConfig::tool_disabled_error("designos_lint").to_json_value();
+        assert_eq!(pack["error_kind"], "needs_human");
+        assert_eq!(pack["safe_to_retry"], false);
+        assert!(pack["next_step"].as_str().unwrap().starts_with("Stop"), "{pack}");
+    }
+
+    /// `safe_to_retry` is derived from `error_kind`: it is `true` only for `retryable`, whatever a caller, a plain message or a JSON
+    /// envelope asks for, and whatever is written straight into the `pub` field.
+    #[test]
+    fn safe_to_retry_is_true_only_for_a_retryable_error() {
+        let wire = |e: &ToolError| e.to_json_value()["safe_to_retry"].clone();
+        for code in [ErrorCode::UnsavedChanges, ErrorCode::LoopSuspected, ErrorCode::ToolDisabled, ErrorCode::InternalError, ErrorCode::FileTooLarge] {
+            // The builder.
+            let err = ToolError::new(code, "/x", "m").with_safe_to_retry(true);
+            assert!(!err.safe_to_retry, "{} builder", code.as_str());
+            assert_eq!(wire(&err), json!(false), "{} builder", code.as_str());
+            // A plain message that claims `(safe_to_retry: true)`.
+            let plain = ToolError::from_plain_message(format!("{}: m (safe_to_retry: true)", code.as_str()));
+            assert_eq!(plain.code, code);
+            assert_eq!(wire(&plain), json!(false), "{} plain message", code.as_str());
+            // A JSON envelope that claims `safe_to_retry: true`.
+            let env = ToolError::from_json_envelope(&json!({"code": code.as_str(), "message": "m", "safe_to_retry": true})).unwrap();
+            assert_eq!(wire(&env), json!(false), "{} envelope", code.as_str());
+            // The field written directly, and a cause inside a batch error.
+            let mut direct = ToolError::new(code, "/x", "m");
+            direct.safe_to_retry = true;
+            assert_eq!(wire(&direct), json!(false), "{} direct field", code.as_str());
+            let mut cause = ToolError::new(code, "/x", "m");
+            cause.safe_to_retry = true;
+            let mut batch = ToolError::new(ErrorCode::BatchOpFailed, "/ops/0", "m").with_cause(cause);
+            batch.safe_to_retry = true;
+            let json = batch.to_json_value();
+            assert_eq!(json["cause"]["safe_to_retry"], json!(false), "{} cause", code.as_str());
+        }
+        // A retryable error keeps `true`.
+        let ok = ToolError::new(ErrorCode::InvalidArguments, "/x", "m");
+        assert_eq!(wire(&ok), json!(true));
+        assert_eq!(wire(&ok.clone().with_safe_to_retry(false)), json!(false));
+        // Moving a retryable error to another kind turns it off, and it stays off.
+        let moved = ToolError::new(ErrorCode::InvalidArguments, "/x", "m").with_error_kind(ErrorKind::NeedsHuman).with_safe_to_retry(true);
+        assert_eq!(wire(&moved), json!(false));
+    }
+
+    #[test]
+    fn a_write_blocked_by_permissions_or_space_is_needs_human() {
+        use std::io::ErrorKind as Io;
+        for kind in [Io::PermissionDenied, Io::StorageFull, Io::ReadOnlyFilesystem, Io::FileTooLarge] {
+            assert!(crate::engine::write_needs_human(&std::io::Error::from(kind)), "{kind:?}");
+        }
+        for kind in [Io::NotFound, Io::Other, Io::Interrupted] {
+            assert!(!crate::engine::write_needs_human(&std::io::Error::from(kind)), "{kind:?}");
+        }
     }
 
     #[test]
@@ -2337,6 +2399,15 @@ mod error_kind_tests {
         assert!(step.contains("ask") || step.contains("tell the user"), "{}", err.next_step);
         assert!(!step.contains("relative path"), "{}", err.next_step);
         assert!(err.corrected_example.is_none(), "PATH_OUTSIDE_WORKSPACE must not offer a workaround example: {:?}", err.corrected_example);
+    }
+
+    #[test]
+    fn a_needs_human_error_carries_no_corrected_example() {
+        for code in ErrorCode::ALL {
+            let err = ToolError::new(*code, "/x", "m").with_corrected_example(json!({"x": 1}));
+            assert_eq!(err.corrected_example.is_none(), err.error_kind == ErrorKind::NeedsHuman, "{}", code.as_str());
+            assert_eq!(err.to_json_value().get("corrected_example").is_none(), err.error_kind == ErrorKind::NeedsHuman, "{}", code.as_str());
+        }
     }
 
     #[test]

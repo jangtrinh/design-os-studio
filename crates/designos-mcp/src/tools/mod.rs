@@ -110,8 +110,7 @@ pub(crate) fn validate_create_fields(
         other => Err(ToolError::new(ErrorCode::UnsupportedNodeKind, "/kind", "kind must be frame, rectangle, ellipse, or text")
             .with_received(json!(other))
             .with_valid_options(vec!["frame", "rectangle", "ellipse", "text"])
-            .with_corrected_example(json!({"kind": "frame"}))
-            .with_safe_to_retry(false)),
+            .with_corrected_example(json!({"kind": "frame"}))),
     }
 }
 

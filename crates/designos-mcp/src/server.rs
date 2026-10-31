@@ -1157,9 +1157,7 @@ impl Session {
         self.sync_from_live_canvas_if_newer();
         self.loop_guard.note_revision(self.engine.revision);
         if self.disabled_tools.contains(name) {
-            return Err(ToolError::new(ErrorCode::ToolDisabled, "", format!("Tool `{name}` is disabled in the active tool pack"))
-                .with_received(json!(name))
-                .with_safe_to_retry(true));
+            return Err(ToolError::new(ErrorCode::ToolDisabled, "", format!("Tool `{name}` is disabled in the active tool pack")).with_received(json!(name)));
         }
         if !self.enabled_tools_config.is_tool_enabled(name) {
             return Err(crate::rules::EnabledToolsConfig::tool_disabled_error(name));
@@ -1270,13 +1268,13 @@ impl Session {
                 // never echoed back in the unsaved-changes hint.
                 self.ensure_inside_workspace(&a.path)?;
                 let path = self.input_path(&a.path)?;
-                if !crate::engine::open_import_extension_ok(&a.path) && !is_native_design_json(&path) {
-                    return Err(crate::engine::unsupported_open_file_type(&a.path));
-                }
+                // The unsaved-changes check comes before the content sniff, which may read a large file.
                 if self.dirty && !a.discard_changes {
                     return Err(ToolError::new(ErrorCode::UnsavedChanges, "/discard_changes", "Unsaved changes: stop and tell the user. Do not discard them.")
-                        .with_received(json!(false))
-                        .with_corrected_example(json!({"path": a.path})));
+                        .with_received(json!(false)));
+                }
+                if !crate::engine::open_import_extension_ok(&a.path) && !is_native_design_json(&path) {
+                    return Err(crate::engine::unsupported_open_file_type(&a.path));
                 }
                 let len = fs::metadata(&path).map_err(|e| ToolError::new(ErrorCode::InternalError, "/path", e.to_string()))?.len();
                 import_size_gate(len)?;
@@ -1347,8 +1345,7 @@ impl Session {
                 }
                 if self.dirty && !a.discard_changes {
                     return Err(ToolError::new(ErrorCode::UnsavedChanges, "/discard_changes", "Unsaved changes: stop and tell the user. Do not discard them.")
-                        .with_received(json!(false))
-                        .with_corrected_example(json!({"name": a.name})));
+                        .with_received(json!(false)));
                 }
                 let next_rev = self.engine.revision.wrapping_add(1);
                 self.live_tab_closed = false;
@@ -2525,6 +2522,23 @@ mod tests {
         }
     }
 
+    /// The text a client reads first must name all three `error_kind` values and what to do for each.
+    #[test]
+    fn server_instructions_say_what_to_do_for_each_error_kind() {
+        let ws_dir = std::env::temp_dir().join(format!(
+            "designos-mcp-instr-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        fs::create_dir_all(&ws_dir).unwrap();
+        let server = DesignOSServer::new(&ws_dir).unwrap();
+        let text = server.get_info().instructions.expect("server instructions");
+        assert!(text.contains("error_kind is retryable (fix arguments and retry)"), "{text}");
+        assert!(text.contains("fatal (this call cannot succeed)"), "{text}");
+        assert!(text.contains("needs_human (stop and ask the user; do not retry or work around)"), "{text}");
+        let _ = fs::remove_dir_all(&ws_dir);
+    }
+
     #[test]
     fn every_code_has_a_fixture() {
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
@@ -2559,13 +2573,15 @@ mod tests {
 
         // 1. InvalidArguments
         record(s.call("designos_save_file", json!({"path": "x.designos/"})).unwrap_err(), ErrorCode::InvalidArguments, true);
-        record(s.call("designos_create_node", json!({"parent_id": page.0, "kind": "not_a_kind"})).unwrap_err(), ErrorCode::UnsupportedNodeKind, false);
-        record(s.call("designos_save_file", json!({"path": "wrong.txt"})).unwrap_err(), ErrorCode::UnsupportedExtension, false);
+        record(s.call("designos_create_node", json!({"parent_id": page.0, "kind": "not_a_kind"})).unwrap_err(), ErrorCode::UnsupportedNodeKind, true);
+        record(s.call("designos_save_file", json!({"path": "wrong.txt"})).unwrap_err(), ErrorCode::UnsupportedExtension, true);
         {
             let dir = ws_dir.join("sniff");
             fs::create_dir_all(&dir).unwrap();
             fs::write(dir.join("t.txt"), "hello").unwrap();
-            record(s.call("designos_open_file", json!({"path": "sniff/t.txt"})).unwrap_err(), ErrorCode::UnsupportedFileType, false);
+            // A session with unsaved edits answers UNSAVED_CHANGES before it reads the file, so this one is clean.
+            let mut clean = Session::new(&ws_dir).unwrap();
+            record(clean.call("designos_open_file", json!({"path": "sniff/t.txt"})).unwrap_err(), ErrorCode::UnsupportedFileType, false);
         }
         record(ToolError::another_window_owns_session(), ErrorCode::AnotherWindowOwnsSession, false);
         record(ToolError::approval_denied(), ErrorCode::ApprovalDenied, false);
@@ -2939,12 +2955,14 @@ mod tests {
 
         // 40. ToolDisabled
         s.disabled_tools.insert("designos_lint".into());
-        record(s.call("designos_lint", json!({})).unwrap_err(), ErrorCode::ToolDisabled, true);
+        record(s.call("designos_lint", json!({})).unwrap_err(), ErrorCode::ToolDisabled, false);
         s.disabled_tools.remove("designos_lint");
 
         // 41. UnsavedChanges
         s.dirty = true;
         record(s.call("designos_new_document", json!({"name": "Fresh", "discard_changes": false})).unwrap_err(), ErrorCode::UnsavedChanges, false);
+        // The unsaved-changes check runs before the content sniff, so a dirty session never reads the file first.
+        record(s.call("designos_open_file", json!({"path": "sniff/t.txt"})).unwrap_err(), ErrorCode::UnsavedChanges, false);
 
         // 42. PathOutsideWorkspace
         record(s.call("designos_save_file", json!({"path": "../outside.designos"})).unwrap_err(), ErrorCode::PathOutsideWorkspace, false);

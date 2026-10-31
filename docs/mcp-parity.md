@@ -142,7 +142,7 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `MOVE_CYCLE` | `retryable` | active |
 | `INSTANCE_CYCLE` | `retryable` | active |
 | `OVERRIDE_FIELD_NOT_APPLICABLE` | `retryable` | active |
-| `UNSUPPORTED_NODE_KIND` | `fatal` | active |
+| `UNSUPPORTED_NODE_KIND` | `retryable` | active |
 | `UNKNOWN_COMPONENT` | `retryable` | active |
 | `AMBIGUOUS_COMPONENT` | `retryable` | active |
 | `UNKNOWN_VARIANT_PROPERTY` | `retryable` | active |
@@ -170,7 +170,7 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `DUPLICATE_AS` | `retryable` | active |
 | `BATCH_TOO_LARGE` | `retryable` | active |
 | `UNKNOWN_TOOL` | `retryable` | active |
-| `TOOL_DISABLED` | `retryable` | active |
+| `TOOL_DISABLED` | `needs_human` | active |
 | `UNSAVED_CHANGES` | `needs_human` | active |
 | `PATH_REQUIRED` | `needs_human` | active |
 | `PATH_OUTSIDE_WORKSPACE` | `needs_human` | active |
@@ -182,7 +182,7 @@ Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the argu
 | `PATCH_TOO_LARGE` | `retryable` | active |
 | `HISTORY_DROPPED` | `fatal` | active |
 | `INTERNAL_ERROR` | `fatal` | active |
-| `UNSUPPORTED_EXTENSION` | `fatal` | active |
+| `UNSUPPORTED_EXTENSION` | `retryable` | active |
 | `UNSUPPORTED_FILE_TYPE` | `fatal` | active |
 | `ANOTHER_WINDOW_OWNS_SESSION` | `needs_human` | reserved |
 | `APPROVAL_DENIED` | `needs_human` | active |

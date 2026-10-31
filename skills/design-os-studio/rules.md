@@ -10,7 +10,7 @@
 5. **Fix in place** — Update with (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
 6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `node_ids: [root]`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
-7. **Errors & retries** — `error_kind`: `retryable` = fix and retry; `fatal` = stop; `needs_human` = stop and ask the user. Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry` is `true`; re-read state when `safe_to_retry` is `false`; pass `idempotency_key` on writes.
+7. **Errors & retries** — `error_kind`: `retryable` = fix and retry once; `fatal` = stop; `needs_human` = stop and ask the user. Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry`; else re-read state; pass `idempotency_key` on writes.
 
 Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not gated by Studio.
 
@@ -67,7 +67,7 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 ### `designos_create_node`
 - **Purpose:** Create one layer in a container; defaults to x/y=0, width/height=100.
 - **Args:** required: `parent_id`, `kind` (optional: `diff_image`, `fill`, `fills`, `height`, `idempotency_key`, `lint`, `name`, `text`, `width`, `x`, `y`)
-- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `VALUE_OUT_OF_RANGE`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `OUTSIDE_OWNED_FRAMES`
+- **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `VALUE_OUT_OF_RANGE`, `UNSUPPORTED_NODE_KIND`, `UNKNOWN_VARIABLE`, `VARIABLE_TYPE_MISMATCH`, `AMBIGUOUS_VARIABLE`, `OUTSIDE_OWNED_FRAMES`
 - **Example:** `{"parent_id":1,"kind":"frame","name":"Hero","width":1200,"height":640}`
 
 ### `designos_update_node`
@@ -127,7 +127,7 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 ### `designos_export_fig_file`
 - **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi...
 - **Args:** required: `output_path` (optional: `overwrite`)
-- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`, `INTERNAL_ERROR`
+- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `UNSUPPORTED_EXTENSION`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`, `INTERNAL_ERROR`
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`
@@ -217,7 +217,7 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 ### `designos_save_file`
 - **Purpose:** Save this session to a .designos file inside the workspace, or in place when path is...
 - **Args:** required: none (optional: `overwrite`, `path`)
-- **Errors:** `INVALID_ARGUMENTS`, `PATH_REQUIRED`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
+- **Errors:** `INVALID_ARGUMENTS`, `PATH_REQUIRED`, `INVALID_NAME`, `NAME_TOO_LONG`, `UNSUPPORTED_EXTENSION`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"path":"design.designos","overwrite":true}`
 
 ### `designos_close_document`
@@ -229,7 +229,7 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 ### `designos_render_png`
 - **Purpose:** Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS...
 - **Args:** required: `path`, `node_id` (optional: `scale`)
-- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
+- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`, `UNSUPPORTED_EXTENSION`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"node_id":2,"path":"preview.png","scale":2.0}`
 
 ### `designos_new_document`
@@ -348,10 +348,10 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 
 ## Per-Call `issues` Block & Error Recovery
 
-- **Per-call `issues`:** Mutating replies attach `issues: {total, new_in_this_call, truncated, items}`. Resolve `new_in_this_call > 0` before continuing.
+- **Per-call `issues`:** Mutating replies attach `issues: {total, new_in_this_call, truncated, items}`. Resolve `new_in_this_call > 0` first.
 - **Session lint:** `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false`.
 - **Structured errors:** `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.
-- **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,message,next_step,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
+- **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
 
 ## Design Quality & Anti-Generic Rules
 
