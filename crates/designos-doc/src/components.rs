@@ -5391,7 +5391,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_p5_size_rule_is_whole_vector() {
+    fn probe_p5_size_rule_is_per_axis() {
         let mut d = Document::new("p5");
         let page = d.add_page("P");
         let mkbtn = |d: &mut Document, name: &str, x: f32, h: f32| -> NodeId {
@@ -5440,6 +5440,10 @@ mod tests {
         apply(&mut d, c);
         let s = d.get(si).unwrap();
         assert_eq!(s.size, Vec2::new(280.0, 40.0), "width was stretched (keep 280); height was never stretched (take new main 40)");
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+        let s_after = d.get(si).unwrap();
+        assert_eq!(s_after.size, Vec2::new(280.0, 40.0), "later sync keeps stretched width 280 and new main height 40 per axis");
     }
 
     #[test]
