@@ -766,7 +766,8 @@ impl ToolError {
                 map.insert("valid_options_total".into(), json!(total));
             }
         }
-        if let Some(ex) = &self.corrected_example {
+        // A needs_human error has no example an agent could resend, however the kind was set (builder order must not matter).
+        if let Some(ex) = self.corrected_example.as_ref().filter(|_| self.error_kind != ErrorKind::NeedsHuman) {
             map.insert("corrected_example".into(), ex.clone());
         }
         if let Some(cause) = &self.cause {
@@ -2408,6 +2409,15 @@ mod error_kind_tests {
             assert_eq!(err.corrected_example.is_none(), err.error_kind == ErrorKind::NeedsHuman, "{}", code.as_str());
             assert_eq!(err.to_json_value().get("corrected_example").is_none(), err.error_kind == ErrorKind::NeedsHuman, "{}", code.as_str());
         }
+    }
+
+    /// The kind can be set after the example: the wire form still drops the example, so no builder order sends one with `needs_human`.
+    #[test]
+    fn a_needs_human_kind_set_after_the_example_is_still_stripped_at_serialization() {
+        let err = ToolError::new(ErrorCode::ValueOutOfRange, "/x", "m").with_corrected_example(json!({"x": 1})).with_error_kind(ErrorKind::NeedsHuman);
+        assert!(err.to_json_value().get("corrected_example").is_none(), "{}", err.to_json_value());
+        let retryable = ToolError::new(ErrorCode::ValueOutOfRange, "/x", "m").with_corrected_example(json!({"x": 1}));
+        assert_eq!(retryable.to_json_value()["corrected_example"], json!({"x": 1}));
     }
 
     #[test]

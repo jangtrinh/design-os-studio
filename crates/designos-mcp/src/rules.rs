@@ -857,6 +857,13 @@ mod tests {
         }
     }
 
+    /// The one-retry bound: an agent that follows `retryable` retries once, not forever.
+    #[test]
+    fn rules_pack_bounds_the_retry_to_once() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("`retryable` = fix and retry once"), "step 7 must bound the retry");
+    }
+
     #[test]
     fn per_tool_error_lists_name_the_unsupported_codes_the_tool_returns() {
         let has = |tool: &str, code: &str| tool_error_codes(tool).contains(&format!("`{code}`").as_str());

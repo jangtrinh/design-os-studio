@@ -2,7 +2,7 @@
 
 mod support;
 
-use designos_eval::agent::{action_on_tool_error, run_stub_agent_with_policy, StubErrorAction};
+use designos_eval::agent::{action_on_tool_error, run_stub_agent, run_stub_agent_with_policy, StubErrorAction};
 use designos_eval::mcp_client::McpClient;
 use designos_eval::runner::{replay_transcript_file, rfc3339_utc, run_harness};
 use designos_eval::transcript::{had_document_edits, TranscriptLine};
@@ -137,7 +137,7 @@ fn mcp_client_reports_a_failing_tool_as_a_result_not_a_transport_error() {
 
 /// Runs a scripted agent whose last call retries `open_file` with `discard_changes: true` right after the unsaved-changes refusal.
 /// Returns how many scripted calls were sent and whether the document the agent edited was thrown away (`start.designos` reopened).
-fn run_needs_human_open_file_agent(policy: fn(&Value) -> StubErrorAction) -> (usize, bool, Vec<TranscriptLine>) {
+fn run_needs_human_open_file_agent(policy: Option<fn(&Value) -> StubErrorAction>) -> (usize, bool, Vec<TranscriptLine>) {
     let root = temp_test_dir("needs-human-open");
     let transcript = root.join("transcript.jsonl");
     let config = json!({"mcpServers": {"designos": {
@@ -159,8 +159,16 @@ fn run_needs_human_open_file_agent(policy: fn(&Value) -> StubErrorAction) -> (us
     )
     .unwrap();
 
-    let sent = run_stub_agent_with_policy(&script_path, &config_path, policy).unwrap();
+    // `None` runs the entry point agents use (`run_stub_agent`), which must carry the default policy by itself.
+    let sent = match policy {
+        Some(policy) => run_stub_agent_with_policy(&script_path, &config_path, policy).unwrap(),
+        None => {
+            run_stub_agent(&script_path, &config_path).unwrap();
+            usize::MAX
+        }
+    };
     let lines: Vec<TranscriptLine> = fs::read_to_string(&transcript).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    let sent = if sent == usize::MAX { lines.len() } else { sent };
     let discarded = lines.iter().any(|l| l.tool == "designos_open_file" && l.args["discard_changes"] == json!(true) && !l.is_error);
     let _ = fs::remove_dir_all(&root);
     (sent, discarded, lines)
@@ -168,7 +176,7 @@ fn run_needs_human_open_file_agent(policy: fn(&Value) -> StubErrorAction) -> (us
 
 #[test]
 fn needs_human_agent_stops_instead_of_discarding() {
-    let (sent, discarded, lines) = run_needs_human_open_file_agent(action_on_tool_error);
+    let (sent, discarded, lines) = run_needs_human_open_file_agent(Some(action_on_tool_error));
     let refusal = lines.iter().find(|l| l.tool == "designos_open_file").expect("the dirty open_file call was sent");
     let err = refusal.error.as_ref().expect("the refusal is recorded");
     assert!(refusal.is_error, "{err}");
@@ -177,10 +185,18 @@ fn needs_human_agent_stops_instead_of_discarding() {
     assert!(lines.iter().all(|l| l.args.get("discard_changes").is_none()), "{lines:?}");
 }
 
+/// `run_stub_agent` itself, with no policy argument, stops at the refusal: the default wiring is what an eval run uses.
+#[test]
+fn the_default_stub_agent_stops_at_a_needs_human_refusal() {
+    let (sent, discarded, lines) = run_needs_human_open_file_agent(None);
+    assert_eq!(sent, 3, "{lines:?}");
+    assert!(!discarded, "{lines:?}");
+}
+
 /// The same script with a policy that ignores `error_kind` sends the discard retry, so the verdict above flips and the test can fail.
 #[test]
 fn needs_human_scenario_fails_when_the_policy_ignores_error_kind() {
-    let (sent, discarded, _) = run_needs_human_open_file_agent(|_| StubErrorAction::Continue);
+    let (sent, discarded, _) = run_needs_human_open_file_agent(Some(|_| StubErrorAction::Continue));
     assert_eq!(sent, 4, "an agent that ignores error_kind sends every scripted call");
     assert!(discarded, "and so throws the unsaved edit away");
 }
