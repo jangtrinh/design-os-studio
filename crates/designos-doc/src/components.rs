@@ -6081,4 +6081,138 @@ mod tests {
         }
         assert_eq!((s_swap, bg_swap), (Vec2::new(80.0, 48.0), Vec2::new(80.0, 48.0)), "B -> C on an unresized slot takes C's size");
     }
+
+    fn tri_outline(w: f32) -> Vec<crate::Path> {
+        vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(0.15 * w, 0.1 * w)),
+                crate::PathCmd::LineTo(Vec2::new(0.9 * w, 0.5 * w)),
+                crate::PathCmd::LineTo(Vec2::new(0.2 * w, 0.85 * w)),
+                crate::PathCmd::Close,
+            ],
+            ..Default::default()
+        }]
+    }
+
+    fn glyph_node_of_kind(d: &mut Document, kind: &str, size: f32) -> Node {
+        let gid = d.alloc_id();
+        let mut g = match kind {
+            "vector" => Node::new(gid, NodeKind::Vector { paths: tri_outline(size), network: None }),
+            "boolean" => Node::new(gid, NodeKind::BooleanOp(BooleanOp::Union)),
+            "ellipse" => Node::ellipse(gid, Rect::new(0.0, 0.0, size, size)),
+            "frame" => Node::frame(gid, Rect::new(0.0, 0.0, size, size)),
+            _ => unreachable!(),
+        };
+        g.size = Vec2::new(size, size);
+        g.transform = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 };
+        g.name = "Glyph".into();
+        g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+        g.fill_geometry = Some(tri_outline(size));
+        g
+    }
+
+    fn icon_of_kind(d: &mut Document, page: NodeId, name: &str, x: f32, kind: &str) -> NodeId {
+        let id = d.alloc_id();
+        let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+        f.name = name.into();
+        let comp = d.insert(page, f).unwrap();
+        let g = glyph_node_of_kind(d, kind, 16.0);
+        d.insert(comp, g).unwrap();
+        let c = create_component(d, comp);
+        apply(d, c);
+        comp
+    }
+
+    fn tool_with_icon_slot(d: &mut Document, page: NodeId, a: NodeId, b: NodeId) -> (NodeId, NodeId) {
+        let id = d.alloc_id();
+        let mut btn = Node::frame(id, Rect::new(0.0, 100.0, 32.0, 32.0));
+        btn.name = "Tool".into();
+        let btn = d.insert(page, btn).unwrap();
+        let c = create_component(d, btn);
+        apply(d, c);
+        let c = create_instance(d, a, btn, Vec2::new(6.0, 6.0));
+        apply(d, c);
+        let slot = d.get(btn).unwrap().children[0];
+        let mut sn = d.get(slot).unwrap().clone();
+        sn.name = "Icon".into();
+        sn.size = Vec2::new(20.0, 20.0);
+        sn.component.overrides.insert(OverrideField::Name);
+        sn.component.overrides.insert(OverrideField::Size);
+        apply(d, Command::Update { node: Box::new(sn) });
+        let gl = child_named(d, slot, "Glyph");
+        let mut gn = d.get(gl).unwrap().clone();
+        let before = gn.clone();
+        let tf = gn.transform;
+        crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
+        gn.component.overrides.extend(record_override(&before, &gn));
+        apply(d, Command::Update { node: Box::new(gn) });
+        let c = add_prop(d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
+        apply(d, c);
+        let c = bind_prop(d, slot, OverrideField::MainComponent, Some("Icon"));
+        apply(d, c);
+        (btn, slot)
+    }
+
+    #[test]
+    fn r4_cross_kind_size_carry_matrix() {
+        let placed = |b: (f32, f32, f32, f32), t: Affine| (b.0 + t.tx, b.1 + t.ty, b.2 + t.tx, b.3 + t.ty);
+        let mut bad = Vec::new();
+        for (ka, kb) in [("vector", "vector"), ("vector", "boolean"), ("boolean", "vector"), ("vector", "ellipse"), ("vector", "frame"), ("ellipse", "vector")] {
+            let mut d = Document::new("xk");
+            let page = d.add_page("P");
+            let a = icon_of_kind(&mut d, page, "Icon/A", 0.0, ka);
+            let b = icon_of_kind(&mut d, page, "Icon/B", 40.0, kb);
+            {
+                let gb = d.get(b).unwrap().children[0];
+                let mut g = d.get(gb).unwrap().clone();
+                let p = vec![crate::Path {
+                    cmds: vec![
+                        crate::PathCmd::MoveTo(Vec2::new(3.0, 2.0)),
+                        crate::PathCmd::LineTo(Vec2::new(13.0, 4.0)),
+                        crate::PathCmd::LineTo(Vec2::new(8.0, 14.0)),
+                        crate::PathCmd::Close,
+                    ],
+                    ..Default::default()
+                }];
+                if let NodeKind::Vector { paths, .. } = &mut g.kind {
+                    *paths = p.clone();
+                }
+                g.fill_geometry = Some(p);
+                apply(&mut d, Command::Update { node: Box::new(g) });
+            }
+            let (btn, _) = tool_with_icon_slot(&mut d, page, a, b);
+            let c = create_instance(&mut d, btn, page, Vec2::new(200.0, 100.0));
+            apply(&mut d, c);
+            let bi = *d.get(page).unwrap().children.last().unwrap();
+            let si = d.get(bi).unwrap().children[0];
+            let c = set_instance_prop(&mut d, bi, "Icon", Some(PropValue::Instance(b)));
+            apply(&mut d, c);
+            let mut direct = d.get(d.get(b).unwrap().children[0]).unwrap().clone();
+            let tf = direct.transform;
+            crate::layout_constraints::apply_constrained_geometry(&mut direct, tf, Vec2::new(20.0, 20.0));
+            let want = direct.fill_geometry.as_ref().map(|p| placed(path_bbox(p), direct.transform));
+            for k in 0..=3 {
+                if k > 0 {
+                    for m in [btn, b, a] {
+                        let c = sync_instances(&mut d, m);
+                        apply(&mut d, c);
+                    }
+                }
+                if k == 0 || k == 1 || k == 3 {
+                    let g = d.get(child_named(&d, si, "Glyph")).unwrap();
+                    let got = g.fill_geometry.as_ref().map(|p| placed(path_bbox(p), g.transform));
+                    let ok = g.size == Vec2::new(20.0, 20.0)
+                        && match (got, want) {
+                            (None, None) => true,
+                            (Some(x), Some(y)) => [x.0 - y.0, x.1 - y.1, x.2 - y.2, x.3 - y.3].iter().all(|v| v.abs() <= 0.5),
+                            _ => false,
+                        };
+                    if !ok {
+                        bad.push(format!("{ka}->{kb} sync#{k}"));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "cross-kind Size carry draws the wrong outline: {bad:?}");
+    }
 }
