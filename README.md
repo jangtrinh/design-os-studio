@@ -262,7 +262,7 @@ Screenshots below are headless captures from the 0.7.5 release build on a `.desi
 
 <p align="center">
   <img src="docs/images/designos-agents-chat.png" alt="DESIGN:OS Studio Agents panel beside an Untitled UI canvas with the Avatar group component selected. A New session list shows Claude Code, Codex, Grok, Antigravity and Gemini CLI with their versions and sign-in states, then Other CLI and Shell. Below it are sample prompts and the Ask for changes composer, under a chip that names the selection" width="880"><br>
-  <sub>Command: <code>designos-studio untitled-ui-kit.designos --select "Avatar group" --zoom 200 --panel agents-picker --size 1440x900 --scale 2 --no-toast --screenshot docs/images/designos-agents-chat.png</code><br>
+  <sub>Command: <code>designos-studio untitled-ui-kit.designos --select "Avatar group" --zoom 200 --panel agents --size 1440x900 --scale 2 --no-toast --screenshot docs/images/designos-agents-chat.png</code><br>
   The new-session picker reads each CLI's version and sign-in state from the machine that took the capture. A live session is not shown.</sub>
 </p>
 

@@ -50,53 +50,13 @@
   },
   "overlays": [],
   "named": {
-    "agent-mention-btn-left": {
-      "region": "left_panel",
-      "rect": [
-        363.25,
-        98.0,
-        77.75,
-        20.0
-      ],
-      "count": 1
-    },
-    "agents-composer-attach": {
-      "region": "left_panel",
-      "rect": [
-        69.0,
-        1044.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
-    "agents-composer-book": {
-      "region": "left_panel",
-      "rect": [
-        97.0,
-        1044.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
     "agents-composer-box": {
       "region": "left_panel",
       "rect": [
         61.0,
-        996.0,
+        1010.0,
         376.0,
-        80.0
-      ],
-      "count": 1
-    },
-    "agents-composer-context": {
-      "region": "left_panel",
-      "rect": [
-        129.0,
-        1044.0,
-        40.0,
-        24.0
+        66.0
       ],
       "count": 1
     },
@@ -104,29 +64,9 @@
       "region": "left_panel",
       "rect": [
         73.0,
-        1004.0,
+        1018.0,
         352.0,
-        32.0
-      ],
-      "count": 1
-    },
-    "agents-composer-plus": {
-      "region": "left_panel",
-      "rect": [
-        69.0,
-        1044.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
-    "agents-composer-prd": {
-      "region": "left_panel",
-      "rect": [
-        129.0,
-        1044.0,
-        40.0,
-        24.0
+        22.0
       ],
       "count": 1
     },
@@ -134,119 +74,9 @@
       "region": "left_panel",
       "rect": [
         401.0,
-        1042.0,
-        28.0,
-        28.0
-      ],
-      "count": 1
-    },
-    "agents-composer-skills": {
-      "region": "left_panel",
-      "rect": [
-        173.0,
-        1044.0,
-        46.75,
-        24.0
-      ],
-      "count": 1
-    },
-    "agents-empty-attach-hint": {
-      "region": "left_panel",
-      "rect": [
-        65.0,
-        754.0,
-        368.0,
-        18.0
-      ],
-      "count": 1
-    },
-    "agents-empty-context-no_selection": {
-      "region": "left_panel",
-      "rect": [
-        49.0,
-        522.0,
-        400.0,
-        868.0
-      ],
-      "count": 1
-    },
-    "agents-header-skills": {
-      "region": "left_panel",
-      "rect": [
-        179.0,
-        64.0,
-        46.75,
-        28.0
-      ],
-      "count": 1
-    },
-    "agents-new-session-picker": {
-      "region": "left_panel",
-      "rect": [
-        65.0,
-        136.0,
-        368.0,
-        386.0
-      ],
-      "count": 1
-    },
-    "agents-runtime-add-btn": {
-      "region": "left_panel",
-      "rect": [
-        143.0,
-        66.0,
-        28.0,
-        24.0
-      ],
-      "count": 1
-    },
-    "agents-sample-prompt-0": {
-      "region": "left_panel",
-      "rect": [
-        65.0,
-        570.0,
-        368.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "agents-sample-prompt-1": {
-      "region": "left_panel",
-      "rect": [
-        65.0,
-        614.0,
-        368.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "agents-sample-prompt-2": {
-      "region": "left_panel",
-      "rect": [
-        65.0,
-        658.0,
-        368.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "agents-sample-prompt-3": {
-      "region": "left_panel",
-      "rect": [
-        65.0,
-        702.0,
-        368.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "agents-sessions-btn": {
-      "region": "left_panel",
-      "rect": [
-        59.0,
-        66.0,
-        76.0,
-        24.0
+        1040.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
@@ -387,76 +217,6 @@
         60.0,
         6.0,
         1028.0
-      ],
-      "count": 1
-    },
-    "picker-row-agents-dropdown-antigravity": {
-      "region": "left_panel",
-      "rect": [
-        81.0,
-        308.0,
-        336.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "picker-row-agents-dropdown-claude": {
-      "region": "left_panel",
-      "rect": [
-        81.0,
-        176.0,
-        336.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "picker-row-agents-dropdown-codex": {
-      "region": "left_panel",
-      "rect": [
-        81.0,
-        220.0,
-        336.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "picker-row-agents-dropdown-gemini": {
-      "region": "left_panel",
-      "rect": [
-        81.0,
-        352.0,
-        336.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "picker-row-agents-dropdown-grok": {
-      "region": "left_panel",
-      "rect": [
-        81.0,
-        264.0,
-        336.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "picker-row-agents-dropdown-other-cli": {
-      "region": "left_panel",
-      "rect": [
-        81.0,
-        396.0,
-        336.0,
-        40.0
-      ],
-      "count": 1
-    },
-    "picker-row-agents-dropdown-shell": {
-      "region": "left_panel",
-      "rect": [
-        81.0,
-        440.0,
-        336.0,
-        40.0
       ],
       "count": 1
     },
@@ -1049,6 +809,66 @@
         24.0
       ],
       "count": 1
+    },
+    "agents-composer-add-btn": {
+      "region": "left_panel",
+      "rect": [
+        65.0,
+        1040.0,
+        32.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-composer-agent-pill": {
+      "region": "left_panel",
+      "rect": [
+        101.0,
+        1040.0,
+        199.25,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-composer-mode-btn": {
+      "region": "left_panel",
+      "rect": [
+        304.25,
+        1040.0,
+        92.75,
+        32.0
+      ],
+      "count": 1
+    },
+    "agents-more-btn": {
+      "region": "left_panel",
+      "rect": [
+        417.0,
+        66.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "agents-new-chat-btn": {
+      "region": "left_panel",
+      "rect": [
+        389.0,
+        66.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "agents-new-chat-tab": {
+      "region": "left_panel",
+      "rect": [
+        57.0,
+        66.0,
+        104.0,
+        24.0
+      ],
+      "count": 1
     }
   },
   "unnamed": [
@@ -1159,33 +979,6 @@
       ]
     },
     {
-      "region": "left_panel",
-      "rect": [
-        363.25,
-        96.0,
-        77.75,
-        24.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
-      "region": "left_panel",
-      "rect": [
-        73.0,
-        1004.0,
-        352.0,
-        15.0
-      ],
-      "sense": [
-        "click",
-        "drag",
-        "focus"
-      ]
-    },
-    {
       "region": "right_panel",
       "rect": [
         1537.0,
@@ -1285,6 +1078,20 @@
         0.0,
         1600.0,
         28.0
+      ],
+      "sense": [
+        "click",
+        "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "left_panel",
+      "rect": [
+        73.0,
+        1018.0,
+        352.0,
+        15.0
       ],
       "sense": [
         "click",

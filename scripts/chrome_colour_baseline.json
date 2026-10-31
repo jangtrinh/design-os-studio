@@ -1,12 +1,6 @@
 {
   "allowlist": {},
   "files": {
-    "agent_open_flow.rs": {
-      "chrome_sites": 7
-    },
-    "agent_picker.rs": {
-      "chrome_sites": 1
-    },
     "board/bar.rs": {
       "chrome_sites": 2
     },
@@ -46,9 +40,6 @@
     "icons.rs": {
       "chrome_sites": 1
     },
-    "image_jobs.rs": {
-      "chrome_sites": 2
-    },
     "libraries/modal.rs": {
       "chrome_sites": 1
     },
@@ -82,14 +73,11 @@
     "present.rs": {
       "chrome_sites": 3
     },
-    "skills/mod.rs": {
-      "chrome_sites": 10
-    },
     "specs.rs": {
       "chrome_sites": 42
     },
     "terminal.rs": {
-      "chrome_sites": 50
+      "chrome_sites": 6
     },
     "widgets/menu.rs": {
       "chrome_sites": 2

@@ -221,7 +221,10 @@ fn renaming_in_the_header_gets_the_letters_after_the_other_cli_form_was_open() {
         }
         std::thread::sleep(std::time::Duration::from_millis(25));
     }
-    click_rect(&mut s, &format!("picker-row-{}", other.id));
+    click_rect(&mut s, "agents-composer-agent-pill");
+    s.shell.app.terminal.picker.menu_more_open = true;
+    s.frame(vec![]);
+    click_rect(&mut s, &other.id);
     click_rect(&mut s, "agents-other-cli-label-input");
     s.type_text("ab");
     assert_eq!(s.app().terminal.picker.other_label_input, "ab", "precondition: the form had the caret and took the letters");
@@ -238,7 +241,7 @@ fn renaming_in_the_header_gets_the_letters_after_the_other_cli_form_was_open() {
     s.key(Key::Enter);
     s.frame(vec![]);
     assert_eq!(s.app().lib_file.as_ref().unwrap().name, "Launch page", "the name field took the letters");
-    assert_eq!(s.app().terminal.picker.other_label_input, "ab", "and the hidden form none");
+    assert!(s.app().terminal.picker.other_label_input.is_empty(), "and the closed form none");
     assert!(s.app().terminal.picker.other_command_input.is_empty());
     for mut tab in s.shell.app.terminal.tabs.drain(..) {
         let _ = tab.child.kill();
@@ -529,20 +532,20 @@ fn userflows_uf01_to_uf08_end_to_end_figma_parity() {
     assert_eq!(s.app().ui.rail, Some(RailItem::Agents));
     assert!(!s.app().ui.left_collapsed);
 
-    // Default Interactive Shell + Top `+` Runtime Dropdown (Claude / Codex / Grok / Antigravity)
+    // Default Interactive Shell + the agent menu of the composer pill (Claude / Codex / Grok / Antigravity)
     assert_eq!(s.app().terminal.active_runtime, crate::terminal::AgentCliPreset::Shell);
     assert!(s.app().terminal.side_panel_pty_open);
-    click_rect(&mut s, "agents-runtime-add-btn");
+    click_rect(&mut s, "agents-composer-agent-pill");
     assert!(s.app().terminal.runtime_dropdown_open);
     click_rect(&mut s, "agents-dropdown-codex");
     assert_eq!(s.app().terminal.active_runtime, crate::terminal::AgentCliPreset::Codex);
-    click_rect(&mut s, "agents-runtime-add-btn");
+    click_rect(&mut s, "agents-composer-agent-pill");
     click_rect(&mut s, "agents-dropdown-antigravity");
     assert_eq!(s.app().terminal.active_runtime, crate::terminal::AgentCliPreset::Antigravity);
-    click_rect(&mut s, "agents-runtime-add-btn");
+    click_rect(&mut s, "agents-composer-agent-pill");
     click_rect(&mut s, "agents-dropdown-claude");
     assert_eq!(s.app().terminal.active_runtime, crate::terminal::AgentCliPreset::Claude);
-    // One tab per pick, all still running: a tab that exited would have moved the `+` button mid-flow.
+    // One tab per pick, all still running: a tab that exited would have moved the pill mid-flow.
     #[cfg(unix)]
     {
         let terminal = &mut s.shell.app.terminal;

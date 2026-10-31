@@ -1243,9 +1243,12 @@ mod vector;
 
 // Needs the stub agent CLIs of `Sim::use_stub_agent_clis`, which exist on unix only: on Windows the tab runs a real `claude`
 // that is not there, and dies at a moment that depends on machine load, so the terminal bytes the tests read are not stable.
+mod agent_chrome;
+mod agent_new_chat_composer;
 #[cfg(unix)]
 mod agent_panel_keyboard;
 mod agent_picker_return;
+mod agent_simplified_panel;
 mod agents_panel_only;
 mod agents_tab_strip;
 mod approval_banner_tab;
@@ -1686,14 +1689,13 @@ mod agent_a11y {
         // In default chat mode (`side_panel_pty_open == false`), composer and runtime pills are created;
         // PTY-only buttons (`New session`, `Close tab`) and non-existent controls (`Stop`, `Send selection to agent`) must not be published.
         let update = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        for label in ["Send", "Use Claude Code", "Use Codex", "Use Antigravity (AGY)", "Use Grok", "Attach context", "Show terminal", "Attach PRD context"] {
+        for label in ["Send", "Use Claude Code", "Use Codex", "Use Antigravity (AGY)", "Use Grok", "Attach context", "Show terminal"] {
             assert!(find_accesskit_node(update, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in chat mode");
         }
-        // The Shell pill and the composer's book button both show the terminal, so both carry the same honest name.
+        // The Shell pill shows the terminal, so it carries that honest name.
         let show_terminal_ids: Vec<_> =
             update.nodes.iter().filter(|(_, n)| n.role() == egui::accesskit::Role::Button && n.label() == Some("Show terminal")).map(|(id, _)| *id).collect();
         assert!(show_terminal_ids.contains(&egui::Id::new("agents-runtime-pty-toggle").accesskit_id()), "the Shell pill must be named Show terminal");
-        assert!(show_terminal_ids.contains(&egui::Id::new("agents-composer-book").accesskit_id()), "the composer book button must be named Show terminal");
         let (claude_node_id, _) = find_accesskit_node(update, egui::accesskit::Role::Button, "Use Claude Code").expect("Claude pill");
         assert_eq!(claude_node_id, egui::Id::new("agents-runtime-claude").accesskit_id(), "Use Claude Code must target agents-runtime-claude");
         assert!(
@@ -1711,10 +1713,10 @@ mod agent_a11y {
         s.frame(vec![]);
 
         let update_pty = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
-        for label in ["New session", "Close tab"] {
+        for label in ["New chat", "More", "Close tab"] {
             assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, label).is_some(), "expected Role::Button with label {label:?} in PTY mode");
         }
-        for absent in ["Stop", "Send selection to agent", "Send", "Show terminal dock", "Hide terminal dock"] {
+        for absent in ["Stop", "Send selection to agent", "Show terminal dock", "Hide terminal dock"] {
             assert!(find_accesskit_node(update_pty, egui::accesskit::Role::Button, absent).is_none(), "unexpected phantom button {absent:?} in PTY mode");
         }
 
@@ -1730,13 +1732,11 @@ mod agent_a11y {
         let update_pty_selected = s.accesskit_update.as_ref().expect("AccessKit TreeUpdate expected");
         let (chip_node_id, _) = find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Send selection to agent")
             .expect("expected Role::Button with label \"Send selection to agent\" in PTY mode when a node is selected");
-        assert_eq!(chip_node_id, egui::Id::new("agent-selection-chip-left").accesskit_id());
-        for absent in ["Stop", "Send"] {
-            assert!(
-                find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, absent).is_none(),
-                "unexpected phantom button {absent:?} in PTY mode with selection"
-            );
-        }
+        assert_eq!(chip_node_id, egui::Id::new("agents-composer-chip-selection").accesskit_id());
+        assert!(
+            find_accesskit_node(update_pty_selected, egui::accesskit::Role::Button, "Stop").is_none(),
+            "unexpected phantom button \"Stop\" in PTY mode with selection"
+        );
     }
 
     #[test]
@@ -1815,9 +1815,12 @@ mod agent_a11y {
             shapes.iter().any(|cs| {
                 matches!(
                     &cs.shape,
-                    egui::epaint::Shape::Circle(c) if (c.radius - 2.7).abs() < 0.05 && c.fill == expected_fill
+                    egui::epaint::Shape::Circle(c) if (c.radius - 4.0).abs() < 0.05 && c.fill == expected_fill
                 )
             })
+        };
+        let has_status_dot = |shapes: &[egui::epaint::ClippedShape]| -> bool {
+            shapes.iter().any(|cs| matches!(&cs.shape, egui::epaint::Shape::Circle(c) if (c.radius - 4.0).abs() < 0.05 && c.center.y < 40.0))
         };
 
         // Error status -> painted with theme::DANGER
@@ -1831,7 +1834,7 @@ mod agent_a11y {
         s.frame(vec![]);
         assert!(has_circle_with_fill(&s.shapes, crate::theme::DANGER), "Error status dot must paint with theme::DANGER");
 
-        // Stopped status -> painted with theme::ICON_TERTIARY
+        // Stopped status -> no dot: a tab carries one only while it needs the user
         {
             let tab = &mut s.shell.app.terminal.tabs[0];
             if let Ok(mut ts) = tab.last_output_at.lock() {
@@ -1840,7 +1843,7 @@ mod agent_a11y {
             set_tab_status_and_reported(tab, crate::terminal::AgentTabStatus::Stopped);
         }
         s.frame(vec![]);
-        assert!(has_circle_with_fill(&s.shapes, crate::theme::ICON_TERTIARY), "Stopped status dot must paint with theme::ICON_TERTIARY");
+        assert!(!has_status_dot(&s.shapes), "a stopped tab draws no status dot");
     }
 
     #[test]

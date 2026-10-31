@@ -1,6 +1,6 @@
-//! Arrows and Return in the Agents panel's new-session list and its `+` menu act only on a row that has egui focus
-//! (reached with Tab). With no row focused the picker ignores both keys: a bare Return opens and starts nothing,
-//! and a layer selected on the canvas keeps its own arrow and Return shortcuts.
+//! Arrows and Return in the agent menu (opened from the composer pill, in the New chat state and over a running session)
+//! act only on a row that has egui focus (reached with Tab). With no row focused the menu ignores both keys: a bare
+//! Return opens and starts nothing, and a layer selected on the canvas keeps its own arrow and Return shortcuts.
 
 use super::*;
 use crate::agent_cli_catalog::{PickerRow, PickerRowKind};
@@ -11,28 +11,22 @@ use egui::epaint::Shape;
 use egui::Id;
 use std::path::PathBuf;
 
-/// The two surfaces that list the rows, and the widget id each draws a row with.
+/// The two states the agent menu opens in, and the widget id each draws a row with.
 #[derive(Clone, Copy)]
 enum Surface {
-    /// The Agents panel before any session exists.
+    /// The New chat state: no session exists yet.
     List,
-    /// The `+` menu over a running session.
+    /// The menu over a running session.
     Menu,
 }
 
 impl Surface {
     fn row_id(self, row_id: &str) -> Id {
-        match self {
-            Surface::List => Id::new(format!("picker-row-{row_id}")),
-            Surface::Menu => Id::new(row_id),
-        }
+        Id::new(row_id)
     }
 
     fn rect_key(self, row_id: &str) -> String {
-        match self {
-            Surface::List => format!("picker-row-{row_id}"),
-            Surface::Menu => row_id.to_string(),
-        }
+        row_id.to_string()
     }
 }
 
@@ -56,10 +50,12 @@ fn picker_sim(tag: &str, surface: Surface, opts: Options) -> (Sim, PathBuf) {
     if let Surface::Menu = surface {
         s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("stub claude starts");
         s.shell.app.terminal.viewport_focused = false;
-        s.shell.app.terminal.runtime_dropdown_open = true;
     } else {
-        assert!(s.app().terminal.picker_open && s.app().terminal.tabs.is_empty(), "the panel shows its new-session list");
+        assert!(s.app().terminal.picker_open && s.app().terminal.tabs.is_empty(), "the panel is in the New chat state");
     }
+    // `More…` is expanded so every row can take the keyboard.
+    s.shell.app.terminal.runtime_dropdown_open = true;
+    s.shell.app.terminal.picker.menu_more_open = true;
     settle_probes(&mut s);
     (s, dir)
 }
@@ -124,10 +120,10 @@ fn is_other_cli_form_open(s: &Sim) -> bool {
     s.app().terminal.picker.other_form_open
 }
 
-/// True when the picker paints the row's selected fill over its own rectangle.
+/// True when the menu paints the row's hover fill over its own rectangle: the look of the row the keyboard is on.
 fn row_is_highlighted(s: &Sim, surface: Surface, row_id: &str) -> bool {
     let rect = s.rect_of(&surface.rect_key(row_id));
-    s.shapes.iter().any(|c| matches!(&c.shape, Shape::Rect(r) if r.rect == rect && r.fill == crate::theme::BG_SELECTED))
+    s.shapes.iter().any(|c| matches!(&c.shape, Shape::Rect(r) if r.rect == rect && r.fill == crate::theme::BG_MENU_HOVER))
 }
 
 /// What a Return on `row` does: opens the form, or starts a session.
@@ -230,7 +226,7 @@ fn no_row_looks_focused_until_the_keyboard_is_on_one() {
     }
     let id = tab_to_a_row(&mut s, Surface::List);
     frames(&mut s, 2);
-    assert!(row_is_highlighted(&s, Surface::List, &id), "the focused row shows the selected look");
+    assert!(row_is_highlighted(&s, Surface::List, &id), "the focused row shows the hover look");
     finish(s, dir);
 }
 
