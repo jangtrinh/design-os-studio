@@ -585,9 +585,10 @@ pub(crate) fn grid_packs_auto_rows(doc: &Document, n: &Node, al: &AutoLayout) ->
     designos_doc::layout_solver::grid_packs_auto_rows(al, &kids)
 }
 
-/// Column tracks for `n`: when a hugging grid's solved `Flex` columns have unequal widths (such as
-/// `100 / 40 / 60` or `100 / 40 / 40`), returns their solved pixel widths as fixed tracks so the
-/// browser places items at the same x coordinates as `compute_grid`.
+/// Column tracks for `n`: when a hugging grid has any `GridTrack::Hug` column or its solved `Flex`
+/// columns have unequal unit widths (such as `100 / 40 / 60` or `100 / 40 / 40`), returns their
+/// solved pixel widths as fixed tracks so the browser places items at the same x coordinates as
+/// `compute_grid`.
 pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a AutoLayout) -> std::borrow::Cow<'a, [GridTrack]> {
     if al.primary_sizing != Sizing::Hug {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
@@ -608,22 +609,29 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
     }
     let col_widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
     let mut ref_unit: Option<f32> = None;
-    let mut flex_mismatch = false;
+    let mut needs_px_tracks = false;
     for (c, &w) in col_widths.iter().enumerate() {
-        if let GridTrack::Flex(fr) = al.grid_col_tracks.get(c).copied().unwrap_or_default() {
-            let weight = if fr.is_finite() && fr > 0.0 { fr } else { 1.0 };
-            let unit = w / weight;
-            match ref_unit {
-                None => ref_unit = Some(unit),
-                Some(r) if (unit - r).abs() > 0.5 => {
-                    flex_mismatch = true;
-                    break;
-                }
-                _ => {}
+        match al.grid_col_tracks.get(c).copied().unwrap_or_default() {
+            GridTrack::Hug => {
+                needs_px_tracks = true;
+                break;
             }
+            GridTrack::Flex(fr) => {
+                let weight = if fr.is_finite() && fr > 0.0 { fr } else { 1.0 };
+                let unit = w / weight;
+                match ref_unit {
+                    None => ref_unit = Some(unit),
+                    Some(r) if (unit - r).abs() > 0.5 => {
+                        needs_px_tracks = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            GridTrack::Fixed(_) => {}
         }
     }
-    if !flex_mismatch {
+    if !needs_px_tracks {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
     std::borrow::Cow::Owned(col_widths.into_iter().map(GridTrack::Fixed).collect())
