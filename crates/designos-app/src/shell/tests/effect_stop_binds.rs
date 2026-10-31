@@ -476,4 +476,212 @@ fn bound_gradient_stop_locks_color_controls_until_detached() {
     assert_ne!(stops[0].color, bound_color, "swatch click must write to the stop after detaching");
 }
 
+#[test]
+fn gradient_stop_bindings_follow_stop_across_flip_add_and_delete() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _) = theme_ids(s.app());
+    let grad_start = store.add_variable(&coll, "Grad/Start", VariableKind::Color).unwrap();
+    store.set_value(&grad_start, &light, VariableValue::Color(Color::rgb(0xFF, 0x11, 0x22)));
+    set_scopes(&mut store, &grad_start, &["ALL_FILLS"]);
+
+    let grad_end = store.add_variable(&coll, "Grad/End", VariableKind::Color).unwrap();
+    store.set_value(&grad_end, &light, VariableValue::Color(Color::rgb(0x22, 0xAA, 0xFF)));
+    set_scopes(&mut store, &grad_end, &["ALL_FILLS"]);
+
+    let stroke_var = store.add_variable(&coll, "Stroke/Stop", VariableKind::Color).unwrap();
+    store.set_value(&stroke_var, &light, VariableValue::Color(Color::rgb(0x33, 0xCC, 0x66)));
+    set_scopes(&mut store, &stroke_var, &["STROKE_COLOR"]);
+    s.shell.app.commit_store(store, &[], &[]);
+
+    let start_col = Color::rgb(0xFF, 0x11, 0x22);
+    let end_col = Color::rgb(0x22, 0xAA, 0xFF);
+    let stroke_col = Color::rgb(0x33, 0xCC, 0x66);
+
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [
+                    designos_doc::Vec2::new(0.0, 0.5),
+                    designos_doc::Vec2::new(1.0, 0.5),
+                    designos_doc::Vec2::new(0.0, 1.0),
+                ],
+                stops: vec![
+                    GradientStop { pos: 0.0, color: Color::BLACK },
+                    GradientStop { pos: 1.0, color: Color::WHITE },
+                ],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+
+    let resolved_fill_stops = |sim: &Sim| -> Vec<GradientStop> {
+        let resolved = designos_doc::resolve_node(&sim.app().doc, sim.app().doc.get(hero).unwrap());
+        let PaintKind::LinearGradient { stops, .. } = &resolved.fills[0].kind else {
+            panic!("expected LinearGradient");
+        };
+        stops.clone()
+    };
+
+    // Open fill picker and bind stop 0 (`pos = 0.0`) to `Grad/Start`.
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let stop_color_row = Pos2::new(picker.left() + 100.0, picker.top() + 423.0);
+    s.mv(stop_color_row);
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:fills/0/stops/0").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Grad/Start").center());
+    s.frame(vec![]);
+
+    assert_eq!(resolved_fill_stops(&s), vec![
+        GradientStop { pos: 0.0, color: start_col },
+        GradientStop { pos: 1.0, color: Color::WHITE },
+    ]);
+
+    // 1. Flip: stop 0 (bound to Grad/Start) moves to pos = 1.0 (index 1); unbound white stop moves to pos = 0.0 (index 0).
+    s.click(Pos2::new(picker.left() + 184.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), None);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&grad_start));
+    assert_eq!(resolved_fill_stops(&s), vec![
+        GradientStop { pos: 0.0, color: Color::WHITE },
+        GradientStop { pos: 1.0, color: start_col },
+    ]);
+
+    // Undo restores both the stop order and the binding on `fills/0/stops/0` in one step.
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), Some(&grad_start));
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), None);
+    assert_eq!(resolved_fill_stops(&s), vec![
+        GradientStop { pos: 0.0, color: start_col },
+        GradientStop { pos: 1.0, color: Color::WHITE },
+    ]);
+
+    // Bind stop 1 (`pos = 1.0`) to `Grad/End` as well.
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.mv(stop_color_row);
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:fills/0/stops/1").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Grad/End").center());
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&grad_end));
+
+    // 2. Add stop at pos = 0.5 (clicking midpoint of gradient bar): stop 1 shifts to index 2 (`fills/0/stops/2`).
+    let bar_mid = Pos2::new(picker.left() + 16.0 + 76.0, picker.top() + 100.0);
+    s.click(bar_mid);
+    s.frame(vec![]);
+    let stops_after_add = resolved_fill_stops(&s);
+    assert_eq!(stops_after_add.len(), 3);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), Some(&grad_start));
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), None);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/2"), Some(&grad_end));
+    assert_eq!(stops_after_add[0].color, start_col);
+    assert_eq!(stops_after_add[2].color, end_col);
+
+    // Undo removes the added stop and shifts `fills/0/stops/2` back to `fills/0/stops/1` in one step.
+    s.cmd_key(Key::Z);
+    assert_eq!(resolved_fill_stops(&s).len(), 2);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), Some(&grad_start));
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&grad_end));
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/2"), None);
+    assert_eq!(resolved_fill_stops(&s), vec![
+        GradientStop { pos: 0.0, color: start_col },
+        GradientStop { pos: 1.0, color: end_col },
+    ]);
+
+    // 3. Delete stop: add the midpoint stop back, detach stop 0, bind middle stop 1 to `Grad/Start`, then delete stop 1.
+    s.click(bar_mid);
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 16.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    let pill0 = s.rect_of("bound:fills/0/stops/0");
+    s.click(Pos2::new(pill0.right() - 13.0, pill0.center().y));
+    s.frame(vec![]);
+    s.click(bar_mid);
+    s.frame(vec![]);
+    s.mv(stop_color_row);
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:fills/0/stops/1").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Grad/Start").center());
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&grad_start));
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/2"), Some(&grad_end));
+
+    // Delete selected middle stop 1 by dragging it >30px away from the gradient bar:
+    // stop 1's binding is removed and stop 2 shifts to `fills/0/stops/1`.
+    s.drag(bar_mid, Pos2::new(bar_mid.x, bar_mid.y + 40.0));
+    s.frame(vec![]);
+    let stops_after_del = resolved_fill_stops(&s);
+    assert_eq!(stops_after_del.len(), 2);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0"), None);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&grad_end));
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/2"), None);
+    assert_eq!(stops_after_del[1].color, end_col);
+
+    // Undo restores the deleted middle stop and both bindings (`fills/0/stops/1` and `fills/0/stops/2`) together.
+    s.cmd_key(Key::Z);
+    let stops_restored = resolved_fill_stops(&s);
+    assert_eq!(stops_restored.len(), 3);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/1"), Some(&grad_start));
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/2"), Some(&grad_end));
+    assert_eq!(stops_restored[1].color, start_col);
+    assert_eq!(stops_restored[2].color, end_col);
+
+    // 4. Stroke gradient stop bindings also remap across flip and restore on undo.
+    s.shell.app.props.picker = None;
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.stroke.paints = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [
+                    designos_doc::Vec2::new(0.0, 0.5),
+                    designos_doc::Vec2::new(1.0, 0.5),
+                    designos_doc::Vec2::new(0.0, 1.0),
+                ],
+                stops: vec![
+                    GradientStop { pos: 0.0, color: Color::BLACK },
+                    GradientStop { pos: 1.0, color: Color::WHITE },
+                ],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+        n.stroke.weight = 2.0;
+    });
+    s.frame(vec![]);
+    s.click(s.rect_of("sw:true:0").center());
+    s.frame(vec![]);
+    let sp = s.rect_of("picker");
+    s.mv(Pos2::new(sp.left() + 100.0, sp.top() + 423.0));
+    s.frame(vec![]);
+    s.click(s.rect_of("bind:strokes/0/stops/0").center());
+    s.frame(vec![]);
+    s.click(s.rect_of("pick:Stroke/Stop").center());
+    s.frame(vec![]);
+    s.click(Pos2::new(sp.left() + 184.0, sp.top() + 100.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("strokes/0/stops/0"), None);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("strokes/0/stops/1"), Some(&stroke_var));
+    let resolved_stroke = designos_doc::resolve_node(&s.app().doc, s.app().doc.get(hero).unwrap());
+    let PaintKind::LinearGradient { stops: s_stops, .. } = &resolved_stroke.stroke.paints[0].kind else {
+        panic!("expected stroke LinearGradient");
+    };
+    assert_eq!(s_stops[0].color, Color::WHITE);
+    assert_eq!(s_stops[1].color, stroke_col);
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("strokes/0/stops/0"), Some(&stroke_var));
+    assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("strokes/0/stops/1"), None);
+}
+
+
 
