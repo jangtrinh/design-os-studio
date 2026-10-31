@@ -1235,14 +1235,46 @@ impl Ctx<'_> {
     /// hidden and fully transparent children add nothing.
     fn knockout_children(&mut self, children: &[NodeId], parent_ts: sk::Transform, clip: ClipId) {
         let doc = self.doc;
-        for cid in children {
+        for (i, cid) in children.iter().enumerate() {
             let Some(child) = board::get(doc, *cid) else { continue };
             let child = resolve_node(doc, &child);
             let child: &Node = &child;
-            if !child.visible || child.is_mask || matches!(child.kind, NodeKind::Page { .. }) || child.opacity <= 0.0 {
+            let ts = parent_ts.pre_concat(to_sk(&child.transform));
+            if child.is_mask {
+                if !child.visible {
+                    continue;
+                }
+                let rect = self.visible(clip);
+                if rect.is_empty() {
+                    return;
+                }
+                if self.prog_cap_hit(64) || self.over_budget(2, 2 * self.program_cost(rect)) {
+                    self.knockout_children(&children[i + 1..], parent_ts, clip);
+                    return;
+                }
+                let layer = self.new_prog(rect);
+                let lclip = self.narrow_clip(clip, rect);
+                self.with_prog(layer, |c| c.knockout_children(&children[i + 1..], parent_ts, lclip));
+                let mask_node = mask_stencil(child);
+                let mprog = self.new_prog(rect);
+                let mclip = self.full_clip(rect);
+                self.with_prog(mprog, |c| c.draw_node(&mask_node, ts, mclip));
+                let pclip = self.narrow_clip(clip, rect);
+                self.push_op(Op::Composite(Box::new(CompositeOp {
+                    src: layer,
+                    rect,
+                    opacity: 1.0,
+                    tint: None,
+                    aux: Some((mprog, AuxMode::Mul)),
+                    mode: CompMode::Over,
+                    clip: pclip,
+                })));
+                return;
+            }
+            let runtime_mul = self.opts.runtime_node_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+            if !child.visible || matches!(child.kind, NodeKind::Page { .. }) || child.opacity * runtime_mul <= 0.0 {
                 continue;
             }
-            let ts = parent_ts.pre_concat(to_sk(&child.transform));
             let g = self.geom_of(child, &ts);
             self.silhouette(child, &g, ts, 0.0, 0.0, 0.0, d::SilhouetteMode::Knockout, clip);
         }
