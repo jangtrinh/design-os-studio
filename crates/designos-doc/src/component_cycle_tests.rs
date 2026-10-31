@@ -4,11 +4,14 @@
 //! component links must stop at the repeat instead of overflowing the stack. Crash tests run alone with `--exact`:
 //! a stack overflow aborts the whole test binary.
 
+use crate::spec::OverrideSpec;
+use crate::spec_instance::apply_overrides;
 use crate::{
     add_prop, bind_prop, combine_as_variants, create_component, create_instance, instance_component, mains_held_by, reparent_would_hold_itself,
     set_instance_prop, swap_instance, sync_instances, Color, Command, ComponentPropDef, Document, Node, NodeId, NodeKind, OverrideField, Paint, PropKind,
     PropValue, Rect, Vec2,
 };
+use serde_json::json;
 
 /// A main on `parent` with one layer inside it.
 fn main_on(d: &mut Document, parent: NodeId, name: &str) -> NodeId {
@@ -162,6 +165,39 @@ fn a_manual_swap_still_refuses_a_main_that_holds_the_main_it_sits_in() {
     let (mut d, _a, b) = cyclic_pair();
     let i = *d.get(b).unwrap().children.last().unwrap();
     assert!(is_nothing(&swap_instance(&mut d, i, b)), "no instance of B inside B");
+}
+
+#[test]
+fn apply_spec_swap_refuses_a_held_main_without_mutating() {
+    let mut d = Document::new("spec cycle");
+    let page = d.add_page("P");
+    let b = main_on(&mut d, page, "B");
+    let a = main_on(&mut d, page, "A");
+    place(&mut d, b, a);
+    let c = main_on(&mut d, page, "C");
+    place(&mut d, b, c);
+    let root = place(&mut d, c, page);
+    crate::Command::Reparent { id: root, parent: b, index: d.get(b).unwrap().children.len() }.apply(&mut d).unwrap();
+    let before = d.to_json().unwrap();
+    let ov: OverrideSpec = serde_json::from_value(json!({"path":"B", "swap":"A"})).unwrap();
+    let err = apply_overrides(&mut d, root, &[ov], &[]).unwrap_err();
+    assert!(err.to_string().contains("INSTANCE_CYCLE"), "{err}");
+    assert_eq!(d.to_json().unwrap(), before);
+}
+
+#[test]
+fn apply_spec_create_refuses_a_held_main_without_mutating() {
+    let mut d = Document::new("spec create cycle");
+    let page = d.add_page("P");
+    let b = main_on(&mut d, page, "B");
+    let a = main_on(&mut d, page, "A");
+    place(&mut d, b, a);
+    let parent = layer_of(&d, b);
+    let before = d.to_json().unwrap();
+    let spec: crate::NodeSpec = serde_json::from_value(json!({"kind":"instance", "component":"A"})).unwrap();
+    let err = d.apply_spec(parent, &spec).unwrap_err();
+    assert!(err.to_string().contains("INSTANCE_CYCLE"), "{err}");
+    assert_eq!(d.to_json().unwrap(), before);
 }
 
 // ---------- the shared move check

@@ -247,6 +247,10 @@ fn resolve(doc: &mut Document, op: &LiveOp, is_spec_undo: bool, state: &mut Live
                 report.skipped.push(format!("move of node {} into {} is not allowed", id.0, parent.0));
                 return None;
             }
+            if crate::reparent_would_hold_itself(doc, &[id], parent) {
+                report.skipped.push(format!("move of node {} into {} refused: MOVE_CYCLE", id.0, parent.0));
+                return None;
+            }
             let siblings: Vec<_> = p.children.iter().copied().filter(|c| *c != id).collect();
             let index = at.index_in(&siblings);
             if node.parent == Some(parent) && p.children.iter().position(|c| *c == id) == Some(index) {

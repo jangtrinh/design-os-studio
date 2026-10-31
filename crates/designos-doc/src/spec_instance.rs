@@ -1200,7 +1200,7 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             if !ov.variant.is_empty() {
                 swapped_with_variant = true;
             }
-            if new_comp == target_id || doc.is_ancestor(new_comp, target_id) {
+            if new_comp == target_id || doc.is_ancestor(new_comp, target_id) || would_hold_itself(doc, new_comp, target_id) {
                 return Err(SpecError::named(
                     "INSTANCE_CYCLE",
                     "Cannot swap nested instance to an ancestor component (cycle)",
@@ -1890,7 +1890,7 @@ impl Document {
         let variant_comp_id = resolve_variant_component(self, resolved_id, &spec.variant, None, Some(spec))?;
 
         // Cycle check (§8.5 / E15-2 §8.3): cannot instantiate a component inside itself, its ComponentSet, or an instance of itself
-        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) {
+        if has_instance_cycle(self, parent, resolved_id, variant_comp_id) || would_hold_itself(self, variant_comp_id, parent) {
             return Err(SpecError::named(
                 "INSTANCE_CYCLE",
                 format!("Cannot place an instance of component '{}' inside its own definition or enclosing instance", comp_ref),

@@ -619,7 +619,7 @@ pub fn mains_held_through(doc: &Document, mains: impl IntoIterator<Item = NodeId
 /// Whether an instance of `component` at `at` (the parent it goes under, or the instance it replaces) would make a
 /// main hold itself: `at` is, or sits in, `component` or a main that the content of `component` holds an instance of.
 /// Such a main mirrors itself without end.
-fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool {
+pub fn would_hold_itself(doc: &Document, component: NodeId, at: NodeId) -> bool {
     // the mains `at` is in; most places are in none, and then nothing can hold itself
     let mut enclosing = Vec::new();
     let mut cur = Some(at);

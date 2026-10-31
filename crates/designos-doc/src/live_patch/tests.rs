@@ -1,5 +1,30 @@
 use super::*;
-use crate::{Command, Comment, CommentAnchor, CommentThread, Document, History, Node, NodeId, Rect, Style, Vec2};
+use crate::{create_component, create_instance, Command, Comment, CommentAnchor, CommentThread, Document, History, Node, NodeId, Rect, Style, Vec2};
+
+#[test]
+fn replay_reparent_refuses_a_held_main_cycle() {
+    let mut d = Document::new("cycle");
+    let page = d.add_page("Page");
+    let make = |d: &mut Document, name: &str| {
+        let id = d.alloc_id();
+        d.insert(page, Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0))).unwrap();
+        d.get_mut(id).unwrap().name = name.into();
+        create_component(d, id).apply(d).unwrap();
+        id
+    };
+    let b = make(&mut d, "B");
+    let a = make(&mut d, "A");
+    let held = create_instance(&mut d, b, a, Vec2::ZERO);
+    held.apply(&mut d).unwrap();
+    let moving = create_instance(&mut d, a, page, Vec2::ZERO);
+    moving.apply(&mut d).unwrap();
+    let moving = *d.get(page).unwrap().children.last().unwrap();
+    let before = d.to_json().unwrap();
+    let op = LiveOp::Reparent { id: moving, parent: b, at: SiblingHint::default() };
+    let report = replay(&mut d, vec![op], &mut LivePatchState::default());
+    assert!(report.skipped.iter().any(|s| s.contains("MOVE_CYCLE")));
+    assert_eq!(d.to_json().unwrap(), before);
+}
 
 /// A page with `frames` top-level frames of `kids` rectangles each, one style, one comment.
 fn full_doc(frames: usize, kids: usize) -> (Document, NodeId, Vec<NodeId>) {
