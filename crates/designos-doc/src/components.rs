@@ -1352,7 +1352,15 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             *frame = f.clone();
         }
     }
-    if !same_family && !n.component.overrides.contains(&OverrideField::Name) && old_comp_node.as_ref().is_some_and(|oc| oc.name == n.name) {
+    let auto_named = old_comp_node.as_ref().is_some_and(|oc| {
+        oc.name == n.name
+            || oc
+                .parent
+                .and_then(|p| c.s.get(p))
+                .filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)))
+                .is_some_and(|set| set.name == n.name)
+    });
+    if !same_family && !n.component.overrides.contains(&OverrideField::Name) && auto_named {
         n.name = comp.name.clone();
     }
     if top_swap && same_family {
