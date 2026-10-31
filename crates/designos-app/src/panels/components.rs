@@ -551,6 +551,15 @@ mod props_panel_tests {
 
         app.undo();
         assert_eq!(app.doc.nodes, before_nodes);
+
+        // 3. Auto-named top-level instance takes new main's name on swap; custom-named keeps its own name.
+        create_instance(&mut app.doc, icon_plus, page, designos_doc::Vec2::new(360.0, 100.0)).apply(&mut app.doc).unwrap();
+        let auto_inst = *app.doc.get(page).unwrap().children.last().unwrap();
+        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Plus");
+        app.swap_instance(auto_inst, icon_check);
+        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Check", "auto-named instance takes new main's name on panel swap");
+        app.undo();
+        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Plus");
     }
 }
 

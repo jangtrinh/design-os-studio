@@ -4331,4 +4331,719 @@ mod tests {
         apply(&mut d, direct_inv);
         assert_eq!(d.nodes, before_swap_nodes);
     }
+
+    #[test]
+    fn probe_p1_sync_instances_does_not_double_scale_fill_geometry() {
+        let mut d = Document::new("P1");
+        let page = d.add_page("Page");
+
+        let make_icon = |d: &mut Document, name: &str, x: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let path =
+                crate::Path { cmds: vec![crate::PathCmd::MoveTo(Vec2::new(4.0, 4.0)), crate::PathCmd::LineTo(Vec2::new(12.0, 12.0))], ..Default::default() };
+            let mut g = Node::new(gid, NodeKind::Vector { paths: vec![path.clone()], network: None });
+            g.size = Vec2::new(16.0, 16.0);
+            g.name = "Glyph".into();
+            g.fill_geometry = Some(vec![path]);
+            d.insert(comp, g).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+
+        let icon_a = make_icon(&mut d, "Icon/A", 0.0);
+        let icon_b = make_icon(&mut d, "Icon/B", 40.0);
+
+        let btn = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 100.0, 120.0, 40.0));
+            f.name = "Button".into();
+            let comp = d.insert(page, f).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            let c = create_instance(&mut d, icon_a, comp, Vec2::new(8.0, 10.0));
+            apply(&mut d, c);
+            let slot = d.get(comp).unwrap().children[0];
+            let mut sn = d.get(slot).unwrap().clone();
+            sn.size = Vec2::new(20.0, 20.0);
+            apply(&mut d, Command::Update { node: Box::new(sn) });
+            let glyph = child_named(&d, slot, "Glyph");
+            let mut gn = d.get(glyph).unwrap().clone();
+            let tf = gn.transform;
+            crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
+            apply(&mut d, Command::Update { node: Box::new(gn) });
+
+            let c = add_prop(
+                &mut d,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_a, icon_b] },
+                    default: PropValue::Instance(icon_a),
+                },
+            );
+            apply(&mut d, c);
+            let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
+            apply(&mut d, c);
+            comp
+        };
+
+        let c = create_instance(&mut d, btn, page, Vec2::new(200.0, 100.0));
+        apply(&mut d, c);
+        let btn_inst = *d.get(page).unwrap().children.last().unwrap();
+        let slot_inst = d.get(btn_inst).unwrap().children[0];
+
+        let c = set_instance_prop(&mut d, btn_inst, "Icon", Some(PropValue::Instance(icon_b)));
+        apply(&mut d, c);
+
+        let glyph_after_swap = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
+        let fg_after_swap = glyph_after_swap.fill_geometry.as_ref().unwrap()[0].cmds.clone();
+        assert_eq!(fg_after_swap, vec![crate::PathCmd::MoveTo(Vec2::new(5.0, 5.0)), crate::PathCmd::LineTo(Vec2::new(15.0, 15.0))]);
+
+        let sync = sync_instances(&mut d, btn);
+        apply(&mut d, sync);
+        let glyph_after_sync = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
+        let fg_after_sync = glyph_after_sync.fill_geometry.as_ref().unwrap()[0].cmds.clone();
+        assert_eq!(
+            fg_after_sync,
+            vec![crate::PathCmd::MoveTo(Vec2::new(5.0, 5.0)), crate::PathCmd::LineTo(Vec2::new(15.0, 15.0))],
+            "fill_geometry must NOT be scaled a second time on sync_instances"
+        );
+    }
+
+    #[test]
+    fn probe_p2_swap_instance_same_family_preserves_custom_name() {
+        let mut d = Document::new("P2");
+        let page = d.add_page("Page");
+        let id1 = d.alloc_id();
+        let mut v1 = Node::frame(id1, Rect::new(0.0, 0.0, 100.0, 40.0));
+        v1.name = "Size=SM".into();
+        let v1 = d.insert(page, v1).unwrap();
+        let c = create_component(&mut d, v1);
+        apply(&mut d, c);
+
+        let id2 = d.alloc_id();
+        let mut v2 = Node::frame(id2, Rect::new(120.0, 0.0, 140.0, 48.0));
+        v2.name = "Size=LG".into();
+        let v2 = d.insert(page, v2).unwrap();
+        let c = create_component(&mut d, v2);
+        apply(&mut d, c);
+
+        let c = combine_as_variants(&mut d, &[v1, v2]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, v1, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+
+        let mut n = d.get(inst).unwrap().clone();
+        n.name = "Primary CTA".into();
+        apply(&mut d, Command::Update { node: Box::new(n) });
+
+        let c = swap_instance(&mut d, inst, v2);
+        apply(&mut d, c);
+        assert_eq!(d.get(inst).unwrap().name, "Primary CTA");
+    }
+
+    #[test]
+    fn probe_p3_swap_instance_preserves_overridden_size() {
+        let mut d = Document::new("P3");
+        let page = d.add_page("Page");
+        let id1 = d.alloc_id();
+        let mut c1 = Node::frame(id1, Rect::new(0.0, 0.0, 100.0, 40.0));
+        c1.name = "CompA".into();
+        let c1 = d.insert(page, c1).unwrap();
+        let c = create_component(&mut d, c1);
+        apply(&mut d, c);
+
+        let id2 = d.alloc_id();
+        let mut c2 = Node::frame(id2, Rect::new(120.0, 0.0, 160.0, 60.0));
+        c2.name = "CompB".into();
+        let c2 = d.insert(page, c2).unwrap();
+        let c = create_component(&mut d, c2);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, c1, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+
+        let mut n = d.get(inst).unwrap().clone();
+        n.size = Vec2::new(240.0, 80.0);
+        n.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(n) });
+
+        let c = swap_instance(&mut d, inst, c2);
+        apply(&mut d, c);
+        assert_eq!(d.get(inst).unwrap().size, Vec2::new(240.0, 80.0), "top-level swap_instance must preserve explicit Size override");
+
+        // Per-axis rule (m1): when only width was resized (240x40 vs CompA's 100x40), width keeps 240 and height takes CompB's 60.
+        let c = create_instance(&mut d, c1, page, Vec2::new(300.0, 200.0));
+        apply(&mut d, c);
+        let inst_w = *d.get(page).unwrap().children.last().unwrap();
+        let mut nw = d.get(inst_w).unwrap().clone();
+        nw.size = Vec2::new(240.0, 40.0);
+        nw.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(nw) });
+        let c = swap_instance(&mut d, inst_w, c2);
+        apply(&mut d, c);
+        assert_eq!(d.get(inst_w).unwrap().size, Vec2::new(240.0, 60.0), "per-axis size rule keeps custom width and takes new main height");
+    }
+
+    #[test]
+    fn probe_p4_variant_switch_keeps_new_variant_child_offsets() {
+        let mut d = Document::new("P4");
+        let page = d.add_page("Page");
+
+        let id1 = d.alloc_id();
+        let mut v1 = Node::frame(id1, Rect::new(0.0, 0.0, 100.0, 40.0));
+        v1.name = "Size=SM".into();
+        let v1 = d.insert(page, v1).unwrap();
+        let ch1 = d.alloc_id();
+        let mut r1 = Node::rectangle(ch1, Rect::new(8.0, 8.0, 84.0, 24.0));
+        r1.name = "Dot".into();
+        r1.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        d.insert(v1, r1).unwrap();
+        let c = create_component(&mut d, v1);
+        apply(&mut d, c);
+
+        let id2 = d.alloc_id();
+        let mut v2 = Node::frame(id2, Rect::new(120.0, 0.0, 200.0, 60.0));
+        v2.name = "Size=LG".into();
+        let v2 = d.insert(page, v2).unwrap();
+        let ch2 = d.alloc_id();
+        let mut r2 = Node::rectangle(ch2, Rect::new(20.0, 16.0, 160.0, 28.0));
+        r2.name = "Dot".into();
+        r2.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        d.insert(v2, r2).unwrap();
+        let c = create_component(&mut d, v2);
+        apply(&mut d, c);
+
+        let c = combine_as_variants(&mut d, &[v1, v2]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, v1, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let mut n = d.get(inst).unwrap().clone();
+        n.size = Vec2::new(120.0, 40.0);
+        n.component.overrides.insert(OverrideField::Size);
+        apply(&mut d, Command::Update { node: Box::new(n) });
+
+        let c = set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant("LG".into())));
+        apply(&mut d, c);
+
+        let dot_after = d.get(child_named(&d, inst, "Dot")).unwrap();
+        assert_eq!(dot_after.transform.tx, 20.0, "variant switch must keep LG's own child position (20, 16), not constraint-scale SM's");
+        assert_eq!(dot_after.size.x, 160.0, "variant switch must keep LG's own child size (160, 28)");
+        assert!(!dot_after.component.overrides.contains(&OverrideField::Size), "variant switch must not manufacture child Size override");
+    }
+
+    #[test]
+    fn probe_p5_swap_main_matches_renamed_child_by_source_name() {
+        let mut d = Document::new("P5");
+        let page = d.add_page("Page");
+
+        let make_icon = |d: &mut Document, name: &str, x: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            g.name = "Glyph".into();
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            d.insert(comp, g).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+
+        let icon_a = make_icon(&mut d, "Icon/A", 0.0);
+        let icon_b = make_icon(&mut d, "Icon/B", 40.0);
+
+        let c = create_instance(&mut d, icon_a, page, Vec2::new(0.0, 100.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let glyph = child_named(&d, inst, "Glyph");
+
+        let mut gn = d.get(glyph).unwrap().clone();
+        gn.name = "Custom Glyph Name".into();
+        gn.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        gn.component.overrides.insert(OverrideField::Name);
+        gn.component.overrides.insert(OverrideField::Fills);
+        apply(&mut d, Command::Update { node: Box::new(gn) });
+
+        let c = swap_instance(&mut d, inst, icon_b);
+        apply(&mut d, c);
+
+        let glyph_after = d.get(d.get(inst).unwrap().children[0]).unwrap();
+        assert_eq!(
+            glyph_after.fills[0].kind,
+            crate::PaintKind::Solid(Color::rgb(255, 0, 0)),
+            "renamed child must still match new main's 'Glyph' via its source name in old main"
+        );
+    }
+
+    #[test]
+    fn probe_p6_variant_switch_without_size_override_takes_new_variant_size() {
+        let mut d = Document::new("P6");
+        let page = d.add_page("Page");
+
+        let id1 = d.alloc_id();
+        let mut v1 = Node::frame(id1, Rect::new(0.0, 0.0, 100.0, 40.0));
+        v1.name = "Size=SM".into();
+        let v1 = d.insert(page, v1).unwrap();
+        let c = create_component(&mut d, v1);
+        apply(&mut d, c);
+
+        let id2 = d.alloc_id();
+        let mut v2 = Node::frame(id2, Rect::new(120.0, 0.0, 200.0, 60.0));
+        v2.name = "Size=LG".into();
+        let v2 = d.insert(page, v2).unwrap();
+        let c = create_component(&mut d, v2);
+        apply(&mut d, c);
+
+        let c = combine_as_variants(&mut d, &[v1, v2]);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, v1, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+
+        let mut n = d.get(inst).unwrap().clone();
+        n.size = Vec2::new(120.0, 40.0);
+        apply(&mut d, Command::Update { node: Box::new(n) });
+
+        let c = swap_instance(&mut d, inst, v2);
+        apply(&mut d, c);
+
+        let inst_after = d.get(inst).unwrap();
+        assert_eq!(inst_after.size, Vec2::new(200.0, 60.0), "variant switch without OverrideField::Size must take new variant's size");
+        assert!(!inst_after.component.overrides.contains(&OverrideField::Size), "variant switch must not manufacture OverrideField::Size");
+    }
+
+    #[test]
+    fn probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size() {
+        let mut d = Document::new("P7");
+        let page = d.add_page("Page");
+
+        // Icon/A has a 16x16 full-bleed vector.
+        let icon_a = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/A".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::new(
+                gid,
+                NodeKind::Vector {
+                    paths: vec![crate::Path {
+                        cmds: vec![crate::PathCmd::MoveTo(Vec2::new(0.0, 0.0)), crate::PathCmd::LineTo(Vec2::new(16.0, 16.0))],
+                        ..Default::default()
+                    }],
+                    network: None,
+                },
+            );
+            g.size = Vec2::new(16.0, 16.0);
+            g.name = "Glyph".into();
+            d.insert(comp, g).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        // Icon/B has a 12x12 inset vector at (2, 2) with default (Min, Min) constraints (as .fig vector imports often have).
+        let icon_b = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(40.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/B".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::new(
+                gid,
+                NodeKind::Vector {
+                    paths: vec![crate::Path {
+                        cmds: vec![crate::PathCmd::MoveTo(Vec2::new(0.0, 0.0)), crate::PathCmd::LineTo(Vec2::new(12.0, 12.0))],
+                        ..Default::default()
+                    }],
+                    network: None,
+                },
+            );
+            g.transform.tx = 2.0;
+            g.transform.ty = 2.0;
+            g.size = Vec2::new(12.0, 12.0);
+            g.name = "Glyph".into();
+            d.insert(comp, g).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        // Button has a 20x20 slot where Icon/A's glyph was scaled to 20x20.
+        let btn = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 100.0, 120.0, 40.0));
+            f.name = "Button".into();
+            let comp = d.insert(page, f).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            let c = create_instance(&mut d, icon_a, comp, Vec2::new(8.0, 10.0));
+            apply(&mut d, c);
+            let slot = d.get(comp).unwrap().children[0];
+            let mut sn = d.get(slot).unwrap().clone();
+            sn.size = Vec2::new(20.0, 20.0);
+            apply(&mut d, Command::Update { node: Box::new(sn) });
+            let glyph = child_named(&d, slot, "Glyph");
+            let mut gn = d.get(glyph).unwrap().clone();
+            let tf = gn.transform;
+            crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
+            apply(&mut d, Command::Update { node: Box::new(gn) });
+
+            let c = add_prop(
+                &mut d,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_a, icon_b] },
+                    default: PropValue::Instance(icon_a),
+                },
+            );
+            apply(&mut d, c);
+            let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
+            apply(&mut d, c);
+            comp
+        };
+
+        let c = create_instance(&mut d, btn, page, Vec2::new(200.0, 100.0));
+        apply(&mut d, c);
+        let btn_inst = *d.get(page).unwrap().children.last().unwrap();
+        let slot_inst = d.get(btn_inst).unwrap().children[0];
+
+        let c = set_instance_prop(&mut d, btn_inst, "Icon", Some(PropValue::Instance(icon_b)));
+        apply(&mut d, c);
+
+        let glyph_after = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
+        assert_eq!(glyph_after.size, Vec2::new(15.0, 15.0), "inset 12x12 glyph in 16x16 icon scaled into 20x20 slot must be 15x15, not 20x20");
+        assert_eq!(glyph_after.transform.tx, 2.5, "inset glyph x offset (2.0) scaled by 20/16 must be 2.5");
+        assert!(glyph_after.component.overrides.contains(&OverrideField::Size), "constraint-scaled child must record OverrideField::Size (M6a)");
+        assert!(
+            glyph_after.component.overrides.contains(&OverrideField::Transform),
+            "constraint-repositioned child must record OverrideField::Transform (M6b)"
+        );
+
+        // Syncing Icon/B must keep the 15x15 size and (2.5, 2.5) position because M6a and M6b marked them as overridden.
+        let sync_b = sync_instances(&mut d, icon_b);
+        apply(&mut d, sync_b);
+        let glyph_after_sync = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
+        assert_eq!(glyph_after_sync.size, Vec2::new(15.0, 15.0), "sync_instances on Icon/B must keep 15x15 glyph size");
+        assert_eq!(glyph_after_sync.transform.tx, 2.5, "sync_instances on Icon/B must keep 2.5 glyph tx");
+    }
+
+    #[test]
+    fn ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards() {
+        let mut d = Document::new("RulingsAndMutants");
+        let page = d.add_page("Page");
+
+        // 1. M1 (no discriminant check, field-exists guard):
+        // CompRect has a Rectangle "Shape" (white fill) + Text "Item" + Frame "Box".
+        let comp_rect = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            f.name = "Comp/Rect".into();
+            let comp = d.insert(page, f).unwrap();
+            let sid = d.alloc_id();
+            let mut s = Node::rectangle(sid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            s.name = "Shape".into();
+            s.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            d.insert(comp, s).unwrap();
+            let tid = d.alloc_id();
+            let mut t = Node::text(tid, Rect::new(0.0, 20.0, 40.0, 16.0), "Default", crate::TextStyle::default());
+            t.name = "Item".into();
+            d.insert(comp, t).unwrap();
+            let bid = d.alloc_id();
+            let mut b = Node::frame(bid, Rect::new(20.0, 0.0, 16.0, 16.0));
+            b.name = "Box".into();
+            d.insert(comp, b).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        // CompEllipse has an Ellipse "Shape" with the SAME default white fill (so originally-matched passes),
+        // a Frame "Item" (not Text -> M7 guard), and a Frame "Box" (same default FrameProps -> M11 guard).
+        let comp_ellipse_same_fill = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(60.0, 0.0, 40.0, 40.0));
+            f.name = "Comp/EllipseSame".into();
+            let comp = d.insert(page, f).unwrap();
+            let sid = d.alloc_id();
+            let mut s = Node::ellipse(sid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            s.name = "Shape".into();
+            s.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            d.insert(comp, s).unwrap();
+            let iid = d.alloc_id();
+            let mut item_frame = Node::frame(iid, Rect::new(0.0, 20.0, 20.0, 12.0));
+            item_frame.name = "Item".into();
+            d.insert(comp, item_frame).unwrap();
+            let bid = d.alloc_id();
+            let mut b = Node::frame(bid, Rect::new(20.0, 0.0, 16.0, 16.0));
+            b.name = "Box".into();
+            d.insert(comp, b).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        // CompEllipseDiffFill has an Ellipse "Shape" with a DIFFERENT default fill (green #00ff00) + Text "Item" with different default text.
+        let comp_ellipse_diff_fill = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(120.0, 0.0, 40.0, 40.0));
+            f.name = "Comp/EllipseDiff".into();
+            let comp = d.insert(page, f).unwrap();
+            let sid = d.alloc_id();
+            let mut s = Node::ellipse(sid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            s.name = "Shape".into();
+            s.fills = vec![Paint::solid(Color::rgb(0, 255, 0))];
+            d.insert(comp, s).unwrap();
+            let tid = d.alloc_id();
+            let mut t = Node::text(tid, Rect::new(0.0, 20.0, 40.0, 16.0), "OtherDefault", crate::TextStyle::default());
+            t.name = "Item".into();
+            d.insert(comp, t).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        // Create an auto-named instance of Comp/Rect ("Comp/Rect").
+        let c = create_instance(&mut d, comp_rect, page, Vec2::new(0.0, 100.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        assert_eq!(d.get(inst).unwrap().name, "Comp/Rect");
+        {
+            let mut in_node = d.get(inst).unwrap().clone();
+            if let NodeKind::Instance { ref mut frame, .. } = in_node.kind {
+                frame.clips_content = true;
+            }
+            in_node.component.overrides.insert(OverrideField::Layout);
+            apply(&mut d, Command::Update { node: Box::new(in_node) });
+        }
+
+        // Override "Shape" fill to red, "Item" text + text style, and "Box" frame layout (clip_content = true).
+        let shape_id = child_named(&d, inst, "Shape");
+        {
+            let mut sn = d.get(shape_id).unwrap().clone();
+            sn.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+            sn.component.overrides.insert(OverrideField::Fills);
+            apply(&mut d, Command::Update { node: Box::new(sn) });
+        }
+        let item_id = child_named(&d, inst, "Item");
+        {
+            let mut tn = d.get(item_id).unwrap().clone();
+            if let NodeKind::Text(ref mut tp) = tn.kind {
+                tp.content = "OverriddenText".into();
+                tp.style.font_size = 22.0;
+            }
+            tn.component.overrides.insert(OverrideField::Characters);
+            tn.component.overrides.insert(OverrideField::TextStyle);
+            apply(&mut d, Command::Update { node: Box::new(tn) });
+        }
+        let box_id = child_named(&d, inst, "Box");
+        {
+            let mut bn = d.get(box_id).unwrap().clone();
+            if let NodeKind::Frame(ref mut fp) = bn.kind {
+                fp.clips_content = true;
+            }
+            bn.component.overrides.insert(OverrideField::Layout);
+            apply(&mut d, Command::Update { node: Box::new(bn) });
+        }
+
+        // Swap to Comp/EllipseSame:
+        // - M3: auto-named instance ("Comp/Rect") takes new main's name ("Comp/EllipseSame").
+        // - M1: "Shape" fill override transfers from Rectangle onto Ellipse because old & new mains share default white fill.
+        // - M7: "Item" in Comp/EllipseSame is a Frame, so Characters/TextStyle do NOT transfer onto it.
+        // - M11: "Box" in Comp/EllipseSame is a Frame with same default FrameProps, so Layout (clips_content = true) transfers.
+        let swap_same = swap_instance(&mut d, inst, comp_ellipse_same_fill);
+        let inv_same = apply(&mut d, swap_same);
+        assert_eq!(d.get(inst).unwrap().name, "Comp/EllipseSame", "auto-named instance takes new main's name on swap");
+        assert!(d.get(inst).unwrap().kind.frame_props().unwrap().clips_content, "instance root Layout override must preserve frame.clips_content across swap (M11)");
+        let shape_after = d.get(child_named(&d, inst, "Shape")).unwrap();
+        assert!(matches!(shape_after.kind, NodeKind::Ellipse { .. }));
+        assert_eq!(
+            shape_after.fills[0].kind,
+            crate::PaintKind::Solid(Color::rgb(255, 0, 0)),
+            "fill override transfers from Rectangle to Ellipse when originally matched"
+        );
+        let item_after = d.get(child_named(&d, inst, "Item")).unwrap();
+        assert!(!item_after.component.overrides.contains(&OverrideField::Characters), "Characters override must not mark a non-Text target (M7)");
+        assert!(!item_after.component.overrides.contains(&OverrideField::TextStyle), "TextStyle override must not mark a non-Text target (M7)");
+        let box_after = d.get(child_named(&d, inst, "Box")).unwrap();
+        assert!(box_after.component.overrides.contains(&OverrideField::Layout));
+        assert!(box_after.kind.frame_props().unwrap().clips_content, "Layout override must copy FrameProps onto target Frame (M11)");
+
+        apply(&mut d, inv_same);
+
+        // Now swap to Comp/EllipseDiff:
+        // - "Originally matched" gate: "Shape" default fill in Comp/Rect (white) != Comp/EllipseDiff (green), so red fill override is dropped!
+        // - Text exception: "Item" Characters ("OverriddenText") and TextStyle (font_size 22.0) survive even though default text differed!
+        let swap_diff = swap_instance(&mut d, inst, comp_ellipse_diff_fill);
+        let inv_diff = apply(&mut d, swap_diff);
+        let shape_diff = d.get(child_named(&d, inst, "Shape")).unwrap();
+        assert_eq!(
+            shape_diff.fills[0].kind,
+            crate::PaintKind::Solid(Color::rgb(0, 255, 0)),
+            "originally-matched gate drops fill override when old and new mains differ"
+        );
+        assert!(!shape_diff.component.overrides.contains(&OverrideField::Fills));
+        let item_diff = d.get(child_named(&d, inst, "Item")).unwrap();
+        match &item_diff.kind {
+            NodeKind::Text(tp) => {
+                assert_eq!(tp.content, "OverriddenText", "text characters override survives even when mains differ");
+                assert_eq!(tp.style.font_size, 22.0, "text style override survives even when mains differ");
+            }
+            other => panic!("expected Text, got {other:?}"),
+        }
+        apply(&mut d, inv_diff);
+
+        // 2. M10 guard: variant switch (`top_swap && same_family`) where a Frame child with `OverrideField::Layout`
+        // matches a Rectangle child in the target variant -> `OverrideField::Layout` must not mark the Rectangle.
+        let v_frame = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(200.0, 0.0, 60.0, 40.0));
+            f.name = "Kind=Frame".into();
+            let comp = d.insert(page, f).unwrap();
+            let bid = d.alloc_id();
+            let mut b = Node::frame(bid, Rect::new(0.0, 0.0, 20.0, 20.0));
+            b.name = "Box".into();
+            d.insert(comp, b).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+        let v_rect = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(280.0, 0.0, 60.0, 40.0));
+            f.name = "Kind=Rect".into();
+            let comp = d.insert(page, f).unwrap();
+            let bid = d.alloc_id();
+            let mut b = Node::rectangle(bid, Rect::new(0.0, 0.0, 20.0, 20.0));
+            b.name = "Box".into();
+            d.insert(comp, b).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+        let c = combine_as_variants(&mut d, &[v_frame, v_rect]);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, v_frame, page, Vec2::new(200.0, 100.0));
+        apply(&mut d, c);
+        let v_inst = *d.get(page).unwrap().children.last().unwrap();
+        let vbox = child_named(&d, v_inst, "Box");
+        {
+            let mut bn = d.get(vbox).unwrap().clone();
+            if let NodeKind::Frame(ref mut fp) = bn.kind {
+                fp.clips_content = true;
+            }
+            bn.component.overrides.insert(OverrideField::Layout);
+            apply(&mut d, Command::Update { node: Box::new(bn) });
+        }
+        let c = set_instance_prop(&mut d, v_inst, "Kind", Some(PropValue::Variant("Rect".into())));
+        apply(&mut d, c);
+        let vbox_after = d.get(child_named(&d, v_inst, "Box")).unwrap();
+        assert!(!vbox_after.component.overrides.contains(&OverrideField::Layout), "Layout override must not be inserted onto a Rectangle target (M10)");
+
+        // 3. M4 and M9 guards: outer component slot child has:
+        // - a "width" variable binding on "Glyph" (with no other override on "Glyph" -> M4)
+        // - an explicit `OverrideField::Layout` (`clips_content = true`) on a child frame "Wrap" recorded in the outer component's slot (`chain_fields` -> M9)
+        let icon_m1 = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(400.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/M1".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            g.name = "Glyph".into();
+            d.insert(comp, g).unwrap();
+            let wid = d.alloc_id();
+            let mut w = Node::frame(wid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            w.name = "Wrap".into();
+            d.insert(comp, w).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+        let icon_m2 = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(440.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/M2".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            g.name = "Glyph".into();
+            d.insert(comp, g).unwrap();
+            let wid = d.alloc_id();
+            let mut w = Node::frame(wid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            w.name = "Wrap".into();
+            d.insert(comp, w).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+        let holder = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(400.0, 60.0, 80.0, 40.0));
+            f.name = "Holder".into();
+            let comp = d.insert(page, f).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            let c = create_instance(&mut d, icon_m1, comp, Vec2::new(4.0, 4.0));
+            apply(&mut d, c);
+            let slot = d.get(comp).unwrap().children[0];
+            let slot_glyph = child_named(&d, slot, "Glyph");
+            {
+                let mut gn = d.get(slot_glyph).unwrap().clone();
+                gn.variables.bindings.insert("width".into(), "size.icon.w".into());
+                apply(&mut d, Command::Update { node: Box::new(gn) });
+            }
+            let slot_wrap = child_named(&d, slot, "Wrap");
+            {
+                let mut wn = d.get(slot_wrap).unwrap().clone();
+                if let NodeKind::Frame(ref mut fp) = wn.kind {
+                    fp.clips_content = true;
+                }
+                wn.component.overrides.insert(OverrideField::Layout);
+                apply(&mut d, Command::Update { node: Box::new(wn) });
+            }
+            let c = add_prop(
+                &mut d,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_m1, icon_m2] },
+                    default: PropValue::Instance(icon_m1),
+                },
+            );
+            apply(&mut d, c);
+            let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
+            apply(&mut d, c);
+            comp
+        };
+        let c = create_instance(&mut d, holder, page, Vec2::new(400.0, 140.0));
+        apply(&mut d, c);
+        let holder_inst = *d.get(page).unwrap().children.last().unwrap();
+        let holder_slot = d.get(holder_inst).unwrap().children[0];
+        let c = set_instance_prop(&mut d, holder_inst, "Icon", Some(PropValue::Instance(icon_m2)));
+        apply(&mut d, c);
+        let glyph_m4 = d.get(child_named(&d, holder_slot, "Glyph")).unwrap();
+        assert_eq!(
+            glyph_m4.variables.bindings.get("width").map(String::as_str),
+            Some("size.icon.w"),
+            "width variable binding on slot child must survive swap (M4)"
+        );
+        let wrap_m9 = d.get(child_named(&d, holder_slot, "Wrap")).unwrap();
+        assert!(wrap_m9.kind.frame_props().unwrap().clips_content, "explicit Layout override on outer slot child must survive swap via chain_fields (M9)");
+    }
 }
