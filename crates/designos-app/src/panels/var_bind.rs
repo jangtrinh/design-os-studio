@@ -61,6 +61,9 @@ fn sync_picker_paint_from_doc(app: &mut App) {
     if let Some(p) = doc_paint {
         if crate::widgets::picker::mode_of(&p.kind) == crate::widgets::picker::mode_of(&pk.paint.kind) {
             pk.paint = p;
+            let n_stops = crate::widgets::picker::stops_of(&pk.paint.kind).map(|s| s.len()).unwrap_or(1);
+            pk.state.sel = pk.state.sel.min(n_stops.saturating_sub(1));
+            pk.state.reset_stop_origins(&pk.paint);
             let rgba = crate::widgets::picker::active_rgba(&pk.paint, pk.state.sel);
             pk.state.sync(rgba);
         }
@@ -103,6 +106,7 @@ fn commit_picker_tx_before_bind(app: &mut App) {
     if let Some(pk) = app.props.picker.as_mut() {
         if !pk.tx.ed.touched().is_empty() {
             let tx = std::mem::replace(&mut pk.tx, crate::edit::Tx::new());
+            pk.state.reset_stop_origins(&pk.paint);
             app.run_tx(tx);
         }
     }

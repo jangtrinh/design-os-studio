@@ -396,12 +396,30 @@ pub struct State {
     pub sel: usize,
     /// True while a dropdown of the panel is open (outside clicks must not close the picker).
     pub menu_open: bool,
+    /// Provenance of each stop in the current gradient stop list relative to the start of the
+    /// active picker transaction (`Some(orig_idx)` for stops that existed at the start of `pk.tx`,
+    /// or `None` for newly inserted stops).
+    pub stop_origins: Vec<Option<usize>>,
 }
 
 impl State {
     pub fn new(p: &Paint) -> Self {
         let rgba = active_rgba(p, 0);
-        Self { tab: Tab::Custom, fmt: Fmt::Hex, source: 0, hsv: Hsva::from_srgba_unmultiplied(rgba), sel: 0, menu_open: false }
+        let n = stops_of(&p.kind).map(|s| s.len()).unwrap_or(0);
+        Self {
+            tab: Tab::Custom,
+            fmt: Fmt::Hex,
+            source: 0,
+            hsv: Hsva::from_srgba_unmultiplied(rgba),
+            sel: 0,
+            menu_open: false,
+            stop_origins: (0..n).map(Some).collect(),
+        }
+    }
+
+    pub fn reset_stop_origins(&mut self, p: &Paint) {
+        let n = stops_of(&p.kind).map(|s| s.len()).unwrap_or(0);
+        self.stop_origins = (0..n).map(Some).collect();
     }
 
     /// Re-derives HSV from `rgba` unless it is what the HSV already encodes (keeps the hue
@@ -484,6 +502,7 @@ pub struct Env<'a> {
 #[derive(Default)]
 pub struct Out {
     pub changed: bool,
+    pub stop_list_changed: bool,
     pub add_style: bool,
     pub close: bool,
     pub eyedrop: bool,
@@ -830,11 +849,13 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                     let (key, bytes) = synthesize_procedural_png(0);
                     paint.kind = PaintKind::Image { image_ref: key.clone(), scale_mode: ImageScaleMode::Fill };
                     paint.opacity = 1.0;
+                    st.reset_stop_origins(paint);
                     out.generated_image = Some((key, bytes));
                     out.changed = true;
                 } else {
                     *paint = convert(paint, *m);
                     st.sel = 0;
+                    st.reset_stop_origins(paint);
                     out.changed = true;
                 }
             }
@@ -926,12 +947,20 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
         let rot_r = Rect::from_min_size(Pos2::new(flip_r.right() + 4.0, y + 8.0), Vec2::splat(24.0));
         if icon_button(ui, flip_r, "picker-grad-flip", Icon::FlipH, false, "Flip gradient").clicked() {
             if let Some(sv) = stops_mut(&mut paint.kind) {
-                for s in sv.iter_mut() {
+                if st.stop_origins.len() != sv.len() {
+                    st.stop_origins = (0..sv.len()).map(Some).collect();
+                }
+                let mut pairs: Vec<(GradientStop, Option<usize>)> =
+                    sv.iter().cloned().zip(st.stop_origins.iter().copied()).collect();
+                for (s, _) in pairs.iter_mut() {
                     s.pos = (1.0 - s.pos).clamp(0.0, 1.0);
                 }
-                sv.sort_by(|a, b| a.pos.total_cmp(&b.pos));
+                pairs.sort_by(|a, b| a.0.pos.total_cmp(&b.0.pos));
+                *sv = pairs.iter().map(|(s, _)| s.clone()).collect();
+                st.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
                 st.sel = sv.len().saturating_sub(1).saturating_sub(st.sel);
                 out.changed = true;
+                out.stop_list_changed = true;
             }
         }
         if icon_button(ui, rot_r, "picker-grad-rot", Icon::Rotate90, false, "Rotate gradient").clicked() {
@@ -1513,11 +1542,19 @@ fn gradient_bar(ui: &mut Ui, bar: Rect, st: &mut State, paint: &mut Paint, out: 
             let near = stops.iter().any(|s| ((s.pos - t) * bar.width()).abs() < 7.0);
             if !near {
                 if let Some(s) = stops_mut(&mut paint.kind) {
+                    if st.stop_origins.len() != s.len() {
+                        st.stop_origins = (0..s.len()).map(Some).collect();
+                    }
                     let c = stop_color_at(s, t);
-                    s.push(GradientStop { pos: t, color: c });
-                    s.sort_by(|a, b| a.pos.total_cmp(&b.pos));
-                    st.sel = s.iter().position(|x| x.pos == t).unwrap_or(0);
+                    let mut pairs: Vec<(GradientStop, Option<usize>)> =
+                        s.iter().cloned().zip(st.stop_origins.iter().copied()).collect();
+                    pairs.push((GradientStop { pos: t, color: c }, None));
+                    pairs.sort_by(|a, b| a.0.pos.total_cmp(&b.0.pos));
+                    st.sel = pairs.iter().position(|(x, orig)| orig.is_none() && x.pos == t).unwrap_or(0);
+                    *s = pairs.iter().map(|(x, _)| x.clone()).collect();
+                    st.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
                     out.changed = true;
+                    out.stop_list_changed = true;
                 }
             }
         }
@@ -1566,9 +1603,15 @@ fn gradient_bar(ui: &mut Ui, bar: Rect, st: &mut State, paint: &mut Paint, out: 
     if let Some(i) = remove {
         if let Some(sv) = stops_mut(&mut paint.kind) {
             if sv.len() > 2 && i < sv.len() {
+                if st.stop_origins.len() != sv.len() {
+                    st.stop_origins = (0..sv.len()).map(Some).collect();
+                }
                 sv.remove(i);
+                st.stop_origins.remove(i);
+                ui.ctx().stop_dragging();
                 st.sel = st.sel.saturating_sub(1).min(sv.len() - 1);
                 out.changed = true;
+                out.stop_list_changed = true;
             }
         }
     }

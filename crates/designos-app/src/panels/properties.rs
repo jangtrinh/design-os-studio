@@ -1801,6 +1801,39 @@ fn picker_color(p: &Picker) -> Color {
     Color::rgba(r, g, b, a)
 }
 
+fn remap_stop_bindings(
+    bindings: &mut std::collections::BTreeMap<String, String>,
+    prefix: &str,
+    pi: usize,
+    stop_origins: &[Option<usize>],
+    is_gradient: bool,
+) {
+    let stop_prefix = format!("{prefix}/{pi}/stops/");
+    let old: Vec<(usize, String)> = bindings
+        .keys()
+        .filter_map(|k| k.strip_prefix(&stop_prefix)?.parse::<usize>().ok().map(|idx| (idx, k.clone())))
+        .collect();
+    if old.is_empty() {
+        return;
+    }
+    let mut by_orig = std::collections::BTreeMap::new();
+    for (idx, k) in old {
+        if let Some(vid) = bindings.remove(&k) {
+            by_orig.insert(idx, vid);
+        }
+    }
+    if !is_gradient {
+        return;
+    }
+    for (new_idx, orig) in stop_origins.iter().enumerate() {
+        if let Some(orig_idx) = orig {
+            if let Some(vid) = by_orig.get(orig_idx) {
+                bindings.insert(format!("{stop_prefix}{new_idx}"), vid.clone());
+            }
+        }
+    }
+}
+
 fn apply_picker(doc: &mut Document, p: &mut Picker) {
     let c = picker_color(p);
     if let PickTarget::SelColor(old) = p.target {
@@ -1809,6 +1842,7 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
         }
         return;
     }
+    let is_grad = widgets::picker::mode_of(&p.paint.kind).is_gradient();
     for id in &p.ids {
         let Some(n) = p.tx.ed.node(doc, *id) else { continue };
         match p.target {
@@ -1817,12 +1851,14 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
                     let visible = pt.visible;
                     *pt = Paint { visible, ..p.paint.clone() };
                 }
+                remap_stop_bindings(&mut n.variables.bindings, "fills", i, &p.state.stop_origins, is_grad);
             }
             PickTarget::Stroke(i) => {
                 if let Some(pt) = n.stroke.paints.get_mut(i) {
                     let visible = pt.visible;
                     *pt = Paint { visible, ..p.paint.clone() };
                 }
+                remap_stop_bindings(&mut n.variables.bindings, "strokes", i, &p.state.stop_origins, is_grad);
             }
             PickTarget::SelColor(_) => {}
             PickTarget::GridColor(i) => {
@@ -2077,7 +2113,8 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             }
         }
     }
-    gradient_handles(app, &ctx, &mut pk, &mut changed);
+    let mut stop_list_changed = out.stop_list_changed;
+    gradient_handles(app, &ctx, &mut pk, &mut changed, &mut stop_list_changed);
     if changed {
         if pk.target == PickTarget::TextFill && app.canvas.text.is_some() {
             // Colour of the characters being edited: goes through the text session.
@@ -2088,6 +2125,11 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
             pk.tx.ed.revert(&mut app.doc);
             apply_picker(&mut app.doc, &mut pk);
             app.changed();
+            if stop_list_changed {
+                let tx = std::mem::replace(&mut pk.tx, Tx::new());
+                app.run_tx(tx);
+                pk.state.reset_stop_origins(&pk.paint);
+            }
         }
     }
     if out.add_style {
@@ -2216,7 +2258,7 @@ fn handle_points(pk: &Picker, app: &App) -> Vec<(usize, Pos2)> {
 }
 
 /// On-canvas gradient editing: the start/end/width handles and interactive stops of the edited paint.
-fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed: &mut bool) {
+fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed: &mut bool, stop_list_changed: &mut bool) {
     let pts = handle_points(pk, app);
     if pts.len() != 3 || !matches!(pk.target, PickTarget::Fill(_) | PickTarget::Stroke(_)) {
         return;
@@ -2331,10 +2373,15 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
     }
     if let Some((si, t)) = stop_duplicated {
         if let Some(stops) = widgets::picker::stops_mut(&mut pk.paint.kind) {
+            if pk.state.stop_origins.len() != stops.len() {
+                pk.state.stop_origins = (0..stops.len()).map(Some).collect();
+            }
             if let Some(src) = stops.get(si).cloned() {
                 stops.push(GradientStop { pos: t, color: src.color });
+                pk.state.stop_origins.push(None);
                 pk.state.sel = stops.len() - 1;
                 *changed = true;
+                *stop_list_changed = true;
             }
         }
     } else if let Some((si, t)) = stop_moved {
@@ -2347,13 +2394,21 @@ fn gradient_handles(app: &mut App, ctx: &egui::Context, pk: &mut Picker, changed
         }
     } else if let Some(t) = line_inserted {
         if let Some(stops) = widgets::picker::stops_mut(&mut pk.paint.kind) {
+            if pk.state.stop_origins.len() != stops.len() {
+                pk.state.stop_origins = (0..stops.len()).map(Some).collect();
+            }
             let color = widgets::picker::stop_color_at(stops, t);
-            stops.push(GradientStop { pos: t, color });
-            stops.sort_by(|a, b| a.pos.partial_cmp(&b.pos).unwrap_or(std::cmp::Ordering::Equal));
-            if let Some(idx) = stops.iter().position(|s| (s.pos - t).abs() < 1e-4) {
+            let mut pairs: Vec<(GradientStop, Option<usize>)> =
+                stops.iter().cloned().zip(pk.state.stop_origins.iter().copied()).collect();
+            pairs.push((GradientStop { pos: t, color }, None));
+            pairs.sort_by(|a, b| a.0.pos.partial_cmp(&b.0.pos).unwrap_or(std::cmp::Ordering::Equal));
+            if let Some(idx) = pairs.iter().position(|(s, orig)| orig.is_none() && (s.pos - t).abs() < 1e-4) {
                 pk.state.sel = idx;
             }
+            *stops = pairs.iter().map(|(s, _)| s.clone()).collect();
+            pk.state.stop_origins = pairs.into_iter().map(|(_, orig)| orig).collect();
             *changed = true;
+            *stop_list_changed = true;
         }
     }
     if let Some((i, v, shift_snapped)) = moved {
