@@ -1059,6 +1059,41 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    // `an_install_action_opens_the_cli_install_page`
+    #[test]
+    fn an_install_action_opens_the_cli_install_page() {
+        let root = temp_test_dir("install-action");
+        let mut st = TerminalState::for_tab(1);
+        st.picker.settings_root_override = Some(root.clone());
+        seed_test_probes(&mut st);
+        let agy = rows_for_state(&mut st).into_iter().find(|r| r.label == "Antigravity").expect("Antigravity row");
+        assert_eq!(agy.install_action, Some(FixAction::OpenInstallPage("https://antigravity.google/")), "a missing CLI carries its install page");
+        assert!(!agy.selectable, "and the row itself is disabled");
+
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0));
+        let panel_rect = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(280.0, 800.0));
+        let mut frame = |st: &mut TerminalState, events: Vec<egui::Event>| {
+            let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ui| {
+                render_runtime_dropdown_menu(st, ui, panel_rect, 40.0, None);
+            });
+        };
+        st.runtime_dropdown_open = true;
+        frame(&mut st, vec![]);
+        let install: Rect = ctx.data(|d| d.get_temp(Id::new(("test-rect", format!("{}-install", agy.id))))).expect("the row's Install button");
+        assert!(install.height() >= theme::TARGET_MIN, "Install is a real target: {install:?}");
+        let at = install.center();
+        let click = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        frame(&mut st, vec![egui::Event::PointerMoved(at)]);
+        frame(&mut st, vec![click(true), click(false)]);
+        assert_eq!(st.status_msg.as_deref(), Some("Open https://antigravity.google/ in your browser"), "the click opened the install page");
+        assert!(st.tabs.is_empty(), "and started no tab");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     // #783: `clicking_row_mid_staggered_probe_starts_the_clicked_cli`
     #[test]
     fn clicking_row_mid_staggered_probe_starts_the_clicked_cli() {

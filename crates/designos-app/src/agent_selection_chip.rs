@@ -252,6 +252,28 @@ mod tests {
     use super::*;
     use designos_doc::{Node, Rect as DocRect};
 
+    fn summary(count: usize, names: &[&str]) -> SelectionSummary {
+        SelectionSummary { page: "Page 1".into(), count, names: names.iter().map(|n| n.to_string()).collect() }
+    }
+
+    // `selection_chip_label_and_dismiss`
+    #[test]
+    fn selection_chip_label_and_dismiss() {
+        assert_eq!(composer_chip_label(&summary(1, &["Hero"])).as_deref(), Some("Hero"));
+        assert_eq!(composer_chip_label(&summary(2, &["Hero", "Title"])).as_deref(), Some("Hero, Title"));
+        assert_eq!(composer_chip_label(&summary(3, &["Hero", "Title", "Body"])).as_deref(), Some("Hero, Title, +1"));
+        assert_eq!(composer_chip_label(&summary(3, &[])).as_deref(), Some("3 layers"), "a selection with no names is counted");
+        assert_eq!(composer_chip_label(&summary(0, &[])), None, "nothing selected, no chip");
+
+        // A dismiss hides the chip until what the chip names changes.
+        let hero = summary(1, &["Hero"]);
+        let dismissed = selection_fingerprint(&hero);
+        assert_eq!(selection_fingerprint(&hero.clone()), dismissed, "the same selection keeps the dismissal");
+        assert_ne!(selection_fingerprint(&summary(1, &["Title"])), dismissed, "another layer brings the chip back");
+        assert_ne!(selection_fingerprint(&summary(2, &["Hero", "Title"])), dismissed, "so does a larger selection");
+        assert_ne!(selection_fingerprint(&summary(3, &[])), selection_fingerprint(&summary(4, &[])), "and a count with no names");
+    }
+
     #[test]
     fn chip_text_formats() {
         assert_eq!(selection_chip_text("Page 1", 0, &[] as &[&str]), None, "nothing selected hides the chip");

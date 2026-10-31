@@ -722,3 +722,153 @@ fn the_new_chat_tab_is_the_last_tab_hidden() {
     assert!(tab.right() <= new_chat.left(), "New chat comes after the session tabs");
     finish(s);
 }
+
+#[test]
+fn hidden_tab_that_needs_the_user_puts_the_dot_on_more() {
+    let mut s = session_sim();
+    spawn_more_tabs(&mut s, 9);
+    let last = s.shell.app.terminal.tabs.len() - 1;
+    let last_id = s.shell.app.terminal.tabs[last].id;
+    s.shell.app.terminal.active_tab = 0;
+    frames(&mut s, 3);
+    assert!(drawn_count(&s, "agents-left-tab-select") < 10, "the last tab is hidden");
+    assert!(recorded(&s, &format!("agents-tab-dot-{last_id}")).is_none(), "and has no dot of its own on the strip");
+    s.ctx.data_mut(|d| d.remove_by_type::<Rect>());
+    frames(&mut s, 2);
+    assert!(recorded(&s, "agents-more-dot").is_none(), "while every hidden tab is quiet, ⋯ has no dot");
+
+    *s.shell.app.terminal.tabs[last].agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(Some("Needs approval".into()));
+    s.ctx.data_mut(|d| d.remove_by_type::<Rect>());
+    frames(&mut s, 3);
+    let dot = recorded(&s, "agents-more-dot").expect("a hidden tab waits: ⋯ carries the dot");
+    let more = recorded(&s, "agents-more-btn").unwrap();
+    assert!(more.contains(dot.center()), "the dot sits on ⋯: {dot:?} in {more:?}");
+    // The tooltip counts the tabs that wait.
+    s.mv(more.center() + egui::vec2(0.0, 1.0));
+    s.mv(more.center());
+    frames(&mut s, 30);
+    assert!(painted(&s).iter().any(|t| t == "1 waiting"), "the tooltip of ⋯ counts the waiting tab: {:?}", painted(&s));
+    finish(s);
+}
+
+#[test]
+fn stop_stays_in_the_header_and_stop_all_is_in_more() {
+    let mut s = working_session();
+    let top = panel_top(&s);
+    let stop = recorded(&s, "agents-header-stop-btn").expect("Stop is drawn while a turn runs");
+    assert_eq!(stop.height(), crate::theme::TARGET_MIN, "Stop is 24 high");
+    assert!(stop.top() >= top - 0.01 && stop.bottom() <= top + TERMINAL_HEADER_H + 0.01, "and lies in the header row: {stop:?}");
+    assert!(recorded(&s, "agents-header-stop-all-btn").is_none(), "there is no Stop all in the header");
+    let more = recorded(&s, "agents-more-btn").unwrap();
+    s.click(more.center());
+    frames(&mut s, 3);
+    assert!(!painted(&s).iter().any(|t| t == "Stop all"), "one running tab does not offer Stop all: {:?}", painted(&s));
+    s.key(Key::Escape);
+    frames(&mut s, 2);
+
+    s.shell.app.terminal.spawn_tab(AgentCliPreset::Claude, None).expect("a second stub claude");
+    *s.shell.app.terminal.tabs[1].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+    s.shell.app.terminal.viewport_focused = false;
+    s.ctx.data_mut(|d| d.remove_by_type::<Rect>());
+    frames(&mut s, 3);
+    assert!(recorded(&s, "agents-header-stop-all-btn").is_none(), "two running tabs still draw no Stop all in the header");
+    let more = recorded(&s, "agents-more-btn").unwrap();
+    s.click(more.center());
+    frames(&mut s, 3);
+    let texts = painted(&s);
+    assert!(texts.iter().any(|t| t == "Stop all"), "⋯ lists Stop all: {texts:?}");
+    assert!(texts.iter().any(|t| t == "2 running"), "with the caption 2 running: {texts:?}");
+    finish(s);
+}
+
+fn node_labels(s: &mut Sim, frames_n: usize) -> std::collections::HashMap<egui::accesskit::NodeId, (egui::accesskit::Role, String)> {
+    let mut seen = std::collections::HashMap::new();
+    for _ in 0..frames_n {
+        s.frame(vec![]);
+        if let Some(update) = s.accesskit_update.as_ref() {
+            for (id, node) in &update.nodes {
+                if let Some(label) = node.label() {
+                    seen.insert(*id, (node.role(), label.to_string()));
+                }
+            }
+        }
+    }
+    seen
+}
+
+#[test]
+fn agents_panel_labels_follow_the_new_controls() {
+    use egui::accesskit::Role;
+    let mut s = session_sim();
+    crate::agent_a11y::enable_accesskit(&s.ctx);
+    let page = s.shell.app.page;
+    let fid = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(page, designos_doc::Node::frame(fid, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0))).unwrap();
+    s.shell.app.selection = vec![fid];
+    s.shell.app.terminal.active_composer_mut().attach_prd = true;
+    s.shell.app.terminal.skills.set_selected_skills(vec!["design-system-rhythm".into()]);
+    let labels = node_labels(&mut s, 6);
+    let named = |id: egui::Id| labels.get(&id.accesskit_id()).cloned();
+    let expect: [(egui::Id, Role, &str); 8] = [
+        (egui::Id::new("agents-new-chat-btn"), Role::Button, "New chat"),
+        (egui::Id::new("agents-more-btn"), Role::Button, "More"),
+        (egui::Id::new("agents-composer-add-btn"), Role::Button, "Attach context"),
+        (egui::Id::new("agents-composer-agent-pill"), Role::Button, "Agent: Claude Code"),
+        (egui::Id::new("agents-composer-mode-btn"), Role::Button, "Permissions: Ask first"),
+        (egui::Id::new(("agents-composer-chip-prd", 0usize, "dismiss")), Role::Button, "Remove PRD"),
+        (egui::Id::new(("agents-composer-chip-skills", 0usize, "dismiss")), Role::Button, "Detach skills"),
+        (egui::Id::new(("agents-composer-chip-selection", 0usize, "dismiss")), Role::Button, "Dismiss selection"),
+    ];
+    for (id, role, name) in expect {
+        assert_eq!(named(id), Some((role, name.to_string())), "{name}");
+    }
+    assert_eq!(named(egui::Id::new("agents-composer-send")).map(|(_, n)| n).as_deref(), Some("Send"), "Send keeps its name");
+    for retired in ["agents-runtime-add-btn", "agents-composer-plus", "agents-composer-book", "agents-composer-prd"] {
+        assert_eq!(named(egui::Id::new(retired)), None, "{retired} names no widget any more");
+    }
+
+    // The New chat state names its tab.
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    let labels = node_labels(&mut s, 4);
+    assert_eq!(labels.get(&egui::Id::new("agents-new-chat-tab").accesskit_id()).cloned(), Some((Role::Tab, "New chat".to_string())));
+    finish(s);
+}
+
+#[test]
+fn selection_chip_dismiss_hides_it_until_the_selection_changes_and_a_click_sends() {
+    let mut s = session_sim();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    let page = s.shell.app.page;
+    let hero = s.shell.app.doc.alloc_id();
+    let title = s.shell.app.doc.alloc_id();
+    for (id, name) in [(hero, "Hero"), (title, "Title")] {
+        let mut node = designos_doc::Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 200.0, 100.0));
+        node.name = name.into();
+        s.shell.app.doc.insert(page, node).unwrap();
+    }
+    s.shell.app.selection = vec![hero];
+    frames(&mut s, 3);
+    assert!(painted(&s).iter().any(|t| t == "Hero"), "the chip names the selected layer: {:?}", painted(&s));
+
+    // A click on the label sends the selection to the agent: the tab's PTY hears it.
+    let chip = recorded(&s, "agent-selection-chip").expect("the selection chip");
+    let before = s.shell.app.terminal.tabs[0].written_bytes.len();
+    s.click(egui::pos2(chip.left() + 12.0, chip.center().y));
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.tabs[0].written_bytes.len() > before, "the label click wrote the selection to the PTY");
+
+    // The cross dismisses it, and it stays away for the same selection.
+    let cross = egui::pos2(chip.right() - crate::theme::TARGET_MIN * 0.5, chip.center().y);
+    s.click(cross);
+    s.ctx.data_mut(|d| d.remove_by_type::<Rect>());
+    frames(&mut s, 3);
+    assert!(recorded(&s, "agent-selection-chip").is_none(), "× hides the chip");
+    s.shell.app.selection = vec![hero];
+    frames(&mut s, 3);
+    assert!(recorded(&s, "agent-selection-chip").is_none(), "and it stays hidden for the same selection");
+    s.shell.app.selection = vec![hero, title];
+    frames(&mut s, 3);
+    assert!(recorded(&s, "agent-selection-chip").is_some(), "a different selection brings it back");
+    finish(s);
+}

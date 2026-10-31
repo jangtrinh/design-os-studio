@@ -1821,6 +1821,53 @@ mod tests {
         st.shutdown();
     }
 
+    fn claude_tab_with_recorder() -> (crate::test_timing::ScopedTerminalState, std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
+        let mut st = crate::test_timing::ScopedTerminalState::default();
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("spawn");
+        {
+            let tab = st.active_tab_mut().unwrap();
+            tab.spawn_preset = AgentCliPreset::Claude;
+            tab.preset = AgentCliPreset::Claude;
+            if let Ok(mut p) = tab.parser.lock() {
+                p.process(b"\x1b[?2004h");
+            }
+        }
+        let rec = attach_recording_writer(st.active_tab_mut().unwrap());
+        (st, rec)
+    }
+
+    // `attached_prd_chip_sends_the_prd_tag_first`
+    #[test]
+    fn attached_prd_chip_sends_the_prd_tag_first() {
+        let (mut st, rec) = claude_tab_with_recorder();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_from_composer_box("fix it", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(sent.contains("@prd fix it"), "the PRD tag leads the message: {sent:?}");
+        assert!(!sent.contains("fix it @prd"), "and is not appended: {sent:?}");
+        assert!(!st.active_composer().attach_prd, "the chip is spent by the send");
+
+        // A `@prd` the user typed is sent once, as typed.
+        rec.lock().unwrap().clear();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_from_composer_box("@prd review REQ-01", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert_eq!(sent.matches("@prd").count(), 1, "a typed @prd is not doubled by the chip: {sent:?}");
+        assert!(sent.contains("@prd review REQ-01"), "{sent:?}");
+
+        // A prompt entry point brings its own text: the chip stays attached and the tag is not added.
+        rec.lock().unwrap().clear();
+        st.active_composer_mut().attach_prd = true;
+        assert_eq!(st.send_to_agent("pricing card", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
+        assert!(!sent.contains("@prd"), "Make design does not carry the composer's PRD tag: {sent:?}");
+        assert!(st.active_composer().attach_prd, "and leaves the chip where it was");
+        st.shutdown();
+    }
+
     // 10. `all_entry_points_use_one_path`
     #[test]
     fn all_entry_points_use_one_path() {
