@@ -812,4 +812,277 @@ PYTEST_EXIT=0
 
 **Unresolved questions**: None.
 
+---
+
+## Round 4
+
+### 1. What Could NOT Be Verified (and Why)
+
+1. **Out-of-scope follow-up issues (`#1440` stroke parity / harness `outline-*`, `#1441` column-locked placement, `#1442` remaining track drifts, `#1431` `grid-auto-rows`)**: Explicitly excluded from Round 4 by the controller ruling and not touched.
+2. **Pre-existing `designos-app` clippy warnings on `origin/main` (`ccdac946`)**: Merging `origin/main` (`ccdac946` -> `1a9fe7be`) brought in pre-existing macOS clippy errors in `crates/designos-app/src/agent_permissions.rs:1163,1181` (`needless_return`) and `crates/designos-app/src/panels/components.rs:263,363,409` (`items_after_test_module`, `unused_must_use`, `ptr_arg`). Per the Round 4 brief, those `designos-app` warnings are not ours and were not modified; running `cargo clippy --workspace --exclude designos-app --all-targets --locked -- -D warnings` (covering `designos-export`, `designos-doc`, and all 9 other crates) exits `0` with zero warnings.
+
+---
+
+### 2. Round 4 Acceptance Table
+
+| # | Deliverable / Gate | Verification Command | Pasted Output (from this session) | Status |
+|---|---|---|---|---|
+| **1. Chrome Harness (C7 + Round 3 scenes)** | Scene `c7_single_hug_col_min_w_fill` at `0.00px` in CSS and Tailwind; all 18 Round 3 scenes unchanged at `0.00px`. | `python3 scripts/qa/grid-chrome-compare.py --screenshot plans/reports/agy-484-grid-tracks-css-evidence/r4-c7-chrome-vs-solver.png --screenshot-scene c7_single_hug_col_min_w_fill` | `[PASS] c7_single_hug_col_min_w_fill (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)` / `[PASS] c7_single_hug_col_min_w_fill (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)` (all 19 scenes / 38 checks `0.00px`, `CHROME_GREEN_EXIT=0`, `plans/reports/agy-484-grid-tracks-css-evidence/r4-chrome-green.log`) | **PASS** |
+| **2. `r4-red.log` & `r4-green.log`** | Final `crates/designos-export/tests/grid_chrome_fixtures.rs` is RED on pre-fix `codegen.rs` (`d39e4c62`, `1 failed`) and GREEN after removing the `cols <= 1` guard in `crates/designos-export/src/codegen.rs:592-634` (`aaf06190`, `27 passed; 0 failed`), including `one_column_flex_grid_keeps_minmax_0_1fr`. | `cargo test -p designos-export --test grid_chrome_fixtures --locked` | `r4-red.log`: `test result: FAILED. 26 passed; 1 failed` (`c7_single_hug_col_min_w_fill_css_and_tailwind`, `RUST_RED_EXIT=101`) / `r4-green.log`: `test result: ok. 27 passed; 0 failed` (`RUST_GREEN_EXIT=0`) | **PASS** |
+| **3a. `cargo fmt`** | `df -h / && cargo fmt --all -- --check` | `cargo fmt --all -- --check` | `FMT_EXIT=0` (`plans/reports/agy-484-grid-tracks-css-evidence/r4-gates.log`) | **PASS** |
+| **3b. `cargo clippy`** | `df -h / && cargo clippy --workspace --all-targets --locked -- -D warnings` (plus `--exclude designos-app`) | `cargo clippy --workspace --all-targets --locked -- -D warnings` | `designos-app` shows only pre-existing `origin/main` diagnostics in `agent_permissions.rs:1163,1181` and `panels/components.rs:263,363,409`; `cargo clippy --workspace --exclude designos-app --all-targets --locked -- -D warnings` exits `0` (`CLIPPY_NO_APP_EXIT=0`) | **PASS** |
+| **3c. `cargo test -p designos-export`** | `df -h / && cargo test -p designos-export --locked` | `cargo test -p designos-export --locked` | `153 passed (1 ignored)` lib + `27 passed` `grid_chrome_fixtures` + all integration test targets pass (`TEST_EXPORT_EXIT=0`) | **PASS** |
+| **3d. Python unittests** | `python3 -m unittest discover -s scripts/tests` | `python3 -m unittest discover -s scripts/tests` | `Ran 207 tests in 46.813s — OK` (`PYTEST_EXIT=0`) | **PASS** |
+
+---
+
+### 3. Assumptions (Round 4)
+
+1. **Removing `let cols = grid_column_count(al); if cols <= 1 { return std::borrow::Cow::Borrowed(&al.grid_col_tracks); }` in `crates/designos-export/src/codegen.rs:592-634` requires no `cols == 0` replacement guard**: `grid_column_count` clamps to `1..=MAX_GRID_TRACKS` (`crates/designos-export/src/codegen.rs:573-576`) and `grid_column_widths` in `crates/designos-doc/src/layout_solver_grid.rs:111-116,159-165` uses `(al.grid_columns as usize).max(1)`, so `col_widths` always has at least 1 element. For a 1-column `GridTrack::Flex` hug grid, the single column sets `ref_unit = Some(unit)` without setting `needs_px_tracks = true`, returning `Cow::Borrowed(&al.grid_col_tracks)` (`repeat(1, minmax(0, 1fr))` in CSS and `grid-cols-1` in Tailwind).
+
+---
+
+### 4. Skills Loaded and What Changed Because of Them (Round 4)
+
+- **`es:dev` & `es:feature-dev`** (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`): Executed directly in the DEV phase from the controller's ruling, merging `origin/main` first (`1a9fe7be`) and committing the red fixture/test (`d39e4c62`) before the guard-removal fix (`aaf06190`).
+- **`es:rust` & `es:rust-gpu-canvas`** (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Preserved `Cow::Borrowed(&al.grid_col_tracks)` on 1-column `Flex` and `Fixed` grids while allocating `Cow::Owned` only when the single column is `GridTrack::Hug`.
+- **`es:fable-thinking` & `es:astra-work`** (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`): Predicted outcomes before each test and gate command, verified all 19 scenes (38 checks) in headless Chrome and visually inspected `r4-c7-chrome-vs-solver.png`, and killed 3 Round-4 mutations (`M_r4_reintroduce_cols_le_1_guard`, `M_r4_always_px_for_1_col`, `M_r4_drop_hug_arm`) in `plans/reports/agy-484-grid-tracks-css-evidence/r4-mutations.log`.
+
+---
+
+### 5. Epistemic Ledger (Round 4 — `FACT` / `INFERENCE` / `ASSUMPTION`)
+
+- **`FACT`**: `crates/designos-export/src/codegen.rs:592-634` (`resolved_grid_col_tracks`) no longer returns early when `cols <= 1`; a 1-column hug grid whose column is `GridTrack::Hug` enters the `GridTrack::Hug` arm (`611-614`) and returns its solved pixel track width (`GridTrack::Fixed(80.0)` for `c7_single_hug_col_min_w_fill`).
+- **`FACT`**: In `crates/designos-export/tests/grid_chrome_fixtures.rs:70,602-626,786-826`, `scene_c7_single_hug_col_min_w_fill` and `c7_single_hug_col_min_w_fill_css_and_tailwind` fail on pre-fix `codegen.rs` (`r4-red.log`, `RUST_RED_EXIT=101`; `r4-chrome-red.log`, `120.00px` drift) and pass at `0.00px` drift after the fix (`r4-green.log`, `RUST_GREEN_EXIT=0`; `r4-chrome-green.log`, `CHROME_GREEN_EXIT=0`), while `one_column_flex_grid_keeps_minmax_0_1fr` confirms both `Sizing::Hug` and `Sizing::Fixed` 1-column `Flex` grids emit `repeat(1, minmax(0, 1fr))` and `grid-cols-1`.
+- **`FACT`**: All 3 Round-4 mutations (`M_r4_reintroduce_cols_le_1_guard`, `M_r4_always_px_for_1_col`, `M_r4_drop_hug_arm`) are killed (`exit=101`, `plans/reports/agy-484-grid-tracks-css-evidence/r4-mutations.log`).
+- **`INFERENCE`**: Removing the `cols <= 1` guard cannot alter any 1-column `GridTrack::Flex` or `GridTrack::Fixed` hug grid because `needs_px_tracks` only becomes `true` on `GridTrack::Hug` or when two `GridTrack::Flex` columns have unit widths differing by more than `0.5px` (which requires at least 2 `Flex` columns).
+- **`ASSUMPTION`**: The pre-existing `designos-app` clippy errors (`agent_permissions.rs:1163,1181` and `panels/components.rs:263,363,409`) came from `origin/main` (`ccdac946`) and are outside this task's allowed file scope.
+
+**Weakest link**: `scripts/qa/grid_chrome/tailwind_css_map.py` maps Tailwind utility classes via a static stdlib table rather than running the Tailwind CSS compiler offline, though every token emitted across all 19 fixture scenes is covered and verified in headless Chrome.
+
+**Unresolved questions**: None.
+
+---
+
+### 6. Verbatim Commands and Pasted Outputs (Round 4)
+
+#### 6.1 `r4-red.log` (Final `grid_chrome_fixtures.rs` against Pre-Fix `codegen.rs`)
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-export --test grid_chrome_fixtures --locked
+```
+
+```text
+=== RUST: cargo test -p designos-export --test grid_chrome_fixtures --locked (against 4b71788a codegen.rs) ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/grid_chrome_fixtures.rs (out/cargo/debug/deps/grid_chrome_fixtures-68e44f521f53a4ec)
+
+running 27 tests
+test mutation_m11_fixed_height_grid_with_flex_auto_rows_omits_align_content_start ... ok
+test mutation_m13_fixed_width_grid_with_weighted_flex_columns_keeps_fractional_tracks ... ok
+test mutation_m4_hugging_grid_min_w_distributes_extra_across_flex_columns ... ok
+test mutation_r1_stroked_hug_grid_uses_effective_padding_for_column_tracks ... ok
+test mutation_m7_non_fill_child_width_wins_over_stale_wider_fill_child ... ok
+test mutation_r3_flex_zero_auto_tracks_packs_rows_at_top ... ok
+test mutation_m14_flex_unit_tolerance_distinguishes_unequal_and_weighted_equal_columns ... ok
+test one_column_flex_grid_keeps_minmax_0_1fr ... ok
+test hugging_grid_css_and_tailwind ... ok
+test equal_tracks_css_and_tailwind ... ok
+test fixed_height_auto_rows_css_and_tailwind ... ok
+test fixed_first_column_css_and_tailwind ... ok
+test n1_explicit_hug_rows_flex_auto_css_and_tailwind ... ok
+test c7_single_hug_col_min_w_fill_css_and_tailwind ... FAILED
+test n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind ... ok
+test n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind ... ok
+test n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind ... ok
+test n6_stroke_v0_unpadded_hug_css_and_tailwind ... ok
+test s1_stretch_child_hug_css_and_tailwind ... ok
+test n6c_stroke_v0_unpadded_fixed_css_and_tailwind ... ok
+test row_and_column_spans_css_and_tailwind ... ok
+test s2_empty_hug_column_css_and_tailwind ... ok
+test s5_hug_height_min_h_css_and_tailwind ... ok
+test s5b_hug_height_min_h_flex_auto_css_and_tailwind ... ok
+test unequal_tracks_css_and_tailwind ... ok
+test s3_hug_grid_max_w_css_and_tailwind ... ok
+test s7_explicit_rows_hug_css_and_tailwind ... ok
+
+failures:
+
+---- c7_single_hug_col_min_w_fill_css_and_tailwind stdout ----
+
+thread 'c7_single_hug_col_min_w_fill_css_and_tailwind' (42799490) panicked at crates/designos-export/tests/grid_chrome_fixtures.rs:693:5:
+assertion `left == right` failed: c7_single_hug_col_min_w_fill CSS mismatch
+  left: "display: grid;\nwidth: 200px;\nheight: 60px;\ngrid-template-columns: auto;\nalign-content: start;"
+ right: "display: grid;\nwidth: 200px;\nheight: 60px;\ngrid-template-columns: 80px;\nalign-content: start;"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    c7_single_hug_col_min_w_fill_css_and_tailwind
+
+test result: FAILED. 26 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-export --test grid_chrome_fixtures`
+RUST_RED_EXIT=101
+```
+
+#### 6.2 `r4-green.log` (Final `grid_chrome_fixtures.rs` against Post-Fix `codegen.rs`)
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-export --test grid_chrome_fixtures --locked
+```
+
+```text
+=== RUST: cargo test -p designos-export --test grid_chrome_fixtures --locked ===
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-grid-tracks-css/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.78s
+     Running tests/grid_chrome_fixtures.rs (out/cargo/debug/deps/grid_chrome_fixtures-68e44f521f53a4ec)
+
+running 27 tests
+test mutation_m11_fixed_height_grid_with_flex_auto_rows_omits_align_content_start ... ok
+test mutation_m4_hugging_grid_min_w_distributes_extra_across_flex_columns ... ok
+test mutation_r3_flex_zero_auto_tracks_packs_rows_at_top ... ok
+test mutation_m13_fixed_width_grid_with_weighted_flex_columns_keeps_fractional_tracks ... ok
+test mutation_m14_flex_unit_tolerance_distinguishes_unequal_and_weighted_equal_columns ... ok
+test mutation_r1_stroked_hug_grid_uses_effective_padding_for_column_tracks ... ok
+test mutation_m7_non_fill_child_width_wins_over_stale_wider_fill_child ... ok
+test fixed_first_column_css_and_tailwind ... ok
+test c7_single_hug_col_min_w_fill_css_and_tailwind ... ok
+test n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind ... ok
+test n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind ... ok
+test n1_explicit_hug_rows_flex_auto_css_and_tailwind ... ok
+test fixed_height_auto_rows_css_and_tailwind ... ok
+test n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind ... ok
+test hugging_grid_css_and_tailwind ... ok
+test equal_tracks_css_and_tailwind ... ok
+test one_column_flex_grid_keeps_minmax_0_1fr ... ok
+test n6_stroke_v0_unpadded_hug_css_and_tailwind ... ok
+test s5_hug_height_min_h_css_and_tailwind ... ok
+test n6c_stroke_v0_unpadded_fixed_css_and_tailwind ... ok
+test s5b_hug_height_min_h_flex_auto_css_and_tailwind ... ok
+test s1_stretch_child_hug_css_and_tailwind ... ok
+test row_and_column_spans_css_and_tailwind ... ok
+test s2_empty_hug_column_css_and_tailwind ... ok
+test s7_explicit_rows_hug_css_and_tailwind ... ok
+test s3_hug_grid_max_w_css_and_tailwind ... ok
+test unequal_tracks_css_and_tailwind ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+RUST_GREEN_EXIT=0
+```
+
+#### 6.3 Headless Chrome Harness (`r4-chrome-red.log` & `r4-chrome-green.log`)
+
+```sh
+env CARGO_TARGET_DIR="$PWD/out/cargo" python3 scripts/qa/grid-chrome-compare.py --screenshot plans/reports/agy-484-grid-tracks-css-evidence/r4-c7-chrome-vs-solver.png --screenshot-scene c7_single_hug_col_min_w_fill
+```
+
+Pre-fix (`r4-chrome-red.log` tail):
+```text
+[FAIL] c7_single_hug_col_min_w_fill   (css     ) max_item_err=120.00px grid_err=(0.00px, 0.00px)
+       item[0] solver=(0.0,0.0,80.0,30.0) chrome=(0.0,0.0,200.0,30.0) max_abs=120.00px
+[FAIL] c7_single_hug_col_min_w_fill   (tailwind) max_item_err=120.00px grid_err=(0.00px, 0.00px)
+       item[0] solver=(0.0,0.0,80.0,30.0) chrome=(0.0,0.0,200.0,30.0) max_abs=120.00px
+CHROME_RED_EXIT=1
+```
+
+Post-fix (`r4-chrome-green.log`):
+```text
+[PASS] equal_tracks                   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] equal_tracks                   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] unequal_tracks                 (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] unequal_tracks                 (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] fixed_first_column             (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] fixed_first_column             (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] hugging_grid                   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] hugging_grid                   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] fixed_height_auto_rows         (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] fixed_height_auto_rows         (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] row_and_column_spans           (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] row_and_column_spans           (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s1_stretch_child_hug           (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s1_stretch_child_hug           (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s2_empty_hug_column            (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s2_empty_hug_column            (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s3_hug_grid_max_w              (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s3_hug_grid_max_w              (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s5_hug_height_min_h            (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s5_hug_height_min_h            (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s5b_hug_height_min_h_flex_auto (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s5b_hug_height_min_h_flex_auto (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s7_explicit_rows_hug           (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s7_explicit_rows_hug           (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n1_explicit_hug_rows_flex_auto (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n1_explicit_hug_rows_flex_auto (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2_hug_equal_flex_two_empty_hug_cols (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2_hug_equal_flex_two_empty_hug_cols (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2b_hug_equal_flex_one_empty_hug_col (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2b_hug_equal_flex_one_empty_hug_col (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2c_hug_equal_flex_fill_only_hug_col (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2c_hug_equal_flex_fill_only_hug_col (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n6_stroke_v0_unpadded_hug      (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n6_stroke_v0_unpadded_hug      (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n6c_stroke_v0_unpadded_fixed   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n6c_stroke_v0_unpadded_fixed   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] c7_single_hug_col_min_w_fill   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] c7_single_hug_col_min_w_fill   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+Saved screenshot: plans/reports/agy-484-grid-tracks-css-evidence/r4-c7-chrome-vs-solver.png
+CHROME_GREEN_EXIT=0
+```
+
+#### 6.4 Mandatory Gates (`r4-gates.log`)
+
+```sh
+export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home"
+export CARGO_TARGET_DIR="$PWD/out/cargo"
+df -h / && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo fmt --all -- --check
+df -h / && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings
+df -h / && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --exclude designos-app --all-targets --locked -- -D warnings
+df -h / && env HOME="$S/home" TMPDIR="$S/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-export --locked
+python3 -m unittest discover -s scripts/tests
+```
+
+```text
+=== GATE 1: df -h / && cargo fmt --all -- --check ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    19Gi    39%    459k  195M    0%   /
+FMT_EXIT=0
+=== GATE 2a: df -h / && cargo clippy --workspace --all-targets --locked -- -D warnings ===
+error: unneeded `return` statement --> crates/designos-app/src/agent_permissions.rs:1163:9
+error: unneeded `return` statement --> crates/designos-app/src/agent_permissions.rs:1181:9
+error: writing `&mut Vec` instead of `&mut [_]` --> crates/designos-app/src/panels/components.rs:409:29
+error: items after a test module --> crates/designos-app/src/panels/components.rs:263:1
+error: unused return value of `egui::Context::run_ui` --> crates/designos-app/src/panels/components.rs:363:9
+CLIPPY_WS_EXIT=101 (pre-existing origin/main diagnostics in designos-app only)
+=== GATE 2b: df -h / && cargo clippy --workspace --exclude designos-app --all-targets --locked -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.42s
+CLIPPY_NO_APP_EXIT=0
+=== GATE 3: df -h / && cargo test -p designos-export --locked ===
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.16s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.24s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 28 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+TEST_EXPORT_EXIT=0
+=== GATE 4: python3 -m unittest discover -s scripts/tests ===
+Ran 207 tests in 46.813s
+
+OK
+PYTEST_EXIT=0
+```
+
 Status: DONE
