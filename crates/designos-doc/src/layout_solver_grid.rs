@@ -658,13 +658,7 @@ mod tests {
             ),
             (
                 "hugging_grid",
-                AutoLayout {
-                    grid_columns: 3,
-                    item_spacing: 8.0,
-                    counter_spacing: 8.0,
-                    padding: [8.0, 8.0, 8.0, 8.0],
-                    ..grid(3, Sizing::Hug, Sizing::Hug)
-                },
+                AutoLayout { grid_columns: 3, item_spacing: 8.0, counter_spacing: 8.0, padding: [8.0, 8.0, 8.0, 8.0], ..grid(3, Sizing::Hug, Sizing::Hug) },
                 Vec2::new(500.0, 500.0),
                 vec![
                     child(100.0, 28.0),
