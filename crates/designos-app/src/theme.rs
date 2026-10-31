@@ -449,6 +449,12 @@ pub const SPACE_FACT: f32 = 4.0;
 pub const SPACE_ROW: f32 = 4.0;
 /// Peers side by side: field columns, buttons in a bar, chips, tabs.
 pub const SPACE_INLINE: f32 = 8.0;
+/// Vertical advance after the instance source row.
+pub const INSTANCE_SOURCE_STEP: f32 = 28.0;
+/// Vertical advance after the instance description row.
+pub const INSTANCE_DESCRIPTION_STEP: f32 = 48.0;
+/// Gap between the source label and its component icon.
+pub const INSTANCE_SOURCE_ICON_GAP: f32 = 6.0;
 /// Group to group inside a section.
 pub const SPACE_GROUP: f32 = 12.0;
 /// Block to block in one region: cards in a grid.

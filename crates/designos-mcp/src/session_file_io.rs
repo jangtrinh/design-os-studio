@@ -121,6 +121,15 @@ pub fn stat(path: &Path) -> io::Result<Metadata> {
     Ok(meta)
 }
 
+/// Deletes the session file at `path`; one that is not there is already gone. Removing follows no link: a planted link is
+/// unlinked itself and nothing it points at is touched.
+pub fn remove(path: &Path) -> io::Result<()> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
 /// The text of the plain file at `path`; a file that is not there is a `NotFound` error.
 pub fn read_to_string(path: &Path) -> io::Result<String> {
     String::from_utf8(read(path)?).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "stream did not contain valid UTF-8"))

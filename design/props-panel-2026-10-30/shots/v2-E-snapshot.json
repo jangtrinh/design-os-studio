@@ -1,0 +1,70 @@
+{
+ "items": [
+  {
+   "kind": "header",
+   "name": "Button",
+   "chevron": true,
+   "go_to_main": true,
+   "more": true
+  },
+  {
+   "kind": "source",
+   "text": "From this file"
+  },
+  {
+   "kind": "prop",
+   "label": "Size",
+   "type": "variant",
+   "control": "dropdown",
+   "grid": "96px 88px",
+   "label_x": 1216.0,
+   "control_x": 1312.0
+  },
+  {
+   "kind": "prop",
+   "label": "State",
+   "type": "variant",
+   "control": "dropdown",
+   "grid": "96px 88px",
+   "label_x": 1216.0,
+   "control_x": 1312.0
+  },
+  {
+   "kind": "prop",
+   "label": "Variant",
+   "type": "variant",
+   "control": "dropdown",
+   "grid": "96px 88px",
+   "label_x": 1216.0,
+   "control_x": 1312.0
+  },
+  {
+   "kind": "prop",
+   "label": "Has leading icon",
+   "type": "boolean",
+   "control": "toggle",
+   "grid": "96px 88px",
+   "label_x": 1216.0,
+   "control_x": 1312.0
+  },
+  {
+   "kind": "prop",
+   "label": "Has trailing icon",
+   "type": "boolean",
+   "control": "toggle",
+   "grid": "96px 88px",
+   "label_x": 1216.0,
+   "control_x": 1312.0
+  },
+  {
+   "kind": "prop",
+   "label": "Label",
+   "type": "text",
+   "control": "text_field",
+   "grid": "96px 88px",
+   "label_x": 1216.0,
+   "control_x": 1312.0
+  }
+ ],
+ "component_description": ""
+}
