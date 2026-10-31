@@ -144,6 +144,67 @@ fn screenshot_of_a_canvas_not_on_the_gpu_is_taken_as_before() {
 }
 
 #[test]
+fn a_lost_screenshot_request_is_retried_before_the_window_gives_up() {
+    let (mut s, shot) = shot_sim(false, "retry");
+    frames_until_screenshot(&mut s, 150).expect("the first screenshot request is sent");
+
+    // The platform dropped the first request: no Event::Screenshot is delivered. A later
+    // request must still be sent so a transient macOS/eframe delivery loss does not turn into
+    // the generic "screenshot was not captured" exit.
+    let retry_after = (1..=300).find(|_| frame_requests_screenshot(&mut s)).expect("a dropped screenshot request is retried");
+    assert!(retry_after > 0, "the retry must follow the lost first request");
+
+    let image = Arc::new(egui::ColorImage::filled([SIZE.0 as usize, SIZE.1 as usize], egui::Color32::BLACK));
+    s.frame(vec![Event::Screenshot { viewport_id: egui::ViewportId::ROOT, user_data: egui::UserData::default(), image }]);
+    assert!(shot.exists(), "the retried request writes the PNG");
+    cleanup(&shot);
+}
+
+#[test]
+fn capture_failure_after_five_lost_requests_is_actionable() {
+    let (mut s, shot) = shot_sim(false, "failure_reason");
+    for _ in 0..300 {
+        frame_requests_screenshot(&mut s);
+        if matches!(s.shell.shot.as_ref().map(|shot| &shot.outcome), Some(ShotOutcome::Failed(_))) {
+            break;
+        }
+    }
+    let outcome = &s.shell.shot.as_ref().expect("screenshot state").outcome;
+    match outcome {
+        ShotOutcome::Failed(reason) => {
+            assert!(reason.starts_with("no image after 5 requests (frames "), "{reason}");
+            assert!(reason.contains("last surface status none"), "{reason}");
+        }
+        other => panic!("capture should fail after lost requests: {other:?}"),
+    }
+    cleanup(&shot);
+}
+
+#[test]
+fn failure_line_keeps_the_capture_infra_prefix() {
+    assert_eq!(crate::shell::failure_line("no image after 5 requests"), "designos: screenshot was not captured: no image after 5 requests");
+}
+
+#[test]
+fn malformed_image_has_dimensions_and_byte_count() {
+    let image = egui::ColorImage { size: [2, 2], source_size: egui::Vec2::new(2.0, 2.0), pixels: vec![egui::Color32::BLACK; 3] };
+    let err = crate::shell::rgba_image(&image).expect_err("mismatched pixels are malformed");
+    assert_eq!(err, "the image was malformed (2x2, 12 bytes)");
+}
+
+#[test]
+fn screenshot_watchdog_arms_on_first_frame_only() {
+    let mut state = crate::shell::WatchdogState::default();
+    assert!(!state.expired(60_000), "loading before the first frame must not trip the watchdog");
+    state.arm(60_000);
+    assert!(!state.expired(89_999));
+    assert!(state.expired(90_000));
+    state.beat(90_000);
+    assert!(!state.expired(119_999));
+    assert!(state.expired(120_000));
+}
+
+#[test]
 fn screenshot_gives_up_waiting_for_a_view_that_never_settles() {
     let (mut s, shot) = shot_sim(true, "never_settles");
     // a view that moves every frame never goes idle

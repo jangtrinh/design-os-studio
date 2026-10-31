@@ -207,21 +207,28 @@ fn main() {
     agent_session_files::spawn_startup_sweep();
     let (w, h) = opts.size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
     let screenshot_mode = opts.screenshot.is_some();
-    let mut viewport = egui::ViewportBuilder::default()
-        .with_title("design:os studio")
-        .with_inner_size([w as f32, h as f32])
-        .with_min_inner_size([theme::MIN_WINDOW.0, theme::MIN_WINDOW.1]);
+    let mut viewport = if screenshot_mode {
+        screenshot_viewport(w, h)
+    } else {
+        egui::ViewportBuilder::default()
+            .with_title("design:os studio")
+            .with_inner_size([w as f32, h as f32])
+            .with_min_inner_size([theme::MIN_WINDOW.0, theme::MIN_WINDOW.1])
+    };
     if let Some(icon) = window_icon() {
         viewport = viewport.with_icon(icon);
     }
-    if screenshot_mode {
-        viewport = viewport.with_min_inner_size([200.0, 200.0]).with_resizable(true).with_active(false);
-    } else {
+    if !screenshot_mode {
         #[cfg(target_os = "macos")]
         {
             viewport = viewport.with_fullsize_content_view(true).with_titlebar_shown(false).with_title_shown(false);
         }
     }
+    let watchdog = screenshot_mode.then(|| {
+        let _ = log::set_logger(&shell::SCREENSHOT_LOGGER);
+        log::set_max_level(log::LevelFilter::Warn);
+        shell::install_screenshot_watchdog()
+    });
     let native = eframe::NativeOptions { viewport, ..Default::default() };
     let result = eframe::run_native(
         "design:os studio",
@@ -242,6 +249,9 @@ fn main() {
         eprintln!("designos: {e}");
         std::process::exit(1);
     }
+    if let Some(handle) = watchdog {
+        shell::stop_screenshot_watchdog(handle);
+    }
     if screenshot_mode {
         if let Some(err) = shell::SHOT_OPEN_ERROR.get() {
             eprintln!("{err}");
@@ -251,7 +261,10 @@ fn main() {
         let shot_ok = shell::SHOT_OK.load(Ordering::SeqCst);
         match miss {
             Some(message) => eprintln!("designos: {message}"),
-            None if !shot_ok => eprintln!("designos: screenshot was not captured"),
+            None if !shot_ok => eprintln!(
+                "{}",
+                shell::SHOT_FAILURE.get().map_or_else(|| "designos: screenshot was not captured".to_string(), |reason| shell::failure_line(reason))
+            ),
             None => {}
         }
         let code = exit_code(miss.is_some(), shot_ok);
@@ -259,6 +272,16 @@ fn main() {
             std::process::exit(code);
         }
     }
+}
+
+fn screenshot_viewport(w: u32, h: u32) -> egui::ViewportBuilder {
+    egui::ViewportBuilder::default()
+        .with_title("design:os studio")
+        .with_inner_size([w as f32, h as f32])
+        .with_min_inner_size([200.0, 200.0])
+        .with_resizable(true)
+        .with_active(false)
+        .with_window_level(egui::WindowLevel::AlwaysOnTop)
 }
 
 /// The exit status of a finished `--screenshot` run: 2 when `--select` matched nothing (no PNG is written), which
@@ -673,6 +696,14 @@ fn inspect_json(doc: &designos_doc::Document, selected: Option<designos_doc::Nod
 
 #[cfg(test)]
 mod icon_tests {
+    #[test]
+    fn screenshot_viewport_stays_visible_above_other_windows_without_focus() {
+        let viewport = super::screenshot_viewport(1600, 1088);
+        assert_eq!(viewport.window_level, Some(egui::WindowLevel::AlwaysOnTop));
+        assert_eq!(viewport.active, Some(false));
+        assert_eq!(viewport.resizable, Some(true));
+    }
+
     #[test]
     fn select_resolves_native_fig_and_name_selectors_without_fallback() {
         let mut doc = designos_doc::Document::new("selector test");

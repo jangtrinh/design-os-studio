@@ -13,7 +13,9 @@ use crate::theme;
 use crate::widgets;
 use egui::{Align2, Context, Event, Key, Pos2, Rect, Vec2};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 mod toast_layout;
 
@@ -22,6 +24,12 @@ const REVEAL_LABEL: &str = "Show in folder";
 
 /// Set once an `--screenshot` run has written its PNG.
 pub static SHOT_OK: AtomicBool = AtomicBool::new(false);
+/// The actionable reason for a screenshot run that ended without writing a PNG.
+pub static SHOT_FAILURE: OnceLock<String> = OnceLock::new();
+/// The last surface warning emitted by egui-wgpu/wgpu during a screenshot run.
+static SHOT_SURFACE_STATUS: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+/// The screenshot watchdog heartbeat. `main` installs it only for a real capture run.
+static SHOT_WATCHDOG: OnceLock<ShotWatchdogSignal> = OnceLock::new();
 /// The message of a `--select` (or `--edit-text`) that matched nothing in a `--screenshot` run: no PNG is written and
 /// the run exits 2. Set by `Shell::new`, the real window's entry, so a test window never touches it.
 pub static SELECT_MISS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -70,6 +78,21 @@ struct Shot {
     captured_at_rest: bool,
     /// The request came after `SHOT_GPU_SETTLE_FRAMES`: its image is kept whatever it shows.
     last_try: bool,
+    /// Number of screenshot commands sent to the viewport.
+    requests: u32,
+    /// Frame that sent the currently outstanding request.
+    requested_at: Option<u32>,
+    /// Frames where an outstanding request timed out without an image.
+    lost_frames: Vec<u32>,
+    /// Number of synthetic image drops requested by the debug-only fault hook.
+    drop_images: u32,
+    /// Last renderer surface warning observed while waiting for an image.
+    last_surface_status: Option<String>,
+    /// Number of screenshot events observed, including events consumed by the debug fault hook.
+    images_seen: u32,
+    /// Emit one diagnostic line per screenshot frame when requested by the caller.
+    trace: bool,
+    outcome: ShotOutcome,
     seq: Option<MicroSeqCapture>,
     /// --no-toast: transient toasts are never painted into the capture.
     no_toast: bool,
@@ -83,6 +106,145 @@ struct Shot {
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
 /// keeps whatever is on screen (the run closes after 240).
 const SHOT_GPU_SETTLE_FRAMES: u32 = 180;
+/// A screenshot event should arrive shortly after its paint. A missing event after this many
+/// frames is treated as a lost request and retried.
+const SHOT_IMAGE_WAIT_FRAMES: u32 = 10;
+/// Limit retries so a broken window/backend cannot leave a capture process waiting forever.
+const SHOT_MAX_REQUESTS: u32 = 5;
+/// The old frame budget remains the upper bound for a normal run. Retry windows extend it by ten
+/// frames each, while the request count is the primary failure limit.
+const SHOT_FRAME_LIMIT: u32 = 240;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ShotOutcome {
+    Pending,
+    Written,
+    Failed(String),
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct WatchdogState {
+    pub(crate) last_frame_ms: Option<u64>,
+}
+
+#[cfg(test)]
+impl WatchdogState {
+    pub(crate) fn arm(&mut self, now_ms: u64) {
+        self.last_frame_ms = Some(now_ms);
+    }
+
+    pub(crate) fn beat(&mut self, now_ms: u64) {
+        self.last_frame_ms = Some(now_ms);
+    }
+
+    pub(crate) fn expired(self, now_ms: u64) -> bool {
+        self.last_frame_ms.is_some_and(|last| now_ms.saturating_sub(last) >= 30_000)
+    }
+}
+
+struct ShotWatchdogSignal {
+    armed: AtomicBool,
+    last_frame_ms: AtomicU64,
+    stop: AtomicBool,
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis().min(u128::from(u64::MAX)) as u64)
+}
+
+/// Called from the first screenshot frame and every frame after it. Loading before the first
+/// frame therefore never trips the watchdog.
+pub(crate) fn mark_screenshot_frame() {
+    if let Some(signal) = SHOT_WATCHDOG.get() {
+        signal.last_frame_ms.store(now_ms(), Ordering::Relaxed);
+        signal.armed.store(true, Ordering::Release);
+    }
+}
+
+pub(crate) fn install_screenshot_watchdog() -> std::thread::JoinHandle<()> {
+    let signal = ShotWatchdogSignal { armed: AtomicBool::new(false), last_frame_ms: AtomicU64::new(0), stop: AtomicBool::new(false) };
+    let _ = SHOT_WATCHDOG.set(signal);
+    std::thread::spawn(|| loop {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let Some(signal) = SHOT_WATCHDOG.get() else { continue };
+        if signal.stop.load(Ordering::Acquire) {
+            break;
+        }
+        if signal.armed.load(Ordering::Acquire) && now_ms().saturating_sub(signal.last_frame_ms.load(Ordering::Relaxed)) >= 30_000 {
+            eprintln!("designos: screenshot was not captured: the window was not drawn for 30 s (occluded or minimised)");
+            std::process::exit(1);
+        }
+    })
+}
+
+pub(crate) fn stop_screenshot_watchdog(handle: std::thread::JoinHandle<()>) {
+    if let Some(signal) = SHOT_WATCHDOG.get() {
+        signal.stop.store(true, Ordering::Release);
+    }
+    let _ = handle.join();
+}
+
+fn record_surface_status(record: &log::Record<'_>) {
+    if !(record.target().starts_with("egui_wgpu") || record.target().starts_with("wgpu")) || record.level() > log::Level::Warn {
+        return;
+    }
+    let status = format!("{}: {}", record.target(), record.args());
+    let lock = SHOT_SURFACE_STATUS.get_or_init(|| Mutex::new(None));
+    if let Ok(mut last) = lock.lock() {
+        *last = Some(status);
+    }
+}
+
+pub(crate) struct ScreenshotLogger;
+
+impl log::Log for ScreenshotLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Warn && (metadata.target().starts_with("egui_wgpu") || metadata.target().starts_with("wgpu"))
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(log::Record::metadata(record)) {
+            record_surface_status(record);
+            eprintln!("designos: wgpu: {}", record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+pub(crate) static SCREENSHOT_LOGGER: ScreenshotLogger = ScreenshotLogger;
+
+fn last_surface_status() -> Option<String> {
+    SHOT_SURFACE_STATUS.get().and_then(|lock| lock.lock().ok()).and_then(|last| last.clone())
+}
+
+pub(crate) fn failure_line(reason: &str) -> String {
+    if reason.starts_with("cannot write ") {
+        format!("designos: {reason}")
+    } else {
+        format!("designos: screenshot was not captured: {reason}")
+    }
+}
+
+fn rgba_image(image: &egui::ColorImage) -> Result<image::RgbaImage, String> {
+    let (w, h) = (image.width() as u32, image.height() as u32);
+    let raw: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
+    image::RgbaImage::from_raw(w, h, raw.clone()).ok_or_else(|| format!("the image was malformed ({w}x{h}, {} bytes)", raw.len()))
+}
+
+fn no_image_reason(shot: &Shot) -> String {
+    let frames = shot.lost_frames.iter().map(u32::to_string).collect::<Vec<_>>().join(", ");
+    format!("no image after {} requests (frames {frames}); last surface status {}", shot.requests, shot.last_surface_status.as_deref().unwrap_or("none"))
+}
+
+fn fail_shot(shot: &mut Shot, reason: String, ctx: &Context) {
+    if matches!(shot.outcome, ShotOutcome::Pending) {
+        let _ = SHOT_FAILURE.set(reason.clone());
+        shot.outcome = ShotOutcome::Failed(reason);
+    }
+    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+}
 
 /// Height of the custom top window title bar (`🟠 design:os studio`).
 pub const TOP_TITLE_BAR_HEIGHT: f32 = 28.0;
@@ -616,6 +778,14 @@ impl Shell {
             due: false,
             captured_at_rest: true,
             last_try: false,
+            requests: 0,
+            requested_at: None,
+            lost_frames: Vec::new(),
+            drop_images: if cfg!(debug_assertions) { std::env::var("DESIGNOS_SHOT_DROP_IMAGES").ok().and_then(|v| v.parse().ok()).unwrap_or(0) } else { 0 },
+            last_surface_status: None,
+            images_seen: 0,
+            trace: std::env::var_os("DESIGNOS_SHOT_TRACE").is_some_and(|value| value == "1"),
+            outcome: ShotOutcome::Pending,
             seq: seq_capture,
             no_toast: opts.no_toast,
             open_failed: shot_open_failed || select_miss.is_some(),
@@ -627,6 +797,10 @@ impl Shell {
     fn drive_screenshot(&mut self, ctx: &Context) {
         let Some(shot) = &mut self.shot else { return };
         shot.frames += 1;
+        mark_screenshot_frame();
+        if let Some(status) = last_surface_status() {
+            shot.last_surface_status = Some(status);
+        }
         ctx.request_repaint();
         if shot.frames == 1 {
             // `scale` physical pixels per egui point (1 by default, so the PNG matches the requested size).
@@ -638,66 +812,92 @@ impl Shell {
         let events = ctx.input(|i| i.events.clone());
         for ev in events {
             if let Event::Screenshot { image, .. } = ev {
+                shot.images_seen += 1;
+                if shot.drop_images > 0 {
+                    shot.drop_images -= 1;
+                    continue;
+                }
                 if !shot.captured_at_rest {
                     if !shot.last_try {
                         // Captured from a capped frame: ask again for the at-rest one.
                         shot.requested = false;
+                        shot.requested_at = None;
                         return;
                     }
                     eprintln!("designos: the GPU view did not settle in {SHOT_GPU_SETTLE_FRAMES} frames, saving the interactive frame");
                 }
-                let (w, h) = (image.width() as u32, image.height() as u32);
-                let raw: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
-                if let Some(buf) = image::RgbaImage::from_raw(w, h, raw) {
-                    let want = ((shot.size.0 as f32 * shot.scale).round() as u32, (shot.size.1 as f32 * shot.scale).round() as u32);
-                    let buf = if (w, h) != want { image::imageops::resize(&buf, want.0, want.1, image::imageops::FilterType::Lanczos3) } else { buf };
-                    if let Some(seq) = &mut shot.seq {
-                        let _ = std::fs::create_dir_all(&shot.path);
-                        let frame_path = shot.path.join(format!("frame-{:04}.jpg", seq.cur));
-                        let rgb = image::DynamicImage::ImageRgba8(buf).into_rgb8();
-                        if let Err(e) = rgb.save(&frame_path) {
-                            eprintln!("designos: cannot write {}: {e}", frame_path.display());
+                match rgba_image(&image) {
+                    Ok(mut buf) => {
+                        let (w, h) = (image.width() as u32, image.height() as u32);
+                        let want = ((shot.size.0 as f32 * shot.scale).round() as u32, (shot.size.1 as f32 * shot.scale).round() as u32);
+                        if (w, h) != want {
+                            buf = image::imageops::resize(&buf, want.0, want.1, image::imageops::FilterType::Lanczos3);
                         }
-                        seq.cur += 1;
-                        if seq.cur < seq.total {
-                            seq.hud = apply_micro_interaction_continuous_frame(&mut self.app, &seq.base_doc, &seq.slug, seq.cur, seq.total);
-                            if seq.no_caption {
-                                seq.hud.caption.clear();
+                        if let Some(seq) = &mut shot.seq {
+                            let _ = std::fs::create_dir_all(&shot.path);
+                            let frame_path = shot.path.join(format!("frame-{:04}.jpg", seq.cur));
+                            let rgb = image::DynamicImage::ImageRgba8(buf).into_rgb8();
+                            if let Err(e) = rgb.save(&frame_path) {
+                                let reason = format!("cannot write {}: {e}", frame_path.display());
+                                fail_shot(shot, reason, ctx);
+                                return;
                             }
-                            shot.requested = false;
-                            seq.wait_frames = 2;
-                            shot.frames = 12;
-                            return;
+                            seq.cur += 1;
+                            if seq.cur < seq.total {
+                                seq.hud = apply_micro_interaction_continuous_frame(&mut self.app, &seq.base_doc, &seq.slug, seq.cur, seq.total);
+                                if seq.no_caption {
+                                    seq.hud.caption.clear();
+                                }
+                                shot.requested = false;
+                                shot.requested_at = None;
+                                shot.requests = 0;
+                                shot.lost_frames.clear();
+                                seq.wait_frames = 2;
+                                shot.frames = 12;
+                                return;
+                            } else {
+                                SHOT_OK.store(true, Ordering::SeqCst);
+                                shot.outcome = ShotOutcome::Written;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                return;
+                            }
                         } else {
-                            SHOT_OK.store(true, Ordering::SeqCst);
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                            return;
-                        }
-                    } else {
-                        if let Some(dir) = shot.path.parent() {
-                            let _ = std::fs::create_dir_all(dir);
-                        }
-                        match buf.save(&shot.path) {
-                            Ok(()) => SHOT_OK.store(true, Ordering::SeqCst),
-                            Err(e) => eprintln!("designos: cannot write {}: {e}", shot.path.display()),
-                        }
-                        if let Some(layout_path) = &shot.layout_json {
-                            if let Some(dir) = layout_path.parent() {
+                            if let Some(dir) = shot.path.parent() {
                                 let _ = std::fs::create_dir_all(dir);
                             }
-                            let mut snap = crate::layout_snapshot::capture(ctx, &self.app.ui.regions);
-                            if snap.case.is_empty() {
-                                snap.case = layout_path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().trim_end_matches(".layout").to_string();
-                            }
-                            match serde_json::to_string_pretty(&snap) {
-                                Ok(json) => {
-                                    if let Err(e) = std::fs::write(layout_path, format!("{json}\n")) {
-                                        eprintln!("designos: cannot write {}: {e}", layout_path.display());
-                                    }
+                            match buf.save(&shot.path) {
+                                Ok(()) => {
+                                    SHOT_OK.store(true, Ordering::SeqCst);
+                                    shot.outcome = ShotOutcome::Written;
                                 }
-                                Err(e) => eprintln!("designos: cannot serialize layout snapshot: {e}"),
+                                Err(e) => {
+                                    let reason = format!("cannot write {}: {e}", shot.path.display());
+                                    fail_shot(shot, reason, ctx);
+                                    return;
+                                }
+                            }
+                            if let Some(layout_path) = &shot.layout_json {
+                                if let Some(dir) = layout_path.parent() {
+                                    let _ = std::fs::create_dir_all(dir);
+                                }
+                                let mut snap = crate::layout_snapshot::capture(ctx, &self.app.ui.regions);
+                                if snap.case.is_empty() {
+                                    snap.case = layout_path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().trim_end_matches(".layout").to_string();
+                                }
+                                match serde_json::to_string_pretty(&snap) {
+                                    Ok(json) => {
+                                        if let Err(e) = std::fs::write(layout_path, format!("{json}\n")) {
+                                            eprintln!("designos: cannot write {}: {e}", layout_path.display());
+                                        }
+                                    }
+                                    Err(e) => eprintln!("designos: cannot serialize layout snapshot: {e}"),
+                                }
                             }
                         }
+                    }
+                    Err(reason) => {
+                        fail_shot(shot, reason, ctx);
+                        return;
                     }
                 }
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -714,9 +914,30 @@ impl Shell {
             let r = ctx.content_rect();
             (r.width() - shot.size.0 as f32).abs() < 1.5 && (r.height() - shot.size.1 as f32).abs() < 1.5
         };
+        if shot.requested && shot.requested_at.is_some_and(|at| shot.frames.saturating_sub(at) >= SHOT_IMAGE_WAIT_FRAMES) {
+            shot.requested = false;
+            shot.requested_at = None;
+            shot.lost_frames.push(shot.frames);
+            if shot.requests >= SHOT_MAX_REQUESTS {
+                fail_shot(shot, no_image_reason(shot), ctx);
+                return;
+            }
+        }
         shot.due = !shot.requested && ((shot.frames >= 12 && sized) || shot.frames >= 60);
-        if shot.frames > 240 && shot.seq.is_none() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        let frame_limit = SHOT_FRAME_LIMIT.saturating_add(shot.lost_frames.len() as u32 * SHOT_IMAGE_WAIT_FRAMES);
+        if shot.frames > frame_limit {
+            fail_shot(shot, no_image_reason(shot), ctx);
+        }
+        if shot.trace {
+            let visible = ctx.input(|input| input.viewport().visible());
+            eprintln!(
+                "designos: screenshot frame={} sized={} at_rest={} requested={} visible={visible:?} images_seen={}",
+                shot.frames,
+                sized,
+                self.app.canvas.gpu.at_rest(),
+                shot.requested,
+                shot.images_seen
+            );
         }
     }
 
@@ -736,7 +957,13 @@ impl Shell {
         if !std::mem::take(&mut shot.due) || (!at_rest && shot.frames < SHOT_GPU_SETTLE_FRAMES) {
             return;
         }
+        if shot.requests >= SHOT_MAX_REQUESTS {
+            fail_shot(shot, no_image_reason(shot), ctx);
+            return;
+        }
         shot.requested = true;
+        shot.requested_at = Some(shot.frames);
+        shot.requests += 1;
         shot.captured_at_rest = at_rest;
         shot.last_try = shot.frames >= SHOT_GPU_SETTLE_FRAMES;
         ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
