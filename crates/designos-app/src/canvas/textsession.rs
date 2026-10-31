@@ -336,6 +336,11 @@ fn edit_props(app: &mut App, log: Option<(EditKind, bool)>, f: impl FnOnce(&mut 
 /// [`edit_props`] that can also change the text style the edited layer is linked to (`link`: `Some(None)`
 /// unlinks), so a style pick and its link are one undo step: the log keeps the link with the values.
 fn edit_props_linked(app: &mut App, log: Option<(EditKind, bool)>, link: Option<Option<&str>>, f: impl FnOnce(&mut TextProps, &mut usize, &mut usize)) {
+    // A logged edit must not capture an active IME preview in its undo snapshot. End the
+    // composition first; the following IME commit inserts its final text as a normal edit.
+    if log.is_some() && app.canvas.text.as_ref().is_some_and(|s| s.preedit.is_some()) {
+        preedit(app, "");
+    }
     let now = app.now;
     let App { doc, canvas, .. } = app;
     let Some(sess) = canvas.text.as_mut() else { return };
@@ -1462,6 +1467,21 @@ mod tests {
         assert!(t.runs.is_empty(), "no leftover underline style: {:?}", t.runs);
         assert!(app.canvas.text.as_ref().unwrap().preedit.is_none());
         assert_eq!(app.canvas.text.as_ref().unwrap().caret, "ab日本".len());
+    }
+
+    #[test]
+    fn undo_does_not_restore_ime_preedit_as_committed_text() {
+        let (mut app, id) = app_with_text("");
+        preedit(&mut app, "vie");
+        base_style(&mut app, |style| style.font_weight = 700);
+        commit_ime(&mut app, "việt");
+
+        undo_step(&mut app, false);
+        undo_step(&mut app, false);
+
+        assert_eq!(text_of(&app, id).content, "");
+        assert_eq!(caret_of(&app), 0);
+        assert_eq!(app.canvas.text.as_ref().unwrap().anchor, 0);
     }
 
     #[test]
