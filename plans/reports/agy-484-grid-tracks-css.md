@@ -617,4 +617,199 @@ PYTEST_EXIT=0
 
 **Unresolved questions**: None.
 
+---
+
+## Round 3
+
+### 1. What Could NOT Be Verified (and Why)
+
+1. **Out-of-scope solver-vs-CSS grid semantics in the 27-scene adversarial probe (`S6`, `S8`, `S9`, `S10`, `N1b`, `N2d`, `N6d`)**: In the 27 flat probe scenes from `review_probe_1426_r2.rs` (`plans/reports/agy-484-grid-tracks-css-evidence/r3-probe-27-scenes.log`), 7 scenes exercise behaviors explicitly outside PR #1426's scope per the Round 3 brief (`S6` explicit `Flex` row tracks, `S8`/`S9` implicit `grid-auto-rows` emission, `S10` fixed-width grid with `Hug` tracks where CSS stretches `auto` tracks under default `justify-content: normal`, `N1b` mixed explicit `Hug` + implicit `Flex` auto overflow rows, `N2d` fixed-width grid with a fill-only `Hug` column, and `N6d` `layout_version == 1` stroked padded fixed grid where `effective_padding` does not include the stroke). None of those 7 scenes regressed compared to `64960b21`, and all 20 remaining scenes (including `N1`, `N2`, `N2b`, `N2c`, `N6`, and `N6c`) pass at `0.00px`–`0.01px` drift.
+2. **React / SwiftUI / Jetpack Compose grid exporters (`crates/designos-export/src/{react.rs,swiftui.rs,compose.rs}`)**: Only verified that existing workspace unit and integration tests pass (`cargo test -p designos-export --locked`); browser geometry probing in `scripts/qa/grid-chrome-compare.py` targets `css_for` and `tailwind_for`.
+
+---
+
+### 2. Round 3 Acceptance Table
+
+| # | Deliverable | Verification Command | Pasted Output (from this session) | Status |
+|---|---|---|---|---|
+| **N1** | Move row-packing decision (`grid_packs_auto_rows`) into `crates/designos-doc/src/layout_solver_grid.rs:120-123` next to `grid_column_widths` (`111-116`), sharing `fixed_row` (`125-145`) and `flex_auto_row_frozen` (`150-157`) with `compute_grid` (`237,252,255`). Re-export at `crates/designos-doc/src/layout_solver.rs:16`; call from `crates/designos-export/src/codegen.rs:580-586`, `css.rs:136`, and `tailwind.rs:354`. Add `n1_explicit_hug_rows_flex_auto` (`0.00px` CSS + Tailwind). | `cargo test -p designos-doc --locked grid_packs_auto_rows_matches_compute_grid_row_leveling && python3 scripts/qa/grid-chrome-compare.py` | `test layout_solver_grid::tests::grid_packs_auto_rows_matches_compute_grid_row_leveling ... ok` / `[PASS] n1_explicit_hug_rows_flex_auto (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)` / `[PASS] n1_explicit_hug_rows_flex_auto (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)` | **PASS** |
+| **MINOR 1** | In a hug grid (`al.primary_sizing == Sizing::Hug`), any `GridTrack::Hug` column in `0..cols` makes `resolved_grid_col_tracks` (`crates/designos-export/src/codegen.rs:592-638`) emit solved pixel tracks. Add `n2_hug_equal_flex_two_empty_hug_cols`, `n2b_hug_equal_flex_one_empty_hug_col`, and `n2c_hug_equal_flex_fill_only_hug_col`. | `python3 scripts/qa/grid-chrome-compare.py` | `[PASS] n2_hug_equal_flex_two_empty_hug_cols (css/tailwind) max_item_err=0.00px` / `[PASS] n2b_hug_equal_flex_one_empty_hug_col (css/tailwind) max_item_err=0.00px` / `[PASS] n2c_hug_equal_flex_fill_only_hug_col (css/tailwind) max_item_err=0.00px` | **PASS** |
+| **MINOR 2** | Emit `box-sizing: border-box;` (`crates/designos-export/src/css.rs:122-124`) and `box-border` (`crates/designos-export/src/tailwind.rs:377-379`) whenever `al.effective_padding(&n.stroke).iter().any(\|&v\| v > 0.0)`. Add `n6_stroke_v0_unpadded_hug`, `n6c_stroke_v0_unpadded_fixed`, and `mutation_r1_stroked_hug_grid_uses_effective_padding_for_column_tracks` (`crates/designos-export/tests/grid_chrome_fixtures.rs:760-780`). | `cargo test -p designos-export --test grid_chrome_fixtures --locked` | `[PASS] n6_stroke_v0_unpadded_hug (css/tailwind) max_item_err=0.00px` / `[PASS] n6c_stroke_v0_unpadded_fixed (css/tailwind) max_item_err=0.00px` / `R1_drop_with_stroke_in_resolved_grid_col_tracks: KILLED (exit=101)` / `R1b_drop_effective_padding_for_box_sizing: KILLED (exit=101)` | **PASS** |
+| **MINOR 3** | `scripts/qa/grid_chrome/screenshot.py:13-85,88-124` shows the scene's real tracks (`_extract_track_summary`) and real `max_abs_drift`, renders item labels out-of-flow (`position:absolute; inset:0;`), and sizes `--window-size` from `scene["grid_width"]` / `scene["grid_height"]`. | `python3 scripts/qa/grid-chrome-compare.py --screenshot plans/reports/agy-484-grid-tracks-css-evidence/r3-n1-chrome-vs-solver.png --screenshot-scene n1_explicit_hug_rows_flex_auto` | `Saved screenshot: plans/reports/agy-484-grid-tracks-css-evidence/r3-n1-chrome-vs-solver.png` (visually verified: `grid-template-columns: repeat(2, minmax(0, 1fr)) \| grid-template-rows: auto auto \| frame: 200x200px \| max_abs_drift: 0.00px`) | **PASS** |
+| **MINOR 4** | Tailwind item-count mismatch is caught via `compare_boxes` (`scripts/qa/grid_chrome/probe_page.py:30,136-150`) and reported as `[FAIL]` without aborting the batch; missing `CHROME_BIN` or `--chrome` exits `2` (`scripts/qa/grid_chrome/fixtures.py:27-37`, `scripts/qa/grid-chrome-compare.py:24-38`); `--chrome` and `--fixtures-json` flags restored (`scripts/qa/grid-chrome-compare.py:24-25,41`). | `python3 -m unittest discover -s scripts/tests -p "test_grid_chrome_compare.py"` | `Ran 8 tests in 0.004s — OK` | **PASS** |
+| **Mutant R3** | Add unit and integration tests for `GridAutoTracks::Track(GridTrack::Flex(0.0))` (`crates/designos-doc/src/layout_solver_grid.rs:580-583`, `crates/designos-export/tests/grid_chrome_fixtures.rs:783-800`) killing `fr > 0.0` -> `fr >= 0.0`. | `python3 <mutation-runner>` (`plans/reports/agy-484-grid-tracks-css-evidence/r3-mutations.log`) | `R3_flex_zero_auto_row_boundary: KILLED (exit=101)` / `Summary: 11/11 mutations KILLED` | **PASS** |
+| **All 6 Gates** | `cargo fmt`, `cargo clippy -D warnings`, `cargo test --workspace --locked --lib`, `cargo test -p designos-export --locked`, `cargo test -p designos-doc --locked`, `python3 -m unittest discover -s scripts/tests` | See `plans/reports/agy-484-grid-tracks-css-evidence/r3-gates.log` | `FMT_EXIT=0`, `CLIPPY_EXIT=0`, `TEST_WORKSPACE_LIB_EXIT=0`, `TEST_EXPORT_EXIT=0`, `TEST_DOC_EXIT=0`, `PYTEST_EXIT=0` (`Ran 207 tests in 54.693s — OK`) | **PASS** |
+
+---
+
+### 3. Pasted Session Evidence (Round 3)
+
+#### 3.1 Live Headless Chrome Harness — 18 Scenes / 36 Checks (`r3-chrome-green.log`)
+
+```text
+[PASS] equal_tracks                   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] equal_tracks                   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] unequal_tracks                 (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] unequal_tracks                 (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] fixed_first_column             (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] fixed_first_column             (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] hugging_grid                   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] hugging_grid                   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] fixed_height_auto_rows         (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] fixed_height_auto_rows         (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] row_and_column_spans           (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] row_and_column_spans           (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s1_stretch_child_hug           (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s1_stretch_child_hug           (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s2_empty_hug_column            (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s2_empty_hug_column            (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s3_hug_grid_max_w              (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s3_hug_grid_max_w              (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s5_hug_height_min_h            (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s5_hug_height_min_h            (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s5b_hug_height_min_h_flex_auto (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s5b_hug_height_min_h_flex_auto (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s7_explicit_rows_hug           (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] s7_explicit_rows_hug           (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n1_explicit_hug_rows_flex_auto (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n1_explicit_hug_rows_flex_auto (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2_hug_equal_flex_two_empty_hug_cols (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2_hug_equal_flex_two_empty_hug_cols (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2b_hug_equal_flex_one_empty_hug_col (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2b_hug_equal_flex_one_empty_hug_col (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2c_hug_equal_flex_fill_only_hug_col (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n2c_hug_equal_flex_fill_only_hug_col (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n6_stroke_v0_unpadded_hug      (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n6_stroke_v0_unpadded_hug      (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n6c_stroke_v0_unpadded_fixed   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+[PASS] n6c_stroke_v0_unpadded_fixed   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)
+Saved screenshot: plans/reports/agy-484-grid-tracks-css-evidence/r3-n1-chrome-vs-solver.png
+```
+
+#### 3.2 27 Flat Probe Scenes Comparison (`r3-probe-27-scenes.log` vs `64960b21`)
+
+```text
+[PASS] N1_S7b_explicit_hug_rows_flex_auto (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)   [was 75.00px at 64960b21]
+[PASS] N1_S7b_explicit_hug_rows_flex_auto (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)   [was 75.00px at 64960b21]
+[PASS] N2_hug_equal_flex_two_empty_hug_cols (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px) [was 1.00px at 64960b21]
+[PASS] N2_hug_equal_flex_two_empty_hug_cols (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px) [was 1.00px at 64960b21]
+[PASS] N2b_hug_equal_flex_one_empty_hug_col (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px) [was 0.50px at 64960b21]
+[PASS] N2b_hug_equal_flex_one_empty_hug_col (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px) [was 0.50px at 64960b21]
+[PASS] N2c_hug_equal_flex_fill_only_hug_col (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px) [was 30.00px at 64960b21]
+[PASS] N2c_hug_equal_flex_fill_only_hug_col (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px) [was 30.00px at 64960b21]
+[PASS] N6_stroke_v0_unpadded_hug      (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)       [was 4.00px at 64960b21]
+[PASS] N6_stroke_v0_unpadded_hug      (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)       [was 4.00px at 64960b21]
+[PASS] N6c_stroke_v0_unpadded_fixed   (css     ) max_item_err=0.00px grid_err=(0.00px, 0.00px)       [was 4.00px at 64960b21]
+[PASS] N6c_stroke_v0_unpadded_fixed   (tailwind) max_item_err=0.00px grid_err=(0.00px, 0.00px)       [was 4.00px at 64960b21]
+```
+
+#### 3.3 Red & Green Logs from Final Test Files (`r3-red.log` & `r3-green.log`)
+
+```text
+=== RUST: cargo test -p designos-export --test grid_chrome_fixtures --locked (against 64960b21 sources) ===
+failures:
+    n1_explicit_hug_rows_flex_auto_css_and_tailwind
+    n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind
+    n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind
+    n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind
+    n6_stroke_v0_unpadded_hug_css_and_tailwind
+    n6c_stroke_v0_unpadded_fixed_css_and_tailwind
+
+test result: FAILED. 19 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+RUST_RED_EXIT=101
+=== PYTHON: python3 -m unittest discover -s scripts/tests -p test_grid_chrome_compare.py (against 64960b21 sources) ===
+Ran 8 tests in 0.004s
+FAILED (failures=1, errors=5)
+PYTHON_RED_EXIT=1
+```
+
+```text
+=== RUST: cargo test -p designos-export --test grid_chrome_fixtures --locked ===
+running 25 tests
+...
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+RUST_GREEN_EXIT=0
+=== PYTHON: python3 -m unittest discover -s scripts/tests -p test_grid_chrome_compare.py ===
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.004s
+
+OK
+PYTHON_GREEN_EXIT=0
+```
+
+#### 3.4 Mutation Results (`r3-mutations.log`)
+
+```text
+R1_drop_with_stroke_in_resolved_grid_col_tracks: KILLED (exit=101)
+R1b_drop_effective_padding_for_box_sizing: KILLED (exit=101)
+R3_flex_zero_auto_row_boundary: KILLED (exit=101)
+N1_ignore_explicit_rows_in_grid_packs_auto_rows: KILLED (exit=101)
+N2_drop_hug_column_check_in_resolved_grid_col_tracks: KILLED (exit=101)
+M4_disable_min_w_extra_distribution: KILLED (exit=101)
+M6_flow_child_input_horiz_false: KILLED (exit=101)
+M7_drop_non_fill_precedence_in_widest_in_column: KILLED (exit=101)
+M11_always_pack_auto_rows_in_grid_packs_auto_rows: KILLED (exit=101)
+M13_drop_hug_gate_in_resolved_grid_col_tracks: KILLED (exit=101)
+M14_flex_unit_tolerance_50px: KILLED (exit=101)
+Summary: 11/11 mutations KILLED
+```
+
+#### 3.5 Mandatory Gates (`r3-gates.log`)
+
+```text
+=== GATE 1: cargo fmt --all -- --check ===
+FMT_EXIT=0
+=== GATE 2: cargo clippy --workspace --all-targets --locked -- -D warnings ===
+CLIPPY_EXIT=0
+=== GATE 3: cargo test --workspace --locked --lib ===
+TEST_WORKSPACE_LIB_EXIT=0
+=== GATE 4: cargo test -p designos-export --locked ===
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.17s
+...
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+...
+TEST_EXPORT_EXIT=0
+=== GATE 5: cargo test -p designos-doc --locked ===
+test result: ok. 674 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.66s
+...
+TEST_DOC_EXIT=0
+=== GATE 6: python3 -m unittest discover -s scripts/tests ===
+Ran 207 tests in 54.693s
+PYTEST_EXIT=0
+```
+
+---
+
+### 4. Assumptions (Round 3)
+
+1. **`grid_packs_auto_rows` takes `(al: &AutoLayout, kids: &[ChildIn])`**: Determining whether all placed rows `0..rows` are frozen (`r < al.grid_rows as usize || fixed_row(al, r).is_some()`) requires `placed_grid_rows(al, kids)` so a grid with `al.grid_rows > 0` whose children overflow into implicit rows (`rows > al.grid_rows as usize`) still levels those implicit `Flex` auto rows across a `Sizing::Fixed` height (`crates/designos-doc/src/layout_solver_grid.rs:120-123,150-157`).
+2. **Stroked grids emit `box-sizing: border-box;` / `box-border` only when `al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0)`**: When `layout_version == 0` and `stroke_included == true` with an inside/center stroke (`n6_stroke_v0_unpadded_hug`, `n6c_stroke_v0_unpadded_fixed`), `compute_grid` receives `al.with_stroke(&n.stroke)` (`crates/designos-doc/src/layout_apply.rs:33`) and folds the border into `al.padding`, whereas `css.rs` and `tailwind.rs` emit `border` from `n.stroke`. Checking `al.effective_padding(&n.stroke)` (`crates/designos-export/src/css.rs:122-124`, `crates/designos-export/src/tailwind.rs:377-379`) covers both explicit padding and `layout_version == 0` stroke padding without altering `layout_version == 1` unpadded grids.
+
+---
+
+### 5. Skills Loaded and What Changed Because of Them (Round 3)
+
+- **`es:dev` & `es:feature-dev`** (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`): Applied strict red-then-green commit pairs across all 4 Round-3 slices (`e37568e2` -> `46bc8eea`, `966d5ccb` -> `8fad3206`, `97182df0` -> `89e29581`, `1fe5f9f1` -> `f5de670d`).
+- **`es:rust` & `es:rust-gpu-canvas`** (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Extracted `fixed_row` and `flex_auto_row_frozen` in `crates/designos-doc/src/layout_solver_grid.rs:125-157` so `grid_packs_auto_rows` (`120-123`) and `compute_grid` (`237,252,255`) share one implementation with zero behavior change to `compute_grid`.
+- **`es:fable-thinking` & `es:astra-work`** (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`, `/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`): Predicted test outcomes before each run, verified all 18 fixture scenes and all 27 probe scenes in headless Chrome, killed all 11 code mutations (`R1`, `R1b`, `R3`, `N1`, `N2`, `M4`, `M6`, `M7`, `M11`, `M13`, `M14`), and checked every `file:line` citation against the files opened in this session.
+
+---
+
+### 6. Epistemic Ledger (Round 3 — `FACT` / `INFERENCE` / `ASSUMPTION`)
+
+- **`FACT`**: `crates/designos-doc/src/layout_solver_grid.rs:120-123` defines `pub fn grid_packs_auto_rows(al: &AutoLayout, kids: &[ChildIn]) -> bool` next to `grid_column_widths` (`111-116`), re-exported at `crates/designos-doc/src/layout_solver.rs:16`, sharing `fixed_row` (`125-145`) and `flex_auto_row_frozen` (`150-157`) with `compute_grid` (`237,252,255`).
+- **`FACT`**: `crates/designos-export/src/codegen.rs:580-586` (`grid_packs_auto_rows`) delegates to `designos_doc::layout_solver::grid_packs_auto_rows(al, &kids)` and keeps no row-packing rule of its own.
+- **`FACT`**: `crates/designos-export/src/codegen.rs:592-638` (`resolved_grid_col_tracks`) sets `needs_px_tracks = true` whenever any column in `0..cols` is `GridTrack::Hug` (`615-618`) or when `GridTrack::Flex` unit widths differ by more than `0.5px` (`619-630`).
+- **`FACT`**: `crates/designos-export/src/css.rs:122-124` and `crates/designos-export/src/tailwind.rs:377-379` emit `box-sizing: border-box;` and `box-border` whenever `al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0)`.
+- **`FACT`**: `scripts/qa/grid_chrome/screenshot.py:13-85,88-124` renders the scene's actual `grid-template-columns` / `grid-template-rows` and measured `max_abs_drift` in `.sub`, places item labels inside `position:absolute; inset:0;` spans (`21-27`) so label text never sizes `auto` tracks, and computes `--window-size` from `scene["grid_width"]` and `scene["grid_height"]` (`103-104`).
+- **`FACT`**: `scripts/qa/grid-chrome-compare.py:24-38` and `scripts/qa/grid_chrome/fixtures.py:27-37` honor `--chrome`, `--fixtures-json`, and `CHROME_BIN` without falling back to system Chrome when a configured binary is missing (exiting `2`), and `scripts/qa/grid_chrome/probe_page.py:30,136-150` reports Tailwind item-count mismatches as `[FAIL]` lines rather than raising an uncaught `ValueError`.
+- **`FACT`**: All 18 fixture scenes (36 checks: CSS + Tailwind) pass at `0.00px` drift in headless Chrome (`plans/reports/agy-484-grid-tracks-css-evidence/r3-chrome-green.log`), and in the 27-scene adversarial probe (`r3-probe-27-scenes.log`), `N1`, `N2`, `N2b`, `N2c`, `N6`, and `N6c` drop from `75 / 1 / 0.5 / 30 / 4 / 4 px` to `0.00px` with zero regressions across the remaining 21 scenes.
+- **`INFERENCE`**: Because `compute_grid` and `grid_packs_auto_rows` both call `flex_auto_row_frozen(al, rows)` (`crates/designos-doc/src/layout_solver_grid.rs:122,255`), the row-packing decision in CSS/Tailwind export cannot drift from the solver's row-leveling gate on any `AutoLayout` + `ChildIn` combination where all rows are packed or all implicit rows are leveled.
+- **`ASSUMPTION`**: Mixed grids that combine explicit `Hug` rows (`r < al.grid_rows`) with overflowing implicit `Flex` auto rows (`r >= al.grid_rows`, scene `N1b`) require emitting `grid-auto-rows` in CSS/Tailwind to match `compute_grid`, which is out of scope for PR #1426.
+
+**Weakest link**: `scripts/qa/grid_chrome/tailwind_css_map.py` maps Tailwind utility classes via a stdlib table rather than running the Tailwind CSS compiler offline, though all tokens emitted across all 18 fixture scenes and 27 probe scenes are covered and verified in headless Chrome.
+
+**Unresolved questions**: None.
+
 Status: DONE
