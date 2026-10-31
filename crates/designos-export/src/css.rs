@@ -119,8 +119,12 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
+            if al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) {
+                push("box-sizing", "border-box".into());
+            }
             let cols = crate::codegen::grid_column_count(al);
-            push("grid-template-columns", crate::codegen::grid_tracks_css(&al.grid_col_tracks, cols));
+            let col_tracks = crate::codegen::resolved_grid_col_tracks(doc, n, al);
+            push("grid-template-columns", crate::codegen::grid_tracks_css(&col_tracks, cols));
             if al.grid_rows > 0 {
                 push("grid-template-rows", crate::codegen::grid_tracks_css(&al.grid_row_tracks, al.grid_rows as usize));
             }
@@ -128,6 +132,9 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             let row = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
             if row > 0.0 || col > 0.0 {
                 push("gap", if (row - col).abs() < 1e-4 { format!("{}px", num(row)) } else { format!("{}px {}px", num(row), num(col)) });
+            }
+            if crate::codegen::grid_packs_auto_rows(doc, n, al) {
+                push("align-content", "start".into());
             }
         } else {
             if al.direction == LayoutDirection::Vertical {
@@ -738,7 +745,7 @@ mod tests {
 
         assert_eq!(
             css_for(&d, grid_id),
-            "display: grid;\nwidth: 480px;\nheight: 200px;\npadding: 12px 16px;\ngrid-template-columns: minmax(0, 1fr) 120px auto;\ngrid-template-rows: 80px auto;\ngap: 24px 16px;\noverflow: hidden;"
+            "display: grid;\nwidth: 480px;\nheight: 200px;\npadding: 12px 16px;\nbox-sizing: border-box;\ngrid-template-columns: minmax(0, 1fr) 120px auto;\ngrid-template-rows: 80px auto;\ngap: 24px 16px;\nalign-content: start;\noverflow: hidden;"
         );
         assert_eq!(css_for(&d, pinned_id), "grid-column: 2 / span 2;\ngrid-row: 1 / span 1;\nwidth: 200px;\nheight: 80px;");
         assert_eq!(css_for(&d, span_only_id), "grid-column: span 2;\nwidth: 180px;\nheight: 60px;");
@@ -916,7 +923,7 @@ mod tests {
         let css = css_for(&d, grid);
         assert_eq!(
             css,
-            "display: grid;\nwidth: 300px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: repeat(2, minmax(0, 1fr));"
+            "display: grid;\nwidth: 300px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: repeat(2, minmax(0, 1fr));\nalign-content: start;"
         );
     }
 

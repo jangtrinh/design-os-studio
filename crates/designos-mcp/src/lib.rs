@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod component_cycle_tests;
 pub mod engine;
+mod loop_guard;
 pub mod prompts;
 pub mod resources;
 pub mod risk;

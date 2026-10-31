@@ -51,7 +51,7 @@ fn menu_is_open(s: &Sim) -> bool {
 #[test]
 fn plus_opens_its_menu_when_press_and_release_share_a_frame() {
     let (mut s, dir) = strip_sim("one-frame");
-    let plus = s.rect_of("agents-runtime-add-btn").center();
+    let plus = s.rect_of("agents-composer-agent-pill").center();
     assert!(!menu_is_open(&s), "the menu starts closed");
 
     let _release = as_in_a_release_build(&mut s);
@@ -67,7 +67,7 @@ fn plus_opens_its_menu_when_press_and_release_share_a_frame() {
 #[test]
 fn a_second_click_on_plus_closes_its_menu() {
     let (mut s, dir) = strip_sim("second-click");
-    let plus = s.rect_of("agents-runtime-add-btn").center();
+    let plus = s.rect_of("agents-composer-agent-pill").center();
 
     let _release = as_in_a_release_build(&mut s);
     s.click(plus);
@@ -80,11 +80,11 @@ fn a_second_click_on_plus_closes_its_menu() {
 #[test]
 fn a_press_away_from_the_menu_and_from_plus_still_closes_it() {
     let (mut s, dir) = strip_sim("press-away");
-    let plus = s.rect_of("agents-runtime-add-btn").center();
+    let plus = s.rect_of("agents-composer-agent-pill").center();
     s.click(plus);
     assert!(menu_is_open(&s));
     frames(&mut s, 2);
-    let menu = s.rect_of("agents-runtime-dropdown-menu");
+    let menu = s.rect_of("agents-agent-menu");
     let away = egui::pos2(menu.center().x, menu.bottom() + 300.0);
 
     let _release = as_in_a_release_build(&mut s);
@@ -93,9 +93,9 @@ fn a_press_away_from_the_menu_and_from_plus_still_closes_it() {
     finish(s, dir);
 }
 
-/// Position and width of what the strip holds, left to right after the tabs.
+/// Position and width of what the header holds at its right edge.
 fn strip_controls(s: &Sim) -> (Rect, Rect) {
-    (s.rect_of("agents-sessions-btn"), s.rect_of("agents-runtime-add-btn"))
+    (s.rect_of("agents-more-btn"), s.rect_of("agents-new-chat-btn"))
 }
 
 /// Kills the agent of tab `idx` and runs frames until Studio has noticed the exit.
@@ -120,8 +120,8 @@ fn the_buttons_stay_put_when_the_only_tab_exits() {
     exit_tab(&mut s, 0);
 
     let after = strip_controls(&s);
-    assert_eq!(after.0, before.0, "the Sessions button does not move when the tab exits");
-    assert_eq!(after.1, before.1, "the `+` button does not move when the tab exits: a click aimed at it must still land on it");
+    assert_eq!(after.0, before.0, "the more button does not move when the tab exits");
+    assert_eq!(after.1, before.1, "the new chat button does not move when the tab exits: a click aimed at it must still land on it");
     finish(s, dir);
 }
 
@@ -236,21 +236,29 @@ fn an_exited_tab_title_stays_readable_whether_the_tab_is_active_or_not() {
 }
 
 #[test]
-fn an_exited_tab_has_its_own_status_dot_and_an_idle_tab_keeps_the_filled_one() {
+fn an_exited_tab_and_an_idle_tab_draw_no_status_ring_or_brand_dot() {
     use egui::epaint::Shape;
     let (s, dir) = strip_with_an_exited_first_tab("exit-dot");
-    let dots: Vec<_> = flat_shapes(&s).into_iter().filter_map(|shape| if let Shape::Circle(c) = shape { Some(*c) } else { None }).collect();
-    let rings = dots.iter().filter(|c| c.fill.a() == 0 && !c.stroke.is_empty() && c.radius > 2.9 && c.radius < 3.5).count();
-    let idle_dots = dots.iter().filter(|c| c.fill == crate::theme::TEXT_SECONDARY && c.radius == 2.7).count();
-    assert_eq!(rings, 1, "the exited tab shows a hollow ring: {dots:?}");
-    assert_eq!(idle_dots, 1, "only the running idle tab keeps the filled dot: {dots:?}");
+    let dots: Vec<_> = flat_shapes(&s)
+        .into_iter()
+        .filter_map(|shape| if let Shape::Circle(c) = shape { Some(*c) } else { None })
+        .filter(|c| (c.radius - 4.0).abs() < 0.05 && c.center.y < crate::terminal::TERMINAL_HEADER_H)
+        .collect();
+    // The stub agent died within seconds of its start, so its tab is a failed start and draws the one failure dot. The idle tab draws none.
+    assert!(dots.iter().all(|c| c.fill == crate::theme::DANGER), "no brand dot and no ring: {dots:?}");
+    assert_eq!(dots.len(), 1, "one dot, on the tab that failed to start: {dots:?}");
+    let idle_id = s.shell.app.terminal.tabs[1].id;
+    assert!(
+        s.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("test-rect", format!("agents-tab-dot-{idle_id}"))))).is_none(),
+        "the running idle tab has none"
+    );
     finish(s, dir);
 }
 
 #[test]
-fn closing_the_plus_menu_with_plus_discards_the_other_cli_draft() {
+fn closing_the_agent_menu_with_the_pill_discards_the_other_cli_draft() {
     let (mut s, dir) = strip_sim("plus-draft");
-    let plus = s.rect_of("agents-runtime-add-btn").center();
+    let plus = s.rect_of("agents-composer-agent-pill").center();
 
     let _release = as_in_a_release_build(&mut s);
     s.click(plus);
@@ -272,5 +280,42 @@ fn closing_the_plus_menu_with_plus_discards_the_other_cli_draft() {
     s.click(plus);
     assert!(menu_is_open(&s), "the next click opens the menu again");
     assert!(!s.shell.app.terminal.picker.other_form_open, "on its list, not on the old form");
+    finish(s, dir);
+}
+
+#[test]
+fn the_tab_close_button_has_a_name_and_shows_keyboard_focus() {
+    let (mut s, dir) = strip_sim("close-button");
+    crate::agent_a11y::enable_accesskit(&s.ctx);
+    let tab_id = s.shell.app.terminal.tabs[0].id;
+    let close_id = egui::Id::new(("agents-left-tab-close", tab_id));
+
+    let mut named = false;
+    for _ in 0..4 {
+        s.frame(vec![]);
+        named |= s.accesskit_update.as_ref().is_some_and(|update| {
+            update
+                .nodes
+                .iter()
+                .any(|(id, node)| *id == close_id.accesskit_id() && node.role() == egui::accesskit::Role::Button && node.label() == Some("Close tab"))
+        });
+    }
+    assert!(named, "the close button of the only tab is a Button named Close tab");
+
+    let close = s.ctx.read_response(close_id).expect("the strip laid the close button out").rect;
+    let ring = |s: &Sim| {
+        flat_shapes(s).iter().any(|shape| match shape {
+            egui::epaint::Shape::Rect(r) => {
+                r.stroke.color == crate::theme::FOCUS_RING
+                    && (r.rect.width() - (close.width() + crate::theme::SPACE_FACT * 2.0)).abs() < 1.0
+                    && r.rect.contains(close.center())
+            }
+            _ => false,
+        })
+    };
+    assert!(!ring(&s), "no ring without keyboard focus");
+    s.ctx.memory_mut(|m| m.request_focus(close_id));
+    frames(&mut s, 3);
+    assert!(ring(&s), "keyboard focus on the close button draws the focus ring around it");
     finish(s, dir);
 }

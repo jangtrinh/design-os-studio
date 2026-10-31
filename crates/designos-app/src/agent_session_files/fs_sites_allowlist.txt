@@ -17,7 +17,7 @@ FILE	io.rs	design files the user opens, saves and exports, and the library's own
 FILE	io/dialog_probe.rs	the desktop's portal files and the dialog helper binaries on the system path; no path comes from a session folder
 FILE	main.rs	paths named on the command line (`--screenshot`, `--apply-spec`, `--export-*`, `--import-*`); the only session-folder code it calls is `spawn_startup_sweep`, which does its own file work in `agent_session_files`
 FILE	ops.rs	design and image files the user opens, drops, exports or saves; no path comes from a session folder
-FILE	plugins/store.rs	the plugin store in Studio's data folder and the plugin bundle the user picks to import; no path comes from a session folder
+FILE	plugins/store.rs	the plugin store in Studio's data folder; no path comes from a session folder
 FILE	specs.rs	the spec folders of the open project (`docs/specs`, or the one the user picks) and the Export Frame output in the workspace's `examples/specs` or `$TMPDIR/designos_specs` (#1073); no path comes from a session folder
 FILE	updater.rs	self-update: the app's own binary, its backup and staging files beside it, the update manifest cache and the .app's Info.plist; no path comes from a session folder
 FILE	variables/mod.rs	variables files the user picks to import or export; no path comes from a session folder
@@ -192,7 +192,7 @@ LINE	skills/mod.rs	1	("design-system-rhythm", include_str!("../../../../assets/s
 LINE	skills/mod.rs	1	SkillStatus::TooLarge(_) => Some("Too large (> 64 KB)"),	text, not a file or a command
 LINE	skills/mod.rs	2	let Ok(rd) = std::fs::read_dir(&skills_dir) else {	the user's skills folder in the library root, not a session folder
 LINE	skills/mod.rs	1	let bytes = std::fs::read(&skill_md).ok()?;	the user's skills folder in the library root, not a session folder
-LINE	skills/mod.rs	1	let footer_msg = format!("User skills: {}/skills/<name>/SKILL.md", self.library_root.display());	the SKILL.md of a skill in the library's skills folder (or built in), not a session file
+LINE	skills/picker_popover.rs	1	ui.label(format!("User skills: {}/skills/<name>/SKILL.md", library_root.display()));	the SKILL.md of a skill in the library's skills folder (or built in), not a session file
 LINE	skills/mod.rs	1	let meta = std::fs::metadata(&p).ok()?;	the user's skills folder in the library root, not a session folder
 LINE	skills/mod.rs	1	let meta = std::fs::metadata(&skill_md).ok()?;	the user's skills folder in the library root, not a session folder
 LINE	skills/mod.rs	1	let p = e.path().join("SKILL.md");	the SKILL.md of a skill in the library's skills folder (or built in), not a session file

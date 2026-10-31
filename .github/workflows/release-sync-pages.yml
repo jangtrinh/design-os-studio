@@ -42,7 +42,7 @@ jobs:
       version: ${{ steps.v.outputs.version }}
     env:
       # A pull request opened with GITHUB_TOKEN does not start CI, and main requires
-      # Test (macos-14), Clippy and Rustfmt. Set the RELEASE_SYNC_TOKEN secret (a PAT or
+      # Test (macos-15), Clippy and Rustfmt. Set the RELEASE_SYNC_TOKEN secret (a PAT or
       # app token with contents + pull-requests write) so the PR gets its checks. Without
       # it the PR still opens; close and reopen it once to start CI.
       GH_TOKEN: ${{ secrets.RELEASE_SYNC_TOKEN || github.token }}

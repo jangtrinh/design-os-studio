@@ -1,0 +1,24 @@
+tool-sel-noswap fills [{'r': 0.14901961, 'g': 0.14901961, 'b': 0.14901961, 'a': 1.0}] op=1.00 size={'x': 32.0, 'y': 32.0}
+  tool-sel-noswap   nested 'Icon' size={'x': 20.0, 'y': 20.0} tx_ty=(6.0, 6.0) visible=True comp={'source': 629, 'bindings': {'MainComponent': 'Icon'}}
+  tool-sel-noswap     glyph id=2390 size={'x': 20.0, 'y': 20.0} max_path_xy=None fill=['{'r': 1.0, 'g': 1.0, 'b': 1.0, 'a': 1.0} op1.00'] bind={'fills/0': 's.color.icon'} comp={'source': 630}
+tool-sel-swap fills [{'r': 0.14901961, 'g': 0.14901961, 'b': 0.14901961, 'a': 1.0}] op=1.00 size={'x': 32.0, 'y': 32.0}
+  tool-sel-swap     nested 'Icon' size={'x': 20.0, 'y': 20.0} tx_ty=(6.0, 6.0) visible=True comp={'source': 629, 'bindings': {'MainComponent': 'Icon'}}
+  tool-sel-swap       glyph id=2394 size={'x': 20.0, 'y': 20.0} max_path_xy=None fill=['{'r': 1.0, 'g': 1.0, 'b': 1.0, 'a': 1.0} op1.00'] bind={'fills/0': 's.color.icon'} comp={'source': 43, 'overrides': ['Size', 'Fills']}
+tool-hover-swap fills [{'r': 0.09019608, 'g': 0.09019608, 'b': 0.09019608, 'a': 1.0}] op=1.00 size={'x': 32.0, 'y': 32.0}
+  tool-hover-swap   nested 'Icon' size={'x': 20.0, 'y': 20.0} tx_ty=(6.0, 6.0) visible=True comp={'source': 616, 'bindings': {'MainComponent': 'Icon'}}
+  tool-hover-swap     glyph id=2398 size={'x': 20.0, 'y': 20.0} max_path_xy=None fill=['{'r': 0.8980392, 'g': 0.8980392, 'b': 0.8980392, 'a': 1.0} op1.00'] bind={'fills/0': 's.color.icon-secondary-hover'} comp={'source': 43, 'overrides': ['Size', 'Fills']}
+prim-dis-noswap fills [{'r': 0.8901961, 'g': 0.3882353, 'b': 0.13725491, 'a': 1.0}] op=1.00 size={'x': 84.75, 'y': 40.0}
+  prim-dis-noswap   nested 'Leading icon' size={'x': 20.0, 'y': 20.0} tx_ty=(12.0, 10.0) visible=True comp={'source': 307, 'bindings': {'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'}}
+  prim-dis-noswap     glyph id=2401 size={'x': 20.0, 'y': 20.0} max_path_xy=None fill=['{'r': 0.039215688, 'g': 0.039215688, 'b': 0.039215688, 'a': 1.0} op0.50'] bind={'fills/0': 's.color.text-on-brand'} comp={'source': 308}
+  prim-dis-noswap     text fill=['{'r': 0.039215688, 'g': 0.039215688, 'b': 0.039215688, 'a': 1.0} op0.50'] bind={'fills/0': 's.color.text-on-brand'}
+prim-dis-swap fills [{'r': 0.8901961, 'g': 0.3882353, 'b': 0.13725491, 'a': 1.0}] op=1.00 size={'x': 84.75, 'y': 40.0}
+  prim-dis-swap     nested 'Leading icon' size={'x': 20.0, 'y': 20.0} tx_ty=(12.0, 10.0) visible=True comp={'source': 307, 'bindings': {'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'}}
+  prim-dis-swap       glyph id=2407 size={'x': 20.0, 'y': 20.0} max_path_xy=None fill=['{'r': 0.039215688, 'g': 0.039215688, 'b': 0.039215688, 'a': 1.0} op0.50'] bind={'fills/0': 's.color.text-on-brand'} comp={'source': 41, 'overrides': ['Size', 'Fills']}
+  prim-dis-swap       text fill=['{'r': 0.039215688, 'g': 0.039215688, 'b': 0.039215688, 'a': 1.0} op0.50'] bind={'fills/0': 's.color.text-on-brand'}
+close-hover-swap fills [{'r': 0.09019608, 'g': 0.09019608, 'b': 0.09019608, 'a': 1.0}] op=1.00 size={'x': 32.0, 'y': 32.0}
+  close-hover-swap  nested 'Icon' size={'x': 16.0, 'y': 16.0} tx_ty=(8.0, 8.0) visible=True comp={'source': 637, 'bindings': {'MainComponent': 'Icon'}}
+  close-hover-swap    glyph id=2411 size={'x': 16.0, 'y': 16.0} max_path_xy=None fill=['{'r': 0.6392157, 'g': 0.6392157, 'b': 0.6392157, 'a': 1.0} op1.00'] bind={'fills/0': 's.color.icon-quaternary-hover'} comp={'source': 27, 'overrides': ['Fills']}
+sd-hover-swap fills [{'r': 0.27058825, 'g': 0.039215688, 'b': 0.039215688, 'a': 1.0}] op=1.00 size={'x': 84.75, 'y': 36.0}
+  sd-hover-swap     nested 'Leading icon' size={'x': 20.0, 'y': 20.0} tx_ty=(12.0, 8.0) visible=True comp={'source': 533, 'bindings': {'Visible': 'Has Leading Icon', 'MainComponent': 'Icon'}}
+  sd-hover-swap       glyph id=2416 size={'x': 20.0, 'y': 20.0} max_path_xy=None fill=['{'r': 0.9882353, 'g': 0.64705884, 'b': 0.64705884, 'a': 1.0} op1.00'] bind={'fills/0': 's.color.text-error-hover'} comp={'source': 165, 'overrides': ['Size', 'Fills']}
+  sd-hover-swap       text fill=['{'r': 0.9882353, 'g': 0.64705884, 'b': 0.64705884, 'a': 1.0} op1.00'] bind={'fills/0': 's.color.text-error-hover'}

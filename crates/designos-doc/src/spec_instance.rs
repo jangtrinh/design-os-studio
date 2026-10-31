@@ -1209,23 +1209,9 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                     None,
                 ));
             }
-            let prev_name = doc.get(target_id).map(|n| n.name.clone());
-            let had_size_override = doc.get(target_id).is_some_and(|n| n.component.overrides.contains(&OverrideField::Size));
-            let new_comp_size = doc.get(new_comp).map(|n| n.size);
             let cmd = swap_instance(doc, target_id, new_comp);
             cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
 
-            if let Some(target_mut) = doc.get_mut(target_id) {
-                if let Some(name) = prev_name {
-                    target_mut.name = name;
-                }
-                if !had_size_override {
-                    if let Some(sz) = new_comp_size {
-                        target_mut.size = sz;
-                    }
-                }
-                target_mut.component.overrides.insert(OverrideField::MainComponent);
-            }
             let comp_key = library_key_for_component(doc, new_comp);
             if let Some(target_mut) = doc.get_mut(target_id) {
                 if let NodeKind::Instance { component_key, .. } = &mut target_mut.kind {
@@ -1251,9 +1237,6 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
                 .filter(|&p| matches!(doc.get(p).map(|x| &x.kind), Some(NodeKind::ComponentSet(_))))
                 .unwrap_or(cur_comp);
             let new_comp = resolve_variant_component(doc, owner, &ov.variant, Some(cur_comp), None)?;
-            let prev_name = doc.get(target_id).map(|n| n.name.clone());
-            let had_size_override = doc.get(target_id).is_some_and(|n| n.component.overrides.contains(&OverrideField::Size));
-            let new_comp_size = doc.get(new_comp).map(|n| n.size);
             for (k, v) in &ov.variant {
                 let cmd = set_instance_prop(doc, target_id, k, Some(PropValue::Variant(v.clone())));
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
@@ -1261,16 +1244,6 @@ fn apply_single_override_with_ctx(doc: &mut Document, instance_root: NodeId, ov:
             if new_comp != cur_comp {
                 let cmd = swap_instance(doc, target_id, new_comp);
                 cmd.apply(doc).map_err(|e| SpecError::plain(e.to_string()))?;
-                if let Some(target_mut) = doc.get_mut(target_id) {
-                    if let Some(name) = prev_name {
-                        target_mut.name = name;
-                    }
-                    if !had_size_override {
-                        if let Some(sz) = new_comp_size {
-                            target_mut.size = sz;
-                        }
-                    }
-                }
             }
         }
 
@@ -3694,5 +3667,106 @@ mod tests {
         assert!(doc.library_page.is_none());
         assert!(doc.images.is_empty());
         assert_eq!(doc.nodes.len(), 1, "only Page 1 should remain in doc.nodes after undo");
+    }
+
+    #[test]
+    fn spec_swap_paths_apply_auto_vs_custom_name_per_axis_size_and_originally_matched_gate() {
+        let mut doc = Document::new("SpecSwapRulings");
+        let page = doc.add_page("Page 1");
+
+        let make_icon = |doc: &mut Document, name: &str, fill: Color, x: f32| -> NodeId {
+            let id = doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = doc.insert(page, f).unwrap();
+            let gid = doc.alloc_id();
+            let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            g.name = "Glyph".into();
+            g.fills = vec![Paint::solid(fill)];
+            doc.insert(comp, g).unwrap();
+            crate::components::create_component(doc, comp).apply(doc).unwrap();
+            comp
+        };
+
+        let icon_plus = make_icon(&mut doc, "IconPlus", Color::rgb(255, 255, 255), 0.0);
+        let icon_check_same = make_icon(&mut doc, "IconCheckSame", Color::rgb(255, 255, 255), 40.0);
+        let icon_diff = make_icon(&mut doc, "IconDiffFill", Color::rgb(0, 255, 0), 80.0);
+
+        // Button has two icon instances:
+        // - slot 0 renamed to "Leading icon" (custom name, resized to 20x16, Glyph fill overridden to red)
+        // - slot 1 kept auto-named "IconPlus"
+        let btn = {
+            let id = doc.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 60.0, 120.0, 40.0));
+            f.name = "Button".into();
+            let comp = doc.insert(page, f).unwrap();
+            crate::components::create_component(&mut doc, comp).apply(&mut doc).unwrap();
+            crate::components::create_instance(&mut doc, icon_plus, comp, Vec2::new(8.0, 10.0)).apply(&mut doc).unwrap();
+            crate::components::create_instance(&mut doc, icon_plus, comp, Vec2::new(40.0, 10.0)).apply(&mut doc).unwrap();
+            let slot_custom = doc.get(comp).unwrap().children[0];
+            {
+                let sn = doc.get_mut(slot_custom).unwrap();
+                sn.name = "Leading icon".into();
+                sn.size = Vec2::new(20.0, 16.0);
+            }
+            let glyph = doc.get(slot_custom).unwrap().children[0];
+            {
+                let gn = doc.get_mut(glyph).unwrap();
+                gn.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+                gn.component.overrides.insert(OverrideField::Fills);
+            }
+            crate::components::add_prop(
+                &mut doc,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_plus, icon_check_same, icon_diff] },
+                    default: PropValue::Instance(icon_plus),
+                },
+            )
+            .apply(&mut doc)
+            .unwrap();
+            crate::components::bind_prop(&mut doc, slot_custom, OverrideField::MainComponent, Some("Icon")).apply(&mut doc).unwrap();
+            comp
+        };
+        let _ = btn;
+
+        // 1. Swap via `props: {"Icon": "IconCheckSame"}` and `overrides: [{"path": "IconPlus", "swap": "IconCheckSame"}]`:
+        // - "Leading icon" keeps custom name "Leading icon" and red fill (originally matched).
+        // - Auto-named "IconPlus" takes new main's name "IconCheckSame".
+        let spec_same: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Button",
+            "props": { "Icon": "IconCheckSame" },
+            "overrides": [
+                { "path": "IconPlus", "swap": "IconCheckSame" }
+            ]
+        }))
+        .unwrap();
+        let inst_same = doc.apply_spec(page, &spec_same).unwrap();
+        let kids_same = doc.get(inst_same).unwrap().children.clone();
+        let custom_slot = doc.get(kids_same[0]).unwrap();
+        assert_eq!(custom_slot.name, "Leading icon");
+        assert_eq!(custom_slot.size, Vec2::new(20.0, 16.0));
+        let custom_glyph = doc.get(custom_slot.children[0]).unwrap();
+        assert_eq!(custom_glyph.fills[0].kind, PaintKind::Solid(Color::rgb(255, 0, 0)), "originally-matched fill override kept");
+        let auto_slot = doc.get(kids_same[1]).unwrap();
+        assert_eq!(auto_slot.name, "IconCheckSame", "auto-named nested instance takes new main's name on overrides[].swap");
+
+        // 2. Swap via `overrides: [{"path": "Leading icon", "swap": "IconDiffFill"}]`:
+        // - "Originally matched" gate drops red fill override because IconDiffFill's default fill is green (#00ff00 != #ffffff).
+        let spec_diff: NodeSpec = serde_json::from_value(json!({
+            "kind": "instance",
+            "component": "Button",
+            "overrides": [
+                { "path": "Leading icon", "swap": "IconDiffFill" }
+            ]
+        }))
+        .unwrap();
+        let inst_diff = doc.apply_spec(page, &spec_diff).unwrap();
+        let diff_slot = doc.get(doc.get(inst_diff).unwrap().children[0]).unwrap();
+        assert_eq!(diff_slot.name, "Leading icon");
+        let diff_glyph = doc.get(diff_slot.children[0]).unwrap();
+        assert_eq!(diff_glyph.fills[0].kind, PaintKind::Solid(Color::rgb(0, 255, 0)), "non-matching default fill drops override on spec swap");
     }
 }

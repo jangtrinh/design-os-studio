@@ -1255,7 +1255,7 @@ pub fn layer_row_progress_chip(app: &mut App, ui: &mut egui::Ui, p: &egui::Paint
     let chip_rect = Rect::from_min_size(Pos2::new(chip_left, row_rect.center().y - chip_h * 0.5), egui::vec2(chip_right - chip_left, chip_h));
     widgets::record(ui, &format!("layer-ai-chip:{}", node.0), chip_rect);
     p.rect_filled(chip_rect, theme::cr_pill(chip_h), theme::BG_SECONDARY);
-    p.rect_stroke(chip_rect, theme::cr_pill(chip_h), Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+    p.rect_stroke(chip_rect, theme::cr_pill(chip_h), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
     p.text(
         Pos2::new(chip_rect.left() + theme::INSET_CONTROL - theme::INSET_SEGMENT, chip_rect.center().y),
         Align2::LEFT_CENTER,
@@ -1342,7 +1342,7 @@ fn show_expand_popover(app: &mut App, ctx: &Context) {
 
     let screen = ctx.content_rect();
     let w = 236.0;
-    let h = if total_fills > 1 { 176.0 } else { 156.0 };
+    let h = if total_fills > 1 { 176.0 + theme::SPACE_INLINE } else { 156.0 + theme::SPACE_INLINE };
     let inspector_left = screen.right() - theme::RIGHT_PANEL_WIDTH;
     let target_x = if pop.anchor.center().x >= inspector_left { inspector_left - w - 8.0 } else { pop.anchor.left() - w - 8.0 };
     let x = target_x.clamp(screen.left() + theme::SPACE_INLINE, (screen.right() - w - theme::SPACE_INLINE).max(screen.left() + theme::SPACE_INLINE));
@@ -1356,7 +1356,7 @@ fn show_expand_popover(app: &mut App, ctx: &Context) {
         ui.allocate_exact_size(rect.size(), Sense::click());
         widgets::record(ui, "ai-expand-popover", rect);
         let p = ui.painter();
-        widgets::menu_panel(p, rect, theme::RADIUS_FRAME);
+        widgets::kit::popover_surface(p, rect);
 
         let pad = theme::INSET_POPOVER;
         let mut cy = rect.top() + pad;
@@ -1410,20 +1410,17 @@ fn show_expand_popover(app: &mut App, ctx: &Context) {
         }
         cy += 36.0;
 
-        let cancel_r = Rect::from_min_size(Pos2::new(rect.left() + pad, cy), egui::vec2(col_w, 24.0));
-        let run_r = Rect::from_min_size(Pos2::new(rect.left() + pad + col_w + 8.0, cy), egui::vec2(col_w, 24.0));
+        let action_h = theme::CONTROL_XS;
+        let cancel_r = Rect::from_min_size(Pos2::new(rect.left() + pad, cy), egui::vec2(col_w, action_h));
+        let run_r = Rect::from_min_size(Pos2::new(rect.left() + pad + col_w + theme::SPACE_INLINE, cy), egui::vec2(col_w, action_h));
         widgets::record(ui, "ai-expand-cancel", cancel_r);
         widgets::record(ui, "ai-expand-run", run_r);
-        let c_resp = ui.interact(cancel_r, ui.id().with("ai-expand-cancel"), Sense::click());
-        ui.painter().rect_filled(cancel_r, theme::cr(theme::RADIUS_CONTROL), if c_resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
-        ui.painter().text(cancel_r.center(), Align2::CENTER_CENTER, "Cancel", theme::font_body(), theme::TEXT);
+        let c_resp = widgets::kit::button(ui, cancel_r, "ai-expand-cancel", "Cancel", widgets::kit::Hierarchy::Secondary, widgets::kit::Size::Xs, true);
         if c_resp.clicked() {
             close_clicked = true;
         }
 
-        let r_resp = ui.interact(run_r, ui.id().with("ai-expand-run"), Sense::click());
-        ui.painter().rect_filled(run_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_BRAND);
-        ui.painter().text(run_r.center(), Align2::CENTER_CENTER, "Expand", theme::font_body_strong(), Color32::WHITE);
+        let r_resp = widgets::kit::button(ui, run_r, "ai-expand-run", "Expand", widgets::kit::Hierarchy::Primary, widgets::kit::Size::Xs, true);
         if r_resp.clicked() {
             run_clicked = true;
         }
@@ -1448,7 +1445,7 @@ fn show_erase_popover(app: &mut App, ctx: &Context) {
 
     let screen = ctx.content_rect();
     let w = 248.0;
-    let h = if total_fills > 1 { 164.0 } else { 144.0 };
+    let h = if total_fills > 1 { 164.0 + theme::SPACE_INLINE } else { 144.0 + theme::SPACE_INLINE };
     let inspector_left = screen.right() - theme::RIGHT_PANEL_WIDTH;
     let target_x = if pop.anchor.center().x >= inspector_left { inspector_left - w - 8.0 } else { pop.anchor.left() - w - 8.0 };
     let x = target_x.clamp(screen.left() + theme::SPACE_INLINE, (screen.right() - w - theme::SPACE_INLINE).max(screen.left() + theme::SPACE_INLINE));
@@ -1465,7 +1462,7 @@ fn show_erase_popover(app: &mut App, ctx: &Context) {
         ui.allocate_exact_size(rect.size(), Sense::click());
         widgets::record(ui, "ai-erase-popover", rect);
         let p = ui.painter();
-        widgets::menu_panel(p, rect, theme::RADIUS_FRAME);
+        widgets::kit::popover_surface(p, rect);
 
         let pad = theme::INSET_POPOVER;
         let mut cy = rect.top() + pad;
@@ -1520,21 +1517,18 @@ fn show_erase_popover(app: &mut App, ctx: &Context) {
         );
         cy += 22.0;
 
-        let col_w = (w - pad * 2.0 - 8.0) * 0.5;
-        let cancel_r = Rect::from_min_size(Pos2::new(rect.left() + pad, cy), egui::vec2(col_w, 24.0));
-        let run_r = Rect::from_min_size(Pos2::new(rect.left() + pad + col_w + 8.0, cy), egui::vec2(col_w, 24.0));
+        let action_h = theme::CONTROL_XS;
+        let col_w = (w - pad * 2.0 - theme::SPACE_INLINE) * 0.5;
+        let cancel_r = Rect::from_min_size(Pos2::new(rect.left() + pad, cy), egui::vec2(col_w, action_h));
+        let run_r = Rect::from_min_size(Pos2::new(rect.left() + pad + col_w + theme::SPACE_INLINE, cy), egui::vec2(col_w, action_h));
         widgets::record(ui, "ai-erase-cancel", cancel_r);
         widgets::record(ui, "ai-erase-run", run_r);
-        let c_resp = ui.interact(cancel_r, ui.id().with("ai-erase-cancel"), Sense::click());
-        ui.painter().rect_filled(cancel_r, theme::cr(theme::RADIUS_CONTROL), if c_resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY });
-        ui.painter().text(cancel_r.center(), Align2::CENTER_CENTER, "Cancel", theme::font_body(), theme::TEXT);
+        let c_resp = widgets::kit::button(ui, cancel_r, "ai-erase-cancel", "Cancel", widgets::kit::Hierarchy::Secondary, widgets::kit::Size::Xs, true);
         if c_resp.clicked() {
             close_clicked = true;
         }
 
-        let r_resp = ui.interact(run_r, ui.id().with("ai-erase-run"), Sense::click());
-        ui.painter().rect_filled(run_r, theme::cr(theme::RADIUS_CONTROL), theme::BG_BRAND);
-        ui.painter().text(run_r.center(), Align2::CENTER_CENTER, "Erase", theme::font_body_strong(), Color32::WHITE);
+        let r_resp = widgets::kit::button(ui, run_r, "ai-erase-run", "Erase", widgets::kit::Hierarchy::Primary, widgets::kit::Size::Xs, true);
         if r_resp.clicked() {
             run_clicked = true;
         }

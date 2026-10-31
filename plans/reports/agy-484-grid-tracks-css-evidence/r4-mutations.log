@@ -1,0 +1,4 @@
+M_r4_reintroduce_cols_le_1_guard: KILLED (exit=101)
+M_r4_always_px_for_1_col: KILLED (exit=101)
+M_r4_drop_hug_arm: KILLED (exit=101)
+Summary: 3/3 mutations KILLED
