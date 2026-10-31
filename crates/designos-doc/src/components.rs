@@ -1448,10 +1448,10 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             continue;
         }
         let kinds_differ = std::mem::discriminant(&old.kind) != std::mem::discriminant(&nn.kind);
-        let own_geo = (nn.fill_geometry.clone(), nn.stroke_geometry.clone());
         copy_overridden(&old, &mut nn, &fields);
-        if kinds_differ {
-            (nn.fill_geometry, nn.stroke_geometry) = own_geo;
+        if kinds_differ && fields.contains(&OverrideField::Size) && !matches!(nn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+            nn.fill_geometry = None;
+            nn.stroke_geometry = None;
         }
         c.update(nn);
     }
