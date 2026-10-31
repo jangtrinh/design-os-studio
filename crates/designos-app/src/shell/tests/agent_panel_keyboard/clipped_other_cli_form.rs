@@ -70,6 +70,10 @@ fn assert_tab_never_reaches(s: &mut Sim, height: f32, ids: &[Id]) {
 fn tab_does_not_walk_into_a_form_that_is_out_of_view() {
     let height = FORM_OUT_OF_VIEW;
     let mut s = window_with_the_form_open(height);
+    // Opening the form reveals it automatically. Move the panel back to its top to
+    // retain the guard for a form that later scrolls out of view.
+    s.shell.app.terminal.left_scroll = 0.0;
+    frames_at(&mut s, height, 2);
     let (form, composer) = (s.rect_of("agents-other-cli-form"), s.rect_of("agents-composer-input"));
     assert!(form.top() > composer.top(), "precondition: the form lies below the end of the list, under the composer: form {form:?}, composer {composer:?}");
     assert_tab_never_reaches(&mut s, height, &form_ids());
@@ -79,10 +83,45 @@ fn tab_does_not_walk_into_a_form_that_is_out_of_view() {
     finish(s);
 }
 
+/// Window heights at which the form was found scrolled past (520 px: none of it in view; 600 px: only Cancel and Save).
+const SHORT_WINDOWS: [f32; 2] = [520.0, 600.0];
+
+/// The area the empty state scrolls in: from the panel's top to 8 px above the composer (`terminal::show_left_with_doc`).
+/// The picker card sits `INSET_POPOVER` below the area's top, shifted up by the scroll.
+fn empty_state_viewport(s: &Sim) -> Rect {
+    let card = s.rect_of("agents-new-session-picker");
+    let composer = s.rect_of("agents-composer-input");
+    let top = card.top() + s.app().terminal.left_scroll - crate::theme::INSET_POPOVER;
+    Rect::from_min_max(Pos2::new(card.left(), top), Pos2::new(card.right(), composer.top() - 8.0))
+}
+
+fn assert_form_fully_in_view(height: f32) {
+    let s = window_with_the_form_open(height);
+    let form = s.rect_of("agents-other-cli-form");
+    let viewport = empty_state_viewport(&s);
+    assert!(
+        form.top() >= viewport.top() && form.bottom() <= viewport.bottom(),
+        "at {height} px the whole opened form must lie inside the visible area: form {form:?}, viewport {viewport:?}"
+    );
+    finish(s);
+}
+
+#[test]
+fn opening_other_cli_brings_the_whole_form_into_view_at_520_px() {
+    assert_form_fully_in_view(SHORT_WINDOWS[0]);
+}
+
+#[test]
+fn opening_other_cli_brings_the_whole_form_into_view_at_600_px() {
+    assert_form_fully_in_view(SHORT_WINDOWS[1]);
+}
+
 #[test]
 fn tab_does_not_walk_into_the_field_of_a_form_that_is_out_of_view() {
     let height = COMMAND_FIELD_OUT_OF_VIEW;
     let mut s = window_with_the_form_open(height);
+    s.shell.app.terminal.left_scroll = 0.0;
+    frames_at(&mut s, height, 2);
     let (label, command, composer) = (s.rect_of(LABEL_FIELD), s.rect_of("agents-other-cli-command-input"), s.rect_of("agents-composer-input"));
     assert!(label.top() < composer.top() && command.top() > composer.top(), "precondition: only the label is in view: {label:?}, {command:?}, {composer:?}");
     assert_tab_never_reaches(&mut s, height, &form_ids()[1..]);

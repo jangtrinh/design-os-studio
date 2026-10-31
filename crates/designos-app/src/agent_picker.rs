@@ -335,6 +335,14 @@ pub fn picker_outer_height(rows: &[PickerRow], other_form_open: bool) -> f32 {
     theme::INSET_POPOVER + picker_card_height(rows, other_form_open)
 }
 
+/// Where the open `Other CLI…` form lies in the picker, as offsets from the picker rect's top: the top of the form card and
+/// the bottom of its 6 px margin. [`show_picker_panel_with_rows`] places the form there, below the last row.
+pub fn other_form_span(rows: &[PickerRow]) -> (f32, f32) {
+    let rows_h: f32 = rows.iter().map(|row| picker_row_height(row) + theme::SPACE_ROW).sum();
+    let top = theme::INSET_POPOVER * 2.0 + theme::SPACE_SECTION + rows_h + theme::INSET_SEGMENT;
+    (top, top + OTHER_FORM_HEIGHT - theme::INSET_SEGMENT)
+}
+
 /// Renders the full new-session picker panel (`CONTROL_MD` = 40 px rows, `#652` §7).
 pub fn show_picker_panel(state: &mut TerminalState, ui: &mut Ui, rect: Rect, file_path: Option<&Path>) {
     let rows = rows_for_state(state);

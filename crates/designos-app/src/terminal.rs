@@ -6430,7 +6430,7 @@ pub fn show_left_with_doc(
         }
 
         render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
-        if !state.viewport_focused && !state.overlay_owns_keyboard && ui.input(|i| i.key_pressed(Key::Escape)) {
+        if !state.viewport_focused && !state.overlay_owns_keyboard && !state.sessions_popover_open && ui.input(|i| i.key_pressed(Key::Escape)) {
             // egui takes the caret out of the composer on a bare `Esc` before this code runs, so where the caret was a
             // frame ago counts as well: an `Esc` that leaves the composer must not also stop the turn (`#684`, `#923`).
             let composer_focused = state.composer_focused_last_frame || ui.ctx().memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input")));
@@ -6795,7 +6795,10 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         state.viewport_focused = true;
     }
     // An open dialog or menu owns the keys: the terminal neither sends them to the agent nor shows its caret as active.
-    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open() && !state.overlay_owns_keyboard;
+    // The Sessions popover is painted after the terminal. While it is open it owns the
+    // keyboard even before a rename TextEdit exists; otherwise a same-frame click + text
+    // event is consumed by the PTY before the popover can start the field.
+    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open() && !state.overlay_owns_keyboard && !state.sessions_popover_open;
     let search_open = state.search_open;
     let search_query = state.search_query.clone();
     let search_case_sensitive = state.search_case_sensitive;

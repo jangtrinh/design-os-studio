@@ -520,6 +520,16 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
     let mut remove_id: Option<u64> = None;
     let mut commit_rename = false;
     let mut cancel_rename = false;
+    let mut same_frame_rename_text = String::new();
+    let popup_enter_pressed = ui.input(|i| i.key_pressed(Key::Enter));
+    let popup_escape_pressed = ui.input(|i| i.key_pressed(Key::Escape));
+    ui.input(|i| {
+        for event in &i.events {
+            if let egui::Event::Text(text) = event {
+                same_frame_rename_text.push_str(text);
+            }
+        }
+    });
 
     let action_w = |label: &str| widgets::text_width(&p, label, &theme::font_caption()) + 2.0 * theme::INSET_SEGMENT;
     let (rename_w, remove_w) = (action_w(RENAME_ACTION_LABEL), action_w(REMOVE_ACTION_LABEL));
@@ -629,7 +639,10 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         y += row_h + row_gap;
     }
 
-    if commit_rename {
+    if popup_escape_pressed && state.renaming_session_tab_id.is_none() {
+        state.sessions_popover_open = false;
+        state.cancel_rename_session();
+    } else if commit_rename {
         state.commit_rename_session();
     } else if cancel_rename {
         state.cancel_rename_session();
@@ -637,6 +650,14 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
         state.remove_session_from_list(id);
     } else if let Some(id) = start_rename_id {
         state.start_rename_session(id);
+        if !same_frame_rename_text.is_empty() {
+            state.rename_session_input = same_frame_rename_text;
+        }
+        if popup_enter_pressed {
+            state.commit_rename_session();
+        } else if popup_escape_pressed {
+            state.cancel_rename_session();
+        }
     } else if let Some(id) = select_tab_id {
         state.select_session_row(id, file_path);
     } else if ui.input(|i| i.pointer.any_pressed()) {
