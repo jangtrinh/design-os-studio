@@ -386,12 +386,22 @@ fn effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect() {
     s.scroll_inspector_down();
     assert!(s.app().props.pop.is_none(), "screenshot_chrome must not auto-open the effect popover inside effects::section");
 
-    let s_panel = Sim::with(Options { select: Some("Hero".into()), panel: Some("effect".into()), ..Default::default() });
+    let opts = crate::cli::parse(["--select", "Hero", "--panel", "effect"].into_iter().map(String::from)).unwrap();
+    let mut s_panel = Sim::with(opts);
     assert!(
         matches!(s_panel.app().props.pop.as_ref().map(|p| &p.kind), Some(crate::panels::effects::PopKind::Effect(0))),
         "--panel effect must open PopKind::Effect(0) on the selected node"
     );
     let _ = fx_field_rect(&s_panel, "fxp-b", 0);
+    let panel_hero = s_panel.by_name("Hero");
+    let mut store2 = designos_doc::VariableStore::from_doc(&s_panel.app().doc);
+    let (coll2, light2, _) = theme_ids(s_panel.app());
+    let fx_radius2 = store2.add_variable(&coll2, "Effect/Radius", VariableKind::Number).unwrap();
+    store2.set_value(&fx_radius2, &light2, VariableValue::Number(18.0));
+    s_panel.shell.app.commit_store(store2, &[], &[]);
+    s_panel.shell.app.bind_variable(&[panel_hero], &["effects/0/radius"], &fx_radius2);
+    s_panel.frame(vec![]);
+    let _ = s_panel.rect_of("bound:effects/0/radius");
 }
 
 #[test]
