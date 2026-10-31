@@ -577,6 +577,7 @@ mod tests {
         assert_eq!(p(&["--panel", "assets"]).unwrap().panel.as_deref(), Some("assets"));
         assert_eq!(p(&["--panel", "variables"]).unwrap().panel.as_deref(), Some("variables"));
         assert_eq!(p(&["--panel", "variables-floating"]).unwrap().panel.as_deref(), Some("variables-floating"));
+        assert_eq!(p(&["--panel", "effect"]).unwrap().panel.as_deref(), Some("effect"));
         assert_eq!(p(&["--panel", "web-capture-report"]).unwrap().panel.as_deref(), Some("web-capture-report"));
         assert!(p(&["--panel", "nope"]).is_err());
         assert!(p(&["--panel"]).is_err());
