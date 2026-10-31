@@ -355,7 +355,7 @@ tier=component; rust=kit/tabs.rs::tab; rust_status=new-in-C; today=panels/right.
 ### Tag/Chip
 
 Component of Studio's chrome, specified in spec C.
-tier=component; rust=kit/badge.rs::tag; rust_status=new-in-C; today=agent_selection_chip.rs:160-200; paints=BG,BORDER_STRONG,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_SECONDARY; pending=ICON_QUATERNARY_HOVER,TEXT_SECONDARY; spec=C
+tier=component; rust=kit/badge.rs::tag; rust_status=new-in-C; today=agent_composer_chips.rs::paint_tag; paints=BG,BORDER_STRONG,ICON_QUATERNARY,ICON_QUATERNARY_HOVER,FOCUS_RING,TEXT_SECONDARY; pending=ICON_QUATERNARY_HOVER,TEXT_SECONDARY; spec=C
 
 - **Variants:** Size=Sm, State=Default, State=Focus, State=Hover
 - **States:** —
@@ -451,7 +451,7 @@ tier=composite; rust=agent_turn_card.rs::show; rust_status=exists; paints=BG_SEC
 ### Card/Approval
 
 Composite of Studio's chrome, specified in spec I.
-tier=composite; rust=agent_approval_card.rs::paint_approval_card; rust_status=exists; paints=BG_SECONDARY,BORDER; spec=I; composes=Badge/StatusCount,Button/*,Radio/Card
+tier=composite; rust=agent_approval_card.rs::paint_approval_card_for_tab; rust_status=exists; paints=BG_SECONDARY,BORDER; spec=I; composes=Button/*,Radio/Card
 
 - **Variants:** —
 - **States:** —
@@ -563,7 +563,7 @@ tier=composite; rust=kit/feedback.rs::empty_state; rust_status=new-in-C; today=h
 ### Input/Composer
 
 Composite of Studio's chrome, specified in spec I.
-tier=composite; rust=agent_composer.rs::show_composer; rust_status=exists; paints=BG_SECONDARY,BORDER,FOCUS_RING; spec=I; composes=Tag/Chip,Button/Icon,Button/Primary
+tier=composite; rust=agent_composer.rs::show_composer; rust_status=exists; today=the toolbar lives in agent_composer_toolbar.rs; paints=BG_SECONDARY,BORDER,FOCUS_RING; spec=I; composes=Tag/Chip,Button/Icon,Button/Primary,Button/Tertiary,Menu/Panel,Menu/Item
 
 - **Variants:** —
 - **States:** —
@@ -572,6 +572,7 @@ tier=composite; rust=agent_composer.rs::show_composer; rust_status=exists; paint
   - `colors.border` → #262626
   - `colors.ring` → #f97316
   - `colors.surface` → #171717
+  - `radius.radius-xl` → 12px
 
 ### Menu/Context
 
@@ -820,8 +821,8 @@ tier=region; rust=tabs.rs::show_top_tab_bar; rust_status=exists; spec=D; compose
 
 ### Panel/AgentTerminal
 
-Region of Studio's chrome, specified in spec I.
-tier=region; rust=terminal.rs::show_left_with_doc; rust_status=exists; spec=I; flow=panel-agents-terminal; composes=Tabs/Pill,Button/*,Tag/Chip,Card/Approval,Card/AgentTurn,Input/Composer,Input/Search,Banner/Inline
+Region of Studio's chrome, specified in spec I: one header row, an empty new-chat body and the agent picker held in the composer.
+tier=region; rust=terminal.rs::show_left_with_doc; rust_status=exists; spec=I; flow=panel-agents-terminal; composes=Tabs/Pill,Button/*,Tag/Chip,Card/Approval,Card/AgentTurn,Input/Composer,Input/Search,Banner/Inline,Button/Icon,Button/Tertiary,Menu/Panel,Menu/Item,Status/Dot,Popover/Panel
 
 - **Variants:** —
 - **States:** —

@@ -1153,17 +1153,41 @@
       "kind": "register",
       "note": "Button/Destructive",
       "ts": "2026-10-29T08:18:03.275Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/AgentTerminal",
+      "ts": "2026-10-31T03:42:16.355Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Input/Composer",
+      "ts": "2026-10-31T03:42:16.410Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Card/Approval",
+      "ts": "2026-10-31T03:42:16.466Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tag/Chip",
+      "ts": "2026-10-31T03:42:16.521Z"
     }
   ],
   "compiledHash": "sha256-SkbvSo4GPRiDbsraF1SR2KVmOozT63OQNtWEiJgr-DY",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 166,
+  "generation": 170,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {
     "family": "imported",
     "slug": "imported"
   },
-  "registryHash": "sha256-yRR-pyuXMw_1qEIfg_H-fjbVZGgilz4qGvu2LcN-9bM",
+  "registryHash": "sha256-jOT8HnHDV8rYiL4ws2lMmKIKQx0Epyn5UGEIzdM7JlY",
   "version": "1.0.0"
 }
