@@ -243,6 +243,25 @@ mod tests {
                         && (r.rect.max.x - target.max.x).abs() <= 0.5
                         && (r.rect.max.y - target.max.y).abs() <= 0.5;
                     same && r.stroke.color == crate::theme::BORDER_SELECTED
+                        && (r.stroke.width - crate::theme::BORDER_WIDTH).abs() <= 0.01
+                        && r.stroke_kind == egui::StrokeKind::Inside
+                }
+                egui::epaint::Shape::Vec(children) => children.iter().any(|c| walk(c, target)),
+                _ => false,
+            }
+        }
+        shapes.iter().any(|cs| walk(&cs.shape, target))
+    }
+
+    fn text_field_ring_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
+        fn walk(shape: &egui::epaint::Shape, target: Rect) -> bool {
+            match shape {
+                egui::epaint::Shape::Rect(r) => {
+                    let same = (r.rect.min.x - target.min.x).abs() <= 0.5
+                        && (r.rect.min.y - target.min.y).abs() <= 0.5
+                        && (r.rect.max.x - target.max.x).abs() <= 0.5
+                        && (r.rect.max.y - target.max.y).abs() <= 0.5;
+                    same && r.stroke.color == crate::theme::BORDER_SELECTED
                         && (r.stroke.width - crate::theme::BORDER_WIDTH * 2.0).abs() <= 0.01
                         && r.stroke_kind == egui::StrokeKind::Inside
                 }
@@ -314,7 +333,7 @@ mod tests {
         let field = s.field_id;
         s.frame(vec![], Some(field));
         assert_eq!(s.focused, Some(s.field_id), "the text field starts with focus");
-        assert!(focus_ring_on(&s.shapes, walk_field_rect()), "the focused text field paints its ring");
+        assert!(text_field_ring_on(&s.shapes, walk_field_rect()), "the focused text field paints its ring");
         assert!(!focus_ring_on(&s.shapes, walk_dd1_rect()));
         assert!(!focus_ring_on(&s.shapes, walk_dd2_rect()));
 
@@ -322,17 +341,17 @@ mod tests {
         assert_eq!(s.focused, Some(s.dd1_id), "Tab from the text field lands on the first dropdown");
         assert!(focus_ring_on(&s.shapes, walk_dd1_rect()), "the focused dropdown paints the BORDER_SELECTED inside ring");
         assert!(!focus_ring_on(&s.shapes, walk_dd2_rect()), "the unfocused dropdown paints no ring");
-        assert!(!focus_ring_on(&s.shapes, walk_field_rect()), "the text field drops its ring when Tab moves on");
+        assert!(!text_field_ring_on(&s.shapes, walk_field_rect()), "the text field drops its ring when Tab moves on");
 
         s.tab(false);
         assert_eq!(s.focused, Some(s.dd2_id), "Tab from the first dropdown lands on the second");
         assert!(focus_ring_on(&s.shapes, walk_dd2_rect()));
         assert!(!focus_ring_on(&s.shapes, walk_dd1_rect()));
-        assert!(!focus_ring_on(&s.shapes, walk_field_rect()));
+        assert!(!text_field_ring_on(&s.shapes, walk_field_rect()));
 
         s.tab(false);
         assert_eq!(s.focused, Some(s.field_id), "Tab from the last dropdown wraps to the text field");
-        assert!(focus_ring_on(&s.shapes, walk_field_rect()));
+        assert!(text_field_ring_on(&s.shapes, walk_field_rect()));
         assert!(!focus_ring_on(&s.shapes, walk_dd1_rect()));
         assert!(!focus_ring_on(&s.shapes, walk_dd2_rect()));
 
@@ -340,17 +359,17 @@ mod tests {
         assert_eq!(s.focused, Some(s.dd2_id), "Shift+Tab from the text field wraps to the last dropdown");
         assert!(focus_ring_on(&s.shapes, walk_dd2_rect()));
         assert!(!focus_ring_on(&s.shapes, walk_dd1_rect()));
-        assert!(!focus_ring_on(&s.shapes, walk_field_rect()));
+        assert!(!text_field_ring_on(&s.shapes, walk_field_rect()));
 
         s.tab(true);
         assert_eq!(s.focused, Some(s.dd1_id), "Shift+Tab from the last dropdown lands on the first");
         assert!(focus_ring_on(&s.shapes, walk_dd1_rect()));
         assert!(!focus_ring_on(&s.shapes, walk_dd2_rect()));
-        assert!(!focus_ring_on(&s.shapes, walk_field_rect()));
+        assert!(!text_field_ring_on(&s.shapes, walk_field_rect()));
 
         s.tab(true);
         assert_eq!(s.focused, Some(s.field_id), "Shift+Tab from the first dropdown returns to the text field");
-        assert!(focus_ring_on(&s.shapes, walk_field_rect()));
+        assert!(text_field_ring_on(&s.shapes, walk_field_rect()));
         assert!(!focus_ring_on(&s.shapes, walk_dd1_rect()));
         assert!(!focus_ring_on(&s.shapes, walk_dd2_rect()));
     }

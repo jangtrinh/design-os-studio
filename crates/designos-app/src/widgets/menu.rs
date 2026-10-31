@@ -635,8 +635,14 @@ pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let p = ui.painter();
-    let focused = open || ui.memory(|mem| mem.has_focus(id));
-    let paint = kit::select_look(if focused { kit::State::Focused } else { kit::State::Default });
+    let state = if open || ui.memory(|mem| mem.has_focus(id)) {
+        kit::State::Focused
+    } else if r.hovered() {
+        kit::State::Hover
+    } else {
+        kit::State::Default
+    };
+    let paint = kit::dropdown_look(state);
     kit::paint_frame(p, rect, theme::RADIUS_CONTROL, &paint);
     let font = theme::font_menu();
     let shown = elide(p, label, &font, rect.width() - 28.0);
@@ -1135,14 +1141,31 @@ mod tests {
         shape_texts(shapes).iter().any(|t| t.contains(needle))
     }
 
-    /// The focused look of the kit select: a 2px `BORDER_SELECTED` inside stroke.
+    /// The dropdown focus look: a 1px `BORDER_SELECTED` inside stroke.
     fn focus_ring_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
-        rect_stroke_on(shapes, target, theme::BORDER_SELECTED, theme::BORDER_WIDTH * 2.0)
+        rect_stroke_on(shapes, target, theme::BORDER_SELECTED, theme::BORDER_WIDTH)
     }
 
-    /// The resting look of the kit select: a 1px `BORDER_STRONG` inside stroke, with no hover change.
-    fn resting_border_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
-        rect_stroke_on(shapes, target, theme::BORDER_STRONG, theme::BORDER_WIDTH)
+    /// The hovered dropdown look: a 1px `BORDER` inside hairline.
+    fn hover_hairline_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
+        rect_stroke_on(shapes, target, theme::BORDER, theme::BORDER_WIDTH)
+    }
+
+    fn no_stroke_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
+        fn walk(shape: &egui::epaint::Shape, target: Rect) -> bool {
+            match shape {
+                egui::epaint::Shape::Rect(r) => {
+                    let same = (r.rect.min.x - target.min.x).abs() <= 0.5
+                        && (r.rect.min.y - target.min.y).abs() <= 0.5
+                        && (r.rect.max.x - target.max.x).abs() <= 0.5
+                        && (r.rect.max.y - target.max.y).abs() <= 0.5;
+                    !(same && r.stroke.width > 0.0 && r.stroke.color != Color32::TRANSPARENT)
+                }
+                egui::epaint::Shape::Vec(children) => children.iter().all(|c| walk(c, target)),
+                _ => true,
+            }
+        }
+        shapes.iter().all(|cs| walk(&cs.shape, target))
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -1289,28 +1312,31 @@ mod tests {
         s.focus_dd();
         assert_eq!(s.focused, Some(s.dd_id), "the closed dropdown must hold keyboard focus");
         assert!(!s.open);
-        assert!(focus_ring_on(&s.shapes, dd_rect()), "focused closed dropdown must paint the 2px BORDER_SELECTED inside stroke on its rect");
-        assert!(!resting_border_on(&s.shapes, dd_rect()), "focus replaces the resting BORDER_STRONG stroke");
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "focused closed dropdown must paint the 1px BORDER_SELECTED inside stroke on its rect");
+        assert!(!hover_hairline_on(&s.shapes, dd_rect()), "focus replaces the hover hairline");
     }
 
     #[test]
-    fn closed_idle_dropdown_paints_the_resting_border_and_no_ring() {
+    fn closed_idle_dropdown_paints_no_stroke_or_ring() {
         let mut s = DropSim::new(DropKind::Dropdown);
         s.idle();
-        assert!(s.focused.is_none());
-        assert!(!s.open);
-        assert!(resting_border_on(&s.shapes, dd_rect()), "an idle closed dropdown paints the resting BORDER_STRONG stroke");
+        assert!(s.focused.is_none(), "an idle dropdown must not hold focus");
+        assert!(!s.open, "an idle dropdown must be closed");
+        assert!(no_stroke_on(&s.shapes, dd_rect()), "an idle dropdown trigger must paint no visible stroke");
         assert!(!focus_ring_on(&s.shapes, dd_rect()), "an idle closed dropdown must not paint the focus ring");
     }
 
     #[test]
-    fn hovered_unfocused_dropdown_keeps_the_resting_border() {
+    fn hovered_unfocused_dropdown_paints_hairline() {
         let mut s = DropSim::new(DropKind::Dropdown);
+        s.idle();
+        let idle_shapes = s.shapes.clone();
         s.hover(dd_rect().center());
         assert!(s.focused.is_none() || s.focused != Some(s.dd_id), "hover alone must not focus the dropdown");
-        assert!(!s.open);
-        assert!(resting_border_on(&s.shapes, dd_rect()), "the kit select has no hover stroke, so hover keeps the resting BORDER_STRONG");
+        assert!(!s.open, "hover must leave the dropdown closed");
+        assert!(hover_hairline_on(&s.shapes, dd_rect()), "hover paints a 1px BORDER hairline");
         assert!(!focus_ring_on(&s.shapes, dd_rect()), "hover without focus must not paint BORDER_SELECTED");
+        assert_ne!(s.shapes, idle_shapes, "hovered trigger shapes must differ from idle trigger shapes");
     }
 
     #[test]
@@ -1400,7 +1426,7 @@ mod tests {
         s.focus_dd();
         assert!(focus_ring_on(&s.shapes, dd_rect()), "the focused dropdown must show the ring");
         assert!(!focus_ring_on(&s.shapes, dd2_rect()), "the unfocused sibling in the same row must show no ring");
-        assert!(resting_border_on(&s.shapes, dd2_rect()), "the unfocused sibling keeps its resting border");
+        assert!(no_stroke_on(&s.shapes, dd2_rect()), "the unfocused idle sibling paints no visible stroke");
     }
 
     #[test]
@@ -1410,7 +1436,7 @@ mod tests {
         assert_eq!(s.focused, Some(s.dd_id));
         assert!(!s.open);
         assert!(focus_ring_on(&s.shapes, dd_rect()), "focus must paint BORDER_SELECTED even while hovered");
-        assert!(!resting_border_on(&s.shapes, dd_rect()), "hover must not bring back the resting border over the focus ring");
+        assert!(!hover_hairline_on(&s.shapes, dd_rect()), "focus takes precedence over the hover hairline");
     }
 
     #[test]
