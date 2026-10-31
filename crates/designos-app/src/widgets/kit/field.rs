@@ -51,6 +51,16 @@ pub const fn dropdown_look(state: State) -> Look {
     }
 }
 
+/// Field chrome. Focus widens the border; there is no hover stroke and no focus ring.
+pub fn paint_field(ui: &egui::Ui, rect: egui::Rect, id: egui::Id, size: Size, invalid: bool) {
+    // A disabled `Ui` already multiplies painter opacity. Halving here as well would dim twice.
+    let state = if ui.is_enabled() && ui.memory(|mem| mem.has_focus(id)) { State::Focused } else { State::Default };
+    let radius = match size {
+        Size::Xs | Size::Sm | Size::Md => theme::RADIUS_CONTROL,
+    };
+    paint_frame(ui.painter(), rect, radius, &field_look(state, invalid));
+}
+
 #[cfg(test)]
 mod dropdown_tests {
     use super::*;
@@ -69,14 +79,4 @@ mod dropdown_tests {
         assert_eq!(select_look(State::Default).border, theme::BORDER_STRONG, "kit select keeps its strong resting border");
         assert_eq!(select_look(State::Focused).border_w, W * 2.0, "kit select keeps its two width focus stroke");
     }
-}
-
-/// Field chrome. Focus widens the border; there is no hover stroke and no focus ring.
-pub fn paint_field(ui: &egui::Ui, rect: egui::Rect, id: egui::Id, size: Size, invalid: bool) {
-    // A disabled `Ui` already multiplies painter opacity. Halving here as well would dim twice.
-    let state = if ui.is_enabled() && ui.memory(|mem| mem.has_focus(id)) { State::Focused } else { State::Default };
-    let radius = match size {
-        Size::Xs | Size::Sm | Size::Md => theme::RADIUS_CONTROL,
-    };
-    paint_frame(ui.painter(), rect, radius, &field_look(state, invalid));
 }
