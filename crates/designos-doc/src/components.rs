@@ -5946,4 +5946,133 @@ mod tests {
         assert!(badge_after.visible, "top-level swap must not carry diff-derived overrides onto Comp/B (R-M2)");
         assert!(!badge_after.component.overrides.contains(&OverrideField::Visible));
     }
+
+    fn mkbtn_stretch(d: &mut Document, page: NodeId, name: &str, x: f32, h: f32) -> NodeId {
+        let id = d.alloc_id();
+        let mut f = Node::frame(id, Rect::new(x, 300.0, 80.0, h));
+        f.name = name.into();
+        let comp = d.insert(page, f).unwrap();
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 0.0, 80.0, h));
+        r.name = "bg".into();
+        r.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        d.insert(comp, r).unwrap();
+        let c = create_component(d, comp);
+        apply(d, c);
+        comp
+    }
+
+    fn card_with_btn_slot(d: &mut Document, page: NodeId, preferred: Vec<NodeId>, widen: bool) -> (NodeId, NodeId, NodeId) {
+        let ba = preferred[0];
+        let id = d.alloc_id();
+        let mut card = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+        card.name = "Card".into();
+        let card = d.insert(page, card).unwrap();
+        let c = create_component(d, card);
+        apply(d, c);
+        let c = create_instance(d, ba, card, Vec2::new(10.0, 10.0));
+        apply(d, c);
+        let slot = d.get(card).unwrap().children[0];
+        {
+            let mut sn = d.get(slot).unwrap().clone();
+            sn.name = "Action".into();
+            sn.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Min };
+            apply(d, Command::Update { node: Box::new(sn) });
+        }
+        let c = add_prop(d, card, ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred }, default: PropValue::Instance(ba) });
+        apply(d, c);
+        let c = bind_prop(d, slot, OverrideField::MainComponent, Some("Btn"));
+        apply(d, c);
+        let c = create_instance(d, card, page, Vec2::new(400.0, 0.0));
+        apply(d, c);
+        let ci = *d.get(page).unwrap().children.last().unwrap();
+        let si = d.get(ci).unwrap().children[0];
+        if widen {
+            let mut cn = d.get(ci).unwrap().clone();
+            cn.size = Vec2::new(300.0, 100.0);
+            cn.component.overrides.insert(OverrideField::Size);
+            apply(d, Command::Update { node: Box::new(cn) });
+            for (cid, tf, sz) in crate::layout_constraints::plan_constraint_pass(d, ci, Vec2::new(100.0, 100.0), Vec2::new(300.0, 100.0), 8) {
+                let mut n = d.get(cid).unwrap().clone();
+                crate::layout_constraints::apply_constrained_geometry(&mut n, tf, sz);
+                apply(d, Command::Update { node: Box::new(n) });
+            }
+        }
+        (card, ci, si)
+    }
+
+    fn resize_main_with_constraints(d: &mut Document, comp: NodeId, new: Vec2) {
+        let mut n = d.get(comp).unwrap().clone();
+        let old = n.size;
+        n.size = new;
+        apply(d, Command::Update { node: Box::new(n) });
+        for (cid, tf, sz) in crate::layout_constraints::plan_constraint_pass(d, comp, old, new, 8) {
+            let mut k = d.get(cid).unwrap().clone();
+            crate::layout_constraints::apply_constrained_geometry(&mut k, tf, sz);
+            apply(d, Command::Update { node: Box::new(k) });
+        }
+    }
+
+    #[test]
+    fn r4_swapped_slot_follows_new_main_resize_prop() {
+        let mut d = Document::new("follow");
+        let page = d.add_page("P");
+        let ba = mkbtn_stretch(&mut d, page, "Btn/A", 0.0, 32.0);
+        let bb = mkbtn_stretch(&mut d, page, "Btn/B", 100.0, 40.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![ba, bb], false);
+        let c = set_instance_prop(&mut d, ci, "Btn", Some(PropValue::Instance(bb)));
+        apply(&mut d, c);
+        resize_main_with_constraints(&mut d, bb, Vec2::new(80.0, 48.0));
+        for _ in 1..=3 {
+            for m in [bb, card] {
+                let c = sync_instances(&mut d, m);
+                apply(&mut d, c);
+            }
+        }
+        let s = d.get(si).unwrap();
+        let bg = d.get(s.children[0]).unwrap();
+        assert_eq!((s.size, bg.size), (Vec2::new(80.0, 48.0), Vec2::new(80.0, 48.0)), "an unresized swapped slot follows its new main's resize");
+    }
+
+    #[test]
+    fn r4_swapped_slot_follows_new_main_resize_direct() {
+        let mut d = Document::new("follow2");
+        let page = d.add_page("P");
+        let ba = mkbtn_stretch(&mut d, page, "Btn/A", 0.0, 32.0);
+        let bb = mkbtn_stretch(&mut d, page, "Btn/B", 100.0, 40.0);
+        let (card, _ci, si) = card_with_btn_slot(&mut d, page, vec![ba, bb], false);
+        let c = swap_instance(&mut d, si, bb);
+        apply(&mut d, c);
+        resize_main_with_constraints(&mut d, bb, Vec2::new(80.0, 48.0));
+        for _ in 1..=3 {
+            for m in [bb, card] {
+                let c = sync_instances(&mut d, m);
+                apply(&mut d, c);
+            }
+        }
+        let s = d.get(si).unwrap();
+        let bg = d.get(s.children[0]).unwrap();
+        assert_eq!((s.size, bg.size), (Vec2::new(80.0, 48.0), Vec2::new(80.0, 48.0)), "an unresized swapped slot follows its new main's resize");
+    }
+
+    #[test]
+    fn r4_reswap_takes_new_main_size() {
+        let mut d = Document::new("reswap");
+        let page = d.add_page("P");
+        let ba = mkbtn_stretch(&mut d, page, "Btn/A", 0.0, 32.0);
+        let bb = mkbtn_stretch(&mut d, page, "Btn/B", 100.0, 40.0);
+        let bc = mkbtn_stretch(&mut d, page, "Btn/C", 200.0, 48.0);
+        let (card, ci, si) = card_with_btn_slot(&mut d, page, vec![ba, bb, bc], false);
+        let c = set_instance_prop(&mut d, ci, "Btn", Some(PropValue::Instance(bb)));
+        apply(&mut d, c);
+        let c = set_instance_prop(&mut d, ci, "Btn", Some(PropValue::Instance(bc)));
+        apply(&mut d, c);
+        let s_swap = d.get(si).unwrap().size;
+        let bg_swap = d.get(d.get(si).unwrap().children[0]).unwrap().size;
+        for m in [bc, card] {
+            let c = sync_instances(&mut d, m);
+            apply(&mut d, c);
+        }
+        assert_eq!((s_swap, bg_swap), (Vec2::new(80.0, 48.0), Vec2::new(80.0, 48.0)), "B -> C on an unresized slot takes C's size");
+    }
 }

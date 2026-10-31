@@ -561,6 +561,53 @@ mod props_panel_tests {
         app.undo();
         assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Plus");
     }
+
+    #[test]
+    fn review_r4_app_swapped_slot_follows_new_main_height_edit() {
+        let mut doc = Document::new("r4follow");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+        let mkbtn = |app: &mut App, name: &str, x: f32, h: f32| -> NodeId {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(x, 300.0, 80.0, h));
+            f.name = name.into();
+            let comp = app.doc.insert(page, f).unwrap();
+            let rid = app.doc.alloc_id();
+            let mut r = Node::rectangle(rid, designos_doc::Rect::new(0.0, 0.0, 80.0, h));
+            r.name = "bg".into();
+            app.doc.insert(comp, r).unwrap();
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            comp
+        };
+        let ba = mkbtn(&mut app, "Btn/A", 0.0, 32.0);
+        let bb = mkbtn(&mut app, "Btn/B", 100.0, 40.0);
+        let card = {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0));
+            f.name = "Card".into();
+            let comp = app.doc.insert(page, f).unwrap();
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            create_instance(&mut app.doc, ba, comp, designos_doc::Vec2::new(10.0, 10.0)).apply(&mut app.doc).unwrap();
+            let slot = app.doc.get(comp).unwrap().children[0];
+            add_prop(
+                &mut app.doc,
+                comp,
+                ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) },
+            )
+            .apply(&mut app.doc)
+            .unwrap();
+            designos_doc::bind_prop(&mut app.doc, slot, OverrideField::MainComponent, Some("Btn")).apply(&mut app.doc).unwrap();
+            comp
+        };
+        create_instance(&mut app.doc, card, page, designos_doc::Vec2::new(400.0, 0.0)).apply(&mut app.doc).unwrap();
+        let ci = *app.doc.get(page).unwrap().children.last().unwrap();
+        let si = app.doc.get(ci).unwrap().children[0];
+        app.set_instance_prop(ci, "Btn", Some(PropValue::Instance(bb)));
+        app.edit_nodes(&[bb], |n| n.size.y = 48.0);
+        let s = app.doc.get(si).unwrap();
+        assert_eq!(s.size.y, 48.0, "the swapped slot was never resized: it follows its main's height edit");
+    }
 }
 
 fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
