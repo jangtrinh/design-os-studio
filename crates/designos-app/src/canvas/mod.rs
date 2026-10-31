@@ -390,7 +390,7 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: ERect) {
             None => app.fit_all(),
         }
     }
-    if app.is_board() {
+    if app.wb_dotted_background() {
         // the dotted board under the (transparent) page tiles
         crate::board::canvas::background(app, ui, rect);
     }

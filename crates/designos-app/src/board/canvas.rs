@@ -52,7 +52,7 @@ pub fn background(app: &App, ui: &Ui, rect: ERect) {
 
 /// Magnet dots of the hovered node and the drop target of a connector being dragged.
 pub fn overlay(app: &App, p: &Painter, rect: ERect) {
-    if !app.is_board() {
+    if !app.wb_connectors_enabled() {
         return;
     }
     let pointer = app.canvas.pointer_page;

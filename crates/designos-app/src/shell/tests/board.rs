@@ -983,3 +983,119 @@ fn facilitator_timer_label_uses_tabular_digits() {
     assert!(!families.is_empty(), "the 05:00 label is painted");
     assert!(families.iter().all(|f| *f == egui::FontFamily::Monospace), "digits must not jitter each second: {families:?}");
 }
+
+fn build_wb1_board_document() -> designos_doc::Document {
+    use crate::board::{color_of, create};
+    use designos_doc::*;
+
+    let mut d = create::new_document("WB-1 Board");
+    let page = d.pages[0];
+
+    let sec_id = d.alloc_id();
+    let mut section = Node::new(sec_id, NodeKind::Section);
+    section.name = "Retro Section".into();
+    section.transform = Affine::translate(80.0, 80.0);
+    section.size = Vec2::new(960.0, 560.0);
+    section.fills = vec![Paint::solid(Color::WHITE)];
+    section.stroke.paints = vec![Paint::solid(Color::rgb(0xCF, 0xCF, 0xCF))];
+    section.stroke.weight = 1.0;
+    let section = d.insert(page, section).unwrap();
+
+    let mut add_sticky = |parent: NodeId, name: &str, at: (f32, f32), rgb: u32, text: &str| -> NodeId {
+        let id = d.alloc_id();
+        let mut n = Node::sticky(id, DRect::new(at.0, at.1, STICKY_SIZE, STICKY_SIZE), text);
+        n.name = name.into();
+        if let NodeKind::Sticky(s) = &mut n.kind {
+            s.color = color_of(rgb);
+        }
+        d.insert(parent, n).unwrap()
+    };
+
+    let s1 = add_sticky(section, "Sticky 1", (40.0, 60.0), 0xFFE58F, "First sticky note");
+    let s2 = add_sticky(section, "Sticky 2", (360.0, 60.0), 0xB6D4FF, "Second sticky note");
+    let s3 = add_sticky(section, "Sticky 3", (360.0, 340.0), 0xC4EBA6, "Third sticky note");
+
+    let sh_id = d.alloc_id();
+    let mut shape = Node::shape_with_text(sh_id, DRect::new(40.0, 350.0, 220.0, 140.0), ShapeKind::RoundedRect, "Decision shape");
+    shape.name = "Shape 1".into();
+    shape.fills = vec![Paint::solid(color_of(0xFFC48A))];
+    d.insert(section, shape).unwrap();
+
+    let mut add_conn = |name: &str, (a, am): (NodeId, Magnet), (b, bm): (NodeId, Magnet), label: &str| {
+        let id = d.alloc_id();
+        let mut p = ConnectorProps { start: ConnectorEnd::attached(a, am), end: ConnectorEnd::attached(b, bm), ..Default::default() };
+        p.end_cap = ConnectorCap::Triangle;
+        if !label.is_empty() {
+            let mut l = board_text(14.0, TextAlignH::Center, TextAlignV::Center);
+            l.content = label.into();
+            p.label = Some(l);
+        }
+        let mut n = Node::connector(id, p);
+        n.name = name.into();
+        let cid = d.insert(page, n).unwrap();
+        sync_connector(&mut d, cid);
+    };
+
+    add_conn("Connector 1", (s1, Magnet::Right), (s2, Magnet::Left), "leads to");
+    add_conn("Connector 2", (s2, Magnet::Bottom), (s3, Magnet::Top), "");
+
+    let stamp_id = d.alloc_id();
+    let mut stamp = Node::stamp(stamp_id, Vec2::new(720.0, 120.0), "thumbs_up", 64.0);
+    stamp.name = "Stamp 1".into();
+    d.insert(section, stamp).unwrap();
+
+    // Table representation using design:os frames/cells (NodeKind has no dedicated Table variant prior to WB-16).
+    let tbl_id = d.alloc_id();
+    let mut table = Node::frame(tbl_id, DRect::new(680.0, 260.0, 240.0, 120.0));
+    table.name = "Table".into();
+    table.fills = vec![Paint::solid(Color::WHITE)];
+    table.stroke.paints = vec![Paint::solid(Color::rgb(0xCF, 0xCF, 0xCF))];
+    table.stroke.weight = 1.0;
+    let tbl_id = d.insert(section, table).unwrap();
+    for r in 0..2 {
+        for c in 0..2 {
+            let cell_id = d.alloc_id();
+            let mut cell = Node::frame(cell_id, DRect::new(c as f32 * 120.0, r as f32 * 60.0, 120.0, 60.0));
+            cell.name = format!("Cell {r},{c}");
+            cell.stroke.paints = vec![Paint::solid(Color::rgb(0xE4, 0xE4, 0xE7))];
+            cell.stroke.weight = 1.0;
+            d.insert(tbl_id, cell).unwrap();
+        }
+    }
+
+    d
+}
+
+#[test]
+fn ac13_wb1_open_render_save() {
+    let board_doc = build_wb1_board_document();
+    let board_json = board_doc.to_json().expect("serialize board");
+    let roundtrip = designos_doc::Document::from_json(&board_json).expect("parse board").to_json().expect("re-serialize board");
+    assert_eq!(board_json, roundtrip);
+
+    if let (Ok(s_dir), Ok(out_dir)) = (std::env::var("DESIGNOS_WB1_SANDBOX"), std::env::var("DESIGNOS_WB1_OUT_DIR")) {
+        let s_path = std::path::PathBuf::from(s_dir);
+        let out_path = std::path::PathBuf::from(out_dir);
+        let board_file = s_path.join("board.designos");
+        if !board_file.exists() {
+            crate::io::save_path(&board_doc, &board_file).expect("save initial board.designos");
+        }
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let cases = [
+            ("board.designos", board_file, Some("Sticky 1".to_string())),
+            ("designos-studio-landing.designos", manifest_dir.join("tests/fixtures/designos-studio-landing.designos"), None),
+            ("frame-labels-1197.designos", manifest_dir.join("tests/fixtures/frame-labels-1197.designos"), None),
+            ("kit.designos", s_path.join("kit.fig"), None),
+        ];
+        for (out_name, src, select) in cases {
+            let mut s = Sim::with(Options { file: Some(src.clone()), select, ..Default::default() });
+            if s.app().is_board() {
+                s.shell.app.board.timer.start(1.0);
+                s.shell.app.board.timer.tick(2.0);
+                s.frame(vec![]);
+            }
+            let dest = out_path.join(out_name);
+            crate::io::save_path(&s.app().doc, &dest).unwrap_or_else(|e| panic!("save {}: {e}", dest.display()));
+        }
+    }
+}

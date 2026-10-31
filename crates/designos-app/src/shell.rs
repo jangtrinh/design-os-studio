@@ -1116,7 +1116,7 @@ impl Shell {
                 }
                 if app.props.eyedropper.is_some() || app.props.picker.as_ref().is_some_and(|pk| pk.eyedrop) {
                     app.props.eyedropper_format = app.props.eyedropper_format.next();
-                } else if app.is_board() && !m.shift {
+                } else if app.wb_tools_enabled() && !m.shift {
                     crate::board::create::tab_next(app);
                 } else {
                     app.select_sibling(!m.shift);
@@ -1145,7 +1145,7 @@ impl Shell {
             Key::S if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Bottom)),
             Key::D if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::Right)),
             // A board has no `</>` button and no Inspect panel, so it has no Dev Mode to switch.
-            Key::D if m.shift && !m.alt && !app.is_board() => app.set_dev_mode(!app.ui.dev_mode),
+            Key::D if m.shift && !m.alt && app.dev_mode_available() => app.set_dev_mode(!app.ui.dev_mode),
             Key::H if m.shift && !m.alt => app.flip_selection(true),
             Key::V if m.shift && !m.alt => app.flip_selection(false),
             Key::H | Key::V if m.shift && m.alt => menus::run(app, ctx, Action::Distribute),
@@ -1153,7 +1153,7 @@ impl Shell {
             Key::V if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::VCenter)),
             Key::OpenBracket if !m.shift && !m.alt => menus::run(app, ctx, Action::SendToBack),
             Key::CloseBracket if !m.shift && !m.alt => menus::run(app, ctx, Action::BringToFront),
-            Key::N if !m.alt && !app.is_board() => app.step_frame(!m.shift, true),
+            Key::N if !m.alt && app.frame_stepping_available() => app.step_frame(!m.shift, true),
             Key::Home if !m.alt => app.step_frame(false, false),
             Key::End if !m.alt => app.step_frame(true, false),
             Key::PageUp => app.step_page(false),
@@ -1186,7 +1186,7 @@ impl Shell {
             Key::Quote if m.shift => menus::run(app, ctx, Action::TogglePixelGrid),
             k => {
                 if !m.alt {
-                    let tool = if app.is_board() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
+                    let tool = if app.wb_tools_enabled() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
                     if let Some(t) = tool {
                         app.set_tool(t);
                     }
@@ -1200,7 +1200,10 @@ impl Shell {
     fn context_menu(&mut self, ui: &egui::Ui, canvas_rect: Rect) {
         let (clicked, pos, cmd) = ui.ctx().input(|i| (i.pointer.secondary_clicked(), i.pointer.interact_pos(), i.modifiers.command));
         let Some(pos) = pos.filter(|p| clicked && canvas_rect.contains(*p) && !self.app.vars.open) else { return };
-        if self.app.ui.rulers && !self.app.is_board() && (pos.x - canvas_rect.left() <= theme::RULER_SIZE || pos.y - canvas_rect.top() <= theme::RULER_SIZE) {
+        if self.app.ui.rulers
+            && self.app.rulers_available()
+            && (pos.x - canvas_rect.left() <= theme::RULER_SIZE || pos.y - canvas_rect.top() <= theme::RULER_SIZE)
+        {
             return;
         }
         let app = &mut self.app;
@@ -1785,7 +1788,7 @@ impl Shell {
         }
 
         ui.painter().rect_filled(full, 0.0, theme::BG);
-        let board = self.app.is_board();
+        let board = !self.app.inspector_panel_visible();
         let right_w = if board { 0.0 } else { theme::RIGHT_PANEL_WIDTH + theme::BORDER_WIDTH };
         let rail_w = theme::RAIL_WIDTH + theme::BORDER_WIDTH;
         let is_ai_panel = matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));

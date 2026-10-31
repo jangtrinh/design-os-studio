@@ -117,7 +117,7 @@ pub fn new_shape(app: &mut App, tool: Tool) -> Node {
         Tool::Section => {
             let mut s = Node::new(id, NodeKind::Section);
             s.fills = vec![Paint::solid(Color::rgb(0xF5, 0xF5, 0xF5))];
-            if app.is_board() {
+            if app.wb_section_defaults() {
                 // a board section is a white panel with a light outline
                 s.fills = vec![Paint::solid(Color::WHITE)];
                 s.stroke.paints = vec![Paint::solid(Color::rgb(0xCF, 0xCF, 0xCF))];
@@ -195,7 +195,7 @@ pub fn new_text(app: &mut App, parent: NodeId, at: Vec2) -> Option<(Node, Vec2)>
     let inv = app.doc.world_transform(parent).invert()?;
     let o = inv.apply(at);
     let id = app.doc.alloc_id();
-    let size = if app.is_board() { 24.0 } else { theme::DEFAULT_TEXT_SIZE };
+    let size = if app.wb_text_defaults() { 24.0 } else { theme::DEFAULT_TEXT_SIZE };
     let style = TextStyle { font_size: size, fills: vec![Paint::solid(Color::BLACK)], ..Default::default() };
     let mut n = Node::text(id, Rect::new(o.x, o.y, 10.0, 10.0), "", style);
     if let NodeKind::Text(t) = &n.kind {
