@@ -3,7 +3,7 @@
 //! `fixed_height_auto_rows`, `row_and_column_spans`) and dumps their solver boxes + CSS/Tailwind
 //! as JSON for `scripts/qa/grid-chrome-compare.py` when `GRID_CHROME_DUMP_JSON=1` is set.
 
-use designos_doc::{AlignSelf, AutoLayout, Document, FrameProps, GridTrack, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2};
+use designos_doc::{AlignSelf, AutoLayout, Document, FrameProps, GridAutoTracks, GridTrack, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2};
 use designos_export::{css_for, tailwind_for};
 
 pub struct GridFixture {
@@ -47,6 +47,9 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_s1_stretch_child_hug(),
         scene_s2_empty_hug_column(),
         scene_s3_hug_grid_max_w(),
+        scene_s5_hug_height_min_h(),
+        scene_s5b_hug_height_min_h_flex_auto(),
+        scene_s7_explicit_rows_hug(),
     ]
 }
 
@@ -162,8 +165,8 @@ fn scene_hugging_grid() -> GridFixture {
         doc,
         grid,
         items,
-        expected_css: "display: grid;\nwidth: 212px;\nheight: 72px;\npadding: 8px;\ngrid-template-columns: 100px 40px 40px;\ngap: 8px;",
-        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_40px] gap-2 p-2 w-[212px] h-18\">\n  <div class=\"w-[100px] h-7\"></div>\n  <div class=\"w-6 h-7\"></div>\n  <div class=\"w-6 h-7\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 212px;\nheight: 72px;\npadding: 8px;\ngrid-template-columns: 100px 40px 40px;\ngap: 8px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_40px] content-start gap-2 p-2 w-[212px] h-18\">\n  <div class=\"w-[100px] h-7\"></div>\n  <div class=\"w-6 h-7\"></div>\n  <div class=\"w-6 h-7\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
     }
 }
 
@@ -260,8 +263,8 @@ fn scene_s1_stretch_child_hug() -> GridFixture {
         doc,
         grid,
         items: vec![a, b, c, e],
-        expected_css: "display: grid;\nwidth: 140px;\nheight: 60px;\ngrid-template-columns: 100px 40px;",
-        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px] w-[140px] h-15\">\n  <div class=\"w-5 h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 140px;\nheight: 60px;\ngrid-template-columns: 100px 40px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px] content-start w-[140px] h-15\">\n  <div class=\"w-5 h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n</div>",
     }
 }
 
@@ -286,8 +289,8 @@ fn scene_s2_empty_hug_column() -> GridFixture {
         doc,
         grid,
         items: vec![a, b],
-        expected_css: "display: grid;\nwidth: 141px;\nheight: 30px;\ngrid-template-columns: 100px 40px 1px;",
-        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_1px] w-[141px] h-[30px]\">\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 141px;\nheight: 30px;\ngrid-template-columns: 100px 40px 1px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_1px] content-start w-[141px] h-[30px]\">\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n</div>",
     }
 }
 
@@ -313,8 +316,94 @@ fn scene_s3_hug_grid_max_w() -> GridFixture {
         doc,
         grid,
         items: vec![a, b, c],
-        expected_css: "display: grid;\nwidth: 150px;\nheight: 30px;\ngrid-template-columns: 100px 40px 60px;",
-        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_60px] w-[150px] h-[30px]\">\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n  <div class=\"w-15 h-[30px]\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 150px;\nheight: 30px;\ngrid-template-columns: 100px 40px 60px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_60px] content-start w-[150px] h-[30px]\">\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n  <div class=\"w-15 h-[30px]\"></div>\n</div>",
+    }
+}
+
+fn scene_s5_hug_height_min_h() -> GridFixture {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 0,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 50.0));
+    doc.get_mut(grid).unwrap().layout_child.min_h = Some(200.0);
+    let mut items = Vec::new();
+    for _ in 0..4 {
+        items.push(add_item(&mut doc, grid, 50.0, 20.0, Sizing::Fill, Sizing::Fixed));
+    }
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "s5_hug_height_min_h",
+        doc,
+        grid,
+        items,
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngap: 10px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start gap-2.5 w-[200px] h-[200px]\">\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
+    }
+}
+
+fn scene_s5b_hug_height_min_h_flex_auto() -> GridFixture {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 0,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Hug,
+        grid_auto_tracks: GridAutoTracks::Track(GridTrack::Flex(1.0)),
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 50.0));
+    doc.get_mut(grid).unwrap().layout_child.min_h = Some(200.0);
+    let mut items = Vec::new();
+    for _ in 0..4 {
+        items.push(add_item(&mut doc, grid, 50.0, 20.0, Sizing::Fill, Sizing::Fixed));
+    }
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "s5b_hug_height_min_h_flex_auto",
+        doc,
+        grid,
+        items,
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngap: 10px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start gap-2.5 w-[200px] h-[200px]\">\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
+    }
+}
+
+fn scene_s7_explicit_rows_hug() -> GridFixture {
+    let mut al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 2,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    al.grid_row_tracks[0] = GridTrack::Hug;
+    al.grid_row_tracks[1] = GridTrack::Hug;
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 200.0));
+    let mut items = Vec::new();
+    for _ in 0..4 {
+        items.push(add_item(&mut doc, grid, 50.0, 20.0, Sizing::Fill, Sizing::Fixed));
+    }
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "s7_explicit_rows_hug",
+        doc,
+        grid,
+        items,
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: auto auto;\ngap: 10px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 grid-rows-[auto_auto] content-start gap-2.5 w-[200px] h-[200px]\">\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
     }
 }
 
@@ -428,4 +517,19 @@ fn s2_empty_hug_column_css_and_tailwind() {
 #[test]
 fn s3_hug_grid_max_w_css_and_tailwind() {
     assert_fixture_css_and_tailwind("s3_hug_grid_max_w");
+}
+
+#[test]
+fn s5_hug_height_min_h_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s5_hug_height_min_h");
+}
+
+#[test]
+fn s5b_hug_height_min_h_flex_auto_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s5b_hug_height_min_h_flex_auto");
+}
+
+#[test]
+fn s7_explicit_rows_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s7_explicit_rows_hug");
 }
