@@ -3,7 +3,7 @@
 //! `fixed_height_auto_rows`, `row_and_column_spans`) and dumps their solver boxes + CSS/Tailwind
 //! as JSON for `scripts/qa/grid-chrome-compare.py` when `GRID_CHROME_DUMP_JSON=1` is set.
 
-use designos_doc::{AutoLayout, Document, FrameProps, GridTrack, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2};
+use designos_doc::{AlignSelf, AutoLayout, Document, FrameProps, GridTrack, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2};
 use designos_export::{css_for, tailwind_for};
 
 pub struct GridFixture {
@@ -44,6 +44,9 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_hugging_grid(),
         scene_fixed_height_auto_rows(),
         scene_row_and_column_spans(),
+        scene_s1_stretch_child_hug(),
+        scene_s2_empty_hug_column(),
+        scene_s3_hug_grid_max_w(),
     ]
 }
 
@@ -234,6 +237,87 @@ fn scene_row_and_column_spans() -> GridFixture {
     }
 }
 
+fn scene_s1_stretch_child_hug() -> GridFixture {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    let a = add_item(&mut doc, grid, 20.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let c = add_item(&mut doc, grid, 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.get_mut(c).unwrap().layout_child.align_self = AlignSelf::Stretch;
+    let e = add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "s1_stretch_child_hug",
+        doc,
+        grid,
+        items: vec![a, b, c, e],
+        expected_css: "display: grid;\nwidth: 140px;\nheight: 60px;\ngrid-template-columns: 100px 40px;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px] w-[140px] h-15\">\n  <div class=\"w-5 h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n</div>",
+    }
+}
+
+fn scene_s2_empty_hug_column() -> GridFixture {
+    let mut al = AutoLayout {
+        grid_columns: 3,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    al.grid_col_tracks[2] = GridTrack::Hug;
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    let a = add_item(&mut doc, grid, 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "s2_empty_hug_column",
+        doc,
+        grid,
+        items: vec![a, b],
+        expected_css: "display: grid;\nwidth: 141px;\nheight: 30px;\ngrid-template-columns: 100px 40px 1px;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_1px] w-[141px] h-[30px]\">\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n</div>",
+    }
+}
+
+fn scene_s3_hug_grid_max_w() -> GridFixture {
+    let al = AutoLayout {
+        grid_columns: 3,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    doc.get_mut(grid).unwrap().layout_child.max_w = Some(150.0);
+    let a = add_item(&mut doc, grid, 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let c = add_item(&mut doc, grid, 60.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "s3_hug_grid_max_w",
+        doc,
+        grid,
+        items: vec![a, b, c],
+        expected_css: "display: grid;\nwidth: 150px;\nheight: 30px;\ngrid-template-columns: 100px 40px 60px;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_60px] w-[150px] h-[30px]\">\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n  <div class=\"w-15 h-[30px]\"></div>\n</div>",
+    }
+}
+
 fn json_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     out.push('"');
@@ -329,4 +413,19 @@ fn fixed_height_auto_rows_css_and_tailwind() {
 #[test]
 fn row_and_column_spans_css_and_tailwind() {
     assert_fixture_css_and_tailwind("row_and_column_spans");
+}
+
+#[test]
+fn s1_stretch_child_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s1_stretch_child_hug");
+}
+
+#[test]
+fn s2_empty_hug_column_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s2_empty_hug_column");
+}
+
+#[test]
+fn s3_hug_grid_max_w_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s3_hug_grid_max_w");
 }
