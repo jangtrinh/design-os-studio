@@ -744,4 +744,15 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn grid_row_heights_honors_explicit_grid_rows_beyond_placed_children() {
+        let mut al = AutoLayout { grid_columns: 2, grid_rows: 3, item_spacing: 10.0, counter_spacing: 10.0, ..grid(2, Sizing::Fixed, Sizing::Fixed) };
+        al.grid_row_tracks[0] = GridTrack::Fixed(30.0);
+        al.grid_row_tracks[1] = GridTrack::Fixed(40.0);
+        al.grid_row_tracks[2] = GridTrack::Fixed(50.0);
+        let kids = vec![child(60.0, 24.0)];
+        let rows = grid_row_heights(&al, Vec2::new(200.0, 200.0), SizeLimits::default(), &kids);
+        assert_eq!(rows, vec![30.0, 40.0, 50.0]);
+    }
 }
