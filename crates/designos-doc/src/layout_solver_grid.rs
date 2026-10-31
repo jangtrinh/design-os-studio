@@ -115,6 +115,47 @@ pub fn grid_column_widths(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &
     column_widths(al, frame, own, kids, &placements, cols)
 }
 
+/// Whether [`compute_grid`] packs `al`'s rows at the top (`pt + r * row_gap + sum(0..r)`) rather
+/// than leveling any auto row across a Fixed container height.
+pub fn grid_packs_auto_rows(al: &AutoLayout, kids: &[ChildIn]) -> bool {
+    let rows = placed_grid_rows(al, kids).max(al.grid_rows as usize).max(1);
+    flex_auto_row_frozen(al, rows).is_none()
+}
+
+fn fixed_row(al: &AutoLayout, r: usize) -> Option<f32> {
+    let explicit_rows = al.grid_rows as usize;
+    if explicit_rows > 0 && r < explicit_rows {
+        match al.grid_row_tracks.get(r) {
+            Some(GridTrack::Fixed(h)) => Some(h.max(0.0)),
+            _ => None,
+        }
+    } else if explicit_rows == 0 {
+        if let Some(GridTrack::Fixed(h)) = al.grid_row_tracks.get(r) {
+            Some(h.max(0.0))
+        } else if let GridAutoTracks::Track(GridTrack::Fixed(h)) = al.grid_auto_tracks {
+            Some(h.max(0.0))
+        } else {
+            None
+        }
+    } else if let GridAutoTracks::Track(GridTrack::Fixed(h)) = al.grid_auto_tracks {
+        Some(h.max(0.0))
+    } else {
+        None
+    }
+}
+
+/// When `al` levels implicit Flex auto rows across a Fixed container height, returns the `frozen`
+/// mask (`true` for explicit rows `r < al.grid_rows` and any Fixed row) if at least one row in
+/// `0..rows` is unfrozen; otherwise returns `None` (all rows stay packed at the top).
+fn flex_auto_row_frozen(al: &AutoLayout, rows: usize) -> Option<Vec<bool>> {
+    if al.counter_sizing != Sizing::Fixed || !matches!(al.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Flex(fr)) if fr > 0.0) {
+        return None;
+    }
+    let explicit_rows = al.grid_rows as usize;
+    let frozen: Vec<bool> = (0..rows).map(|r| r < explicit_rows || fixed_row(al, r).is_some()).collect();
+    frozen.iter().any(|&f| !f).then_some(frozen)
+}
+
 fn column_widths(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn], placements: &[Placed], cols: usize) -> Vec<f32> {
     let [_, pr, _, pl] = al.padding;
     let col_gap = al.item_spacing.max(0.0);
@@ -191,30 +232,9 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
     // Row heights: an explicit Fixed row track wins (or an explicit Fixed auto-track size for
     // implicit overflow rows `r >= al.grid_rows`); single-row items size their row from clamped
     // height, then spanning items distribute only the remaining needed height across shorter auto rows.
-    let explicit_rows = al.grid_rows as usize;
-    let fixed_row = |r: usize| -> Option<f32> {
-        if explicit_rows > 0 && r < explicit_rows {
-            match al.grid_row_tracks.get(r) {
-                Some(GridTrack::Fixed(h)) => Some(h.max(0.0)),
-                _ => None,
-            }
-        } else if explicit_rows == 0 {
-            if let Some(GridTrack::Fixed(h)) = al.grid_row_tracks.get(r) {
-                Some(h.max(0.0))
-            } else if let GridAutoTracks::Track(GridTrack::Fixed(h)) = al.grid_auto_tracks {
-                Some(h.max(0.0))
-            } else {
-                None
-            }
-        } else if let GridAutoTracks::Track(GridTrack::Fixed(h)) = al.grid_auto_tracks {
-            Some(h.max(0.0))
-        } else {
-            None
-        }
-    };
     let mut row_heights = vec![0.0f32; rows];
     for (r, h) in row_heights.iter_mut().enumerate() {
-        *h = fixed_row(r).unwrap_or_else(|| auto_row_height(kids, &placements, r));
+        *h = fixed_row(al, r).unwrap_or_else(|| auto_row_height(kids, &placements, r));
     }
     // Spans are settled in an order that depends on the spans alone, never on child order (layer order
     // is only z-order): fewer rows first, then the tallest first so the rows it raises already hold the
@@ -229,12 +249,11 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
     spans.sort_by(|a, b| (a.end - a.start).cmp(&(b.end - b.start)).then(b.need.total_cmp(&a.need)).then(a.start.cmp(&b.start)).then(a.col.cmp(&b.col)));
     for s in &spans {
         let gaps = row_gap * ((s.end - s.start - 1) as f32);
-        let frozen = (s.start..s.end).map(|r| fixed_row(r).is_some()).collect();
+        let frozen = (s.start..s.end).map(|r| fixed_row(al, r).is_some()).collect();
         level_span_rows(&mut row_heights[s.start..s.end], frozen, (s.need - gaps).max(0.0));
     }
-    if al.counter_sizing == Sizing::Fixed && matches!(al.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Flex(fr)) if fr > 0.0) {
+    if let Some(frozen) = flex_auto_row_frozen(al, rows) {
         let gaps = row_gap * (rows.saturating_sub(1) as f32);
-        let frozen: Vec<bool> = (0..rows).map(|r| r < explicit_rows || fixed_row(r).is_some()).collect();
         level_span_rows(&mut row_heights, frozen, (frame.y - pt - pb - gaps).max(0.0));
     }
 
@@ -536,5 +555,36 @@ mod tests {
         let kids_m7 =
             [child(100.0, 30.0), child(40.0, 30.0), ChildIn { main_fill: true, ..child(90.0, 30.0) }, ChildIn { main_fill: true, ..child(90.0, 30.0) }];
         assert_eq!(grid_column_widths(&al_2, Vec2::new(500.0, 500.0), SizeLimits::default(), &kids_m7), vec![100.0, 40.0]);
+    }
+
+    #[test]
+    fn grid_packs_auto_rows_matches_compute_grid_row_leveling() {
+        let kids_4 = [child(50.0, 20.0), child(50.0, 20.0), child(50.0, 20.0), child(50.0, 20.0)];
+
+        // Fixed height + Flex(1) auto tracks + implicit rows -> levels rows across container height (does not pack).
+        let mut al_flex = grid(2, Sizing::Fixed, Sizing::Fixed);
+        al_flex.grid_auto_tracks = GridAutoTracks::Track(GridTrack::Flex(1.0));
+        assert!(!grid_packs_auto_rows(&al_flex, &kids_4));
+
+        // N1: Fixed height + Flex(1) auto tracks, but every placed row is explicit (`grid_rows = 2`) -> all rows frozen -> packs at top.
+        let mut al_n1 = al_flex.clone();
+        al_n1.grid_rows = 2;
+        al_n1.grid_row_tracks[0] = GridTrack::Hug;
+        al_n1.grid_row_tracks[1] = GridTrack::Hug;
+        assert!(grid_packs_auto_rows(&al_n1, &kids_4));
+
+        // Explicit rows = 2, but 6 children occupy 3 rows -> row 2 is an unfrozen implicit row -> levels (does not pack).
+        let kids_6 = [child(50.0, 20.0), child(50.0, 20.0), child(50.0, 20.0), child(50.0, 20.0), child(50.0, 20.0), child(50.0, 20.0)];
+        assert!(!grid_packs_auto_rows(&al_n1, &kids_6));
+
+        // R3: Flex(0) auto tracks never level -> packs at top.
+        let mut al_zero = grid(2, Sizing::Fixed, Sizing::Fixed);
+        al_zero.grid_auto_tracks = GridAutoTracks::Track(GridTrack::Flex(0.0));
+        assert!(grid_packs_auto_rows(&al_zero, &kids_4));
+
+        // Hug height with Flex(1) auto tracks never levels -> packs at top.
+        let mut al_hug = grid(2, Sizing::Fixed, Sizing::Hug);
+        al_hug.grid_auto_tracks = GridAutoTracks::Track(GridTrack::Flex(1.0));
+        assert!(grid_packs_auto_rows(&al_hug, &kids_4));
     }
 }

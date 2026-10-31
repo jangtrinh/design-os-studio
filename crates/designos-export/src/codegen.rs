@@ -575,13 +575,14 @@ pub(crate) fn grid_column_count(al: &AutoLayout) -> usize {
     stored.clamp(1, MAX_GRID_TRACKS)
 }
 
-/// Whether the solver packs a grid's rows at the top (`pt + r * row_gap + sum(0..r)`). It levels
-/// rows across the container height only when the height is `Sizing::Fixed` and `grid_auto_tracks`
-/// is a positive `GridTrack::Flex`; in every other grid (including a `Hug` height raised by
-/// `min_h` or explicit `GridTrack::Hug` rows) rows stay packed at the top.
-pub(crate) fn grid_packs_auto_rows(al: &AutoLayout) -> bool {
-    al.direction == LayoutDirection::Grid
-        && !(al.counter_sizing == Sizing::Fixed && matches!(al.grid_auto_tracks, GridAutoTracks::Track(GridTrack::Flex(fr)) if fr > 0.0))
+/// Whether the solver packs a grid's rows at the top (`pt + r * row_gap + sum(0..r)`).
+/// Delegates directly to [`designos_doc::layout_solver::grid_packs_auto_rows`].
+pub(crate) fn grid_packs_auto_rows(doc: &Document, n: &Node, al: &AutoLayout) -> bool {
+    if al.direction != LayoutDirection::Grid {
+        return false;
+    }
+    let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| doc.flow_child_input(*id, true)).collect();
+    designos_doc::layout_solver::grid_packs_auto_rows(al, &kids)
 }
 
 /// Column tracks for `n`: when a hugging grid's solved `Flex` columns have unequal widths (such as

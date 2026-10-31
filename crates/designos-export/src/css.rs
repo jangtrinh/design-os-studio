@@ -133,7 +133,7 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             if row > 0.0 || col > 0.0 {
                 push("gap", if (row - col).abs() < 1e-4 { format!("{}px", num(row)) } else { format!("{}px {}px", num(row), num(col)) });
             }
-            if crate::codegen::grid_packs_auto_rows(al) {
+            if crate::codegen::grid_packs_auto_rows(doc, n, al) {
                 push("align-content", "start".into());
             }
         } else {

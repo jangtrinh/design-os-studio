@@ -351,7 +351,7 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
             if al.grid_rows > 0 {
                 c.push(template_class("grid-rows", &al.grid_row_tracks, al.grid_rows as usize, STOCK_GRID_ROWS));
             }
-            if grid_packs_auto_rows(al) {
+            if grid_packs_auto_rows(doc, n, al) {
                 c.push("content-start".into());
             }
             let col_gap = al.item_spacing;
