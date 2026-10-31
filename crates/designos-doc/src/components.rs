@@ -5137,4 +5137,144 @@ mod tests {
         let wrap_m9 = d.get(child_named(&d, holder_slot, "Wrap")).unwrap();
         assert!(wrap_m9.kind.frame_props().unwrap().clips_content, "explicit Layout override on outer slot child must survive swap via chain_fields (M9)");
     }
+
+    fn path_bbox(paths: &[ crate::Path ]) -> (f32, f32, f32, f32) {
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for p in paths {
+            for c in &p.cmds {
+                let pts: Vec<Vec2> = match c {
+                    crate::PathCmd::MoveTo(p) | crate::PathCmd::LineTo(p) => vec![*p],
+                    crate::PathCmd::QuadTo(a, b) => vec![*a, *b],
+                    crate::PathCmd::CubicTo(a, b, e) => vec![*a, *b, *e],
+                    crate::PathCmd::Close => vec![],
+                };
+                for q in pts {
+                    x0 = x0.min(q.x);
+                    y0 = y0.min(q.y);
+                    x1 = x1.max(q.x);
+                    y1 = y1.max(q.y);
+                }
+            }
+        }
+        (x0, y0, x1, y1)
+    }
+
+    fn box_outline(w: f32) -> Vec<crate::Path> {
+        vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(0.0, 0.0)),
+                crate::PathCmd::LineTo(Vec2::new(w, 0.0)),
+                crate::PathCmd::LineTo(Vec2::new(w, w)),
+                crate::PathCmd::LineTo(Vec2::new(0.0, w)),
+                crate::PathCmd::Close,
+            ],
+            ..Default::default()
+        }]
+    }
+
+    #[test]
+    fn r3_copy_field_size_on_imported_shapes_after_main_resize() {
+        let mut stale = Vec::new();
+        for (label, kind) in [
+            ("rect", NodeKind::Rectangle),
+            ("ellipse", NodeKind::Ellipse(crate::ArcData::default())),
+            ("star", NodeKind::Star { count: 5, inner_ratio: 0.5 }),
+            ("vector", NodeKind::Vector { paths: box_outline(10.0), network: None }),
+        ] {
+            let mut d = Document::new("cf");
+            let page = d.add_page("P");
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 0.0, 24.0, 24.0));
+            f.name = "Badge".into();
+            let comp = d.insert(page, f).unwrap();
+            let sid = d.alloc_id();
+            let mut s = Node::new(sid, kind);
+            s.name = "Dot".into();
+            s.size = Vec2::new(10.0, 10.0);
+            s.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+            s.fill_geometry = Some(box_outline(10.0));
+            s.stroke_geometry = Some(box_outline(10.0));
+            d.insert(comp, s).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            let c = create_instance(&mut d, comp, page, Vec2::new(100.0, 0.0));
+            apply(&mut d, c);
+            let inst = *d.get(page).unwrap().children.last().unwrap();
+            {
+                let mut m = d.get(sid).unwrap().clone();
+                let tf = m.transform;
+                crate::layout_constraints::apply_constrained_geometry(&mut m, tf, Vec2::new(24.0, 24.0));
+                apply(&mut d, Command::Update { node: Box::new(m) });
+            }
+            let c = sync_instances(&mut d, comp);
+            apply(&mut d, c);
+            let m = d.get(sid).unwrap();
+            let ic = d.get(d.get(inst).unwrap().children[0]).unwrap();
+            let m_fg = m.fill_geometry.as_ref().map(|p| path_bbox(p));
+            let m_sg = m.stroke_geometry.as_ref().map(|p| path_bbox(p));
+            let i_fg = ic.fill_geometry.as_ref().map(|p| path_bbox(p));
+            let i_sg = ic.stroke_geometry.as_ref().map(|p| path_bbox(p));
+            if i_fg != m_fg || i_sg != m_sg {
+                stale.push((label, i_fg, m_fg));
+            }
+        }
+        assert!(
+            stale.is_empty(),
+            "after resizing the main from 10 to 24 and syncing, instance fill_geometry / stroke_geometry must match the main (24 px, not 10 px); stale: {stale:?}"
+        );
+    }
+
+    #[test]
+    fn probe_p2_swap_drops_override_on_type_mismatch() {
+        let mut d = Document::new("p2");
+        let page = d.add_page("P");
+        let a = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/A".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::new(gid, NodeKind::Vector { paths: box_outline(16.0), network: None });
+            g.size = Vec2::new(16.0, 16.0);
+            g.name = "Glyph".into();
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            g.fill_geometry = Some(box_outline(16.0));
+            d.insert(comp, g).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+        let b = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(40.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/B".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut gf = Node::frame(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            gf.name = "Glyph".into();
+            gf.fills = vec![Paint::solid(Color::rgb(0, 128, 0))];
+            d.insert(comp, gf).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        let c = create_instance(&mut d, a, page, Vec2::new(100.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let g = child_named(&d, inst, "Glyph");
+        let mut gn = d.get(g).unwrap().clone();
+        let before = gn.clone();
+        gn.fills = vec![Paint::solid(Color::rgb(255, 0, 0))];
+        let tf = gn.transform;
+        crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
+        gn.component.overrides = record_override(&before, &gn);
+        apply(&mut d, Command::Update { node: Box::new(gn) });
+
+        let c = swap_instance(&mut d, inst, b);
+        apply(&mut d, c);
+        let ng = d.get(child_named(&d, inst, "Glyph")).unwrap();
+        assert_eq!(ng.fills[0].kind, crate::PaintKind::Solid(Color::rgb(0, 128, 0)), "originally-matched gate drops fill override when old and new mains differ");
+        assert!(ng.fill_geometry.is_none(), "a frame must not take the vector's outline as its fill_geometry");
+    }
 }
