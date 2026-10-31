@@ -45,6 +45,76 @@
   },
   "overlays": [],
   "named": {
+    "bind:fills/0": {
+      "region": "right_panel",
+      "rect": [
+        1456.0,
+        966.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:height": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        800.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:opacity": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        881.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:strokeWeight": {
+      "region": "unknown",
+      "rect": [
+        1508.0,
+        1118.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:strokes/0": {
+      "region": "right_panel",
+      "rect": [
+        1456.0,
+        1059.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:topLeftRadius": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        881.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:width": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        800.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "distribute": {
       "region": "right_panel",
       "rect": [
@@ -1372,7 +1442,7 @@
       "rect": [
         1400.0,
         800.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1398,7 +1468,7 @@
       "rect": [
         1496.0,
         800.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1424,7 +1494,7 @@
       "rect": [
         1400.0,
         881.0,
-        52.25,
+        27.25,
         32.0
       ],
       "sense": [
@@ -1450,7 +1520,7 @@
       "rect": [
         1496.0,
         881.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1504,7 +1574,7 @@
       "rect": [
         1400.0,
         966.0,
-        80.0,
+        55.0,
         32.0
       ],
       "sense": [

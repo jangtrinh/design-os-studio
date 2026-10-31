@@ -65,6 +65,76 @@
       ],
       "count": 1
     },
+    "bind:height": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        561.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:itemSpacing": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        495.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:opacity": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        870.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:paddingLeft": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        693.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:paddingTop": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        693.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:topLeftRadius": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        870.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:width": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        561.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "bound:fills/0": {
       "region": "overlay:Foreground/0",
       "rect": [
@@ -2801,7 +2871,7 @@
       "rect": [
         1496.0,
         495.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -2827,7 +2897,7 @@
       "rect": [
         1400.0,
         561.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -2853,7 +2923,7 @@
       "rect": [
         1496.0,
         561.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -2905,7 +2975,7 @@
       "rect": [
         1400.0,
         693.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -2931,7 +3001,7 @@
       "rect": [
         1496.0,
         693.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -3048,7 +3118,7 @@
       "rect": [
         1400.0,
         870.0,
-        52.25,
+        27.25,
         32.0
       ],
       "sense": [
@@ -3074,7 +3144,7 @@
       "rect": [
         1496.0,
         870.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [

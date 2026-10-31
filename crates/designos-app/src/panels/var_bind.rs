@@ -70,65 +70,151 @@ fn sync_picker_paint_from_doc(app: &mut App) {
     }
 }
 
+#[derive(Clone, Default)]
+struct CachedLibVars {
+    pass_nr: u64,
+    enabled_len: usize,
+    vars: Vec<(VariableKind, Vec<String>)>,
+}
+
+/// Whether at least one variable in `app.doc.variable_collections` or an enabled library
+/// matches `kind` and `scope_allows(&v.scopes, key0, target_kind)`.
+pub(super) fn has_matching_var(app: &mut App, ctx: &Context, key0: &str, kind: VariableKind, target_kind: &NodeKind) -> bool {
+    let local_match = app
+        .doc
+        .variable_collections
+        .values()
+        .any(|c| c.variables.iter().filter_map(|id| app.doc.variables.get(id)).any(|v| v.kind == kind && scope_allows(&v.scopes, key0, target_kind)));
+    if local_match {
+        return true;
+    }
+    if app.doc.library.enabled.is_empty() {
+        return false;
+    }
+    let pass_nr = ctx.cumulative_pass_nr();
+    let enabled_len = app.doc.library.enabled.len();
+    let cache_id = Id::new("var-bind-lib-vars-cache");
+    let cached = ctx.data(|d| d.get_temp::<CachedLibVars>(cache_id)).filter(|c| c.pass_nr == pass_nr && c.enabled_len == enabled_len);
+    let vars = match cached {
+        Some(c) => c.vars,
+        None => {
+            let v: Vec<(VariableKind, Vec<String>)> = app.library_variables().into_iter().map(|lv| (lv.kind, lv.scopes)).collect();
+            ctx.data_mut(|d| {
+                d.insert_temp(cache_id, CachedLibVars { pass_nr, enabled_len, vars: v.clone() });
+            });
+            v
+        }
+    };
+    vars.iter().any(|(v_kind, scopes)| *v_kind == kind && scope_allows(scopes, key0, target_kind))
+}
+
+fn node_target_kind(app: &App, sel: &[NodeId]) -> NodeKind {
+    sel.first().and_then(|id| app.doc.get(*id)).map(|n| n.kind.clone()).unwrap_or(NodeKind::Rectangle)
+}
+
+fn style_target_kind(app: &App, style_key: &str) -> NodeKind {
+    match app.doc.styles.get(style_key) {
+        Some(Style::Text(_)) => NodeKind::Text(TextProps::default()),
+        _ => NodeKind::Rectangle,
+    }
+}
+
+fn narrow_for_bind(ui: &mut Ui, rect: Rect, record_key: &str, reserve: bool) -> Rect {
+    let r = if reserve {
+        let max_x = (rect.right() - theme::TARGET_MIN - theme::BORDER_WIDTH).max(rect.left());
+        Rect::from_min_max(rect.min, Pos2::new(max_x, rect.max.y))
+    } else {
+        rect
+    };
+    #[cfg(test)]
+    if reserve {
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(Id::new(("bind-value-rect", record_key.to_string())), r);
+        });
+    }
+    #[cfg(not(test))]
+    let _ = (ui, record_key);
+    r
+}
+
+/// Returns the sub-rect available for a node field's value widget when `keys[0]` is not bound,
+/// reserving the right-hand `TARGET_MIN + BORDER_WIDTH` strip whenever a matching variable exists.
+pub fn value_rect(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) -> Rect {
+    let target_kind = node_target_kind(app, sel);
+    let has_vars = has_matching_var(app, ui.ctx(), keys[0], kind, &target_kind);
+    narrow_for_bind(ui, rect, &format!("bind:{}", keys[0]), has_vars)
+}
+
+/// Returns the sub-rect available for a style editor field's value widget when `prop` is not bound,
+/// reserving the right-hand `TARGET_MIN + BORDER_WIDTH` strip whenever a matching variable exists.
+pub fn style_value_rect(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) -> Rect {
+    let target_kind = style_target_kind(app, style_key);
+    let has_vars = has_matching_var(app, ui.ctx(), prop, kind, &target_kind);
+    narrow_for_bind(ui, rect, &format!("style-bind:{style_key}:{prop}"), has_vars)
+}
+
 pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
     sync_picker_paint_from_doc(app);
     let mut state = PickerStopBindState::default();
-    if let Some(pk) = app.props.picker.as_ref() {
+    let pk_info = app.props.picker.as_ref().and_then(|pk| {
         let prefix = match pk.target {
             super::properties::PickTarget::Fill(pi) => Some(("fills", pi)),
             super::properties::PickTarget::Stroke(pi) => Some(("strokes", pi)),
             _ => None,
         };
-        if let (Some((pfx, pi)), false) = (prefix, pk.ids.is_empty()) {
-            state.prefix = Some((pfx, pi));
-            state.has_vars = !app.doc.variables.is_empty() || !app.doc.library.enabled.is_empty();
-            state.open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first().cloned());
-            let stop_prefix = format!("{pfx}/{pi}/stops/");
-            let nodes: Vec<NodeId> = pk.ids.iter().copied().filter(|&id| app.doc.get(id).is_some()).collect();
-            let mut keys = std::collections::BTreeSet::new();
-            for &id in &nodes {
-                if let Some(node) = app.doc.get(id) {
-                    for k in node.variables.bindings.keys() {
-                        if k.starts_with(&stop_prefix) && bound_var(app, id, k).is_some() {
-                            keys.insert(k.clone());
-                        }
+        prefix.filter(|_| !pk.ids.is_empty()).map(|(pfx, pi)| (pfx, pi, pk.ids.clone()))
+    });
+    if let Some((pfx, pi, pk_ids)) = pk_info {
+        state.prefix = Some((pfx, pi));
+        let nodes: Vec<NodeId> = pk_ids.iter().copied().filter(|&id| app.doc.get(id).is_some()).collect();
+        let target_kind = node_target_kind(app, &nodes);
+        let sample_key = format!("{pfx}/{pi}/stops/0");
+        state.has_vars = has_matching_var(app, ctx, &sample_key, VariableKind::Color, &target_kind);
+        state.open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first().cloned());
+        let stop_prefix = format!("{pfx}/{pi}/stops/");
+        let mut keys = std::collections::BTreeSet::new();
+        for &id in &nodes {
+            if let Some(node) = app.doc.get(id) {
+                for k in node.variables.bindings.keys() {
+                    if k.starts_with(&stop_prefix) && bound_var(app, id, k).is_some() {
+                        keys.insert(k.clone());
                     }
                 }
             }
-            for k in keys {
-                let mut uniform: Option<(&str, &str, Option<egui::Color32>)> = None;
-                let mut mixed = false;
-                for &id in &nodes {
-                    match bound_var(app, id, &k) {
-                        Some(var) => {
-                            let swatch = match app.doc.bound_value(id, &k) {
-                                Some(VariableValue::Color(c)) => Some(to_c32(c)),
-                                _ => None,
-                            };
-                            match uniform {
-                                None => uniform = Some((var.id.as_str(), var.name.as_str(), swatch)),
-                                Some((fid, fname, fsw)) => {
-                                    if fid != var.id.as_str() {
-                                        mixed = true;
-                                        break;
-                                    }
-                                    if fsw != swatch {
-                                        uniform = Some((fid, fname, None));
-                                    }
+        }
+        for k in keys {
+            let mut uniform: Option<(&str, &str, Option<egui::Color32>)> = None;
+            let mut mixed = false;
+            for &id in &nodes {
+                match bound_var(app, id, &k) {
+                    Some(var) => {
+                        let swatch = match app.doc.bound_value(id, &k) {
+                            Some(VariableValue::Color(c)) => Some(to_c32(c)),
+                            _ => None,
+                        };
+                        match uniform {
+                            None => uniform = Some((var.id.as_str(), var.name.as_str(), swatch)),
+                            Some((fid, fname, fsw)) => {
+                                if fid != var.id.as_str() {
+                                    mixed = true;
+                                    break;
+                                }
+                                if fsw != swatch {
+                                    uniform = Some((fid, fname, None));
                                 }
                             }
                         }
-                        None => {
-                            mixed = true;
-                            break;
-                        }
+                    }
+                    None => {
+                        mixed = true;
+                        break;
                     }
                 }
-                if mixed {
-                    state.bound_stops.insert(k, ("Mixed".to_string(), None));
-                } else if let Some((_, name, swatch)) = uniform {
-                    state.bound_stops.insert(k, (name.to_string(), swatch));
-                }
+            }
+            if mixed {
+                state.bound_stops.insert(k, ("Mixed".to_string(), None));
+            } else if let Some((_, name, swatch)) = uniform {
+                state.bound_stops.insert(k, (name.to_string(), swatch));
             }
         }
     }
@@ -187,15 +273,24 @@ fn draw_pill(ui: &mut Ui, rect: Rect, record_key: &str, id: impl crate::widgets:
     pill(ui, rect, id, label, swatch, true)
 }
 
-fn draw_hover_button(ui: &mut Ui, rect: Rect, record_key: &str, id: impl crate::widgets::Key, has_vars: bool, is_open: bool) -> bool {
-    if !has_vars || !ui.rect_contains_pointer(rect) && !is_open {
+fn draw_hover_button(ui: &mut Ui, rect: Rect, record_key: &str, id: impl crate::widgets::Key, has_vars: bool, is_open: bool, always_visible: bool) -> bool {
+    if !has_vars || (!always_visible && !ui.rect_contains_pointer(rect) && !is_open) {
         return false;
     }
-    let b = Rect::from_center_size(Pos2::new(rect.right() - (theme::SPACE_GROUP + theme::INSET_SEGMENT), rect.center().y), Vec2::splat(20.0));
+    let b = Rect::from_min_size(Pos2::new(rect.right() - theme::TARGET_MIN, rect.top()), Vec2::splat(theme::TARGET_MIN));
     let r = ui.interact(b, ui.id().with(id), Sense::click());
     let p = ui.painter();
-    p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
-    hexagon(p, b.center(), 5.0, if r.hovered() { theme::ICON } else { theme::ICON_SECONDARY }, false);
+    if always_visible {
+        if r.hovered() || is_open {
+            p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
+            hexagon(p, b.center(), 5.0, theme::ICON, false);
+        } else {
+            hexagon(p, b.center(), 5.0, theme::ICON_QUATERNARY, false);
+        }
+    } else {
+        p.rect_filled(b, theme::cr(theme::RADIUS_CONTROL), if r.hovered() { theme::BG_TERTIARY } else { theme::BG_SECONDARY });
+        hexagon(p, b.center(), 5.0, if r.hovered() { theme::ICON } else { theme::ICON_SECONDARY }, false);
+    }
     widgets::record(ui, record_key, b);
     let clicked = r.clicked();
     r.on_hover_text("Apply variable");
@@ -241,7 +336,7 @@ pub(crate) fn picker_stop_hover_button(ui: &mut Ui, st: &mut crate::widgets::pic
     let Some((pfx, pi)) = st_ctx.prefix else { return };
     let key = format!("{pfx}/{pi}/stops/{stop_idx}");
     let is_open = st_ctx.open_key.as_deref() == Some(key.as_str());
-    if draw_hover_button(ui, rect, &format!("bind:{key}"), ("bind-btn", key.as_str()), st_ctx.has_vars, is_open) {
+    if draw_hover_button(ui, rect, &format!("bind:{key}"), ("bind-btn", key.as_str()), st_ctx.has_vars, is_open, false) {
         st.menu_open = true;
         ui.ctx().data_mut(|d| d.insert_temp(picker_action_id(), PickerStopBindAction::Open { key, anchor: rect }));
     }
@@ -286,22 +381,24 @@ pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
     true
 }
 
-/// Small hexagon button shown on hover that opens the variable picker.
+/// Small hexagon button that opens the variable picker when a matching variable exists.
 pub fn hover_button(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) {
-    let has_vars = !app.doc.variables.is_empty() || !app.doc.library.enabled.is_empty();
-    let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.keys.first().map(String::as_str) == Some(keys[0]));
-    if draw_hover_button(ui, rect, &format!("bind:{}", keys[0]), ("bind-btn", keys[0]), has_vars, is_open) {
+    let target_kind = node_target_kind(app, sel);
+    let has_vars = has_matching_var(app, ui.ctx(), keys[0], kind, &target_kind);
+    let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.style_key.is_none() && b.keys.first().map(String::as_str) == Some(keys[0]));
+    if draw_hover_button(ui, rect, &format!("bind:{}", keys[0]), ("bind-btn", keys[0]), has_vars, is_open, true) {
         open_picker(app, sel, keys, kind, rect);
     }
 }
 
-/// A numeric field that turns into a variable pill when bound, with a bind
-/// button on hover when not.
-pub fn numeric(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], field: impl FnOnce(&mut Ui) -> Option<f32>) -> Option<f32> {
+/// A numeric field that turns into a variable pill when bound, with an
+/// always-visible bind button when a matching number variable exists.
+pub fn numeric(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], field: impl FnOnce(&mut Ui, Rect) -> Option<f32>) -> Option<f32> {
     if pill_field(app, ui, rect, sel, keys) {
         return None;
     }
-    let v = field(ui);
+    let val_r = value_rect(app, ui, rect, sel, keys, VariableKind::Number);
+    let v = field(ui, val_r);
     hover_button(app, ui, rect, sel, keys, VariableKind::Number);
     v
 }
@@ -328,23 +425,40 @@ pub fn style_pill_field(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
     true
 }
 
-/// Small hexagon button shown on hover in the style editor that opens the variable picker for `prop`.
+/// Small hexagon button in the style editor that opens the variable picker for `prop`.
 pub fn style_hover_button(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) {
-    let has_vars = !app.doc.variables.is_empty() || !app.doc.library.enabled.is_empty();
+    let target_kind = style_target_kind(app, style_key);
+    let has_vars = has_matching_var(app, ui.ctx(), prop, kind, &target_kind);
     let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.style_key.as_deref() == Some(style_key) && b.keys.first().map(String::as_str) == Some(prop));
-    if draw_hover_button(ui, rect, &format!("style-bind:{style_key}:{prop}"), ("style-bind-btn", style_key, prop), has_vars, is_open) {
+    if draw_hover_button(ui, rect, &format!("style-bind:{style_key}:{prop}"), ("style-bind-btn", style_key, prop), has_vars, is_open, true) {
         open_style_picker(app, style_key, prop, kind, rect);
     }
 }
 
 /// A numeric field in the style editor that turns into a variable pill when bound.
-pub fn style_numeric(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, field: impl FnOnce(&mut Ui) -> Option<f32>) -> Option<f32> {
+pub fn style_numeric(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, field: impl FnOnce(&mut Ui, Rect) -> Option<f32>) -> Option<f32> {
     if style_pill_field(app, ui, rect, style_key, prop) {
         return None;
     }
-    let v = field(ui);
+    let val_r = style_value_rect(app, ui, rect, style_key, prop, VariableKind::Number);
+    let v = field(ui, val_r);
     style_hover_button(app, ui, rect, style_key, prop, VariableKind::Number);
     v
+}
+
+fn is_text_style_key(key: &str) -> bool {
+    matches!(key, "fontFamily" | "fontStyle" | "fontWeight" | "fontSize" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent")
+}
+
+fn detach_text_style_in(doc: &mut Document, tx: &mut crate::edit::Tx, nodes: &[NodeId]) {
+    let rk = crate::styles::StyleKind::Text.ref_key();
+    for &nid in nodes {
+        if doc.get(nid).is_some_and(|n| matches!(n.kind, NodeKind::Text(_)) && n.style_refs.contains_key(rk)) {
+            if let Some(n) = tx.ed.node(doc, nid) {
+                n.style_refs.remove(rk);
+            }
+        }
+    }
 }
 
 /// Renders the picker opened by [`hover_button`] / [`style_hover_button`] / a pill.
@@ -428,9 +542,42 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
                 }
             } else {
                 commit_picker_tx_before_bind(app);
-                match id.strip_prefix(LIB_PREFIX).and_then(|r| r.split_once(LIB_SEP)) {
-                    Some((lib, key)) => app.bind_library_variable(&bp.nodes, &key_refs, lib, key),
-                    None => app.bind_variable(&bp.nodes, &key_refs, &id),
+                crate::canvas::textsession::requesting_new_faces(app, &bp.nodes, |app| {
+                    let mut tx = crate::edit::Tx::new();
+                    match id.strip_prefix(LIB_PREFIX).and_then(|r| r.split_once(LIB_SEP)) {
+                        Some((lib, key)) => {
+                            match app.import_asset_in(&mut tx, lib, key) {
+                                Some(local) => {
+                                    app.bind_variable_in(&mut tx, &bp.nodes, &key_refs, &local);
+                                    if is_text_style_key(&key0) {
+                                        detach_text_style_in(&mut app.doc, &mut tx, &bp.nodes);
+                                    }
+                                    app.run_tx(tx);
+                                }
+                                None => {
+                                    tx.cancel(&mut app.doc);
+                                    app.show_toast("Library variable could not be loaded", true);
+                                }
+                            }
+                            app.libs.invalidate();
+                        }
+                        None => {
+                            app.bind_variable_in(&mut tx, &bp.nodes, &key_refs, &id);
+                            if is_text_style_key(&key0) {
+                                detach_text_style_in(&mut app.doc, &mut tx, &bp.nodes);
+                            }
+                            app.run_tx(tx);
+                        }
+                    }
+                });
+                if key0 == "fontFamily" {
+                    let faces: Vec<_> = bp.nodes.iter().filter_map(|nid| app.doc.get(*nid)?.kind.any_text()).flat_map(designos_fonts::text_faces).collect();
+                    for f in &faces {
+                        app.fonts.retry_family(&f.family);
+                    }
+                    if !faces.is_empty() {
+                        app.fonts.load_for_with(&app.doc, faces);
+                    }
                 }
             }
         }

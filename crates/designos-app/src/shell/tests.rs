@@ -1200,6 +1200,7 @@ mod history;
 mod home;
 mod home_agents_card;
 mod idle_repaint;
+mod inspector_var_binds;
 mod layer_drag_fast;
 mod leave_agent;
 #[cfg(target_os = "macos")]
