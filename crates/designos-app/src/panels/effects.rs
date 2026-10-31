@@ -194,7 +194,6 @@ fn header(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], empty: bo
 }
 
 pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], effects: &[Effect]) {
-    super::var_bind::sync_picker_context(app, ui.ctx());
     let linked = style_picker::linked_style(app, sel, StyleProperty::Effect);
     header(app, ui, pane, sel, effects.is_empty() && linked.is_none());
     style_picker::header_button(app, ui, pane, sel, StyleProperty::Effect);

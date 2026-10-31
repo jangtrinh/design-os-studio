@@ -290,7 +290,6 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         }
     }
     let Some(mut bp) = app.vars.bind_picker.take() else {
-        sync_picker_context(app, ctx);
         return;
     };
     let key0 = bp.keys.first().cloned().unwrap_or_default();
@@ -303,11 +302,9 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         (cur, kn)
     } else {
         let Some(first) = bp.nodes.first().copied() else {
-            sync_picker_context(app, ctx);
             return;
         };
         let Some(node) = app.doc.get(first) else {
-            sync_picker_context(app, ctx);
             return;
         };
         (node.variables.bindings.get(&key0).cloned(), node.kind.clone())
@@ -371,7 +368,6 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
             }
         }
     }
-    sync_picker_context(app, ctx);
 }
 
 /// "Variable mode" rows for a container: one dropdown per collection, where

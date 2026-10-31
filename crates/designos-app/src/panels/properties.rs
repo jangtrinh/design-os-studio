@@ -1964,6 +1964,9 @@ fn try_sample_color_token(app: &mut App, p: Pos2, target: PickTarget, ids: &[Nod
 pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
     use widgets::picker;
     let ctx = ui.ctx().clone();
+    if app.props.picker.is_some() {
+        super::var_bind::sync_picker_context(app, &ctx);
+    }
     let Some(mut pk) = app.props.picker.take() else {
         if let Some(target) = app.props.eyedropper {
             ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -2197,6 +2200,9 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         // Open: the Agents panel draws before this popover and must leave it `Esc` and `Enter`.
         crate::widgets::popup_open::mark_open(&ctx);
         app.props.picker = Some(pk);
+        if changed {
+            super::var_bind::sync_picker_context(app, &ctx);
+        }
     }
 }
 
