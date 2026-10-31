@@ -19,13 +19,13 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 ## Enabled MCP Tools
 
 ### `designos_get_document`
-- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect,...
+- **Purpose:** Summarize the current in-memory document: pages, counts, shared styles (fill, text,...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
 
 ### `designos_get_libraries`
-- **Purpose:** List this file's local publishable assets, enabled libraries (with pinned and latest versions...
+- **Purpose:** List this file's local publishable assets, enabled libraries (with pinned and latest...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
@@ -37,7 +37,7 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Example:** `{"node_id":1,"depth":3}`
 
 ### `designos_search_design_system`
-- **Purpose:** Search components, component sets, shared styles, and variables across this file and its enabled...
+- **Purpose:** Search components, component sets, shared styles, and variables across this file and its...
 - **Args:** required: `query` (optional: `kinds`, `limit`, `property`)
 - **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"query":"button","kinds":["component"],"limit":10}`
@@ -85,7 +85,7 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Example:** `{"node_id":3}`
 
 ### `designos_list_comments`
-- **Purpose:** List canvas comment threads enriched with resolved world coordinates, target node ID/name/kind,...
+- **Purpose:** List canvas comment threads enriched with resolved world coordinates, target node...
 - **Args:** required: none (optional: `node_id`, `page_id`, `resolved`)
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{"resolved":false}`
@@ -109,13 +109,13 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Example:** `{"thread_id":"t1","resolved":true}`
 
 ### `designos_apply_spec`
-- **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0 presets...
+- **Purpose:** Build a complete UI subtree from a declarative NodeSpec (supports EaseUI BrainWave 2.0...
 - **Args:** required: `spec` (optional: `diff_image`, `idempotency_key`, `lint`, `parent_id`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNKNOWN_FIELD`, `NODE_NOT_FOUND`, `NOT_A_CONTAINER`, `UNKNOWN_COMPONENT`, `UNKNOWN_VARIABLE`, `UNKNOWN_SLOT`
 - **Example:** `{"parent_id":1,"spec":{"kind":"frame","name":"Metric Card","preset":"easeui-card","layout":{"direction":"column","gap":12,"padding":[20,20,20,20]},"children":[{"kind":"text","name":"Label","text":"Net Revenue","font_size":13},{"kind":"text","name":"Value","text":"$148,920","font_size":28,"font_weight":600}]}}`
 
 ### `designos_export_spec`
-- **Purpose:** Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev Mode...
+- **Purpose:** Export a node and its descendants as a declarative NodeSpec JSON tree, enriched with Dev...
 - **Args:** required: `node_id`
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`
 - **Example:** `{"node_id":2}`
@@ -127,19 +127,19 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Example:** `{"node_id":2,"status":"ready","annotation":"Semantic tokens"}`
 
 ### `designos_export_fig_file`
-- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi header and...
+- **Purpose:** Export the current session document to a Figma binary .fig container (with fig-kiwi...
 - **Args:** required: `output_path` (optional: `overwrite`)
 - **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`, `INTERNAL_ERROR`
 - **Example:** `{"output_path":"handoff.fig"}`
 
 ### `designos_query_xpath`
-- **Purpose:** Query layers in a page or subtree with a streaming single-pass XPath evaluator, node budget,...
+- **Purpose:** Query layers in a page or subtree with a streaming single-pass XPath evaluator, node...
 - **Args:** required: `selector` (optional: `cursor`, `format`, `hardcoded`, `limit`, `max_scanned`, `node_id`, `page_id`, `with_problems`)
 - **Errors:** `INVALID_ARGUMENTS`, `INVALID_SELECTOR`, `NODE_NOT_FOUND`, `CURSOR_STALE`, `RULE_UNAVAILABLE`
 - **Example:** `{"selector":"//FRAME[@name='Metric Card']"}`
 
 ### `designos_lint`
-- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a page,...
+- **Purpose:** Run the unified solver-backed geometric, text, token, and structural design linter on a...
 - **Args:** required: none (optional: `cursor`, `include_ignored`, `limit`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"preset":"agent","limit":100}`
@@ -151,49 +151,49 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Example:** `{"topic":"design-system","platform":"web"}`
 
 ### `designos_import_web_capture`
-- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as an...
+- **Purpose:** Import a .webcapture.json / .capture.json bundle (or inline capture JSON) into a page as...
 - **Args:** required: none (optional: `capture`, `infer_block_auto_layout`, `page_id`, `path`, `x`, `y`)
 - **Errors:** `INVALID_ARGUMENTS`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `NODE_NOT_FOUND`
 - **Example:** `{"path":"capture.webcapture.json","page_id":1}`
 
 ### `designos_undo`
-- **Purpose:** Undo the latest successful edit in this session; returns changed=false if the stack is empty.
+- **Purpose:** Undo the latest successful edit in this session; returns changed=false if the stack is...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`, `HISTORY_DROPPED`
 - **Example:** `{}`
 
 ### `designos_lint_fix`
-- **Purpose:** Apply deterministic fixes for auto-fixable lint findings on a page, specific node subtrees, or...
+- **Purpose:** Apply deterministic fixes for auto-fixable lint findings on a page, specific node...
 - **Args:** required: none (optional: `node_id`, `node_ids`, `page_id`, `preset`, `rules`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"page_id":1,"rules":["default-layer-name"]}`
 
 ### `designos_redo`
-- **Purpose:** Redo the most recently undone edit in this session; returns changed=false if the stack is empty.
+- **Purpose:** Redo the most recently undone edit in this session; returns changed=false if the stack...
 - **Args:** required: none
 - **Errors:** `INVALID_ARGUMENTS`, `HISTORY_DROPPED`
 - **Example:** `{}`
 
 ### `designos_get_screenshot`
-- **Purpose:** Render a node, a set of nodes on the same page, or a page-space rectangular region and return it...
+- **Purpose:** Render a node, a set of nodes on the same page, or a page-space rectangular region and...
 - **Args:** required: none (optional: `format`, `max_long_edge`, `node_id`, `node_ids`, `quality`, `region`, `scale`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`
 - **Example:** `{"node_id":2,"scale":2.0}`
 
 ### `designos_set_in_progress`
-- **Purpose:** Flag or clear root frames as in progress while an agent works on them (work state, not an undo...
+- **Purpose:** Flag or clear root frames as in progress while an agent works on them (work state, not...
 - **Args:** required: `node_ids`, `value` (optional: `force`, `idempotency_key`, `stale_after_s`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`, `IN_PROGRESS_TARGET_NOT_ROOT`, `NODE_IN_PROGRESS_BY_OTHER_RUN`
 - **Example:** `{"node_ids":[2],"value":true}`
 
 ### `designos_apply_batch`
-- **Purpose:** Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete, set_slot,...
+- **Purpose:** Execute 1..=200 write operations (apply_spec, insert/create, update, move, delete,...
 - **Args:** required: `ops` (optional: `diff_image`, `dry_run`, `idempotency_key`, `lint`)
 - **Errors:** `INVALID_ARGUMENTS`, `BATCH_OP_FAILED`, `UNKNOWN_REF`, `DUPLICATE_AS`, `BATCH_TOO_LARGE`
 - **Example:** `{"ops":[{"op":"insert","as":"card","parent_id":1,"kind":"frame","name":"Card","width":360,"height":180},{"op":"insert","parent_id":"@card","kind":"text","name":"Title","text":"Q3 Overview"}]}`
 
 ### `designos_get_design_context`
-- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with CSS/platform code...
+- **Purpose:** Return generated code in the target language, Dev Mode hints (variables with...
 - **Args:** required: `node_id` (optional: `include_screenshot`, `language`, `react_tailwind`, `response_format`)
 - **Errors:** `INVALID_ARGUMENTS`, `NODE_NOT_FOUND`
 - **Example:** `{"node_id":2,"language":"css"}`
@@ -211,19 +211,25 @@ Ask covers agent tabs started from Studio's Agents panel. The `designos` CLI you
 - **Example:** `{}`
 
 ### `designos_open_file`
-- **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this...
+- **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace...
 - **Args:** required: `path` (optional: `discard_changes`)
 - **Errors:** `INVALID_ARGUMENTS`, `UNSAVED_CHANGES`, `PATH_OUTSIDE_WORKSPACE`, `FILE_TOO_LARGE`, `DOCUMENT_INVALID`
 - **Example:** `{"path":"design.designos","discard_changes":false}`
 
 ### `designos_save_file`
-- **Purpose:** Save this session to a .designos file inside the workspace.
-- **Args:** required: `path` (optional: `overwrite`)
-- **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
+- **Purpose:** Save this session to a .designos file inside the workspace, or in place when path is...
+- **Args:** required: none (optional: `overwrite`, `path`)
+- **Errors:** `INVALID_ARGUMENTS`, `PATH_REQUIRED`, `INVALID_NAME`, `NAME_TOO_LONG`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"path":"design.designos","overwrite":true}`
 
+### `designos_close_document`
+- **Purpose:** Close this session document using unsaved save, discard, or fail (default fail).
+- **Args:** required: none (optional: `path`, `unsaved`)
+- **Errors:** `INVALID_ARGUMENTS`, `PATH_REQUIRED`, `UNSAVED_CHANGES`
+- **Example:** `{"unsaved":"save"}`
+
 ### `designos_render_png`
-- **Purpose:** Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's...
+- **Purpose:** Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS...
 - **Args:** required: `path`, `node_id` (optional: `scale`)
 - **Errors:** `INVALID_ARGUMENTS`, `INVALID_NAME`, `NAME_TOO_LONG`, `NODE_NOT_FOUND`, `VALUE_OUT_OF_RANGE`, `PATH_OUTSIDE_WORKSPACE`, `FILE_EXISTS`
 - **Example:** `{"node_id":2,"path":"preview.png","scale":2.0}`

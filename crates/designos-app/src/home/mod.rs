@@ -19,11 +19,14 @@ pub mod updater;
 pub use dialog::{Dialog, Intent};
 #[cfg(test)]
 pub use leave::Answer;
+#[cfg(test)]
+pub use leave::LeaveFrom;
 pub use leave::{Leave, LeaveFlow};
 #[cfg(test)]
 pub(crate) use main_view::{fit_breadcrumb, Crumb};
 pub(crate) use session::library_file_disk_path;
 pub(crate) use session::load_starter_document;
+pub(crate) use session::LibrarySaveError;
 pub(crate) use session::{doc_hash, node_fingerprint};
 pub use session::{Autosave, DiskState, LibFile};
 pub use unsaved::UnsavedDot;

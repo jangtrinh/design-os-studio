@@ -42,6 +42,7 @@ pub const WRITE_TOOLS: &[&str] = &[
     "designos_redo",
     "designos_open_file",
     "designos_new_document",
+    "designos_close_document",
     "designos_import_web_capture",
     "designos_lint_fix",
 ];
@@ -467,7 +468,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 100;
+const MAX_PURPOSE_CHARS: usize = 92;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -544,7 +545,10 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_open_file" => {
             &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
         }
-        "designos_save_file" => &["`INVALID_ARGUMENTS`", "`INVALID_NAME`", "`NAME_TOO_LONG`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`TOOL_DISABLED`"],
+        "designos_save_file" => {
+            &["`INVALID_ARGUMENTS`", "`PATH_REQUIRED`", "`INVALID_NAME`", "`NAME_TOO_LONG`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`TOOL_DISABLED`"]
+        }
+        "designos_close_document" => &["`INVALID_ARGUMENTS`", "`PATH_REQUIRED`", "`UNSAVED_CHANGES`", "`TOOL_DISABLED`"],
         "designos_render_png" => &[
             "`INVALID_ARGUMENTS`",
             "`INVALID_NAME`",
@@ -602,6 +606,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_configure_session" => r#"{"issues":{"mode":"preset","preset":"agent","max_items":25}}"#,
         "designos_open_file" => r#"{"path":"design.designos","discard_changes":false}"#,
         "designos_save_file" => r#"{"path":"design.designos","overwrite":true}"#,
+        "designos_close_document" => r#"{"unsaved":"save"}"#,
         "designos_render_png" => r#"{"node_id":2,"path":"preview.png","scale":2.0}"#,
         "designos_new_document" => r#"{"name":"Fintech Workspace","discard_changes":true}"#,
         "designos_search_design_system" => r#"{"query":"button","kinds":["component"],"limit":10}"#,
