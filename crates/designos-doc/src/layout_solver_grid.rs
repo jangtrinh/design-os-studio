@@ -107,27 +107,17 @@ pub fn placed_grid_rows(al: &AutoLayout, kids: &[ChildIn]) -> usize {
     rows_covered(&place_children(kids, grid_columns(al)))
 }
 
-/// Solves a 2D CSS Grid auto-layout frame (`LayoutDirection::Grid`). Columns are the primary axis
-/// (the width, as in Figma), rows the counter axis (the height). A child keeps its own size unless
-/// it is Fill: a main Fill stretches across its cell's width, a cross Fill across the cell's height.
-/// `own` is the frame's own min/max.
-pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) -> LayoutOut {
+/// Column widths [`compute_grid`] resolves for `al`, in column order (`0..grid_columns(al)`).
+pub fn grid_column_widths(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) -> Vec<f32> {
     let frame = own.clamp(frame);
-    let [pt, pr, pb, pl] = al.padding;
     let cols = grid_columns(al);
-    let col_gap = al.item_spacing.max(0.0);
-    let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
-
-    if kids.is_empty() {
-        let fw = if al.primary_sizing == Sizing::Hug { own.clamp_w(pl + pr) } else { frame.x };
-        let fh = if al.counter_sizing == Sizing::Hug { own.clamp_h(pt + pb) } else { frame.y };
-        return LayoutOut { frame: Vec2::new(fw, fh), rects: vec![] };
-    }
-
     let placements = place_children(kids, cols);
-    let rows = rows_covered(&placements).max(al.grid_rows as usize).max(1);
+    column_widths(al, frame, own, kids, &placements, cols)
+}
 
-    // Resolve column widths from `grid_col_tracks` + `frame.x`.
+fn column_widths(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn], placements: &[Placed], cols: usize) -> Vec<f32> {
+    let [_, pr, _, pl] = al.padding;
+    let col_gap = al.item_spacing.max(0.0);
     let inner_w = (frame.x - pl - pr - col_gap * (cols.saturating_sub(1) as f32)).max(0.0);
     let col_track = |c: usize| al.grid_col_tracks.get(c).copied().unwrap_or(GridTrack::Flex(1.0));
     let mut col_widths = vec![0.0f32; cols];
@@ -141,7 +131,7 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
                 fixed_used += *col_w;
             }
             GridTrack::Hug => {
-                *col_w = widest_in_column(kids, &placements, c).max(1.0);
+                *col_w = widest_in_column(kids, placements, c).max(1.0);
                 fixed_used += *col_w;
             }
             GridTrack::Flex(fr) => {
@@ -153,7 +143,7 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
     for (c, col_w) in col_widths.iter_mut().enumerate() {
         if let GridTrack::Flex(fr) = col_track(c) {
             *col_w = if al.primary_sizing == Sizing::Hug {
-                widest_in_column(kids, &placements, c).max(40.0)
+                widest_in_column(kids, placements, c).max(40.0)
             } else if flex_total > 0.0 {
                 (rem_w * (fr.max(0.1) / flex_total)).max(1.0)
             } else {
@@ -174,6 +164,29 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
             }
         }
     }
+    col_widths
+}
+
+/// Solves a 2D CSS Grid auto-layout frame (`LayoutDirection::Grid`). Columns are the primary axis
+/// (the width, as in Figma), rows the counter axis (the height). A child keeps its own size unless
+/// it is Fill: a main Fill stretches across its cell's width, a cross Fill across the cell's height.
+/// `own` is the frame's own min/max.
+pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) -> LayoutOut {
+    let frame = own.clamp(frame);
+    let [pt, pr, pb, pl] = al.padding;
+    let cols = grid_columns(al);
+    let col_gap = al.item_spacing.max(0.0);
+    let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
+
+    if kids.is_empty() {
+        let fw = if al.primary_sizing == Sizing::Hug { own.clamp_w(pl + pr) } else { frame.x };
+        let fh = if al.counter_sizing == Sizing::Hug { own.clamp_h(pt + pb) } else { frame.y };
+        return LayoutOut { frame: Vec2::new(fw, fh), rects: vec![] };
+    }
+
+    let placements = place_children(kids, cols);
+    let rows = rows_covered(&placements).max(al.grid_rows as usize).max(1);
+    let col_widths = column_widths(al, frame, own, kids, &placements, cols);
 
     // Row heights: an explicit Fixed row track wins (or an explicit Fixed auto-track size for
     // implicit overflow rows `r >= al.grid_rows`); single-row items size their row from clamped
@@ -499,5 +512,29 @@ mod tests {
         // In a hugging grid there is no leftover height, so flex auto-rows stay content-sized.
         let hug = compute_grid(&AutoLayout { counter_sizing: Sizing::Hug, ..al }, Vec2::new(100.0, 200.0), SizeLimits::default(), &kids);
         assert_eq!(hug.frame.y, 40.0 + 20.0 + 20.0 + 20.0);
+    }
+
+    #[test]
+    fn grid_column_widths_matches_compute_grid_columns() {
+        // S2: empty Hug column floors at 1px.
+        let mut al = grid(3, Sizing::Hug, Sizing::Hug);
+        al.grid_col_tracks[2] = GridTrack::Hug;
+        let kids = [child(100.0, 30.0), child(40.0, 30.0)];
+        assert_eq!(grid_column_widths(&al, Vec2::new(500.0, 500.0), SizeLimits::default(), &kids), vec![100.0, 40.0, 1.0]);
+
+        // S4 / M4: hugging grid raised by min_w distributes extra across Flex columns.
+        let al_hug = grid(3, Sizing::Hug, Sizing::Hug);
+        let kids_3 = [child(100.0, 30.0), child(40.0, 30.0), child(60.0, 30.0)];
+        let own_min = SizeLimits { min_w: Some(300.0), ..SizeLimits::default() };
+        let cols_min = grid_column_widths(&al_hug, Vec2::new(500.0, 500.0), own_min, &kids_3);
+        assert!((cols_min[0] - 133.33333).abs() < 1e-3);
+        assert!((cols_min[1] - 73.333336).abs() < 1e-3);
+        assert!((cols_min[2] - 93.333336).abs() < 1e-3);
+
+        // M7: non-fill child width wins over a wider Fill child's stored width in the same column.
+        let al_2 = grid(2, Sizing::Hug, Sizing::Hug);
+        let kids_m7 =
+            [child(100.0, 30.0), child(40.0, 30.0), ChildIn { main_fill: true, ..child(90.0, 30.0) }, ChildIn { main_fill: true, ..child(90.0, 30.0) }];
+        assert_eq!(grid_column_widths(&al_2, Vec2::new(500.0, 500.0), SizeLimits::default(), &kids_m7), vec![100.0, 40.0]);
     }
 }

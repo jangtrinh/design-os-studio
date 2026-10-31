@@ -595,87 +595,17 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
     if cols <= 1 {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
-    let kids: Vec<&Node> = visible_children(doc, n).into_iter().filter(|k| !k.layout_child.absolute).collect();
+    let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| doc.flow_child_input(*id, true)).collect();
     if kids.is_empty() {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
-    let child_ins: Vec<designos_doc::layout_solver::ChildIn> = kids
-        .iter()
-        .map(|k| designos_doc::layout_solver::ChildIn {
-            size: k.size,
-            main_fill: k.layout_child.effective_sizing(true, Some(true)) == Sizing::Fill,
-            cross_fill: k.layout_child.effective_sizing(false, Some(false)) == Sizing::Fill,
-            grow: k.layout_child.grow,
-            align_self: k.layout_child.align_self,
-            limits: designos_doc::layout_solver::SizeLimits::default(),
-            margin: k.layout_child.margin,
-            cell: designos_doc::layout_solver::GridCell {
-                column: k.layout_child.grid_column,
-                row: k.layout_child.grid_row,
-                col_span: k.layout_child.col_span.max(1),
-                row_span: k.layout_child.row_span.max(1),
-                align_h: k.layout_child.grid_align_h,
-                align_v: k.layout_child.grid_align_v,
-            },
-        })
-        .collect();
-    let placements = designos_doc::layout_solver::place_children(&child_ins, cols);
-    let widest_in_column = |c: usize| -> f32 {
-        let has_non_fill = placements.iter().enumerate().any(|(idx, p)| p.col == c && p.col_span == 1 && !child_ins[idx].main_fill);
-        placements
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.col == c && p.col_span == 1)
-            .filter(|(idx, _)| !has_non_fill || !child_ins[*idx].main_fill)
-            .map(|(idx, _)| kids[idx].size.x + kids[idx].layout_child.margin[1] + kids[idx].layout_child.margin[3])
-            .fold(0.0_f32, f32::max)
-    };
-    let mut col_widths: Vec<f32> = (0..cols)
-        .map(|c| match al.grid_col_tracks.get(c).copied().unwrap_or_default() {
-            GridTrack::Fixed(w) if w.is_finite() && w >= 0.0 => w,
-            GridTrack::Hug => widest_in_column(c),
-            GridTrack::Flex(_) | GridTrack::Fixed(_) => widest_in_column(c).max(40.0),
-        })
-        .collect();
-    let [_, pr, _, pl] = al.padding;
-    let total_col_gaps = al.item_spacing * (cols.saturating_sub(1) as f32);
-    let natural_w = pl + pr + col_widths.iter().sum::<f32>() + total_col_gaps;
-    let solved_w = match n.layout_child.min_w {
-        Some(min_w) if min_w.is_finite() && min_w > natural_w => min_w,
-        _ => natural_w,
-    };
-    if (n.size.x - solved_w).abs() > 0.5 {
+    let al_s = al.with_stroke(&n.stroke);
+    let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
+    let solved = designos_doc::layout_solver::compute_grid(&al_s, n.size, own, &kids);
+    if (n.size.x - solved.frame.x).abs() > 0.5 {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
-    let extra = (solved_w - natural_w).max(0.0);
-    if extra > 0.0 {
-        let flex_weight = |c: usize| -> f32 {
-            match al.grid_col_tracks.get(c).copied().unwrap_or_default() {
-                GridTrack::Fixed(_) | GridTrack::Hug => 0.0,
-                GridTrack::Flex(w) => {
-                    if w.is_finite() && w > 0.0 {
-                        w
-                    } else {
-                        1.0
-                    }
-                }
-            }
-        };
-        let total_flex: f32 = (0..cols).map(flex_weight).sum();
-        if total_flex > 0.0 {
-            for (c, slot) in col_widths.iter_mut().enumerate() {
-                let w = flex_weight(c);
-                if w > 0.0 {
-                    *slot += extra * (w / total_flex);
-                }
-            }
-        } else {
-            let share = extra / (cols as f32);
-            for slot in &mut col_widths {
-                *slot += share;
-            }
-        }
-    }
+    let col_widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
     let mut ref_unit: Option<f32> = None;
     let mut flex_mismatch = false;
     for (c, &w) in col_widths.iter().enumerate() {
