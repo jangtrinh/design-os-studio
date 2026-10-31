@@ -1,0 +1,46 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.38s
+     Running tests/node_effect_stop_bindings.rs (out/cargo/debug/deps/node_effect_stop_bindings-089bbe4c722fd8a5)
+
+running 1 test
+test node_effect_and_gradient_stop_bindings_round_trip_and_resolve_per_mode ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-132-effect-stop-binds/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 39s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 2 tests
+test shell::tests::effect_stop_binds::node_effect_rows_bind_filter_scopes_detach_and_undo ... FAILED
+test shell::tests::effect_stop_binds::gradient_stop_colors_bind_filter_scopes_detach_and_undo ... FAILED
+
+failures:
+
+---- shell::tests::effect_stop_binds::node_effect_rows_bind_filter_scopes_detach_and_undo stdout ----
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::effect_stop_binds::node_effect_rows_bind_filter_scopes_detach_and_undo' (34864649) panicked at crates/designos-app/src/shell/tests.rs:228:113:
+nothing recorded for bind:effects/0/radius
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::effect_stop_binds::gradient_stop_colors_bind_filter_scopes_detach_and_undo stdout ----
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::effect_stop_binds::gradient_stop_colors_bind_filter_scopes_detach_and_undo' (34864648) panicked at crates/designos-app/src/shell/tests.rs:228:113:
+nothing recorded for bind:fills/0/stops/0
+
+
+failures:
+    shell::tests::effect_stop_binds::gradient_stop_colors_bind_filter_scopes_detach_and_undo
+    shell::tests::effect_stop_binds::node_effect_rows_bind_filter_scopes_detach_and_undo
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 2.19s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

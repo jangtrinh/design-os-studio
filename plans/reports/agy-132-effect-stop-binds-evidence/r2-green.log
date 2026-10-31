@@ -1,0 +1,18 @@
+
+running 1 test
+test node_effect_and_gradient_stop_bindings_round_trip_and_resolve_per_mode ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 7 tests
+test shell::tests::effect_stop_binds::picker_resync_runs_in_picker_popup_not_unrelated_sections ... ok
+test shell::tests::effect_stop_binds::probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit ... ok
+test shell::tests::effect_stop_binds::bound_gradient_stop_locks_color_controls_until_detached ... ok
+test shell::tests::effect_stop_binds::effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect ... ok
+test shell::tests::effect_stop_binds::gradient_stop_colors_bind_filter_scopes_detach_and_undo ... ok
+test shell::tests::effect_stop_binds::gradient_stop_bindings_follow_stop_across_flip_add_and_delete ... ok
+test shell::tests::effect_stop_binds::node_effect_rows_bind_filter_scopes_detach_and_undo ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 2.43s
+
