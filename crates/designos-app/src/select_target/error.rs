@@ -15,8 +15,9 @@ pub enum SelectError {
     /// A bare number is both a layer name and a node id. `layer` is the name hit, `id` the node. An `id_stable: false`
     /// node came from expanded content, so `id:` would be refused and the hint offers only the name.
     NameAndId { raw: String, layer: u64, id: u64, id_stable: bool },
-    /// `id:` or a bare id of a node that exists above the load watermark. Those ids change with what was expanded. An id
-    /// no node has is a [`Self::NoMatch`].
+    /// `id:` or a bare id of a node that exists above the load watermark. Those ids were created after the document was
+    /// loaded (for example by deferred expansion or a web-capture import) and are not stable across runs. An id no node
+    /// has is a [`Self::NoMatch`].
     Unstable { id: u64 },
 }
 
@@ -36,7 +37,7 @@ impl fmt::Display for SelectError {
                 write!(f, "--select {raw} is ambiguous: layer \"{raw}\" (id {layer}) and node id {id}, which is per session and not stable across runs; use name:{raw}")
             }
             Self::Unstable { id } => {
-                write!(f, "id {id} belongs to an expanded instance and is not stable across runs; use fig:<id> or a name")
+                write!(f, "id {id} was created in this session and is not stable across runs; use fig:<id> or a name")
             }
         }
     }

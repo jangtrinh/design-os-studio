@@ -268,7 +268,7 @@ fn hydrated_ids_are_reported_unstable() {
     let load_next_id = doc.peek_next_id();
     resolve(&mut doc, "Lazy Card", load_next_id).unwrap();
     let err = resolve(&mut doc, "id:9", load_next_id).unwrap_err().to_string();
-    assert!(err.contains("id 9 belongs to an expanded instance and is not stable across runs"), "the node exists now, above the watermark: {err}");
+    assert!(err.contains("id 9 was created in this session and is not stable across runs"), "the node exists now, above the watermark: {err}");
     assert_eq!(calls.load(Ordering::SeqCst), 1, "only the name lookup expanded pages; refusing the id did not");
 
     let mut doc = two_cards();
