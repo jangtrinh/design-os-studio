@@ -63,7 +63,7 @@ fn gui_rejects_a_page0_hydrated_id_like_the_cli() {
     page_zero_expands(&created);
     let s = Sim::with(Options { file: Some(file.clone()), select: Some(format!("id:{id}")), ..Default::default() });
     let msg = s.shell.select_miss.as_deref().expect("the id page 0 created is refused");
-    assert!(msg.contains(&format!("id {id} belongs to an expanded instance and is not stable across runs; use fig:<id> or a name")), "{msg}");
+    assert!(msg.contains(&format!("id {id} was created in this session and is not stable across runs; use fig:<id> or a name")), "{msg}");
     assert!(s.app().selection.is_empty());
 
     let err = run(&[text(&file), "--select", &format!("id:{id}"), "--inspect-json"]).expect_err("the agent CLI never created that node");
@@ -129,7 +129,9 @@ fn import_capture_leaves_the_window_the_watermark_the_agent_cli_records() {
 
     let s = Sim::with(Options { import_capture: Some(cap), select: Some("id:2".into()), ..Default::default() });
     assert_eq!(s.app().load_next_id, NodeId(2), "the window keeps the next id of the document the import went into");
-    assert!(s.shell.select_miss.is_some(), "so the window refuses the captured id too, as the agent CLI does");
+    let msg = s.shell.select_miss.as_deref().expect("the window refuses the captured id too, as the agent CLI does");
+    assert!(msg.contains("id 2 was created in this session and is not stable across runs"), "{msg}");
+    assert!(!msg.contains("belongs to an expanded instance"), "an imported capture is not an expanded instance: {msg}");
 }
 
 #[test]
