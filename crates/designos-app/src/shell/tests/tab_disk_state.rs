@@ -296,6 +296,9 @@ fn a_write_of_exactly_the_document_on_screen_asks_nothing_and_clears_the_dot() {
 #[test]
 fn an_agent_that_saves_its_own_live_edit_over_the_open_file_asks_nothing_and_keeps_its_undo_steps() {
     let (mut s, d, path) = external_sim_with(&two_rects());
+    if let Some(root) = s.app().lib.as_ref().map(|l| l.root().to_path_buf()) {
+        crate::comments::settings::save_autosave_ai_changes(&root, false).unwrap();
+    }
     let session_dir = s.app().terminal.session_dir.clone();
     {
         let app = &mut s.shell.app;

@@ -1164,6 +1164,7 @@ fn layout_guide_section_edits_the_grids_of_a_frame() {
     }
 }
 
+mod agent_autosave;
 mod agent_turn_card_scroll;
 mod app_shell;
 mod board;
@@ -1171,6 +1172,8 @@ mod board_home;
 mod canvas_label_rename;
 mod check_designs;
 mod chrome_census;
+mod close_human_dirty;
+mod close_tab_kinds;
 mod comments;
 mod components;
 mod components_cycles;
@@ -1198,6 +1201,7 @@ mod home;
 mod home_agents_card;
 mod idle_repaint;
 mod layer_drag_fast;
+mod leave_agent;
 #[cfg(target_os = "macos")]
 mod leave_menu_quit;
 mod leave_prompt;
@@ -1231,6 +1235,7 @@ mod tab_disk_state;
 mod text_styles;
 mod toast_clock;
 mod typography;
+mod typography_style_detach;
 mod undo_exact_layout;
 mod undo_layout_epoch;
 mod unsaved_dot;

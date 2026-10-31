@@ -83,7 +83,7 @@ If a gate fails, the release task files a blocker issue in the same milestone, a
 |---|---|---|
 | `build` `x86_64-pc-windows-msvc` | `windows-latest` | `designos-<version>-<target>.zip` with `install.ps1` (the exe has the icon and version info embedded by `crates/designos-app/build.rs`). A `-setup.exe` NSIS installer is added only when `makensis` is on the runner's `PATH`; `windows-latest` does not have it, so v0.2.0 and v0.3.0 shipped the zip only. |
 | `build` `x86_64-unknown-linux-gnu` | `ubuntu-latest` | `designos-<version>-<target>.tar.gz` (adds `designos.desktop`, `icons/`, `install.sh`) and `designos_<version>_amd64.deb` (built when `dpkg-deb` is available) |
-| `macos` | `macos-14` (builds `aarch64-apple-darwin` and cross-compiles `x86_64-apple-darwin`; `macos-13` is retired) | `designos-<version>-macos.dmg` and `designos-<version>-macos-universal.tar.gz` |
+| `macos` | `macos-15` (builds `aarch64-apple-darwin` and cross-compiles `x86_64-apple-darwin`; `macos-13` and `macos-14` are retired) | `designos-<version>-macos.dmg` and `designos-<version>-macos-universal.tar.gz` |
 
 Every package holds all four tools (`designos-studio`, `designos`, `designos-mcp`, `designos-diff`) plus `LICENSE` and `README.md`. They are packaged by `scripts/package.sh <target> <version>`, which you can run locally after a release build.
 

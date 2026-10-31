@@ -87,21 +87,20 @@ fn replace_live_document(app: &mut App, mut new_doc: Document) {
 /// user is mid-edit. Runs every frame. What the log held for the previous document was already
 /// dropped when the switch was read (`LivePatchLog::ingest`); the toast says how many.
 pub fn apply_pending_live_patches(app: &mut App) {
+    app.terminal.poll_auto_allow_into_active();
     let expected_marks_path = app.terminal.hook_paths().turn_marks();
     if app.terminal.turn_marks.path() != expected_marks_path {
         app.terminal.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
     }
     let marks = app.terminal.turn_marks.poll();
-    if !marks.is_empty() {
-        app.terminal.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
-    }
+    app.terminal.active_turn_ledger_mut().ingest_marks(marks, std::time::Instant::now());
     if user_edit_in_progress(app) {
         return;
     }
     // A question about the shown document (Save changes, File changed on disk, and any other) is answered about the
     // document and the tab it was asked on, and the agent's document changes what both hold: it waits for the answer.
     // Edits made on the document it opened wait behind it.
-    if app.terminal.live_patch.pending_doc.is_some() && (app.leave.is_asking() || app.dialog.is_some()) {
+    if (app.terminal.live_patch.pending_doc.is_some() || app.terminal.live_patch.pending_close.is_some()) && (app.leave.is_asking() || app.dialog.is_some()) {
         return;
     }
     if let Some((tab_idx, turn_id)) = app.terminal.pending_turn_revert.take() {
@@ -148,6 +147,7 @@ pub fn apply_pending_live_patches(app: &mut App) {
         } else {
             apply_live_patches_with_offsets(app, &patches, &offsets);
         }
+        maybe_autosave_ai_changes(app);
     } else if let Some(depth) = pending_depth {
         crate::agent_stop::fold_stopped_turn(app, depth, pending_close.as_ref());
     }
@@ -157,7 +157,263 @@ pub fn apply_pending_live_patches(app: &mut App) {
     if dropped > 0 {
         note_dropped_edits(app, dropped);
     }
+    if let Some(intent) = app.terminal.live_patch.pending_close.take() {
+        apply_close_intent(app, intent);
+    }
     publish_live_context(app);
+}
+
+pub fn abandon_queued_close(app: &mut App) {
+    if let Some(intent) = app.terminal.live_patch.drop_close_on_hide() {
+        crate::live_patch_log::write_close_result_file(
+            &app.terminal.live_patch.path,
+            &intent,
+            serde_json::json!({
+                "ok": false,
+                "code": "EDITOR_NOT_NOTIFIED",
+                "message": "The close was dropped because the tab was no longer shown.",
+            }),
+        );
+    }
+}
+
+fn close_cancelled(app: &App, close_id: Option<u64>) -> bool {
+    let Some(id) = close_id else {
+        return false;
+    };
+    let path = app.terminal.session_dir.join(designos_doc::live_patch::CloseIntent::CANCEL_FILE);
+    let Ok(raw) = crate::agent_session_files::read_session_file(&path) else {
+        return false;
+    };
+    serde_json::from_slice::<serde_json::Value>(&raw).ok().and_then(|v| v.get("close_id").and_then(serde_json::Value::as_u64)) == Some(id)
+}
+
+/// Answers a close the editor will not do. The document stays open, so the edits the agent writes next must land: the
+/// reader stops dropping them before the answer is written, because the agent only writes again after it reads it.
+fn refuse_close(app: &mut App, intent: &designos_doc::live_patch::CloseIntent, body: serde_json::Value) {
+    app.terminal.live_patch.close_refused();
+    crate::live_patch_log::write_close_result_file(&app.terminal.live_patch.path, intent, body);
+}
+
+fn apply_close_intent(app: &mut App, intent: designos_doc::live_patch::CloseIntent) {
+    if close_cancelled(app, intent.close_id) {
+        app.terminal.live_patch.close_refused();
+        return;
+    }
+    let active_id = app.tabs.entries.get(app.tabs.active_idx).map(|t| t.id);
+    if let Some(named) = intent.tab_id {
+        if app.tabs.entries.iter().all(|t| t.id != named) {
+            // The tab is gone (a person closed it): asking again can never work, and the answer says so.
+            refuse_close(
+                app,
+                &intent,
+                serde_json::json!({
+                    "ok": false,
+                    "code": "EDITOR_NOT_NOTIFIED",
+                    "reason": "tab_closed",
+                    "message": "The tab is already closed, so there is nothing to close.",
+                }),
+            );
+            return;
+        }
+        if active_id != Some(named) {
+            refuse_close(
+                app,
+                &intent,
+                serde_json::json!({
+                    "ok": false,
+                    "code": "EDITOR_NOT_NOTIFIED",
+                    "message": "The close was dropped because that tab is not the one currently shown. Switch to it, then try again.",
+                }),
+            );
+            return;
+        }
+    }
+    let Some(id) = intent.tab_id.or(active_id) else {
+        refuse_close(
+            app,
+            &intent,
+            serde_json::json!({
+                "ok": false,
+                "code": "EDITOR_NOT_NOTIFIED",
+                "reason": "tab_closed",
+                "message": "No tab is open, so there is nothing to close.",
+            }),
+        );
+        return;
+    };
+    app.commit_open_edits();
+    let dirty = app.has_unsaved_edits();
+    let log_path = app.terminal.live_patch.path.clone();
+    match intent.unsaved.as_str() {
+        "fail" if dirty => {
+            refuse_close(
+                app,
+                &intent,
+                serde_json::json!({
+                    "ok": false,
+                    "code": "UNSAVED_CHANGES",
+                    "message": "Unsaved changes. The document stayed open.",
+                }),
+            );
+        }
+        "save" => {
+            match save_for_agent_close(app, intent.path.as_deref()) {
+                AgentCloseSave::Saved => {}
+                AgentCloseSave::PathRequired => {
+                    refuse_close(
+                        app,
+                        &intent,
+                        serde_json::json!({
+                            "ok": false,
+                            "code": "PATH_REQUIRED",
+                            "message": "Untitled documents need a path to save",
+                        }),
+                    );
+                    return;
+                }
+                AgentCloseSave::Failed { code, message } => {
+                    refuse_close(
+                        app,
+                        &intent,
+                        serde_json::json!({
+                            "ok": false,
+                            "code": code,
+                            "message": message,
+                        }),
+                    );
+                    return;
+                }
+            }
+            let revision = app.doc.mutation_epoch();
+            let saved_path = app.file_path.as_ref().map(|p| p.display().to_string());
+            crate::live_patch_log::write_close_result_file(
+                &log_path,
+                &intent,
+                serde_json::json!({
+                    "ok": true,
+                    "closed": true,
+                    "saved": true,
+                    "unsaved": "save",
+                    "doc_revision": revision,
+                    "path": saved_path,
+                }),
+            );
+            app.request_leave_from_agent(None, crate::home::Leave::CloseTab(id));
+        }
+        _ => {
+            let revision = app.doc.mutation_epoch();
+            crate::live_patch_log::write_close_result_file(
+                &log_path,
+                &intent,
+                serde_json::json!({
+                    "ok": true,
+                    "closed": true,
+                    "saved": false,
+                    "unsaved": intent.unsaved,
+                    "doc_revision": revision,
+                }),
+            );
+            app.request_leave_from_agent(None, crate::home::Leave::CloseTab(id));
+        }
+    }
+}
+
+enum AgentCloseSave {
+    Saved,
+    PathRequired,
+    Failed { code: &'static str, message: String },
+}
+
+fn save_for_agent_close(app: &mut App, path: Option<&str>) -> AgentCloseSave {
+    if let Some(raw) = path.filter(|s| !s.is_empty()) {
+        let target = std::path::PathBuf::from(raw);
+        if app.file_path.as_ref() == Some(&target) {
+            return save_open_document_for_agent_close(app);
+        }
+        return match app.persist_document_to(&target) {
+            Ok(saved) => finish_close_save(app, Some(saved)),
+            Err(e) => classify_save_io(&target, e),
+        };
+    }
+    save_open_document_for_agent_close(app)
+}
+
+fn save_open_document_for_agent_close(app: &mut App) -> AgentCloseSave {
+    if app.lib_file.is_some() {
+        return match app.save_library_file_reporting() {
+            Ok(()) => finish_close_save(app, app.file_path.clone()),
+            Err(e) => classify_library_save(&e, app.lib_file.as_ref().map(|f| f.project.as_str())),
+        };
+    }
+    let Some(p) = app.file_path.as_ref().filter(|p| crate::io::writes_native_format(p)).cloned() else {
+        return AgentCloseSave::PathRequired;
+    };
+    match app.persist_document_to(&p) {
+        Ok(saved) => finish_close_save(app, Some(saved)),
+        Err(e) => classify_save_io(&p, e),
+    }
+}
+
+fn finish_close_save(app: &App, path: Option<std::path::PathBuf>) -> AgentCloseSave {
+    if app.has_unsaved_edits() {
+        let display = path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "the document".into());
+        AgentCloseSave::Failed { code: "INTERNAL_ERROR", message: format!("{display} was written but the document is still unsaved.") }
+    } else {
+        AgentCloseSave::Saved
+    }
+}
+
+/// A write that failed because the file or its folder cannot be written to: not a disk fault.
+fn is_read_only_kind(kind: std::io::ErrorKind) -> bool {
+    matches!(kind, std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::ReadOnlyFilesystem)
+}
+
+fn read_only(display: &str) -> AgentCloseSave {
+    AgentCloseSave::Failed { code: "INVALID_ARGUMENTS", message: format!("{display} is read-only. Make it writable first, or choose a new path.") }
+}
+
+fn classify_save_io(path: &std::path::Path, err: std::io::Error) -> AgentCloseSave {
+    let display_path = path.display().to_string();
+    if is_read_only_kind(err.kind()) {
+        read_only(&display_path)
+    } else {
+        AgentCloseSave::Failed {
+            code: "INTERNAL_ERROR",
+            message: format!("{display_path} can't be written: {err}. Check its permissions and free space, then try again."),
+        }
+    }
+}
+
+/// A library save failure maps like a titled file's: by the typed I/O kind, never by the text. A failure with no I/O kind (the
+/// editor is showing an old version, the file is not in the library) is not a disk fault and keeps its own text.
+fn classify_library_save(err: &crate::home::LibrarySaveError, project: Option<&str>) -> AgentCloseSave {
+    let display = project.map_or_else(|| "the library file".to_string(), |p| format!("The library file in {p}"));
+    match err.io_kind {
+        Some(kind) if is_read_only_kind(kind) => read_only(&display),
+        Some(_) => AgentCloseSave::Failed {
+            code: "INTERNAL_ERROR",
+            message: format!("{display} can't be written: {}. Check its permissions and free space, then try again.", err.message),
+        },
+        None => AgentCloseSave::Failed { code: "INVALID_ARGUMENTS", message: err.message.clone() },
+    }
+}
+
+fn maybe_autosave_ai_changes(app: &mut App) {
+    if app.lib_file.is_some() {
+        return;
+    }
+    let Some(root) = app.lib.as_ref().map(|l| l.root().to_path_buf()) else { return };
+    if !crate::comments::settings::load_autosave_ai_changes(&root) {
+        return;
+    }
+    if app.file_path.is_none() {
+        return;
+    }
+    if !app.has_unsaved_edits() {
+        return;
+    }
+    app.save(false);
 }
 
 /// Adds to the toast on screen that edits made on the previous document were dropped.
@@ -356,4 +612,55 @@ fn toast_text(r: &LivePatchReport, committed: bool) -> Option<String> {
         1 => "Applied agent edit: 1 new layer".to_string(),
         n => format!("Applied agent edit: {n} new layers"),
     })
+}
+
+#[cfg(test)]
+mod close_save_classification_tests {
+    use super::*;
+    use crate::home::LibrarySaveError;
+    use std::io::ErrorKind;
+
+    fn failed(save: AgentCloseSave) -> (&'static str, String) {
+        match save {
+            AgentCloseSave::Failed { code, message } => (code, message),
+            AgentCloseSave::Saved => panic!("expected a failure, got Saved"),
+            AgentCloseSave::PathRequired => panic!("a library save is never PATH_REQUIRED"),
+        }
+    }
+
+    fn library(kind: Option<ErrorKind>, message: &str) -> (&'static str, String) {
+        failed(classify_library_save(&LibrarySaveError { message: message.into(), io_kind: kind }, Some("Starter")))
+    }
+
+    #[test]
+    fn library_failures_map_by_io_kind_not_by_text() {
+        for kind in [ErrorKind::PermissionDenied, ErrorKind::ReadOnlyFilesystem] {
+            let (code, message) = library(Some(kind), "Cannot save: io: whatever the OS said");
+            assert_eq!(code, "INVALID_ARGUMENTS", "{kind:?}");
+            assert!(message.contains("is read-only"), "{message}");
+        }
+        for kind in [ErrorKind::StorageFull, ErrorKind::NotFound, ErrorKind::Other] {
+            let (code, message) = library(Some(kind), "Cannot save: io: Zugriff verweigert");
+            assert_eq!(code, "INTERNAL_ERROR", "{kind:?}");
+            assert!(message.contains("can't be written"), "{message}");
+        }
+        // Text that merely contains "permission denied" (a folder name) is not a read-only file.
+        assert_eq!(library(Some(ErrorKind::StorageFull), "Cannot save: io: /permission denied/lib").0, "INTERNAL_ERROR");
+    }
+
+    #[test]
+    fn a_failure_without_an_io_kind_keeps_its_own_text() {
+        let (code, message) = library(None, "Go back to the current version before saving");
+        assert_eq!(code, "INVALID_ARGUMENTS");
+        assert_eq!(message, "Go back to the current version before saving");
+    }
+
+    #[test]
+    fn titled_file_read_only_kinds_match_the_library_ones() {
+        let path = std::path::Path::new("/x/a.designos");
+        for kind in [ErrorKind::PermissionDenied, ErrorKind::ReadOnlyFilesystem] {
+            assert_eq!(failed(classify_save_io(path, std::io::Error::from(kind))).0, "INVALID_ARGUMENTS", "{kind:?}");
+        }
+        assert_eq!(failed(classify_save_io(path, std::io::Error::from(ErrorKind::StorageFull))).0, "INTERNAL_ERROR");
+    }
 }

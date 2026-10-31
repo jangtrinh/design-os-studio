@@ -47,6 +47,13 @@ enum Origin {
     Tab(u64),
 }
 
+/// Who asked to leave. Human asks; agent follows the MCP unsaved policy and never opens the dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeaveFrom {
+    Human,
+    Agent,
+}
+
 struct Pending {
     action: Leave,
     /// Ids of the tabs still to ask about, in tab order. The one being asked about is at the front.
@@ -73,8 +80,27 @@ impl App {
     /// Runs `action` now when nothing unsaved would be lost, else asks first and runs it once every question
     /// is answered with Save or Don't save.
     pub fn request_leave(&mut self, ctx: Option<&egui::Context>, action: Leave) {
-        if !self.begin_leave(ctx, action.clone()) {
-            self.perform_leave(ctx, action);
+        self.leave_from(ctx, action, LeaveFrom::Human);
+    }
+
+    /// Agent-originated leave: never sets the asking state and never calls [`Self::ask_next`].
+    /// Close of one document is `Leave::CloseTab` only, so other dirty tabs are not asked and quit does not start.
+    pub fn request_leave_from_agent(&mut self, ctx: Option<&egui::Context>, action: Leave) {
+        self.leave_from(ctx, action, LeaveFrom::Agent);
+    }
+
+    fn leave_from(&mut self, ctx: Option<&egui::Context>, action: Leave, from: LeaveFrom) {
+        match from {
+            LeaveFrom::Human => {
+                if !self.begin_leave(ctx, action.clone()) {
+                    self.perform_leave(ctx, action);
+                }
+            }
+            LeaveFrom::Agent => {
+                let Leave::CloseTab(_) = action else { return };
+                self.commit_open_edits();
+                self.perform_leave(ctx, action);
+            }
         }
     }
 
@@ -148,8 +174,18 @@ impl App {
         }
         let origin = if self.home.is_some() { Origin::Home } else { self.tabs.entries.get(self.tabs.active_idx).map_or(Origin::Home, |t| Origin::Tab(t.id)) };
         self.leave.pending = Some(Pending { action, queue, origin });
+        self.set_leave_asking_marker(true);
         self.ask_next(ctx);
         true
+    }
+
+    fn set_leave_asking_marker(&self, on: bool) {
+        let path = self.terminal.session_dir.join("leave-asking");
+        if on {
+            let _ = crate::agent_session_files::atomic_write_session_file(&path, b"1");
+        } else {
+            let _ = crate::agent_session_files::remove_session_file(&path);
+        }
     }
 
     /// The tabs that `action` would end and whose document is outside the library with edits no save has written.
@@ -194,6 +230,7 @@ impl App {
             let Some(p) = self.leave.pending.as_mut() else { return };
             let Some(&id) = p.queue.front() else {
                 let Pending { action, origin, .. } = self.leave.pending.take().expect("pending was just read");
+                self.set_leave_asking_marker(false);
                 self.perform_leave(ctx, action.clone());
                 if matches!(action, Leave::CloseTab(_) | Leave::CloseOthers(_)) {
                     self.restore_origin(origin);
@@ -245,6 +282,7 @@ impl App {
     /// Cancel: nothing was dropped, so nothing is undone but where the user was.
     fn cancel_leave(&mut self) {
         let Some(p) = self.leave.pending.take() else { return };
+        self.set_leave_asking_marker(false);
         self.restore_origin(p.origin);
     }
 

@@ -15,9 +15,18 @@ use std::path::Path;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CardAction {
     Approve(String),
+    /// Allow this modify call, and remember the same tool and target for this window.
+    AllowSession(String),
     Deny(String),
     ShowPrompt,
     OpenTab(usize),
+}
+
+/// A Revoke click on one remembered grant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GrantRevoke {
+    pub tool_name: String,
+    pub target: String,
 }
 
 /// Height occupied by the approval card (including its top and bottom `SPACE_ROW` viewport margins).
@@ -42,8 +51,9 @@ pub fn paint_approval_card(
     preset: AgentCliPreset,
     requests: &[ApprovalRequest],
     surface_id: &'static str,
+    mode: AgentPermissionMode,
 ) -> Option<CardAction> {
-    paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), surface_id)
+    paint_approval_card_for_tab(ui, viewport_rect, preset, requests, 0, preset == AgentCliPreset::Claude, requests.len(), surface_id, mode)
 }
 
 /// Paints the in-panel approval card for `tab_id` (`#656`, `#1195`).
@@ -57,6 +67,7 @@ pub fn paint_approval_card_for_tab(
     in_active_terminal: bool,
     total_pending: usize,
     surface_id: &'static str,
+    mode: AgentPermissionMode,
 ) -> Option<CardAction> {
     let first_req = requests.first();
     if (preset == AgentCliPreset::Claude || matches!(preset, AgentCliPreset::Shell | AgentCliPreset::DesignOsHelp)) && first_req.is_none() {
@@ -134,12 +145,28 @@ pub fn paint_approval_card_for_tab(
         let req_id = req.id.clone();
         let (approve_r, approve_resp) =
             paint_card_button(ui, &p, (surface_id, "agent-approval-approve"), "agent-approval-approve", action_r.right(), action_r.top(), "Approve", true);
-        let deny_right = approve_r.left() - theme::SPACE_ROW;
+        let mut next_right = approve_r.left() - theme::SPACE_ROW;
+        if agent_permissions::offer_session_grant(mode, req) {
+            let (session_r, session_resp) = paint_card_button(
+                ui,
+                &p,
+                (surface_id, "agent-approval-allow-session"),
+                "agent-approval-allow-session",
+                next_right,
+                action_r.top(),
+                "Allow this session",
+                false,
+            );
+            next_right = session_r.left() - theme::SPACE_ROW;
+            if session_resp.clicked() {
+                out = Some(CardAction::AllowSession(req_id.clone()));
+            }
+        }
         let (_deny_r, deny_resp) =
-            paint_card_button(ui, &p, (surface_id, "agent-approval-deny"), "agent-approval-deny", deny_right, action_r.top(), "Deny", false);
+            paint_card_button(ui, &p, (surface_id, "agent-approval-deny"), "agent-approval-deny", next_right, action_r.top(), "Deny", false);
         if approve_resp.clicked() {
             out = Some(CardAction::Approve(req_id));
-        } else if deny_resp.clicked() {
+        } else if out.is_none() && deny_resp.clicked() {
             out = Some(CardAction::Deny(req_id));
         }
     } else if in_active_terminal {
@@ -166,6 +193,42 @@ pub fn paint_approval_card_for_tab(
         }
     }
     out
+}
+
+/// Lists remembered grants for this window. Returns the strip height and a Revoke click, if any.
+pub fn paint_grant_strip(ui: &mut Ui, origin: Pos2, width: f32, grants: &[agent_permissions::SessionGrant]) -> (f32, Option<GrantRevoke>) {
+    if grants.is_empty() || width <= 0.0 {
+        return (0.0, None);
+    }
+    let row_h = theme::TARGET_MIN;
+    let height = grants.len() as f32 * row_h;
+    let p = ui.painter().clone();
+    let strip = Rect::from_min_size(origin, Vec2::new(width, height));
+    p.rect_filled(strip, 0.0, theme::BG_PRIMARY);
+    widgets::hline(&p, strip.left(), strip.right(), strip.bottom() - theme::BORDER_WIDTH, theme::BORDER);
+    widgets::record(ui, "agent-grant-strip", strip);
+    let mut revoke = None;
+    for (idx, grant) in grants.iter().enumerate() {
+        let font = theme::font_caption();
+        let row = Rect::from_min_size(Pos2::new(origin.x, origin.y + idx as f32 * row_h), Vec2::new(width, row_h));
+        let btn_w = (widgets::text_width(&p, "Revoke", &font) + theme::INSET_BUTTON + theme::INSET_BUTTON).max(theme::CONTROL_MD);
+        let btn_h = (row_h - theme::SPACE_ROW).max(theme::LINE_CAPTION);
+        let btn = Rect::from_min_size(Pos2::new(row.right() - theme::INSET_CONTROL - btn_w, row.center().y - btn_h * 0.5), Vec2::new(btn_w, btn_h));
+        let resp = ui.interact(btn, Id::new(("agent-grant-revoke", idx, grant.tool_name.clone(), grant.target.clone())), Sense::click());
+        let fill = if resp.hovered() { theme::BG_HOVER } else { theme::BG_SECONDARY };
+        p.rect_filled(btn, theme::cr(theme::RADIUS_CONTROL), fill);
+        p.rect_stroke(btn, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+        p.text(btn.center(), Align2::CENTER_CENTER, "Revoke", font.clone(), theme::TEXT);
+        widgets::record(ui, "agent-grant-revoke", btn);
+        let text_w = (btn.left() - row.left() - theme::INSET_CONTROL - theme::SPACE_INLINE).max(theme::TARGET_MIN);
+        let label = format!("{} {}", grant.tool_name, grant.target);
+        let elided = widgets::elide(&p, &label, &font, text_w);
+        p.text(Pos2::new(row.left() + theme::INSET_CONTROL, row.center().y), Align2::LEFT_CENTER, elided, font, theme::TEXT_SECONDARY);
+        if resp.clicked() && revoke.is_none() {
+            revoke = Some(GrantRevoke { tool_name: grant.tool_name.clone(), target: grant.target.clone() });
+        }
+    }
+    (height, revoke)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -215,6 +278,10 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         + row_h
         + theme::SPACE_ROW
         + row_h
+        + theme::SPACE_ROW
+        + row_h
+        + theme::SPACE_GROUP
+        + row_h
         + theme::SPACE_GROUP
         + theme::LINE_CAPTION
         + theme::INSET_MODAL;
@@ -250,6 +317,12 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
                 "agent-perm-ask",
                 "Ask before acting (default)",
                 "Launch CLIs without skip flags and surface tool approvals in the Agents panel.",
+            ),
+            (
+                AgentPermissionMode::AskRisky,
+                "agent-perm-ask-risky",
+                "Ask for risky only",
+                "Reads and additions run. A change on one target can be allowed for this session. Deletes always ask.",
             ),
         ];
 
@@ -294,6 +367,53 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
 
         y = y - theme::SPACE_ROW + theme::SPACE_GROUP;
         p.text(Pos2::new(inner_x, y), Align2::LEFT_TOP, "Applies to new agent tabs.", theme::font_caption(), theme::TEXT_SECONDARY);
+        y += theme::LINE_CAPTION + theme::SPACE_GROUP;
+        let autosave_on = lib_root.map(crate::comments::settings::load_autosave_ai_changes).unwrap_or(true);
+        let auto_r = Rect::from_min_size(Pos2::new(inner_x, y), Vec2::new(inner_w, row_h));
+        let auto_resp = ui.interact(auto_r, Id::new("agent-autosave-ai"), Sense::click());
+        let auto_fill = if auto_resp.hovered() { theme::BG_HOVER } else { theme::BG_TERTIARY };
+        p.rect_filled(auto_r, theme::cr(theme::RADIUS_CONTROL), auto_fill);
+        p.rect_stroke(auto_r, theme::cr(theme::RADIUS_CONTROL), Stroke::new(theme::BORDER_WIDTH, theme::BORDER), StrokeKind::Inside);
+        let text_x = auto_r.left() + theme::INSET_FRAME;
+        let switch_rect = Rect::from_min_size(
+            Pos2::new(auto_r.right() - theme::INSET_FRAME - theme::BADGE_LG, auto_r.center().y - theme::LAYER_ICON_SIZE * 0.5),
+            Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE),
+        );
+        let caption_w = switch_rect.left() - theme::SPACE_INLINE - text_x;
+        let title_y = auto_r.top() + theme::INSET_FRAME;
+        p.text(Pos2::new(text_x, title_y), Align2::LEFT_TOP, "Auto-save changes made by AI", theme::font_body_medium(), theme::TEXT);
+        let caption = if autosave_on {
+            "On. Save after each agent tool batch, outside the library. This session too."
+        } else {
+            "Off. Edits stay unsaved until the agent or you save. This session too."
+        };
+        let mut job = LayoutJob::simple(caption.to_string(), theme::font_caption(), theme::TEXT_SECONDARY, caption_w);
+        job.wrap.max_width = caption_w;
+        job.wrap.max_rows = 2;
+        job.wrap.break_anywhere = false;
+        job.wrap.overflow_character = Some('…');
+        if let Some(sec) = job.sections.first_mut() {
+            sec.format =
+                TextFormat { font_id: theme::font_caption(), color: theme::TEXT_SECONDARY, line_height: Some(theme::LINE_CAPTION), ..Default::default() };
+        }
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        p.galley(Pos2::new(text_x, title_y + theme::LINE_BODY + theme::SPACE_FACT), galley, theme::TEXT_SECONDARY);
+        let sw = switch_rect;
+        let fill = if autosave_on { theme::BG_BRAND } else { theme::BG_PRESSED };
+        p.rect_filled(sw, theme::cr_pill(sw.height()), fill);
+        if !autosave_on {
+            p.rect_stroke(sw, theme::cr_pill(sw.height()), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_STRONG), StrokeKind::Inside);
+        }
+        let knob_r = theme::LAYER_ICON_SIZE * 0.5 - theme::INSET_SEGMENT;
+        let kx = if autosave_on { sw.right() - theme::INSET_SEGMENT - knob_r } else { sw.left() + theme::INSET_SEGMENT + knob_r };
+        p.circle_filled(Pos2::new(kx, sw.center().y), knob_r, theme::ICON_WHITE);
+        widgets::record(ui, "agent-autosave-switch", switch_rect);
+        widgets::record(ui, "agent-autosave-ai", auto_r);
+        if auto_resp.clicked() {
+            if let Some(root) = lib_root {
+                let _ = crate::comments::settings::save_autosave_ai_changes(root, !autosave_on);
+            }
+        }
     });
 
     if let Some(new_mode) = picked_mode {
@@ -312,6 +432,51 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui::epaint::{RectShape, Shape};
+
+    fn painted_rects(shapes: &[egui::epaint::ClippedShape]) -> Vec<(Rect, egui::Color32, Stroke)> {
+        fn walk(shape: &Shape, out: &mut Vec<(Rect, egui::Color32, Stroke)>) {
+            match shape {
+                Shape::Vec(shapes) => shapes.iter().for_each(|shape| walk(shape, out)),
+                Shape::Rect(RectShape { rect, fill, stroke, .. }) => out.push((*rect, *fill, *stroke)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    fn autosave_frame(on: bool) -> (Vec<crate::lint::TextRun>, Vec<(Rect, egui::Color32, Stroke)>, std::path::PathBuf) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir().join(format!("designos-autosave-card-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir_all(&root).expect("could not create autosave test directory");
+        crate::comments::settings::save_autosave_ai_changes(&root, on).expect("could not save autosave test setting");
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        ctx.all_styles_mut(|s| s.animation_time = 0.0);
+        let mut open = true;
+        let mut mode = AgentPermissionMode::Ask;
+        let mut output = None;
+        for frame in 0..4 {
+            output = Some(ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))),
+                    time: Some(frame as f64 * 0.1),
+                    ..Default::default()
+                },
+                |_ui| {
+                    let _ = paint_permissions_modal(&ctx, &mut open, &mut mode, Some(&root));
+                },
+            ));
+        }
+        let output = output.expect("autosave modal did not produce a frame");
+        (crate::lint::scan_shapes(&output.shapes).0, painted_rects(&output.shapes), root)
+    }
 
     fn modal_texts(mode: AgentPermissionMode) -> Vec<String> {
         let ctx = Context::default();
@@ -334,11 +499,131 @@ mod tests {
     /// Ask is the default (`#841`), so the modal marks Ask and never calls Skip the default, whichever mode is selected.
     #[test]
     fn the_permissions_modal_marks_ask_as_the_default() {
-        for selected in [AgentPermissionMode::Ask, AgentPermissionMode::Skip] {
+        for selected in [AgentPermissionMode::Ask, AgentPermissionMode::Skip, AgentPermissionMode::AskRisky] {
             let texts = modal_texts(selected);
             assert!(texts.iter().any(|t| t == "Ask before acting (default)"), "{selected:?}: Ask carries the default mark: {texts:?}");
             assert!(texts.iter().any(|t| t == "Skip permissions"), "{selected:?}: Skip stays on offer, unmarked: {texts:?}");
+            assert!(texts.iter().any(|t| t == "Ask for risky only"), "{selected:?}: the third mode is on the selector: {texts:?}");
             assert!(!texts.iter().any(|t| t.contains("Skip permissions (default)")), "{selected:?}: Skip is no longer the default: {texts:?}");
+            assert!(texts.iter().any(|t| t == "Applies to new agent tabs."), "{selected:?}: permission modes keep their footnote: {texts:?}");
+            assert!(texts.iter().any(|t| t.contains("This session too.")), "{selected:?}: autosave says it applies to this session: {texts:?}");
         }
+    }
+
+    fn card_texts(preset: AgentCliPreset, requests: &[ApprovalRequest], mode: AgentPermissionMode) -> Vec<String> {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |ui| {
+                let panel = Rect::from_min_size(Pos2::new(48.0, 0.0), Vec2::new(420.0, 800.0));
+                let _ = paint_approval_card(ui, panel, preset, requests, "test-card", mode);
+            });
+            texts = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        }
+        texts
+    }
+
+    fn request(tool: &str, target: &str) -> ApprovalRequest {
+        ApprovalRequest { id: "req-1".into(), tool_name: tool.into(), input_summary: "node 2".into(), timestamp: 1, target: target.into() }
+    }
+
+    #[test]
+    fn the_session_button_is_only_offered_for_a_modify_with_a_target() {
+        let modify = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "node_id:2")], AgentPermissionMode::AskRisky);
+        assert!(modify.iter().any(|t| t == "Allow this session"), "{modify:?}");
+        assert!(modify.iter().any(|t| t == "Approve"), "{modify:?}");
+        let delete = card_texts(AgentCliPreset::Claude, &[request("designos_delete_node", "node_id:3")], AgentPermissionMode::AskRisky);
+        assert!(!delete.iter().any(|t| t == "Allow this session"), "{delete:?}");
+        assert!(delete.iter().any(|t| t == "Deny"), "{delete:?}");
+        let no_target = card_texts(AgentCliPreset::Claude, &[request("designos_update_node", "")], AgentPermissionMode::Ask);
+        assert!(!no_target.iter().any(|t| t == "Allow this session"), "{no_target:?}");
+    }
+
+    #[test]
+    fn the_grant_strip_lists_a_grant_and_a_revoke_control() {
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let grant = agent_permissions::SessionGrant {
+            session_id: "s".into(),
+            tool_name: "designos_update_node".into(),
+            target: "node_id:2".into(),
+            last_used_secs: 10,
+        };
+        let mut texts = Vec::new();
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), ..Default::default() }, |ui| {
+                let _ = paint_grant_strip(ui, Pos2::ZERO, 360.0, std::slice::from_ref(&grant));
+            });
+            texts = crate::lint::scan_shapes(&out.shapes).0.into_iter().map(|t| t.text).collect();
+        }
+        assert!(texts.iter().any(|t| t == "Revoke"), "{texts:?}");
+        assert!(texts.iter().any(|t| t.contains("designos_update_node")), "{texts:?}");
+    }
+
+    #[test]
+    fn autosave_row_caption_wraps_inside_its_column_and_clear_of_the_switch() {
+        for on in [true, false] {
+            let (texts, rects, root) = autosave_frame(on);
+            let prefix = if on { "On." } else { "Off." };
+            let caption = texts.iter().find(|text| text.text.starts_with(prefix)).expect("autosave caption was not painted");
+            let title = texts.iter().find(|text| text.text == "Auto-save changes made by AI").expect("autosave title was not painted");
+            let switch = rects
+                .iter()
+                .find(|(r, _, _)| (r.width() - theme::BADGE_LG).abs() < 0.5 && (r.height() - theme::LAYER_ICON_SIZE).abs() < 0.5)
+                .expect("autosave switch was not painted")
+                .0;
+            let row = rects
+                .iter()
+                .find(|(r, _, _)| {
+                    (r.height() - (theme::CONTROL_MD + theme::CONTROL_STANDARD)).abs() < 0.5
+                        && (r.width() - (theme::PERMISSIONS_MODAL_WIDTH - theme::INSET_MODAL - theme::INSET_MODAL)).abs() < 0.5
+                        && r.contains(caption.rect.center())
+                })
+                .expect("autosave row containing the caption was not painted")
+                .0;
+            assert!(caption.rect.right() <= switch.left() - theme::SPACE_INLINE + 0.5, "autosave caption overlaps the switch");
+            assert!(row.contains(caption.rect.min) && row.contains(caption.rect.max), "autosave caption extends outside its row");
+            assert!(caption.text.lines().count() <= 2, "autosave caption wraps to more than two lines");
+            assert!(texts.iter().all(|text| !text.rect.intersects(switch)), "autosave text overlaps the switch");
+            assert!(row.contains(switch.min) && row.contains(switch.max), "autosave switch extends outside its row");
+            assert!(row.contains(title.rect.min) && row.contains(title.rect.max), "autosave title extends outside its row");
+            assert!(caption.text.contains("This session too."), "autosave caption omits its session note");
+            std::fs::remove_dir_all(root).expect("could not remove autosave test directory");
+        }
+    }
+
+    #[test]
+    fn autosave_row_off_track_is_visible_against_the_row_and_the_modal() {
+        let (_, off_rects, off_root) = autosave_frame(false);
+        let switch_off = off_rects
+            .iter()
+            .find(|(r, _, _)| (r.width() - theme::BADGE_LG).abs() < 0.5 && (r.height() - theme::LAYER_ICON_SIZE).abs() < 0.5)
+            .expect("off autosave switch was not painted");
+        assert_eq!(switch_off.1, theme::BG_PRESSED, "off autosave switch does not use the exact opaque pressed fill");
+        assert_ne!(switch_off.1, theme::BG_TERTIARY, "off autosave switch matches the tertiary background");
+        assert_ne!(switch_off.1, theme::BG_SECONDARY, "off autosave switch matches the secondary background");
+        let luma = |c: egui::Color32| (u16::from(c.r()) * 299 + u16::from(c.g()) * 587 + u16::from(c.b()) * 114) / 1000;
+        assert!(luma(switch_off.1).abs_diff(luma(theme::BG_TERTIARY)) >= 0x10, "off autosave switch lacks contrast against the row");
+        assert!(
+            off_rects.iter().any(|(r, _, stroke)| {
+                stroke.color == theme::BORDER_STRONG
+                    && stroke.width > 0.0
+                    && switch_off.0.expand(theme::BORDER_WIDTH).contains_rect(*r)
+                    && r.contains_rect(switch_off.0.shrink(theme::BORDER_WIDTH))
+            }),
+            "off autosave switch has no visible strong border"
+        );
+        std::fs::remove_dir_all(off_root).expect("could not remove off autosave test directory");
+
+        let (_, on_rects, on_root) = autosave_frame(true);
+        let switch_on = on_rects
+            .iter()
+            .find(|(r, _, _)| (r.width() - theme::BADGE_LG).abs() < 0.5 && (r.height() - theme::LAYER_ICON_SIZE).abs() < 0.5)
+            .expect("on autosave switch was not painted");
+        assert_eq!(switch_on.1, theme::BG_BRAND, "on autosave switch does not use the brand fill");
+        std::fs::remove_dir_all(on_root).expect("could not remove on autosave test directory");
     }
 }

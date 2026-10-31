@@ -380,7 +380,7 @@ pub fn show_empty_state(state: &mut TerminalState, ui: &mut Ui, area: Rect, file
     let prompt_ctx = state.prompt_context;
     let start_error = state.sample_prompt_error.clone();
     let picker_rows = if state.tabs.is_empty() { Some(crate::agent_picker::rows_for_state(state)) } else { None };
-    let picker_h = picker_rows.as_ref().map_or(0.0, |rows| crate::agent_picker::picker_outer_height(rows.len(), state.picker.other_form_open));
+    let picker_h = picker_rows.as_ref().map_or(0.0, |rows| crate::agent_picker::picker_outer_height(rows, state.picker.other_form_open));
     let origin = Pos2::new(area.left(), area.top() - state.left_scroll.max(0.0));
     let mut outcome = EmptyStateOutcome { prompt_clicked: None, content_height: 0.0 };
     crate::panels::clipped(ui, area, |ui| {
