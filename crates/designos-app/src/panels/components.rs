@@ -457,6 +457,7 @@ mod props_panel_tests {
                 sn.name = "Leading icon".into();
                 sn.visible = false;
                 sn.size = designos_doc::Vec2::new(20.0, 20.0);
+                sn.component.overrides.insert(OverrideField::Size);
             }
             let slot_glyph = app.doc.get(slot).unwrap().children[0];
             {
@@ -468,6 +469,7 @@ mod props_panel_tests {
                 gn.fills = vec![paint];
                 gn.opacity = 0.5;
                 gn.variables.bindings.insert("fills/0".into(), "s.color.text-on-brand".into());
+                gn.component.overrides.insert(OverrideField::Size);
                 gn.component.overrides.insert(OverrideField::Fills);
                 gn.component.overrides.insert(OverrideField::Opacity);
             }

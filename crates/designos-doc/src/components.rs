@@ -4322,6 +4322,7 @@ mod tests {
                 sn.name = "Leading icon".into();
                 sn.visible = false;
                 sn.size = Vec2::new(20.0, 20.0);
+                sn.component.overrides.insert(OverrideField::Size);
                 apply(&mut d, Command::Update { node: Box::new(sn) });
             }
             let slot_glyph = child_named(&d, slot, "Glyph");
@@ -4334,6 +4335,7 @@ mod tests {
                 gn.fills = vec![paint.clone()];
                 gn.opacity = 0.5;
                 gn.variables.bindings.insert("fills/0".into(), "s.color.text-on-brand".into());
+                gn.component.overrides.insert(OverrideField::Size);
                 gn.component.overrides.insert(OverrideField::Fills);
                 gn.component.overrides.insert(OverrideField::Opacity);
                 apply(&mut d, Command::Update { node: Box::new(gn) });
@@ -4470,11 +4472,13 @@ mod tests {
             let slot = d.get(comp).unwrap().children[0];
             let mut sn = d.get(slot).unwrap().clone();
             sn.size = Vec2::new(20.0, 20.0);
+            sn.component.overrides.insert(OverrideField::Size);
             apply(&mut d, Command::Update { node: Box::new(sn) });
             let glyph = child_named(&d, slot, "Glyph");
             let mut gn = d.get(glyph).unwrap().clone();
             let tf = gn.transform;
             crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
+            gn.component.overrides.insert(OverrideField::Size);
             apply(&mut d, Command::Update { node: Box::new(gn) });
 
             let c = add_prop(
@@ -4756,7 +4760,7 @@ mod tests {
             comp
         };
 
-        // Icon/B has a 12x12 inset vector at (2, 2) with default (Min, Min) constraints (as .fig vector imports often have).
+        // Icon/B has a 12x12 inset vector at (2, 2) with (Scale, Scale) constraints.
         let icon_b = {
             let id = d.alloc_id();
             let mut f = Node::frame(id, Rect::new(40.0, 0.0, 16.0, 16.0));
@@ -4776,6 +4780,7 @@ mod tests {
             g.transform.tx = 2.0;
             g.transform.ty = 2.0;
             g.size = Vec2::new(12.0, 12.0);
+            g.constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
             g.name = "Glyph".into();
             d.insert(comp, g).unwrap();
             let c = create_component(&mut d, comp);
@@ -4796,6 +4801,7 @@ mod tests {
             let slot = d.get(comp).unwrap().children[0];
             let mut sn = d.get(slot).unwrap().clone();
             sn.size = Vec2::new(20.0, 20.0);
+            sn.component.overrides.insert(OverrideField::Size);
             apply(&mut d, Command::Update { node: Box::new(sn) });
             let glyph = child_named(&d, slot, "Glyph");
             let mut gn = d.get(glyph).unwrap().clone();
@@ -4827,15 +4833,11 @@ mod tests {
         apply(&mut d, c);
 
         let glyph_after = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
-        assert_eq!(glyph_after.size, Vec2::new(15.0, 15.0), "inset 12x12 glyph in 16x16 icon scaled into 20x20 slot must be 15x15, not 20x20");
+        assert_eq!(glyph_after.size, Vec2::new(15.0, 15.0), "inset 12x12 Scale glyph in 16x16 icon scaled into 20x20 slot must be 15x15, not 20x20");
         assert_eq!(glyph_after.transform.tx, 2.5, "inset glyph x offset (2.0) scaled by 20/16 must be 2.5");
-        assert!(glyph_after.component.overrides.contains(&OverrideField::Size), "constraint-scaled child must record OverrideField::Size (M6a)");
-        assert!(
-            glyph_after.component.overrides.contains(&OverrideField::Transform),
-            "constraint-repositioned child must record OverrideField::Transform (M6b)"
-        );
+        assert!(glyph_after.component.overrides.is_empty(), "constraint-scaled child must not manufacture Size/Transform overrides");
 
-        // Syncing Icon/B must keep the 15x15 size and (2.5, 2.5) position because M6a and M6b marked them as overridden.
+        // Syncing Icon/B must keep the 15x15 size and (2.5, 2.5) position via the slot constraint pass.
         let sync_b = sync_instances(&mut d, icon_b);
         apply(&mut d, sync_b);
         let glyph_after_sync = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
@@ -5399,5 +5401,165 @@ mod tests {
         apply(&mut d, c);
         let s = d.get(si).unwrap();
         assert_eq!(s.size, Vec2::new(280.0, 40.0), "width was stretched (keep 280); height was never stretched (take new main 40)");
+    }
+
+    #[test]
+    fn r3_m4_minmin_glyph_swap_vs_shared_solver() {
+        const MINMIN: Constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
+        const SCALE: Constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
+        let mut bad = Vec::new();
+        for (label, cons) in [("minmin", MINMIN), ("scale", SCALE)] {
+            let mut d = Document::new("m4");
+            let page = d.add_page("P");
+            let mk_icon = |d: &mut Document, name: &str, x: f32, at: (f32, f32), sz: f32| -> NodeId {
+                let id = d.alloc_id();
+                let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+                f.name = name.into();
+                let comp = d.insert(page, f).unwrap();
+                let gid = d.alloc_id();
+                let mut g = Node::new(gid, NodeKind::Vector { paths: box_outline(sz), network: None });
+                g.size = Vec2::new(sz, sz);
+                g.transform = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: at.0, ty: at.1 };
+                g.name = "Glyph".into();
+                g.constraints = cons;
+                g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+                g.fill_geometry = Some(box_outline(sz));
+                d.insert(comp, g).unwrap();
+                let c = create_component(d, comp);
+                apply(d, c);
+                comp
+            };
+            let a = mk_icon(&mut d, "Icon/A", 0.0, (0.0, 0.0), 16.0);
+            let b = mk_icon(&mut d, "Icon/B", 40.0, (2.0, 2.0), 12.0);
+            let btn = {
+                let id = d.alloc_id();
+                let mut btn = Node::frame(id, Rect::new(0.0, 100.0, 32.0, 32.0));
+                btn.name = "Tool".into();
+                let btn = d.insert(page, btn).unwrap();
+                let c = create_component(&mut d, btn);
+                apply(&mut d, c);
+                let c = create_instance(&mut d, a, btn, Vec2::new(6.0, 6.0));
+                apply(&mut d, c);
+                let slot = d.get(btn).unwrap().children[0];
+                let mut sn = d.get(slot).unwrap().clone();
+                sn.name = "Icon".into();
+                sn.size = Vec2::new(20.0, 20.0);
+                sn.component.overrides.insert(OverrideField::Name);
+                sn.component.overrides.insert(OverrideField::Size);
+                apply(&mut d, Command::Update { node: Box::new(sn) });
+                let c = add_prop(&mut d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
+                apply(&mut d, c);
+                let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
+                apply(&mut d, c);
+                btn
+            };
+            let c = create_instance(&mut d, btn, page, Vec2::new(200.0, 100.0));
+            apply(&mut d, c);
+            let bi = *d.get(page).unwrap().children.last().unwrap();
+            let si = d.get(bi).unwrap().children[0];
+            let c = swap_instance(&mut d, si, b);
+            let inv = apply(&mut d, c);
+            let g_direct = d.get(child_named(&d, si, "Glyph")).unwrap();
+            let ok_direct = if label == "minmin" {
+                (g_direct.transform.tx, g_direct.transform.ty, g_direct.size) == (2.0, 2.0, Vec2::new(12.0, 12.0))
+            } else {
+                (g_direct.transform.tx - 2.5).abs() < 1e-3 && (g_direct.size.x - 15.0).abs() < 1e-3
+            };
+            if !ok_direct {
+                bad.push((label, g_direct.transform.tx, g_direct.transform.ty, g_direct.size));
+            }
+            apply(&mut d, inv);
+            let c = set_instance_prop(&mut d, bi, "Icon", Some(PropValue::Instance(b)));
+            apply(&mut d, c);
+            let g = d.get(child_named(&d, si, "Glyph")).unwrap();
+            let ok = if label == "minmin" {
+                (g.transform.tx, g.transform.ty, g.size) == (2.0, 2.0, Vec2::new(12.0, 12.0))
+            } else {
+                (g.transform.tx - 2.5).abs() < 1e-3 && (g.size.x - 15.0).abs() < 1e-3
+            };
+            if !ok {
+                bad.push((label, g.transform.tx, g.transform.ty, g.size));
+            }
+        }
+        assert!(bad.is_empty(), "Scale scales 1.25x, pinned (Min/Min) glyph keeps (2,2) 12x12; off: {bad:?}");
+    }
+
+    #[test]
+    fn r3_m4_minmin_logo_distorts_on_per_axis_kept_width() {
+        let mut d = Document::new("m4b");
+        let page = d.add_page("P");
+        let mk = |d: &mut Document, name: &str, y: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, y, 200.0, 100.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let lid = d.alloc_id();
+            let mut l = Node::new(lid, NodeKind::Vector { paths: box_outline(24.0), network: None });
+            l.size = Vec2::new(24.0, 24.0);
+            l.transform = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 8.0, ty: 8.0 };
+            l.name = "Logo".into();
+            l.fill_geometry = Some(box_outline(24.0));
+            d.insert(comp, l).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let a = mk(&mut d, "Card/A", 0.0);
+        let b = mk(&mut d, "Card/B", 200.0);
+        let c = create_instance(&mut d, a, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        {
+            let mut n = d.get(inst).unwrap().clone();
+            n.size = Vec2::new(300.0, 100.0);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        let c = swap_instance(&mut d, inst, b);
+        apply(&mut d, c);
+        let l = d.get(child_named(&d, inst, "Logo")).unwrap();
+        assert_eq!(l.size, Vec2::new(24.0, 24.0), "a pinned (Min/Min) logo keeps its 24x24 size; got {:?}", l.size);
+        assert_eq!((l.transform.tx, l.transform.ty), (8.0, 8.0));
+    }
+
+    #[test]
+    fn r3_m4_minmin_logo_distorts_on_user_resized_card() {
+        let mut d = Document::new("m4c");
+        let page = d.add_page("P");
+        let mk = |d: &mut Document, name: &str, y: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, y, 200.0, 100.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let lid = d.alloc_id();
+            let mut l = Node::new(lid, NodeKind::Vector { paths: box_outline(24.0), network: None });
+            l.size = Vec2::new(24.0, 24.0);
+            l.transform = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 8.0, ty: 8.0 };
+            l.name = "Logo".into();
+            l.fill_geometry = Some(box_outline(24.0));
+            d.insert(comp, l).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let a = mk(&mut d, "Card/A", 0.0);
+        let b = mk(&mut d, "Card/B", 200.0);
+        let c = create_instance(&mut d, a, page, Vec2::new(400.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        {
+            let mut n = d.get(inst).unwrap().clone();
+            n.size = Vec2::new(300.0, 100.0);
+            n.component.overrides.insert(OverrideField::Size);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+        }
+        let c = swap_instance(&mut d, inst, b);
+        apply(&mut d, c);
+        let l_swap = d.get(child_named(&d, inst, "Logo")).unwrap();
+        assert_eq!(l_swap.size, Vec2::new(24.0, 24.0), "a pinned (Min/Min) logo keeps its 24x24 size after swap; got {:?}", l_swap.size);
+        let c = sync_instances(&mut d, b);
+        apply(&mut d, c);
+        let l = d.get(child_named(&d, inst, "Logo")).unwrap();
+        assert_eq!(l.size, Vec2::new(24.0, 24.0), "a pinned (Min/Min) logo keeps its 24x24 size after swap and sync; got {:?}", l.size);
+        assert_eq!((l.transform.tx, l.transform.ty), (8.0, 8.0));
     }
 }
