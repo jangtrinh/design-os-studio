@@ -5821,6 +5821,58 @@ mod tests {
     }
 
     #[test]
+    fn property_swap_accumulates_dropped_inner_swaps_across_bound_slots() {
+        let build = |slots: usize| -> (Document, NodeId, NodeId, NodeId) {
+            let mut d = Document::new("cnt");
+            let page = d.add_page("P");
+            let red = frame_main_with_dot(&mut d, page, "Badge/Red", 0.0, 500.0, 40.0, 20.0);
+            let blue = frame_main_with_dot(&mut d, page, "Badge/Blue", 60.0, 500.0, 40.0, 20.0);
+            let ba = frame_main_with_dot(&mut d, page, "Btn/A", 0.0, 400.0, 40.0, 20.0);
+            put_named_instance(&mut d, red, ba, "Badge");
+            let bb = frame_main_with_dot(&mut d, page, "Btn/B", 60.0, 400.0, 40.0, 20.0);
+            put_named_instance(&mut d, red, bb, "Badge");
+            let card = frame_main_with_dot(&mut d, page, "Card", 0.0, 0.0, 40.0, 20.0);
+            let mut ss = Vec::new();
+            for k in 0..slots {
+                ss.push(put_named_instance(&mut d, ba, card, &format!("S{k}")));
+            }
+            let c = add_prop(
+                &mut d,
+                card,
+                ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) },
+            );
+            apply(&mut d, c);
+            for s in &ss {
+                let c = bind_prop(&mut d, *s, OverrideField::MainComponent, Some("Btn"));
+                apply(&mut d, c);
+            }
+            let c = create_instance(&mut d, card, page, Vec2::new(400.0, 0.0));
+            apply(&mut d, c);
+            let ci = *d.get(page).unwrap().children.last().unwrap();
+            for s in d.get(ci).unwrap().children.clone() {
+                if !d.get(s).unwrap().name.starts_with('S') {
+                    continue;
+                }
+                let badge = child_named(&d, s, "Badge");
+                let c = swap_instance(&mut d, badge, blue);
+                apply(&mut d, c);
+            }
+            (d, ci, ba, bb)
+        };
+        let (mut d, ci, ba, bb) = build(1);
+        let (c, one) = set_instance_prop_inner(&mut d, ci, "Btn", Some(PropValue::Instance(bb)));
+        apply(&mut d, c);
+        let (c, back) = set_instance_prop_inner(&mut d, ci, "Btn", Some(PropValue::Instance(ba)));
+        apply(&mut d, c);
+        let (mut d2, ci2, _, bb2) = build(2);
+        let (c, two_slots) = set_instance_prop_inner(&mut d2, ci2, "Btn", Some(PropValue::Instance(bb2)));
+        apply(&mut d2, c);
+        let (c, again) = set_instance_prop_inner(&mut d2, ci2, "Btn", Some(PropValue::Instance(bb2)));
+        apply(&mut d2, c);
+        assert_eq!((one, back, two_slots, again), (1, 0, 2, 0));
+    }
+
+    #[test]
     fn probe_p4_variant_switch_does_not_turn_refit_size_into_override() {
         let mut d = Document::new("p4");
         let page = d.add_page("P");
