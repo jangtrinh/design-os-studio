@@ -2582,21 +2582,28 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
             let anchor = Rect::from_min_size(Pos2::new(screen.x - 48.0, 330.0), Vec2::splat(24.0));
             app.props.pop = Some(super::effects::PopState { kind: super::effects::PopKind::TextDetails, anchor, ids: vec![id] });
         }
-        "effect-noise" | "effect-texture" | "effect-glass" => {
+        "effect" | "effect-noise" | "effect-texture" | "effect-glass" => {
             app.props.scroll = 1.0e6;
-            let kind = match spec {
-                "effect-noise" => 4,
-                "effect-texture" => 5,
-                _ => 6,
-            };
-            let e = super::effects::default_effect(kind, 1);
-            app.edit_nodes(&[id], |n| {
-                n.effects.push(e.clone());
-                if kind == 6 {
-                    // Glass shows what is behind it: make the fill a faint tint.
-                    n.fills = vec![Paint { opacity: 0.12, ..Paint::solid(Color::WHITE) }];
+            if spec == "effect" {
+                if app.doc.get(id).is_some_and(|n| n.effects.is_empty()) {
+                    let e = super::effects::default_effect(1, 1);
+                    app.edit_nodes(&[id], |n| n.effects.push(e.clone()));
                 }
-            });
+            } else {
+                let kind = match spec {
+                    "effect-noise" => 4,
+                    "effect-texture" => 5,
+                    _ => 6,
+                };
+                let e = super::effects::default_effect(kind, 1);
+                app.edit_nodes(&[id], |n| {
+                    n.effects.push(e.clone());
+                    if kind == 6 {
+                        // Glass shows what is behind it: make the fill a faint tint.
+                        n.fills = vec![Paint { opacity: 0.12, ..Paint::solid(Color::WHITE) }];
+                    }
+                });
+            }
             let i = app.doc.get(id).map(|n| n.effects.len().saturating_sub(1)).unwrap_or(0);
             let anchor = Rect::from_min_size(Pos2::new(screen.x - 80.0, 800.0), Vec2::splat(24.0));
             app.props.pop = Some(super::effects::PopState { kind: super::effects::PopKind::Effect(i), anchor, ids: vec![id] });

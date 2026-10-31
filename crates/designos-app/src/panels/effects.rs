@@ -221,15 +221,6 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
             });
         }
         let set_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 25.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
-        if app.ui.screenshot_chrome
-            && app.props.pop.is_none()
-            && app.props.picker.is_none()
-            && !app.props.fx_menu
-            && app.props.style_menu.is_none()
-            && sel.first().and_then(|&id| app.doc.get(id)).is_some_and(|n| n.variables.bindings.keys().any(|k| k.starts_with(&format!("effects/{i}/"))))
-        {
-            app.props.pop = Some(PopState { kind: PopKind::Effect(i), anchor: set_r, ids: sel.to_vec() });
-        }
         let open = app.props.pop.as_ref().is_some_and(|p| p.kind == PopKind::Effect(i));
         if widgets::icon_button(ui, set_r, ("fx-settings", i), Icon::StrokeSettings, open, "Effect settings").clicked() {
             app.props.pop = (!open).then(|| PopState { kind: PopKind::Effect(i), anchor: set_r, ids: sel.to_vec() });
