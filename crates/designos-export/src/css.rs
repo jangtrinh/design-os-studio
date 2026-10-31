@@ -742,7 +742,7 @@ mod tests {
 
         assert_eq!(
             css_for(&d, grid_id),
-            "display: grid;\nwidth: 480px;\nheight: 200px;\npadding: 12px 16px;\ngrid-template-columns: minmax(0, 1fr) 120px auto;\ngrid-template-rows: 80px auto;\ngap: 24px 16px;\nalign-content: start;\noverflow: hidden;"
+            "display: grid;\nwidth: 480px;\nheight: 200px;\npadding: 12px 16px;\nbox-sizing: border-box;\ngrid-template-columns: minmax(0, 1fr) 120px auto;\ngrid-template-rows: 80px auto;\ngap: 24px 16px;\nalign-content: start;\noverflow: hidden;"
         );
         assert_eq!(css_for(&d, pinned_id), "grid-column: 2 / span 2;\ngrid-row: 1 / span 1;\nwidth: 200px;\nheight: 80px;");
         assert_eq!(css_for(&d, span_only_id), "grid-column: span 2;\nwidth: 180px;\nheight: 60px;");

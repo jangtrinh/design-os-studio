@@ -75,8 +75,8 @@ fn scene_equal_tracks() -> GridFixture {
         doc,
         grid,
         items,
-        expected_css: "display: grid;\nwidth: 324px;\nheight: 180px;\npadding: 12px;\ngrid-template-columns: repeat(3, minmax(0, 1fr));\ngap: 12px;\nalign-content: start;",
-        expected_tailwind: "<div class=\"grid grid-cols-3 content-start gap-3 p-3 w-[324px] h-[180px]\">\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 324px;\nheight: 180px;\npadding: 12px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(3, minmax(0, 1fr));\ngap: 12px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-3 content-start gap-3 box-border p-3 w-[324px] h-[180px]\">\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n</div>",
     }
 }
 
@@ -165,8 +165,8 @@ fn scene_hugging_grid() -> GridFixture {
         doc,
         grid,
         items,
-        expected_css: "display: grid;\nwidth: 212px;\nheight: 72px;\npadding: 8px;\ngrid-template-columns: 100px 40px 40px;\ngap: 8px;\nalign-content: start;",
-        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_40px] content-start gap-2 p-2 w-[212px] h-18\">\n  <div class=\"w-[100px] h-7\"></div>\n  <div class=\"w-6 h-7\"></div>\n  <div class=\"w-6 h-7\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 212px;\nheight: 72px;\npadding: 8px;\nbox-sizing: border-box;\ngrid-template-columns: 100px 40px 40px;\ngap: 8px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_40px] content-start gap-2 box-border p-2 w-[212px] h-18\">\n  <div class=\"w-[100px] h-7\"></div>\n  <div class=\"w-6 h-7\"></div>\n  <div class=\"w-6 h-7\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
     }
 }
 
@@ -196,8 +196,8 @@ fn scene_fixed_height_auto_rows() -> GridFixture {
         doc,
         grid,
         items,
-        expected_css: "display: grid;\nwidth: 260px;\nheight: 240px;\npadding: 16px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngap: 16px 12px;\nalign-content: start;",
-        expected_tailwind: "<div class=\"grid grid-cols-2 content-start gap-x-3 gap-y-4 p-4 w-[260px] h-60\">\n  <div class=\"h-6\"></div>\n  <div class=\"h-6\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-7\"></div>\n  <div class=\"h-7\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 260px;\nheight: 240px;\npadding: 16px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngap: 16px 12px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start gap-x-3 gap-y-4 box-border p-4 w-[260px] h-60\">\n  <div class=\"h-6\"></div>\n  <div class=\"h-6\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-9\"></div>\n  <div class=\"h-7\"></div>\n  <div class=\"h-7\"></div>\n</div>",
     }
 }
 
@@ -235,8 +235,8 @@ fn scene_row_and_column_spans() -> GridFixture {
         doc,
         grid,
         items: vec![hero, top_wide, mid_a, mid_b, footer],
-        expected_css: "display: grid;\nwidth: 428px;\nheight: 220px;\npadding: 12px;\ngrid-template-columns: repeat(4, minmax(0, 1fr));\ngap: 12px;\nalign-content: start;",
-        expected_tailwind: "<div class=\"grid grid-cols-4 content-start gap-3 p-3 w-[428px] h-[220px]\">\n  <div class=\"col-span-2 row-span-2 h-[92px]\"></div>\n  <div class=\"col-span-2 h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"col-start-1 col-span-4 row-start-3 h-9\"></div>\n</div>",
+        expected_css: "display: grid;\nwidth: 428px;\nheight: 220px;\npadding: 12px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(4, minmax(0, 1fr));\ngap: 12px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-4 content-start gap-3 box-border p-3 w-[428px] h-[220px]\">\n  <div class=\"col-span-2 row-span-2 h-[92px]\"></div>\n  <div class=\"col-span-2 h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"h-10\"></div>\n  <div class=\"col-start-1 col-span-4 row-start-3 h-9\"></div>\n</div>",
     }
 }
 
@@ -532,4 +532,98 @@ fn s5b_hug_height_min_h_flex_auto_css_and_tailwind() {
 #[test]
 fn s7_explicit_rows_hug_css_and_tailwind() {
     assert_fixture_css_and_tailwind("s7_explicit_rows_hug");
+}
+
+#[test]
+fn mutation_m4_hugging_grid_min_w_distributes_extra_across_flex_columns() {
+    let al = AutoLayout { grid_columns: 3, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    doc.get_mut(grid).unwrap().layout_child.min_w = Some(300.0);
+    add_item(&mut doc, grid, 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    add_item(&mut doc, grid, 60.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    let css = css_for(&doc, grid);
+    let tw = tailwind_for(&doc, grid);
+    assert!(css.contains("grid-template-columns: 133.333px 73.333px 93.333px;"), "{css}");
+    assert!(tw.contains("grid-cols-[133.333px_73.333px_93.333px]"), "{tw}");
+}
+
+#[test]
+fn mutation_m7_non_fill_child_width_wins_over_stale_wider_fill_child() {
+    let al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    add_item(&mut doc, grid, 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    add_item(&mut doc, grid, 50.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let fill_col1 = add_item(&mut doc, grid, 50.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    // Simulate a wider stored width on the Fill child in column 1; the non-Fill 40px child in
+    // column 1 must still govern column 1's track width.
+    doc.get_mut(fill_col1).unwrap().size.x = 90.0;
+    let css = css_for(&doc, grid);
+    let tw = tailwind_for(&doc, grid);
+    assert!(css.contains("grid-template-columns: 100px 40px;"), "{css}");
+    assert!(tw.contains("grid-cols-[100px_40px]"), "{tw}");
+}
+
+#[test]
+fn mutation_m11_fixed_height_grid_with_flex_auto_rows_omits_align_content_start() {
+    let al = AutoLayout {
+        grid_columns: 2,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        grid_auto_tracks: GridAutoTracks::Track(GridTrack::Flex(1.0)),
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 200.0));
+    add_item(&mut doc, grid, 50.0, 20.0, Sizing::Fill, Sizing::Fixed);
+    add_item(&mut doc, grid, 50.0, 20.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    let css = css_for(&doc, grid);
+    let tw = tailwind_for(&doc, grid);
+    assert!(!css.contains("align-content: start;"), "{css}");
+    assert!(!tw.contains("content-start"), "{tw}");
+}
+
+#[test]
+fn mutation_m13_fixed_width_grid_with_weighted_flex_columns_keeps_fractional_tracks() {
+    let mut al = AutoLayout { grid_columns: 3, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Fixed, ..Default::default() };
+    al.grid_col_tracks[0] = GridTrack::Fixed(200.0);
+    al.grid_col_tracks[1] = GridTrack::Flex(1.0);
+    al.grid_col_tracks[2] = GridTrack::Flex(4.0);
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 120.0));
+    add_item(&mut doc, grid, 50.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    let css = css_for(&doc, grid);
+    let tw = tailwind_for(&doc, grid);
+    assert!(css.contains("grid-template-columns: 200px minmax(0, 1fr) minmax(0, 4fr);"), "{css}");
+    assert!(tw.contains("grid-cols-[200px_minmax(0,1fr)_minmax(0,4fr)]"), "{tw}");
+}
+
+#[test]
+fn mutation_m14_flex_unit_tolerance_distinguishes_unequal_and_weighted_equal_columns() {
+    // 60px vs 40px on Flex(1) columns -> unit diff is 20px (> 0.5, < 50.0): must emit pixel tracks.
+    let al = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    add_item(&mut doc, grid, 60.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    let css = css_for(&doc, grid);
+    let tw = tailwind_for(&doc, grid);
+    assert!(css.contains("grid-template-columns: 60px 40px;"), "{css}");
+    assert!(tw.contains("grid-cols-[60px_40px]"), "{tw}");
+
+    // 160px on Flex(2) and 80px on Flex(1) -> both have unit 80px: keeps fractional tracks.
+    let mut al_w = AutoLayout { grid_columns: 2, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
+    al_w.grid_col_tracks[0] = GridTrack::Flex(2.0);
+    al_w.grid_col_tracks[1] = GridTrack::Flex(1.0);
+    let (mut doc_w, grid_w) = new_grid(al_w, Vec2::new(500.0, 500.0));
+    add_item(&mut doc_w, grid_w, 160.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    add_item(&mut doc_w, grid_w, 80.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc_w.relayout_subtree(grid_w);
+    let css_w = css_for(&doc_w, grid_w);
+    let tw_w = tailwind_for(&doc_w, grid_w);
+    assert!(css_w.contains("grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);"), "{css_w}");
+    assert!(tw_w.contains("grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"), "{tw_w}");
 }
