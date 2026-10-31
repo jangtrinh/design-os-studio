@@ -11,6 +11,9 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
 pub const MAX_PREVIEW_LAYERS: usize = 5;
+const MAX_CALL_ROWS: usize = 8;
+/// One call row in the expanded card. Sits on the pointer floor (24 px), the same value the row had as `CONTROL_DENSE`.
+const CALL_ROW_H: f32 = theme::TARGET_MIN;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TabScrollScope {
@@ -126,15 +129,14 @@ pub fn revert_status_text(report: &RevertReport) -> String {
 
 /// Polls any pending `turn-marks.jsonl` lines and advances heuristic turn state for `tab_idx`.
 pub fn sync_tab_ledger(app: &mut App, tab_idx: usize) {
+    app.terminal.poll_auto_allow_into_tab(tab_idx);
     let expected_marks_path = app.terminal.hook_paths().turn_marks();
     if app.terminal.turn_marks.path() != expected_marks_path {
         app.terminal.turn_marks = crate::agent_turn_marks::TurnMarkLog::bind(expected_marks_path);
     }
     let now = Instant::now();
     let marks = app.terminal.turn_marks.poll();
-    if !marks.is_empty() {
-        app.terminal.ledger_for_tab_mut(tab_idx).ingest_marks(marks, now);
-    }
+    app.terminal.ledger_for_tab_mut(tab_idx).ingest_marks(marks, now);
     let is_working = app.terminal.is_tab_working(tab_idx);
     app.terminal.ledger_for_tab_mut(tab_idx).tick(is_working, now);
 }
@@ -150,23 +152,34 @@ pub fn desired_card_height(app: &mut App, tab_idx: usize) -> f32 {
     compute_turn_card_height(turn)
 }
 
+fn call_row_plan(turn: &TurnRecord) -> (usize, bool) {
+    let shown = turn.calls.len().min(MAX_CALL_ROWS);
+    let more = turn.calls.len() > MAX_CALL_ROWS || turn.calls_dropped > 0;
+    (shown, more)
+}
+
+fn call_block_height(turn: &TurnRecord) -> f32 {
+    let (shown, more) = call_row_plan(turn);
+    let total = shown + usize::from(more);
+    if total == 0 {
+        0.0
+    } else {
+        total as f32 * CALL_ROW_H + total.saturating_sub(1) as f32 * theme::SPACE_ROW + theme::SPACE_ROW
+    }
+}
+
 fn compute_turn_card_height(turn: &TurnRecord) -> f32 {
     let pad = theme::INSET_FRAME;
+    let calls_h = call_block_height(turn);
     match turn.state {
-        TurnState::Reverted => pad * 2.0 + theme::CONTROL_DENSE,
+        TurnState::Reverted => pad * 2.0 + theme::CONTROL_DENSE + calls_h,
         TurnState::Active | TurnState::Completed => {
             let visible_rows = if turn.expanded { turn.touched_layers.len() } else { turn.touched_layers.len().min(MAX_PREVIEW_LAYERS) };
             let has_toggle = turn.touched_layers.len() > MAX_PREVIEW_LAYERS;
             let total_rows = visible_rows + usize::from(has_toggle);
             let rows_h = if total_rows > 0 { total_rows as f32 * theme::CONTROL_DENSE + (total_rows.saturating_sub(1)) as f32 * theme::SPACE_ROW } else { 0.0 };
-            pad * 2.0
-                + theme::LINE_BODY
-                + theme::SPACE_FACT
-                + theme::LINE_CAPTION
-                + theme::SPACE_INLINE
-                + rows_h
-                + theme::SPACE_INLINE
-                + theme::CONTROL_STANDARD
+            let buttons_h = if turn.has_edits() { theme::SPACE_INLINE + theme::CONTROL_STANDARD } else { 0.0 };
+            pad * 2.0 + theme::LINE_BODY + theme::SPACE_FACT + theme::LINE_CAPTION + theme::SPACE_INLINE + rows_h + calls_h + buttons_h
         }
         TurnState::Kept => 0.0,
     }
@@ -226,6 +239,7 @@ pub fn show(ui: &mut Ui, app: &mut App, tab_idx: usize) {
 
             let text_max_w = (dismiss_rect.left() - row_rect.left() - theme::SPACE_INLINE).max(40.0);
             draw_reverted_caption(&p, Pos2::new(row_rect.left(), row_rect.center().y), text_max_w, &report);
+            let _ = draw_call_rows(ui, &p, &turn_snapshot, inner.left(), inner.width(), row_rect.bottom() + theme::SPACE_ROW, true);
         }
         TurnState::Active | TurnState::Completed => {
             draw_active_turn_card(ui, &p, app, tab_idx, inner, &turn_snapshot, &mut action);
@@ -253,6 +267,30 @@ pub fn show(ui: &mut Ui, app: &mut App, tab_idx: usize) {
 /// Picking a layer row aims at the canvas (it selects and zooms to the layer), so the click keeps what egui did with focus.
 fn card_action_returns_to_composer(action: &TurnCardAction) -> bool {
     !matches!(action, TurnCardAction::SelectLayer(_))
+}
+
+fn draw_call_rows(ui: &mut Ui, p: &egui::Painter, turn: &TurnRecord, left: f32, width: f32, mut y: f32, reverted: bool) -> f32 {
+    let (shown, more) = call_row_plan(turn);
+    if shown == 0 && !more {
+        return y;
+    }
+    for (idx, row) in turn.calls.iter().take(shown).enumerate() {
+        let rect = Rect::from_min_size(Pos2::new(left, y), Vec2::new(width, CALL_ROW_H));
+        let label = row.card_label(reverted);
+        let elided = widgets::elide(p, &label, &theme::font_caption(), (width - theme::INSET_CONTROL * 2.0).max(32.0));
+        p.text(Pos2::new(rect.left() + theme::INSET_CONTROL, rect.center().y), Align2::LEFT_CENTER, elided, theme::font_caption(), theme::TEXT_SECONDARY);
+        widgets::record(ui, &format!("agent-turn-call-{idx}"), rect);
+        y += CALL_ROW_H + theme::SPACE_ROW;
+    }
+    if more {
+        let hidden = turn.calls.len().saturating_sub(shown) as u64 + turn.calls_dropped;
+        let rect = Rect::from_min_size(Pos2::new(left, y), Vec2::new(width, CALL_ROW_H));
+        let text = format!("{hidden} more");
+        p.text(Pos2::new(rect.left() + theme::INSET_CONTROL, rect.center().y), Align2::LEFT_CENTER, text, theme::font_caption(), theme::TEXT_SECONDARY);
+        widgets::record(ui, "agent-turn-calls-more", rect);
+        y += CALL_ROW_H + theme::SPACE_ROW;
+    }
+    y
 }
 
 fn draw_reverted_caption(p: &egui::Painter, pos: Pos2, max_w: f32, report: &RevertReport) {
@@ -330,15 +368,22 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
     let limit = if turn.expanded { total_layers } else { total_layers.min(MAX_PREVIEW_LAYERS) };
     let has_toggle = total_layers > MAX_PREVIEW_LAYERS;
     let list_top = y;
-    let buttons_top = (inner.bottom() - theme::CONTROL_STANDARD).max(list_top);
+    // No Keep/Revert row means the height omits that gap, so the anchor sits one SPACE_INLINE past the bottom and the call block lands on the bottom edge.
+    let buttons_top =
+        if turn.has_edits() { (inner.bottom() - theme::CONTROL_STANDARD).max(list_top) } else { (inner.bottom() + theme::SPACE_INLINE).max(list_top) };
+    // Height puts calls_h between the layer rows and the buttons, then SPACE_INLINE. With no calls
+    // the anchor stays the button row, so the list matches the card from before auto-allow rows.
+    let calls_h = call_block_height(turn);
+    let rows_anchor = if calls_h > 0.0 { (buttons_top - theme::SPACE_INLINE - calls_h).max(list_top) } else { buttons_top };
+    let gap_before_anchor = if calls_h > 0.0 { 0.0 } else { theme::SPACE_INLINE };
     let (list_bottom, toggle_top) = if has_toggle {
-        let toggle_bottom = (buttons_top - theme::SPACE_INLINE).max(list_top);
+        let toggle_bottom = (rows_anchor - gap_before_anchor).max(list_top);
         let t_top = (toggle_bottom - theme::CONTROL_DENSE).max(list_top);
         let l_bottom = (t_top - theme::SPACE_ROW).max(list_top);
         (l_bottom, t_top)
     } else {
-        let l_bottom = if limit > 0 { (buttons_top - theme::SPACE_INLINE).max(list_top) } else { list_top };
-        (l_bottom, buttons_top)
+        let l_bottom = if limit > 0 { (rows_anchor - gap_before_anchor).max(list_top) } else { list_top };
+        (l_bottom, rows_anchor)
     };
 
     let list_rect = Rect::from_min_max(Pos2::new(inner.left(), list_top), Pos2::new(inner.right(), list_bottom));
@@ -445,6 +490,14 @@ fn draw_active_turn_card(ui: &mut Ui, p: &egui::Painter, app: &App, tab_idx: usi
                 *action = Some(TurnCardAction::Expand(turn.id));
             }
         }
+    }
+
+    if calls_h > 0.0 {
+        let _ = draw_call_rows(ui, p, turn, inner.left(), inner.width(), rows_anchor, false);
+    }
+
+    if !turn.has_edits() {
+        return;
     }
 
     // 4. Two secondary buttons: `Revert` and `Keep`, `CONTROL_STANDARD` high, `RADIUS_CONTROL`, `SPACE_INLINE` apart.

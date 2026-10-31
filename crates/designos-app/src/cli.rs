@@ -108,6 +108,8 @@ pub struct Options {
     pub no_toast: bool,
     /// With `--screenshot`: write a deterministic `LayoutSnapshot` JSON alongside the PNG capture (`#1126`).
     pub layout_json: Option<PathBuf>,
+    /// With `--screenshot --panel …`: open Agents fixtures in Ask for risky only, without writing settings.
+    pub ask_risky: bool,
     pub help: bool,
     /// `--version` / `-V`: print the release version and exit.
     pub version: bool,
@@ -146,6 +148,11 @@ impl Options {
             || self.color_format.is_some()
     }
 
+    /// Screenshot fixtures may open Ask for risky only via `--ask-risky` or `DESIGNOS_SCREENSHOT_ASK_RISKY`.
+    pub fn screenshot_ask_risky(&self) -> bool {
+        self.ask_risky || std::env::var_os("DESIGNOS_SCREENSHOT_ASK_RISKY").is_some()
+    }
+
     /// Whether a launch with these options starts on the home screen: explicitly
     /// with `--home`, or interactively with nothing else to open.
     pub fn wants_home(&self) -> bool {
@@ -157,11 +164,12 @@ impl Options {
 
 /// Values of `--panel`: `agents`, `agents-chat`, `specs`, `assets`, `variables` / `variables-floating` open the local views,
 /// `libraries` the Libraries modal; the others are inspector popups opened on the selection for screenshots.
-pub const PANELS: [&str; 65] = [
+pub const PANELS: [&str; 66] = [
     "agents",
     "agents-chat",
     "agents-picker",
     "agents-skills",
+    "agents-ask-risky",
     "agents-start-failure",
     "agents-approval-command",
     "agents-approval-queued",
@@ -328,6 +336,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Options, String> 
             "--rulers" => o.rulers = true,
             "--no-caption" => o.no_caption = true,
             "--no-toast" => o.no_toast = true,
+            "--ask-risky" => o.ask_risky = true,
             "--gpu" => o.gpu = true,
             "--grid" => o.grid = true,
             "--zoom" => {
@@ -458,6 +467,7 @@ pub const USAGE: &str = "usage: designos [FILE] [--screenshot OUT.png] [--layout
   --codegen  headless Agent CLI: generate code for --select (or first screen/page) in the given language (css|tailwind|swiftui|uikit|compose|android-xml|react|html)
   --no-caption  with --panel micro-<slug>:seq:<N>: record frames without the top shortcut caption bar
   --no-toast    with --screenshot: leave transient toasts ('Opened <file>') out of the capture
+  --ask-risky   with --screenshot --panel: open Agents fixtures in Ask for risky only (also DESIGNOS_SCREENSHOT_ASK_RISKY)
   --seed-library  write the showcase sample files (a project with three files) into DIR and exit
   --find     open the Find and replace panel searching for TEXT (--replace-with TEXT shows the replace row)
   --fixture  open a sample document instead of the demo (showcase|proto-vars|no-selection|variables|comments|board|board-empty)
@@ -571,6 +581,7 @@ mod tests {
     #[test]
     fn parses_panel() {
         assert_eq!(p(&["--panel", "agents"]).unwrap().panel.as_deref(), Some("agents"));
+        assert_eq!(p(&["--panel", "agents-ask-risky"]).unwrap().panel.as_deref(), Some("agents-ask-risky"));
         assert_eq!(p(&["--panel", "agents-chat"]).unwrap().panel.as_deref(), Some("agents-chat"));
         assert_eq!(p(&["--agents-chat"]).unwrap().panel.as_deref(), Some("agents-chat"));
         assert_eq!(p(&["--panel", "specs"]).unwrap().panel.as_deref(), Some("specs"));
@@ -598,6 +609,7 @@ mod tests {
         assert!(p(&["--panel", "micro-autolayout:seq:24", "--no-caption"]).unwrap().no_caption);
         assert!(!p(&["--screenshot", "x.png"]).unwrap().no_toast, "screenshots keep toasts by default");
         assert!(p(&["--screenshot", "x.png", "--no-toast"]).unwrap().no_toast);
+        assert!(p(&["--screenshot", "x.png", "--ask-risky"]).unwrap().ask_risky);
         assert!(p(&["--layout-grid", "diagonal"]).is_err());
         assert!(p(&["--select-text", "5"]).is_err());
     }
