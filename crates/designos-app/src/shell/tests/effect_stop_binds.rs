@@ -1167,3 +1167,47 @@ fn dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag() {
     };
     assert_eq!(stops.len(), 3, "holding a drag off the gradient bar must delete only one stop (4 -> 3)");
 }
+
+#[test]
+fn dangling_gradient_stop_binding_edit_is_kept() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+        n.variables.bindings.insert("fills/0/stops/0".into(), "VariableID:missing".into());
+    });
+    s.frame(vec![]);
+    assert_eq!(
+        s.app().doc.get(hero).unwrap().variables.bindings.get("fills/0/stops/0").map(String::as_str),
+        Some("VariableID:missing"),
+        "guard: the planted binding survived"
+    );
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    s.click(Pos2::new(picker.left() + 16.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    assert!(!has_test_rect(&s, "bound:fills/0/stops/0"), "dangling stop binding must not render a bound pill");
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    let pk_col = s.app().props.picker.as_ref().and_then(|p| match &p.paint.kind {
+        PaintKind::LinearGradient { stops, .. } => Some(stops[0].color),
+        _ => None,
+    });
+    let n = s.app().doc.get(hero).unwrap();
+    let PaintKind::LinearGradient { stops: raw_stops, .. } = &n.fills[0].kind else { panic!("expected LinearGradient") };
+    let resolved = designos_doc::resolve_node(&s.app().doc, n);
+    let PaintKind::LinearGradient { stops: res_stops, .. } = &resolved.fills[0].kind else { panic!("expected LinearGradient") };
+    assert_ne!(pk_col, Some(Color::BLACK), "guard: swatch click updated the picker stop colour");
+    assert_eq!(Some(raw_stops[0].color), pk_col, "document raw stop colour must keep the edit on a dangling binding");
+    assert_eq!(Some(res_stops[0].color), pk_col, "the canvas shows the colour the picker shows");
+}
+
