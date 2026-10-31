@@ -56,6 +56,7 @@ fn apply_spec_reports_field_and_expected_type_in_plain_words() {
     for (args, expected_phrase) in cases {
         let err = e.call("designos_apply_spec", args.clone()).expect_err(&format!("args {args} must be refused"));
         assert_eq!(err.code, ErrorCode::InvalidArguments, "for {args}");
+        assert_eq!(err.to_json_value()["error_kind"], "retryable", "error_kind is additive and retryable for {args}");
         assert_eq!(err.path, "", "path must remain unchanged in 0.6.2 for {args}");
         assert!(err.message.contains(expected_phrase), "for {args}, expected {expected_phrase:?} in {:?}", err.message);
         for banned in banned_rust_types {

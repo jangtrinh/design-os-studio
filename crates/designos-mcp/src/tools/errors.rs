@@ -18,13 +18,14 @@ pub enum ErrorCode {
     TextTooLong,
     InvalidColor,
 
-    // Nodes (6)
+    // Nodes (7)
     NodeNotFound,
     NotAContainer,
     PageRootProtected,
     MoveCycle,
     InstanceCycle,
     OverrideFieldNotApplicable,
+    UnsupportedNodeKind,
 
     // Grounding (E15-1..3) (22)
     UnknownComponent,
@@ -56,7 +57,7 @@ pub enum ErrorCode {
     DuplicateAs,
     BatchTooLarge,
 
-    // Session (13)
+    // Session (18)
     UnknownTool,
     ToolDisabled,
     UnsavedChanges,
@@ -70,6 +71,11 @@ pub enum ErrorCode {
     PatchTooLarge,
     HistoryDropped,
     InternalError,
+    UnsupportedExtension,
+    UnsupportedFileType,
+    AnotherWindowOwnsSession,
+    ApprovalDenied,
+    ApprovalTimeout,
 
     // Active pack codes (3)
     InvalidSelector,
@@ -110,12 +116,15 @@ pub enum ErrorCode {
     LoopSuspected,
 }
 
+/// The `next_step` of a code with no text of its own. It names `valid_options` and `corrected_example`, so it is reworded on the wire
+/// when the error carries neither (see `ToolError::effective_next_step`).
+const GENERIC_RETRY_NEXT_STEP: &str = "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.";
+
 #[allow(non_upper_case_globals)]
 impl ErrorCode {
     // Backwards-compatible aliases used across tool modules
     pub const OutOfRange: Self = Self::ValueOutOfRange;
     pub const InvalidGeometry: Self = Self::ValueOutOfRange;
-    pub const UnsupportedNodeKind: Self = Self::InvalidArguments;
     pub const InvalidNodeKind: Self = Self::InvalidArguments;
     pub const PageNotFound: Self = Self::NodeNotFound;
     pub const NotATextNode: Self = Self::OverrideFieldNotApplicable;
@@ -141,7 +150,6 @@ impl ErrorCode {
     pub const LivePatchTooLarge: Self = Self::PatchTooLarge;
     pub const MalformedNodeGraph: Self = Self::DocumentInvalid;
     pub const LayerLimitExceeded: Self = Self::FileTooLarge;
-    pub const UnsupportedExtension: Self = Self::InvalidArguments;
     pub const NotAFile: Self = Self::InvalidArguments;
     pub const EmptyRender: Self = Self::InvalidArguments;
     pub const IoError: Self = Self::InternalError;
@@ -163,6 +171,7 @@ impl ErrorCode {
         Self::MoveCycle,
         Self::InstanceCycle,
         Self::OverrideFieldNotApplicable,
+        Self::UnsupportedNodeKind,
         Self::UnknownComponent,
         Self::AmbiguousComponent,
         Self::UnknownVariantProperty,
@@ -202,6 +211,11 @@ impl ErrorCode {
         Self::PatchTooLarge,
         Self::HistoryDropped,
         Self::InternalError,
+        Self::UnsupportedExtension,
+        Self::UnsupportedFileType,
+        Self::AnotherWindowOwnsSession,
+        Self::ApprovalDenied,
+        Self::ApprovalTimeout,
         Self::InvalidSelector,
         Self::UnknownLanguage,
         Self::OutsideOwnedFrames,
@@ -242,6 +256,7 @@ impl ErrorCode {
             Self::MoveCycle => "MOVE_CYCLE",
             Self::InstanceCycle => "INSTANCE_CYCLE",
             Self::OverrideFieldNotApplicable => "OVERRIDE_FIELD_NOT_APPLICABLE",
+            Self::UnsupportedNodeKind => "UNSUPPORTED_NODE_KIND",
             Self::UnknownComponent => "UNKNOWN_COMPONENT",
             Self::AmbiguousComponent => "AMBIGUOUS_COMPONENT",
             Self::UnknownVariantProperty => "UNKNOWN_VARIANT_PROPERTY",
@@ -281,6 +296,11 @@ impl ErrorCode {
             Self::PatchTooLarge => "PATCH_TOO_LARGE",
             Self::HistoryDropped => "HISTORY_DROPPED",
             Self::InternalError => "INTERNAL_ERROR",
+            Self::UnsupportedExtension => "UNSUPPORTED_EXTENSION",
+            Self::UnsupportedFileType => "UNSUPPORTED_FILE_TYPE",
+            Self::AnotherWindowOwnsSession => "ANOTHER_WINDOW_OWNS_SESSION",
+            Self::ApprovalDenied => "APPROVAL_DENIED",
+            Self::ApprovalTimeout => "APPROVAL_TIMEOUT",
             Self::InvalidSelector => "INVALID_SELECTOR",
             Self::UnknownLanguage => "UNKNOWN_LANGUAGE",
             Self::OutsideOwnedFrames => "OUTSIDE_OWNED_FRAMES",
@@ -308,17 +328,34 @@ impl ErrorCode {
         }
     }
 
+    /// Codes kept in the registry for a flow that has no tool-call path today. They are never emitted by a tool.
+    pub const RESERVED: &'static [ErrorCode] = &[Self::ApprovalTimeout, Self::AnotherWindowOwnsSession];
+
+    pub fn is_reserved(&self) -> bool {
+        Self::RESERVED.contains(self)
+    }
+
     pub const fn default_next_step(&self) -> &'static str {
         match self {
             Self::EditorNotNotified => "Call designos_get_document before editing.",
             Self::EditorPublishFailed => "Save the file or reopen Studio before continuing.",
             Self::PatchTooLarge => "Split the edit into smaller calls or save and reopen the document.",
             Self::HistoryDropped => "Call designos_get_document to verify state; undo is unavailable for the last edit.",
-            Self::UnsavedChanges => "Call designos_save_file first, or pass discard_changes=true to discard the unsaved changes.",
+            Self::UnsavedChanges => "Stop and tell the user: the open document has unsaved changes. Do not discard them.",
             Self::PathRequired => "Pass path to a .designos file inside the workspace, then retry.",
             Self::FileExists => "Pass overwrite=true or choose a new path.",
             Self::FileTooLarge => "This file is over the limit in `expected`. Open it in DESIGN:OS Studio, or use a smaller file.",
-            Self::PathOutsideWorkspace => "Pass a relative path inside the active workspace.",
+            Self::PathOutsideWorkspace => "Stop and tell the user: the path is outside the workspace. Do not work around it.",
+            Self::DocumentInvalid => "The file is corrupt or is not a design file. Stop and tell the user, then open another file.",
+            Self::UnsupportedNodeKind => "Pick a supported kind from valid_options, then retry.",
+            Self::UnsupportedExtension => "Choose a path whose extension matches `expected`, then retry.",
+            Self::UnsupportedFileType => "Stop and tell the user: this file type is not supported. Do not retry with the same path.",
+            Self::ToolDisabled => "Stop and tell the user: this tool is disabled in this session. Do not work around it.",
+            Self::AnotherWindowOwnsSession => {
+                "Stop and tell the user: another window owns this file's agent session. Switch to that window. Do not work around it."
+            }
+            Self::ApprovalDenied => "Stop and tell the user: the approval was denied. Do not work around it.",
+            Self::ApprovalTimeout => "Stop and tell the user: the approval timed out. Do not work around it.",
             Self::InvalidName => "Choose a valid file name without control or direction-control characters, then retry.",
             Self::NameTooLong => "Choose a file name of at most 255 UTF-8 bytes, then retry.",
             Self::NodeNotFound => "Call designos_list_nodes or designos_get_document to inspect valid node IDs.",
@@ -340,7 +377,7 @@ impl ErrorCode {
             Self::LoopSuspected => {
                 "The same call has returned the same result 3 times. Change the arguments, read the document state, or ask the user."
             }
-            _ => "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.",
+            _ => GENERIC_RETRY_NEXT_STEP,
         }
     }
 
@@ -358,6 +395,7 @@ impl ErrorCode {
             "MOVE_CYCLE" => Some(Self::MoveCycle),
             "INSTANCE_CYCLE" => Some(Self::InstanceCycle),
             "OVERRIDE_FIELD_NOT_APPLICABLE" | "NOT_A_TEXT_NODE" => Some(Self::OverrideFieldNotApplicable),
+            "UNSUPPORTED_NODE_KIND" => Some(Self::UnsupportedNodeKind),
             "UNKNOWN_COMPONENT" | "COMPONENT_NOT_FOUND" | "NOT_A_COMPONENT" => Some(Self::UnknownComponent),
             "AMBIGUOUS_COMPONENT" => Some(Self::AmbiguousComponent),
             "UNKNOWN_VARIANT_PROPERTY" => Some(Self::UnknownVariantProperty),
@@ -397,6 +435,11 @@ impl ErrorCode {
             "PATCH_TOO_LARGE" => Some(Self::PatchTooLarge),
             "HISTORY_DROPPED" => Some(Self::HistoryDropped),
             "INTERNAL_ERROR" | "ID_EXHAUSTED" | "INSERT_FAILED" => Some(Self::InternalError),
+            "UNSUPPORTED_EXTENSION" => Some(Self::UnsupportedExtension),
+            "UNSUPPORTED_FILE_TYPE" => Some(Self::UnsupportedFileType),
+            "ANOTHER_WINDOW_OWNS_SESSION" => Some(Self::AnotherWindowOwnsSession),
+            "APPROVAL_DENIED" => Some(Self::ApprovalDenied),
+            "APPROVAL_TIMEOUT" => Some(Self::ApprovalTimeout),
             "INVALID_SELECTOR" => Some(Self::InvalidSelector),
             "UNKNOWN_LANGUAGE" => Some(Self::UnknownLanguage),
             "OUTSIDE_OWNED_FRAMES" => Some(Self::OutsideOwnedFrames),
@@ -421,6 +464,129 @@ impl ErrorCode {
             "INVALID_NAME" => Some(Self::InvalidName),
             "NAME_TOO_LONG" => Some(Self::NameTooLong),
             "LOOP_SUSPECTED" => Some(Self::LoopSuspected),
+            _ => None,
+        }
+    }
+
+    pub const fn default_kind(self) -> ErrorKind {
+        match self {
+            Self::InvalidArguments
+            | Self::UnknownField
+            | Self::MissingField
+            | Self::ValueOutOfRange
+            | Self::TextTooLong
+            | Self::InvalidColor
+            | Self::NodeNotFound
+            | Self::NotAContainer
+            | Self::PageRootProtected
+            | Self::MoveCycle
+            | Self::InstanceCycle
+            | Self::OverrideFieldNotApplicable
+            | Self::UnknownComponent
+            | Self::AmbiguousComponent
+            | Self::UnknownVariantProperty
+            | Self::UnknownVariantValue
+            | Self::NoSuchVariant
+            | Self::UnknownOverridePath
+            | Self::AmbiguousOverridePath
+            | Self::UnknownComponentProperty
+            | Self::PropertyTypeMismatch
+            | Self::FieldNotAllowedOnInstance
+            | Self::UnknownSlot
+            | Self::SlotFillNotAllowed
+            | Self::SlotChildCount
+            | Self::InvalidSlotValue
+            | Self::SlotContainerNotFound
+            | Self::UnknownVariable
+            | Self::AmbiguousVariable
+            | Self::VariableTypeMismatch
+            | Self::VariableScopeMismatch
+            | Self::UnknownStyle
+            | Self::StyleTypeMismatch
+            | Self::UnknownVariableMode
+            | Self::BatchOpFailed
+            | Self::UnknownRef
+            | Self::DuplicateAs
+            | Self::BatchTooLarge
+            | Self::UnknownTool
+            | Self::UnsupportedNodeKind
+            | Self::UnsupportedExtension
+            | Self::FileExists
+            | Self::EditorNotNotified
+            | Self::EditorPublishFailed
+            | Self::PatchTooLarge
+            | Self::InvalidSelector
+            | Self::UnknownLanguage
+            | Self::OutsideOwnedFrames
+            | Self::InProgressTargetNotRoot
+            | Self::NodeInProgressByOtherRun
+            | Self::UnknownPreset
+            | Self::UnknownRule
+            | Self::ExactlyOneScope
+            | Self::InvalidCursor
+            | Self::UnknownTopic
+            | Self::TopicNotAvailable
+            | Self::UnknownPropertyKey
+            | Self::ExactlyOneTarget
+            | Self::InvalidRegion
+            | Self::ImageTooLarge
+            | Self::NodesOnDifferentPages
+            | Self::UnknownPrompt
+            | Self::IdempotencyKeyReused
+            | Self::IdempotencyKeyStale
+            | Self::CursorStale
+            | Self::RuleUnavailable
+            | Self::InvalidName
+            | Self::NameTooLong => ErrorKind::Retryable,
+            Self::UnsavedChanges
+            | Self::PathRequired
+            | Self::PathOutsideWorkspace
+            | Self::LoopSuspected
+            | Self::ToolDisabled
+            | Self::AnotherWindowOwnsSession
+            | Self::ApprovalDenied
+            | Self::ApprovalTimeout => ErrorKind::NeedsHuman,
+            Self::FileTooLarge | Self::DocumentInvalid | Self::HistoryDropped | Self::InternalError | Self::UnsupportedFileType => ErrorKind::Fatal,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorKind {
+    #[default]
+    Retryable,
+    Fatal,
+    NeedsHuman,
+}
+
+impl ErrorKind {
+    /// Every kind, in declaration order. `index` below is an exhaustive match, so adding a variant
+    /// without extending this list fails to compile (and the length test fails).
+    pub const ALL: [Self; 3] = [Self::Retryable, Self::Fatal, Self::NeedsHuman];
+
+    #[cfg(test)]
+    const fn index(self) -> usize {
+        match self {
+            Self::Retryable => 0,
+            Self::Fatal => 1,
+            Self::NeedsHuman => 2,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Retryable => "retryable",
+            Self::Fatal => "fatal",
+            Self::NeedsHuman => "needs_human",
+        }
+    }
+
+    pub fn from_wire(s: &str) -> Option<Self> {
+        match s {
+            "retryable" => Some(Self::Retryable),
+            "fatal" => Some(Self::Fatal),
+            "needs_human" => Some(Self::NeedsHuman),
             _ => None,
         }
     }
@@ -449,12 +615,15 @@ pub struct ToolError {
     pub failed_op: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub op: Option<String>,
+    #[serde(default)]
+    pub error_kind: ErrorKind,
     pub safe_to_retry: bool,
     pub next_step: String,
 }
 
 impl ToolError {
     pub fn new(code: ErrorCode, path: impl Into<String>, message: impl Into<String>) -> Self {
+        let error_kind = code.default_kind();
         Self {
             code,
             message: message.into(),
@@ -467,9 +636,30 @@ impl ToolError {
             cause: None,
             failed_op: None,
             op: None,
-            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge | ErrorCode::LoopSuspected),
+            error_kind,
+            safe_to_retry: error_kind == ErrorKind::Retryable,
             next_step: code.default_next_step().to_string(),
         }
+    }
+
+    pub fn another_window_owns_session() -> Self {
+        Self::new(ErrorCode::AnotherWindowOwnsSession, "", "This file's agents run in another window. Switch to it.")
+    }
+
+    pub fn approval_denied() -> Self {
+        Self::new(ErrorCode::ApprovalDenied, "", "The user denied this action.")
+    }
+
+    pub fn approval_timeout() -> Self {
+        Self::new(ErrorCode::ApprovalTimeout, "", "The user did not approve this action in time.")
+    }
+
+    pub fn with_error_kind(mut self, kind: ErrorKind) -> Self {
+        self.error_kind = kind;
+        if kind != ErrorKind::Retryable {
+            self.safe_to_retry = false;
+        }
+        self
     }
 
     pub fn with_path(mut self, path: impl Into<String>) -> Self {
@@ -505,8 +695,11 @@ impl ToolError {
         self
     }
 
+    /// A `needs_human` error carries no example: the agent must stop, and an identical call would only fail again.
     pub fn with_corrected_example(mut self, example: Value) -> Self {
-        self.corrected_example = Some(example);
+        if self.error_kind != ErrorKind::NeedsHuman {
+            self.corrected_example = Some(example);
+        }
         self
     }
 
@@ -524,10 +717,11 @@ impl ToolError {
         self
     }
 
+    /// Sets `safe_to_retry`. Only a `retryable` error can be safe to retry, so any other kind stays `false`.
     pub fn with_safe_to_retry(mut self, safe: bool) -> Self {
-        self.safe_to_retry = safe;
+        self.safe_to_retry = safe && self.error_kind == ErrorKind::Retryable;
         if let Some(cause) = &mut self.cause {
-            cause.safe_to_retry = safe;
+            cause.safe_to_retry = safe && cause.error_kind == ErrorKind::Retryable;
         }
         self
     }
@@ -542,8 +736,9 @@ impl ToolError {
         let op_str = op.into();
         let path = if cause.path.is_empty() { format!("/ops/{failed_op}") } else { cause.path.clone() };
         let msg = format!("op #{failed_op} ({op_str}) failed: {}", cause.message);
+        let kind = cause.error_kind;
         let safe = cause.safe_to_retry;
-        Self::new(ErrorCode::BatchOpFailed, path, msg).with_failed_op(failed_op, op_str).with_cause(cause).with_safe_to_retry(safe)
+        Self::new(ErrorCode::BatchOpFailed, path, msg).with_failed_op(failed_op, op_str).with_cause(cause).with_error_kind(kind).with_safe_to_retry(safe)
     }
 
     fn build_fields_map(&self) -> Map<String, Value> {
@@ -571,7 +766,8 @@ impl ToolError {
                 map.insert("valid_options_total".into(), json!(total));
             }
         }
-        if let Some(ex) = &self.corrected_example {
+        // A needs_human error has no example an agent could resend, however the kind was set (builder order must not matter).
+        if let Some(ex) = self.corrected_example.as_ref().filter(|_| self.error_kind != ErrorKind::NeedsHuman) {
             map.insert("corrected_example".into(), ex.clone());
         }
         if let Some(cause) = &self.cause {
@@ -583,9 +779,26 @@ impl ToolError {
         if let Some(op) = &self.op {
             map.insert("op".into(), json!(op));
         }
-        map.insert("safe_to_retry".into(), json!(self.safe_to_retry));
-        map.insert("next_step".into(), json!(self.next_step));
+        map.insert("error_kind".into(), json!(self.error_kind.as_str()));
+        // Sent clamped, so a `pub` field set directly can never put `safe_to_retry: true` next to a kind that must not be retried.
+        map.insert("safe_to_retry".into(), json!(self.safe_to_retry && self.error_kind == ErrorKind::Retryable));
+        map.insert("next_step".into(), json!(self.effective_next_step()));
         map
+    }
+
+    /// `next_step` as sent. The generic retry text names `valid_options` and `corrected_example`; it only keeps the ones this error
+    /// carries, so an agent is never pointed at a field that is not there. Any other text is sent as set.
+    fn effective_next_step(&self) -> String {
+        if self.next_step != GENERIC_RETRY_NEXT_STEP {
+            return self.next_step.clone();
+        }
+        let target = if self.path.is_empty() { "the value the message names" } else { "the value at `path`" };
+        match (!self.valid_options.is_empty(), self.corrected_example.is_some()) {
+            (true, true) => self.next_step.clone(),
+            (true, false) => format!("Adjust {target} using `valid_options` and retry."),
+            (false, true) => format!("Adjust {target} using `corrected_example` and retry."),
+            (false, false) => format!("Adjust {target} as the message says, then retry."),
+        }
     }
 
     /// Converts this `ToolError` into the JSON object used in `CallToolResult::structured_error` (§3.1, §4).
@@ -653,8 +866,13 @@ impl ToolError {
         let text = |key: &str| obj.get(key).and_then(Value::as_str);
         // Helpers repeat the code at the start of the message ("NODE_NOT_FOUND: ..."); the code has its own field.
         let message = text("message").map(|m| m.strip_prefix(code_str).and_then(|rest| rest.strip_prefix(": ")).unwrap_or(m)).unwrap_or(code_str);
-        let mut err =
-            ToolError::new(code, text("path").unwrap_or(""), message).with_safe_to_retry(obj.get("safe_to_retry").and_then(Value::as_bool).unwrap_or(true));
+        let mut err = ToolError::new(code, text("path").unwrap_or(""), message);
+        if let Some(kind) = text("error_kind").and_then(ErrorKind::from_wire) {
+            err = err.with_error_kind(kind);
+        }
+        if let Some(safe) = obj.get("safe_to_retry").and_then(Value::as_bool) {
+            err = err.with_safe_to_retry(safe);
+        }
         if let Some(next_step) = text("next_step") {
             err = err.with_next_step(next_step);
         }
@@ -1732,13 +1950,15 @@ pub fn contextualize_corrected_example(err: &mut ToolError, original_args: &Valu
 
 /// Shared JSON Schema fragment for the structured error envelope (§3.1, §4).
 pub fn error_envelope_schema() -> Value {
+    let codes: Vec<&'static str> = ErrorCode::ALL.iter().map(ErrorCode::as_str).collect();
     json!({
         "type": "object",
-        "required": ["code", "message", "path", "safe_to_retry", "next_step"],
+        "required": ["code", "message", "path", "error_kind", "safe_to_retry", "next_step"],
         "properties": {
-            "code": { "type": "string" },
+            "code": { "type": "string", "enum": codes },
             "message": { "type": "string" },
             "path": { "type": "string" },
+            "error_kind": { "type": "string", "enum": ["retryable", "fatal", "needs_human"] },
             "received": {},
             "expected": { "type": "string" },
             "valid_options": {
@@ -1869,6 +2089,381 @@ mod plain_message_tests {
         assert_eq!(e.code, ErrorCode::InvalidArguments);
         assert_eq!(e.message, "limit must be between 1 and 500");
         assert!(e.safe_to_retry);
+    }
+}
+
+#[cfg(test)]
+mod error_kind_tests {
+    use super::*;
+
+    /// A code with no text of its own (`ValueOutOfRange`) gets the generic retry text; it names only the hints the error carries.
+    #[test]
+    fn the_generic_next_step_names_only_the_hints_that_are_present() {
+        let step = |e: ToolError| e.to_json_value()["next_step"].as_str().unwrap().to_string();
+        let bare = step(ToolError::new(ErrorCode::ValueOutOfRange, "/scale", "scale must be 0.1 to 8"));
+        assert!(!bare.contains("valid_options") && !bare.contains("corrected_example"), "{bare}");
+        assert!(bare.contains("`path`") && bare.contains("retry"), "{bare}");
+        let opts = step(ToolError::new(ErrorCode::ValueOutOfRange, "/mode", "bad").with_valid_options(vec!["a", "b"]));
+        assert!(opts.contains("valid_options") && !opts.contains("corrected_example"), "{opts}");
+        let ex = step(ToolError::new(ErrorCode::ValueOutOfRange, "/scale", "bad").with_corrected_example(json!({"scale": 2})));
+        assert!(ex.contains("corrected_example") && !ex.contains("valid_options"), "{ex}");
+        let both = step(ToolError::new(ErrorCode::ValueOutOfRange, "/scale", "bad").with_valid_options(vec!["a"]).with_corrected_example(json!({"scale": 2})));
+        assert!(both.contains("valid_options") && both.contains("corrected_example"), "{both}");
+        let no_path = step(ToolError::new(ErrorCode::ValueOutOfRange, "", "bad"));
+        assert!(!no_path.contains("`path`"), "{no_path}");
+        let own = step(ToolError::new(ErrorCode::FileExists, "/path", "exists"));
+        assert_eq!(own, ErrorCode::FileExists.default_next_step());
+    }
+
+    fn expected_kind(code: ErrorCode) -> &'static str {
+        match code {
+            ErrorCode::InvalidArguments
+            | ErrorCode::UnknownField
+            | ErrorCode::MissingField
+            | ErrorCode::ValueOutOfRange
+            | ErrorCode::TextTooLong
+            | ErrorCode::InvalidColor
+            | ErrorCode::NodeNotFound
+            | ErrorCode::NotAContainer
+            | ErrorCode::PageRootProtected
+            | ErrorCode::MoveCycle
+            | ErrorCode::InstanceCycle
+            | ErrorCode::OverrideFieldNotApplicable
+            | ErrorCode::UnknownComponent
+            | ErrorCode::AmbiguousComponent
+            | ErrorCode::UnknownVariantProperty
+            | ErrorCode::UnknownVariantValue
+            | ErrorCode::NoSuchVariant
+            | ErrorCode::UnknownOverridePath
+            | ErrorCode::AmbiguousOverridePath
+            | ErrorCode::UnknownComponentProperty
+            | ErrorCode::PropertyTypeMismatch
+            | ErrorCode::FieldNotAllowedOnInstance
+            | ErrorCode::UnknownSlot
+            | ErrorCode::SlotFillNotAllowed
+            | ErrorCode::SlotChildCount
+            | ErrorCode::InvalidSlotValue
+            | ErrorCode::SlotContainerNotFound
+            | ErrorCode::UnknownVariable
+            | ErrorCode::AmbiguousVariable
+            | ErrorCode::VariableTypeMismatch
+            | ErrorCode::VariableScopeMismatch
+            | ErrorCode::UnknownStyle
+            | ErrorCode::StyleTypeMismatch
+            | ErrorCode::UnknownVariableMode
+            | ErrorCode::BatchOpFailed
+            | ErrorCode::UnknownRef
+            | ErrorCode::DuplicateAs
+            | ErrorCode::BatchTooLarge
+            | ErrorCode::UnknownTool
+            | ErrorCode::UnsupportedNodeKind
+            | ErrorCode::UnsupportedExtension
+            | ErrorCode::FileExists
+            | ErrorCode::EditorNotNotified
+            | ErrorCode::EditorPublishFailed
+            | ErrorCode::PatchTooLarge
+            | ErrorCode::InvalidSelector
+            | ErrorCode::UnknownLanguage
+            | ErrorCode::OutsideOwnedFrames
+            | ErrorCode::InProgressTargetNotRoot
+            | ErrorCode::NodeInProgressByOtherRun
+            | ErrorCode::UnknownPreset
+            | ErrorCode::UnknownRule
+            | ErrorCode::ExactlyOneScope
+            | ErrorCode::InvalidCursor
+            | ErrorCode::UnknownTopic
+            | ErrorCode::TopicNotAvailable
+            | ErrorCode::UnknownPropertyKey
+            | ErrorCode::ExactlyOneTarget
+            | ErrorCode::InvalidRegion
+            | ErrorCode::ImageTooLarge
+            | ErrorCode::NodesOnDifferentPages
+            | ErrorCode::UnknownPrompt
+            | ErrorCode::IdempotencyKeyReused
+            | ErrorCode::IdempotencyKeyStale
+            | ErrorCode::CursorStale
+            | ErrorCode::RuleUnavailable
+            | ErrorCode::InvalidName
+            | ErrorCode::NameTooLong => "retryable",
+            ErrorCode::UnsavedChanges
+            | ErrorCode::PathRequired
+            | ErrorCode::PathOutsideWorkspace
+            | ErrorCode::LoopSuspected
+            | ErrorCode::ToolDisabled
+            | ErrorCode::AnotherWindowOwnsSession
+            | ErrorCode::ApprovalDenied
+            | ErrorCode::ApprovalTimeout => "needs_human",
+            ErrorCode::FileTooLarge | ErrorCode::DocumentInvalid | ErrorCode::HistoryDropped | ErrorCode::InternalError | ErrorCode::UnsupportedFileType => {
+                "fatal"
+            }
+        }
+    }
+
+    #[test]
+    fn error_kind_all_lists_each_variant_once_in_order() {
+        for (i, kind) in ErrorKind::ALL.into_iter().enumerate() {
+            assert_eq!(kind.index(), i, "{kind:?} is out of order in ErrorKind::ALL");
+            assert_eq!(ErrorKind::from_wire(kind.as_str()), Some(kind));
+        }
+    }
+
+    #[test]
+    fn every_error_code_maps_to_exactly_one_default_kind() {
+        for code in ErrorCode::ALL {
+            let err = ToolError::new(*code, "", "m");
+            let json = err.to_json_value();
+            let kind = json["error_kind"].as_str().unwrap_or("");
+            assert_eq!(kind, expected_kind(*code), "{}", code.as_str());
+        }
+        assert_eq!(ErrorCode::ALL.len(), 81);
+    }
+
+    #[test]
+    fn error_kind_serializes_snake_case_next_to_safe_to_retry() {
+        let err = ToolError::new(ErrorCode::UnsavedChanges, "/discard_changes", "unsaved");
+        let json = err.to_json_value();
+        let envelope = &json["error"];
+        assert_eq!(envelope["code"], "UNSAVED_CHANGES");
+        assert_eq!(envelope["error_kind"], "needs_human");
+        assert_eq!(envelope["safe_to_retry"], false);
+        assert!(envelope.get("error_kind").is_some());
+        assert!(envelope.get("safe_to_retry").is_some());
+        assert_eq!(json["error_kind"], "needs_human");
+        assert_eq!(json["safe_to_retry"], false);
+    }
+
+    #[test]
+    fn argument_errors_are_retryable() {
+        for code in [ErrorCode::InvalidArguments, ErrorCode::NodeNotFound, ErrorCode::UnknownField, ErrorCode::MissingField, ErrorCode::ValueOutOfRange] {
+            let json = ToolError::new(code, "/x", "m").to_json_value();
+            assert_eq!(json["error_kind"], "retryable", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], true, "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn internal_and_unsupported_file_type_errors_are_fatal() {
+        for code in [ErrorCode::InternalError, ErrorCode::FileTooLarge, ErrorCode::DocumentInvalid, ErrorCode::HistoryDropped, ErrorCode::UnsupportedFileType] {
+            let json = ToolError::new(code, "", "m").to_json_value();
+            assert_eq!(json["error_kind"], "fatal", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn exactly_the_two_unreachable_codes_are_reserved() {
+        let reserved: Vec<&str> = ErrorCode::ALL.iter().filter(|c| c.is_reserved()).map(ErrorCode::as_str).collect();
+        assert_eq!(reserved, ["ANOTHER_WINDOW_OWNS_SESSION", "APPROVAL_TIMEOUT"]);
+        for code in ErrorCode::RESERVED {
+            assert_eq!(code.default_kind(), ErrorKind::NeedsHuman, "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn path_required_and_loop_suspected_are_needs_human_and_never_safe_to_retry() {
+        for code in [ErrorCode::PathRequired, ErrorCode::LoopSuspected] {
+            assert_eq!(code.default_kind(), ErrorKind::NeedsHuman, "{}", code.as_str());
+            let err = ToolError::new(code, "/path", "m");
+            assert_eq!(err.error_kind, ErrorKind::NeedsHuman, "{}", code.as_str());
+            assert!(!err.safe_to_retry, "{} must never be safe_to_retry", code.as_str());
+            let json = err.to_json_value();
+            assert_eq!(json["error_kind"], "needs_human", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
+        }
+    }
+
+    #[test]
+    fn needs_human_errors_set_safe_to_retry_false() {
+        for code in [
+            ErrorCode::UnsavedChanges,
+            ErrorCode::PathRequired,
+            ErrorCode::LoopSuspected,
+            ErrorCode::ToolDisabled,
+            ErrorCode::PathOutsideWorkspace,
+            ErrorCode::AnotherWindowOwnsSession,
+            ErrorCode::ApprovalDenied,
+            ErrorCode::ApprovalTimeout,
+        ] {
+            let json = ToolError::new(code, "/x", "m").to_json_value();
+            assert_eq!(json["error_kind"], "needs_human", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
+        }
+    }
+
+    /// A wrong node kind or file extension is an argument typo: the corrected example works on retry, so both are `retryable`.
+    /// A file type that is not importable has no fix the agent can make, so it stays `fatal`.
+    #[test]
+    fn unsupported_node_kind_and_extension_are_retryable_and_file_type_is_fatal() {
+        assert_eq!(ErrorCode::UnsupportedNodeKind.as_str(), "UNSUPPORTED_NODE_KIND");
+        assert_eq!(ErrorCode::UnsupportedExtension.as_str(), "UNSUPPORTED_EXTENSION");
+        for code in [ErrorCode::UnsupportedNodeKind, ErrorCode::UnsupportedExtension] {
+            let json = ToolError::new(code, "/x", "m").to_json_value();
+            assert_eq!(json["error_kind"], "retryable", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], true, "{}", code.as_str());
+            assert!(json["next_step"].as_str().unwrap().contains("retry"), "{}: {json}", code.as_str());
+        }
+        let json = ToolError::new(ErrorCode::UnsupportedFileType, "/x", "m").to_json_value();
+        assert_eq!(json["error_kind"], "fatal");
+        assert_eq!(json["safe_to_retry"], false);
+        assert!(json["next_step"].as_str().unwrap().contains("not supported"), "{json}");
+        assert_ne!(ErrorCode::UnsupportedNodeKind, ErrorCode::InvalidArguments);
+        assert_ne!(ErrorCode::UnsupportedExtension, ErrorCode::InvalidArguments);
+    }
+
+    /// No MCP call can re-enable a tool, so an agent that retries `TOOL_DISABLED` would loop forever: it is `needs_human`.
+    #[test]
+    fn tool_disabled_is_needs_human_and_never_safe_to_retry() {
+        let err = ToolError::new(ErrorCode::ToolDisabled, "", "disabled");
+        assert_eq!(err.error_kind, ErrorKind::NeedsHuman);
+        assert!(!err.safe_to_retry);
+        let json = err.to_json_value();
+        assert_eq!(json["error_kind"], "needs_human");
+        assert_eq!(json["safe_to_retry"], false);
+        let step = json["next_step"].as_str().unwrap();
+        assert!(step.starts_with("Stop and tell the user") && step.contains("Do not"), "{step}");
+        // Both construction sites keep that: the session tool pack and the mcp-config.json list.
+        let pack = crate::rules::EnabledToolsConfig::tool_disabled_error("designos_lint").to_json_value();
+        assert_eq!(pack["error_kind"], "needs_human");
+        assert_eq!(pack["safe_to_retry"], false);
+        assert!(pack["next_step"].as_str().unwrap().starts_with("Stop"), "{pack}");
+    }
+
+    /// `safe_to_retry` is derived from `error_kind`: it is `true` only for `retryable`, whatever a caller, a plain message or a JSON
+    /// envelope asks for, and whatever is written straight into the `pub` field.
+    #[test]
+    fn safe_to_retry_is_true_only_for_a_retryable_error() {
+        let wire = |e: &ToolError| e.to_json_value()["safe_to_retry"].clone();
+        for code in [ErrorCode::UnsavedChanges, ErrorCode::LoopSuspected, ErrorCode::ToolDisabled, ErrorCode::InternalError, ErrorCode::FileTooLarge] {
+            // The builder.
+            let err = ToolError::new(code, "/x", "m").with_safe_to_retry(true);
+            assert!(!err.safe_to_retry, "{} builder", code.as_str());
+            assert_eq!(wire(&err), json!(false), "{} builder", code.as_str());
+            // A plain message that claims `(safe_to_retry: true)`.
+            let plain = ToolError::from_plain_message(format!("{}: m (safe_to_retry: true)", code.as_str()));
+            assert_eq!(plain.code, code);
+            assert_eq!(wire(&plain), json!(false), "{} plain message", code.as_str());
+            // A JSON envelope that claims `safe_to_retry: true`.
+            let env = ToolError::from_json_envelope(&json!({"code": code.as_str(), "message": "m", "safe_to_retry": true})).unwrap();
+            assert_eq!(wire(&env), json!(false), "{} envelope", code.as_str());
+            // The field written directly, and a cause inside a batch error.
+            let mut direct = ToolError::new(code, "/x", "m");
+            direct.safe_to_retry = true;
+            assert_eq!(wire(&direct), json!(false), "{} direct field", code.as_str());
+            let mut cause = ToolError::new(code, "/x", "m");
+            cause.safe_to_retry = true;
+            let mut batch = ToolError::new(ErrorCode::BatchOpFailed, "/ops/0", "m").with_cause(cause);
+            batch.safe_to_retry = true;
+            let json = batch.to_json_value();
+            assert_eq!(json["cause"]["safe_to_retry"], json!(false), "{} cause", code.as_str());
+        }
+        // A retryable error keeps `true`.
+        let ok = ToolError::new(ErrorCode::InvalidArguments, "/x", "m");
+        assert_eq!(wire(&ok), json!(true));
+        assert_eq!(wire(&ok.clone().with_safe_to_retry(false)), json!(false));
+        // Moving a retryable error to another kind turns it off, and it stays off.
+        let moved = ToolError::new(ErrorCode::InvalidArguments, "/x", "m").with_error_kind(ErrorKind::NeedsHuman).with_safe_to_retry(true);
+        assert_eq!(wire(&moved), json!(false));
+    }
+
+    #[test]
+    fn a_write_blocked_by_permissions_or_space_is_needs_human() {
+        use std::io::ErrorKind as Io;
+        for kind in [Io::PermissionDenied, Io::StorageFull, Io::ReadOnlyFilesystem, Io::FileTooLarge] {
+            assert!(crate::engine::write_needs_human(&std::io::Error::from(kind)), "{kind:?}");
+        }
+        for kind in [Io::NotFound, Io::Other, Io::Interrupted] {
+            assert!(!crate::engine::write_needs_human(&std::io::Error::from(kind)), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn no_fatal_code_is_safe_to_retry() {
+        for code in ErrorCode::ALL {
+            let err = ToolError::new(*code, "", "m");
+            if err.error_kind != ErrorKind::Fatal {
+                continue;
+            }
+            assert!(!err.safe_to_retry, "{} is fatal but safe_to_retry is true", code.as_str());
+            if *code == ErrorCode::DocumentInvalid {
+                let step = err.next_step.to_lowercase();
+                assert!(!step.contains("adjust the value"), "DOCUMENT_INVALID next_step: {}", err.next_step);
+                assert!(!step.contains("and retry"), "DOCUMENT_INVALID next_step: {}", err.next_step);
+            }
+        }
+    }
+
+    #[test]
+    fn path_outside_workspace_next_step_tells_the_agent_to_stop() {
+        let err = ToolError::new(ErrorCode::PathOutsideWorkspace, "/path", "outside").with_corrected_example(json!({"path": "inside.designos"}));
+        let step = err.next_step.to_lowercase();
+        assert!(step.contains("stop"), "{}", err.next_step);
+        assert!(step.contains("ask") || step.contains("tell the user"), "{}", err.next_step);
+        assert!(!step.contains("relative path"), "{}", err.next_step);
+        assert!(err.corrected_example.is_none(), "PATH_OUTSIDE_WORKSPACE must not offer a workaround example: {:?}", err.corrected_example);
+    }
+
+    #[test]
+    fn a_needs_human_error_carries_no_corrected_example() {
+        for code in ErrorCode::ALL {
+            let err = ToolError::new(*code, "/x", "m").with_corrected_example(json!({"x": 1}));
+            assert_eq!(err.corrected_example.is_none(), err.error_kind == ErrorKind::NeedsHuman, "{}", code.as_str());
+            assert_eq!(err.to_json_value().get("corrected_example").is_none(), err.error_kind == ErrorKind::NeedsHuman, "{}", code.as_str());
+        }
+    }
+
+    /// The kind can be set after the example: the wire form still drops the example, so no builder order sends one with `needs_human`.
+    #[test]
+    fn a_needs_human_kind_set_after_the_example_is_still_stripped_at_serialization() {
+        let err = ToolError::new(ErrorCode::ValueOutOfRange, "/x", "m").with_corrected_example(json!({"x": 1})).with_error_kind(ErrorKind::NeedsHuman);
+        assert!(err.to_json_value().get("corrected_example").is_none(), "{}", err.to_json_value());
+        let retryable = ToolError::new(ErrorCode::ValueOutOfRange, "/x", "m").with_corrected_example(json!({"x": 1}));
+        assert_eq!(retryable.to_json_value()["corrected_example"], json!({"x": 1}));
+    }
+
+    #[test]
+    fn window_lock_and_approval_codes_are_needs_human() {
+        for wire in ["ANOTHER_WINDOW_OWNS_SESSION", "APPROVAL_DENIED", "APPROVAL_TIMEOUT"] {
+            let code = ErrorCode::from_code_str(wire).unwrap_or_else(|| panic!("{wire} must be a catalogue code"));
+            let err = ToolError::new(code, "", "m");
+            assert_eq!(err.code.as_str(), wire);
+            assert_eq!(err.error_kind, ErrorKind::NeedsHuman, "{wire}");
+            assert!(!err.safe_to_retry, "{wire}");
+            let step = err.next_step.to_lowercase();
+            assert!(step.contains("stop"), "{wire}: {}", err.next_step);
+            assert!(step.contains("ask") || step.contains("tell the user"), "{wire}: {}", err.next_step);
+        }
+        let lock = ToolError::another_window_owns_session();
+        let denied = ToolError::approval_denied();
+        let timeout = ToolError::approval_timeout();
+        assert_eq!(lock.code.as_str(), "ANOTHER_WINDOW_OWNS_SESSION");
+        assert_eq!(denied.code.as_str(), "APPROVAL_DENIED");
+        assert_eq!(timeout.code.as_str(), "APPROVAL_TIMEOUT");
+        for err in [&lock, &denied, &timeout] {
+            assert_eq!(err.error_kind, ErrorKind::NeedsHuman, "{}", err.code.as_str());
+            assert!(!err.safe_to_retry, "{}", err.code.as_str());
+        }
+    }
+
+    #[test]
+    fn cause_wrapping_keeps_the_outer_kind() {
+        let inner = ToolError::new(ErrorCode::UnsavedChanges, "/inner", "inner");
+        let outer = ToolError::new(ErrorCode::InvalidArguments, "/outer", "outer").with_cause(inner);
+        let json = outer.to_json_value();
+        assert_eq!(json["error_kind"], "retryable");
+        assert_eq!(json["cause"]["error_kind"], "needs_human");
+        assert_eq!(json["cause"]["code"], "UNSAVED_CHANGES");
+    }
+
+    #[test]
+    fn batch_op_failed_kind_is_the_failing_op() {
+        let cause = ToolError::new(ErrorCode::UnsavedChanges, "/ops/0", "dirty");
+        let err = ToolError::batch_op_failed(0, "create", cause);
+        let json = err.to_json_value();
+        assert_eq!(json["code"], "BATCH_OP_FAILED");
+        assert_eq!(json["error_kind"], "needs_human");
+        assert_eq!(json["safe_to_retry"], false);
+        assert_eq!(json["cause"]["error_kind"], "needs_human");
+        assert_eq!(json["cause"]["code"], "UNSAVED_CHANGES");
     }
 }
 

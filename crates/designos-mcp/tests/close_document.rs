@@ -81,7 +81,7 @@ fn save_file_in_place_or_path_required() {
     let (u, mut untitled) = untitled_dirty();
     let err = untitled.call("designos_save_file", json!({})).unwrap_err().to_json_value();
     assert_eq!(err["code"], "PATH_REQUIRED", "{err}");
-    assert_eq!(err["safe_to_retry"], true, "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
     let _ = u;
     let _ = dir;
 }
@@ -97,9 +97,10 @@ fn close_fail_on_dirty_is_unsaved_changes_and_does_not_suggest_discard() {
         let err = err_json(&mut s, args);
         assert_eq!(err["code"], "UNSAVED_CHANGES", "{err}");
         assert_eq!(err["safe_to_retry"], false, "{err}");
-        assert!(err.get("error_kind").is_none(), "error_kind is #1291, not this issue: {err}");
+        assert_eq!(err["error_kind"], "needs_human", "{err}");
         let blob = err.to_string();
-        assert!(!blob.contains("discard"), "must not suggest discard: {err}");
+        // #1291's next_step says "Do not discard them", so the word is allowed; the discard_changes argument is not.
+        assert!(!blob.contains("discard_changes"), "must not suggest the discard_changes argument: {err}");
         assert!(err.get("corrected_example").is_none() || err["corrected_example"].is_null(), "no corrected_example: {err}");
         assert_eq!(node_count(&mut s), before, "doc stays open");
         assert_eq!(disk_bytes(&dir, "design.designos"), on_disk, "disk unchanged");
@@ -113,7 +114,7 @@ fn close_save_untitled_needs_a_path() {
     let before = node_count(&mut s);
     let err = err_json(&mut s, json!({"unsaved": "save"}));
     assert_eq!(err["code"], "PATH_REQUIRED", "{err}");
-    assert_eq!(err["safe_to_retry"], true, "{err}");
+    assert_eq!(err["safe_to_retry"], false, "{err}");
     assert_eq!(node_count(&mut s), before, "nothing closed");
 
     let out = s.call("designos_close_document", json!({"unsaved": "save", "path": "named.designos"})).unwrap();
