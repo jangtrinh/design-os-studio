@@ -1,0 +1,150 @@
+=== 1. RED BEFORE FIX (origin/main behavior on grid_native_fixtures) ===
+running 14 tests
+test explicit_hole_emits_filler_and_keeps_column_width ... FAILED
+test row_and_column_spans_native_generators ... FAILED
+test equal_tracks_native_generators ... FAILED
+test item3_compose_all_six_scenes ... FAILED
+test item3_uikit_all_six_scenes ... FAILED
+test absolute_child_in_grid_keeps_generator_handling_in_all_four_generators ... FAILED
+test fixed_first_column_native_generators ... FAILED
+test unequal_tracks_native_generators ... FAILED
+test fixed_height_auto_rows_native_generators ... FAILED
+test hugging_grid_native_generators ... FAILED
+test bound_item_spacing_prints_token_in_all_four_generators ... FAILED
+test item3_android_xml_all_six_scenes ... FAILED
+test item3_swiftui_all_six_scenes ... FAILED
+test solver_row_heights_match_compute_grid_across_all_six_scenes ... ok
+test result: FAILED. 1 passed; 13 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+=== 2. GREEN ON HEAD (jangtrinh/agy-484-native-grids) ===
+running 15 tests
+test fixed_height_auto_rows_native_generators ... ok
+test item3_compose_all_six_scenes ... ok
+test item3_swiftui_all_six_scenes ... ok
+test item3_android_xml_all_six_scenes ... ok
+test solver_row_heights_match_compute_grid_across_all_six_scenes ... ok
+test row_and_column_spans_native_generators ... ok
+test item3_uikit_all_six_scenes ... ok
+test unequal_tracks_native_generators ... ok
+test absolute_child_in_grid_keeps_generator_handling_in_all_four_generators ... ok
+test explicit_hole_emits_filler_and_keeps_column_width ... ok
+test fixed_first_column_native_generators ... ok
+test hugging_grid_native_generators ... ok
+test equal_tracks_native_generators ... ok
+test bound_item_spacing_prints_token_in_all_four_generators ... ok
+test syntax_smoke_android_xml_and_swiftui_span_scene ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+=== 3. SPAN SCENE — SWIFTUI OUTPUT (row_and_column_spans) ===
+Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 12) {
+    GridRow {
+        // "HeroTile": row span 2 is not supported by SwiftUI Grid; placed in row 1
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 196, height: 92)
+            .frame(width: 196, height: 40, alignment: .topLeading)
+            .gridCellColumns(2)
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 196, height: 40)
+            .frame(width: 196, height: 40, alignment: .topLeading)
+            .gridCellColumns(2)
+    }
+    GridRow {
+        Color.clear.frame(width: 92, height: 40)
+        Color.clear.frame(width: 92, height: 40)
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 92, height: 40)
+            .frame(width: 92, height: 40, alignment: .topLeading)
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 92, height: 40)
+            .frame(width: 92, height: 40, alignment: .topLeading)
+    }
+    GridRow {
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 404, height: 36)
+            .frame(width: 404, height: 36, alignment: .topLeading)
+            .gridCellColumns(4)
+    }
+}
+    .padding(12)
+    .frame(width: 428, height: 220, alignment: .topLeading)
+
+=== 4. SPAN SCENE — ANDROID XML OUTPUT (row_and_column_spans) ===
+<!-- res/layout/grid_frame.xml -->
+<GridLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="428dp"
+    android:layout_height="220dp"
+    android:columnCount="4"
+    android:rowCount="3"
+    android:padding="12dp">
+    <FrameLayout
+        android:layout_width="196dp"
+        android:layout_height="92dp"
+        android:layout_row="0"
+        android:layout_column="0"
+        android:layout_rowSpan="2"
+        android:layout_columnSpan="2">
+        <View
+            android:layout_width="196dp"
+            android:layout_height="92dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="196dp"
+        android:layout_height="40dp"
+        android:layout_row="0"
+        android:layout_column="2"
+        android:layout_columnSpan="2"
+        android:layout_marginStart="12dp">
+        <View
+            android:layout_width="196dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="92dp"
+        android:layout_height="40dp"
+        android:layout_row="1"
+        android:layout_column="2"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp">
+        <View
+            android:layout_width="92dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="92dp"
+        android:layout_height="40dp"
+        android:layout_row="1"
+        android:layout_column="3"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp">
+        <View
+            android:layout_width="92dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="404dp"
+        android:layout_height="36dp"
+        android:layout_row="2"
+        android:layout_column="0"
+        android:layout_columnSpan="4"
+        android:layout_marginTop="12dp">
+        <View
+            android:layout_width="404dp"
+            android:layout_height="36dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+</GridLayout>

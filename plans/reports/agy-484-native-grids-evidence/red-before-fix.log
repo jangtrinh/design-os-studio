@@ -1,0 +1,418 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-doc)
+   Compiling designos-fonts v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-fonts)
+   Compiling designos-render v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-render)
+   Compiling designos-svg v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-svg)
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-export)
+   Compiling designos-webcapture v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-webcapture)
+   Compiling designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.05s
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-1e3dc0963dd7a310)
+
+running 14 tests
+test explicit_hole_emits_filler_and_keeps_column_width ... FAILED
+test row_and_column_spans_native_generators ... FAILED
+test equal_tracks_native_generators ... FAILED
+test item3_compose_all_six_scenes ... FAILED
+test item3_uikit_all_six_scenes ... FAILED
+test absolute_child_in_grid_keeps_generator_handling_in_all_four_generators ... FAILED
+test fixed_first_column_native_generators ... FAILED
+test unequal_tracks_native_generators ... FAILED
+test fixed_height_auto_rows_native_generators ... FAILED
+test hugging_grid_native_generators ... FAILED
+test bound_item_spacing_prints_token_in_all_four_generators ... FAILED
+test item3_android_xml_all_six_scenes ... FAILED
+test item3_swiftui_all_six_scenes ... FAILED
+test solver_row_heights_match_compute_grid_across_all_six_scenes ... ok
+
+failures:
+
+---- explicit_hole_emits_filler_and_keeps_column_width stdout ----
+
+thread 'explicit_hole_emits_filler_and_keeps_column_width' (45248969) panicked at crates/designos-export/tests/grid_native_fixtures.rs:515:5:
+SwiftUI missing hole filler: VStack(alignment: .leading, spacing: 10) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 32)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 32)
+}
+    .frame(width: 305, alignment: .topLeading)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- row_and_column_spans_native_generators stdout ----
+
+thread 'row_and_column_spans_native_generators' (45248977) panicked at crates/designos-export/tests/grid_native_fixtures.rs:252:5:
+row_and_column_spans SwiftUI missing Grid(: VStack(alignment: .leading, spacing: 12) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 92)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+}
+    .padding(12)
+    .frame(width: 428, height: 220, alignment: .topLeading)
+
+---- equal_tracks_native_generators stdout ----
+
+thread 'equal_tracks_native_generators' (45248968) panicked at crates/designos-export/tests/grid_native_fixtures.rs:252:5:
+equal_tracks SwiftUI missing Grid(: VStack(alignment: .leading, spacing: 12) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+}
+    .padding(12)
+    .frame(width: 324, height: 180, alignment: .topLeading)
+
+---- item3_compose_all_six_scenes stdout ----
+
+thread 'item3_compose_all_six_scenes' (45248974) panicked at crates/designos-export/tests/grid_native_fixtures.rs:296:5:
+equal_tracks Compose missing LazyVerticalGrid(: Column(
+    modifier = Modifier
+        .size(width = 324.dp, height = 180.dp)
+        .padding(12.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+    horizontalAlignment = Alignment.Start
+) {
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .fillMaxWidth()
+            .background(Color(0xFF3582FF))
+    )
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .fillMaxWidth()
+            .background(Color(0xFF3582FF))
+    )
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .fillMaxWidth()
+            .background(Color(0xFF3582FF))
+    )
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .fillMaxWidth()
+            .background(Color(0xFF3582FF))
+    )
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .fillMaxWidth()
+            .background(Color(0xFF3582FF))
+    )
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .fillMaxWidth()
+            .background(Color(0xFF3582FF))
+    )
+}
+
+---- item3_uikit_all_six_scenes stdout ----
+
+thread 'item3_uikit_all_six_scenes' (45248976) panicked at crates/designos-export/tests/grid_native_fixtures.rs:335:5:
+assertion `left == right` failed: equal_tracks UIKit horizontal row stack count != 2: let gridFrame = UIStackView()
+gridFrame.axis = .vertical
+gridFrame.spacing = 12
+gridFrame.alignment = .leading
+gridFrame.isLayoutMarginsRelativeArrangement = true
+gridFrame.layoutMargins = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+gridFrame.translatesAutoresizingMaskIntoConstraints = false
+NSLayoutConstraint.activate([
+    gridFrame.widthAnchor.constraint(equalToConstant: 324),
+    gridFrame.heightAnchor.constraint(equalToConstant: 180),
+])
+let item1 = UIView()
+item1.backgroundColor = UIColor(red: 0.208, green: 0.51, blue: 1, alpha: 1)
+NSLayoutConstraint.activate([
+    item1.widthAnchor.constraint(equalTo: gridFrame.widthAnchor, constant: -24),
+    item1.heightAnchor.constraint(equalToConstant: 36),
+])
+gridFrame.addArrangedSubview(item1)
+let item2 = UIView()
+item2.backgroundColor = UIColor(red: 0.208, green: 0.51, blue: 1, alpha: 1)
+NSLayoutConstraint.activate([
+    item2.widthAnchor.constraint(equalTo: gridFrame.widthAnchor, constant: -24),
+    item2.heightAnchor.constraint(equalToConstant: 36),
+])
+gridFrame.addArrangedSubview(item2)
+let item3 = UIView()
+item3.backgroundColor = UIColor(red: 0.208, green: 0.51, blue: 1, alpha: 1)
+NSLayoutConstraint.activate([
+    item3.widthAnchor.constraint(equalTo: gridFrame.widthAnchor, constant: -24),
+    item3.heightAnchor.constraint(equalToConstant: 36),
+])
+gridFrame.addArrangedSubview(item3)
+let item4 = UIView()
+item4.backgroundColor = UIColor(red: 0.208, green: 0.51, blue: 1, alpha: 1)
+NSLayoutConstraint.activate([
+    item4.widthAnchor.constraint(equalTo: gridFrame.widthAnchor, constant: -24),
+    item4.heightAnchor.constraint(equalToConstant: 36),
+])
+gridFrame.addArrangedSubview(item4)
+let item5 = UIView()
+item5.backgroundColor = UIColor(red: 0.208, green: 0.51, blue: 1, alpha: 1)
+NSLayoutConstraint.activate([
+    item5.widthAnchor.constraint(equalTo: gridFrame.widthAnchor, constant: -24),
+    item5.heightAnchor.constraint(equalToConstant: 36),
+])
+gridFrame.addArrangedSubview(item5)
+let item6 = UIView()
+item6.backgroundColor = UIColor(red: 0.208, green: 0.51, blue: 1, alpha: 1)
+NSLayoutConstraint.activate([
+    item6.widthAnchor.constraint(equalTo: gridFrame.widthAnchor, constant: -24),
+    item6.heightAnchor.constraint(equalToConstant: 36),
+])
+gridFrame.addArrangedSubview(item6)
+  left: 0
+ right: 2
+
+---- absolute_child_in_grid_keeps_generator_handling_in_all_four_generators stdout ----
+
+thread 'absolute_child_in_grid_keeps_generator_handling_in_all_four_generators' (45248966) panicked at crates/designos-export/tests/grid_native_fixtures.rs:647:5:
+SwiftUI: VStack(alignment: .leading, spacing: 10) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(width: 24, height: 18)
+        .offset(x: 15, y: 25)
+}
+    .frame(width: 210, alignment: .topLeading)
+
+---- fixed_first_column_native_generators stdout ----
+
+thread 'fixed_first_column_native_generators' (45248970) panicked at crates/designos-export/tests/grid_native_fixtures.rs:252:5:
+fixed_first_column SwiftUI missing Grid(: VStack(alignment: .leading, spacing: 10) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 40)
+}
+    .frame(width: 440, height: 180, alignment: .topLeading)
+
+---- unequal_tracks_native_generators stdout ----
+
+thread 'unequal_tracks_native_generators' (45248979) panicked at crates/designos-export/tests/grid_native_fixtures.rs:252:5:
+unequal_tracks SwiftUI missing Grid(: VStack(alignment: .leading, spacing: 0) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(width: 100, height: 30)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(width: 40, height: 30)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(width: 60, height: 30)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 30)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 30)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 30)
+}
+    .frame(height: 140, alignment: .topLeading)
+
+---- fixed_height_auto_rows_native_generators stdout ----
+
+thread 'fixed_height_auto_rows_native_generators' (45248971) panicked at crates/designos-export/tests/grid_native_fixtures.rs:252:5:
+fixed_height_auto_rows SwiftUI missing Grid(: VStack(alignment: .leading, spacing: 12) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 24)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 24)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 28)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 28)
+}
+    .padding(16)
+    .frame(width: 260, height: 240, alignment: .topLeading)
+
+---- hugging_grid_native_generators stdout ----
+
+thread 'hugging_grid_native_generators' (45248972) panicked at crates/designos-export/tests/grid_native_fixtures.rs:252:5:
+hugging_grid SwiftUI missing Grid(: VStack(alignment: .leading, spacing: 8) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(width: 100, height: 28)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(width: 24, height: 28)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(width: 24, height: 28)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 20)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 20)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 20)
+}
+    .padding(8)
+
+---- bound_item_spacing_prints_token_in_all_four_generators stdout ----
+
+thread 'bound_item_spacing_prints_token_in_all_four_generators' (45248967) panicked at crates/designos-export/tests/grid_native_fixtures.rs:597:5:
+SwiftUI: VStack(alignment: .leading, spacing: Tokens.spacingGridGap) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 32)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 32)
+}
+    .frame(width: 240, alignment: .topLeading)
+
+---- item3_android_xml_all_six_scenes stdout ----
+
+thread 'item3_android_xml_all_six_scenes' (45248973) panicked at crates/designos-export/tests/grid_native_fixtures.rs:356:5:
+equal_tracks Android missing <GridLayout: <!-- res/layout/grid_frame.xml -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="324dp"
+    android:layout_height="180dp"
+    android:orientation="vertical"
+    android:padding="12dp">
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:background="#FF3582FF" />
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="12dp"
+        android:background="#FF3582FF" />
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="12dp"
+        android:background="#FF3582FF" />
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="12dp"
+        android:background="#FF3582FF" />
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="12dp"
+        android:background="#FF3582FF" />
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:layout_marginTop="12dp"
+        android:background="#FF3582FF" />
+</LinearLayout>
+
+---- item3_swiftui_all_six_scenes stdout ----
+
+thread 'item3_swiftui_all_six_scenes' (45248975) panicked at crates/designos-export/tests/grid_native_fixtures.rs:252:5:
+equal_tracks SwiftUI missing Grid(: VStack(alignment: .leading, spacing: 12) {
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+    Rectangle()
+        .fill(Color(red: 0.208, green: 0.51, blue: 1))
+        .frame(maxWidth: .infinity, height: 36)
+}
+    .padding(12)
+    .frame(width: 324, height: 180, alignment: .topLeading)
+
+
+failures:
+    absolute_child_in_grid_keeps_generator_handling_in_all_four_generators
+    bound_item_spacing_prints_token_in_all_four_generators
+    equal_tracks_native_generators
+    explicit_hole_emits_filler_and_keeps_column_width
+    fixed_first_column_native_generators
+    fixed_height_auto_rows_native_generators
+    hugging_grid_native_generators
+    item3_android_xml_all_six_scenes
+    item3_compose_all_six_scenes
+    item3_swiftui_all_six_scenes
+    item3_uikit_all_six_scenes
+    row_and_column_spans_native_generators
+    unequal_tracks_native_generators
+
+test result: FAILED. 1 passed; 13 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-export --test grid_native_fixtures`
