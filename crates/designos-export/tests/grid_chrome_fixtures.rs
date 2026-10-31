@@ -50,6 +50,7 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_s5_hug_height_min_h(),
         scene_s5b_hug_height_min_h_flex_auto(),
         scene_s7_explicit_rows_hug(),
+        scene_n1_explicit_hug_rows_flex_auto(),
     ]
 }
 
@@ -407,6 +408,36 @@ fn scene_s7_explicit_rows_hug() -> GridFixture {
     }
 }
 
+fn scene_n1_explicit_hug_rows_flex_auto() -> GridFixture {
+    let mut al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 2,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        grid_auto_tracks: GridAutoTracks::Track(GridTrack::Flex(1.0)),
+        ..Default::default()
+    };
+    al.grid_row_tracks[0] = GridTrack::Hug;
+    al.grid_row_tracks[1] = GridTrack::Hug;
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 200.0));
+    let mut items = Vec::new();
+    for _ in 0..4 {
+        items.push(add_item(&mut doc, grid, 50.0, 20.0, Sizing::Fill, Sizing::Fixed));
+    }
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "n1_explicit_hug_rows_flex_auto",
+        doc,
+        grid,
+        items,
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: auto auto;\ngap: 10px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 grid-rows-[auto_auto] content-start gap-2.5 w-[200px] h-[200px]\">\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
+    }
+}
+
 fn json_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     out.push('"');
@@ -532,6 +563,31 @@ fn s5b_hug_height_min_h_flex_auto_css_and_tailwind() {
 #[test]
 fn s7_explicit_rows_hug_css_and_tailwind() {
     assert_fixture_css_and_tailwind("s7_explicit_rows_hug");
+}
+
+#[test]
+fn n1_explicit_hug_rows_flex_auto_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n1_explicit_hug_rows_flex_auto");
+}
+
+#[test]
+fn mutation_r3_flex_zero_auto_tracks_packs_rows_at_top() {
+    let al = AutoLayout {
+        grid_columns: 2,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        grid_auto_tracks: GridAutoTracks::Track(GridTrack::Flex(0.0)),
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 200.0));
+    for _ in 0..4 {
+        add_item(&mut doc, grid, 50.0, 20.0, Sizing::Fill, Sizing::Fixed);
+    }
+    doc.relayout_subtree(grid);
+    let css = css_for(&doc, grid);
+    let tw = tailwind_for(&doc, grid);
+    assert!(css.contains("align-content: start;"), "{css}");
+    assert!(tw.contains("content-start"), "{tw}");
 }
 
 #[test]
