@@ -622,7 +622,7 @@ impl Engine {
                         author_id: None,
                         author_color: None,
                         text: a.text.trim().into(),
-                        created: "2026-10-14T23:30:00Z".into(),
+                        created: crate::time::now_rfc3339(),
                         edited: None,
                     }],
                     resolved: false,
@@ -665,7 +665,7 @@ impl Engine {
                     author_id: None,
                     author_color: None,
                     text: a.text.trim().into(),
-                    created: "2026-10-14T23:30:00Z".into(),
+                    created: crate::time::now_rfc3339(),
                     edited: None,
                 });
                 if let Some(resolved) = a.resolved {
@@ -2478,6 +2478,24 @@ mod tests {
         assert!(err.message.contains("uikit") && err.message.contains(android_id) && err.message.contains("html"), "{err}");
         assert!(e.call("designos_list_nodes", json!({"limit":501})).is_err());
         assert!(e.call("designos_get_node", json!({"node_id":"2"})).is_err());
+    }
+
+    #[test]
+    fn mcp_comments_use_the_write_time_clock() {
+        designos_doc::set_thread_mock_now_ms(Some(1_700_000_000_000));
+        let mut e = Engine::default();
+        let added = e.call("designos_add_comment", json!({"author": "A", "text": "one"})).unwrap();
+        assert_eq!(added["messages"][0]["created"], "2023-11-14T22:13:20.000Z");
+
+        designos_doc::advance_thread_mock_now_ms(2_000);
+        let replied = e.call("designos_reply_comment", json!({"thread_id": "t1", "author": "B", "text": "two"})).unwrap();
+        let messages = replied["thread"]["messages"].as_array().unwrap();
+        assert_eq!(messages[1]["created"], "2023-11-14T22:13:22.000Z");
+        assert!(messages[1]["created"].as_str().unwrap() > messages[0]["created"].as_str().unwrap());
+
+        let listed = e.call("designos_list_comments", json!({})).unwrap();
+        assert_eq!(listed["comments"][0]["messages"][0]["created"], "2023-11-14T22:13:20.000Z");
+        designos_doc::set_thread_mock_now_ms(None);
     }
 
     #[test]
