@@ -38,38 +38,35 @@
 
 All 5 review findings (`B1`, `M1`, `M2`, `m2`, `m1`) are resolved, each with a dedicated failing test committed in its own `test(…)` commit prior to its `fix(…)` commit, and both surviving mutations from the review (`undo.diff` and `nocommit.diff`) are now **KILLED**.
 
-#### Accurate Inventory of What Each Test Calls
+#### Accurate Inventory of What Each Test Calls (Updated in Round 3 to Match Final Files)
 
 1. **`crates/designos-fig/tests/node_effect_stop_bindings.rs` — `node_effect_and_gradient_stop_bindings_round_trip_and_resolve_per_mode`:**
-   - Constructs a `Document` with a two-mode collection (`Light` = `3:10`, `Dark` = `3:11`), node `BoundLayer` inside frame `ModeContainer`, and bindings on `effects/0/{color,radius,spread,offsetX,offsetY}`, `fills/0/stops/{0,1}`, and `strokes/0/stops/0`.
-   - Calls `designos_fig::export_fig(&doc)` and `designos_fig::import_fig(&fig_bytes)`.
-   - Asserts `card.variables.bindings` survived `.fig` round-trip for all 8 keys.
-   - Calls `designos_doc::resolve_node(&imported, card)` and `designos_doc::resolve_paint_for_node(&imported, card, &card.fills[0])` / `resolve_paint_for_node(&imported, card, &card.stroke.paints[0])` in default `Light` mode and after setting `explicit_modes` on `ModeContainer` to `Dark` (`3:11`), asserting mode-resolved effect and gradient stop values.
+   - Constructs a `Document` (`"NodeEffectAndStopBindings"`) with a two-mode collection (`"VariableCollectionId:3:1"`, `"Light"` = `"3:10"`, `"Dark"` = `"3:11"`), rectangle `"BoundLayer"` inside frame `"ModeContainer"`, and bindings on `"effects/0/color"`, `"effects/0/radius"`, `"effects/0/spread"`, `"effects/0/offsetX"`, `"effects/0/offsetY"`, `"fills/0/stops/0"`, `"fills/0/stops/1"`, and `"strokes/0/stops/0"` (`"VariableID:3:30"` through `"VariableID:3:37"`).
+   - Calls `export_fig(&doc)` and `import_fig(&bytes)`, asserts `imported.variables.bindings` preserved all 8 keys, and calls `resolve_node(&doc2, imported)` in default `"Light"` mode (`"3:10"`) and after inserting `("VariableCollectionId:3:1", "3:11")` into `ModeContainer.variables.modes`.
 2. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `node_effect_rows_bind_filter_scopes_detach_and_undo`:**
-   - Opens `Sim::open(&["--select", "Hero"])`, inserts `EFFECT_FLOAT`, `WIDTH_HEIGHT`, and `EFFECT_COLOR` variables, opens the effect popover by clicking `"effect-set:0"`, and clicks `"bind:effects/0/radius"`.
-   - Verifies scope filtering (`bind-var:VariableID:d01` present, `bind-var:VariableID:d02` absent), binds `effects/0/radius` to `VariableID:d01` (`18.0`), then presses `Cmd+Z` (`s.cmd_key(Key::Z)`) and asserts **both** that `bindings.get("effects/0/radius")` is `None` **and** that `Effect::DropShadow.radius` returned to `8.0` in a single undo step (kills `undo.diff`).
-   - Re-binds `effects/0/radius`, detaches via `"var-detach:effects/0/radius"`, and binds `effects/0/color`, `effects/0/spread`, `effects/0/offsetX`, and `effects/0/offsetY`.
+   - Opens `Sim::with(Options { select: Some("Hero".into()), ..Default::default() })`, creates variables `"Effect/ShadowColor"` (`EFFECT_COLOR`), `"Stroke/OnlyColor"` (`STROKE_COLOR`), `"Effect/Radius"`, `"Effect/Spread"`, `"Effect/OffsetX"`, `"Effect/OffsetY"` (`EFFECT_FLOAT`), and `"Layout/WidthOnly"` (`WIDTH_HEIGHT`), and gives `"Hero"` a `DropShadow` (`effects[0]`, `radius: 8.0`) and `LayerBlur` (`effects[1]`, `radius: 4.0`).
+   - Opens the `effects[0]` popover by clicking `Pos2::new(minus0.left() - 52.0, minus0.center().y)` next to `"fx-minus-0"`, hovers `fx_field_rect(&s, "fxp-b", 0)`, clicks `"bind:effects/0/radius"`, asserts `!has_test_rect(&s, "pick:Layout/WidthOnly")`, clicks `"pick:Effect/Radius"`, and verifies `s.cmd_key(Key::Z)` removes `"effects/0/radius"` and restores `radius == 8.0` in one undo step before redoing (`COMMAND | SHIFT + Key::Z`).
+   - Binds `"effects/0/offsetX"`, `"effects/0/offsetY"`, `"effects/0/spread"`, and `"effects/0/color"` (verifying `!has_test_rect(&s, "pick:Stroke/OnlyColor")`), detaches `"bound:effects/0/color"` by clicking `Pos2::new(color_pill.right() - 13.0, color_pill.center().y)`, verifies undo/redo, and opens `effects[1]` (`LayerBlur`) to bind `"effects/1/radius"`.
 3. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `gradient_stop_colors_bind_filter_scopes_detach_and_undo`:**
-   - Opens `Sim::open(&["--select", "Hero", "--panel", "picker-gradient"])`, inserts `ALL_FILLS`, `SHAPE_FILL`, `EFFECT_COLOR`, and `STROKE_COLOR` variables, clicks `"bind:fills/0/stops/0"`, verifies scope filtering, binds stop 0 to `VariableID:d11`, and verifies `Cmd+Z` restores both `bindings.get("fills/0/stops/0") == None` and `stops[0].color == Color::BLACK` in one undo step.
-   - Selects stop 1 on the gradient bar, binds `"bind:fills/0/stops/1"`, detaches `"var-detach:fills/0/stops/1"`, and repeats for a `LinearGradient` stroke (`"bind:strokes/0/stops/0"`).
-4. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect` (B1):**
-   - Sets `s.app_mut().ui.screenshot_chrome = true` on `Hero` with `"effects/0/radius"` bound and runs two frames (`s.step()`), asserting `s.app().props.pop.is_none()` (no auto-open in screenshot mode).
-   - Calls `s.panel("effect")` (which invokes `panels::properties::preset_popup(app, "effect", screen)` -> `open_panel`) and asserts `matches!(s.app().props.pop.as_ref().map(|p| &p.kind), Some(PopKind::Effect(0)))` and that `"var-detach:effects/0/radius"` is recorded.
+   - Opens `Sim::with(Options { select: Some("Hero".into()), ..Default::default() })`, creates `"Grad/StopStart"` (`ALL_FILLS`), `"Grad/StopEnd"` (`SHAPE_FILL`), `"Frame/OnlyStopColor"` (`FRAME_FILL`), `"Effect/OnlyColor"` (`EFFECT_COLOR`), and `"Stroke/OnlyStopColor"` (`STROKE_COLOR`), and opens the fill picker via `"sw:false:0"`.
+   - Hovers the stop colour row (`picker.left() + 100.0, picker.top() + 423.0`), clicks `"bind:fills/0/stops/0"`, verifies wrong-scope variables (`"pick:Effect/OnlyColor"`, `"pick:Stroke/OnlyStopColor"`, `"pick:Frame/OnlyStopColor"`) are excluded, picks `"pick:Grad/StopStart"`, and verifies `s.cmd_key(Key::Z)` removes `"fills/0/stops/0"` and restores `stops[0].color == Color::BLACK` in one undo step.
+   - Redoes the binding, detaches `"bound:fills/0/stops/0"`, selects stop 1 (`picker.left() + 168.0, picker.top() + 100.0`) and binds `"fills/0/stops/1"` to `"pick:Grad/StopEnd"`, then opens the stroke picker (`"sw:true:0"`) and binds `"strokes/0/stops/0"` to `"pick:Stroke/OnlyStopColor"`.
+4. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect` (B1 + MINOR 1):**
+   - Sets `s.shell.app.ui.screenshot_chrome = true` on `"Hero"` with `"effects/0/radius"` bound and calls `s.scroll_inspector_down()`, asserting `s.app().props.pop.is_none()`.
+   - Parses `["--select", "Hero", "--panel", "effect"]` through `crate::cli::parse`, opens `Sim::with(opts)`, asserts `PopKind::Effect(0)` is open and `fx_field_rect(&s_panel, "fxp-b", 0)` exists, binds `"effects/0/radius"`, and asserts `"bound:effects/0/radius"` is recorded.
 5. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `bound_gradient_stop_locks_color_controls_until_detached` (M1):**
-   - Binds gradient stop 0 (`"fills/0/stops/0"`) to `Probe/Red`, then clicks the first "On this page" swatch, drags inside the SV square, drags the hue slider, drags the alpha slider, and clicks the eyedropper button (`picker.left() + 28.0, picker.top() + 377.0`) followed by a canvas click, asserting after each action that `s.app().doc.get(hero)` is completely unchanged and `pk.eyedrop` stays `false`.
-   - Drags the stop 0 handle on the gradient bar (`picker.left() + 16.0, picker.top() + 100.0` to `+ 76.0`) and asserts `stops[0].pos > 0.05` (stop position remains editable while colour is bound).
-   - Clicks `"var-detach:fills/0/stops/0"` and clicks the first swatch again, asserting the swatch now writes `stops[0].color`.
+   - Binds `"fills/0/stops/0"` to `"Grad/StopStart"` and binds a second canvas layer (`donor`) to `"Token/Donor"`.
+   - Clicks two "On this page" swatches (`picker.top() + 504.0`), drags inside the SV square, hue slider, and alpha slider, asserts clicking the eyedropper button (`picker.left() + 28.0, picker.top() + 377.0`) on bound stop 0 does not arm `pk.eyedrop`, then arms the eyedropper via user clicks on unbound stop 1 (`picker.left() + 168.0, picker.top() + 100.0`) before switching back to bound stop 0 and clicking the canvas both without `SHIFT` and with `Modifiers::SHIFT` over `donor`; asserts neither canvas sample nor `Shift`+eyedropper token sampling modifies the bound stop and that the canvas click closes the picker (`s.app().props.picker.is_none()`).
+   - Re-opens `"sw:false:0"`, drags the stop 0 handle (`picker.left() + 16.0` -> `+ 54.0`) to verify `stops[0].pos` stays draggable (`(stops[0].pos - 0.25).abs() < 0.05`), detaches `"bound:fills/0/stops/0"`, and verifies clicking a swatch now updates `stops[0].color`.
 6. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `gradient_stop_bindings_follow_stop_across_flip_add_and_delete` (M2):**
-   - Binds `fills/0/stops/0` to `Probe/Red`, clicks `"picker-grad-flip"` (`picker.left() + 184.0, picker.top() + 100.0`), and asserts the binding moved from `"fills/0/stops/0"` to `"fills/0/stops/1"` and `designos_doc::resolve_node(&s.app().doc, s.app().doc.get(hero).unwrap())` paints stop 1 red and stop 0 white; then presses `Cmd+Z` and asserts one undo step restores both stops and bindings.
-   - Clicks the midpoint of the gradient bar (`picker.left() + 92.0, picker.top() + 100.0`) to insert a middle stop while `"fills/0/stops/1"` is bound, asserting the binding shifts to `"fills/0/stops/2"` and `Cmd+Z` restores the 2-stop gradient and `"fills/0/stops/1"` binding in one undo step.
-   - Binds the middle stop (`"fills/0/stops/1"`) to `Probe/Blue` while `"fills/0/stops/2"` is bound to `Probe/Red`, drags the middle stop handle 40px below the bar (`bar_mid.y + 40.0`) to delete it, and asserts `"fills/0/stops/1"` now holds `Probe/Red`, `"fills/0/stops/2"` is removed, and `Cmd+Z` restores all 3 stops and both bindings in one undo step.
-   - Repeats the flip remap verification on a stroke gradient (`"strokes/0/stops/0"` -> `"strokes/0/stops/1"`).
+   - Binds `"fills/0/stops/0"` to `"Grad/Start"`, clicks the flip button (`picker.left() + 184.0, picker.top() + 100.0`), and asserts the binding moved to `"fills/0/stops/1"` and `s.cmd_key(Key::Z)` restores both stops and `"fills/0/stops/0"` in one undo step.
+   - Binds `"fills/0/stops/1"` to `"Grad/End"`, clicks the gradient bar midpoint (`picker.left() + 92.0, picker.top() + 100.0`) to insert a stop, asserts `"fills/0/stops/1"` shifts to `"fills/0/stops/2"`, and verifies `s.cmd_key(Key::Z)` restores 2 stops and `"fills/0/stops/1"` in one undo step.
+   - Adds the midpoint stop back, detaches stop 0, binds middle stop 1 to `"Grad/Start"`, drags middle stop 1 >30px below the bar (`bar_mid.y + 40.0`) to delete it, asserts `"fills/0/stops/1"` now holds `"Grad/End"` and `"fills/0/stops/2"` is `None`, and verifies `s.cmd_key(Key::Z)` restores all 3 stops and both bindings in one undo step.
+   - Repeats flip remap and undo on a stroke gradient (`"strokes/0/stops/0"` -> `"strokes/0/stops/1"` with `"Stroke/Stop"`).
 7. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `picker_resync_runs_in_picker_popup_not_unrelated_sections` (m1):**
-   - Mutates `pk.paint` in memory while `pk.tx` is untouched, runs a frame where `properties::picker_popup` executes, and asserts `pk.paint` was resynced from the document inside `properties::picker_popup`.
-   - Mutates `pk.paint` again, calls `panels::effects::section` directly, and asserts `effects::section` did **not** touch `pk.paint`.
-   - Opens `var_bind::bind_picker` on `"effects/0/radius"`, calls `panels::var_bind::bind_picker` directly, and asserts `var_bind::bind_picker` exit did **not** touch `pk.paint`.
+   - Opens `"sw:false:0"` on `"Hero"`, mutates `n.fills[0]` stop 0 colour in `s.shell.app.doc` while `pk.tx` is untouched, calls `crate::panels::effects::section_for_test(&mut s.shell.app, &s.ctx, &[hero], &[])` and `crate::panels::var_bind::bind_picker(&mut s.shell.app, &s.ctx)`, and asserts neither call resyncs `pk.paint`, whereas `s.frame(vec![])` (`properties::picker_popup`) resyncs `pk.paint` to `updated`.
 8. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit` (m2b):**
-   - Selects gradient stop 1, edits it through the first swatch (creating an active `pk.tx`), selects stop 0 and binds it to `Probe/Red` (`"VariableID:d11"`), then selects stop 1 again and clicks the second swatch; asserts `"fills/0/stops/0"` remains bound to `"VariableID:d11"` (kills `nocommit.diff`).
+   - Selects stop 1, clicks `swatch0` (`picker.left() + 24.0, picker.top() + 504.0`) so `pk.tx` is non-empty, selects stop 0 and binds `"fills/0/stops/0"` to `"Probe/Red"`, then selects stop 1 again and clicks `swatch0`, asserting `"fills/0/stops/0"` remains bound to `"Probe/Red"`.
 
 ---
 
@@ -341,6 +338,228 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3817 filtered out; f
 - **`FACT`:** Both `undo.diff` and `nocommit.diff` from `/Users/jangtrinh/Products/design-os-studio/plans/reports/code-reviewer-261031-0845-pr-1425-evidence/` are killed by `effect_stop_binds`.
 - **`ASSUMPTION`:** When a multi-node selection is edited through the gradient picker, remapping `fills/{pi}/stops/{j}` or `strokes/{pi}/stops/{j}` across all `ids` in `pk.ids` using `pk.state.stop_origins` matches `apply_picker`'s existing behavior of writing `pk.paint` to all `ids` in `pk.ids`.
 - **Weakest link:** `crates/designos-app/src/cli.rs` has its own static `PANELS` array (`cli.rs:323`) separate from `properties::open_panel`, and because `cli.rs` is outside `Files you may modify`, `open_panel("effect")` is reachable via `Sim::panel("effect")` / `properties::preset_popup` in tests but CLI `--panel effect` requires adding `"effect"` to `cli.rs::PANELS`.
+
+---
+
+### 6. Unresolved Questions
+
+None.
+
+---
+
+## Round 3
+
+### 1. What Could Not Be Verified
+
+- **Pre-existing out-of-scope bindings/keyboard behaviours noted in the Round 2 review (`delete_key_moves_stop_binding`, `paste_properties_keeps_stale_stop_binding`, `undo_with_pending_picker_edit_after_flip`):** Explicitly marked out of scope by `/Users/jangtrinh/Products/design-os-studio/plans/261030-2041-e1-wave-1/brief-agy-132-r3.txt` (`What is out of scope — do NOT touch: 1. Keyboard Delete deleting the layer while the picker is open ... 2. Paste properties not clearing or carrying stop bindings ... 3. Cmd+Z while a picker edit is pending after a flip ... 4. The 20x20 stop bind button size (#876)`) and left untouched.
+- **Real Figma Desktop manual re-import of the exported `.fig` container:** As in Rounds 1–2, headless `.fig` round-trip (`export_fig` -> `import_fig`) and mode resolution (`designos_doc::resolve_node`) are verified in `crates/designos-fig/tests/node_effect_stop_bindings.rs`, while launching proprietary Figma Desktop is prohibited in this worker environment.
+
+---
+
+### 2. Conclusion & Accurate Test Inventory (Round 3 — All 15 Tests in Final Files)
+
+All Round 2 review items (`MAJOR 1`, `MAJOR 2`, base-behaviour restores for eyedropper close and unbound gradient flip undo granularity, 4 test gaps / surviving mutations, `MINOR 1` `--panel effect` in `cli.rs`, and `MINOR 2` accurate test inventory) are resolved with RED-first `test(…)` commits followed by `fix(…)` commits.
+
+#### Complete Inventory of All 15 Tests Across Final Modified Test Files
+
+1. **`crates/designos-fig/tests/node_effect_stop_bindings.rs` — `node_effect_and_gradient_stop_bindings_round_trip_and_resolve_per_mode`:**
+   - Builds `Document::new("NodeEffectAndStopBindings")` with `"VariableCollectionId:3:1"` (`"Light"` = `"3:10"`, `"Dark"` = `"3:11"`), rectangle `"BoundLayer"` inside frame `"ModeContainer"`, and bindings on `"effects/0/{color,radius,spread,offsetX,offsetY}"`, `"fills/0/stops/{0,1}"`, and `"strokes/0/stops/0"`, then verifies `export_fig` -> `import_fig` round-trip and `resolve_node(&doc2, imported)` in both `"Light"` (`"3:10"`) and `"Dark"` (`"3:11"`).
+2. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `node_effect_rows_bind_filter_scopes_detach_and_undo`:**
+   - Opens `Sim::with(Options { select: Some("Hero".into()), ..Default::default() })`, binds `"effects/0/{radius,offsetX,offsetY,spread,color}"` on `DropShadow` (`effects[0]`) and `"effects/1/radius"` on `LayerBlur` (`effects[1]`), checks `EFFECT_FLOAT` / `EFFECT_COLOR` scope filtering (`!has_test_rect(&s, "pick:Layout/WidthOnly")` and `!has_test_rect(&s, "pick:Stroke/OnlyColor")`), detaches `"bound:effects/0/color"`, and verifies 1-step `s.cmd_key(Key::Z)` undo/redo restores both `variables.bindings` and `Effect::DropShadow.radius` (`8.0` <-> `18.0`).
+3. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `gradient_stop_colors_bind_filter_scopes_detach_and_undo`:**
+   - Opens `"sw:false:0"` on `"Hero"`, binds `"fills/0/stops/0"` to `"Grad/StopStart"` and `"fills/0/stops/1"` to `"Grad/StopEnd"`, checks `ALL_FILLS` / `SHAPE_FILL` scope filtering (`!has_test_rect` for `"pick:Effect/OnlyColor"`, `"pick:Stroke/OnlyStopColor"`, `"pick:Frame/OnlyStopColor"`), verifies 1-step undo/redo and detach on `"bound:fills/0/stops/0"`, and binds `"strokes/0/stops/0"` via `"sw:true:0"` to `"Stroke/OnlyStopColor"`.
+4. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect`:**
+   - Sets `s.shell.app.ui.screenshot_chrome = true` on `"Hero"` with `"effects/0/radius"` bound and verifies `s.scroll_inspector_down()` does not auto-open `s.app().props.pop`; then parses `["--select", "Hero", "--panel", "effect"]` with `crate::cli::parse`, opens `Sim::with(opts)`, verifies `PopKind::Effect(0)` and `fx_field_rect(&s_panel, "fxp-b", 0)`, binds `"effects/0/radius"`, and verifies `"bound:effects/0/radius"` is recorded.
+5. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `bound_gradient_stop_locks_color_controls_until_detached`:**
+   - Binds `"fills/0/stops/0"` to `"Grad/StopStart"` and binds canvas layer `donor` to `"Token/Donor"`; verifies swatch clicks, SV square drag, hue drag, alpha drag, and eyedropper button click on bound stop 0 are blocked; arms the eyedropper via user clicks on unbound stop 1 (`picker.left() + 168.0, picker.top() + 100.0`) before switching back to bound stop 0 and clicking the canvas both without `SHIFT` and with `Modifiers::SHIFT` (`s.shell.app.hover = Some(donor)`), verifying that neither canvas colour sampling nor `Shift`+eyedropper token sampling modifies `"Hero"` and that the canvas click closes the picker (`s.app().props.picker.is_none()`); re-opens `"sw:false:0"`, verifies dragging stop 0 on the bar updates `stops[0].pos`, detaches `"bound:fills/0/stops/0"`, and verifies swatch clicks write to `stops[0].color` again (kills `eye_shift_token`).
+6. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `gradient_stop_bindings_follow_stop_across_flip_add_and_delete`:**
+   - Binds `"fills/0/stops/0"` (`"Grad/Start"`) and `"fills/0/stops/1"` (`"Grad/End"`), verifies stop binding remap and 1-step undo across gradient flip (`picker.left() + 184.0, picker.top() + 100.0`), bar-click midpoint stop insertion (`picker.left() + 92.0, picker.top() + 100.0`), and drag-off-bar stop deletion (`bar_mid.y + 40.0`), plus stroke gradient flip remap (`"strokes/0/stops/0"` -> `"strokes/0/stops/1"` with `"Stroke/Stop"`).
+7. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `picker_resync_runs_in_picker_popup_not_unrelated_sections`:**
+   - Mutates `stops[0].color` in `s.shell.app.doc` while `pk.tx` is untouched, calls `crate::panels::effects::section_for_test(&mut s.shell.app, &s.ctx, &[hero], &[])` and `crate::panels::var_bind::bind_picker(&mut s.shell.app, &s.ctx)` directly to verify neither resyncs `pk.paint`, and then runs `s.frame(vec![])` to verify `properties::picker_popup` resyncs `pk.paint` (kills `m1_sync_back_in_effects`).
+8. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit`:**
+   - Edits stop 1 through `swatch0` so `pk.tx` is non-empty, selects stop 0 and binds `"fills/0/stops/0"` to `"Probe/Red"`, then selects stop 1 again and clicks `swatch0`, asserting `"fills/0/stops/0"` stays bound to `"Probe/Red"`.
+9. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill` (MAJOR 1):**
+   - Selects both `"Hero"` layers (`a` and `b`) with `a` unbound at stop 0 and `b` bound at `"fills/0/stops/0"` to `"Probe/Red"`, opens `"sw:false:0"`, selects stop 0, asserts `"bound:fills/0/stops/0"` renders `"Mixed"` (`texts_in_rect(&s, pill_subset)`), clicks a swatch (`picker.left() + 24.0, picker.top() + 504.0`) and asserts neither `a` nor `b` changes at stop 0, drags stop 0 on the bar to `pos = 0.25` and asserts `b`'s raw and resolved stop 0 colour stay `red` while `pos` updates on both `a` and `b`, then binds `a`'s `"fills/0/stops/0"` to `"Probe/Blue"` and asserts `"bound:fills/0/stops/0"` still shows `"Mixed"`, and finally binds `a`'s `"fills/0/stops/0"` to `"Probe/Red"` and asserts the pill shows `"Probe/Red"`.
+10. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down` (MAJOR 2):**
+    - Gives `"Hero"` two `DropShadow` effects (`8.0` and `4.0`), binds `"effects/0/radius"` to `"Probe/Blur0"` (`18.0`), clicks `"fx-minus-0"` to delete effect 0, and asserts the remaining effect resolves to `4.0` with `"effects/0/radius"` removed and 1-step `s.cmd_key(Key::Z)` restoring both effects and `"effects/0/radius" == Some(&v_blur0)`; then binds `"effects/1/radius"` to `"Probe/Blur1"` (`12.0`), deletes effect 0 again via `"fx-minus-0"`, and asserts `"effects/1/radius"` shifted to `"effects/0/radius" == Some(&v_blur1)` (`res_radii == vec![12.0]`) and 1-step `s.cmd_key(Key::Z)` restores both `"effects/0/radius"` and `"effects/1/radius"`.
+11. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `eyedropper_sample_closes_picker_and_commits_one_undo_step`:**
+    - Opens `"sw:false:0"` on `"Hero"`, clicks the eyedropper button (`picker.left() + 28.0, picker.top() + 377.0`) to arm `pk.eyedrop`, clicks the canvas at `Pos2::new(500.0, 400.0)` to sample a colour, and asserts `s.app().props.picker.is_none()`, `undo_depth - depth0 == 1`, and one `s.cmd_key(Key::Z)` restores the original gradient stops.
+12. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `unbound_gradient_picker_session_with_flip_stays_one_undo_step`:**
+    - Opens `"sw:false:0"` on an unbound 2-stop gradient, clicks swatch `(24.0, 504.0)`, clicks the flip button `(184.0, 100.0)`, clicks swatch `(48.0, 504.0)`, and presses `Key::Escape`; asserts `s.app().props.picker.is_none()`, `undo_depth - depth0 == 1`, and one `s.cmd_key(Key::Z)` restores `original` fills.
+13. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step`:**
+    - Binds stop 1 (`"fills/0/stops/1"`) to `"Probe/Red"`, clicks a visible point on the on-canvas gradient line (`w * t, h * 0.5`) outside the picker rect to insert a middle stop, asserts `"fills/0/stops/1"` shifted to `"fills/0/stops/2"` (`resolved.fills[0]` stop 2 is `red`, stop 1 is not `red`), and asserts one `s.cmd_key(Key::Z)` removes the inserted stop and restores `"fills/0/stops/1"` (kills `canvas_insert_remap`).
+14. **`crates/designos-app/src/shell/tests/effect_stop_binds.rs` — `dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag`:**
+    - Gives `"Hero"` a 4-stop linear gradient, opens `"sw:false:0"`, presses and holds pointer button on stop 1 (`pos = 0.33`) while moving across 6 frames (`dy = 10.0, 20.0, 35.0, 40.0, 45.0, 50.0`) before releasing, and asserts `stops.len() == 3` (`4 -> 3`, not `4 -> 2`, killing `stop_dragging`).
+15. **`crates/designos-app/src/cli.rs` — `cli::tests::parses_panel` (MINOR 1):**
+    - Asserts `p(&["--panel", "effect"]).unwrap().panel.as_deref() == Some("effect")`.
+
+---
+
+### 3. Acceptance Table & Pasted Verification Output (Round 3, Run on Final Commit)
+
+| Check | Command | Result |
+|---|---|---|
+| **1. `r3-red.log` / `r3-green.log` for every new Round 3 test** | `cargo test -p designos-fig --locked --test node_effect_stop_bindings && cargo test -p designos-app --bin designos --locked effect_stop_binds && cargo test -p designos-app --bin designos --locked parses_panel` | **PASS** (`r3-red.log` records each new test failing RED before its fix; `r3-green.log` records `1 passed; 0 failed` in `node_effect_stop_bindings`, `13 passed; 0 failed` in `effect_stop_binds`, and `1 passed; 0 failed` in `parses_panel`). |
+| **2. All 9 in-scope probes from `review_probe_1425_r2.rs`** | Covered permanently in `effect_stop_binds.rs` + `cli.rs` (`multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill`, `deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down`, `canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step`, `dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag`, `parses_panel` + `effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect`, `unbound_gradient_picker_session_with_flip_stays_one_undo_step`, `eyedropper_sample_closes_picker_and_commits_one_undo_step`) | **PASS** (`13/13` in `effect_stop_binds` and `30/30` in `cli::tests`; the 3 out-of-scope pre-existing probes are untouched and not wired into `tests.rs`). |
+| **3. 4 surviving mutations from Round 2 review (`canvas_insert_remap`, `stop_dragging`, `m1_sync_back_in_effects`, `eye_shift_token`)** | Mutate each target and run `cargo test -p designos-app --bin designos --locked effect_stop_binds` | **ALL 4 KILLED** (`build_error=False`, each fails its dedicated test in `effect_stop_binds`; saved in `plans/reports/agy-132-effect-stop-binds-evidence/r3-mutations.log`). |
+| **4a. Gate 1: Rustfmt** | `cargo fmt --all -- --check` | **PASS** (`fmt_exit=0`). |
+| **4b. Gate 2: Clippy** | `cargo clippy --workspace --all-targets --locked -- -D warnings` | **PASS** (`clippy_exit=0`, zero warnings). |
+| **4c. Gate 3: `effect` filter** | `cargo test -p designos-app --bin designos --locked effect` | **PASS** (`45 passed; 0 failed`). |
+| **4d. Gate 4: `bind` filter** | `cargo test -p designos-app --bin designos --locked bind` | **PASS** (`41 passed; 0 failed`). |
+| **4e. Gate 5: `layout_unchanged` filter** | `cargo test -p designos-app --bin designos --locked layout_unchanged` | **PASS** (`20 passed; 0 failed`). |
+| **4f. Gate 6: `effect_stop_binds` filter** | `cargo test -p designos-app --bin designos --locked effect_stop_binds` | **PASS** (`13 passed; 0 failed`). |
+| **4g. Gate 7: `node_effect_stop_bindings`** | `cargo test -p designos-fig --locked --test node_effect_stop_bindings` | **PASS** (`1 passed; 0 failed`). |
+| **4h. Gate 8: Workspace Lib Tests** | `cargo test --workspace --locked --lib` | **PASS** (all 11 workspace library test suites green, `0 failed`). |
+
+#### Pasted Output — `r3-red.log` Summary (`plans/reports/agy-132-effect-stop-binds-evidence/r3-red.log`)
+
+```text
+=== MAJOR 1 RED: multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill ===
+running 8 tests
+test shell::tests::effect_stop_binds::multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill ... FAILED
+...
+thread 'shell::tests::effect_stop_binds::multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill' (40768447) panicked at crates/designos-app/src/shell/tests/effect_stop_binds.rs:822:5:
+assertion `left == right` failed: swatch must not write a raw colour into b's bound stop
+  left: Color { r: 0.22745098, g: 0.22745098, b: 0.22745098, a: 1.0 }
+ right: Color { r: 1.0, g: 0.06666667, b: 0.13333334, a: 1.0 }
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 2.57s
+
+=== MAJOR 2 RED: deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down ===
+running 9 tests
+test shell::tests::effect_stop_binds::deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down ... FAILED
+...
+thread 'shell::tests::effect_stop_binds::deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down' (40781488) panicked at crates/designos-app/src/shell/tests/effect_stop_binds.rs:894:5:
+assertion `left == right` failed: remaining effect must render 4.0 with no stale binding from deleted effect 0
+  left: [18.0]
+ right: [4.0]
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 2.64s
+
+=== BASE RESTORES RED: eyedropper_sample_closes_picker_and_commits_one_undo_step & unbound_gradient_picker_session_with_flip_stays_one_undo_step ===
+running 11 tests
+test shell::tests::effect_stop_binds::eyedropper_sample_closes_picker_and_commits_one_undo_step ... FAILED
+test shell::tests::effect_stop_binds::bound_gradient_stop_locks_color_controls_until_detached ... FAILED
+test shell::tests::effect_stop_binds::unbound_gradient_picker_session_with_flip_stays_one_undo_step ... FAILED
+...
+thread 'shell::tests::effect_stop_binds::eyedropper_sample_closes_picker_and_commits_one_undo_step' (40937857) panicked at crates/designos-app/src/shell/tests/effect_stop_binds.rs:967:5:
+picker must close after an eyedropper sample as on base
+thread 'shell::tests::effect_stop_binds::bound_gradient_stop_locks_color_controls_until_detached' (40937854) panicked at crates/designos-app/src/shell/tests/effect_stop_binds.rs:470:5:
+canvas click after eyedropper closes the picker as on base
+thread 'shell::tests::effect_stop_binds::unbound_gradient_picker_session_with_flip_stays_one_undo_step' (40937864) panicked at crates/designos-app/src/shell/tests/effect_stop_binds.rs:1014:5:
+assertion `left == right` failed: unbound picker session with flip must stay one undo step
+  left: 2
+ right: 1
+test result: FAILED. 8 passed; 3 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 3.02s
+
+=== MINOR 1 (--panel effect in cli.rs) RED ===
+running 1 test
+test cli::tests::parses_panel ... FAILED
+thread 'cli::tests::parses_panel' (41233839) panicked at crates/designos-app/src/cli.rs:580:46:
+called `Result::unwrap()` on an `Err` value: "unknown panel 'effect' ..."
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3823 filtered out; finished in 0.00s
+```
+
+#### Pasted Output — `r3-green.log` (`plans/reports/agy-132-effect-stop-binds-evidence/r3-green.log`)
+
+```text
+=== cargo test -p designos-fig --locked --test node_effect_stop_bindings ===
+running 1 test
+test node_effect_and_gradient_stop_bindings_round_trip_and_resolve_per_mode ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+=== cargo test -p designos-app --bin designos --locked effect_stop_binds ===
+running 13 tests
+test shell::tests::effect_stop_binds::dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag ... ok
+test shell::tests::effect_stop_binds::probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit ... ok
+test shell::tests::effect_stop_binds::picker_resync_runs_in_picker_popup_not_unrelated_sections ... ok
+test shell::tests::effect_stop_binds::canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step ... ok
+test shell::tests::effect_stop_binds::multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill ... ok
+test shell::tests::effect_stop_binds::bound_gradient_stop_locks_color_controls_until_detached ... ok
+test shell::tests::effect_stop_binds::effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect ... ok
+test shell::tests::effect_stop_binds::gradient_stop_colors_bind_filter_scopes_detach_and_undo ... ok
+test shell::tests::effect_stop_binds::gradient_stop_bindings_follow_stop_across_flip_add_and_delete ... ok
+test shell::tests::effect_stop_binds::unbound_gradient_picker_session_with_flip_stays_one_undo_step ... ok
+test shell::tests::effect_stop_binds::eyedropper_sample_closes_picker_and_commits_one_undo_step ... ok
+test shell::tests::effect_stop_binds::deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down ... ok
+test shell::tests::effect_stop_binds::node_effect_rows_bind_filter_scopes_detach_and_undo ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 3.80s
+
+=== cargo test -p designos-app --bin designos --locked parses_panel ===
+running 1 test
+test cli::tests::parses_panel ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3823 filtered out; finished in 0.00s
+```
+
+#### Pasted Output — 4 Target Mutations (`plans/reports/agy-132-effect-stop-binds-evidence/r3-mutations.log`)
+
+```text
+=== canvas_insert_remap ===
+canvas_insert_remap: status=KILLED build_error=False pr_tests_failed=['shell::tests::effect_stop_binds::canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step'] test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 4.51s
+
+=== stop_dragging ===
+stop_dragging: status=KILLED build_error=False pr_tests_failed=['shell::tests::effect_stop_binds::dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag'] test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 4.75s
+
+=== m1_sync_back_in_effects ===
+m1_sync_back_in_effects: status=KILLED build_error=False pr_tests_failed=['shell::tests::effect_stop_binds::picker_resync_runs_in_picker_popup_not_unrelated_sections'] test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 3.99s
+
+=== eye_shift_token ===
+eye_shift_token: status=KILLED build_error=False pr_tests_failed=['shell::tests::effect_stop_binds::bound_gradient_stop_locks_color_controls_until_detached'] test result: FAILED. 12 passed; 1 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 3.83s
+```
+
+#### Pasted Output — All 8 Mandatory Gates (`plans/reports/agy-132-effect-stop-binds-evidence/r3-gates.log`)
+
+```text
+=== 1. cargo fmt --all -- --check ===
+fmt_exit=0
+=== 2. cargo clippy --workspace --all-targets --locked -- -D warnings ===
+clippy_exit=0
+=== 3. cargo test -p designos-app --bin designos --locked effect ===
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 3779 filtered out; finished in 9.15s
+=== 4. cargo test -p designos-app --bin designos --locked bind ===
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 3783 filtered out; finished in 5.39s
+=== 5. cargo test -p designos-app --bin designos --locked layout_unchanged ===
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3804 filtered out; finished in 10.49s
+=== 6. cargo test -p designos-app --bin designos --locked effect_stop_binds ===
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 3811 filtered out; finished in 4.09s
+=== 7. cargo test -p designos-fig --locked --test node_effect_stop_bindings ===
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+=== 8. cargo test --workspace --locked --lib ===
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 672 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.20s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.53s
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.13s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.15s
+test result: ok. 262 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.46s
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.68s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+```
+
+---
+
+### 4. Skills Loaded & What Changed Because of Them
+
+- **`es:dev` / `es:feature-dev`, `es:astra-work`, `es:fable-thinking`:** Enforced strict RED-first `test(…)` -> `fix(…)` commits across all 4 change groups (`MAJOR 1`, `MAJOR 2`, base-behaviour restores, and `MINOR 1` `--panel effect`), falsified Round 2's multi-select assumption by proving `sync_picker_context` only inspected `pk.ids.first()` and `apply_picker` overwrote bound stop colours during stop-handle drags, and verified all 4 surviving mutations from the Round 2 review (`canvas_insert_remap`, `stop_dragging`, `m1_sync_back_in_effects`, `eye_shift_token`) were killed with `build_error=False`.
+- **`es:rust` & `es:rust-gpu-canvas`:** Extracted one shared zero-surprise helper `var_bind::remap_indexed_bindings(bindings, prefix, origins)` used by both gradient-stop remap (`"fills/{pi}/stops/"` / `"strokes/{pi}/stops/"`) and effect deletion (`"effects/"`), and checked `has_stop_bindings(&app.doc, &pk)` in `properties::picker_popup` after `pk.tx.ed.revert(&mut app.doc)` so pre-delete stop bindings are visible before `apply_picker` runs.
+- **`es:designer`:** Rendered `"Mixed"` with `None` swatch in the bound variable pill when selected layers bind different variables or only a subset is bound at the active stop (`sync_picker_context` in `var_bind.rs`), matching the inspector's mixed-value convention without adding new layout elements (`20/20` `layout_unchanged` tests green).
+
+---
+
+### 5. Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`) & Weakest Link
+
+- **`FACT`:** `var_bind::sync_picker_context` now inspects all nodes in `pk.ids`: a stop key is inserted into `state.bound_stops` whenever ANY selected layer binds that stop (with `("Mixed", None)` when selected layers bind different variables or only a subset is bound), and `properties::preserve_bound_stop_colors` preserves each layer's bound stop colour during `apply_picker` (`multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill`).
+- **`FACT`:** `var_bind::remap_indexed_bindings` is the single shared index-remap helper used by both `properties::apply_picker` (for `"fills/{pi}/stops/"` and `"strokes/{pi}/stops/"`) and `effects::section` (for `"effects/"` when an effect row is removed), dropping deleted indices and shifting later indices down in the same undo step (`deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down`).
+- **`FACT`:** Base (`411ccc2d`) behaviour is restored for eyedropper canvas sampling closing the picker in 1 undo step (`eyedropper_sample_closes_picker_and_commits_one_undo_step`) and for unbound gradient picker sessions with a flip staying 1 undo step (`unbound_gradient_picker_session_with_flip_stays_one_undo_step`), while `ui.ctx().stop_dragging()` in `picker.rs` is preserved and tested (`dragging_gradient_stop_off_bar_deletes_at_most_one_stop_per_drag`).
+- **`FACT`:** `"effect"` is in `cli::PANELS` (`crates/designos-app/src/cli.rs`), verified by `cli::tests::parses_panel` and `effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect`.
+- **`FACT`:** All 4 surviving mutations from `mutate_1425_r2.py` (`canvas_insert_remap`, `stop_dragging`, `m1_sync_back_in_effects`, `eye_shift_token`) compile (`build_error=False`) and fail a test in `effect_stop_binds` (`r3-mutations.log`).
+- **`INFERENCE`:** Because `has_stop_bindings(&app.doc, &pk)` runs in `properties::picker_popup` immediately after `pk.tx.ed.revert(&mut app.doc)` and before `apply_picker`, deleting the only bound stop on a gradient still sees the pre-delete binding in `app.doc` and commits the remap transaction in lockstep with the stop deletion.
+- **`ASSUMPTION`:** None remaining for in-scope inspector flows; the 3 pre-existing behaviours noted in the review (`delete_key_moves_stop_binding`, `paste_properties_keeps_stale_stop_binding`, `undo_with_pending_picker_edit_after_flip`) are out of scope per the Round 3 brief.
+- **Weakest link:** In `bound_gradient_stop_locks_color_controls_until_detached`, testing `Shift`+eyedropper token sampling requires `s.shell.app.hover = Some(donor)` to match the canvas node under the click point `(500.0, 400.0)` because `Sim::click` sends `PointerMoved` before `PointerButton`; the test resolves `donor` via `canvas::interact::hit_under` at `(500.0, 400.0)` so `app.hover` stays on `donor` across `Sim::click` (proven by `eye_shift_token` being killed).
 
 ---
 
