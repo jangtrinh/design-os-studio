@@ -593,10 +593,6 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
     if al.primary_sizing != Sizing::Hug {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
-    let cols = grid_column_count(al);
-    if cols <= 1 {
-        return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
-    }
     let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| doc.flow_child_input(*id, true)).collect();
     if kids.is_empty() {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
