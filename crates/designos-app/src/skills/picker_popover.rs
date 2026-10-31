@@ -11,8 +11,13 @@ const BUDGET_NEAR_TOKENS: usize = MAX_COMBINED_TOKENS / 10 * 9;
 const ROW_H: f32 = theme::CONTROL_MD + theme::SPACE_ROW;
 
 /// Where the composer's skills chip sits, `None` without one. A press on the chip is not an outside press: the chip opens and closes the popover itself.
-pub(crate) fn picker_anchor_id() -> Id {
+fn picker_anchor_id() -> Id {
     Id::new("agents-skills-picker-anchor-rect")
+}
+
+/// Records where the chip is drawn this frame, `None` when it is not. The value is overwritten in place, so no frame allocates.
+pub(crate) fn remember_picker_anchor(ctx: &egui::Context, anchor: Option<Rect>) {
+    ctx.data_mut(|d| *d.get_temp_mut_or_default::<Option<Rect>>(picker_anchor_id()) = anchor);
 }
 
 /// True when `Esc` or a press outside the popover and its chip asks it to close.

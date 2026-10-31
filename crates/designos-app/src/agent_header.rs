@@ -65,7 +65,7 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
     let plus_resp = ui.interact(plus, Id::new("agents-new-chat-btn"), Sense::click());
     paint_icon_btn(ui, &p, plus, &plus_resp, state.picker_open, "agents-new-chat-btn", "New chat");
     icons::paint(&p, Icon::Plus, plus.center(), theme::LAYER_ICON_SIZE, icon_color(&plus_resp, state.picker_open));
-    ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-new-chat-btn-rect"), plus));
+    crate::agent_composer_menus::remember(ui.ctx(), "agents-new-chat-btn-rect", plus);
 
     let more_tip = if hidden_needs > 0 { format!("{hidden_needs} waiting") } else { "More".to_string() };
     let more_resp = ui.interact(more, Id::new("agents-more-btn"), Sense::click()).on_hover_text(more_tip);
@@ -80,7 +80,7 @@ pub fn paint(state: &mut TerminalState, ui: &mut Ui, rect: Rect) -> Rect {
         let dot_r = Rect::from_center_size(dot_at, Vec2::splat(theme::SPACE_INLINE));
         widgets::record(ui, "agents-more-dot", dot_r);
     }
-    ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-more-btn-rect"), more));
+    crate::agent_composer_menus::remember(ui.ctx(), "agents-more-btn-rect", more);
 
     if close_new_chat {
         state.picker_open = false;

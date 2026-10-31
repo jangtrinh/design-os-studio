@@ -21,7 +21,7 @@
 pub(crate) mod delivery;
 pub(crate) mod hook_delivery;
 mod picker_popover;
-pub(crate) use picker_popover::picker_anchor_id;
+pub(crate) use picker_popover::remember_picker_anchor;
 pub(crate) mod pills;
 pub mod run_record;
 

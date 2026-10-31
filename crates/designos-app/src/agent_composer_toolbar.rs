@@ -101,7 +101,7 @@ pub fn toolbar(ui: &mut Ui, state: &mut TerminalState, composer: Rect, pill: &st
         }
         out.pill = true;
     }
-    ui.ctx().data_mut(|d| d.insert_temp(Id::new("agents-composer-agent-pill-rect"), pill_r));
+    crate::agent_composer_menus::remember(ui.ctx(), "agents-composer-agent-pill-rect", pill_r);
     widgets::labelled(ui, Id::new("agents-composer-agent-pill"), egui::accesskit::Role::Button, &format!("Agent: {pill}"));
     let skills_n = state.skills.selected_names.len();
     let prd_on = state.active_composer().attach_prd;
@@ -137,8 +137,8 @@ pub fn placeholder(state: &TerminalState, pill: &str, shell: bool, any_cli: bool
 }
 
 pub fn caption(state: &TerminalState) -> Option<String> {
-    if let Some(note) = state.active_tab().and_then(|t| t.still_running_notice.clone()) {
-        return Some(note);
+    if let Some(note) = state.still_running_notice_on_screen() {
+        return Some(note.to_string());
     }
     let comp = state.active_composer();
     match comp.last_outcome {

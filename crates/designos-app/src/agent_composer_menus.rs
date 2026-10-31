@@ -139,6 +139,15 @@ fn menu_row(ui: &mut Ui, rect: Rect, id: &str, label: &str, caption: Option<&str
     resp.clicked()
 }
 
+/// Remembers where an anchor was drawn this frame. The stored value is overwritten in place, so a frame after the first allocates
+/// nothing (`insert_temp` boxes a new value every call).
+pub(crate) fn remember<T: Clone + Send + Sync + 'static>(ctx: &egui::Context, key: &'static str, value: T) {
+    ctx.data_mut(|d| {
+        let slot = d.get_temp_mut_or_insert_with(Id::new(key), || value.clone());
+        *slot = value;
+    });
+}
+
 pub(super) fn stamp_pass(ui: &Ui, id: &str) {
     let pass = ui.ctx().cumulative_pass_nr();
     ui.ctx().data_mut(|d| d.insert_temp(Id::new(id), pass));

@@ -215,3 +215,93 @@ fn the_pill_and_placeholder_follow_a_cli_installed_after_the_menu_closed() {
     assert!(!texts.iter().any(|t| t == "Choose agent"), "{texts:?}");
     finish(s);
 }
+
+#[test]
+fn a_covered_tabs_still_running_notice_stays_out_of_new_chat() {
+    let mut s = session_sim();
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    frames(&mut s, 3);
+    let box_before = recorded(&s, "agents-composer-box").expect("the New chat composer box").height();
+    let reserved_before = crate::agent_composer::composer_reserved_height(&s.shell.app.terminal);
+    s.shell.app.terminal.tabs[0].still_running_notice = Some(crate::agent_stop::STILL_RUNNING_NOTICE.to_string());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.picker_open, "New chat is still the state on screen");
+    assert!(!painted(&s).iter().any(|t| t.starts_with("Still running")), "the covered tab's notice is not painted in New chat: {:?}", painted(&s));
+    assert_eq!(recorded(&s, "agents-composer-box").unwrap().height(), box_before, "and it does not size the New chat box");
+    assert_eq!(crate::agent_composer::composer_reserved_height(&s.shell.app.terminal), reserved_before, "nor the room the panel reserves for it");
+
+    let tab = recorded(&s, "agents-left-tab-select").expect("the covered session tab");
+    s.click(tab.center());
+    frames(&mut s, 3);
+    assert!(!s.shell.app.terminal.picker_open);
+    assert!(painted(&s).iter().any(|t| t.starts_with("Still running")), "back on its tab the notice shows: {:?}", painted(&s));
+    finish(s);
+}
+
+#[test]
+fn a_prompt_entry_point_leaves_the_composer_on_screen_alone() {
+    // New chat over a live tab: Make design sends its own text to the tab, and the New chat draft survives.
+    let mut s = session_sim();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    s.shell.app.terminal.tabs[0].composer.draft = "covered draft".into();
+    frames(&mut s, 2);
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    frames(&mut s, 3);
+    type_in_composer(&mut s, "my new chat draft");
+    frames(&mut s, 2);
+    s.shell.app.terminal.dispatch_figma_ai_prompt("Make Design", "pricing card", None);
+    frames(&mut s, 3);
+    let terminal = &s.shell.app.terminal;
+    assert_eq!(terminal.unattached_composer.draft, "my new chat draft", "the New chat draft is not taken");
+    assert!(terminal.unattached_composer.history.is_empty(), "and nothing is recorded in its history: {:?}", terminal.unattached_composer.history);
+    assert_eq!(terminal.tabs[0].composer.draft, "covered draft", "the covered tab's draft is not taken either");
+    assert!(
+        terminal.tabs[0].composer.pending_send.as_deref().is_some_and(|p| p.contains("pricing card")) || terminal.tabs[0].composer.send_count > 0,
+        "the prompt went to the covered tab: {:?}",
+        terminal.tabs[0].composer.pending_send
+    );
+    finish(s);
+
+    // A live tab on screen: the prompt does not clear what the user typed there, chips and PRD included.
+    let mut s = session_sim();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    selected_frame(&mut s);
+    {
+        let composer = &mut s.shell.app.terminal.tabs[0].composer;
+        composer.draft = "half a thought".into();
+        composer.attach_prd = true;
+    }
+    frames(&mut s, 3);
+    let outcome = s.shell.app.terminal.send_to_agent("pricing card", None);
+    assert!(matches!(outcome, SendOutcome::Written | SendOutcome::Queued), "the prompt is delivered: {outcome:?}");
+    frames(&mut s, 2);
+    let composer = &s.shell.app.terminal.tabs[0].composer;
+    assert_eq!(composer.draft, "half a thought", "the draft is still there");
+    assert!(composer.attach_prd, "and the PRD chip");
+    let written = String::from_utf8_lossy(&s.shell.app.terminal.tabs[0].written_bytes).into_owned();
+    assert!(!written.contains("@prd"), "the prompt carried no PRD tag of the composer: {written:?}");
+    finish(s);
+}
+
+#[test]
+fn the_next_new_chat_after_a_send_starts_empty() {
+    let mut s = session_sim();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+    frames(&mut s, 2);
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    frames(&mut s, 3);
+    type_in_composer(&mut s, "second chat");
+    s.key(Key::Enter);
+    frames(&mut s, 3);
+    assert_eq!(s.shell.app.terminal.tabs.len(), 2, "Send started the second chat");
+    let plus = recorded(&s, "agents-new-chat-btn").unwrap();
+    s.click(plus.center());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.picker_open, "+ opens New chat again");
+    assert_eq!(s.shell.app.terminal.composer_draft(), "", "the text moved with the new tab: the next New chat is empty");
+    assert!(s.shell.app.terminal.unattached_composer.history.is_empty(), "and holds none of the sent text in its history");
+    finish(s);
+}

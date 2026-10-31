@@ -356,7 +356,7 @@ pub fn composer_chrome_height(text: &str, chip_rows: usize, caption: bool) -> f3
 /// Total vertical space reserved at the bottom of `show_left` for the composer box and its margins/caption.
 pub fn composer_reserved_height(state: &TerminalState) -> f32 {
     let comp = state.active_composer();
-    let caption = comp.notice.is_some() || state.active_tab().is_some_and(|t| t.still_running_notice.is_some());
+    let caption = comp.notice.is_some() || state.still_running_notice_on_screen().is_some();
     let chip_rows = usize::from(!comp.chips.is_empty() || comp.attach_prd);
     let box_h = composer_chrome_height(&comp.draft, chip_rows, caption);
     box_h + theme::SPACE_GROUP * 2.0
@@ -471,8 +471,11 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, skills_block: &
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SendSource {
     /// A prompt entry point such as Cmd+K or Make design: it uses the composer's path, and with no live tab it resumes the last
-    /// session or holds the prompt for the agent menu.
+    /// session or holds the prompt for the agent menu. It brings its own text and takes nothing from the composer on screen.
     Composer,
+    /// A message the user typed into a field of their own (the classic chat): it sends and spends the composer on screen, and
+    /// never starts the pill's agent.
+    Typed,
     /// Send or Enter in the composer box on screen. In the New chat state it starts the pill's agent.
     ComposerBox,
     System,
@@ -483,6 +486,15 @@ impl TerminalState {
     /// (`unattached_composer`) and starts its own agent on Send; the tab it covers is not involved.
     pub fn in_new_chat(&self) -> bool {
         self.picker_open || self.tabs.is_empty()
+    }
+
+    /// The active tab's "still running" notice, while its composer is the one on screen. The New chat state covers that tab, so it
+    /// neither shows the notice nor makes room for it.
+    pub fn still_running_notice_on_screen(&self) -> Option<&str> {
+        if self.in_new_chat() {
+            return None;
+        }
+        self.active_tab().and_then(|t| t.still_running_notice.as_deref())
     }
 
     /// Returns a shared reference to the composer on screen: the active tab's, or `unattached_composer` in the New chat state.
@@ -640,6 +652,12 @@ impl TerminalState {
         self.send_to_agent_from(text, file_path, SendSource::ComposerBox)
     }
 
+    /// Sends a message the user typed (the classic chat) the way the composer box does, except that it never starts the pill's agent:
+    /// the composer on screen is spent, its chips, mentions and PRD chip go with the text.
+    pub fn send_typed_message(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
+        self.send_to_agent_from(text, file_path, SendSource::Typed)
+    }
+
     /// Sends a system-generated prompt (image jobs) into the active agent tab. Unlike [`Self::send_to_agent`] it
     /// leaves the user's draft, layer chips, `@`-mentions and Up-arrow history alone, attaches none of their
     /// references, never starts a session by itself, and never returns an undelivered prompt to the draft.
@@ -667,10 +685,13 @@ impl TerminalState {
         let early_actions = self.poll_live_agent_bridge();
         self.deferred_bridge_actions.extend(early_actions);
         let system = source == SendSource::System;
+        // Only a message the user typed (the composer box, the classic chat) spends the composer on screen: its draft, chips, mentions
+        // and PRD chip. A prompt entry point (Make design, Cmd+K, an Ask) brings its own text and leaves the composer as the user left it.
+        let from_box = matches!(source, SendSource::ComposerBox | SendSource::Typed);
 
         let trimmed = text.trim();
-        let chips_snapshot = if system { Vec::new() } else { self.active_composer().chips.clone() };
-        let prd_attached = !system && self.active_composer().attach_prd;
+        let chips_snapshot = if from_box { self.active_composer().chips.clone() } else { Vec::new() };
+        let prd_attached = from_box && self.active_composer().attach_prd;
         if trimmed.is_empty() && chips_snapshot.is_empty() && !prd_attached {
             let comp = self.active_composer_mut();
             comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::Empty));
@@ -699,9 +720,9 @@ impl TerminalState {
         }
 
         // Format payload including any `#655` `@`-mention references and layer chip references.
-        let mut live_mentions = if system { Vec::new() } else { self.active_mentions.clone() };
+        let mut live_mentions = if from_box { self.active_mentions.clone() } else { Vec::new() };
         crate::agent_mention::prune_deleted_mentions(trimmed, &mut live_mentions);
-        let mut payload = if system {
+        let mut payload = if !from_box {
             trimmed.to_string()
         } else if trimmed.is_empty() {
             chips_snapshot.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
@@ -774,11 +795,13 @@ impl TerminalState {
                     }
                     tab.composer.send_count += 1;
                     tab.composer.record_sent(trimmed);
-                    tab.composer.draft.clear();
-                    tab.composer.chips.clear();
-                    tab.composer.attach_prd = false;
-                    self.active_mentions.clear();
-                    self.mention_popup.close();
+                    if from_box {
+                        tab.composer.draft.clear();
+                        tab.composer.chips.clear();
+                        tab.composer.attach_prd = false;
+                        self.active_mentions.clear();
+                        self.mention_popup.close();
+                    }
                     // A run's first send attaches the selected skills, and so does the first send after the set changed (`#573`).
                     let attachment = crate::skills::delivery::plan_attachment(&self.skills, tab, &self.session_dir);
                     let skills_block = attachment.as_ref().map_or("", |a| a.paste_block());
@@ -802,17 +825,18 @@ impl TerminalState {
             return SendOutcome::Refused(RefuseReason::NoAgent);
         }
 
-        // Not running (`#689` §3 rule 2): record in history, clear draft, run `open_for_agent_use`, and queue until ready.
-        {
+        // Not running (`#689` §3 rule 2): record in history, clear draft, run `open_for_agent_use`, and queue until ready. A prompt
+        // entry point clears nothing: its text was never in the composer.
+        if from_box {
             let comp = self.active_composer_mut();
             comp.send_count += 1;
             comp.record_sent(trimmed);
             comp.draft.clear();
             comp.chips.clear();
             comp.attach_prd = false;
+            self.active_mentions.clear();
+            self.mention_popup.close();
         }
-        self.active_mentions.clear();
-        self.mention_popup.close();
         let tabs_before = self.tabs.len();
         self.open_for_agent_use(file_path);
 
@@ -834,6 +858,11 @@ impl TerminalState {
         });
         let notice = format!("Starting {agent_name}… your message will be sent");
         let comp = self.active_composer_mut();
+        if !from_box {
+            // The prompt queues on the composer that now holds the session; that composer remembers it, the one that was on screen does not.
+            comp.send_count += 1;
+            comp.record_sent(trimmed);
+        }
         comp.pending_send = Some(payload);
         comp.pending_send_is_system = false;
         comp.last_outcome = Some(SendOutcome::Queued);
@@ -1035,11 +1064,13 @@ pub fn show_composer(
     widgets::record(ui, "agents-composer-box", composer_rect);
 
     let mut content_top = composer_rect.top() + theme::INSET_FRAME;
+    let mut skills_anchor = None;
 
     if chip_row_n > 0 {
         let chip_h = chip_row_n as f32 * (theme::BADGE_MD + theme::SPACE_ROW);
         let chip_row = Rect::from_min_size(Pos2::new(composer_rect.left() + theme::SPACE_ROW, content_top), Vec2::new(inner_w, chip_h));
         let chips = crate::agent_composer_chips::paint_chips(ui, state, chip_row);
+        skills_anchor = chips.skills_rect;
         if chips.select_hide {
             let finger = crate::agent_selection_chip::selection_fingerprint(&state.composer_selection);
             state.active_composer_mut().selection_chip_dismissed = Some(finger);
@@ -1065,6 +1096,8 @@ pub fn show_composer(
         }
         content_top += chip_h;
     }
+    // Once per frame, `None` when no chip row is drawn: a rect left over from the chip that went away would keep swallowing presses.
+    crate::skills::remember_picker_anchor(ui.ctx(), skills_anchor);
 
     let control_row_top = composer_rect.bottom() - theme::SPACE_ROW - theme::CONTROL_XS - if caption_text.is_some() { theme::LINE_CAPTION } else { ZERO };
     let input_rect = Rect::from_min_max(
@@ -1773,7 +1806,7 @@ mod tests {
         assert!(st.composer_draft().contains("Primary Button"), "Plain layer name must be inserted into the draft");
 
         let prompt = format!("{} — align spacing", st.composer_draft());
-        assert_eq!(st.send_to_agent(&prompt, None), SendOutcome::Written);
+        assert_eq!(st.send_from_composer_box(&prompt, None), SendOutcome::Written);
         st.flush_pending_enter_now();
         let sent = String::from_utf8_lossy(&rec.lock().unwrap()).into_owned();
         assert!(sent.contains("designos:node/42"), "Sent payload must include #655 layer reference: {sent}");

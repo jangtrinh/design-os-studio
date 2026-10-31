@@ -661,3 +661,28 @@ fn chips_wear_the_kit_tag_look() {
     assert_eq!(label.galley.job.sections[0].format.font_id.size, crate::theme::FONT_SIZE_TEXT_XS, "the label is text-xs");
     finish(s);
 }
+
+#[test]
+fn the_skills_popover_treats_the_strip_of_a_detached_chip_as_outside() {
+    let mut s = working_session();
+    s.shell.app.terminal.skills.set_selected_skills(vec!["design-system-rhythm".into()]);
+    frames(&mut s, 3);
+    let chip = recorded(&s, "agents-composer-chip-skills").expect("the skills chip is drawn");
+    s.shell.app.terminal.skills.set_selected_skills(Vec::new());
+    frames(&mut s, 3);
+    assert!(recorded(&s, "agents-composer-chip-skills").is_some_and(|r| r == chip), "the recorded rect is left over from the last frame the chip was drawn");
+    s.shell.app.terminal.skills.open_picker();
+    frames(&mut s, 3);
+    let popover = recorded(&s, "agents-skills-picker-popover").expect("the popover is drawn");
+    let press = [0.15f32, 0.5, 0.85]
+        .into_iter()
+        .map(|fx| egui::pos2(chip.left() + chip.width() * fx, chip.bottom() - 3.0))
+        .find(|p| !popover.contains(*p))
+        .expect("a point of the old chip strip lies outside the popover");
+    s.shell.app.terminal.viewport_focused = true;
+    s.click(press);
+    frames(&mut s, 2);
+    assert!(!s.shell.app.terminal.skills.picker_open, "a press where the chip used to be closes the popover");
+    assert!(!s.shell.app.terminal.overlay_owns_keyboard, "and the terminal hears the keyboard again");
+    finish(s);
+}

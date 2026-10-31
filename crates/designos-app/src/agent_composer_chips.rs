@@ -18,6 +18,8 @@ pub struct ChipOut {
     pub prd_hide: bool,
     pub skills_open: bool,
     pub skills_clear: bool,
+    /// Where the skills chip sits, for the Skills popover to leave a press on it alone. `None` without that chip.
+    pub skills_rect: Option<Rect>,
     pub drop_layer: Option<designos_doc::NodeId>,
 }
 
@@ -28,7 +30,16 @@ pub fn chip_rows(p: &egui::Painter, state: &TerminalState, inner_w: f32) -> usiz
 
 pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
     let p = ui.painter().clone();
-    let mut out = ChipOut { rows: 0, select_send: false, select_hide: false, prd_hide: false, skills_open: false, skills_clear: false, drop_layer: None };
+    let mut out = ChipOut {
+        rows: 0,
+        select_send: false,
+        select_hide: false,
+        prd_hide: false,
+        skills_open: false,
+        skills_clear: false,
+        skills_rect: None,
+        drop_layer: None,
+    };
     let widths = chip_widths(&p, state);
     out.rows = wrap_rows(&widths, row.width());
     let mut x = row.left();
@@ -74,9 +85,6 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
         }
     }
     let skills_n = state.skills.selected_names.len();
-    if skills_n == 0 {
-        ui.ctx().data_mut(|d| d.insert_temp(crate::skills::picker_anchor_id(), None::<Rect>));
-    }
     if skills_n > 0 {
         let w = widths[slot];
         slot += 1;
@@ -90,7 +98,7 @@ pub fn paint_chips(ui: &mut Ui, state: &TerminalState, row: Rect) -> ChipOut {
             rect,
             TagSpec { id: "agents-composer-chip-skills", label: &label, error: bad, dismiss: Some("Detach skills"), tip: Some(&tip), name: None },
         );
-        ui.ctx().data_mut(|d| d.insert_temp(crate::skills::picker_anchor_id(), Some(rect)));
+        out.skills_rect = Some(rect);
         out.skills_clear = hit.dismiss;
         out.skills_open = hit.body && !hit.dismiss;
     }

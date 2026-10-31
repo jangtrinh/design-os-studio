@@ -2082,7 +2082,8 @@ impl TerminalState {
                 }
             }
             "agents-scrollback" => {
-                let mut history = String::new();
+                // The shell's first prompt can land before this text: start from a cleared screen so it never joins line 1.
+                let mut history = String::from("\x1b[H\x1b[2J");
                 for idx in 1..=120 {
                     history.push_str(&format!("[{idx:03}] Inspecting layer tokens and scrollback\r\n"));
                 }
@@ -3343,7 +3344,7 @@ impl TerminalState {
 
     /// Submits a user message from the Agent composer into the active tab's live CLI session (`#689` §3 rules 1, 8).
     pub fn submit_chat_prompt(&mut self, prompt: &str, file_path: Option<&Path>) {
-        let _ = self.send_to_agent(prompt, file_path);
+        let _ = self.send_typed_message(prompt, file_path);
     }
 
     /// Submits a system-generated image task prompt to the target agent runtime (`#667`).
