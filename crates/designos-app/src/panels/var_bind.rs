@@ -247,10 +247,15 @@ pub(crate) fn picker_stop_hover_button(ui: &mut Ui, st: &mut crate::widgets::pic
     }
 }
 
+/// The variable bound to `key` on `node` in `doc`, if any.
+pub(super) fn doc_bound_var<'a>(doc: &'a Document, node: NodeId, key: &str) -> Option<&'a Variable> {
+    let id = doc.get(node)?.variables.bindings.get(key)?;
+    doc.variables.get(id)
+}
+
 /// The variable bound to `key` on `node`, if any.
 pub fn bound_var<'a>(app: &'a App, node: NodeId, key: &str) -> Option<&'a Variable> {
-    let id = app.doc.get(node)?.variables.bindings.get(key)?;
-    app.doc.variables.get(id)
+    doc_bound_var(&app.doc, node, key)
 }
 
 fn open_picker(app: &mut App, sel: &[NodeId], keys: &[&str], kind: VariableKind, anchor: Rect) {

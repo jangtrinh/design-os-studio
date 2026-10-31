@@ -1807,21 +1807,16 @@ fn has_stop_bindings(doc: &Document, pk: &Picker) -> bool {
         PickTarget::Stroke(i) => format!("strokes/{i}/stops/"),
         _ => return false,
     };
-    pk.ids.iter().any(|&id| doc.get(id).is_some_and(|n| n.variables.bindings.keys().any(|k| k.starts_with(&prefix))))
+    pk.ids.iter().any(|&id| {
+        doc.get(id).is_some_and(|n| n.variables.bindings.keys().any(|k| k.starts_with(&prefix) && super::var_bind::doc_bound_var(doc, id, k).is_some()))
+    })
 }
 
-fn preserve_bound_stop_colors(
-    pt: &mut Paint,
-    old_stops: &[GradientStop],
-    bindings: &std::collections::BTreeMap<String, String>,
-    prefix: &str,
-    pi: usize,
-    stop_origins: &[Option<usize>],
-) {
+fn preserve_bound_stop_colors(doc: &Document, id: NodeId, pt: &mut Paint, old_stops: &[GradientStop], prefix: &str, pi: usize, stop_origins: &[Option<usize>]) {
     let Some(stops) = widgets::picker::stops_mut(&mut pt.kind) else { return };
     let stop_prefix = format!("{prefix}/{pi}/stops/");
     for (new_idx, stop) in stops.iter_mut().enumerate() {
-        if bindings.contains_key(&format!("{stop_prefix}{new_idx}")) {
+        if super::var_bind::doc_bound_var(doc, id, &format!("{stop_prefix}{new_idx}")).is_some() {
             if let Some(Some(orig_idx)) = stop_origins.get(new_idx) {
                 if let Some(old) = old_stops.get(*orig_idx) {
                     stop.color = old.color;
@@ -1847,20 +1842,22 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
                 let old_stops = n.fills.get(i).and_then(|pt| widgets::picker::stops_of(&pt.kind)).map(|s| s.to_vec()).unwrap_or_default();
                 let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
                 super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("fills/{i}/stops/"), origins);
-                if let Some(pt) = n.fills.get_mut(i) {
-                    let visible = pt.visible;
-                    *pt = Paint { visible, ..p.paint.clone() };
-                    preserve_bound_stop_colors(pt, &old_stops, &n.variables.bindings, "fills", i, &p.state.stop_origins);
+                let Some(visible) = n.fills.get(i).map(|pt| pt.visible) else { continue };
+                let mut next = Paint { visible, ..p.paint.clone() };
+                preserve_bound_stop_colors(doc, *id, &mut next, &old_stops, "fills", i, &p.state.stop_origins);
+                if let Some(pt) = doc.nodes.get_mut(id).and_then(|n| n.fills.get_mut(i)) {
+                    *pt = next;
                 }
             }
             PickTarget::Stroke(i) => {
                 let old_stops = n.stroke.paints.get(i).and_then(|pt| widgets::picker::stops_of(&pt.kind)).map(|s| s.to_vec()).unwrap_or_default();
                 let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
                 super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("strokes/{i}/stops/"), origins);
-                if let Some(pt) = n.stroke.paints.get_mut(i) {
-                    let visible = pt.visible;
-                    *pt = Paint { visible, ..p.paint.clone() };
-                    preserve_bound_stop_colors(pt, &old_stops, &n.variables.bindings, "strokes", i, &p.state.stop_origins);
+                let Some(visible) = n.stroke.paints.get(i).map(|pt| pt.visible) else { continue };
+                let mut next = Paint { visible, ..p.paint.clone() };
+                preserve_bound_stop_colors(doc, *id, &mut next, &old_stops, "strokes", i, &p.state.stop_origins);
+                if let Some(pt) = doc.nodes.get_mut(id).and_then(|n| n.stroke.paints.get_mut(i)) {
+                    *pt = next;
                 }
             }
             PickTarget::SelColor(_) => {}
