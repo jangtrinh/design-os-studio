@@ -79,22 +79,55 @@ pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
             super::properties::PickTarget::Stroke(pi) => Some(("strokes", pi)),
             _ => None,
         };
-        if let (Some((pfx, pi)), Some(&first)) = (prefix, pk.ids.first()) {
+        if let (Some((pfx, pi)), false) = (prefix, pk.ids.is_empty()) {
             state.prefix = Some((pfx, pi));
             state.has_vars = !app.doc.variables.is_empty() || !app.doc.library.enabled.is_empty();
             state.open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first().cloned());
-            if let Some(node) = app.doc.get(first) {
-                let stop_prefix = format!("{pfx}/{pi}/stops/");
-                for k in node.variables.bindings.keys() {
-                    if k.starts_with(&stop_prefix) {
-                        if let Some(var) = bound_var(app, first, k) {
-                            let swatch = match app.doc.bound_value(first, k) {
+            let stop_prefix = format!("{pfx}/{pi}/stops/");
+            let nodes: Vec<NodeId> = pk.ids.iter().copied().filter(|&id| app.doc.get(id).is_some()).collect();
+            let mut keys = std::collections::BTreeSet::new();
+            for &id in &nodes {
+                if let Some(node) = app.doc.get(id) {
+                    for k in node.variables.bindings.keys() {
+                        if k.starts_with(&stop_prefix) && bound_var(app, id, k).is_some() {
+                            keys.insert(k.clone());
+                        }
+                    }
+                }
+            }
+            for k in keys {
+                let mut uniform: Option<(&str, &str, Option<egui::Color32>)> = None;
+                let mut mixed = false;
+                for &id in &nodes {
+                    match bound_var(app, id, &k) {
+                        Some(var) => {
+                            let swatch = match app.doc.bound_value(id, &k) {
                                 Some(VariableValue::Color(c)) => Some(to_c32(c)),
                                 _ => None,
                             };
-                            state.bound_stops.insert(k.clone(), (var.name.clone(), swatch));
+                            match uniform {
+                                None => uniform = Some((var.id.as_str(), var.name.as_str(), swatch)),
+                                Some((fid, fname, fsw)) => {
+                                    if fid != var.id.as_str() {
+                                        mixed = true;
+                                        break;
+                                    }
+                                    if fsw != swatch {
+                                        uniform = Some((fid, fname, None));
+                                    }
+                                }
+                            }
+                        }
+                        None => {
+                            mixed = true;
+                            break;
                         }
                     }
+                }
+                if mixed {
+                    state.bound_stops.insert(k, ("Mixed".to_string(), None));
+                } else if let Some((_, name, swatch)) = uniform {
+                    state.bound_stops.insert(k, (name.to_string(), swatch));
                 }
             }
         }
