@@ -1898,13 +1898,11 @@ pub fn tools() -> Vec<Value> {
         "description": "Optional agent-supplied idempotency key for deduplicating replayed writes within the active session."
     });
     let mut out = Vec::new();
-    let mut add =
-        |tool: &str, description: &str, properties: Value, required: Vec<&str>, out_props: Value, out_req: &[&str], read_only: bool, idempotent: bool| {
-            out.push(json!({"name":format!("designos_{tool}"),"description":description,
-            "inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},
-            "outputSchema":tool_output_schema(out_props, out_req),
-            "annotations":{"readOnlyHint":read_only,"destructiveHint":!read_only,"idempotentHint":idempotent,"openWorldHint":false}}));
-        };
+    let mut add = |tool: &str, description: &str, properties: Value, required: Vec<&str>, out_props: Value, out_req: &[&str]| {
+        out.push(json!({"name":format!("designos_{tool}"),"description":description,
+        "inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false},
+        "outputSchema":tool_output_schema(out_props, out_req)}));
+    };
     add(
         "get_document",
         "Summarize the current in-memory document: pages, counts, shared styles (fill, text, effect, grid) with their values, and undo state.",
@@ -1924,8 +1922,6 @@ pub fn tools() -> Vec<Value> {
             "can_redo": {"type": "boolean"}
         }),
         &["name", "pages", "node_count", "can_undo", "can_redo"],
-        true,
-        true,
     );
     add(
         "get_libraries",
@@ -1934,8 +1930,6 @@ pub fn tools() -> Vec<Value> {
         vec![],
         json!({ "libraries": {"type": "array"} }),
         &["libraries"],
-        true,
-        true,
     );
     add(
         "get_metadata",
@@ -1953,8 +1947,6 @@ pub fn tools() -> Vec<Value> {
             "scoped": {"type": "boolean"}
         }),
         &["root_id", "xml", "node_count", "truncated", "remaining_estimate", "hidden_omitted", "lint_ran"],
-        true,
-        true,
     );
     add(
         "search_design_system",
@@ -1972,8 +1964,6 @@ pub fn tools() -> Vec<Value> {
             "libraries_searched": {"type": "array"}
         }),
         &["results", "total", "libraries_searched"],
-        true,
-        true,
     );
     add(
         "list_nodes",
@@ -1987,8 +1977,6 @@ pub fn tools() -> Vec<Value> {
             "next_offset": {"type": ["integer", "null"]}
         }),
         &["nodes", "total", "offset"],
-        true,
-        true,
     );
     add(
         "get_node",
@@ -1997,8 +1985,6 @@ pub fn tools() -> Vec<Value> {
         vec!["node_id"],
         json!({ "node": {"type": "object"} }),
         &["node"],
-        true,
-        true,
     );
     add(
         "get_variables",
@@ -2011,8 +1997,6 @@ pub fn tools() -> Vec<Value> {
             "effective_bindings": {"type": ["array", "null"]}
         }),
         &["variables", "collections"],
-        true,
-        true,
     );
     let code_langs: Vec<&str> = designos_export::CodeLanguage::ALL.iter().map(|l| l.id()).chain(std::iter::once("svg")).collect();
     add(
@@ -2026,8 +2010,6 @@ pub fn tools() -> Vec<Value> {
             "code": {"type": "string"}
         }),
         &["node_id", "language", "code"],
-        true,
-        true,
     );
     add(
         "create_node",
@@ -2040,8 +2022,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["node", "parent_id", "changed"],
-        false,
-        false,
     );
     add(
         "update_node",
@@ -2053,8 +2033,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["node", "changed"],
-        false,
-        true,
     );
     add(
         "delete_node",
@@ -2066,8 +2044,6 @@ pub fn tools() -> Vec<Value> {
             "deleted": {"type": "boolean"}
         }),
         &["node_id", "deleted"],
-        false,
-        false,
     );
     add(
         "list_comments",
@@ -2079,8 +2055,6 @@ pub fn tools() -> Vec<Value> {
             "total": {"type": "integer"}
         }),
         &["comments", "total"],
-        true,
-        true,
     );
     add(
         "add_comment",
@@ -2093,8 +2067,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["id", "thread", "changed"],
-        false,
-        false,
     );
     add(
         "reply_comment",
@@ -2106,8 +2078,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["thread", "changed"],
-        false,
-        false,
     );
     add(
         "resolve_comment",
@@ -2120,8 +2090,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["thread_id", "resolved", "changed"],
-        false,
-        true,
     );
     add(
         "apply_spec",
@@ -2151,8 +2119,6 @@ pub fn tools() -> Vec<Value> {
             "warnings": {"type": "array"}
         }),
         &["root_node_id", "parent_id", "node", "changed", "name_to_id", "instances", "issues"],
-        false,
-        false,
     );
     add(
         "export_spec",
@@ -2164,8 +2130,6 @@ pub fn tools() -> Vec<Value> {
             "spec": {"type": "object"}
         }),
         &["node_id", "spec"],
-        true,
-        true,
     );
     add(
         "set_dev_status",
@@ -2178,8 +2142,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["node_id", "dev", "changed"],
-        false,
-        false,
     );
     add(
         "export_fig_file",
@@ -2193,8 +2155,6 @@ pub fn tools() -> Vec<Value> {
             "saved": {"type": "boolean"}
         }),
         &["output_path", "bytes", "saved"],
-        false,
-        true,
     );
     let (q_props, q_req) = crate::tools::query::tool_schema(&id);
     add(
@@ -2224,8 +2184,6 @@ pub fn tools() -> Vec<Value> {
             "cursor": {"type": ["string", "null"]}
         }),
         &["columns", "rows", "count", "scanned", "done", "complete"],
-        true,
-        true,
     );
     add(
         "lint",
@@ -2247,8 +2205,6 @@ pub fn tools() -> Vec<Value> {
             "passed": {"type": "boolean"}
         }),
         &["findings", "total"],
-        true,
-        true,
     );
     add(
         "get_guidelines",
@@ -2271,8 +2227,6 @@ pub fn tools() -> Vec<Value> {
             "sources": {"type": "array"}
         }),
         &[],
-        true,
-        true,
     );
     add(
         "import_web_capture",
@@ -2296,8 +2250,6 @@ pub fn tools() -> Vec<Value> {
             "changed": {"type": "boolean"}
         }),
         &["root_node_id", "page_id", "report", "changed"],
-        false,
-        false,
     );
     add(
         "undo",
@@ -2310,8 +2262,6 @@ pub fn tools() -> Vec<Value> {
             "can_redo": {"type": "boolean"}
         }),
         &["changed", "can_undo", "can_redo"],
-        false,
-        false,
     );
     add(
         "lint_fix",
@@ -2330,8 +2280,6 @@ pub fn tools() -> Vec<Value> {
             "changes": {"type": "array"}
         }),
         &["changed", "fixed_count", "changes"],
-        false,
-        false,
     );
     add(
         "redo",
@@ -2344,8 +2292,6 @@ pub fn tools() -> Vec<Value> {
             "can_redo": {"type": "boolean"}
         }),
         &["changed", "can_undo", "can_redo"],
-        false,
-        false,
     );
     out.push(crate::tools::screenshot::tool_descriptor());
     out.push(json!({
@@ -2374,18 +2320,15 @@ pub fn tools() -> Vec<Value> {
                 "changed": {"type": "boolean"}
             }),
             &["updated", "changed"],
-        ),
-        "annotations": {
-            "readOnlyHint": false,
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false
-        }
+        )
     }));
     out.push(crate::tools::batch::tool_descriptor());
     out.push(crate::tools::design_context::tool_descriptor());
     out.push(crate::tools::session_options::tool_descriptor());
     out.push(crate::tools::bootstrap::tool_definition());
+    for tool in &mut out {
+        crate::risk::stamp_tool_json(tool);
+    }
     out
 }
 

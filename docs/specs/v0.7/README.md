@@ -1,11 +1,11 @@
 # v0.7 Effects & Export: task specs
 
-**Pack goal.** Effects and export match Figma: progressive blur, glass and noise parity, custom shader references that round-trip, blend modes on shadows, image fill adjustments, and the export-bounds, shadow and image-fill differences found on the kit frames. The pack also carries the MCP additions (the editor selection as the default target, `whoami`, `create_new_file`), three more codegen targets (Vue, Web Components, Flutter), and the infrastructure items (the licence gate, the plugin corpus and the plugin runtime spike). It ships after v0.6 AI design. Source of truth for the scope: the milestone `v0.7 Effects & Export` and `plans/261017-epics-full-scope/`.
+**Pack goal.** Effects and export match Figma: progressive blur, glass and noise parity, custom shader references that round-trip, blend modes on shadows, image fill adjustments, and the export-bounds, shadow and image-fill differences found on the kit frames. The pack also carries the MCP additions (the editor selection as the default target, `whoami`, `create_new_file`), three more codegen targets (Vue, Web Components, Flutter), and the infrastructure item (the licence gate). It ships after v0.6 AI design. Source of truth for the scope: the milestone `v0.7 Effects & Export` and `plans/261017-epics-full-scope/`.
 
 The pack's specs are written in two parts so that work with reverse-engineering needs does not hold up the rest:
 
 - **Part 1 (this folder, 8 specs):** the issues that need no reverse-engineering. Listed with links below.
-- **Part 2 (written separately, REA in progress):** the 10 issues whose field ids, units or rules come from reverse engineering. Their rows are reserved below and say "spec in part 2 (REA in progress)". Part 2 fills in their sizes and dependencies; nothing for them is decided here.
+- **Part 2 (written separately, REA in progress):** the 8 issues whose field ids, units or rules come from reverse engineering. Their rows are reserved below and say "spec in part 2 (REA in progress)". Part 2 fills in their sizes and dependencies; nothing for them is decided here.
 
 Code baseline of every part-1 spec: `origin/main@0e8a9a5` (`docs(specs): v0.6 task specs, part 4 (agent terminal UX and constraint solver) (#697)`). v0.7 opens after v0.6 is tagged, so line numbers move when v0.6 tasks merge; each spec tells the worker to re-anchor every cited line against HEAD and report drift before writing code. Every part-1 spec follows the 13-section layout of the v0.6 specs (header table with "Touches", current state as FACT with file and line, behaviour rules, data model, contracts, file-format mapping, UI in words, edge cases, non-goals, red-first test plan with a fail-before column, performance budgets, dependencies and build order, owner rulings) and ends with **Open questions for the owner**, recommended answer first.
 
@@ -28,8 +28,6 @@ Ids: `E5` = effects and export, `X` = infrastructure, `T7` = MCP and codegen too
 | | #39 | Preserve custom shader effect/paint refs on round-trip | spec in part 2 (REA in progress) | set in part 2 |
 | | #161 | Add blend modes to drop and inner shadows | spec in part 2 (REA in progress) | S (issue) |
 | | #163 | Add image fill adjustments, rotation, tile scale and crop | spec in part 2 (REA in progress) | L (issue) |
-| | #253 | Propose the 8-plugin compatibility corpus and get owner approval | spec in part 2 (REA in progress) | S (issue) |
-| | #254 | Spike the plugin runtime and write its design doc (behind a flag) | spec in part 2 (REA in progress) | M (issue) |
 | | #520 | Drop shadows and layer effects differ from Figma on shadowed device mockups | spec in part 2 (REA in progress) | set in part 2 |
 | | #521 | Image fills: the wrong image is picked inside a variable-mode scope, and fill-mode crops differ | spec in part 2 (REA in progress) | set in part 2 |
 | | #528 | Export bounds differ from Figma by 1 to 84 px on 10 kit frames | spec in part 2 (REA in progress) | set in part 2 |
@@ -50,15 +48,13 @@ Sizes: S under about a day, M one to three days, L more than three days, for one
 | #249 | none in the issue; v0.6's T7.3 and T7.29 are expected on `main` | fallbacks in spec 249, section 12 |
 | #251 | #249 (shared lines, order only) | T7.3, T7.29 as above |
 | #252 | #251 (order only) | T7.3 as above |
-| #254 (part 2) | #253 and **#166** (a part-1 task) | |
 | #37, #38, #39, #161, #163, #520, #521, #528 | stated in part 2 | |
 
 #43, #75, #76, #77 and #81 have no milestone, although the 2026-10-17 amendments on #75, #76, #77 and #81 say they block #242 and propose v0.7, and #43's amendment says it blocks #246. `docs/releasing.md` says every task belongs to exactly one pack. The coordinator decides their pack (open questions below).
 
 ```mermaid
 graph LR
-  P166[#166 licence gate] --> P254[#254 runtime spike, part 2]
-  P253[#253 corpus, part 2] --> P254
+  P166[#166 licence gate]
   P244[#244 whoami] --> P242[#242 selection default]
   P246[#246 create_new_file] --> P242
   I77[#77 protocol version] --> P242

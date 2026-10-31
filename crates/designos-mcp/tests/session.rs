@@ -236,13 +236,16 @@ fn unsaved_session(dir: &Workspace) -> Session {
 fn open_file_refuses_a_path_outside_the_workspace_before_it_looks_at_unsaved_changes() {
     let dir = Workspace::new();
     let mut s = unsaved_session(&dir);
+    // A sibling temp dir is absolute and outside the workspace on every platform (`/etc/passwd` is not absolute on Windows).
+    let elsewhere = Workspace::new();
+    let outside_abs = elsewhere.0.join("outside.designos").to_string_lossy().into_owned();
 
-    for outside in ["/etc/passwd", "../escape.designos"] {
+    for outside in [outside_abs.as_str(), "../escape.designos"] {
         let err = s.call("designos_open_file", json!({"path": outside})).unwrap_err().to_json_value();
         assert_eq!(err["code"], "PATH_OUTSIDE_WORKSPACE", "{outside}: {err}");
         assert_eq!(err["path"], "/path", "{outside}: {err}");
     }
-    let err = s.call("designos_open_file", json!({"path": "/etc/passwd", "discard_changes": true})).unwrap_err().to_json_value();
+    let err = s.call("designos_open_file", json!({"path": outside_abs, "discard_changes": true})).unwrap_err().to_json_value();
     assert_eq!(err["code"], "PATH_OUTSIDE_WORKSPACE", "{err}");
 }
 

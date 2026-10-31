@@ -57,10 +57,11 @@ pub enum ErrorCode {
     DuplicateAs,
     BatchTooLarge,
 
-    // Session (16)
+    // Session (18)
     UnknownTool,
     ToolDisabled,
     UnsavedChanges,
+    PathRequired,
     PathOutsideWorkspace,
     FileExists,
     FileTooLarge,
@@ -110,6 +111,9 @@ pub enum ErrorCode {
     // Output filename validation codes (#1003 RT-05/RT-06) (2)
     InvalidName,
     NameTooLong,
+
+    // Loop detection (#1290) (1)
+    LoopSuspected,
 }
 
 /// The `next_step` of a code with no text of its own. It names `valid_options` and `corrected_example`, so it is reworded on the wire
@@ -153,7 +157,7 @@ impl ErrorCode {
     pub const IdempotencyKeyConflict: Self = Self::IdempotencyKeyReused;
     pub const InvalidIdempotencyKey: Self = Self::InvalidArguments;
 
-    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools, the 2 idempotency codes and the 2 query codes).
+    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools, the 2 idempotency codes, the 2 query codes, the 2 output-filename codes, and `LOOP_SUSPECTED`).
     pub const ALL: &'static [ErrorCode] = &[
         Self::InvalidArguments,
         Self::UnknownField,
@@ -197,6 +201,7 @@ impl ErrorCode {
         Self::UnknownTool,
         Self::ToolDisabled,
         Self::UnsavedChanges,
+        Self::PathRequired,
         Self::PathOutsideWorkspace,
         Self::FileExists,
         Self::FileTooLarge,
@@ -234,6 +239,7 @@ impl ErrorCode {
         Self::RuleUnavailable,
         Self::InvalidName,
         Self::NameTooLong,
+        Self::LoopSuspected,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -280,6 +286,7 @@ impl ErrorCode {
             Self::UnknownTool => "UNKNOWN_TOOL",
             Self::ToolDisabled => "TOOL_DISABLED",
             Self::UnsavedChanges => "UNSAVED_CHANGES",
+            Self::PathRequired => "PATH_REQUIRED",
             Self::PathOutsideWorkspace => "PATH_OUTSIDE_WORKSPACE",
             Self::FileExists => "FILE_EXISTS",
             Self::FileTooLarge => "FILE_TOO_LARGE",
@@ -317,6 +324,7 @@ impl ErrorCode {
             Self::RuleUnavailable => "RULE_UNAVAILABLE",
             Self::InvalidName => "INVALID_NAME",
             Self::NameTooLong => "NAME_TOO_LONG",
+            Self::LoopSuspected => "LOOP_SUSPECTED",
         }
     }
 
@@ -334,6 +342,7 @@ impl ErrorCode {
             Self::PatchTooLarge => "Split the edit into smaller calls or save and reopen the document.",
             Self::HistoryDropped => "Call designos_get_document to verify state; undo is unavailable for the last edit.",
             Self::UnsavedChanges => "Stop and tell the user: the open document has unsaved changes. Do not discard them.",
+            Self::PathRequired => "Pass path to a .designos file inside the workspace, then retry.",
             Self::FileExists => "Pass overwrite=true or choose a new path.",
             Self::FileTooLarge => "This file is over the limit in `expected`. Open it in DESIGN:OS Studio, or use a smaller file.",
             Self::PathOutsideWorkspace => "Stop and tell the user: the path is outside the workspace. Do not work around it.",
@@ -363,6 +372,9 @@ impl ErrorCode {
             Self::IdempotencyKeyReused => "Send this payload with a new idempotency_key.",
             Self::IdempotencyKeyStale => {
                 "Read the target nodes; this write was undone or is not in the open document. Do not send it again unless you have verified the target nodes are absent and you still want the write."
+            }
+            Self::LoopSuspected => {
+                "The same call has returned the same result 3 times. Change the arguments, read the document state, or ask the user."
             }
             _ => GENERIC_RETRY_NEXT_STEP,
         }
@@ -412,6 +424,7 @@ impl ErrorCode {
             "UNKNOWN_TOOL" => Some(Self::UnknownTool),
             "TOOL_DISABLED" => Some(Self::ToolDisabled),
             "UNSAVED_CHANGES" => Some(Self::UnsavedChanges),
+            "PATH_REQUIRED" => Some(Self::PathRequired),
             "PATH_OUTSIDE_WORKSPACE" => Some(Self::PathOutsideWorkspace),
             "FILE_EXISTS" => Some(Self::FileExists),
             "FILE_TOO_LARGE" => Some(Self::FileTooLarge),
@@ -449,6 +462,7 @@ impl ErrorCode {
             "RULE_UNAVAILABLE" => Some(Self::RuleUnavailable),
             "INVALID_NAME" => Some(Self::InvalidName),
             "NAME_TOO_LONG" => Some(Self::NameTooLong),
+            "LOOP_SUSPECTED" => Some(Self::LoopSuspected),
             _ => None,
         }
     }
@@ -522,9 +536,13 @@ impl ErrorCode {
             | Self::RuleUnavailable
             | Self::InvalidName
             | Self::NameTooLong => ErrorKind::Retryable,
-            Self::UnsavedChanges | Self::PathOutsideWorkspace | Self::AnotherWindowOwnsSession | Self::ApprovalDenied | Self::ApprovalTimeout => {
-                ErrorKind::NeedsHuman
-            }
+            Self::UnsavedChanges
+            | Self::PathRequired
+            | Self::PathOutsideWorkspace
+            | Self::LoopSuspected
+            | Self::AnotherWindowOwnsSession
+            | Self::ApprovalDenied
+            | Self::ApprovalTimeout => ErrorKind::NeedsHuman,
             Self::FileTooLarge
             | Self::DocumentInvalid
             | Self::HistoryDropped
@@ -1958,6 +1976,19 @@ pub fn error_envelope_schema() -> Value {
     })
 }
 
+pub fn loop_suspected_warning_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "next_step": { "type": "string" },
+            "safe_to_retry": { "type": "boolean" }
+        },
+        "required": ["code", "message", "next_step", "safe_to_retry"]
+    })
+}
+
 /// Builds a tool `outputSchema` from `properties` and `required` arrays (§4).
 /// Top-level `type` is `"object"` per MCP `2025-11-25` `Tool.outputSchema`, with `properties.error`
 /// referencing the shared error envelope and `anyOf` covering success and error shapes.
@@ -1965,6 +1996,7 @@ pub fn tool_output_schema(mut properties: Value, required: &[&str]) -> Value {
     let err_schema = error_envelope_schema();
     if let Value::Object(ref mut props_map) = properties {
         props_map.insert("error".into(), err_schema.clone());
+        props_map.insert("warning".into(), loop_suspected_warning_schema());
     }
     json!({
         "type": "object",
@@ -2152,7 +2184,9 @@ mod error_kind_tests {
             | ErrorCode::InvalidName
             | ErrorCode::NameTooLong => "retryable",
             ErrorCode::UnsavedChanges
+            | ErrorCode::PathRequired
             | ErrorCode::PathOutsideWorkspace
+            | ErrorCode::LoopSuspected
             | ErrorCode::AnotherWindowOwnsSession
             | ErrorCode::ApprovalDenied
             | ErrorCode::ApprovalTimeout => "needs_human",
@@ -2182,7 +2216,7 @@ mod error_kind_tests {
             let kind = json["error_kind"].as_str().unwrap_or("");
             assert_eq!(kind, expected_kind(*code), "{}", code.as_str());
         }
-        assert_eq!(ErrorCode::ALL.len(), 79);
+        assert_eq!(ErrorCode::ALL.len(), 81);
     }
 
     #[test]
@@ -2235,9 +2269,24 @@ mod error_kind_tests {
     }
 
     #[test]
+    fn path_required_and_loop_suspected_are_needs_human_and_never_safe_to_retry() {
+        for code in [ErrorCode::PathRequired, ErrorCode::LoopSuspected] {
+            assert_eq!(code.default_kind(), ErrorKind::NeedsHuman, "{}", code.as_str());
+            let err = ToolError::new(code, "/path", "m");
+            assert_eq!(err.error_kind, ErrorKind::NeedsHuman, "{}", code.as_str());
+            assert!(!err.safe_to_retry, "{} must never be safe_to_retry", code.as_str());
+            let json = err.to_json_value();
+            assert_eq!(json["error_kind"], "needs_human", "{}", code.as_str());
+            assert_eq!(json["safe_to_retry"], false, "{}", code.as_str());
+        }
+    }
+
+    #[test]
     fn needs_human_errors_set_safe_to_retry_false() {
         for code in [
             ErrorCode::UnsavedChanges,
+            ErrorCode::PathRequired,
+            ErrorCode::LoopSuspected,
             ErrorCode::PathOutsideWorkspace,
             ErrorCode::AnotherWindowOwnsSession,
             ErrorCode::ApprovalDenied,
@@ -2334,5 +2383,24 @@ mod error_kind_tests {
         assert_eq!(json["safe_to_retry"], false);
         assert_eq!(json["cause"]["error_kind"], "needs_human");
         assert_eq!(json["cause"]["code"], "UNSAVED_CHANGES");
+    }
+}
+
+#[cfg(test)]
+mod output_schema_tests {
+    use super::*;
+
+    #[test]
+    fn tool_output_schema_declares_optional_loop_warning() {
+        let schema = tool_output_schema(json!({"ok": {"type": "boolean"}}), &["ok"]);
+        assert!(schema.get("additionalProperties").is_none(), "{schema}");
+        let warning = &schema["properties"]["warning"];
+        assert_eq!(warning["type"], json!("object"), "{schema}");
+        assert!(warning.get("additionalProperties").is_none(), "{warning}");
+        for key in ["code", "message", "next_step", "safe_to_retry"] {
+            assert!(warning["properties"].get(key).is_some(), "missing {key} in {warning}");
+        }
+        let required = schema["anyOf"].as_array().unwrap();
+        assert!(required.iter().all(|alt| alt["required"].as_array().unwrap().iter().all(|r| r != "warning")), "{schema}");
     }
 }

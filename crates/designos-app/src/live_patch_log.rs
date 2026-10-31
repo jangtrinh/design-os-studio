@@ -4,7 +4,7 @@
 //! recreated or truncated is noticed even when it has grown past the old read position.
 
 use designos_doc::live_patch::{
-    log_version_refusal, DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES, UPDATE_BOTH_HINT,
+    log_version_refusal, CloseIntent, DocEpoch, LiveLogLine, LivePatch, LivePatchState, LIVE_PATCH_VERSION, MAX_LIVE_PATCH_LINE_BYTES, UPDATE_BOTH_HINT,
 };
 use designos_doc::Document;
 use std::io::{Read, Seek, SeekFrom};
@@ -20,6 +20,14 @@ const HEAD_BYTES: usize = 256;
 
 /// Which file is at the path: inode (Unix) and creation time.
 type FileIdentity = (u64, Option<SystemTime>);
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum StaleClose {
+    #[default]
+    None,
+    Hidden,
+    Before(u64),
+}
 
 fn identity(meta: &std::fs::Metadata) -> FileIdentity {
     #[cfg(unix)]
@@ -65,6 +73,9 @@ pub struct LivePatchLog {
     /// A document the agent switched to while the user was mid-edit. It replaces the open one
     /// once the canvas is idle, before any patch in `pending` (those were made on it).
     pub pending_doc: Option<Document>,
+    /// The agent closed the document. Applied after held patches, never as a quit of other tabs.
+    pub pending_close: Option<CloseIntent>,
+    stale_close: StaleClose,
     /// Where the agent's documents are written: `doc-sync.designos` next to the log.
     doc_sync_path: PathBuf,
     /// Edits dropped because they were made on a document the agent had already left, or on one
@@ -73,6 +84,8 @@ pub struct LivePatchLog {
     /// The document the agent works on could not be loaded, so its edits are dropped until the
     /// next document switch.
     discarding: bool,
+    /// What `discarding` was when the held close line was read, so a refused close puts it back (AC-02).
+    discarding_before_close: Option<bool>,
     /// `discarding` is not a superseded switch but a failure the user must be told about: edits
     /// dropped meanwhile are reported at once, unless a switch that loads follows in the same
     /// batch (see `ingest`).
@@ -175,10 +188,13 @@ impl LivePatchLog {
             last_polled_offsets: std::collections::VecDeque::new(),
             pending_epoch_switch: false,
             pending_doc: None,
+            pending_close: None,
+            stale_close: StaleClose::None,
             wake: Default::default(),
             doc_sync_path: path.with_file_name("doc-sync.designos"),
             dropped_old_epoch: 0,
             discarding: false,
+            discarding_before_close: None,
             load_failed: false,
             fenced: false,
             fenced_dropped: 0,
@@ -214,7 +230,7 @@ impl LivePatchLog {
 
     /// Agent changes wait for the canvas to go idle.
     pub fn has_held(&self) -> bool {
-        !self.pending.is_empty() || self.pending_doc.is_some()
+        !self.pending.is_empty() || self.pending_doc.is_some() || self.pending_close.is_some()
     }
 
     /// A complete line (ending in a newline) was appended that no poll has read yet; see
@@ -254,6 +270,9 @@ impl LivePatchLog {
     pub fn poll_with_offsets(&mut self) -> (Vec<(u64, LiveLogLine)>, Vec<String>) {
         let Ok(meta) = crate::agent_session_files::session_file_metadata(&self.path) else { return Default::default() };
         let (len, id) = (meta.len(), identity(&meta));
+        if self.stale_close == StaleClose::Hidden {
+            self.stale_close = StaleClose::Before(len);
+        }
         if len == self.offset && self.identity == Some(id) {
             return Default::default();
         }
@@ -267,8 +286,11 @@ impl LivePatchLog {
             self.last_polled_offsets.clear();
             self.pending_epoch_switch = false;
             self.pending_doc = None;
+            self.pending_close = None;
+            self.stale_close = StaleClose::None;
             self.dropped_old_epoch = 0;
             self.discarding = false;
+            self.discarding_before_close = None;
             self.load_failed = false;
             self.fenced = false;
             self.fenced_dropped = 0;
@@ -363,6 +385,8 @@ impl LivePatchLog {
                     self.dropped_old_epoch += self.pending.len();
                     self.pending.clear();
                     self.pending_offsets.clear();
+                    self.pending_close = None;
+                    self.discarding_before_close = None;
                     self.pending_epoch_switch = true;
                     self.pending_doc = None;
                     self.load_failed = false;
@@ -378,6 +402,26 @@ impl LivePatchLog {
                             self.load_failed = true;
                             errors.push(e);
                         }
+                    }
+                }
+                LiveLogLine::Close(intent) => {
+                    self.fenced = false;
+                    self.fenced_dropped = 0;
+                    self.fence_notice = None;
+                    if self.drops_stale_close(line_offset) {
+                        write_close_result_file(
+                            &self.path,
+                            &intent,
+                            serde_json::json!({
+                                "ok": false,
+                                "code": "EDITOR_NOT_NOTIFIED",
+                                "message": "The close was dropped because the tab was no longer shown.",
+                            }),
+                        );
+                    } else {
+                        self.pending_close = Some(intent);
+                        self.discarding_before_close = Some(self.discarding);
+                        self.discarding = true;
                     }
                 }
             }
@@ -421,6 +465,52 @@ impl LivePatchLog {
     fn read_range(&self, start: u64, len: u64) -> Option<Vec<u8>> {
         read_range(&self.path, start, len)
     }
+
+    pub fn drop_close_on_hide(&mut self) -> Option<CloseIntent> {
+        self.stale_close = StaleClose::Hidden;
+        let intent = self.pending_close.take();
+        if intent.is_some() {
+            self.close_refused();
+        }
+        intent
+    }
+
+    /// A close line is read as "the document is going away", so edits behind it are dropped. When the editor then
+    /// refuses the close (unsaved changes, a failed save, a tab not shown, a cancel) the document stays open: edits the
+    /// agent writes after the refusal must land, so the reader goes back to what it was before the close line.
+    pub fn close_refused(&mut self) {
+        if let Some(before) = self.discarding_before_close.take() {
+            self.discarding = before;
+        }
+    }
+
+    fn drops_stale_close(&self, line_offset: u64) -> bool {
+        match self.stale_close {
+            StaleClose::Hidden => true,
+            StaleClose::Before(before) => line_offset < before,
+            StaleClose::None => false,
+        }
+    }
+}
+
+pub(crate) fn write_close_result_file(log_path: &Path, intent: &CloseIntent, mut body: serde_json::Value) {
+    let Some(close_id) = intent.close_id else {
+        return;
+    };
+    if let Some(fields) = body.as_object_mut() {
+        fields.insert("close_id".into(), serde_json::json!(close_id));
+        if let Some(tab_id) = intent.tab_id {
+            fields.insert("tab_id".into(), serde_json::json!(tab_id));
+        }
+    }
+    let Some(dir) = log_path.parent() else {
+        return;
+    };
+    let path = dir.join(CloseIntent::RESULT_FILE);
+    let Ok(bytes) = serde_json::to_vec(&body) else {
+        return;
+    };
+    let _ = crate::agent_session_files::atomic_write_session_file(&path, &bytes);
 }
 
 /// What the user is told, once per document epoch, when an edit written by a newer build is read: what was
@@ -469,7 +559,7 @@ mod tests {
             .iter()
             .flat_map(|l| match l {
                 LiveLogLine::Patch(p) => p.ops.iter().collect(),
-                LiveLogLine::DocEpoch(_) | LiveLogLine::Newer { .. } => Vec::new(),
+                LiveLogLine::DocEpoch(_) | LiveLogLine::Close(_) | LiveLogLine::Newer { .. } => Vec::new(),
             })
             .map(|op| if let LiveOp::Remove { id } = op { id.0 } else { 0 })
             .collect()
@@ -844,5 +934,54 @@ mod tests {
         let (lines, _) = log.poll();
         assert!(log.ingest(lines).is_empty());
         assert_eq!(log.dropped_old_epoch, 1, "rewritten log must reset prior dropped_old_epoch count");
+    }
+
+    fn close_line() -> String {
+        serde_json::to_string(&CloseIntent::of("fail", None)).unwrap() + "\n"
+    }
+
+    #[test]
+    fn edits_after_a_refused_close_are_held_not_dropped() {
+        let path = temp_log("refused-close");
+        let mut log = LivePatchLog::bind(path.clone());
+        append(&path, &(line(1) + &close_line() + &line(2)));
+        read(&mut log);
+        assert!(log.pending_close.is_some(), "the close is held for the editor to answer");
+        assert_eq!(pending_ids(&log), vec![1], "an edit behind a close line is for a document that is going away");
+        assert_eq!(log.dropped_old_epoch, 1);
+
+        // The editor refused: the document stayed open, and the agent writes again once it has read the answer.
+        log.pending_close = None;
+        log.close_refused();
+        append(&path, &line(3));
+        read(&mut log);
+        assert_eq!(pending_ids(&log), vec![1, 3], "an edit after a refused close lands");
+        assert_eq!(log.dropped_old_epoch, 1);
+    }
+
+    #[test]
+    fn a_close_dropped_because_the_tab_was_hidden_stops_dropping_edits() {
+        let path = temp_log("hidden-close");
+        let mut log = LivePatchLog::bind(path.clone());
+        append(&path, &close_line());
+        read(&mut log);
+        assert!(log.drop_close_on_hide().is_some());
+        append(&path, &line(4));
+        read(&mut log);
+        assert_eq!(pending_ids(&log), vec![4]);
+    }
+
+    #[test]
+    fn a_refused_close_does_not_undo_a_drop_that_was_already_on() {
+        let path = temp_log("refused-close-while-stuck");
+        let mut log = LivePatchLog::bind(path.clone());
+        log.discarding = true;
+        append(&path, &close_line());
+        read(&mut log);
+        log.pending_close = None;
+        log.close_refused();
+        append(&path, &line(5));
+        read(&mut log);
+        assert!(log.pending.is_empty(), "edits stay dropped when they were being dropped before the close line");
     }
 }
