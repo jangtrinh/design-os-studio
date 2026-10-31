@@ -41,6 +41,15 @@ fn nothing() -> Command {
     Command::Batch(Vec::new())
 }
 
+thread_local! {
+    static LAST_DROPPED_INNER_SWAPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Number of inner instance swaps below a swapped slot that were dropped during the most recent swap operation.
+pub fn last_dropped_inner_swaps() -> usize {
+    LAST_DROPPED_INNER_SWAPS.with(|c| c.get())
+}
+
 // ---------------------------------------------------------------------------
 // Scratch context: applies commands to a private copy so later steps of a
 // multi-node operation see the effect of earlier ones.
@@ -5581,5 +5590,100 @@ mod tests {
         let c = swap_instance(&mut d, inst, badge);
         apply(&mut d, c);
         assert_eq!(d.get(inst).unwrap().name, "Badge", "an auto-named (set-named) instance takes the new main's name");
+    }
+
+    #[test]
+    fn r3_inner_swap_below_swapped_slot_by_index() {
+        const MINMIN: Constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
+        let mut d = Document::new("inner2");
+        let page = d.add_page("P");
+        let badge = |d: &mut Document, name: &str, x: f32, rgb: (u8, u8, u8)| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 500.0, 6.0, 6.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let did = d.alloc_id();
+            let mut dot = Node::ellipse(did, Rect::new(0.0, 0.0, 6.0, 6.0));
+            dot.name = "Dot".into();
+            dot.fills = vec![Paint::solid(Color::rgb(rgb.0, rgb.1, rgb.2))];
+            d.insert(comp, dot).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let mk_icon = |d: &mut Document, name: &str, x: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::new(gid, NodeKind::Vector { paths: box_outline(16.0), network: None });
+            g.size = Vec2::new(16.0, 16.0);
+            g.name = "Glyph".into();
+            g.constraints = MINMIN;
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            g.fill_geometry = Some(box_outline(16.0));
+            d.insert(comp, g).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let red = badge(&mut d, "Badge/Red", 0.0, (255, 0, 0));
+        let blue = badge(&mut d, "Badge/Blue", 20.0, (0, 0, 255));
+        let a = mk_icon(&mut d, "Icon/A", 0.0);
+        let b = mk_icon(&mut d, "Icon/B", 40.0);
+        for m in [a, b] {
+            let c = create_instance(&mut d, red, m, Vec2::new(10.0, 0.0));
+            apply(&mut d, c);
+            let bi = *d.get(m).unwrap().children.last().unwrap();
+            let mut bn = d.get(bi).unwrap().clone();
+            bn.name = "Badge".into();
+            bn.component.overrides.insert(OverrideField::Name);
+            apply(&mut d, Command::Update { node: Box::new(bn) });
+        }
+        let badge_of = |d: &Document, slot: NodeId| -> NodeId {
+            *d.get(slot).unwrap().children.iter().find(|c| matches!(d.get(**c).unwrap().kind, NodeKind::Instance { .. })).unwrap()
+        };
+        let (btn, slot) = {
+            let id = d.alloc_id();
+            let mut btn = Node::frame(id, Rect::new(0.0, 100.0, 32.0, 32.0));
+            btn.name = "Tool".into();
+            let btn = d.insert(page, btn).unwrap();
+            let c = create_component(&mut d, btn);
+            apply(&mut d, c);
+            let c = create_instance(&mut d, a, btn, Vec2::new(6.0, 6.0));
+            apply(&mut d, c);
+            let slot = d.get(btn).unwrap().children[0];
+            let mut sn = d.get(slot).unwrap().clone();
+            sn.name = "Icon".into();
+            sn.size = Vec2::new(20.0, 20.0);
+            sn.component.overrides.insert(OverrideField::Name);
+            sn.component.overrides.insert(OverrideField::Size);
+            apply(&mut d, Command::Update { node: Box::new(sn) });
+            let c = add_prop(&mut d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
+            apply(&mut d, c);
+            let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
+            apply(&mut d, c);
+            (btn, slot)
+        };
+        {
+            let bslot = badge_of(&d, slot);
+            let c = swap_instance(&mut d, bslot, blue);
+            apply(&mut d, c);
+            let dot = d.get(bslot).unwrap().children[0];
+            let mut dn = d.get(dot).unwrap().clone();
+            dn.fills = vec![Paint::solid(Color::rgb(255, 200, 0))];
+            dn.component.overrides.insert(OverrideField::Fills);
+            apply(&mut d, Command::Update { node: Box::new(dn) });
+        }
+        let c = create_instance(&mut d, btn, page, Vec2::new(200.0, 100.0));
+        apply(&mut d, c);
+        let bi = *d.get(page).unwrap().children.last().unwrap();
+        let si = d.get(bi).unwrap().children[0];
+        assert_eq!(instance_component(d.get(badge_of(&d, si)).unwrap()), Some(blue));
+        let c = set_instance_prop(&mut d, bi, "Icon", Some(PropValue::Instance(b)));
+        apply(&mut d, c);
+        assert_eq!(instance_component(d.get(badge_of(&d, si)).unwrap()), Some(red), "inner swap below swapped slot is dropped as base does (#1433)");
+        assert_eq!(last_dropped_inner_swaps(), 1, "swap must count the dropped inner swap below the swapped slot");
     }
 }
