@@ -239,7 +239,10 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
             app.props.pop = None;
             app.edit_nodes(sel, |n| {
                 if i < n.effects.len() {
+                    let old_len = n.effects.len();
                     n.effects.remove(i);
+                    let origins: Vec<Option<usize>> = (0..old_len).filter(|&idx| idx != i).map(Some).collect();
+                    super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, "effects/", &origins);
                 }
             });
         }

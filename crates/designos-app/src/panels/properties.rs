@@ -1801,30 +1801,6 @@ fn picker_color(p: &Picker) -> Color {
     Color::rgba(r, g, b, a)
 }
 
-fn remap_stop_bindings(bindings: &mut std::collections::BTreeMap<String, String>, prefix: &str, pi: usize, stop_origins: &[Option<usize>], is_gradient: bool) {
-    let stop_prefix = format!("{prefix}/{pi}/stops/");
-    let old: Vec<(usize, String)> = bindings.keys().filter_map(|k| k.strip_prefix(&stop_prefix)?.parse::<usize>().ok().map(|idx| (idx, k.clone()))).collect();
-    if old.is_empty() {
-        return;
-    }
-    let mut by_orig = std::collections::BTreeMap::new();
-    for (idx, k) in old {
-        if let Some(vid) = bindings.remove(&k) {
-            by_orig.insert(idx, vid);
-        }
-    }
-    if !is_gradient {
-        return;
-    }
-    for (new_idx, orig) in stop_origins.iter().enumerate() {
-        if let Some(orig_idx) = orig {
-            if let Some(vid) = by_orig.get(orig_idx) {
-                bindings.insert(format!("{stop_prefix}{new_idx}"), vid.clone());
-            }
-        }
-    }
-}
-
 fn preserve_bound_stop_colors(
     pt: &mut Paint,
     old_stops: &[GradientStop],
@@ -1860,7 +1836,8 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
         match p.target {
             PickTarget::Fill(i) => {
                 let old_stops = n.fills.get(i).and_then(|pt| widgets::picker::stops_of(&pt.kind)).map(|s| s.to_vec()).unwrap_or_default();
-                remap_stop_bindings(&mut n.variables.bindings, "fills", i, &p.state.stop_origins, is_grad);
+                let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
+                super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("fills/{i}/stops/"), origins);
                 if let Some(pt) = n.fills.get_mut(i) {
                     let visible = pt.visible;
                     *pt = Paint { visible, ..p.paint.clone() };
@@ -1869,7 +1846,8 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
             }
             PickTarget::Stroke(i) => {
                 let old_stops = n.stroke.paints.get(i).and_then(|pt| widgets::picker::stops_of(&pt.kind)).map(|s| s.to_vec()).unwrap_or_default();
-                remap_stop_bindings(&mut n.variables.bindings, "strokes", i, &p.state.stop_origins, is_grad);
+                let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
+                super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("strokes/{i}/stops/"), origins);
                 if let Some(pt) = n.stroke.paints.get_mut(i) {
                     let visible = pt.visible;
                     *pt = Paint { visible, ..p.paint.clone() };

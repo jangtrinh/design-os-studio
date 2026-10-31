@@ -135,6 +135,43 @@ pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
     ctx.data_mut(|d| d.insert_temp(picker_state_id(), state));
 }
 
+/// Remaps index-keyed variable bindings under `prefix` (e.g. `"fills/0/stops/"` or `"effects/"`)
+/// using `origins[new_idx] = Some(old_idx)`. Keys whose `old_idx` does not appear in `origins`
+/// are removed; keys whose `old_idx` moves to `new_idx` keep their trailing suffix (empty for
+/// stops, `"/{field}"` for effects) at `"{prefix}{new_idx}{suffix}"`.
+pub(super) fn remap_indexed_bindings(bindings: &mut std::collections::BTreeMap<String, String>, prefix: &str, origins: &[Option<usize>]) {
+    let old: Vec<(usize, String, String)> = bindings
+        .keys()
+        .filter_map(|k| {
+            let rest = k.strip_prefix(prefix)?;
+            let (idx_str, suffix) = match rest.find('/') {
+                Some(pos) => (&rest[..pos], &rest[pos..]),
+                None => (rest, ""),
+            };
+            let idx = idx_str.parse::<usize>().ok()?;
+            Some((idx, suffix.to_string(), k.clone()))
+        })
+        .collect();
+    if old.is_empty() {
+        return;
+    }
+    let mut removed = Vec::with_capacity(old.len());
+    for (idx, suffix, k) in old {
+        if let Some(vid) = bindings.remove(&k) {
+            removed.push((idx, suffix, vid));
+        }
+    }
+    for (new_idx, orig) in origins.iter().enumerate() {
+        if let Some(orig_idx) = orig {
+            for (old_idx, suffix, vid) in &removed {
+                if old_idx == orig_idx {
+                    bindings.insert(format!("{prefix}{new_idx}{suffix}"), vid.clone());
+                }
+            }
+        }
+    }
+}
+
 fn commit_picker_tx_before_bind(app: &mut App) {
     if let Some(pk) = app.props.picker.as_mut() {
         if !pk.tx.ed.touched().is_empty() {
