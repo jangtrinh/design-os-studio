@@ -771,3 +771,33 @@ fn mixed_text_and_sticky_selection_shortcuts_edit_both_and_detach_linked_text_st
     assert_eq!(sticky_style(&s), (33.0, 0.5), "Alt+ArrowRight on a [Text, Sticky] selection must also step the sticky's letter spacing");
     assert_eq!(s.app().hist.undo_depth(), depth + 2);
 }
+
+#[test]
+fn set_style_fill_change_outside_session_keeps_linked_text_style() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+    let red = Paint::solid(Color::rgb(255, 0, 0));
+
+    crate::panels::typography::set_style(&mut s.shell.app, &[id], |st| st.fills = vec![red.clone()]);
+    s.frame(vec![]);
+
+    assert_eq!(text_of(&s, id).style.fills, vec![red]);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "fill change via set_style outside a session must keep the text style link");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1);
+}
+
+#[test]
+fn set_style_fill_change_in_session_keeps_linked_text_style() {
+    let (mut s, id) = linked_sim();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let red = Paint::solid(Color::rgb(255, 0, 0));
+
+    crate::panels::typography::set_style(&mut s.shell.app, &[id], |st| st.fills = vec![red.clone()]);
+    s.frame(vec![]);
+
+    assert_eq!(text_of(&s, id).style.fills, vec![red]);
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "fill change via set_style in a session must keep the text style link");
+    assert!(s.app().canvas.text.as_ref().unwrap().log.can_undo(), "fill change in a session records a session undo step");
+}
