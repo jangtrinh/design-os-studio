@@ -852,3 +852,74 @@ fn multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pil
     let pill_rect = s.rect_of("bound:fills/0/stops/0");
     assert_eq!(texts_in_rect(&s, pill_rect), vec!["Probe/Red".to_string()]);
 }
+
+#[test]
+fn deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _dark) = theme_ids(s.app());
+    let v_blur0 = store.add_variable(&coll, "Probe/Blur", VariableKind::Number).unwrap();
+    store.set_value(&v_blur0, &light, VariableValue::Number(18.0));
+    let v_blur1 = store.add_variable(&coll, "Probe/BlurSecond", VariableKind::Number).unwrap();
+    store.set_value(&v_blur1, &light, VariableValue::Number(12.0));
+    s.shell.app.commit_store(store, &[], &[]);
+
+    let shadow = |radius: f32| Effect::DropShadow {
+        color: Color::rgba(0, 0, 0, 64),
+        offset: designos_doc::Vec2::new(0.0, 4.0),
+        radius,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: BlendMode::Normal,
+    };
+
+    // 1. Review probe: two shadows (radius 8 and 4), `effects/0/radius` bound to 18; delete effect 0 -> remaining effect renders 4 with no binding.
+    s.shell.app.edit_nodes(&[hero], |n| n.effects = vec![shadow(8.0), shadow(4.0)]);
+    s.shell.app.bind_variable(&[hero], &["effects/0/radius"], &v_blur0);
+    s.scroll_inspector_down();
+    s.frame(vec![]);
+    s.click(s.rect_of("fx-minus-0").center());
+    s.frame(vec![]);
+
+    let n = s.app().doc.get(hero).unwrap();
+    let raw_radii: Vec<f32> = n.effects.iter().map(|e| if let Effect::DropShadow { radius, .. } = e { *radius } else { -1.0 }).collect();
+    let res_radii: Vec<f32> = designos_doc::resolve_node(&s.app().doc, n)
+        .effects
+        .iter()
+        .map(|e| if let Effect::DropShadow { radius, .. } = e { *radius } else { -1.0 })
+        .collect();
+    assert_eq!(raw_radii, vec![4.0], "guard: effect 0 was deleted");
+    assert_eq!(res_radii, vec![4.0], "remaining effect must render 4.0 with no stale binding from deleted effect 0");
+    assert!(!n.variables.bindings.contains_key("effects/0/radius"));
+
+    // Undo restores both effects and `effects/0/radius` in one step.
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    let n = s.app().doc.get(hero).unwrap();
+    assert_eq!(n.effects.len(), 2);
+    assert_eq!(n.variables.bindings.get("effects/0/radius"), Some(&v_blur0));
+
+    // 2. When effect 1 also has a binding (`effects/1/radius`), deleting effect 0 shifts `effects/1/radius` down to `effects/0/radius` in one undo step.
+    s.shell.app.bind_variable(&[hero], &["effects/1/radius"], &v_blur1);
+    s.frame(vec![]);
+    s.click(s.rect_of("fx-minus-0").center());
+    s.frame(vec![]);
+    let n = s.app().doc.get(hero).unwrap();
+    let res_radii: Vec<f32> = designos_doc::resolve_node(&s.app().doc, n)
+        .effects
+        .iter()
+        .map(|e| if let Effect::DropShadow { radius, .. } = e { *radius } else { -1.0 })
+        .collect();
+    assert_eq!(res_radii, vec![12.0]);
+    assert_eq!(n.variables.bindings.get("effects/0/radius"), Some(&v_blur1));
+    assert_eq!(n.variables.bindings.get("effects/1/radius"), None);
+
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    let n = s.app().doc.get(hero).unwrap();
+    assert_eq!(n.effects.len(), 2);
+    assert_eq!(n.variables.bindings.get("effects/0/radius"), Some(&v_blur0));
+    assert_eq!(n.variables.bindings.get("effects/1/radius"), Some(&v_blur1));
+}
