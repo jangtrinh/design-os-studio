@@ -68,7 +68,6 @@ pub fn show(app: &mut App, ui: &mut Ui, rect: Rect) {
         .font(font.clone())
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
-        .margin(egui::Margin::ZERO)
         .vertical_align(egui::Align::Center)
         .hint_text(egui::RichText::new("Search comments").font(font.clone()).color(theme::TEXT_PLACEHOLDER))
         .desired_width(sr.width() - 36.0);

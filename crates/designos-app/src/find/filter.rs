@@ -8,7 +8,7 @@ use crate::theme;
 use crate::widgets;
 use designos_doc::find::{FindOptions, Matcher};
 use designos_doc::{Document, NodeId};
-use egui::{Align, Key, Margin, Pos2, Rect, Sense, TextEdit, Ui, Vec2};
+use egui::{Align, Key, Pos2, Rect, Sense, TextEdit, Ui, Vec2};
 use std::ops::Range;
 
 /// Compiled filter, or `None` when the filter is empty.
@@ -98,7 +98,6 @@ pub fn show_field(app: &mut App, ui: &mut Ui, row: Rect) {
         .font(font.clone())
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
-        .margin(Margin::ZERO)
         .vertical_align(Align::Center)
         .hint_text(egui::RichText::new("Filter layers by name").font(font).color(theme::TEXT_PLACEHOLDER))
         .desired_width(text_rect.width());

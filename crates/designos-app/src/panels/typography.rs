@@ -405,11 +405,10 @@ pub(super) fn family_picker(ui: &mut Ui, rect: Rect, label: &str) -> Option<Stri
         field::field_bg(ui, search, qid);
         let te = egui::TextEdit::singleline(&mut q)
             .id(qid)
-            .frame(egui::Frame::NONE)
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 0)))
             .hint_text("Search fonts")
             .font(theme::font_body())
             .text_color(theme::TEXT)
-            .margin(egui::Margin::symmetric(8, 0))
             .vertical_align(egui::Align::Center)
             .desired_width(search.width());
         let resp = ui.put(search, te);
