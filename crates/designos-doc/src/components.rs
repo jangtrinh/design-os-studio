@@ -41,15 +41,6 @@ fn nothing() -> Command {
     Command::Batch(Vec::new())
 }
 
-mod log {
-    macro_rules! log_warn {
-        ($($arg:tt)*) => {
-            eprintln!("WARN designos_doc::components: {}", format_args!($($arg)*))
-        };
-    }
-    pub(crate) use log_warn as warn;
-}
-
 // ---------------------------------------------------------------------------
 // Scratch context: applies commands to a private copy so later steps of a
 // multi-node operation see the effect of earlier ones.
@@ -1309,8 +1300,8 @@ fn effective_child_overrides(d: &Document, old_comp: Option<NodeId>, kn: &Node) 
 
 /// Rebuilds the children of instance `i` from `new_comp`, carrying overrides
 /// over to nodes with the same name path.
-fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) -> usize {
-    let Some(inode) = c.s.get(i).cloned() else { return 0 };
+fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
+    let Some(inode) = c.s.get(i).cloned() else { return };
     let old_comp = instance_component(&inode);
     let old_comp_node = old_comp.and_then(|oc| c.s.get(oc)).cloned();
     let top_swap = is_top(&inode);
@@ -1357,14 +1348,14 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) -> usize {
     }
     collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried, &mut dropped_inner_swaps);
     if dropped_inner_swaps > 0 {
-        log::warn!("swap_main on instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s)");
+        eprintln!("designos-doc: swapping instance {i:?} dropped {dropped_inner_swaps} inner instance swap(s) (#1433)");
     }
     c.dropped_inner_swaps += dropped_inner_swaps;
 
     for k in inode.children.clone() {
         c.push(Command::Remove { id: k });
     }
-    let Some(comp) = c.s.get(new_comp).cloned() else { return dropped_inner_swaps };
+    let Some(comp) = c.s.get(new_comp).cloned() else { return };
     let mut idx = 0;
     for k in comp.children.clone() {
         let nodes = copy_tree(&mut c.s, k, true);
@@ -1460,7 +1451,6 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) -> usize {
         }
         c.update(nn);
     }
-    dropped_inner_swaps
 }
 
 /// Brings instance node `i` in line with its reference `r`. `seen` holds the mains whose content `r` sits in or
