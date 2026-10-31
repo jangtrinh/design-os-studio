@@ -704,7 +704,8 @@ fn thumb_ring(p: &Painter, c: Pos2, outer: f32, ring: f32, fill: Option<Color32>
     if let Some(f) = fill {
         p.circle_filled(c, outer - ring, if dim { kit::half_color(f) } else { f });
     }
-    p.circle_stroke(c, outer - ring / 2.0, Stroke::new(ring, if dim { kit::half_color(Color32::WHITE) } else { Color32::WHITE }));
+    let white = Color32::WHITE;
+    p.circle_stroke(c, outer - ring / 2.0, Stroke::new(ring, if dim { kit::half_color(white) } else { white }));
 }
 
 /// Inspector swatch of a paint: the colour (checkerboard behind transparency), a left-to-right
