@@ -2001,6 +2001,34 @@ impl<'a> Ctx<'a> {
     /// (`uniformScaleFactor`): positions, sizes, radii, strokes, text sizes,
     /// layout spacing, child margins and geometry. Overrides and derived data are applied after.
     fn scale_contents(&mut self, inst: NodeId, s: f32) {
+        fn is_text_style_binding(key: &str) -> bool {
+            matches!(
+                key,
+                "fontFamily"
+                    | "fontStyle"
+                    | "fontSize"
+                    | "fontWeight"
+                    | "lineHeight"
+                    | "letterSpacing"
+                    | "paragraphSpacing"
+                    | "paragraphIndent"
+                    | "listSpacing"
+                    | "leadingTrim"
+            )
+        }
+
+        fn scale_text_style(t: &mut TextStyle, s: f32) {
+            t.font_size *= s;
+            t.line_height = match t.line_height {
+                LineHeight::Pixels(px) => LineHeight::Pixels(px * s),
+                other => other,
+            };
+            t.letter_spacing *= s;
+            t.paragraph_spacing *= s;
+            t.paragraph_indent *= s;
+            t.list_spacing *= s;
+        }
+
         fn scale_path(p: &mut Path, s: f32) {
             let f = |v: &mut Vec2| *v = Vec2::new(v.x * s, v.y * s);
             for c in &mut p.cmds {
@@ -2036,9 +2064,17 @@ impl<'a> Ctx<'a> {
             }
             match &mut n.kind {
                 NodeKind::Text(t) => {
-                    t.style.font_size *= s;
+                    // A uniformly scaled instance has its own text metrics in Figma. Keeping
+                    // the component's text style link would make `resolve_node` apply the
+                    // unscaled style bindings after these values have been scaled. Detach that
+                    // link and its inherited text bindings; paint bindings remain attached.
+                    n.style_refs.remove("text");
+                    n.variables.bindings.retain(|key, _| !is_text_style_binding(key));
+                    scale_text_style(&mut t.style, s);
+                    t.paragraph.indent *= s;
+                    t.paragraph.list_spacing *= s;
                     for r in &mut t.runs {
-                        r.style.font_size *= s;
+                        scale_text_style(&mut r.style, s);
                     }
                 }
                 NodeKind::Vector { paths, network } => {
