@@ -36,6 +36,15 @@ fn add_item(doc: &mut Document, grid: NodeId, w: f32, h: f32, horiz: Sizing, ver
     doc.insert(grid, rect).unwrap()
 }
 
+fn add_frame_item(doc: &mut Document, grid: NodeId, w: f32, h: f32) -> NodeId {
+    let id = doc.alloc_id();
+    let mut f = Node::frame(id, Rect::new(0.0, 0.0, w, h));
+    f.fills.clear();
+    f.layout_child.horizontal = Sizing::Fixed;
+    f.layout_child.vertical = Sizing::Fixed;
+    doc.insert(grid, f).unwrap()
+}
+
 pub fn build_fixtures() -> Vec<GridFixture> {
     vec![
         scene_equal_tracks(),
@@ -51,6 +60,9 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_s5b_hug_height_min_h_flex_auto(),
         scene_s7_explicit_rows_hug(),
         scene_n1_explicit_hug_rows_flex_auto(),
+        scene_n2_hug_equal_flex_two_empty_hug_cols(),
+        scene_n2b_hug_equal_flex_one_empty_hug_col(),
+        scene_n2c_hug_equal_flex_fill_only_hug_col(),
     ]
 }
 
@@ -438,6 +450,86 @@ fn scene_n1_explicit_hug_rows_flex_auto() -> GridFixture {
     }
 }
 
+fn scene_n2_hug_equal_flex_two_empty_hug_cols() -> GridFixture {
+    let mut al = AutoLayout {
+        grid_columns: 4,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    al.grid_col_tracks[2] = GridTrack::Hug;
+    al.grid_col_tracks[3] = GridTrack::Hug;
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    let a = add_frame_item(&mut doc, grid, 50.0, 30.0);
+    let b = add_frame_item(&mut doc, grid, 50.0, 30.0);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "n2_hug_equal_flex_two_empty_hug_cols",
+        doc,
+        grid,
+        items: vec![a, b],
+        expected_css: "display: grid;\nwidth: 102px;\nheight: 30px;\ngrid-template-columns: 50px 50px 1px 1px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[50px_50px_1px_1px] content-start w-[102px] h-[30px]\">\n  <div class=\"w-[50px] h-[30px]\"></div>\n  <div class=\"w-[50px] h-[30px]\"></div>\n</div>",
+    }
+}
+
+fn scene_n2b_hug_equal_flex_one_empty_hug_col() -> GridFixture {
+    let mut al = AutoLayout {
+        grid_columns: 3,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    al.grid_col_tracks[2] = GridTrack::Hug;
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    let a = add_frame_item(&mut doc, grid, 50.0, 30.0);
+    let b = add_frame_item(&mut doc, grid, 50.0, 30.0);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "n2b_hug_equal_flex_one_empty_hug_col",
+        doc,
+        grid,
+        items: vec![a, b],
+        expected_css: "display: grid;\nwidth: 101px;\nheight: 30px;\ngrid-template-columns: 50px 50px 1px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[50px_50px_1px] content-start w-[101px] h-[30px]\">\n  <div class=\"w-[50px] h-[30px]\"></div>\n  <div class=\"w-[50px] h-[30px]\"></div>\n</div>",
+    }
+}
+
+fn scene_n2c_hug_equal_flex_fill_only_hug_col() -> GridFixture {
+    let mut al = AutoLayout {
+        grid_columns: 3,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    al.grid_col_tracks[2] = GridTrack::Hug;
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    let a = add_item(&mut doc, grid, 50.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 50.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let c = add_item(&mut doc, grid, 30.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "n2c_hug_equal_flex_fill_only_hug_col",
+        doc,
+        grid,
+        items: vec![a, b, c],
+        expected_css: "display: grid;\nwidth: 130px;\nheight: 30px;\ngrid-template-columns: 50px 50px 30px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[50px_50px_30px] content-start w-[130px] h-[30px]\">\n  <div class=\"w-[50px] h-[30px]\"></div>\n  <div class=\"w-[50px] h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>",
+    }
+}
+
 fn json_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     out.push('"');
@@ -568,6 +660,21 @@ fn s7_explicit_rows_hug_css_and_tailwind() {
 #[test]
 fn n1_explicit_hug_rows_flex_auto_css_and_tailwind() {
     assert_fixture_css_and_tailwind("n1_explicit_hug_rows_flex_auto");
+}
+
+#[test]
+fn n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n2_hug_equal_flex_two_empty_hug_cols");
+}
+
+#[test]
+fn n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n2b_hug_equal_flex_one_empty_hug_col");
+}
+
+#[test]
+fn n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n2c_hug_equal_flex_fill_only_hug_col");
 }
 
 #[test]
