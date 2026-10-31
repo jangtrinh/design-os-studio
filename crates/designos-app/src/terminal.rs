@@ -5694,14 +5694,37 @@ fn designos_mcp_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("designos-mcp"))
 }
 
-/// Folder `designos-mcp --workspace` serves: the open file's folder, else Studio's working directory.
+/// Folder `designos-mcp --workspace` serves: the open file's folder, else a Studio-owned
+/// temporary workspace. An untitled document must never inherit the process working directory:
+/// Finder can launch Studio with `/` (or another broad directory) as its cwd.
 fn session_workspace_dir(file_path: Option<&Path>) -> PathBuf {
-    file_path
-        .and_then(|p| p.parent())
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(|p| p.to_path_buf())
-        .or_else(|| std::env::current_dir().ok())
-        .unwrap_or_else(|| PathBuf::from("."))
+    file_path.and_then(|p| p.parent()).filter(|p| !p.as_os_str().is_empty()).map(|p| p.to_path_buf()).unwrap_or_else(|| {
+        let dir = std::env::temp_dir().join("designos-workspaces").join(format!("studio-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    })
+}
+
+#[cfg(test)]
+mod workspace_dir_tests {
+    use super::session_workspace_dir;
+    use std::path::Path;
+
+    #[test]
+    fn untitled_workspace_is_studio_owned_and_not_process_cwd() {
+        let workspace = session_workspace_dir(None);
+        assert!(workspace.ends_with(format!("studio-{}", std::process::id())));
+        assert!(workspace.starts_with(std::env::temp_dir().join("designos-workspaces")));
+        assert!(workspace.is_dir());
+        assert_ne!(workspace, std::env::current_dir().unwrap());
+        assert_ne!(workspace, Path::new("/"));
+    }
+
+    #[test]
+    fn file_backed_workspace_remains_the_file_parent() {
+        let file = Path::new("/tmp/designos-1074/sample.designos");
+        assert_eq!(session_workspace_dir(Some(file)), Path::new("/tmp/designos-1074"));
+    }
 }
 
 /// Working directory of a spawned tab, never `/` (an app opened from Finder has no useful cwd).
