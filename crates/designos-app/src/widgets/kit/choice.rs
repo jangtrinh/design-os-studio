@@ -148,7 +148,7 @@ pub fn radio_card(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, selected:
     }
     let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Medium);
     ui.painter().text(egui::pos2(center.x + theme::LAYER_ICON_SIZE, rect.center().y), egui::Align2::LEFT_CENTER, label, font, paint.text);
-    paint_ring(ui.painter(), rect, theme::RADIUS_CONTROL as f32, radio_ring(keyboard_focus(ui, response.id)));
+    paint_ring(ui.painter(), rect, theme::RADIUS_XL as f32, radio_ring(keyboard_focus(ui, response.id)));
     response
 }
 
