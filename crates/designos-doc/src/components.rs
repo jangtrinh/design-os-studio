@@ -905,7 +905,12 @@ fn variant_target(d: &Document, inst: &Node) -> Option<NodeId> {
 fn copy_overridden(from: &Node, to: &mut Node, fields: &BTreeSet<OverrideField>) {
     let target_align = (to.layout_child.grid_align_h, to.layout_child.grid_align_v);
     for f in fields {
-        copy_field(*f, from, to);
+        if *f == OverrideField::Size && !matches!(to.kind, NodeKind::Text(_)) && to.kind.frame_props().is_none() {
+            crate::layout_constraints::apply_constrained_geometry(to, to.transform, from.size);
+            copy_variable_bindings_for_field(*f, from, to);
+        } else {
+            copy_field(*f, from, to);
+        }
     }
     if fields.contains(&OverrideField::Size) {
         for key in ["pen:explicit_width", "pen:explicit_height"] {
@@ -1191,6 +1196,11 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         (a, b) if std::mem::discriminant(a) == std::mem::discriminant(b) => n.kind = a.clone(),
         (a, _) => n.kind = a.clone(),
     }
+    if ov.contains(&OverrideField::Size) && n.size != r.size && !matches!(n.kind, NodeKind::Text(_)) && n.kind.frame_props().is_none() {
+        let target_size = n.size;
+        n.size = r.size;
+        crate::layout_constraints::apply_constrained_geometry(n, n.transform, target_size);
+    }
 }
 
 fn apply_bindings(n: &mut Node, values: &BTreeMap<String, PropValue>) {
@@ -1208,25 +1218,88 @@ fn apply_bindings(n: &mut Node, values: &BTreeMap<String, PropValue>) {
     }
 }
 
+fn effective_child_overrides(d: &Document, old_comp: Option<NodeId>, kn: &Node) -> BTreeSet<OverrideField> {
+    let mut fields = kn.component.overrides.clone();
+    let mut chain_fields = BTreeSet::new();
+    let mut cur_src = kn.component.source;
+    let mut orig_in_old_comp: Option<&Node> = None;
+    let mut hops = 0;
+    while let Some(sid) = cur_src {
+        hops += 1;
+        if hops > 64 {
+            break;
+        }
+        if old_comp.is_some_and(|oc| sid == oc || d.is_ancestor(oc, sid)) {
+            orig_in_old_comp = d.get(sid);
+            break;
+        }
+        let Some(sn) = d.get(sid) else { break };
+        chain_fields.extend(sn.component.overrides.iter().copied());
+        cur_src = sn.component.source;
+    }
+    if let Some(orig) = orig_in_old_comp {
+        fields.extend(chain_fields);
+        for f in record_override(orig, kn) {
+            if matches!(
+                f,
+                OverrideField::Size
+                    | OverrideField::Fills
+                    | OverrideField::Stroke
+                    | OverrideField::Opacity
+                    | OverrideField::Blend
+                    | OverrideField::Visible
+                    | OverrideField::Effects
+                    | OverrideField::CornerRadii
+                    | OverrideField::Characters
+                    | OverrideField::TextStyle
+            ) {
+                fields.insert(f);
+            }
+        }
+        if orig.variables.bindings != kn.variables.bindings {
+            if orig.variables.bindings.keys().chain(kn.variables.bindings.keys()).any(|k| matches!(k.as_str(), "width" | "height")) {
+                fields.insert(OverrideField::Size);
+            }
+            if orig.variables.bindings.keys().chain(kn.variables.bindings.keys()).any(|k| k.starts_with("fills/")) {
+                fields.insert(OverrideField::Fills);
+            }
+            if orig.variables.bindings.keys().chain(kn.variables.bindings.keys()).any(|k| k.starts_with("strokes/")) {
+                fields.insert(OverrideField::Stroke);
+            }
+            if orig.variables.bindings.get("opacity") != kn.variables.bindings.get("opacity") {
+                fields.insert(OverrideField::Opacity);
+            }
+            if orig.variables.bindings.get("visible") != kn.variables.bindings.get("visible") {
+                fields.insert(OverrideField::Visible);
+            }
+        }
+    }
+    fields.remove(&OverrideField::MainComponent);
+    fields
+}
+
 /// Rebuilds the children of instance `i` from `new_comp`, carrying overrides
 /// over to nodes with the same name path.
 fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     let Some(inode) = c.s.get(i).cloned() else { return };
-    // Snapshot overridden descendants by name path.
-    let mut carried: Vec<(Vec<String>, Node)> = Vec::new();
-    fn collect(d: &Document, id: NodeId, path: &mut Vec<String>, out: &mut Vec<(Vec<String>, Node)>) {
+    let old_comp = instance_component(&inode);
+    let old_comp_node = old_comp.and_then(|oc| c.s.get(oc)).cloned();
+    // Snapshot overridden descendants by name path, including overrides inherited from an enclosing component slot.
+    let mut carried: Vec<(Vec<String>, Node, BTreeSet<OverrideField>)> = Vec::new();
+    fn collect(d: &Document, id: NodeId, old_comp: Option<NodeId>, path: &mut Vec<String>, out: &mut Vec<(Vec<String>, Node, BTreeSet<OverrideField>)>) {
         let Some(n) = d.get(id) else { return };
         for k in &n.children {
             let Some(kn) = d.get(*k) else { continue };
             path.push(kn.name.clone());
-            if !kn.component.overrides.is_empty() {
-                out.push((path.clone(), kn.clone()));
+            let fields = effective_child_overrides(d, old_comp, kn);
+            if !fields.is_empty() {
+                out.push((path.clone(), kn.clone(), fields));
             }
-            collect(d, *k, path, out);
+            collect(d, *k, old_comp, path, out);
             path.pop();
         }
     }
-    collect(&c.s, i, &mut Vec::new(), &mut carried);
+    collect(&c.s, i, old_comp, &mut Vec::new(), &mut carried);
 
     for k in inode.children.clone() {
         c.push(Command::Remove { id: k });
@@ -1241,27 +1314,43 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
     let mut n = c.s.get(i).cloned().unwrap_or(inode.clone());
-    let same_family = instance_component(&inode)
-        .and_then(|o| c.s.get(o))
-        .map(|o| {
-            o.parent.is_some() && o.parent == comp.parent && c.s.get(comp.parent.unwrap()).map(|p| matches!(p.kind, NodeKind::ComponentSet(_))).unwrap_or(false)
-        })
-        .unwrap_or(false);
     if let NodeKind::Instance { component, component_key, frame } = &mut n.kind {
         *component = Some(new_comp);
         *component_key = None;
-        if let Some(f) = comp.kind.frame_props() {
-            *frame = f.clone();
+        if !n.component.overrides.contains(&OverrideField::Layout) {
+            if let Some(f) = comp.kind.frame_props() {
+                *frame = f.clone();
+            }
         }
     }
+    if !n.component.overrides.contains(&OverrideField::Size) && old_comp_node.as_ref().is_none_or(|oc| oc.size == n.size) {
+        n.size = comp.size;
+    }
+    let target_size = n.size;
     if is_top(&inode) {
         n.component.source = Some(new_comp);
     }
-    if !same_family && !n.component.overrides.contains(&OverrideField::Name) {
-        n.name = comp.name.clone();
-    }
     n.component.overrides.remove(&OverrideField::MainComponent);
     c.update(n);
+
+    if target_size != comp.size {
+        for (cid, new_tf, new_sz) in crate::layout_constraints::plan_constraint_pass(&c.s, i, comp.size, target_size, 8) {
+            if cid == i {
+                continue;
+            }
+            let Some(mut child) = c.s.get(cid).cloned() else { continue };
+            let old_sz = child.size;
+            let old_tf = child.transform;
+            crate::layout_constraints::apply_constrained_geometry(&mut child, new_tf, new_sz);
+            if child.size != old_sz {
+                child.component.overrides.insert(OverrideField::Size);
+            }
+            if child.transform != old_tf {
+                child.component.overrides.insert(OverrideField::Transform);
+            }
+            c.update(child);
+        }
+    }
 
     // Re-apply carried overrides by path.
     let mut by_path: BTreeMap<Vec<String>, NodeId> = BTreeMap::new();
@@ -1276,13 +1365,19 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         }
     }
     index(&c.s, i, &mut Vec::new(), &mut by_path);
-    for (path, old) in carried {
+    for (path, old, mut fields) in carried {
         let Some(&nid) = by_path.get(&path) else { continue };
         let Some(mut nn) = c.s.get(nid).cloned() else { continue };
-        if std::mem::discriminant(&nn.kind) != std::mem::discriminant(&old.kind) {
+        if !matches!((&old.kind, &nn.kind), (NodeKind::Text(_), NodeKind::Text(_))) {
+            fields.remove(&OverrideField::Characters);
+            fields.remove(&OverrideField::TextStyle);
+        }
+        if old.kind.frame_props().is_none() || nn.kind.frame_props().is_none() {
+            fields.remove(&OverrideField::Layout);
+        }
+        if fields.is_empty() {
             continue;
         }
-        let fields: BTreeSet<_> = old.component.overrides.iter().copied().filter(|f| *f != OverrideField::MainComponent).collect();
         copy_overridden(&old, &mut nn, &fields);
         c.update(nn);
     }
@@ -1294,6 +1389,8 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
 /// subtree it has.
 fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen: &mut Vec<NodeId>) {
     let (Some(mut rn), Some(mut inode)) = (c.s.get(r).cloned(), c.s.get(i).cloned()) else { return };
+    let slot_rn = rn.clone();
+    let orig_slot_comp = instance_component(&slot_rn).and_then(|oc| c.s.get(oc)).cloned();
     let values = c.s.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
 
     // --- which component should this instance show? ---
@@ -1337,7 +1434,27 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
 
     // --- node properties ---
     let mut n = inode.clone();
-    apply_reference(&rn, &mut n, top, &values);
+    if !top && instance_component(&inode) != instance_component(&slot_rn) {
+        let mut node_ref = slot_rn.clone();
+        let slot_ov = orig_slot_comp.as_ref().map(|oc| record_override(oc, &slot_rn)).unwrap_or_default();
+        for f in [
+            OverrideField::Size,
+            OverrideField::Opacity,
+            OverrideField::Blend,
+            OverrideField::Fills,
+            OverrideField::Stroke,
+            OverrideField::Effects,
+            OverrideField::CornerRadii,
+            OverrideField::Layout,
+        ] {
+            if !slot_rn.component.overrides.contains(&f) && !slot_ov.contains(&f) {
+                copy_field(f, &rn, &mut node_ref);
+            }
+        }
+        apply_reference(&node_ref, &mut n, top, &values);
+    } else {
+        apply_reference(&rn, &mut n, top, &values);
+    }
     apply_bindings(&mut n, &values);
     c.update(n);
 
@@ -4006,5 +4123,212 @@ mod tests {
         for inst_id in [inst_same_page, inst_loaded_page, inst_unloaded_page] {
             assert_eq!(text_of(&loaded, child_named(&loaded, inst_id, "label")), "Satellitex");
         }
+    }
+
+    #[test]
+    fn swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo() {
+        let mut d = Document::new("SwapOverrides");
+        let page = d.add_page("Page 1");
+
+        // 1. Icon/Plus with child "Glyph": default white fill bound to "s.color.icon", opacity 1.0, 16x16 vector.
+        let icon_plus = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/Plus".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::new(
+                gid,
+                NodeKind::Vector {
+                    paths: vec![crate::Path {
+                        cmds: vec![crate::PathCmd::MoveTo(Vec2::new(2.0, 8.0)), crate::PathCmd::LineTo(Vec2::new(14.0, 8.0))],
+                        ..Default::default()
+                    }],
+                    network: None,
+                },
+            );
+            g.size = Vec2::new(16.0, 16.0);
+            g.name = "Glyph".into();
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            g.variables.bindings.insert("fills/0".into(), "s.color.icon".into());
+            d.insert(comp, g).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        // 2. Icon/Check with child "Glyph": default white fill bound to "s.color.icon", opacity 1.0, 16x16 vector.
+        let icon_check = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(40.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/Check".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::new(
+                gid,
+                NodeKind::Vector {
+                    paths: vec![crate::Path {
+                        cmds: vec![crate::PathCmd::MoveTo(Vec2::new(4.0, 8.0)), crate::PathCmd::LineTo(Vec2::new(12.0, 12.0))],
+                        ..Default::default()
+                    }],
+                    network: None,
+                },
+            );
+            g.size = Vec2::new(16.0, 16.0);
+            g.name = "Glyph".into();
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            g.variables.bindings.insert("fills/0".into(), "s.color.icon".into());
+            d.insert(comp, g).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        // 3. Icon/Mismatch with child "OtherPath" (not "Glyph"): default white fill bound to "s.color.icon".
+        let icon_mismatch = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(80.0, 0.0, 16.0, 16.0));
+            f.name = "Icon/Mismatch".into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::rectangle(gid, Rect::new(0.0, 0.0, 16.0, 16.0));
+            g.name = "OtherPath".into();
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            g.variables.bindings.insert("fills/0".into(), "s.color.icon".into());
+            d.insert(comp, g).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            comp
+        };
+
+        // 4. Button component with nested "Leading icon" slot (instance of Icon/Plus):
+        //    - slot named "Leading icon", visible = false, resized to 20x20, bound to Boolean "Has Leading Icon" (default false)
+        //      and InstanceSwap "Icon" (default Icon/Plus).
+        //    - slot's "Glyph" child is resized to 20x20 and overrides fill to #0A0A0A with paint opacity 0.5, node opacity 0.5,
+        //      and variable binding "fills/0" -> "s.color.text-on-brand".
+        let button = {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, 100.0, 120.0, 40.0));
+            f.name = "Button/Primary".into();
+            let comp = d.insert(page, f).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+
+            let c = create_instance(&mut d, icon_plus, comp, Vec2::new(8.0, 10.0));
+            apply(&mut d, c);
+            let slot = d.get(comp).unwrap().children[0];
+            {
+                let mut sn = d.get(slot).unwrap().clone();
+                sn.name = "Leading icon".into();
+                sn.visible = false;
+                sn.size = Vec2::new(20.0, 20.0);
+                apply(&mut d, Command::Update { node: Box::new(sn) });
+            }
+            let slot_glyph = child_named(&d, slot, "Glyph");
+            let mut paint = Paint::solid(Color::rgb(10, 10, 10));
+            paint.opacity = 0.5;
+            {
+                let mut gn = d.get(slot_glyph).unwrap().clone();
+                let tf = gn.transform;
+                crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
+                gn.fills = vec![paint.clone()];
+                gn.opacity = 0.5;
+                gn.variables.bindings.insert("fills/0".into(), "s.color.text-on-brand".into());
+                gn.component.overrides.insert(OverrideField::Fills);
+                gn.component.overrides.insert(OverrideField::Opacity);
+                apply(&mut d, Command::Update { node: Box::new(gn) });
+            }
+
+            let c = add_prop(&mut d, comp, ComponentPropDef { name: "Has Leading Icon".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) });
+            apply(&mut d, c);
+            let c = add_prop(
+                &mut d,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_plus, icon_check, icon_mismatch] },
+                    default: PropValue::Instance(icon_plus),
+                },
+            );
+            apply(&mut d, c);
+            let c = bind_prop(&mut d, slot, OverrideField::Visible, Some("Has Leading Icon"));
+            apply(&mut d, c);
+            let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
+            apply(&mut d, c);
+            comp
+        };
+
+        let expected_fill = Color::rgb(10, 10, 10);
+        let expected_scaled_check_cmds = vec![crate::PathCmd::MoveTo(Vec2::new(5.0, 10.0)), crate::PathCmd::LineTo(Vec2::new(15.0, 15.0))];
+
+        // Create an instance of Button/Primary on the page.
+        let c = create_instance(&mut d, button, page, Vec2::new(200.0, 100.0));
+        apply(&mut d, c);
+        let btn_inst = *d.get(page).unwrap().children.last().unwrap();
+        let slot_inst = d.get(btn_inst).unwrap().children[0];
+        let before_swap_nodes = d.nodes.clone();
+
+        // Swap the slot to Icon/Check via the InstanceSwap property ("Icon").
+        let swap_cmd = set_instance_prop(&mut d, btn_inst, "Icon", Some(PropValue::Instance(icon_check)));
+        let inv = apply(&mut d, swap_cmd);
+
+        let slot_after = d.get(slot_inst).unwrap();
+        assert_eq!(instance_component(slot_after), Some(icon_check));
+        // Name kept ("Leading icon", not "Icon/Check").
+        assert_eq!(slot_after.name, "Leading icon");
+        // Boolean-bound visibility kept (stays hidden, and keeps Visible + MainComponent bindings).
+        assert!(!slot_after.visible, "slot bound to Has Leading Icon = false must stay hidden after swap");
+        assert_eq!(slot_after.component.bindings.get(&OverrideField::Visible).map(String::as_str), Some("Has Leading Icon"));
+        assert_eq!(slot_after.component.bindings.get(&OverrideField::MainComponent).map(String::as_str), Some("Icon"));
+        assert_eq!(slot_after.size, Vec2::new(20.0, 20.0), "slot size from variant kept");
+
+        // Glyph size, scaled vector path, fill override, variable binding, and opacity kept.
+        let glyph_after = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
+        assert_eq!(glyph_after.size, Vec2::new(20.0, 20.0), "glyph size from resized slot kept");
+        match &glyph_after.kind {
+            NodeKind::Vector { paths, .. } => assert_eq!(paths[0].cmds, expected_scaled_check_cmds, "glyph vector path scaled to 20x20"),
+            other => panic!("expected Vector, got {other:?}"),
+        }
+        assert_eq!(glyph_after.fills.len(), 1);
+        assert_eq!(glyph_after.fills[0].kind, crate::PaintKind::Solid(expected_fill), "glyph fill override kept");
+        assert_eq!(glyph_after.fills[0].opacity, 0.5, "glyph paint opacity kept");
+        assert_eq!(glyph_after.opacity, 0.5, "glyph node opacity kept");
+        assert_eq!(glyph_after.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.text-on-brand"), "glyph fill variable binding kept");
+
+        // Undo restores the old main (Icon/Plus) and its overrides in one step.
+        apply(&mut d, inv);
+        assert_eq!(d.nodes, before_swap_nodes, "undo restores the old main and its overrides in one step");
+
+        // Mismatched child name drops that override: swap to Icon/Mismatch (child named "OtherPath").
+        let mismatch_cmd = set_instance_prop(&mut d, btn_inst, "Icon", Some(PropValue::Instance(icon_mismatch)));
+        let mismatch_inv = apply(&mut d, mismatch_cmd);
+        let other_path = d.get(child_named(&d, slot_inst, "OtherPath")).unwrap();
+        assert_eq!(other_path.fills[0].kind, crate::PaintKind::Solid(Color::rgb(255, 255, 255)), "mismatched child name drops fill override");
+        assert_eq!(other_path.fills[0].opacity, 1.0);
+        assert_eq!(other_path.opacity, 1.0);
+        assert_eq!(other_path.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.icon"));
+        apply(&mut d, mismatch_inv);
+        assert_eq!(d.nodes, before_swap_nodes);
+
+        // Direct swap_instance on the slot also keeps size, scaled vector path, overrides, binding, opacity, visibility, name, and undoes in one step.
+        let direct_cmd = swap_instance(&mut d, slot_inst, icon_check);
+        let direct_inv = apply(&mut d, direct_cmd);
+        let slot_direct = d.get(slot_inst).unwrap();
+        assert_eq!(instance_component(slot_direct), Some(icon_check));
+        assert_eq!(slot_direct.name, "Leading icon");
+        assert_eq!(slot_direct.size, Vec2::new(20.0, 20.0));
+        assert!(!slot_direct.visible);
+        let glyph_direct = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
+        assert_eq!(glyph_direct.size, Vec2::new(20.0, 20.0));
+        match &glyph_direct.kind {
+            NodeKind::Vector { paths, .. } => assert_eq!(paths[0].cmds, expected_scaled_check_cmds),
+            other => panic!("expected Vector, got {other:?}"),
+        }
+        assert_eq!(glyph_direct.fills[0].kind, crate::PaintKind::Solid(expected_fill));
+        assert_eq!(glyph_direct.fills[0].opacity, 0.5);
+        assert_eq!(glyph_direct.opacity, 0.5);
+        assert_eq!(glyph_direct.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.text-on-brand"));
+        apply(&mut d, direct_inv);
+        assert_eq!(d.nodes, before_swap_nodes);
     }
 }

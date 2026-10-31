@@ -2,6 +2,8 @@
 //! swap picker, component properties, property definitions on main
 //! components and binding a layer to a property.
 
+#![allow(clippy::items_after_test_module)]
+
 use super::properties::{row_end, section_sep, sublabel, title, Pane};
 use crate::app::App;
 use crate::icons::Icon;
@@ -360,7 +362,7 @@ mod props_panel_tests {
         };
 
         // Request focus on frame one, then let egui register and retain the widget for two frames.
-        ctx.run_ui(egui::RawInput::default(), |ui| {
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
             let response = ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle"))).inner;
             first_id.set(response.id);
             response.request_focus();
@@ -404,9 +406,155 @@ mod props_panel_tests {
         assert!(ctx.memory(|m| m.has_focus(first_id.get())), "Shift+Tab returns focus to the first widget");
         assert!(ring_strokes(&returned.shapes).is_empty(), "toggle ring disappears after Shift+Tab");
     }
+
+    #[test]
+    fn properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo() {
+        let mut doc = Document::new("SwapOverrides");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let make_icon = |app: &mut App, name: &str, child_name: &str, x: f32, p0: (f32, f32), p1: (f32, f32)| -> NodeId {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = app.doc.insert(page, f).unwrap();
+            let gid = app.doc.alloc_id();
+            let mut g = Node::new(
+                gid,
+                NodeKind::Vector {
+                    paths: vec![designos_doc::Path {
+                        cmds: vec![
+                            designos_doc::PathCmd::MoveTo(designos_doc::Vec2::new(p0.0, p0.1)),
+                            designos_doc::PathCmd::LineTo(designos_doc::Vec2::new(p1.0, p1.1)),
+                        ],
+                        ..Default::default()
+                    }],
+                    network: None,
+                },
+            );
+            g.size = designos_doc::Vec2::new(16.0, 16.0);
+            g.name = child_name.into();
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            g.variables.bindings.insert("fills/0".into(), "s.color.icon".into());
+            app.doc.insert(comp, g).unwrap();
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            comp
+        };
+
+        let icon_plus = make_icon(&mut app, "Icon/Plus", "Glyph", 0.0, (2.0, 8.0), (14.0, 8.0));
+        let icon_check = make_icon(&mut app, "Icon/Check", "Glyph", 40.0, (4.0, 8.0), (12.0, 12.0));
+        let icon_mismatch = make_icon(&mut app, "Icon/Mismatch", "OtherPath", 80.0, (1.0, 1.0), (15.0, 15.0));
+
+        let btn = {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(0.0, 100.0, 120.0, 40.0));
+            f.name = "Button/Primary".into();
+            let comp = app.doc.insert(page, f).unwrap();
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            create_instance(&mut app.doc, icon_plus, comp, designos_doc::Vec2::new(8.0, 10.0)).apply(&mut app.doc).unwrap();
+            let slot = app.doc.get(comp).unwrap().children[0];
+            {
+                let sn = app.doc.get_mut(slot).unwrap();
+                sn.name = "Leading icon".into();
+                sn.visible = false;
+                sn.size = designos_doc::Vec2::new(20.0, 20.0);
+            }
+            let slot_glyph = app.doc.get(slot).unwrap().children[0];
+            {
+                let mut paint = Paint::solid(Color::rgb(10, 10, 10));
+                paint.opacity = 0.5;
+                let gn = app.doc.get_mut(slot_glyph).unwrap();
+                let tf = gn.transform;
+                designos_doc::layout_constraints::apply_constrained_geometry(gn, tf, designos_doc::Vec2::new(20.0, 20.0));
+                gn.fills = vec![paint];
+                gn.opacity = 0.5;
+                gn.variables.bindings.insert("fills/0".into(), "s.color.text-on-brand".into());
+                gn.component.overrides.insert(OverrideField::Fills);
+                gn.component.overrides.insert(OverrideField::Opacity);
+            }
+            add_prop(&mut app.doc, comp, ComponentPropDef { name: "Has Leading Icon".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) })
+                .apply(&mut app.doc)
+                .unwrap();
+            add_prop(
+                &mut app.doc,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_plus, icon_check, icon_mismatch] },
+                    default: PropValue::Instance(icon_plus),
+                },
+            )
+            .apply(&mut app.doc)
+            .unwrap();
+            bind_prop(&mut app.doc, slot, OverrideField::Visible, Some("Has Leading Icon")).apply(&mut app.doc).unwrap();
+            bind_prop(&mut app.doc, slot, OverrideField::MainComponent, Some("Icon")).apply(&mut app.doc).unwrap();
+            comp
+        };
+
+        let expected_scaled_check_cmds =
+            vec![designos_doc::PathCmd::MoveTo(designos_doc::Vec2::new(5.0, 10.0)), designos_doc::PathCmd::LineTo(designos_doc::Vec2::new(15.0, 15.0))];
+
+        create_instance(&mut app.doc, btn, page, designos_doc::Vec2::new(200.0, 100.0)).apply(&mut app.doc).unwrap();
+        let btn_inst = *app.doc.get(page).unwrap().children.last().unwrap();
+        let slot_inst = app.doc.get(btn_inst).unwrap().children[0];
+        let before_nodes = app.doc.nodes.clone();
+
+        // 1. Properties panel `set_instance_prop` entry point (used by `instance_props` InstanceSwap dropdown).
+        app.set_instance_prop(btn_inst, "Icon", Some(PropValue::Instance(icon_check)));
+        let slot_after = app.doc.get(slot_inst).unwrap();
+        assert_eq!(instance_component(slot_after), Some(icon_check));
+        assert_eq!(slot_after.name, "Leading icon");
+        assert_eq!(slot_after.size, designos_doc::Vec2::new(20.0, 20.0));
+        assert!(!slot_after.visible);
+        assert_eq!(slot_after.component.bindings.get(&OverrideField::Visible).map(String::as_str), Some("Has Leading Icon"));
+        let glyph_after = app.doc.get(slot_after.children[0]).unwrap();
+        assert_eq!(glyph_after.size, designos_doc::Vec2::new(20.0, 20.0));
+        match &glyph_after.kind {
+            NodeKind::Vector { paths, .. } => assert_eq!(paths[0].cmds, expected_scaled_check_cmds),
+            other => panic!("expected Vector, got {other:?}"),
+        }
+        assert_eq!(glyph_after.fills[0].kind, PaintKind::Solid(Color::rgb(10, 10, 10)));
+        assert_eq!(glyph_after.fills[0].opacity, 0.5);
+        assert_eq!(glyph_after.opacity, 0.5);
+        assert_eq!(glyph_after.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.text-on-brand"));
+
+        app.undo();
+        assert_eq!(app.doc.nodes, before_nodes, "one undo step restores old main and overrides");
+
+        // Mismatched child name drops override via Properties panel path.
+        app.set_instance_prop(btn_inst, "Icon", Some(PropValue::Instance(icon_mismatch)));
+        let mismatch_child = app.doc.get(app.doc.get(slot_inst).unwrap().children[0]).unwrap();
+        assert_eq!(mismatch_child.name, "OtherPath");
+        assert_eq!(mismatch_child.fills[0].kind, PaintKind::Solid(Color::rgb(255, 255, 255)));
+        assert_eq!(mismatch_child.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.icon"));
+        app.undo();
+        assert_eq!(app.doc.nodes, before_nodes);
+
+        // 2. Properties panel `swap_instance` entry point (used by `instance_header` swap dropdown).
+        app.swap_instance(slot_inst, icon_check);
+        let slot_direct = app.doc.get(slot_inst).unwrap();
+        assert_eq!(instance_component(slot_direct), Some(icon_check));
+        assert_eq!(slot_direct.name, "Leading icon");
+        assert_eq!(slot_direct.size, designos_doc::Vec2::new(20.0, 20.0));
+        assert!(!slot_direct.visible);
+        let glyph_direct = app.doc.get(slot_direct.children[0]).unwrap();
+        assert_eq!(glyph_direct.size, designos_doc::Vec2::new(20.0, 20.0));
+        match &glyph_direct.kind {
+            NodeKind::Vector { paths, .. } => assert_eq!(paths[0].cmds, expected_scaled_check_cmds),
+            other => panic!("expected Vector, got {other:?}"),
+        }
+        assert_eq!(glyph_direct.fills[0].kind, PaintKind::Solid(Color::rgb(10, 10, 10)));
+        assert_eq!(glyph_direct.fills[0].opacity, 0.5);
+        assert_eq!(glyph_direct.opacity, 0.5);
+        assert_eq!(glyph_direct.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.text-on-brand"));
+
+        app.undo();
+        assert_eq!(app.doc.nodes, before_nodes);
+    }
 }
 
-fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
+fn sort_props_by_kind(defs: &mut [ComponentPropDef]) {
     defs.sort_by_key(|def| kind_rank(&def.kind));
 }
 
