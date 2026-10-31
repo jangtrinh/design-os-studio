@@ -3,36 +3,130 @@
 //! Uses Björn Ottosson's canonical OKLab matrices and the IEC 61966-2-1 sRGB transfer
 //! function, clamping linear sRGB channels to `[0.0, 1.0]` before gamma encoding.
 
+#[inline]
+fn sanitize_unit(v: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+#[inline]
+fn sanitize_finite(v: f32) -> f32 {
+    if v.is_finite() {
+        v
+    } else {
+        0.0
+    }
+}
+
+#[inline]
+fn srgb_channel_to_linear(v: f32) -> f32 {
+    let c = sanitize_unit(v);
+    if c <= 0.040_45 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+#[inline]
+fn linear_channel_to_srgb(v: f32) -> f32 {
+    let c = sanitize_unit(v);
+    if c <= 0.003_130_8 {
+        12.92 * c
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
+}
+
 /// Converts straight sRGB channels (`0.0..=1.0`) to `OKLab` `[L, a, b]`.
-pub fn srgb_to_oklab(_r: f32, _g: f32, _b: f32) -> [f32; 3] {
-    [0.0, 0.0, 0.0]
+pub fn srgb_to_oklab(r: f32, g: f32, b: f32) -> [f32; 3] {
+    let r_lin = srgb_channel_to_linear(r);
+    let g_lin = srgb_channel_to_linear(g);
+    let b_lin = srgb_channel_to_linear(b);
+
+    if r_lin == g_lin && g_lin == b_lin {
+        return [r_lin.cbrt().clamp(0.0, 1.0), 0.0, 0.0];
+    }
+
+    let l = 0.412_221_46 * r_lin + 0.536_332_55 * g_lin + 0.051_445_995 * b_lin;
+    let m = 0.211_903_5 * r_lin + 0.680_699_5 * g_lin + 0.107_396_96 * b_lin;
+    let s = 0.088_302_46 * r_lin + 0.281_718_85 * g_lin + 0.629_978_7 * b_lin;
+
+    let l_ = l.cbrt();
+    let m_ = m.cbrt();
+    let s_ = s.cbrt();
+
+    let ok_l = 0.210_454_26 * l_ + 0.793_617_8 * m_ - 0.004_072_047 * s_;
+    let ok_a = 1.977_998_5 * l_ - 2.428_592_2 * m_ + 0.450_593_7 * s_;
+    let ok_b = 0.025_904_037 * l_ + 0.782_771_77 * m_ - 0.808_675_77 * s_;
+
+    [sanitize_unit(ok_l), sanitize_finite(ok_a), sanitize_finite(ok_b)]
 }
 
 /// Converts `OKLab` `[L, a, b]` to straight sRGB channels (`0.0..=1.0`),
 /// clamping each linear sRGB channel to `[0.0, 1.0]`.
-pub fn oklab_to_srgb(_l: f32, _a: f32, _b: f32) -> [f32; 3] {
-    [0.0, 0.0, 0.0]
+pub fn oklab_to_srgb(l: f32, a: f32, b: f32) -> [f32; 3] {
+    let l = sanitize_finite(l);
+    let a = sanitize_finite(a);
+    let b = sanitize_finite(b);
+
+    let l_ = l + 0.396_337_78 * a + 0.215_803_76 * b;
+    let m_ = l - 0.105_561_346 * a - 0.063_854_17 * b;
+    let s_ = l - 0.089_484_18 * a - 1.291_485_5 * b;
+
+    let l3 = l_ * l_ * l_;
+    let m3 = m_ * m_ * m_;
+    let s3 = s_ * s_ * s_;
+
+    let r_lin = 4.076_741_7 * l3 - 3.307_711_6 * m3 + 0.230_969_94 * s3;
+    let g_lin = -1.268_438 * l3 + 2.609_757_4 * m3 - 0.341_319_38 * s3;
+    let b_lin = -0.004_196_086_3 * l3 - 0.703_418_6 * m3 + 1.707_614_7 * s3;
+
+    [linear_channel_to_srgb(r_lin), linear_channel_to_srgb(g_lin), linear_channel_to_srgb(b_lin)]
 }
 
 /// Converts `OKLab` `[L, a, b]` to `OKLCH` `[L, C, H_deg]` with `H_deg` in `0.0..360.0`.
-pub fn oklab_to_oklch(_l: f32, _a: f32, _b: f32) -> [f32; 3] {
-    [0.0, 0.0, 0.0]
+pub fn oklab_to_oklch(l: f32, a: f32, b: f32) -> [f32; 3] {
+    let l = sanitize_finite(l);
+    let a = sanitize_finite(a);
+    let b = sanitize_finite(b);
+    let c = sanitize_finite(a.hypot(b)).max(0.0);
+    let h = if c < 1e-4 {
+        0.0
+    } else {
+        let deg = sanitize_finite(b.atan2(a).to_degrees()).rem_euclid(360.0);
+        if deg >= 360.0 {
+            0.0
+        } else {
+            deg
+        }
+    };
+    [l, c, h]
 }
 
 /// Converts `OKLCH` `[L, C, H_deg]` (`H_deg` in degrees) to `OKLab` `[L, a, b]`.
-pub fn oklch_to_oklab(_l: f32, _c: f32, _h_deg: f32) -> [f32; 3] {
-    [0.0, 0.0, 0.0]
+pub fn oklch_to_oklab(l: f32, c: f32, h_deg: f32) -> [f32; 3] {
+    let l = sanitize_finite(l);
+    let c = sanitize_finite(c).max(0.0);
+    let h_deg = sanitize_finite(h_deg).rem_euclid(360.0);
+    let h_rad = h_deg.to_radians();
+    [l, sanitize_finite(c * h_rad.cos()), sanitize_finite(c * h_rad.sin())]
 }
 
 /// Converts straight sRGB channels (`0.0..=1.0`) to `OKLCH` `[L, C, H_deg]`.
-pub fn srgb_to_oklch(_r: f32, _g: f32, _b: f32) -> [f32; 3] {
-    [0.0, 0.0, 0.0]
+pub fn srgb_to_oklch(r: f32, g: f32, b: f32) -> [f32; 3] {
+    let [l, a, b_ok] = srgb_to_oklab(r, g, b);
+    oklab_to_oklch(l, a, b_ok)
 }
 
 /// Converts `OKLCH` `[L, C, H_deg]` to straight sRGB channels (`0.0..=1.0`),
 /// clamping each linear sRGB channel to `[0.0, 1.0]`.
-pub fn oklch_to_srgb(_l: f32, _c: f32, _h_deg: f32) -> [f32; 3] {
-    [0.0, 0.0, 0.0]
+pub fn oklch_to_srgb(l: f32, c: f32, h_deg: f32) -> [f32; 3] {
+    let [l, a, b] = oklch_to_oklab(l, c, h_deg);
+    oklab_to_srgb(l, a, b)
 }
 
 /// Converts 8-bit straight sRGB `[R, G, B]` to `OKLab` `[L, a, b]`.

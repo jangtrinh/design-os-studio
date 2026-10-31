@@ -41,7 +41,7 @@ pub enum Fmt {
 }
 
 impl Fmt {
-    pub const ALL: [Fmt; 7] = [Fmt::Hex, Fmt::Rgb, Fmt::Css, Fmt::Hsl, Fmt::Hsb, Fmt::Hex, Fmt::Hex];
+    pub const ALL: [Fmt; 7] = [Fmt::Hex, Fmt::Rgb, Fmt::Css, Fmt::Hsl, Fmt::Hsb, Fmt::Oklch, Fmt::Oklab];
     pub fn label(self) -> &'static str {
         match self {
             Fmt::Hex => "Hex",
@@ -49,7 +49,8 @@ impl Fmt {
             Fmt::Css => "CSS",
             Fmt::Hsl => "HSL",
             Fmt::Hsb => "HSB",
-            Fmt::Oklch | Fmt::Oklab => "",
+            Fmt::Oklch => "OKLCH",
+            Fmt::Oklab => "OKLAB",
         }
     }
 }
@@ -412,14 +413,17 @@ pub struct State {
 impl State {
     pub fn new(p: &Paint) -> Self {
         let rgba = active_rgba(p, 0);
+        let rgb = [rgba[0], rgba[1], rgba[2]];
+        let oklab = designos_doc::srgb_u8_to_oklab(rgb);
+        let oklch = designos_doc::oklab_to_oklch(oklab[0], oklab[1], oklab[2]);
         let n = stops_of(&p.kind).map(|s| s.len()).unwrap_or(0);
         Self {
             tab: Tab::Custom,
             fmt: Fmt::Hex,
             source: 0,
             hsv: Hsva::from_srgba_unmultiplied(rgba),
-            oklch: [0.0; 3],
-            oklab: [0.0; 3],
+            oklch,
+            oklab,
             sel: 0,
             menu_open: false,
             stop_origins: (0..n).map(Some).collect(),
@@ -449,27 +453,109 @@ impl State {
         self.sync_ok([rgba[0], rgba[1], rgba[2]]);
     }
 
-    pub(crate) fn sync_ok(&mut self, _rgb: [u8; 3]) {}
-
-    pub(crate) fn set_oklch_channel(&mut self, _i: usize, _n: f32) -> [u8; 3] {
-        [0, 0, 0]
+    pub(crate) fn sync_ok(&mut self, rgb: [u8; 3]) {
+        if designos_doc::oklch_to_srgb_u8(self.oklch[0], self.oklch[1], self.oklch[2]) != rgb {
+            let mut lch = designos_doc::srgb_u8_to_oklch(rgb);
+            if lch[1] < 1e-4 {
+                lch[2] = self.oklch[2];
+            }
+            self.oklch = [lch[0].clamp(0.0, 1.0), lch[1].clamp(0.0, 0.4), lch[2]];
+        }
+        if designos_doc::oklab_to_srgb_u8(self.oklab[0], self.oklab[1], self.oklab[2]) != rgb {
+            let lab = designos_doc::srgb_u8_to_oklab(rgb);
+            self.oklab = [lab[0].clamp(0.0, 1.0), lab[1].clamp(-0.4, 0.4), lab[2].clamp(-0.4, 0.4)];
+        }
     }
 
-    pub(crate) fn set_oklab_channel(&mut self, _i: usize, _n: f32) -> [u8; 3] {
-        [0, 0, 0]
+    pub(crate) fn set_oklch_channel(&mut self, i: usize, n: f32) -> [u8; 3] {
+        self.oklch[i] = n;
+        let lab = designos_doc::oklch_to_oklab(self.oklch[0], self.oklch[1], self.oklch[2]);
+        self.oklab = [lab[0].clamp(0.0, 1.0), lab[1].clamp(-0.4, 0.4), lab[2].clamp(-0.4, 0.4)];
+        designos_doc::oklch_to_srgb_u8(self.oklch[0], self.oklch[1], self.oklch[2])
     }
 
-    pub(crate) fn ok_cells(&self, _fmt: Fmt) -> [String; 3] {
-        [String::new(), String::new(), String::new()]
+    pub(crate) fn set_oklab_channel(&mut self, i: usize, n: f32) -> [u8; 3] {
+        self.oklab[i] = n;
+        let mut lch = designos_doc::oklab_to_oklch(self.oklab[0], self.oklab[1], self.oklab[2]);
+        if lch[1] < 1e-4 {
+            lch[2] = self.oklch[2];
+        }
+        self.oklch = [lch[0].clamp(0.0, 1.0), lch[1].clamp(0.0, 0.4), lch[2]];
+        designos_doc::oklab_to_srgb_u8(self.oklab[0], self.oklab[1], self.oklab[2])
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ok_cells(&self, fmt: Fmt) -> [String; 3] {
+        let t = match fmt {
+            Fmt::Oklab => self.oklab,
+            _ => self.oklch,
+        };
+        [fmt_ok_channel(0, t[0]), fmt_ok_channel(1, t[1]), fmt_ok_channel(2, t[2])]
     }
 }
 
-fn fmt_ok_channel(_ch: usize, _val: f32) -> String {
-    String::new()
+fn fmt_ok_channel(ch: usize, val: f32) -> String {
+    if ch == 0 {
+        fmt_num(val * 100.0)
+    } else {
+        fmt_num(val)
+    }
 }
 
-fn parse_ok_channel(_fmt: Fmt, _ch: usize, _input: &str, _cur: f32) -> Option<f32> {
-    None
+fn parse_ok_channel(fmt: Fmt, ch: usize, input: &str, cur: f32) -> Option<f32> {
+    let s = input.trim();
+    if s.is_empty() {
+        return None;
+    }
+    match (fmt, ch) {
+        (Fmt::Oklch | Fmt::Oklab, 0) => {
+            let body = s.strip_suffix('%').unwrap_or(s);
+            if body.contains('%') {
+                return None;
+            }
+            let pct = field::eval_number_expr(body, Some(cur * 100.0), false)?;
+            Some((pct / 100.0).clamp(0.0, 1.0))
+        }
+        (Fmt::Oklch, 1) => {
+            if let Some(body) = s.strip_suffix('%') {
+                if body.contains('%') {
+                    return None;
+                }
+                let pct = field::eval_number_expr(body, Some(cur / 0.004), false)?;
+                Some((pct * 0.004).clamp(0.0, 0.4))
+            } else {
+                if s.contains('%') {
+                    return None;
+                }
+                let raw = field::eval_number_expr(s, Some(cur), false)?;
+                Some(raw.clamp(0.0, 0.4))
+            }
+        }
+        (Fmt::Oklch, 2) => {
+            if s.contains('%') {
+                return None;
+            }
+            let deg = field::eval_number_expr(s, Some(cur), false)?;
+            let wrapped = deg.rem_euclid(360.0);
+            Some(if wrapped >= 360.0 { 0.0 } else { wrapped })
+        }
+        (Fmt::Oklab, 1 | 2) => {
+            if let Some(body) = s.strip_suffix('%') {
+                if body.contains('%') {
+                    return None;
+                }
+                let pct = field::eval_number_expr(body, Some(cur / 0.004), false)?;
+                Some((pct * 0.004).clamp(-0.4, 0.4))
+            } else {
+                if s.contains('%') {
+                    return None;
+                }
+                let raw = field::eval_number_expr(s, Some(cur), false)?;
+                Some(raw.clamp(-0.4, 0.4))
+            }
+        }
+        _ => None,
+    }
 }
 
 pub struct StyleItem {
@@ -1153,6 +1239,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             let b = st.hsv.to_srgba_unmultiplied();
             [b[0], b[1], b[2], a]
         };
+        st.sync_ok([cur[0], cur[1], cur[2]]);
         let fields = Rect::from_min_max(Pos2::new(row.left() + 64.0, row.top()), row.right_bottom());
         let kind_rgba = |c: [u8; 4]| c;
         match st.fmt {
@@ -1185,8 +1272,11 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                 let vals: [f32; 3] = match st.fmt {
                     Fmt::Rgb => [cur[0] as f32, cur[1] as f32, cur[2] as f32],
                     Fmt::Hsl => rgb_to_hsl(cur),
+                    Fmt::Oklch => st.oklch,
+                    Fmt::Oklab => st.oklab,
                     _ => [st.hsv.h * 360.0, st.hsv.s * 100.0, st.hsv.v * 100.0],
                 };
+                let is_ok = matches!(st.fmt, Fmt::Oklch | Fmt::Oklab);
                 let w3 = (89.0 - 2.0) / 3.0;
                 let mut edited: Option<(usize, f32)> = None;
                 for (i, v) in vals.iter().enumerate() {
@@ -1195,8 +1285,14 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                         0 => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
                         _ => theme::cr(0),
                     };
-                    let _ = (fmt_ok_channel(i, *v), parse_ok_channel(st.fmt, i, "", *v));
-                    if let Some(n) = grouped_num(ui, r, ("picker-ch", i), v.round(), radius, 5.0) {
+                    if is_ok {
+                        let disp = fmt_ok_channel(i, *v);
+                        if let Some(s) = grouped_text(ui, r, ("picker-ch", i), &disp, radius, 5.0) {
+                            if let Some(n) = parse_ok_channel(st.fmt, i, &s, *v) {
+                                edited = Some((i, n));
+                            }
+                        }
+                    } else if let Some(n) = grouped_num(ui, r, ("picker-ch", i), v.round(), radius, 5.0) {
                         edited = Some((i, n));
                     }
                 }
@@ -1214,10 +1310,12 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                             typed = Some([rgb[0], rgb[1], rgb[2], cur[3]]);
                         }
                         Fmt::Oklch => {
-                            let _ = st.set_oklch_channel(i, n);
+                            let rgb = st.set_oklch_channel(i, n);
+                            typed = Some([rgb[0], rgb[1], rgb[2], cur[3]]);
                         }
                         Fmt::Oklab => {
-                            let _ = st.set_oklab_channel(i, n);
+                            let rgb = st.set_oklab_channel(i, n);
+                            typed = Some([rgb[0], rgb[1], rgb[2], cur[3]]);
                         }
                         _ => {
                             let mut h = st.hsv;
