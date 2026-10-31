@@ -105,6 +105,9 @@ pub enum ErrorCode {
     // Output filename validation codes (#1003 RT-05/RT-06) (2)
     InvalidName,
     NameTooLong,
+
+    // Loop detection (#1290) (1)
+    LoopSuspected,
 }
 
 #[allow(non_upper_case_globals)]
@@ -146,7 +149,7 @@ impl ErrorCode {
     pub const IdempotencyKeyConflict: Self = Self::IdempotencyKeyReused;
     pub const InvalidIdempotencyKey: Self = Self::InvalidArguments;
 
-    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools, the 2 idempotency codes and the 2 query codes).
+    /// Every error code variant in `ErrorCode` (the 50 catalogue codes from §3.3, the 3 active pack codes, the 2 in-progress flag codes, the 12 codes owned by other specs' tools, the 2 idempotency codes, the 2 query codes, the 2 output-filename codes, and `LOOP_SUSPECTED`).
     pub const ALL: &'static [ErrorCode] = &[
         Self::InvalidArguments,
         Self::UnknownField,
@@ -222,6 +225,7 @@ impl ErrorCode {
         Self::RuleUnavailable,
         Self::InvalidName,
         Self::NameTooLong,
+        Self::LoopSuspected,
     ];
 
     pub const fn as_str(&self) -> &'static str {
@@ -300,6 +304,7 @@ impl ErrorCode {
             Self::RuleUnavailable => "RULE_UNAVAILABLE",
             Self::InvalidName => "INVALID_NAME",
             Self::NameTooLong => "NAME_TOO_LONG",
+            Self::LoopSuspected => "LOOP_SUSPECTED",
         }
     }
 
@@ -331,6 +336,9 @@ impl ErrorCode {
             Self::IdempotencyKeyReused => "Send this payload with a new idempotency_key.",
             Self::IdempotencyKeyStale => {
                 "Read the target nodes; this write was undone or is not in the open document. Do not send it again unless you have verified the target nodes are absent and you still want the write."
+            }
+            Self::LoopSuspected => {
+                "The same call has returned the same result 3 times. Change the arguments, read the document state, or ask the user."
             }
             _ => "Adjust the value at `path` using `valid_options` or `corrected_example` and retry.",
         }
@@ -412,6 +420,7 @@ impl ErrorCode {
             "RULE_UNAVAILABLE" => Some(Self::RuleUnavailable),
             "INVALID_NAME" => Some(Self::InvalidName),
             "NAME_TOO_LONG" => Some(Self::NameTooLong),
+            "LOOP_SUSPECTED" => Some(Self::LoopSuspected),
             _ => None,
         }
     }
@@ -458,7 +467,7 @@ impl ToolError {
             cause: None,
             failed_op: None,
             op: None,
-            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge),
+            safe_to_retry: !matches!(code, ErrorCode::FileTooLarge | ErrorCode::LoopSuspected),
             next_step: code.default_next_step().to_string(),
         }
     }
@@ -1748,6 +1757,19 @@ pub fn error_envelope_schema() -> Value {
     })
 }
 
+pub fn loop_suspected_warning_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "code": { "type": "string" },
+            "message": { "type": "string" },
+            "next_step": { "type": "string" },
+            "safe_to_retry": { "type": "boolean" }
+        },
+        "required": ["code", "message", "next_step", "safe_to_retry"]
+    })
+}
+
 /// Builds a tool `outputSchema` from `properties` and `required` arrays (§4).
 /// Top-level `type` is `"object"` per MCP `2025-11-25` `Tool.outputSchema`, with `properties.error`
 /// referencing the shared error envelope and `anyOf` covering success and error shapes.
@@ -1755,6 +1777,7 @@ pub fn tool_output_schema(mut properties: Value, required: &[&str]) -> Value {
     let err_schema = error_envelope_schema();
     if let Value::Object(ref mut props_map) = properties {
         props_map.insert("error".into(), err_schema.clone());
+        props_map.insert("warning".into(), loop_suspected_warning_schema());
     }
     json!({
         "type": "object",
@@ -1846,5 +1869,24 @@ mod plain_message_tests {
         assert_eq!(e.code, ErrorCode::InvalidArguments);
         assert_eq!(e.message, "limit must be between 1 and 500");
         assert!(e.safe_to_retry);
+    }
+}
+
+#[cfg(test)]
+mod output_schema_tests {
+    use super::*;
+
+    #[test]
+    fn tool_output_schema_declares_optional_loop_warning() {
+        let schema = tool_output_schema(json!({"ok": {"type": "boolean"}}), &["ok"]);
+        assert!(schema.get("additionalProperties").is_none(), "{schema}");
+        let warning = &schema["properties"]["warning"];
+        assert_eq!(warning["type"], json!("object"), "{schema}");
+        assert!(warning.get("additionalProperties").is_none(), "{warning}");
+        for key in ["code", "message", "next_step", "safe_to_retry"] {
+            assert!(warning["properties"].get(key).is_some(), "missing {key} in {warning}");
+        }
+        let required = schema["anyOf"].as_array().unwrap();
+        assert!(required.iter().all(|alt| alt["required"].as_array().unwrap().iter().all(|r| r != "warning")), "{schema}");
     }
 }

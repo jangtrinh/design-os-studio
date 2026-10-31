@@ -214,6 +214,11 @@ pub fn render_parity_markdown(snapshots: &[ToolSnapshot], parity: &ParityFile) -
         out.push_str(&format!("| {} | `{}` | `{}` | {} | {} |\n", idx + 1, escape_md_cell(&row.figma_tool), escape_md_cell(&row.status), target, note,));
     }
 
+    out.push_str("\n## 3. Loop detection\n\n");
+    out.push_str(
+        "`LOOP_SUSPECTED` on a repeated identical successful read-only call is a top-level `warning` object `{code, message, next_step, safe_to_retry: false}` on the unchanged result. The same detector returns a named tool error (`safe_to_retry: false`) for a repeated identical failing call (read-only or mutating), a repeated identical mutating call, a write tool failing with the same code, or a ping-pong that ends on a write. A first mutating call that actually changes the document has a different result and resets the window, so K identical no-op results after that fire on the Kth of those no-ops. Thresholds are `DESIGNOS_LOOP_GUARD_K` (default 3) and `DESIGNOS_LOOP_GUARD_N` hashed records (default 20), one window per session, cleared on reconnect, on a document revision change, and by a different call. The detector never mutates the document and never kills the session.\n",
+    );
+
     out
 }
 

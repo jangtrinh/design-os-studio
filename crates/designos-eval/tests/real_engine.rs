@@ -148,6 +148,69 @@ fn only_a_growing_undo_stack_counts_as_an_edit() {
 }
 
 #[test]
+fn scripted_loop_returns_loop_suspected() {
+    let root = temp_test_dir("loop-suspected");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    let args = json!({"node_id": 9_876_543_210u64, "name": "loop"});
+    let first = client.call_tool("designos_update_node", &args).unwrap();
+    assert!(first.is_error);
+    assert_ne!(first.value["code"], json!("LOOP_SUSPECTED"), "{:?}", first.value);
+    let second = client.call_tool("designos_update_node", &args).unwrap();
+    assert!(second.is_error);
+    assert_ne!(second.value["code"], json!("LOOP_SUSPECTED"), "{:?}", second.value);
+    let third = client.call_tool("designos_update_node", &args).unwrap();
+    assert!(third.is_error, "{:?}", third.value);
+    let code = third.value.get("code").or_else(|| third.value.pointer("/error/code"));
+    assert_eq!(code, Some(&json!("LOOP_SUSPECTED")), "{:?}", third.value);
+    assert_eq!(third.value.get("safe_to_retry").or_else(|| third.value.pointer("/error/safe_to_retry")), Some(&json!(false)));
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn scripted_read_loop_returns_warning() {
+    let root = temp_test_dir("loop-read-warning");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    let args = json!({});
+    let first = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!first.is_error, "{:?}", first.value);
+    assert!(first.value.get("warning").is_none(), "{:?}", first.value);
+    let second = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!second.is_error, "{:?}", second.value);
+    assert!(second.value.get("warning").is_none(), "{:?}", second.value);
+    let third = client.call_tool("designos_get_document", &args).unwrap();
+    assert!(!third.is_error, "{:?}", third.value);
+    let warning = third.value.get("warning").unwrap_or_else(|| panic!("missing warning: {:?}", third.value));
+    assert_eq!(warning["code"], json!("LOOP_SUSPECTED"), "{:?}", third.value);
+    assert_eq!(warning["safe_to_retry"], json!(false), "{:?}", third.value);
+    assert_eq!(warning["next_step"], json!("Change the arguments, read the document state, or ask the user."), "{:?}", third.value);
+    assert_eq!(warning["message"], json!("The same call has returned the same result 3 times"), "{:?}", third.value);
+    let mut stripped = third.value.clone();
+    stripped.as_object_mut().unwrap().remove("warning");
+    assert_eq!(stripped, first.value);
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn polling_a_changing_document_stays_silent() {
+    let root = temp_test_dir("loop-poll");
+    let mut client = McpClient::spawn(&mcp_bin(), &["--workspace".to_string(), root.to_string_lossy().to_string()], &BTreeMap::new(), &[]).unwrap();
+    let doc = client.call_tool("designos_get_document", &json!({})).unwrap();
+    assert!(!doc.is_error, "{:?}", doc.value);
+    let page = doc.value["pages"][0]["node_id"].as_u64().expect("page node_id");
+    for i in 0..3 {
+        let created = client.call_tool("designos_create_node", &json!({"parent_id": page, "kind": "frame", "name": format!("Poll{i}")})).unwrap();
+        assert!(!created.is_error, "{:?}", created.value);
+        let again = client.call_tool("designos_get_document", &json!({})).unwrap();
+        assert!(!again.is_error, "{:?}", again.value);
+        assert_ne!(again.value.get("code"), Some(&json!("LOOP_SUSPECTED")));
+    }
+    client.shutdown();
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn started_timestamp_is_rfc3339_utc() {
     assert_eq!(rfc3339_utc(0), "1970-01-01T00:00:00Z");
     assert_eq!(rfc3339_utc(1_000_000_000), "2001-09-09T01:46:40Z");

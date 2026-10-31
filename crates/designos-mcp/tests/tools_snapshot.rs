@@ -293,8 +293,11 @@ fn validate_parity_rows(parity: &ParityFile, declared_tools: &BTreeSet<String>, 
             }
             "excluded" => {
                 let reason = row.reason.as_deref().ok_or_else(|| format!("excluded row `{}` must specify `reason`", row.figma_tool))?;
-                if !(reason.contains("R4.13") || reason.contains("R4.14")) {
-                    return Err(format!("excluded row `{}` reason `{reason}` must cite owner ruling R4.13 or R4.14", row.figma_tool));
+                if !(reason.contains("R4.13") || reason.contains("R4.14") || reason.contains("owner decision 2026-10-30")) {
+                    return Err(format!(
+                        "excluded row `{}` reason `{reason}` must cite owner ruling R4.13 or R4.14, or the owner decision of 2026-10-30",
+                        row.figma_tool
+                    ));
                 }
             }
             other => {
@@ -317,8 +320,8 @@ fn parity_rows_valid() {
     validate_parity_rows(&parity, &declared_tools, &known_tasks).unwrap_or_else(|e| panic!("{e}"));
 
     // Edge case 3: shipping a non-homonym planned tool (e.g. `designos_get_board` for `get_figjam`
-    // or `designos_run_plugin_script` for `use_figma`) must fail while the row still says `task`.
-    for shipped in ["designos_get_board", "designos_run_plugin_script"] {
+    // or `designos_upload_assets` for `generate_image`) must fail while the row still says `task`.
+    for shipped in ["designos_get_board", "designos_upload_assets"] {
         let mut with_shipped = declared_tools.clone();
         with_shipped.insert(shipped.to_string());
         let err =

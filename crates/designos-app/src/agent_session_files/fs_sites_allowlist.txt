@@ -17,7 +17,7 @@ FILE	io.rs	design files the user opens, saves and exports, and the library's own
 FILE	io/dialog_probe.rs	the desktop's portal files and the dialog helper binaries on the system path; no path comes from a session folder
 FILE	main.rs	paths named on the command line (`--screenshot`, `--apply-spec`, `--export-*`, `--import-*`); the only session-folder code it calls is `spawn_startup_sweep`, which does its own file work in `agent_session_files`
 FILE	ops.rs	design and image files the user opens, drops, exports or saves; no path comes from a session folder
-FILE	plugins/store.rs	the plugin store in Studio's data folder and the plugin bundle the user picks to import; no path comes from a session folder
+FILE	plugins/store.rs	the plugin store in Studio's data folder; no path comes from a session folder
 FILE	specs.rs	the spec folders of the open project (`docs/specs`, or the one the user picks) and the Export Frame output in the workspace's `examples/specs` or `$TMPDIR/designos_specs` (#1073); no path comes from a session folder
 FILE	updater.rs	self-update: the app's own binary, its backup and staging files beside it, the update manifest cache and the .app's Info.plist; no path comes from a session folder
 FILE	variables/mod.rs	variables files the user picks to import or export; no path comes from a session folder
