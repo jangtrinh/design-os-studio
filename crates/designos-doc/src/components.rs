@@ -6430,4 +6430,33 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn cross_type_swap_with_carried_size_clears_stroke_geometry_on_frame_glyph() {
+        let mut d = Document::new("sg");
+        let page = d.add_page("P");
+        let a = icon_of_kind(&mut d, page, "Icon/A", 0.0, "vector");
+        let b = icon_of_kind(&mut d, page, "Icon/B", 40.0, "frame");
+        for comp in [a, b] {
+            let gid = d.get(comp).unwrap().children[0];
+            let mut g = d.get(gid).unwrap().clone();
+            g.stroke_geometry = Some(box_outline(16.0));
+            apply(&mut d, Command::Update { node: Box::new(g) });
+        }
+        let (btn, _) = tool_with_icon_slot(&mut d, page, a, b);
+        let c = create_instance(&mut d, btn, page, Vec2::new(200.0, 100.0));
+        apply(&mut d, c);
+        let bi = *d.get(page).unwrap().children.last().unwrap();
+        let si = d.get(bi).unwrap().children[0];
+        let c = set_instance_prop(&mut d, bi, "Icon", Some(PropValue::Instance(b)));
+        apply(&mut d, c);
+        let g0 = d.get(child_named(&d, si, "Glyph")).unwrap();
+        assert_eq!(g0.stroke_geometry, None, "vector->frame with carried Size must clear stroke_geometry at swap");
+        for m in [btn, b, a] {
+            let c = sync_instances(&mut d, m);
+            apply(&mut d, c);
+        }
+        let g1 = d.get(child_named(&d, si, "Glyph")).unwrap();
+        assert_eq!(g1.stroke_geometry, None, "vector->frame with carried Size keeps stroke_geometry == None after 1 sync");
+    }
 }
