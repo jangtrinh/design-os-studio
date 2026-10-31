@@ -573,3 +573,39 @@ fn vertical_trim_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_
     assert_eq!(text_of(&s, id).paragraph.leading_trim, LeadingTrim::CapHeight, "redo reapplies vertical trim");
     assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
 }
+
+#[test]
+fn repicking_same_font_family_outside_session_keeps_linked_text_style() {
+    let (mut s, id) = linked_sim();
+    let depth = s.app().hist.undo_depth();
+
+    s.seed_families();
+    let fam_r = s.field_rect("font-family");
+    s.click(fam_r.center());
+    // Row 0 in the open family picker popup is "Inter" (the already-active family of Body/Regular).
+    let row0 = Pos2::new(fam_r.center().x, fam_r.bottom() + 2.0 + 8.0 + theme::FIELD_HEIGHT + 4.0 + theme::MENU_ITEM_HEIGHT * 0.5);
+    s.click(row0);
+
+    assert_eq!(text_of(&s, id).style.font_family, "Inter");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "re-picking the same font family outside a session must keep the text style link");
+    assert_eq!(s.app().hist.undo_depth(), depth, "no-op family repick must not push an undo step");
+}
+
+#[test]
+fn repicking_same_font_family_in_session_keeps_linked_text_style() {
+    let (mut s, id) = linked_sim();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(!s.app().canvas.text.as_ref().unwrap().range().is_empty(), "session selection covers the text");
+
+    s.seed_families();
+    let fam_r = s.field_rect("font-family");
+    s.click(fam_r.center());
+    let row0 = Pos2::new(fam_r.center().x, fam_r.bottom() + 2.0 + 8.0 + theme::FIELD_HEIGHT + 4.0 + theme::MENU_ITEM_HEIGHT * 0.5);
+    s.click(row0);
+
+    assert_eq!(text_of(&s, id).style.font_family, "Inter");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "re-picking the same font family in a session must keep the text style link");
+    assert!(!s.app().canvas.text.as_ref().unwrap().log.can_undo(), "no-op family repick in a session must not record a session undo step");
+}

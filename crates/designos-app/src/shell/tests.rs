@@ -1,6 +1,8 @@
 //! End-to-end UI tests: drive the whole window with synthetic egui input.
 
 use super::*;
+#[allow(unused_imports)]
+use crate::panels::typography::{pick_family, set_base, set_style, set_text_props};
 use designos_doc::{Color, NodeId, NodeKind, Paint, Vec2 as DV};
 use egui::{Modifiers, PointerButton, RawInput};
 
