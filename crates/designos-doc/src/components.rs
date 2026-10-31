@@ -991,10 +991,8 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
         OverrideField::Blend => to.blend = from.blend,
         OverrideField::Size => {
             to.size = from.size;
-            if matches!(to.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
-                to.fill_geometry = from.fill_geometry.clone();
-                to.stroke_geometry = from.stroke_geometry.clone();
-            }
+            to.fill_geometry = from.fill_geometry.clone();
+            to.stroke_geometry = from.stroke_geometry.clone();
         }
         OverrideField::Transform => to.transform = from.transform,
         OverrideField::Fills => {
@@ -1453,7 +1451,12 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
         if fields.is_empty() {
             continue;
         }
+        let kinds_differ = std::mem::discriminant(&old.kind) != std::mem::discriminant(&nn.kind);
+        let own_geo = (nn.fill_geometry.clone(), nn.stroke_geometry.clone());
         copy_overridden(&old, &mut nn, &fields);
+        if kinds_differ {
+            (nn.fill_geometry, nn.stroke_geometry) = own_geo;
+        }
         c.update(nn);
     }
 }
