@@ -1464,10 +1464,10 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
 fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen: &mut Vec<NodeId>) {
     let (Some(mut rn), Some(mut inode)) = (c.s.get(r).cloned(), c.s.get(i).cloned()) else { return };
     let slot_comp = instance_component(&rn);
-    let inst_slot_size = inode.size;
     let values = c.s.get(holder).map(|h| h.component.values.clone()).unwrap_or_default();
 
     // --- which component should this instance show? ---
+    let mut swapped_here = false;
     if let Some(cur) = instance_component(&inode) {
         let mut desired = cur;
         if !inode.component.overrides.contains(&OverrideField::MainComponent) {
@@ -1491,6 +1491,7 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
             c.refused_swap.push((cur, desired));
         } else if desired != cur {
             swap_main(c, i, desired);
+            swapped_here = true;
             inode = match c.s.get(i) {
                 Some(n) => n.clone(),
                 None => return,
@@ -1512,14 +1513,19 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
         if let Some(mut node_ref) = c.s.get(r).cloned() {
             let orig_slot_comp = slot_comp.and_then(|oc| c.s.get(oc));
             let slot_ov = orig_slot_comp.map(|oc| record_override(oc, &node_ref)).unwrap_or_default();
-            node_ref.size = inst_slot_size;
-            let keep_x = orig_slot_comp.is_some_and(|oc| (inst_slot_size.x - oc.size.x).abs() > 1e-4);
-            let keep_y = orig_slot_comp.is_some_and(|oc| (inst_slot_size.y - oc.size.y).abs() > 1e-4);
-            if !keep_x {
-                node_ref.size.x = rn.size.x;
-            }
-            if !keep_y {
-                node_ref.size.y = rn.size.y;
+            // The sync that swaps keeps what swap_main decided per axis. Later syncs keep an axis only where the main's
+            // own slot was resized away from the component it shows there; elsewhere they follow the slot's new main.
+            if swapped_here {
+                node_ref.size = inode.size;
+            } else {
+                let keep_x = orig_slot_comp.is_some_and(|oc| (node_ref.size.x - oc.size.x).abs() > 1e-4);
+                let keep_y = orig_slot_comp.is_some_and(|oc| (node_ref.size.y - oc.size.y).abs() > 1e-4);
+                if !keep_x {
+                    node_ref.size.x = rn.size.x;
+                }
+                if !keep_y {
+                    node_ref.size.y = rn.size.y;
+                }
             }
             for f in [
                 OverrideField::Opacity,
