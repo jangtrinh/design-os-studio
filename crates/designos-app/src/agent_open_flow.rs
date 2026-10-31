@@ -541,7 +541,7 @@ pub fn render_sessions_popover(state: &mut TerminalState, ui: &mut Ui, panel_rec
                 }
                 let te = TextEdit::singleline(&mut state.rename_session_input)
                     .id(field_id)
-                    .desired_width((label_avail_w - theme::INSET_CONTROL).max(theme::CONTROL_DENSE))
+                    .desired_width((label_avail_w - theme::INSET_CONTROL).max(theme::TARGET_MIN))
                     .frame(egui::Frame::NONE)
                     .font(theme::font_body())
                     .text_color(theme::TEXT)

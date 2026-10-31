@@ -313,7 +313,7 @@ impl MentionPopupState {
                 let elided_cap = widgets::elide(&clip_painter, &cand.caption, &cap_font, max_text_w);
 
                 clip_painter.text(Pos2::new(text_x, top_row_y), Align2::LEFT_CENTER, elided_name, name_font, name_color);
-                let bottom_row_y = row_r.top() + theme::CONTROL_STANDARD + theme::BORDER_WIDTH;
+                let bottom_row_y = top_row_y + theme::SPACE_BLOCK;
                 clip_painter.text(Pos2::new(text_x, bottom_row_y), Align2::LEFT_CENTER, elided_cap, cap_font, theme::TEXT_SECONDARY);
                 widgets::record(ui, &format!("agent-mention-row-{idx}"), row_r);
 

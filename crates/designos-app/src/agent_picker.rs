@@ -1,6 +1,5 @@
-//! Full new-session CLI picker (`CONTROL_MD` = 40 px) and compact `+` dropdown menu
-//! (`CONTROL_STANDARD` = 28 px) sharing the single [`crate::agent_cli_catalog::build_picker_rows`]
-//! catalog list, plus the inline `"Other CLI…"` two-field form (`#652`).
+//! The agent menu above the composer pill, built from the single [`crate::agent_cli_catalog::build_picker_rows`] catalog list,
+//! and its inline `"Other CLI…"` two-field form (`#652`).
 
 use std::path::{Path, PathBuf};
 
