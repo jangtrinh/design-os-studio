@@ -3344,7 +3344,7 @@ impl TerminalState {
 
     /// Submits a user message from the Agent composer into the active tab's live CLI session (`#689` §3 rules 1, 8).
     pub fn submit_chat_prompt(&mut self, prompt: &str, file_path: Option<&Path>) {
-        let _ = self.send_typed_message(prompt, file_path);
+        let _ = self.send_to_agent_as_typed(prompt, file_path);
     }
 
     /// Submits a system-generated image task prompt to the target agent runtime (`#667`).

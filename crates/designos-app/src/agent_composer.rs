@@ -654,7 +654,7 @@ impl TerminalState {
 
     /// Sends a message the user typed (the classic chat) the way the composer box does, except that it never starts the pill's agent:
     /// the composer on screen is spent, its chips, mentions and PRD chip go with the text.
-    pub fn send_typed_message(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
+    pub fn send_to_agent_as_typed(&mut self, text: &str, file_path: Option<&Path>) -> SendOutcome {
         self.send_to_agent_from(text, file_path, SendSource::Typed)
     }
 
