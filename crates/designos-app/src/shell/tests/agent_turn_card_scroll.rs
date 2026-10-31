@@ -445,3 +445,19 @@ fn a11y_list_region_announces_row_count_when_rows_off_screen() {
     );
     finish(s);
 }
+
+#[test]
+fn turn_card_revert_and_keep_are_control_xs_secondary_buttons() {
+    use crate::widgets::kit::{button_look, Hierarchy, State};
+    let (s, _ids) = setup_panel_with_turn(900.0, 60, 3, false);
+    let secondary = button_look(Hierarchy::Secondary, State::Default);
+    for name in ["agent-turn-revert", "agent-turn-keep"] {
+        let rect = s.rect_of(name);
+        assert_eq!(rect.height(), crate::theme::CONTROL_XS, "{name} is 32 high like every agent button");
+        let wears_secondary = s.shapes.iter().any(|cs| {
+            matches!(&cs.shape, egui::epaint::Shape::Rect(r)
+                if (r.rect.min - rect.min).length() < 0.6 && (r.rect.max - rect.max).length() < 0.6 && r.fill == secondary.fill)
+        });
+        assert!(wears_secondary, "{name} wears the kit's Secondary look");
+    }
+}

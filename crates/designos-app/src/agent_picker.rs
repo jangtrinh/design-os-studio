@@ -583,10 +583,9 @@ fn paint_agent_menu_row(
         }
     }
     if checked {
-        let mark = "✓";
-        let mark_w = widgets::text_width(&p, mark, &menu_label_font());
-        p.text(Pos2::new(right, row_r.center().y), Align2::RIGHT_CENTER, mark, menu_label_font(), look.mark);
-        right -= mark_w + theme::SPACE_ROW;
+        let mark_box = Rect::from_center_size(Pos2::new(right - theme::LAYER_ICON_SIZE * 0.5, row_r.center().y), Vec2::splat(theme::LAYER_ICON_SIZE));
+        widgets::paint_icon_in(&p, mark_box, crate::icons::Icon::Check, theme::LAYER_ICON_SIZE, look.mark);
+        right -= theme::LAYER_ICON_SIZE + theme::SPACE_ROW;
     }
     let left_x = row_r.left() + theme::INSET_FRAME;
     let title = widgets::elide(&p, &row.label, &menu_label_font(), (right - left_x).max(theme::TARGET_MIN));

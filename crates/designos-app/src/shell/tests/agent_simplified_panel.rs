@@ -872,3 +872,22 @@ fn selection_chip_dismiss_hides_it_until_the_selection_changes_and_a_click_sends
     assert!(recorded(&s, "agent-selection-chip").is_some(), "a different selection brings it back");
     finish(s);
 }
+
+#[test]
+fn selected_menu_rows_draw_a_check_icon_not_a_glyph() {
+    let mut s = session_sim();
+    let mode = recorded(&s, "agents-composer-mode-btn").unwrap();
+    s.click(mode.center());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.mode_menu_open, "the mode menu is open");
+    assert!(recorded(&s, "agents-composer-mode-ask").is_some(), "its rows are drawn");
+    assert!(!painted(&s).iter().any(|t| t.contains('✓')), "the selected mode shows an icon, no check glyph: {:?}", painted(&s));
+    s.key(Key::Escape);
+    frames(&mut s, 2);
+    let pill = recorded(&s, "agents-composer-agent-pill").unwrap();
+    s.click(pill.center());
+    frames(&mut s, 3);
+    assert!(s.shell.app.terminal.runtime_dropdown_open, "the agent menu is open");
+    assert!(!painted(&s).iter().any(|t| t.contains('✓')), "and so does the agent that is running: {:?}", painted(&s));
+    finish(s);
+}

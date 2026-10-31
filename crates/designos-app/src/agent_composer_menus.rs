@@ -120,10 +120,9 @@ fn menu_row(ui: &mut Ui, rect: Rect, id: &str, label: &str, caption: Option<&str
     let p = ui.painter().clone();
     let mut right = rect.right() - theme::SPACE_INLINE;
     if checked {
-        let mark = "✓";
-        let mark_w = widgets::text_width(&p, mark, &theme::font_caption());
-        p.text(Pos2::new(right, rect.center().y), Align2::RIGHT_CENTER, mark, theme::font_caption(), look.mark);
-        right -= mark_w + theme::SPACE_ROW;
+        let mark_box = Rect::from_center_size(Pos2::new(right - theme::LAYER_ICON_SIZE * 0.5, rect.center().y), Vec2::splat(theme::LAYER_ICON_SIZE));
+        widgets::paint_icon_in(&p, mark_box, crate::icons::Icon::Check, theme::LAYER_ICON_SIZE, look.mark);
+        right -= theme::LAYER_ICON_SIZE + theme::SPACE_ROW;
     }
     if let Some(caption) = caption {
         let cap_w = widgets::text_width(&p, caption, &theme::font_caption());
