@@ -4518,15 +4518,17 @@ mod tests {
         let fg_after_swap = glyph_after_swap.fill_geometry.as_ref().unwrap()[0].cmds.clone();
         assert_eq!(fg_after_swap, vec![crate::PathCmd::MoveTo(Vec2::new(5.0, 5.0)), crate::PathCmd::LineTo(Vec2::new(15.0, 15.0))]);
 
-        let sync = sync_instances(&mut d, btn);
-        apply(&mut d, sync);
-        let glyph_after_sync = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
-        let fg_after_sync = glyph_after_sync.fill_geometry.as_ref().unwrap()[0].cmds.clone();
-        assert_eq!(
-            fg_after_sync,
-            vec![crate::PathCmd::MoveTo(Vec2::new(5.0, 5.0)), crate::PathCmd::LineTo(Vec2::new(15.0, 15.0))],
-            "fill_geometry must NOT be scaled a second time on sync_instances"
-        );
+        for sync_round in 1..=3 {
+            let sync = sync_instances(&mut d, btn);
+            apply(&mut d, sync);
+            let glyph_after_sync = d.get(child_named(&d, slot_inst, "Glyph")).unwrap();
+            let fg_after_sync = glyph_after_sync.fill_geometry.as_ref().unwrap()[0].cmds.clone();
+            assert_eq!(
+                fg_after_sync,
+                vec![crate::PathCmd::MoveTo(Vec2::new(5.0, 5.0)), crate::PathCmd::LineTo(Vec2::new(15.0, 15.0))],
+                "fill_geometry must NOT be scaled again on sync_instances round {sync_round}"
+            );
+        }
     }
 
     #[test]
@@ -5701,5 +5703,230 @@ mod tests {
         apply(&mut d, c);
         assert_eq!(instance_component(d.get(badge_of(&d, si)).unwrap()), Some(red), "inner swap below swapped slot is dropped as base does (#1433)");
         assert_eq!(last_dropped_inner_swaps(), 1, "swap must count the dropped inner swap below the swapped slot");
+    }
+
+    #[test]
+    fn probe_p4_variant_switch_does_not_turn_refit_size_into_override() {
+        let mut d = Document::new("p4");
+        let page = d.add_page("P");
+        let mk = |d: &mut Document, name: &str, y: f32, h: f32, fs: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, y, 100.0, h + 8.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let tid = d.alloc_id();
+            let style = crate::TextStyle { font_size: fs, ..crate::TextStyle::default() };
+            let mut t = Node::text(tid, Rect::new(4.0, 4.0, 50.0, h), "Label", style);
+            t.name = "label".into();
+            if let NodeKind::Text(tp) = &mut t.kind {
+                tp.auto_resize = TextAutoResize::WidthAndHeight;
+            }
+            d.insert(comp, t).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let sm = mk(&mut d, "Size=Sm", 0.0, 20.0, 14.0);
+        let md = mk(&mut d, "Size=Md", 100.0, 24.0, 16.0);
+        let c = combine_as_variants(&mut d, &[sm, md]);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, sm, page, Vec2::new(300.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let l = child_named(&d, inst, "label");
+        let mut ln = d.get(l).unwrap().clone();
+        let before = ln.clone();
+        if let NodeKind::Text(tp) = &mut ln.kind {
+            tp.content = "Continue to checkout".into();
+        }
+        ln.component.overrides = record_override(&before, &ln);
+        ln.size = Vec2::new(140.0, 20.0);
+        apply(&mut d, Command::Update { node: Box::new(ln) });
+        let c = set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant("Md".into())));
+        apply(&mut d, c);
+        let nl = d.get(child_named(&d, inst, "label")).unwrap();
+        assert!(!nl.component.overrides.contains(&OverrideField::Size), "a re-fit text box is not a user Size override");
+    }
+
+    #[test]
+    fn probe_p6_top_level_variant_switch_children_match_root() {
+        let mut d = Document::new("p6");
+        let page = d.add_page("P");
+        let mk = |d: &mut Document, name: &str, y: f32, h: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(0.0, y, 100.0, h));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let rid = d.alloc_id();
+            let mut r = Node::rectangle(rid, Rect::new(0.0, 0.0, 100.0, h));
+            r.name = "bg".into();
+            r.constraints = Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+            d.insert(comp, r).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let a = mk(&mut d, "Size=A", 0.0, 40.0);
+        let b = mk(&mut d, "Size=B", 100.0, 60.0);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, a, page, Vec2::new(300.0, 0.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        {
+            let mut n = d.get(inst).unwrap().clone();
+            n.size = Vec2::new(300.0, 40.0);
+            apply(&mut d, Command::Update { node: Box::new(n) });
+            let bgid = child_named(&d, inst, "bg");
+            let mut bg = d.get(bgid).unwrap().clone();
+            bg.size = Vec2::new(300.0, 40.0);
+            apply(&mut d, Command::Update { node: Box::new(bg) });
+        }
+        let c = set_instance_prop(&mut d, inst, "Size", Some(PropValue::Variant("B".into())));
+        apply(&mut d, c);
+        let n = d.get(inst).unwrap();
+        let bg = d.get(child_named(&d, inst, "bg")).unwrap();
+        assert_eq!(n.size, Vec2::new(100.0, 60.0));
+        assert_eq!(bg.size, n.size, "Stretch child must match the root after a variant switch");
+        assert!(!bg.component.overrides.contains(&OverrideField::Size));
+    }
+
+    #[test]
+    fn r3_b1_swap_then_three_syncs_matches_direct_20px_glyph() {
+        const MINMIN: Constraints = Constraints { horizontal: Constraint::Min, vertical: Constraint::Min };
+        let mut d = Document::new("b1");
+        let page = d.add_page("P");
+        let mk_icon = |d: &mut Document, name: &str, x: f32| -> NodeId {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let gid = d.alloc_id();
+            let mut g = Node::new(gid, NodeKind::Vector { paths: box_outline(16.0), network: None });
+            g.size = Vec2::new(16.0, 16.0);
+            g.name = "Glyph".into();
+            g.constraints = MINMIN;
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            g.fill_geometry = Some(box_outline(16.0));
+            d.insert(comp, g).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            comp
+        };
+        let a = mk_icon(&mut d, "Icon/A", 0.0);
+        let b = mk_icon(&mut d, "Icon/B", 40.0);
+        {
+            let gb = d.get(b).unwrap().children[0];
+            let mut g = d.get(gb).unwrap().clone();
+            let p = vec![crate::Path {
+                cmds: vec![
+                    crate::PathCmd::MoveTo(Vec2::new(3.0, 2.0)),
+                    crate::PathCmd::LineTo(Vec2::new(13.0, 4.0)),
+                    crate::PathCmd::LineTo(Vec2::new(8.0, 14.0)),
+                    crate::PathCmd::Close,
+                ],
+                ..Default::default()
+            }];
+            g.kind = NodeKind::Vector { paths: p.clone(), network: None };
+            g.fill_geometry = Some(p);
+            apply(&mut d, Command::Update { node: Box::new(g) });
+        }
+        let btn = {
+            let id = d.alloc_id();
+            let mut btn = Node::frame(id, Rect::new(0.0, 100.0, 32.0, 32.0));
+            btn.name = "Tool".into();
+            let btn = d.insert(page, btn).unwrap();
+            let c = create_component(&mut d, btn);
+            apply(&mut d, c);
+            let c = create_instance(&mut d, a, btn, Vec2::new(6.0, 6.0));
+            apply(&mut d, c);
+            let slot = d.get(btn).unwrap().children[0];
+            let mut sn = d.get(slot).unwrap().clone();
+            sn.name = "Icon".into();
+            sn.size = Vec2::new(20.0, 20.0);
+            sn.component.overrides.insert(OverrideField::Name);
+            sn.component.overrides.insert(OverrideField::Size);
+            apply(&mut d, Command::Update { node: Box::new(sn) });
+            let gl = child_named(&d, slot, "Glyph");
+            let mut gn = d.get(gl).unwrap().clone();
+            let before = gn.clone();
+            let tf = gn.transform;
+            crate::layout_constraints::apply_constrained_geometry(&mut gn, tf, Vec2::new(20.0, 20.0));
+            gn.component.overrides.extend(record_override(&before, &gn));
+            apply(&mut d, Command::Update { node: Box::new(gn) });
+            let c = add_prop(&mut d, btn, ComponentPropDef { name: "Icon".into(), kind: PropKind::InstanceSwap { preferred: vec![a, b] }, default: PropValue::Instance(a) });
+            apply(&mut d, c);
+            let c = bind_prop(&mut d, slot, OverrideField::MainComponent, Some("Icon"));
+            apply(&mut d, c);
+            btn
+        };
+        let c = create_instance(&mut d, btn, page, Vec2::new(200.0, 100.0));
+        apply(&mut d, c);
+        let bi = *d.get(page).unwrap().children.last().unwrap();
+        let si = d.get(bi).unwrap().children[0];
+        let c = set_instance_prop(&mut d, bi, "Icon", Some(PropValue::Instance(b)));
+        apply(&mut d, c);
+
+        let mut direct = d.get(d.get(b).unwrap().children[0]).unwrap().clone();
+        let tf = direct.transform;
+        crate::layout_constraints::apply_constrained_geometry(&mut direct, tf, Vec2::new(20.0, 20.0));
+        let want_b = path_bbox(direct.fill_geometry.as_ref().unwrap());
+        let want = (want_b.0 + direct.transform.tx, want_b.1 + direct.transform.ty, want_b.2 + direct.transform.tx, want_b.3 + direct.transform.ty);
+
+        for k in 0..=3 {
+            if k > 0 {
+                for m in [btn, b] {
+                    let c = sync_instances(&mut d, m);
+                    apply(&mut d, c);
+                }
+            }
+            let g = d.get(child_named(&d, si, "Glyph")).unwrap();
+            let gb = path_bbox(g.fill_geometry.as_ref().expect("fill_geometry kept"));
+            let got = (gb.0 + g.transform.tx, gb.1 + g.transform.ty, gb.2 + g.transform.tx, gb.3 + g.transform.ty);
+            let dmax = [got.0 - want.0, got.1 - want.1, got.2 - want.2, got.3 - want.3].iter().fold(0f32, |m, v| m.max(v.abs()));
+            assert!(dmax <= 0.5, "after {k} syncs the drawn glyph {got:?} is {dmax} px from a direct 20 px glyph {want:?}");
+            assert!(got.0 >= -1e-3 && got.1 >= -1e-3 && got.2 <= 20.0 + 1e-3 && got.3 <= 20.0 + 1e-3, "glyph drawn outside the 20 px slot: {got:?}");
+        }
+    }
+
+    #[test]
+    fn r4_top_level_swap_does_not_carry_diff_derived_overrides() {
+        let mut d = Document::new("rm2");
+        let page = d.add_page("P");
+        let mk_comp = |d: &mut Document, name: &str, x: f32| -> (NodeId, NodeId) {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 80.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let bid = d.alloc_id();
+            let mut b = Node::rectangle(bid, Rect::new(4.0, 4.0, 12.0, 12.0));
+            b.name = "Badge".into();
+            b.visible = true;
+            d.insert(comp, b).unwrap();
+            let c = create_component(d, comp);
+            apply(d, c);
+            (comp, bid)
+        };
+        let (comp_a, badge_a) = mk_comp(&mut d, "Comp/A", 0.0);
+        let (comp_b, _) = mk_comp(&mut d, "Comp/B", 100.0);
+        let c = add_prop(&mut d, comp_a, ComponentPropDef { name: "Show".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) });
+        apply(&mut d, c);
+        let c = bind_prop(&mut d, badge_a, OverrideField::Visible, Some("Show"));
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, comp_a, page, Vec2::new(0.0, 100.0));
+        apply(&mut d, c);
+        let inst = *d.get(page).unwrap().children.last().unwrap();
+        let c = set_instance_prop(&mut d, inst, "Show", Some(PropValue::Bool(false)));
+        apply(&mut d, c);
+        let inst_badge = child_named(&d, inst, "Badge");
+        assert!(!d.get(inst_badge).unwrap().visible, "boolean prop value hides Badge in Comp/A instance without an explicit Visible override");
+        assert!(!d.get(inst_badge).unwrap().component.overrides.contains(&OverrideField::Visible));
+
+        let c = swap_instance(&mut d, inst, comp_b);
+        apply(&mut d, c);
+        let badge_after = d.get(child_named(&d, inst, "Badge")).unwrap();
+        assert!(badge_after.visible, "top-level swap must not carry diff-derived overrides onto Comp/B (R-M2)");
+        assert!(!badge_after.component.overrides.contains(&OverrideField::Visible));
     }
 }
