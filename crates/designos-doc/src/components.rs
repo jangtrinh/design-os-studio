@@ -1379,28 +1379,7 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     c.update(n);
 
     if !(top_swap && same_family) && target_size != comp.size {
-        let mut default_vec_ids = Vec::new();
-        for cid in subtree_ids(&c.s, i) {
-            if cid == i {
-                continue;
-            }
-            if let Some(cn) = c.s.get(cid) {
-                if matches!(cn.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) && cn.constraints == Constraints::default() {
-                    default_vec_ids.push(cid);
-                }
-            }
-        }
-        for &cid in &default_vec_ids {
-            if let Some(cn) = c.s.get_mut(cid) {
-                cn.constraints = Constraints { horizontal: Constraint::Scale, vertical: Constraint::Scale };
-            }
-        }
         let plan = crate::layout_constraints::plan_constraint_pass(&c.s, i, comp.size, target_size, 8);
-        for &cid in &default_vec_ids {
-            if let Some(cn) = c.s.get_mut(cid) {
-                cn.constraints = Constraints::default();
-            }
-        }
         for (cid, new_tf, new_sz) in plan {
             if cid == i {
                 continue;
