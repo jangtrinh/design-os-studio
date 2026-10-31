@@ -25,6 +25,30 @@ fn fx_field_rect(s: &Sim, tag: &str, i: usize) -> Rect {
     s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", key.clone())))).unwrap_or_else(|| panic!("no field {key}"))
 }
 
+fn collect_texts_in_rect(shape: &egui::epaint::Shape, rect: Rect, out: &mut Vec<String>) {
+    match shape {
+        egui::epaint::Shape::Text(t) => {
+            if rect.contains(t.pos) {
+                out.push(t.galley.text().to_string());
+            }
+        }
+        egui::epaint::Shape::Vec(shapes) => {
+            for s in shapes {
+                collect_texts_in_rect(s, rect, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn texts_in_rect(s: &Sim, rect: Rect) -> Vec<String> {
+    let mut out = Vec::new();
+    for cs in &s.shapes {
+        collect_texts_in_rect(&cs.shape, rect, &mut out);
+    }
+    out
+}
+
 #[test]
 fn node_effect_rows_bind_filter_scopes_detach_and_undo() {
     let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
@@ -737,4 +761,94 @@ fn probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit() {
     assert!(touched, "guard: the first swatch click opened a live picker transaction");
     assert_eq!(bound_after_pick.as_ref(), Some(&v));
     assert_eq!(bound_after_edit.as_ref(), Some(&v), "the binding survives the next picker edit");
+}
+
+#[test]
+fn multiselect_bound_gradient_stop_locks_all_selected_layers_and_shows_mixed_pill() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _dark) = theme_ids(s.app());
+    let v_red = store.add_variable(&coll, "Probe/Red", VariableKind::Color).unwrap();
+    store.set_value(&v_red, &light, VariableValue::Color(Color::rgb(0xFF, 0x11, 0x22)));
+    set_scopes(&mut store, &v_red, &["ALL_FILLS"]);
+    let v_blue = store.add_variable(&coll, "Probe/Blue", VariableKind::Color).unwrap();
+    store.set_value(&v_blue, &light, VariableValue::Color(Color::rgb(0x22, 0x66, 0xFF)));
+    set_scopes(&mut store, &v_blue, &["ALL_FILLS"]);
+    s.shell.app.commit_store(store, &[], &[]);
+
+    let red = Color::rgb(0xFF, 0x11, 0x22);
+    let blue = Color::rgb(0x22, 0x66, 0xFF);
+    let mut heroes: Vec<NodeId> = s.app().doc.nodes.values().filter(|n| n.name == "Hero").map(|n| n.id).collect();
+    heroes.sort();
+    assert!(heroes.len() >= 2, "fixture has two Hero layers");
+    let (a, b) = (heroes[0], heroes[1]);
+
+    let two_stop_grad = || Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    let stops_of = |p: &Paint| -> Vec<(f32, Color)> {
+        match &p.kind {
+            PaintKind::LinearGradient { stops, .. } => stops.iter().map(|st| (st.pos, st.color)).collect(),
+            _ => vec![],
+        }
+    };
+
+    // 1. Layer `a` is unbound at stop 0; layer `b` binds `fills/0/stops/0` to `Probe/Red`.
+    s.shell.app.edit_nodes(&[a, b], |n| n.fills = vec![two_stop_grad()]);
+    s.shell.app.bind_variable(&[b], &["fills/0/stops/0"], &v_red);
+    s.shell.app.selection = vec![a, b];
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    s.click(Pos2::new(picker.left() + 16.0, picker.top() + 100.0));
+    s.frame(vec![]);
+
+    // Clicking a swatch while stop 0 is selected does not write a raw colour to `b` (or `a`).
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    let nb = s.app().doc.get(b).unwrap();
+    let b_raw = stops_of(&nb.fills[0]);
+    let b_res = stops_of(&designos_doc::resolve_node(&s.app().doc, nb).fills[0]);
+    assert_eq!(nb.variables.bindings.get("fills/0/stops/0"), Some(&v_red));
+    assert_eq!(b_raw[0].1, b_res[0].1, "swatch must not write a raw colour into b's bound stop");
+    assert_eq!(b_raw[0].1, red);
+    assert_eq!(stops_of(&s.app().doc.get(a).unwrap().fills[0])[0].1, Color::BLACK);
+
+    // Because `a` is unbound and `b` is bound, the pill shows "Mixed".
+    let pill_rect = s.rect_of("bound:fills/0/stops/0");
+    assert_eq!(texts_in_rect(&s, pill_rect), vec!["Mixed".to_string()]);
+
+    // Editing unbound stop 1 on the multi-selection also preserves `b`'s bound stop 0 raw colour.
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    assert_eq!(stops_of(&s.app().doc.get(b).unwrap().fills[0])[0].1, red);
+    s.click(Pos2::new(picker.left() + 16.0, picker.top() + 100.0));
+    s.frame(vec![]);
+
+    // 2. When `a` binds `Probe/Blue` and `b` binds `Probe/Red` at stop 0, the pill still shows "Mixed" and stays locked.
+    s.shell.app.bind_variable(&[a], &["fills/0/stops/0"], &v_blue);
+    s.frame(vec![]);
+    let pill_rect = s.rect_of("bound:fills/0/stops/0");
+    assert_eq!(texts_in_rect(&s, pill_rect), vec!["Mixed".to_string()]);
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    assert_eq!(stops_of(&s.app().doc.get(a).unwrap().fills[0])[0].1, blue);
+    assert_eq!(stops_of(&s.app().doc.get(b).unwrap().fills[0])[0].1, red);
+
+    // 3. When both `a` and `b` bind the same variable `Probe/Red`, the pill shows `Probe/Red`.
+    s.shell.app.bind_variable(&[a], &["fills/0/stops/0"], &v_red);
+    s.frame(vec![]);
+    let pill_rect = s.rect_of("bound:fills/0/stops/0");
+    assert_eq!(texts_in_rect(&s, pill_rect), vec!["Probe/Red".to_string()]);
 }
