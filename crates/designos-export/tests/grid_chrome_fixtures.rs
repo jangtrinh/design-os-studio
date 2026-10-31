@@ -3,7 +3,10 @@
 //! `fixed_height_auto_rows`, `row_and_column_spans`) and dumps their solver boxes + CSS/Tailwind
 //! as JSON for `scripts/qa/grid-chrome-compare.py` when `GRID_CHROME_DUMP_JSON=1` is set.
 
-use designos_doc::{AlignSelf, AutoLayout, Document, FrameProps, GridAutoTracks, GridTrack, LayoutDirection, Node, NodeId, NodeKind, Rect, Sizing, Vec2};
+use designos_doc::{
+    AlignSelf, AutoLayout, Color, Document, FrameProps, GridAutoTracks, GridTrack, LayoutDirection, Node, NodeId, NodeKind, Paint, Rect, Sizing, StrokeAlign,
+    Vec2,
+};
 use designos_export::{css_for, tailwind_for};
 
 pub struct GridFixture {
@@ -63,6 +66,8 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_n2_hug_equal_flex_two_empty_hug_cols(),
         scene_n2b_hug_equal_flex_one_empty_hug_col(),
         scene_n2c_hug_equal_flex_fill_only_hug_col(),
+        scene_n6_stroke_v0_unpadded_hug(),
+        scene_n6c_stroke_v0_unpadded_fixed(),
     ]
 }
 
@@ -530,6 +535,70 @@ fn scene_n2c_hug_equal_flex_fill_only_hug_col() -> GridFixture {
     }
 }
 
+fn apply_inside_stroke_2px(doc: &mut Document, grid: NodeId) {
+    let n = doc.get_mut(grid).unwrap();
+    n.stroke.paints = vec![Paint::solid(Color::rgb(0x33, 0x33, 0x33))];
+    n.stroke.weight = 2.0;
+    n.stroke.align = StrokeAlign::Inside;
+}
+
+fn scene_n6_stroke_v0_unpadded_hug() -> GridFixture {
+    let al = AutoLayout {
+        grid_columns: 3,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        layout_version: 0,
+        stroke_included: true,
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    apply_inside_stroke_2px(&mut doc, grid);
+    let a = add_item(&mut doc, grid, 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    let c = add_item(&mut doc, grid, 60.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "n6_stroke_v0_unpadded_hug",
+        doc,
+        grid,
+        items: vec![a, b, c],
+        expected_css: "display: grid;\nwidth: 204px;\nheight: 34px;\nbox-sizing: border-box;\ngrid-template-columns: 100px 40px 60px;\nalign-content: start;\nborder: 2px solid #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-[100px_40px_60px] content-start box-border w-[204px] h-[34px] border-2 border-[#333333]\">\n  <div class=\"w-[100px] h-[30px]\"></div>\n  <div class=\"w-10 h-[30px]\"></div>\n  <div class=\"w-15 h-[30px]\"></div>\n</div>",
+    }
+}
+
+fn scene_n6c_stroke_v0_unpadded_fixed() -> GridFixture {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        layout_version: 0,
+        stroke_included: true,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 50.0));
+    apply_inside_stroke_2px(&mut doc, grid);
+    let a = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 10.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "n6c_stroke_v0_unpadded_fixed",
+        doc,
+        grid,
+        items: vec![a, b],
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 34px;\nbox-sizing: border-box;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\nalign-content: start;\nborder: 2px solid #333;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 content-start box-border w-[200px] h-[34px] border-2 border-[#333333]\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"h-[30px]\"></div>\n</div>",
+    }
+}
+
 fn json_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     out.push('"');
@@ -675,6 +744,39 @@ fn n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind() {
 #[test]
 fn n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind() {
     assert_fixture_css_and_tailwind("n2c_hug_equal_flex_fill_only_hug_col");
+}
+
+#[test]
+fn n6_stroke_v0_unpadded_hug_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n6_stroke_v0_unpadded_hug");
+}
+
+#[test]
+fn n6c_stroke_v0_unpadded_fixed_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n6c_stroke_v0_unpadded_fixed");
+}
+
+#[test]
+fn mutation_r1_stroked_hug_grid_uses_effective_padding_for_column_tracks() {
+    let al = AutoLayout {
+        grid_columns: 3,
+        layout_version: 0,
+        stroke_included: true,
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    apply_inside_stroke_2px(&mut doc, grid);
+    doc.get_mut(grid).unwrap().layout_child.min_w = Some(304.0);
+    add_item(&mut doc, grid, 100.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    add_item(&mut doc, grid, 40.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    add_item(&mut doc, grid, 60.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    let css = css_for(&doc, grid);
+    let tw = tailwind_for(&doc, grid);
+    assert!(css.contains("grid-template-columns: 133.333px 73.333px 93.333px;"), "{css}");
+    assert!(tw.contains("grid-cols-[133.333px_73.333px_93.333px]"), "{tw}");
 }
 
 #[test]
