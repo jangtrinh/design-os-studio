@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::theme;
-use designos_doc::{LineHeight, PaintKind, TextAlignH, TextDecoration};
+use designos_doc::{LeadingTrim, LineHeight, PaintKind, TextAlignH, TextDecoration};
 
 impl Sim {
     fn seed_families(&self) {
@@ -469,4 +469,107 @@ fn menu_increase_font_size_in_session_detaches_linked_text_style_in_one_undo_ste
     s.cmd_key(Key::Z);
     assert_eq!(text_of(&s, id).style.font_size, 16.0, "document undo restores font size");
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "document undo restores text style link");
+}
+
+fn open_type_details(s: &mut Sim) {
+    let style_btn = s.rect_of("text-style-button");
+    let details_btn = Pos2::new(style_btn.right() + theme::SPACE_FACT + theme::PANEL_ACTION_BUTTON * 0.5, style_btn.center().y);
+    s.click(details_btn);
+}
+
+#[test]
+fn paragraph_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    open_type_details(&mut s);
+    let depth = s.app().hist.undo_depth();
+
+    let r = s.field_rect("det-pspacing");
+    s.click(Pos2::new(r.left() + 30.0, r.center().y));
+    s.type_text("12");
+    s.key(Key::Enter);
+
+    assert_eq!(text_of(&s, id).style.paragraph_spacing, 12.0);
+    assert_eq!(link_of(&s, id), None, "editing paragraph spacing must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "paragraph spacing edit + style detach must be one undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.paragraph_spacing, 0.0, "undo restores paragraph spacing");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores text style link");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).style.paragraph_spacing, 12.0, "redo reapplies paragraph spacing");
+    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+}
+
+#[test]
+fn paragraph_indent_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    open_type_details(&mut s);
+    let depth = s.app().hist.undo_depth();
+
+    let r = s.field_rect("det-indent");
+    s.click(Pos2::new(r.left() + 30.0, r.center().y));
+    s.type_text("8");
+    s.key(Key::Enter);
+
+    assert_eq!(text_of(&s, id).paragraph.indent, 8.0);
+    assert_eq!(link_of(&s, id), None, "editing paragraph indent must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "paragraph indent edit + style detach must be one undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.indent, 0.0, "undo restores paragraph indent");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores text style link");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.indent, 8.0, "redo reapplies paragraph indent");
+    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+}
+
+#[test]
+fn list_spacing_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    open_type_details(&mut s);
+    let depth = s.app().hist.undo_depth();
+
+    let r = s.field_rect("det-lspacing");
+    s.click(Pos2::new(r.left() + 30.0, r.center().y));
+    s.type_text("6");
+    s.key(Key::Enter);
+
+    assert_eq!(text_of(&s, id).paragraph.list_spacing, 6.0);
+    assert_eq!(link_of(&s, id), None, "editing list spacing must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "list spacing edit + style detach must be one undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.list_spacing, 0.0, "undo restores list spacing");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores text style link");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.list_spacing, 6.0, "redo reapplies list spacing");
+    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
+}
+
+#[test]
+fn vertical_trim_edit_detaches_linked_text_style_in_one_undo_step_with_undo_and_redo() {
+    let (mut s, id) = linked_sim();
+    open_type_details(&mut s);
+    let depth = s.app().hist.undo_depth();
+
+    let lspacing = s.field_rect("det-lspacing");
+    let trim_pos = lspacing.center() + Vec2::new(0.0, 3.0 * crate::widgets::popover::ROW_H);
+    s.click(trim_pos);
+    let cap_row = s.rect_of("menu-row-0-1");
+    s.click(cap_row.center());
+
+    assert_eq!(text_of(&s, id).paragraph.leading_trim, LeadingTrim::CapHeight);
+    assert_eq!(link_of(&s, id), None, "editing vertical trim must detach the text style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "vertical trim edit + style detach must be one undo step");
+
+    s.cmd_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.leading_trim, LeadingTrim::None, "undo restores vertical trim");
+    assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores text style link");
+
+    s.cmd_shift_key(Key::Z);
+    assert_eq!(text_of(&s, id).paragraph.leading_trim, LeadingTrim::CapHeight, "redo reapplies vertical trim");
+    assert_eq!(link_of(&s, id), None, "redo detaches text style link again");
 }
