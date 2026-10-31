@@ -13,7 +13,7 @@ use crate::richtext::{self, ListKind};
 use crate::textedit::{self as te, EditKind, Snap, UndoLog};
 use crate::textmeasure as tm;
 use crate::util::*;
-use designos_doc::{NodeKind, TextDecoration, TextProps, TextStyle};
+use designos_doc::{Node, NodeKind, TextDecoration, TextProps, TextStyle};
 use std::ops::Range;
 
 pub struct TextSession {
@@ -328,6 +328,35 @@ fn text_ref() -> &'static str {
     crate::styles::StyleKind::Text.ref_key()
 }
 
+/// Whether `after` differs from the snapshot on any field owned by a shared text style
+/// (`TextStyle` minus alignment/fills, per-run styles, and style-owned paragraph settings).
+fn style_owned_changed((style, runs, paragraph): (&TextStyle, &[designos_doc::TextRun], (f32, f32, designos_doc::LeadingTrim)), after: &TextProps) -> bool {
+    use designos_doc::lint::token_match::same_text_style;
+    !same_text_style(style, &after.style)
+        || paragraph != (after.paragraph.indent, after.paragraph.list_spacing, after.paragraph.leading_trim)
+        || runs.len() != after.runs.len()
+        || runs.iter().zip(&after.runs).any(|(a, b)| (a.start, a.end) != (b.start, b.end) || !same_text_style(&a.style, &b.style))
+}
+
+/// Applies `f` to `n`'s text, detaching its linked text style when any style-owned field changed,
+/// and re-fitting a text node's box.
+pub fn edit_node_text_detaching(n: &mut Node, f: impl FnOnce(&mut TextProps)) {
+    let is_text = matches!(n.kind, NodeKind::Text(_));
+    if let Some(t) = n.kind.any_text_mut() {
+        let before = n
+            .style_refs
+            .contains_key(text_ref())
+            .then(|| (t.style.clone(), t.runs.clone(), (t.paragraph.indent, t.paragraph.list_spacing, t.paragraph.leading_trim)));
+        f(t);
+        if before.is_some_and(|(style, runs, paragraph)| style_owned_changed((&style, runs.as_slice(), paragraph), t)) {
+            n.style_refs.remove(text_ref());
+        }
+        if is_text {
+            n.size = layout::fit_text(t, n.size);
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum LinkEdit<'a> {
     Keep,
@@ -530,13 +559,8 @@ fn undo_step(app: &mut App, redo: bool) {
 
 // ------------------------------------------------------------------ styling
 /// Applies `f` to the selected range of the open session (or to the typing style
-/// of a collapsed caret; or to the whole text when it is empty). Returns false
-/// when no session is open.
-pub fn style_selection(app: &mut App, f: impl Fn(&mut TextStyle)) -> bool {
-    style_selection_as(app, f, EditKind::Other)
-}
-
-/// [`style_selection`] with an explicit undo kind (inspector edits coalesce).
+/// of a collapsed caret; or to the whole text when it is empty) with an explicit
+/// undo kind (inspector edits coalesce). Returns false when no session is open.
 pub fn style_selection_as(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditKind) -> bool {
     style_selection_impl(app, f, kind, false)
 }
@@ -609,7 +633,7 @@ pub fn text_command(app: &mut App, cmd: TextCmd) {
             }
             c => {
                 let f = style_fn(c, sum.as_ref());
-                style_selection(app, f);
+                style_selection_detaching_as(app, f, EditKind::Other);
             }
         }
         return;
@@ -634,15 +658,7 @@ pub fn text_command(app: &mut App, cmd: TextCmd) {
                 }
                 c => {
                     let f = style_fn(c, Some(&sum));
-                    app.edit_nodes(&[id], |n| {
-                        let is_text = matches!(n.kind, NodeKind::Text(_));
-                        if let Some(t) = n.kind.any_text_mut() {
-                            richtext::apply_all(t, &f);
-                            if is_text {
-                                n.size = layout::fit_text(t, n.size);
-                            }
-                        }
-                    });
+                    app.edit_nodes(&[id], |n| edit_node_text_detaching(n, |t| richtext::apply_all(t, &f)));
                 }
             }
         }
