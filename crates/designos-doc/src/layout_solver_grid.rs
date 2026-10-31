@@ -115,6 +115,15 @@ pub fn grid_column_widths(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &
     column_widths(al, frame, own, kids, &placements, cols)
 }
 
+/// Row heights [`compute_grid`] resolves for `al`, in row order.
+pub fn grid_row_heights(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) -> Vec<f32> {
+    let frame = own.clamp(frame);
+    let cols = grid_columns(al);
+    let placements = place_children(kids, cols);
+    let rows = rows_covered(&placements).max(al.grid_rows as usize).max(1);
+    row_heights(al, frame, kids, &placements, rows)
+}
+
 /// Whether [`compute_grid`] packs `al`'s rows at the top (`pt + r * row_gap + sum(0..r)`) rather
 /// than leveling any auto row across a Fixed container height.
 pub fn grid_packs_auto_rows(al: &AutoLayout, kids: &[ChildIn]) -> bool {
@@ -208,33 +217,17 @@ fn column_widths(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]
     col_widths
 }
 
-/// Solves a 2D CSS Grid auto-layout frame (`LayoutDirection::Grid`). Columns are the primary axis
-/// (the width, as in Figma), rows the counter axis (the height). A child keeps its own size unless
-/// it is Fill: a main Fill stretches across its cell's width, a cross Fill across the cell's height.
-/// `own` is the frame's own min/max.
-pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) -> LayoutOut {
-    let frame = own.clamp(frame);
-    let [pt, pr, pb, pl] = al.padding;
-    let cols = grid_columns(al);
+fn row_heights(al: &AutoLayout, frame: Vec2, kids: &[ChildIn], placements: &[Placed], rows: usize) -> Vec<f32> {
+    let [pt, _, pb, _] = al.padding;
     let col_gap = al.item_spacing.max(0.0);
     let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
-
-    if kids.is_empty() {
-        let fw = if al.primary_sizing == Sizing::Hug { own.clamp_w(pl + pr) } else { frame.x };
-        let fh = if al.counter_sizing == Sizing::Hug { own.clamp_h(pt + pb) } else { frame.y };
-        return LayoutOut { frame: Vec2::new(fw, fh), rects: vec![] };
-    }
-
-    let placements = place_children(kids, cols);
-    let rows = rows_covered(&placements).max(al.grid_rows as usize).max(1);
-    let col_widths = column_widths(al, frame, own, kids, &placements, cols);
 
     // Row heights: an explicit Fixed row track wins (or an explicit Fixed auto-track size for
     // implicit overflow rows `r >= al.grid_rows`); single-row items size their row from clamped
     // height, then spanning items distribute only the remaining needed height across shorter auto rows.
     let mut row_heights = vec![0.0f32; rows];
     for (r, h) in row_heights.iter_mut().enumerate() {
-        *h = fixed_row(al, r).unwrap_or_else(|| auto_row_height(kids, &placements, r));
+        *h = fixed_row(al, r).unwrap_or_else(|| auto_row_height(kids, placements, r));
     }
     // Spans are settled in an order that depends on the spans alone, never on child order (layer order
     // is only z-order): fewer rows first, then the tallest first so the rows it raises already hold the
@@ -256,6 +249,30 @@ pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[Child
         let gaps = row_gap * (rows.saturating_sub(1) as f32);
         level_span_rows(&mut row_heights, frozen, (frame.y - pt - pb - gaps).max(0.0));
     }
+    row_heights
+}
+
+/// Solves a 2D CSS Grid auto-layout frame (`LayoutDirection::Grid`). Columns are the primary axis
+/// (the width, as in Figma), rows the counter axis (the height). A child keeps its own size unless
+/// it is Fill: a main Fill stretches across its cell's width, a cross Fill across the cell's height.
+/// `own` is the frame's own min/max.
+pub fn compute_grid(al: &AutoLayout, frame: Vec2, own: SizeLimits, kids: &[ChildIn]) -> LayoutOut {
+    let frame = own.clamp(frame);
+    let [pt, pr, pb, pl] = al.padding;
+    let cols = grid_columns(al);
+    let col_gap = al.item_spacing.max(0.0);
+    let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
+
+    if kids.is_empty() {
+        let fw = if al.primary_sizing == Sizing::Hug { own.clamp_w(pl + pr) } else { frame.x };
+        let fh = if al.counter_sizing == Sizing::Hug { own.clamp_h(pt + pb) } else { frame.y };
+        return LayoutOut { frame: Vec2::new(fw, fh), rects: vec![] };
+    }
+
+    let placements = place_children(kids, cols);
+    let rows = rows_covered(&placements).max(al.grid_rows as usize).max(1);
+    let col_widths = column_widths(al, frame, own, kids, &placements, cols);
+    let row_heights = row_heights(al, frame, kids, &placements, rows);
 
     let mut col_x = vec![0.0f32; cols];
     let mut cx = pl;
@@ -586,5 +603,151 @@ mod tests {
         let mut al_hug = grid(2, Sizing::Fixed, Sizing::Hug);
         al_hug.grid_auto_tracks = GridAutoTracks::Track(GridTrack::Flex(1.0));
         assert!(grid_packs_auto_rows(&al_hug, &kids_4));
+    }
+
+    #[test]
+    fn grid_row_heights_matches_compute_grid_rows() {
+        let mut fixed_first = AutoLayout {
+            grid_columns: 3,
+            item_spacing: 10.0,
+            counter_spacing: 10.0,
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..grid(3, Sizing::Fixed, Sizing::Fixed)
+        };
+        fixed_first.grid_col_tracks[0] = GridTrack::Fixed(200.0);
+
+        let scenes: Vec<(&str, AutoLayout, Vec2, Vec<ChildIn>)> = vec![
+            (
+                "equal_tracks",
+                AutoLayout {
+                    grid_columns: 3,
+                    item_spacing: 12.0,
+                    counter_spacing: 12.0,
+                    padding: [12.0, 12.0, 12.0, 12.0],
+                    ..grid(3, Sizing::Fixed, Sizing::Fixed)
+                },
+                Vec2::new(324.0, 180.0),
+                vec![
+                    ChildIn { main_fill: true, cross_fill: true, ..child(80.0, 36.0) },
+                    ChildIn { main_fill: true, ..child(80.0, 36.0) },
+                    ChildIn { main_fill: true, ..child(80.0, 36.0) },
+                    ChildIn { main_fill: true, cross_fill: true, ..child(80.0, 36.0) },
+                    ChildIn { main_fill: true, ..child(80.0, 36.0) },
+                    ChildIn { main_fill: true, ..child(80.0, 36.0) },
+                ],
+            ),
+            (
+                "unequal_tracks",
+                AutoLayout { grid_columns: 3, item_spacing: 0.0, counter_spacing: 10.0, ..grid(3, Sizing::Hug, Sizing::Fixed) },
+                Vec2::new(500.0, 140.0),
+                vec![
+                    child(100.0, 30.0),
+                    child(40.0, 30.0),
+                    child(60.0, 30.0),
+                    ChildIn { main_fill: true, cross_fill: true, ..child(50.0, 30.0) },
+                    ChildIn { main_fill: true, ..child(50.0, 30.0) },
+                    ChildIn { main_fill: true, ..child(50.0, 30.0) },
+                ],
+            ),
+            (
+                "fixed_first_column",
+                fixed_first,
+                Vec2::new(440.0, 180.0),
+                (0..6).map(|i| ChildIn { main_fill: true, cross_fill: i == 0, ..child(50.0, 40.0) }).collect(),
+            ),
+            (
+                "hugging_grid",
+                AutoLayout {
+                    grid_columns: 3,
+                    item_spacing: 8.0,
+                    counter_spacing: 8.0,
+                    padding: [8.0, 8.0, 8.0, 8.0],
+                    ..grid(3, Sizing::Hug, Sizing::Hug)
+                },
+                Vec2::new(500.0, 500.0),
+                vec![
+                    child(100.0, 28.0),
+                    child(24.0, 28.0),
+                    child(24.0, 28.0),
+                    ChildIn { main_fill: true, cross_fill: true, ..child(50.0, 20.0) },
+                    ChildIn { main_fill: true, ..child(50.0, 20.0) },
+                    ChildIn { main_fill: true, ..child(50.0, 20.0) },
+                ],
+            ),
+            (
+                "fixed_height_auto_rows",
+                AutoLayout {
+                    grid_columns: 2,
+                    item_spacing: 12.0,
+                    counter_spacing: 16.0,
+                    padding: [16.0, 16.0, 16.0, 16.0],
+                    ..grid(2, Sizing::Fixed, Sizing::Fixed)
+                },
+                Vec2::new(260.0, 240.0),
+                vec![
+                    ChildIn { main_fill: true, cross_fill: true, ..child(50.0, 24.0) },
+                    ChildIn { main_fill: true, ..child(50.0, 24.0) },
+                    ChildIn { main_fill: true, cross_fill: true, ..child(50.0, 36.0) },
+                    ChildIn { main_fill: true, ..child(50.0, 36.0) },
+                    ChildIn { main_fill: true, cross_fill: true, ..child(50.0, 28.0) },
+                    ChildIn { main_fill: true, ..child(50.0, 28.0) },
+                ],
+            ),
+            (
+                "row_and_column_spans",
+                AutoLayout {
+                    grid_columns: 4,
+                    item_spacing: 12.0,
+                    counter_spacing: 12.0,
+                    padding: [12.0, 12.0, 12.0, 12.0],
+                    ..grid(4, Sizing::Fixed, Sizing::Fixed)
+                },
+                Vec2::new(428.0, 220.0),
+                vec![
+                    ChildIn {
+                        main_fill: true,
+                        cross_fill: true,
+                        cell: crate::layout_solver_types::GridCell { col_span: 2, row_span: 2, ..Default::default() },
+                        ..child(80.0, 40.0)
+                    },
+                    ChildIn {
+                        main_fill: true,
+                        cell: crate::layout_solver_types::GridCell { col_span: 2, row_span: 1, ..Default::default() },
+                        ..child(80.0, 40.0)
+                    },
+                    ChildIn { main_fill: true, cross_fill: true, ..child(60.0, 40.0) },
+                    ChildIn { main_fill: true, ..child(60.0, 40.0) },
+                    ChildIn {
+                        main_fill: true,
+                        cell: crate::layout_solver_types::GridCell { column: Some(0), row: Some(2), col_span: 4, row_span: 1, ..Default::default() },
+                        ..child(120.0, 36.0)
+                    },
+                ],
+            ),
+        ];
+
+        for (name, al, frame, kids) in &scenes {
+            let own = SizeLimits::default();
+            let rows = grid_row_heights(al, *frame, own, kids);
+            let out = compute_grid(al, *frame, own, kids);
+            let cols = grid_columns(al);
+            let placements = place_children(kids, cols);
+            let col_gap = al.item_spacing.max(0.0);
+            let row_gap = if al.counter_spacing > 0.0 { al.counter_spacing } else { col_gap };
+            let [pt, _, pb, _] = al.padding;
+
+            for ((p, k), rect) in placements.iter().zip(kids).zip(&out.rects) {
+                let expected_y = pt + rows[..p.row].iter().sum::<f32>() + (p.row as f32) * row_gap;
+                assert!((rect.y - expected_y).abs() < 1e-4, "{name}: rect.y={} != expected_y={expected_y}", rect.y);
+                if p.row_span == 1 && k.cross_fill {
+                    assert!((rect.h - rows[p.row]).abs() < 1e-4, "{name}: rect.h={} != rows[{}]={}", rect.h, p.row, rows[p.row]);
+                }
+            }
+            if al.counter_sizing == Sizing::Hug {
+                let expected_h = pt + pb + rows.iter().sum::<f32>() + (rows.len().saturating_sub(1) as f32) * row_gap;
+                assert!((out.frame.y - expected_h).abs() < 1e-4, "{name}: out.frame.y={} != expected_h={expected_h}", out.frame.y);
+            }
+        }
     }
 }
