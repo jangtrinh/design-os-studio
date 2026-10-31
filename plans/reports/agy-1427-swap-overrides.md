@@ -268,7 +268,146 @@ ALL SWAP & RE-SYNC ASSERTIONS PASSED.
 - **`FACT`**: All 8 surviving mutants from Round 2 (`M4, M6a, M6b, M7, M9, M10, M11, M12`) are killed by `probe_p7_slot_swap_scales_inset_glyph_by_scale_not_slot_size` and `ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards` (`r3-mutants.log`).
 - **`INFERENCE`**: Temporarily upgrading `Constraints::default()` (`Min, Min`) to `Scale, Scale` on `Vector` / `BooleanOp` descendants of a swapped instance during `swap_main`'s `plan_constraint_pass` (`components.rs:1383-1411`) reproduces Figma's proportional icon-glyph scaling inside resized slots (`12x12` at `(2, 2)` in `16x16` -> `15x15` at `(2.5, 2.5)` in `20x20`, `P7`) without altering the node's persisted `Constraints::default()`.
 - **`ASSUMPTION`**: Using `1e-4` as the per-axis floating-point tolerance (`(n.size.x - oc.size.x).abs() > 1e-4` at `components.rs:1367-1368` and `:1517-1518`) cleanly separates untouched main-component dimensions from deliberate per-axis size overrides.
-- **Weakest link**: Temporary `Scale, Scale` promotion during `swap_main` applies to `Vector` / `BooleanOp` descendants whose constraints are `Constraints::default()` (`Min, Min`); if an icon component intentionally authored a `Vector` child to stay pinned top-left (`Min, Min`) rather than scale with the icon frame, `swap_main` will scale it proportionally with the slot.
+- **Weakest link**: Temporary `Scale, Scale` promotion during `swap_main` applies to `Vector` / `BooleanOp` descendants whose constraints are `Constraints::default()` (`Min, Min`); if an icon component intentionally authored a `Vector` child to stay pinned top-left (`Min, Min`) rather than scale with the icon frame, `swap_main` will scale it proportionally with the slot. (Resolved in Round 4 below: `Min, Min` promotion removed.)
 - **Unresolved questions**: None.
+
+---
+
+## Round 4: Localize Non-Vector Geometry Guard to `swap_main`, Unify Per-Axis Nested-Slot Size Rule, and Stop Promoting `Min/Min` to `Scale`
+
+### 1. What Could NOT Be Verified (Round 4 — Stated First)
+
+1. **Interactive desktop OS pointer click on the Properties panel combo box**: Verified headlessly via `App::set_instance_prop` (`crates/designos-app/src/panels/components.rs:628`) and `App::swap_instance` (`crates/designos-app/src/panels/components.rs:104`) in `crates/designos-app/src/panels/components.rs:409` (`properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo`), plus end-to-end MCP subprocess verification in `plans/reports/agy-1427-swap-overrides-evidence/r4-swap-check.log`, `r4-redraw-bounds.log`, `r4-30-swaps.log`, and `r4-redraw-syncs.log`.
+2. **Pre-existing Clippy lints in untouched `designos-app` files on `origin/main`**: `cargo clippy -p designos-doc -p designos-mcp --all-targets --locked -- -D warnings` exits `0` with zero warnings. Raw `cargo clippy --workspace --all-targets --locked -- -D warnings` hits the 5 pre-existing errors on `origin/main` in `crates/designos-app/src/agent_permissions.rs:1163,1181` and `crates/designos-app/src/panels/components.rs:263,363,566` (left untouched per Round 3 `m4`). Passing `-A clippy::needless_return -A clippy::ptr_arg -A clippy::items_after_test_module -A unused_must_use` exits `0` across the entire workspace (`plans/reports/agy-1427-swap-overrides-evidence/r4-gates.log`).
+3. **Full unfiltered `designos-app` binary test suite (`~3,920` tests)**: Per Acceptance Item 3 of the Round 4 brief, ran the four targeted `designos-app` filter suites (`component` 115 passed, `instance` 97 passed, `variant` 19 passed, `librar` 179 passed; `0 failed`).
+
+### 2. Round 4 Rulings, Commits & Verified File:Line Locations (`eae251c9`)
+
+| Item / Ruling | Red Test Commit | Green Fix Commit | File, Symbol & Exact Line Range (`eae251c9`) | Summary of Fix |
+|---|---|---|---|---|
+| **Merge `origin/main`** | — | `539d98f2a` | `crates/designos-doc/src/components.rs` | Merged latest `origin/main` cleanly into `jangtrinh/agy-1427-swap-overrides`. |
+| **1. `BLK-1` (`copy_field` restored to base; non-vector geometry guard local to `swap_main`)** | `5a0f3235` | `799a43a7` | `crates/designos-doc/src/components.rs:1001-1005` (`copy_field`), `:1450-1455` (`swap_main`) | Restored `copy_field(OverrideField::Size)` to unconditionally copy `to.size`, `to.fill_geometry`, and `to.stroke_geometry` (`:1001-1005`) so `apply_reference` updates imported non-`Vector` shapes (`Ellipse`, `Rectangle`, `Polygon`, `Star`) when resized in their main component. In `swap_main` (`:1450-1455`), saved `let own_geo = (nn.fill_geometry.clone(), nn.stroke_geometry.clone());` before `copy_overridden(&old, &mut nn, &fields);` and restored `(nn.fill_geometry, nn.stroke_geometry) = own_geo;` when `std::mem::discriminant(&old.kind) != std::mem::discriminant(&nn.kind)`. |
+| **2. `BLK-2` (One per-axis size rule for a nested slot in `swap_main` and `sync_pair`)** | `c0c90eb4` | `3ff6a394` | `crates/designos-doc/src/components.rs:1406-1416` (`swap_main`), `:1467`, `:1515-1523`, `:1620-1636` (`sync_pair`) | Removed `OverrideField::Size` / `OverrideField::Transform` stamping from `swap_main`'s constraint pass (`:1406-1416`). In `sync_pair`, captured `let inst_slot_size = inode.size;` (`:1467`) before `swap_main`, compared `inst_slot_size` per axis against `orig_slot_comp` (`:1515-1523`), and after syncing children of a swapped nested slot (`:1620-1636`), ran `plan_constraint_pass(&c.s, i, rn.size, slot_after, 8)` + `apply_constrained_geometry` for non-overridden children when `slot_after != rn.size`. |
+| **3. `MAJ-1` / `M4` (`Min/Min` is not `Scale`)** | `87d84f8d` | `1d5ad830` | `crates/designos-doc/src/components.rs:1406-1416` (`swap_main`) | Removed `default_vec_ids` temporary `Scale` promotion in `swap_main` so `Min/Min` (`Constraints::default()`) stays pinned (`12x12` at `(2, 2)`, `24x24` at `(8, 8)`) while `Scale/Scale` scales proportionally (`15x15` at `(2.5, 2.5)`), matching `layout_constraints::solve_child` (`crates/designos-doc/src/layout_constraints.rs:28-55`). |
+| **4. `MIN-4` (Top-level variant switch `Layout` revert)** | `3e63028e` | `228128de` | `crates/designos-doc/src/components.rs:1375-1377` (`swap_main`) | Reverted the `if !n.component.overrides.contains(&OverrideField::Layout)` guard on `if let Some(f) = comp.kind.frame_props() { *frame = f.clone(); }` in `swap_main` (`:1375-1377`), matching base `a2cf6a84`. |
+| **5. `MIN-1` (Auto-name for variant instances)** | `dc008a44` | `2ad88748` | `crates/designos-doc/src/components.rs:1379-1384` (`swap_main`) | Extended `auto_named` in `swap_main` (`:1379-1381`) so an instance without `OverrideField::Name` is auto-named when `n.name == oc.name` OR when `oc`'s parent is a `NodeKind::ComponentSet` whose `set.name == n.name` (matching `create_instance` at `crates/designos-doc/src/components.rs:163-167`). |
+| **6. `MIN-2` (Inner swap below a swapped slot — count dropped inner swaps)** | `02927a67` | `47d99953` | `crates/designos-doc/src/components.rs:44-51` (`LAST_DROPPED_INNER_SWAPS`, `last_dropped_inner_swaps`), `:1322-1357` (`swap_main`) | Added `pub fn last_dropped_inner_swaps() -> usize` (`:49-51`) and counted inner `NodeKind::Instance` descendants below a swapped instance/slot whose `MainComponent` was overridden (`kn.component.overrides.contains(&OverrideField::MainComponent) \|\| orig.and_then(instance_component) != instance_component(kn)`) at `:1336-1340`. |
+| **7. `MIN-3` (Ported Round 2 probes `P2`, `P4`, `P5`, `P6`, 3-sync `B1`, and pinned mutants)** | — | `4a26a19e` | `crates/designos-doc/src/components.rs:4441-4526`, `:5195-5948` | Ported `probe_p2_swap_drops_override_on_type_mismatch` (`:5247`), `probe_p4_variant_switch_does_not_turn_refit_size_into_override` (`:5722`), `probe_p5_size_rule_is_whole_vector` (`:5372`), `probe_p6_top_level_variant_switch_children_match_root` (`:5765`), 3-sync loop in `probe_p1_sync_instances_does_not_double_scale_fill_geometry` (`:4504-4525`), `r3_b1_swap_then_three_syncs_matches_direct_20px_glyph` (`:5808`), and `r4_top_level_swap_does_not_carry_diff_derived_overrides` (`:5910`). |
+| **8. `MIN-5` & Format (`sync_pair` redundant clone removal + `rustfmt`)** | — | `9289e34c`, `eae251c9` | `crates/designos-doc/src/components.rs:1465-1467` (`sync_pair`) | Confirmed `sync_pair` has no redundant `slot_rn.clone()` at top (`:1465-1467`), removed redundant `slot_rn` clone inside test helper, and formatted with `cargo fmt --all` (`eae251c9`). |
+
+### 3. Round 4 Mutant Kill Table (`R-AXIS-SYNC`, `R-COPYFIELD-SWAP-GUARD`, `R-COPYFIELD-BASE`, `R-M2`)
+
+Full output saved in `plans/reports/agy-1427-swap-overrides-evidence/r4-mutants.log`:
+
+| Mutant ID | Mutated Line(s) in `crates/designos-doc/src/components.rs` | Test That Kills It | Failure When Mutated |
+|---|---|---|---|
+| **`R-AXIS-SYNC`** | `:1516-1517` (`let keep_x = false; let keep_y = false;` in `sync_pair`) | `r3_m1_nested_slot_widened_by_outer_instance` (`:5305`) | `exit=101 (KILLED)`: `s1.size` becomes `Vec2 { x: 80.0, y: 40.0 }` instead of `Vec2 { x: 280.0, y: 40.0 }` (`bg1.size` also shrinks on `sync_instances(&mut d, card)`). |
+| **`R-COPYFIELD-SWAP-GUARD`** | `:1450` (`let kinds_differ = false;` in `swap_main`) | `probe_p2_swap_drops_override_on_type_mismatch` (`:5247`) | `exit=101 (KILLED)`: `ng.fill_geometry` is `Some(...)` instead of `None` when a `Vector` child with `OverrideField::Size` is swapped onto a `Frame` child. |
+| **`R-COPYFIELD-BASE`** | `:1003-1004` (guard `fill_geometry`/`stroke_geometry` copy in `copy_field` to `Vector \| BooleanOp` only) | `r3_copy_field_size_on_imported_shapes_after_main_resize` (`:5195`) | `exit=101 (KILLED)`: `ellipse shape fill_geometry must sync after main resize` panics (`instance` keeps `10x10` `fill_geometry` while `main` has `20x20`). |
+| **`R-M2`** | `:1342` (`if false {` instead of `if top_swap {` in `swap_main::collect`) | `r4_top_level_swap_does_not_carry_diff_derived_overrides` (`:5910`) | `exit=101 (KILLED)`: top-level swap carries diff-derived `OverrideField::Visible` (`visible = false`) onto `b`'s `"Badge"` child instead of keeping `b`'s default `visible = true`. |
+
+### 4. `studio-ui.designos` Swap, Redraw Bounds, 30-Swap & 3-Sync Verification
+
+All commands executed against a scratch copy in `/tmp/r4-studio-ui-scratch/` (never writing to `/Users/jangtrinh/Products/design-os-studio/.claude/worktrees/agent-a1b72103724702a19/`):
+
+1. **`add_size_overrides.py`** (`plans/reports/agy-1427-swap-overrides-evidence/r4-sizeov-patch.log`):
+   - On pre-patch `3c14eff87:design/studio-ui.designos`: `Size override added: 75 main-level icon slots, 75 glyphs`.
+   - On `HEAD` (`ff8151485:design/studio-ui.designos`, where the redraw worktree already committed those 75 icon `Size` overrides): `Size override added: 0 main-level icon slots, 0 glyphs` (all 134 resized main-level icon slots and their glyphs already carry `"Size"` in `overrides`).
+2. **`run_swap_check.py`** (`plans/reports/agy-1427-swap-overrides-evidence/r4-swap-check.log`):
+   - Output: `SWAP-OK #1427: 6 swapped variants keep colour, binding, opacity, visibility and the drawn glyph's bounds; SWAP_CHECK_FATAL can flip to True`.
+3. **`redraw_bounds.py`** (`plans/reports/agy-1427-swap-overrides-evidence/r4-redraw-bounds.log`):
+   - Output: `WORST swapped max|delta| vs direct = 0.0000 px (limit 0.5)` across all 6 swapped cases (`swapck-0-swap` through `swapck-5-swap`).
+4. **30-swap + hidden button slot + 1-step undo check** (`plans/reports/agy-1427-swap-overrides-evidence/r4-30-swaps.log`):
+   - Output: `30-SWAP-OK: prop_swaps=15/15 direct_swaps=15/15 hidden_slot_visible=False undo_ok=True`.
+5. **1- and 3-sync check (`r3_redraw_swapped_glyph_after_syncs` + `r3_main_resize_instance_shape_render`)** (`plans/reports/agy-1427-swap-overrides-evidence/r4-redraw-syncs.log`):
+   - Across `sync0`, `sync1`, `sync2`, and `sync3`, every swapped variant (`swapck-0-swap` through `swapck-5-swap`) maintains `max|d|=0.0000` against its direct `20x20` / `16x16` icon glyph (`ov={Size, Fills}` on `20x20` slots, `ov={Fills}` on `16x16` slots).
+6. **Dropped inner-swap count (`MIN-2`)**:
+   - In `r3_inner_swap_below_swapped_slot_by_index` (`crates/designos-doc/src/components.rs:5623`), swapping an outer slot (`Icon/A` -> `Icon/B`) whose inner `Badge` child had been swapped from `Badge/Red` to `Badge/Blue` records `last_dropped_inner_swaps() == 1`.
+
+### 5. Pasted Key Outputs from Round 4 Evidence Logs
+
+Durable Round 4 evidence files committed under `plans/reports/agy-1427-swap-overrides-evidence/`:
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-red.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-green.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-mutants.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-sizeov-patch.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-swap-check.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-redraw-bounds.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-30-swaps.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-redraw-syncs.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-reviewer-probes.log`
+- `plans/reports/agy-1427-swap-overrides-evidence/r4-gates.log`
+
+```text
+=== 1. r4-red.log (Each Item's Test Fails Before Its Fix Commit) ===
+# Item 1 (5a0f3235):
+test components::tests::r3_copy_field_size_on_imported_shapes_after_main_resize ... FAILED
+panicked at crates/designos-doc/src/components.rs:5238:13:
+ellipse shape fill_geometry must sync after main resize
+
+# Item 2 (c0c90eb4):
+test components::tests::r3_m1_nested_slot_widened_by_outer_instance ... FAILED
+assertion `left == right` failed: slot width must stay 280 after swap
+  left: Vec2 { x: 80.0, y: 40.0 }
+ right: Vec2 { x: 280.0, y: 40.0 }
+
+# Item 3 (87d84f8d):
+failures:
+    components::tests::r3_m4_minmin_glyph_swap_vs_shared_solver
+    components::tests::r3_m4_minmin_logo_distorts_on_per_axis_kept_width
+    components::tests::r3_m4_minmin_logo_distorts_on_user_resized_card
+test result: FAILED. 0 passed; 3 failed
+
+# Item 4 (3e63028e):
+test components::tests::ruling_m1_field_exists_and_originally_matched_gate_and_mutant_guards ... FAILED
+assertion `left == right` failed: swap_main must copy the new main's FrameProps onto the instance root (base behavior)
+
+# Item 5 (dc008a44):
+test components::tests::r3_name_rule_variant_instance_cross_family ... FAILED
+  left: "Button"
+ right: "Badge"
+
+# Item 6 (02927a67):
+test components::tests::r3_inner_swap_below_swapped_slot_by_index ... FAILED
+  left: 0
+ right: 1
+
+=== 2. r4-mutants.log (All 4 Mutants Killed) ===
+=== Mutant R-AXIS-SYNC ===
+R-AXIS-SYNC exit=101 (KILLED)
+=== Mutant R-COPYFIELD-SWAP-GUARD ===
+R-COPYFIELD-SWAP-GUARD exit=101 (KILLED)
+=== Mutant R-COPYFIELD-BASE ===
+R-COPYFIELD-BASE exit=101 (KILLED)
+=== Mutant R-M2 ===
+R-M2 exit=101 (KILLED)
+
+=== 3. studio-ui.designos Swap, Bounds, 30-Swap & 3-Sync Checks ===
+SWAP-OK #1427: 6 swapped variants keep colour, binding, opacity, visibility and the drawn glyph's bounds; SWAP_CHECK_FATAL can flip to True
+WORST swapped max|delta| vs direct = 0.0000 px (limit 0.5)
+30-SWAP-OK: prop_swaps=15/15 direct_swaps=15/15 hidden_slot_visible=False undo_ok=True
+PROBE redraw sync3 swapck-0-swap: slot="Icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) direct=Some((2.4164767, 2.4164767, 17.517036, 17.501709)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync3 swapck-3-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync3 swapck-4-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.5, 1.25, 17.5, 17.5)) direct=Some((2.5, 1.25, 17.5, 17.5)) max|d|=0.0000 ov={Size, Fills}
+PROBE redraw sync3 swapck-5-swap: slot="Leading icon" size=Vec2 { x: 20.0, y: 20.0 } glyph size=Vec2 { x: 20.0, y: 20.0 } at=(0,0) drawn=Some((2.438536, 4.9386616, 18.186462, 16.250431)) direct=Some((2.438536, 4.9386616, 18.186462, 16.250431)) max|d|=0.0000 ov={Size, Fills}
+
+=== 4. r4-gates.log (All 6 Acceptance Gates) ===
+=== GATE 1: cargo fmt --all -- --check ===
+fmt exit=0
+=== GATE 2b: cargo clippy -p designos-doc -p designos-mcp --all-targets --locked -- -D warnings ===
+clippy_touched_crates exit=0
+=== GATE 2c: cargo clippy --workspace --all-targets --locked -- -D warnings (allowing 4 pre-existing origin/main lints in designos-app) ===
+clippy_workspace_clean exit=0
+=== GATE 3: cargo test -p designos-doc --locked ===
+test result: ok. 695 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.46s
+designos-doc exit=0
+=== GATE 4: cargo test -p designos-mcp --locked ===
+test result: ok. 297 passed; 0 failed (plus 199 integration tests passed; 0 failed)
+designos-mcp exit=0
+=== GATE 5a..5d: cargo test -p designos-app --bin designos --locked {component,instance,variant,librar} ===
+component: 115 passed; 0 failed | instance: 97 passed; 0 failed | variant: 19 passed; 0 failed | librar: 179 passed; 0 failed
+=== GATE 6: cargo test --workspace --locked --lib ===
+workspace lib exit=0 (1,438 unit tests passed across all 12 workspace lib targets; 0 failed)
+```
 
 Status: DONE
