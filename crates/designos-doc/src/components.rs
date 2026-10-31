@@ -1319,11 +1319,26 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     // Snapshot overridden descendants by base-name path, including overrides inherited from an enclosing component slot.
     type CarriedOverride = (Vec<String>, Node, Option<NodeId>, BTreeSet<OverrideField>);
     let mut carried: Vec<CarriedOverride> = Vec::new();
-    fn collect(d: &Document, id: NodeId, old_comp: Option<NodeId>, top_swap: bool, path: &mut Vec<String>, out: &mut Vec<CarriedOverride>) {
+    let mut dropped_inner_swaps = 0usize;
+    fn collect(
+        d: &Document,
+        id: NodeId,
+        old_comp: Option<NodeId>,
+        top_swap: bool,
+        path: &mut Vec<String>,
+        out: &mut Vec<CarriedOverride>,
+        dropped: &mut usize,
+    ) {
         let Some(n) = d.get(id) else { return };
         for k in &n.children {
             let Some(kn) = d.get(*k) else { continue };
             let orig = orig_in_main(d, old_comp, kn);
+            if matches!(kn.kind, NodeKind::Instance { .. })
+                && (kn.component.overrides.contains(&OverrideField::MainComponent)
+                    || orig.and_then(instance_component) != instance_component(kn))
+            {
+                *dropped += 1;
+            }
             path.push(orig.map(|o| o.name.clone()).unwrap_or_else(|| kn.name.clone()));
             let fields = if top_swap {
                 let mut f = kn.component.overrides.clone();
@@ -1335,11 +1350,12 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
             if !fields.is_empty() {
                 out.push((path.clone(), kn.clone(), orig.map(|o| o.id), fields));
             }
-            collect(d, *k, old_comp, top_swap, path, out);
+            collect(d, *k, old_comp, top_swap, path, out, dropped);
             path.pop();
         }
     }
-    collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried);
+    collect(&c.s, i, old_comp, top_swap, &mut Vec::new(), &mut carried, &mut dropped_inner_swaps);
+    LAST_DROPPED_INNER_SWAPS.with(|cell| cell.set(dropped_inner_swaps));
 
     for k in inode.children.clone() {
         c.push(Command::Remove { id: k });
