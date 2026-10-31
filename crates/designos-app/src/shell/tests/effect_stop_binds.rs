@@ -942,11 +942,8 @@ fn deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down() {
 
     let n = s.app().doc.get(hero).unwrap();
     let raw_radii: Vec<f32> = n.effects.iter().map(|e| if let Effect::DropShadow { radius, .. } = e { *radius } else { -1.0 }).collect();
-    let res_radii: Vec<f32> = designos_doc::resolve_node(&s.app().doc, n)
-        .effects
-        .iter()
-        .map(|e| if let Effect::DropShadow { radius, .. } = e { *radius } else { -1.0 })
-        .collect();
+    let res_radii: Vec<f32> =
+        designos_doc::resolve_node(&s.app().doc, n).effects.iter().map(|e| if let Effect::DropShadow { radius, .. } = e { *radius } else { -1.0 }).collect();
     assert_eq!(raw_radii, vec![4.0], "guard: effect 0 was deleted");
     assert_eq!(res_radii, vec![4.0], "remaining effect must render 4.0 with no stale binding from deleted effect 0");
     assert!(!n.variables.bindings.contains_key("effects/0/radius"));
@@ -964,11 +961,8 @@ fn deleting_effect_drops_its_bindings_and_shifts_later_effect_bindings_down() {
     s.click(s.rect_of("fx-minus-0").center());
     s.frame(vec![]);
     let n = s.app().doc.get(hero).unwrap();
-    let res_radii: Vec<f32> = designos_doc::resolve_node(&s.app().doc, n)
-        .effects
-        .iter()
-        .map(|e| if let Effect::DropShadow { radius, .. } = e { *radius } else { -1.0 })
-        .collect();
+    let res_radii: Vec<f32> =
+        designos_doc::resolve_node(&s.app().doc, n).effects.iter().map(|e| if let Effect::DropShadow { radius, .. } = e { *radius } else { -1.0 }).collect();
     assert_eq!(res_radii, vec![12.0]);
     assert_eq!(n.variables.bindings.get("effects/0/radius"), Some(&v_blur1));
     assert_eq!(n.variables.bindings.get("effects/1/radius"), None);

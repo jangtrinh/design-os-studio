@@ -2148,10 +2148,8 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         remove = true;
     }
     let (pressed, ptr, esc) = ctx.input(|i| (i.pointer.any_pressed(), i.pointer.interact_pos(), i.key_pressed(egui::Key::Escape)));
-    let outside = !pk.eyedrop
-        && !pk.state.menu_open
-        && pressed
-        && ptr.map(|p| !panel.contains(p) && !pk.anchor.contains(p) && !handle_hit(&pk, app, p)).unwrap_or(false);
+    let outside =
+        !pk.eyedrop && !pk.state.menu_open && pressed && ptr.map(|p| !panel.contains(p) && !pk.anchor.contains(p) && !handle_hit(&pk, app, p)).unwrap_or(false);
     let esc = esc && !pk.eyedrop && !pk.state.menu_open;
     if let Some((lib, key)) = out.apply_library_style.take() {
         let ids = pk.ids.clone();
