@@ -1,6 +1,6 @@
-# v0.7 Effects & Export: task specs, part 2 (effects, image fills, plugin runtime, export bounds)
+# v0.7 Effects & Export: task specs, part 2 (effects, image fills, export bounds)
 
-Part 2 completes the spec-ready gate for the 10 reverse-engineering-backed issues of pack v0.7 "Effects & Export": progressive blur, glass and noise parity, custom shader references, blend modes on shadows, image fill adjustments and crop, the plugin corpus and runtime spike, the shadow and image-fill differences found on kit frames, and the export bounds.
+Part 2 completes the spec-ready gate for the 8 reverse-engineering-backed issues of pack v0.7 "Effects & Export": progressive blur, glass and noise parity, custom shader references, blend modes on shadows, image fill adjustments and crop, the shadow and image-fill differences found on kit frames, and the export bounds.
 Part 1 owns [README.md](README.md) (from its own PR, not on `main` yet, so that link resolves once part 1 merges). This file does not replace it and does not edit it.
 
 Code baseline of every part-2 spec: `origin/main@0e8a9a5` (`docs(specs): v0.6 task specs, part 4 (agent terminal UX and constraint solver) (#697)`). Every spec follows the 13-section layout of the v0.6 specs (header table with "Touches", current state as FACT with file and line, behaviour rules, data model, contracts, file-format mapping, UI in words, edge cases, non-goals, red-first test plan, performance budgets, dependencies, owner rulings) and ends with **Open questions for the owner**, recommended answer first.
@@ -19,8 +19,6 @@ Evidence labels: FACT (observed in the repository or through the GitHub API in t
 | FX-521 | #521 | Image fills: image variables by mode, crop verification | [521-image-fills-variable-mode-image-and-crop-transform.md](521-image-fills-variable-mode-image-and-crop-transform.md) | M |
 | FX-520 | #520 | Shadows and layer effects on shadowed device mockups | [520-shadows-and-layer-effects-differ-from-figma-on-device-mockups.md](520-shadows-and-layer-effects-differ-from-figma-on-device-mockups.md) | M |
 | EX-528 | #528 | Export bounds match Figma's per-side rule | [528-export-bounds-match-figma-per-side-rule.md](528-export-bounds-match-figma-per-side-rule.md) | M |
-| PL-253 | #253 | The 8-plugin compatibility corpus and its approval | [253-plugin-compatibility-corpus-of-eight-plugins.md](253-plugin-compatibility-corpus-of-eight-plugins.md) | S |
-| PL-254 | #254 | Plugin runtime spike (QuickJS worker) and design doc | [254-plugin-runtime-spike-quickjs-worker-and-design-doc.md](254-plugin-runtime-spike-quickjs-worker-and-design-doc.md) | M |
 
 Sizes: S under about a day, M one to three days, L more than three days, for one worker with the specs' fixtures and gates. #161 is raised from the issue's S to M and #520 and #528 are M because their diagnosis and fixes are separate steps.
 
@@ -38,8 +36,6 @@ Sizes: S under about a day, M one to three days, L more than three days, for one
 | #521 | #163 (queue 22) | the kit scan (decides whether the variable slice is needed) |
 | #520 | none for tests; the fix needs the owner-manual read | #37 and #161 (same render functions) |
 | #528 | none for causes 1 to 3 | the per-descendant read (cause 5) and the calibration (rounding) |
-| #253 | none | owner approval (the record stays "Proposed" until then) |
-| #254 | #253 approval, #166 (`cargo-deny`) | the live read for limits and globals |
 
 ```mermaid
 graph LR
@@ -52,8 +48,6 @@ graph LR
   P528[#528 bounds] -.-> P37
   P37 -.-> P520[#520 shadow fix]
   P161 -.-> P520
-  P253[#253 corpus approval] --> P254[#254 plugin spike]
-  P166[#166 cargo-deny] --> P254
   P38 -.-> P38B[#38 slice B render]
 ```
 
@@ -77,8 +71,8 @@ graph LR
 
 ## Waves
 
-1. At once, no hot file: #528 (causes 1 to 3), #253 (proposal, record, fixtures), #520's diagnosis (the owner-manual read), #38 slice A when the queue reaches it.
-2. In queue order: #37, #39; #254 after #166 and the #253 approval.
+1. At once, no hot file: #528 (causes 1 to 3), #520's diagnosis (the owner-manual read), #38 slice A when the queue reaches it.
+2. In queue order: #37, #39.
 3. In queue order: #161, #163, then #521. Beside them: #520's fix (after the read), #528's rounding (after the calibration), #38 slice B (after the read), #37's bounds arm (after #528).
 
 ## Owner-manual live reads (one session closes most UNKNOWNs)
@@ -95,8 +89,6 @@ Nothing here is done by an agent; each spec lists its own steps. Estimated effor
 | #520 | two fixture frames, three pixels | 10 min |
 | #521 | kit scan of 8 frames and the contact-map read | 15 min |
 | #528 | per-descendant bounds of 10 frames; calibration rectangles (needs the owner's approval to write nodes) | about 2 h |
-| #254 | timeout, memory ceiling, `typeof` probes in three throwaway plugins | 20 min |
-| #253 | approval through `AskUserQuestion` | 5 min |
 
 ## UI rules checked for part 2
 
@@ -119,10 +111,8 @@ The UI sections of #37, #38, #39, #161, #163 and #521 were checked against `desi
 6. #520: the cited `lib.rs:507-587` and `compile.rs:998-1050` are from 0.3.0; now `lib.rs:513-591` and `compile.rs:1134-1189`. No Figma ground truth exists yet.
 7. #521: the crop sub-pattern is #163's model and render; the variable-mode sub-pattern needs a new `VariableKind` (32 non-test sites mention `VariableKind::Boolean`). `paintVar` has no home.
 8. #528: the acceptance case "100 x 40 rectangle, shadow (0, 4), blur 8" already passes today (116 x 56), so it only guards; Figma's value for it is unmeasured. The 10 frames cannot all be fixed from code: causes 1 to 3 explain about four, cause 5 is unknown.
-9. #253: the issue says "plans/ corpus record"; the record needs vendored manifests and a licence notice for a real test. Six of the eight plugins ship sources only (a build is needed), `themer` keeps its manifest in `public/`, and three of the eight come from one repository.
-10. #254: its dependencies name #166, which is open and has no `deny.toml` on `main`; the issue bodies of #253, #254 and #166 say "Pack: v0.7 Agent design context" while the milestone is "v0.7 Effects & Export". The fixture plugin ships `code.ts` only.
-11. Import report: `import_fig` returns a `Document` only (`fig.rs:206`) and `export_fig` returns bytes only (`fig_export.rs:115`); there is no report or warnings channel on `main`. v0.6's #5 adds `ImportReport`; #37, #38 and #521 add `dropped_variable_bindings` to it, created by whichever starts first if #5 has not landed.
-12. #521 has no queue position in its issue; part 2 proposes 22.
+9. Import report: `import_fig` returns a `Document` only (`fig.rs:206`) and `export_fig` returns bytes only (`fig_export.rs:115`); there is no report or warnings channel on `main`. v0.6's #5 adds `ImportReport`; #37, #38 and #521 add `dropped_variable_bindings` to it, created by whichever starts first if #5 has not landed.
+10. #521 has no queue position in its issue; part 2 proposes 22.
 
 ## Follow-ups found and not done here
 
@@ -145,6 +135,4 @@ Each has a recommended answer; none blocks writing the specs; the task that need
 7. **#521** separate from #163; image variables read-only in the panel. Recommended: yes.
 8. **#520** run the two-frame read before any renderer change. Recommended: yes.
 9. **#528** approve the calibration rectangles (a dozen nodes in a scratch Figma file); largest-side stroke weight on every side. Recommended: yes and yes.
-10. **#253** answered 2026-10-19: approved. (Original question: approve the 8 plugins; count the three same-repository plugins as three; vendor built plugin output once. Recommended: yes, yes, yes.)
-11. **#254** in-process engine answered 2026-10-19 (worker thread). Still open: spike limits 64 MiB, 1 MiB, 5 s, 60 s. Recommended: yes.
-12. **Import report**: let the first of #37, #38, #521 create `ImportReport` in #5's shape if #5 has not landed. Recommended: yes.
+10. **Import report**: let the first of #37, #38, #521 create `ImportReport` in #5's shape if #5 has not landed. Recommended: yes.

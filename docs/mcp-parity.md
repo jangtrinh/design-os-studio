@@ -4,7 +4,7 @@
 
 - **Studio Declared MCP Tools**: `37` (`5` session tools + `32` engine tools) + `9` legacy aliases
 - **Figma MCP Reference**: <https://developers.figma.com/docs/figma-mcp-server/tools-and-prompts/> (retrieved `2026-10-19`)
-- **Figma Surface Coverage**: `41` total (`32` core + `9` Weave) — `9` implemented, `23` tracked by roadmap task, `9` excluded by owner ruling
+- **Figma Surface Coverage**: `41` total (`32` core + `9` Weave) — `9` implemented, `18` tracked by roadmap task, `14` excluded by owner ruling
 
 ## 1. DESIGN:OS Studio Declared Tools
 
@@ -84,7 +84,7 @@ Each tool takes the tier of the most severe effect a call can have. The tiers ar
 | 4 | `get_context_for_code_connect` | `task` | `T7.39` | Return component property and structure metadata for authoring Code Connect templates |
 | 5 | `get_design_context` | `implemented` | `designos_get_design_context` | Returns unified code, variable hints, and screenshot context for a node (designos_get_design_context); codegen also available via designos_generate_code |
 | 6 | `get_figjam` | `task` | `T7.11` | Return board stickies, connectors, sections, and shapes (designos_get_board) |
-| 7 | `get_generative_plugin` | `task` | `T8.21` | Read a generative plugin's source from the local library |
+| 7 | `get_generative_plugin` | `excluded` | Figma plugin support dropped (owner decision 2026-10-30) | Figma plugin support dropped (owner decision 2026-10-30) |
 | 8 | `get_libraries` | `implemented` | `designos_get_libraries` | List local and enabled component/variable libraries for the workspace (designos_get_libraries) |
 | 9 | `get_metadata` | `implemented` | `designos_get_metadata` | Returns sparse XML node hierarchy with IDs, types, names, page-space bounds, layout, component/variant props, text previews, and lint issue counts (designos_get_metadata) |
 | 10 | `get_motion_context` | `task` | `T7.12` | Return keyframe animation data and motion code snippets (designos_get_motion_context) |
@@ -92,12 +92,12 @@ Each tool takes the tier of the most severe effect a call can have. The tiers ar
 | 12 | `get_shader` | `task` | `T7.41` | Read a WGSL shader effect or fill source |
 | 13 | `get_variable_defs` | `implemented` | `designos_get_variables` | Reads variable definitions, collections, resolved node bindings, and code_syntax |
 | 14 | `list_file_shaders` | `task` | `T7.41` | List shaders referenced in the open document |
-| 15 | `list_generative_plugins` | `task` | `T8.21` | List generative plugins in the local library |
+| 15 | `list_generative_plugins` | `excluded` | Figma plugin support dropped (owner decision 2026-10-30) | Figma plugin support dropped (owner decision 2026-10-30) |
 | 16 | `list_shaders` | `task` | `T7.41` | List shader effects and fills in the local library |
 | 17 | `search_design_system` | `implemented` | `designos_search_design_system` | Search libraries for components, variables, and styles (designos_search_design_system) |
 | 18 | `whoami` | `task` | `T7.35` | Return local user identity and single-user free plan metadata (R4.14) |
 | 19 | `add_code_connect_map` | `task` | `T7.18` | Map a design component to a code component in the workspace |
-| 20 | `create_generative_plugin` | `task` | `T8.21` | Create a generative plugin starter in the local library |
+| 20 | `create_generative_plugin` | `excluded` | Figma plugin support dropped (owner decision 2026-10-30) | Figma plugin support dropped (owner decision 2026-10-30) |
 | 21 | `create_new_file` | `task` | `T7.36` | In-session designos_new_document exists today; T7.36 creates a library file without replacing the open document |
 | 22 | `create_shader` | `task` | `T7.41` | Create a WGSL shader effect or fill starter |
 | 23 | `generate_diagram` | `task` | `E9-17` | Generate a board diagram from a description or Mermaid syntax |
@@ -106,10 +106,10 @@ Each tool takes the tier of the most severe effect a call can have. The tiers ar
 | 26 | `html_to_figma` | `implemented` | `designos_import_web_capture` | Convert captured HTML into editable design layers via Studio's web-capture importer (R6.22) |
 | 27 | `send_code_to_figma` | `implemented` | `designos_import_web_capture` | Import local web/code capture into editable design layers (T7.14, R6.22) |
 | 28 | `send_code_connect_mappings` | `task` | `T7.18` | Confirm suggested Code Connect mappings in bulk |
-| 29 | `update_generative_plugin` | `task` | `T8.21` | Update a generative plugin's source in the local library |
+| 29 | `update_generative_plugin` | `excluded` | Figma plugin support dropped (owner decision 2026-10-30) | Figma plugin support dropped (owner decision 2026-10-30) |
 | 30 | `update_shader` | `task` | `T7.41` | Update a WGSL shader's source |
 | 31 | `upload_assets` | `task` | `T7.37` | Upload images and SVGs into a document (designos_upload_assets) |
-| 32 | `use_figma` | `task` | `T7.13` | Declarative writes exist via designos_apply_spec and node tools; T7.13 adds Plugin-API JS script execution (designos_run_plugin_script) |
+| 32 | `use_figma` | `excluded` | Figma Plugin API scripts dropped (owner decision 2026-10-30); declarative writes stay with designos_apply_spec and the node tools | Figma Plugin API scripts dropped (owner decision 2026-10-30); declarative writes stay with designos_apply_spec and the node tools |
 | 33 | `weave_list_tools` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
 | 34 | `weave_get_tool_inputs` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
 | 35 | `weave_upload_asset` | `excluded` | hosted service (R4.14) | hosted service (R4.14) |
