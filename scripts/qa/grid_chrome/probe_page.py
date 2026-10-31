@@ -27,7 +27,7 @@ def build_batch_probe_html(fixtures: List[Dict[str, Any]]) -> str:
             f'  <div class="probe-grid" data-scene="{name}" data-mode="css" style="{css_grid_style}">\n'
             f"{css_children}\n  </div>"
         )
-        tw_grid_decls, tw_item_decls = parse_tailwind_html(scene["tailwind_html"], expected_children=len(solver_items))
+        tw_grid_decls, tw_item_decls = parse_tailwind_html(scene["tailwind_html"])
         tw_children = "\n".join(
             f'      <div class="probe-item" data-idx="{idx}" style="{decl}"></div>'
             for idx, decl in enumerate(tw_item_decls)

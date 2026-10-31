@@ -18,20 +18,22 @@ CHROME_CANDIDATES = (
 )
 
 
-def find_chrome() -> Optional[str]:
+def _resolve_executable(candidate: str) -> Optional[str]:
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+    return shutil.which(candidate)
+
+
+def find_chrome(explicit_bin: Optional[str] = None) -> Optional[str]:
+    if explicit_bin is not None:
+        return _resolve_executable(explicit_bin)
     env_bin = os.environ.get("CHROME_BIN")
-    if env_bin:
-        if os.path.isfile(env_bin) and os.access(env_bin, os.X_OK):
-            return env_bin
-        found = shutil.which(env_bin)
-        if found:
-            return found
+    if env_bin is not None and env_bin.strip() != "":
+        return _resolve_executable(env_bin)
     for cand in CHROME_CANDIDATES:
-        if os.path.isfile(cand) and os.access(cand, os.X_OK):
-            return cand
-        found = shutil.which(cand)
-        if found:
-            return found
+        resolved = _resolve_executable(cand)
+        if resolved:
+            return resolved
     return None
 
 

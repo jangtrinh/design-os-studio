@@ -74,6 +74,8 @@ _SIMPLE_TOKENS: Dict[str, List[str]] = {
     "flex": ["display: flex;"],
     "flex-col": ["flex-direction: column;"],
     "box-border": ["box-sizing: border-box;"],
+    "border": ["border-width: 1px;", "border-style: solid;"],
+    "border-dashed": ["border-style: dashed;"],
     "content-start": ["align-content: start;"],
     "items-start": ["align-items: flex-start;"],
     "items-center": ["align-items: center;"],
@@ -106,6 +108,16 @@ def tailwind_token_to_decls(tok: str) -> List[str]:
     """Maps a single Tailwind utility token emitted by `tailwind_for` to CSS declarations."""
     if tok in _SIMPLE_TOKENS:
         return list(_SIMPLE_TOKENS[tok])
+
+    m = re.fullmatch(r"border-(\d+)", tok)
+    if m:
+        return [f"border-width: {m.group(1)}px;", "border-style: solid;"]
+    m = re.fullmatch(r"border-\[([0-9.]+px)\]", tok)
+    if m:
+        return [f"border-width: {m.group(1)};", "border-style: solid;"]
+    m = re.fullmatch(r"border-\[(#[0-9A-Fa-f]+|rgba?\([^)]+\))\]", tok)
+    if m:
+        return [f"border-color: {m.group(1)};"]
 
     m = re.fullmatch(r"grid-cols-(\d+)", tok)
     if m:
