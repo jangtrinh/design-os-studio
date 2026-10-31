@@ -290,6 +290,27 @@ fn esc_closes_the_overlay_without_also_closing_the_session_menu_below_it() {
     assert!(!s.app().terminal.runtime_dropdown_open, "the next Esc closes the menu");
 }
 
+#[test]
+fn esc_on_runtime_menu_does_not_reach_terminal() {
+    let mut s = super::agent_sim();
+    s.shell.app.terminal.runtime_dropdown_open = true;
+    s.shell.app.terminal.tabs[0].written_bytes.clear();
+    s.key(Key::Escape);
+    assert!(!s.app().terminal.runtime_dropdown_open, "Esc closes the + menu");
+    assert!(terminal_bytes(&s).is_empty(), "Esc closing the + menu must not reach the terminal");
+}
+
+#[test]
+fn esc_on_other_cli_form_does_not_reach_terminal() {
+    let mut s = super::agent_sim();
+    s.shell.app.terminal.runtime_dropdown_open = true;
+    s.shell.app.terminal.picker.open_other_form();
+    s.shell.app.terminal.tabs[0].written_bytes.clear();
+    s.key(Key::Escape);
+    assert!(!s.app().terminal.picker.other_form_open, "Esc closes the Other CLI form");
+    assert!(terminal_bytes(&s).is_empty(), "Esc must not reach the terminal");
+}
+
 /// The menus and popovers whose host section draws only while something is selected or the Variables view is open: the host
 /// can stop drawing (an agent edit removes the node, an undo, the view closes) without a press, and the flag then has nothing
 /// to clear it.

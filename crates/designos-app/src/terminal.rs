@@ -6115,6 +6115,7 @@ pub fn overlay_owns_keyboard(app: &crate::app::App, ctx: &egui::Context) -> bool
         || app.cmdk.open
         || app.ui.menu.is_some()
         || app.ui.layer_picker.is_some()
+        || app.terminal.picker.other_form_open
         || app.libs.open
         || app.libs.review
         || crate::widgets::popup_open::open_recently(ctx)
@@ -6430,7 +6431,7 @@ pub fn show_left_with_doc(
         }
 
         render_vt100_viewport(state, ui, vp_r, file_path, "agents-left-pty");
-        if !state.viewport_focused && !state.overlay_owns_keyboard && ui.input(|i| i.key_pressed(Key::Escape)) {
+        if !state.viewport_focused && !state.overlay_owns_keyboard && !state.runtime_dropdown_open && ui.input(|i| i.key_pressed(Key::Escape)) {
             // egui takes the caret out of the composer on a bare `Esc` before this code runs, so where the caret was a
             // frame ago counts as well: an `Esc` that leaves the composer must not also stop the turn (`#684`, `#923`).
             let composer_focused = state.composer_focused_last_frame || ui.ctx().memory(|m| m.has_focus(Id::new("agents-ask-for-changes-input")));
@@ -6795,7 +6796,7 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
         state.viewport_focused = true;
     }
     // An open dialog or menu owns the keys: the terminal neither sends them to the agent nor shows its caret as active.
-    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open() && !state.overlay_owns_keyboard;
+    let viewport_focused = state.viewport_focused && !state.mention_popup.is_open() && !state.overlay_owns_keyboard && !state.runtime_dropdown_open;
     let search_open = state.search_open;
     let search_query = state.search_query.clone();
     let search_case_sensitive = state.search_case_sensitive;

@@ -243,17 +243,22 @@ fn step_row(selectable: &[bool], from: usize, forward: bool) -> Option<usize> {
 /// them, so a layer selected on the canvas keeps its arrow and Return shortcuts and a stray Return starts nothing.
 /// `row_id` is the widget id the surface draws a row with.
 fn handle_picker_keyboard(state: &mut TerminalState, ui: &Ui, rows: &[PickerRow], row_id: impl Fn(&PickerRow) -> Id) {
-    // An open dialog or menu owns the keys, Esc included: the Esc that closes it must not also close this list (`#923`).
-    if state.overlay_owns_keyboard {
-        return;
-    }
-    let ctx = ui.ctx();
     if state.picker.other_form_open {
         if ui.input(|i| i.key_pressed(Key::Escape)) {
             state.picker.close_other_form();
         }
         return;
     }
+    // An open dialog or menu owns the keys, Esc included: the Esc that closes it must not also close this list (`#923`).
+    if state.overlay_owns_keyboard {
+        return;
+    }
+    if state.runtime_dropdown_open && ui.input(|i| i.key_pressed(Key::Escape)) {
+        state.runtime_dropdown_open = false;
+        state.picker.on_close();
+        return;
+    }
+    let ctx = ui.ctx();
     let focused = rows.iter().position(|r| ctx.memory(|m| m.has_focus(row_id(r))));
     if let Some(from) = focused {
         let forward = if ui.input(|i| i.key_pressed(Key::ArrowDown)) {
