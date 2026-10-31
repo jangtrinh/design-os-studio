@@ -303,13 +303,32 @@ fn text_args(doc: &Document, n: &Node, t: &TextProps, args: &mut Vec<Arg>) {
     }
 }
 
+fn compose_cell_align(ah: GridChildAlign, av: GridChildAlign) -> &'static str {
+    match (av, ah) {
+        (GridChildAlign::Center, GridChildAlign::Center) => "Alignment.Center",
+        (GridChildAlign::Center, GridChildAlign::End) => "Alignment.CenterEnd",
+        (GridChildAlign::Center, _) => "Alignment.CenterStart",
+        (GridChildAlign::End, GridChildAlign::Center) => "Alignment.BottomCenter",
+        (GridChildAlign::End, GridChildAlign::End) => "Alignment.BottomEnd",
+        (GridChildAlign::End, _) => "Alignment.BottomStart",
+        (_, GridChildAlign::Center) => "Alignment.TopCenter",
+        (_, GridChildAlign::End) => "Alignment.TopEnd",
+        _ => "Alignment.TopStart",
+    }
+}
+
 fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
     if !n.visible {
         return;
     }
-    let sz = sizes(n, parent);
+    let mut sz = sizes(n, parent);
     let own_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref());
+    let grid_opt = own_al.and_then(|al| solved_grid(doc, n, al).map(|g| (al, g)));
+    if let Some((al, ref grid)) = grid_opt {
+        let grid_h = grid.rows.iter().sum::<f32>() + grid.row_gap * (grid.rows.len().saturating_sub(1) as f32) + al.padding[0] + al.padding[2];
+        sz.h = Dim::Fixed(grid_h);
+    }
     let site = slot_site(doc, id);
     let kids = if site.is_some() { Vec::new() } else { visible_children(doc, n) };
     let mut mods: Vec<String> = Vec::new();
@@ -385,7 +404,57 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let block;
     size_mods(doc, n, &sz, parent, &mut mods);
     style_mods(doc, n, &mut mods);
-    if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
+    if let Some((al, grid)) = grid_opt {
+        padding_mods(doc, n, al, &mut mods);
+        finish_mods(doc, n, rot, &mut mods);
+        let widths_dp = grid.widths.iter().map(|w| format!("{}.dp", num(*w))).collect::<Vec<_>>().join(", ");
+        args.push(arg(format!(
+            "columns = object : GridCells {{ override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf({widths_dp}).map {{ it.roundToPx() }} }}"
+        )));
+        args.extend(modifier_arg(o, parent, &mods));
+        let col_gap_s = dp(doc, n, "itemSpacing", grid.col_gap);
+        let row_gap_s = dp(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
+        args.push(arg(format!("horizontalArrangement = Arrangement.spacedBy({col_gap_s})")));
+        args.push(arg(format!("verticalArrangement = Arrangement.spacedBy({row_gap_s})")));
+        args.push(arg("userScrollEnabled = false"));
+        open_call(o, depth, "LazyVerticalGrid", args, true);
+        let me = Parent::of(n);
+        let cols = grid.widths.len();
+        for r in 0..grid.rows.len() {
+            let mut c = 0usize;
+            while c < cols {
+                if let Some((cid, p)) = grid.children.iter().find(|(_, p)| p.row == r && p.col == c) {
+                    if p.row_span > 1 {
+                        let cname = doc.get(*cid).map(|cn| cn.name.as_str()).unwrap_or("");
+                        o.line(
+                            depth + 1,
+                            format!("// \"{}\": row span {} is not supported by Compose LazyVerticalGrid; placed in row {}", cname, p.row_span, p.row + 1),
+                        );
+                    }
+                    let item_head = if p.col_span > 1 { format!("item(span = {{ GridItemSpan({}) }}) {{", p.col_span) } else { "item {".to_string() };
+                    o.line(depth + 1, item_head);
+                    let cell_h = grid.cell_height(p, false);
+                    let (ah, av) = grid_cell_align(doc, *cid, al);
+                    let align = compose_cell_align(ah, av);
+                    o.line(depth + 2, format!("Box(Modifier.height({}.dp), contentAlignment = {align}) {{", num(cell_h)));
+                    emit(doc, *cid, me, depth + 3, o);
+                    o.line(depth + 2, "}");
+                    o.line(depth + 1, "}");
+                    c += p.col_span;
+                } else {
+                    o.line(depth + 1, format!("item {{ Spacer(Modifier.height({}.dp)) }}", num(grid.rows[r])));
+                    c += 1;
+                }
+            }
+        }
+        for k in &kids {
+            if !grid.children.iter().any(|(cid, _)| *cid == k.id) {
+                emit(doc, k.id, me, depth + 1, o);
+            }
+        }
+        o.line(depth, "}");
+        return;
+    } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
         name = if horizontal { "Row" } else { "Column" };
         block = true;
@@ -558,5 +627,34 @@ mod tests {
         d.relayout_subtree(grid);
         let out = compose_for(&d, grid);
         assert!(out.contains(".width(30.dp)"), "real Hug text uses width only: {out}");
+    }
+
+    #[test]
+    fn grid_emits_lazy_vertical_grid_tracks_explicit_height_and_holes() {
+        let al = AutoLayout {
+            grid_columns: 2,
+            item_spacing: 10.0,
+            counter_spacing: 8.0,
+            padding: [12.0, 12.0, 12.0, 12.0],
+            grid_col_tracks: vec![GridTrack::Fixed(100.0), GridTrack::Fixed(120.0)].into(),
+            grid_row_tracks: vec![GridTrack::Fixed(40.0), GridTrack::Fixed(50.0)].into(),
+            primary_sizing: Sizing::Hug,
+            counter_sizing: Sizing::Hug,
+            ..Default::default()
+        };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(254.0, 122.0));
+        let a = fixture::add_rect(&mut d, grid, Vec2::new(100.0, 40.0));
+        d.get_mut(a).unwrap().name = "Hero".into();
+        d.get_mut(a).unwrap().layout_child.row_span = 2;
+        let b = fixture::add_rect(&mut d, grid, Vec2::new(120.0, 40.0));
+        d.get_mut(b).unwrap().name = "Side".into();
+        d.relayout_subtree(grid);
+
+        let out = compose_for(&d, grid);
+        assert!(out.contains("LazyVerticalGrid("), "{out}");
+        assert!(out.contains("listOf(100.dp, 120.dp).map { it.roundToPx() }"), "{out}");
+        assert!(out.contains(".height(122.dp)") || out.contains("height = 122.dp"), "{out}");
+        assert!(out.contains("// \"Hero\": row span 2 is not supported by Compose LazyVerticalGrid; placed in row 1"), "{out}");
+        assert!(out.contains("item { Spacer(Modifier.height(50.dp)) }"), "{out}");
     }
 }

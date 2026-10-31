@@ -341,6 +341,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let mut head: Vec<String> = Vec::new(); // lines of the view expression before modifiers
     let mut body: Option<Vec<NodeId>> = None; // children inside braces
     let mut stack: Option<String> = None; // "HStack(...) {"
+    let mut grid_body: Option<(&AutoLayout, SolvedGrid, String, String)> = None;
     let mut spacers = (false, false, false); // before, between, after
     let radius_shape = shape(doc, n);
 
@@ -397,6 +398,24 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         if let Some(f) = frame_args(sz.w, sz.h, None, n, doc) {
             mods.push(f);
         }
+    } else if let Some((al, grid)) = own_al.and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
+        let col_gap_s = dimension(doc, n, "itemSpacing", grid.col_gap);
+        let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
+        grid_body = Some((al, grid, col_gap_s, row_gap_s));
+        padding_mods(doc, n, al, &mut mods);
+        let pos = |a: LayoutAlign| match a {
+            LayoutAlign::Center => 1,
+            LayoutAlign::End => 2,
+            _ => 0,
+        };
+        let (hp, vp) = (pos(al.primary_align), pos(al.counter_align));
+        let (h, v) = (["leading", "center", "trailing"][hp], ["top", "center", "bottom"][vp]);
+        let al_s = alignment(h, v);
+        let align = (al_s != ".center").then_some(al_s);
+        if let Some(f) = frame_args(sz.w, sz.h, align.as_deref(), n, doc) {
+            mods.push(f);
+        }
+        container_style(doc, n, &radius_shape, &mut mods);
     } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
         let counter = match (al.counter_align, horizontal) {
@@ -503,6 +522,53 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
 
     for h in &head {
         o.line(depth, h);
+    }
+    if let Some((al, grid, col_gap_s, row_gap_s)) = &grid_body {
+        o.line(depth, format!("Grid(alignment: .topLeading, horizontalSpacing: {col_gap_s}, verticalSpacing: {row_gap_s}) {{"));
+        let me = Parent::of(n);
+        let cols = grid.widths.len();
+        for r in 0..grid.rows.len() {
+            o.line(depth + 1, "GridRow {");
+            let mut c = 0usize;
+            while c < cols {
+                if let Some((cid, p)) = grid.children.iter().find(|(_, p)| p.row == r && p.col == c) {
+                    if p.row_span > 1 {
+                        let cname = doc.get(*cid).map(|cn| cn.name.as_str()).unwrap_or("");
+                        o.line(depth + 2, format!("// \"{}\": row span {} is not supported by SwiftUI Grid; placed in row {}", cname, p.row_span, p.row + 1));
+                    }
+                    view(doc, *cid, me, depth + 2, o);
+                    let cell_w = grid.cell_width(p);
+                    let cell_h = grid.cell_height(p, false);
+                    let (ah, av) = grid_cell_align(doc, *cid, al);
+                    let h_word = match ah {
+                        GridChildAlign::Center => "center",
+                        GridChildAlign::End => "trailing",
+                        _ => "leading",
+                    };
+                    let v_word = match av {
+                        GridChildAlign::Center => "center",
+                        GridChildAlign::End => "bottom",
+                        _ => "top",
+                    };
+                    let cell_align = alignment(h_word, v_word);
+                    o.line(depth + 3, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                    if p.col_span > 1 {
+                        o.line(depth + 3, format!(".gridCellColumns({})", p.col_span));
+                    }
+                    c += p.col_span;
+                } else {
+                    o.line(depth + 2, format!("Color.clear.frame(width: {}, height: {})", num(grid.widths[c]), num(grid.rows[r])));
+                    c += 1;
+                }
+            }
+            o.line(depth + 1, "}");
+        }
+        for k in &kids {
+            if !grid.children.iter().any(|(cid, _)| *cid == k.id) {
+                view(doc, k.id, me, depth + 1, o);
+            }
+        }
+        o.line(depth, "}");
     }
     if let (Some(open), Some(children)) = (&stack, &body) {
         o.line(depth, open);
@@ -799,5 +865,37 @@ mod tests {
             let _ = std::fs::remove_dir_all(&dir);
             assert!(parse.status.success(), "swiftc -parse failed:\n{}\n---\n{swift_src}", String::from_utf8_lossy(&parse.stderr));
         }
+    }
+
+    #[test]
+    fn grid_emits_swiftui_grid_rows_spans_holes_and_abs_child() {
+        let al = AutoLayout {
+            grid_columns: 2,
+            item_spacing: 10.0,
+            counter_spacing: 8.0,
+            grid_col_tracks: vec![GridTrack::Fixed(100.0), GridTrack::Fixed(120.0)].into(),
+            grid_row_tracks: vec![GridTrack::Fixed(40.0), GridTrack::Fixed(50.0)].into(),
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..Default::default()
+        };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(230.0, 98.0));
+        let a = fixture::add_rect(&mut d, grid, Vec2::new(100.0, 40.0));
+        d.get_mut(a).unwrap().name = "Hero".into();
+        d.get_mut(a).unwrap().layout_child.row_span = 2;
+        let b = fixture::add_rect(&mut d, grid, Vec2::new(120.0, 40.0));
+        d.get_mut(b).unwrap().name = "Side".into();
+        let abs = fixture::add_rect(&mut d, grid, Vec2::new(16.0, 16.0));
+        d.get_mut(abs).unwrap().layout_child.absolute = true;
+        d.get_mut(abs).unwrap().transform.tx = 200.0;
+        d.get_mut(abs).unwrap().transform.ty = 4.0;
+        d.relayout_subtree(grid);
+
+        let out = swiftui_for(&d, grid);
+        assert!(out.contains("Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 8)"), "{out}");
+        assert_eq!(out.matches("GridRow {").count(), 2, "{out}");
+        assert!(out.contains("// \"Hero\": row span 2 is not supported by SwiftUI Grid; placed in row 1"), "{out}");
+        assert!(out.contains("Color.clear.frame(width: 100, height: 50)"), "{out}");
+        assert!(out.contains(".offset(x: 200, y: 4)"), "{out}");
     }
 }

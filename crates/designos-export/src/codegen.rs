@@ -585,6 +585,74 @@ pub(crate) fn grid_packs_auto_rows(doc: &Document, n: &Node, al: &AutoLayout) ->
     designos_doc::layout_solver::grid_packs_auto_rows(al, &kids)
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct SolvedGrid {
+    pub widths: Vec<f32>,
+    pub rows: Vec<f32>,
+    pub col_gap: f32,
+    pub row_gap: f32,
+    pub children: Vec<(NodeId, designos_doc::layout_solver::Placed)>,
+}
+
+impl SolvedGrid {
+    pub fn cell_width(&self, p: &designos_doc::layout_solver::Placed) -> f32 {
+        (0..p.col_span).map(|dc| self.widths[p.col + dc]).sum::<f32>() + self.col_gap * (p.col_span.saturating_sub(1) as f32)
+    }
+
+    pub fn cell_height(&self, p: &designos_doc::layout_solver::Placed, allow_row_span: bool) -> f32 {
+        let span = if allow_row_span { p.row_span } else { 1 };
+        (0..span).map(|dr| self.rows[p.row + dr]).sum::<f32>() + self.row_gap * (span.saturating_sub(1) as f32)
+    }
+}
+
+pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<SolvedGrid> {
+    if al.direction != LayoutDirection::Grid {
+        return None;
+    }
+    let mut ids = Vec::new();
+    let mut kids = Vec::new();
+    for id in &n.children {
+        if let Some(k) = doc.flow_child_input(*id, true) {
+            ids.push(*id);
+            kids.push(k);
+        }
+    }
+    if kids.is_empty() {
+        return None;
+    }
+    let al_s = al.with_stroke(&n.stroke);
+    let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
+    let widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
+    let rows = designos_doc::layout_solver::grid_row_heights(&al_s, n.size, own, &kids);
+    let col_gap = al_s.item_spacing.max(0.0);
+    let row_gap = if al_s.counter_spacing > 0.0 { al_s.counter_spacing } else { col_gap };
+    let placed = designos_doc::layout_solver::place_children(&kids, widths.len());
+    let children = ids.into_iter().zip(placed).collect();
+    Some(SolvedGrid { widths, rows, col_gap, row_gap, children })
+}
+
+pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'static str {
+    if bound(doc, n, "counterAxisSpacing").is_some() || al.counter_spacing > 0.0 {
+        "counterAxisSpacing"
+    } else {
+        "itemSpacing"
+    }
+}
+
+pub(crate) fn grid_cell_align(doc: &Document, child_id: NodeId, al: &AutoLayout) -> (GridChildAlign, GridChildAlign) {
+    let (raw_h, raw_v) =
+        doc.flow_child_input(child_id, true).map(|k| (k.cell.align_h, k.cell.align_v)).unwrap_or((GridChildAlign::Start, GridChildAlign::Start));
+    let resolve = |child_align: GridChildAlign, container_align: LayoutAlign| match child_align {
+        GridChildAlign::Auto => match container_align {
+            LayoutAlign::Center => GridChildAlign::Center,
+            LayoutAlign::End => GridChildAlign::End,
+            _ => GridChildAlign::Start,
+        },
+        other => other,
+    };
+    (resolve(raw_h, al.primary_align), resolve(raw_v, al.counter_align))
+}
+
 /// Column tracks for `n`: when a hugging grid has any `GridTrack::Hug` column or its solved `Flex`
 /// columns have unequal unit widths (such as `100 / 40 / 60` or `100 / 40 / 40`), returns their
 /// solved pixel widths as fixed tracks so the browser places items at the same x coordinates as
@@ -1303,5 +1371,51 @@ mod tests {
         // A row taller than the child is where a stretch changes the height.
         let (d, _, rect) = fixture::grid_stretch_child(Some(GridTrack::Fixed(100.0)), false);
         assert_eq!(d.get(rect).unwrap().size, Vec2::new(30.0, 100.0));
+    }
+
+    #[test]
+    fn solved_grid_matches_solver_accessors_and_place_children() {
+        let mut al = AutoLayout {
+            grid_columns: 4,
+            grid_rows: 0,
+            item_spacing: 12.0,
+            counter_spacing: 16.0,
+            padding: [12.0, 12.0, 12.0, 12.0],
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..Default::default()
+        };
+        al.grid_col_tracks[0] = GridTrack::Fixed(120.0);
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(428.0, 220.0));
+        let hero = fixture::add_rect(&mut d, grid, Vec2::new(80.0, 40.0));
+        d.get_mut(hero).unwrap().layout_child.col_span = 2;
+        d.get_mut(hero).unwrap().layout_child.row_span = 2;
+        let a = fixture::add_rect(&mut d, grid, Vec2::new(60.0, 32.0));
+        let b = fixture::add_rect(&mut d, grid, Vec2::new(60.0, 32.0));
+        let c = fixture::add_rect(&mut d, grid, Vec2::new(60.0, 48.0));
+        // An absolute child is skipped by `flow_child_input`.
+        let abs = fixture::add_rect(&mut d, grid, Vec2::new(20.0, 20.0));
+        d.get_mut(abs).unwrap().layout_child.absolute = true;
+        d.relayout_subtree(grid);
+
+        let n = d.get(grid).unwrap();
+        let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        let sg = solved_grid(&d, n, al).expect("solved_grid must return Some for a populated grid");
+
+        let al_s = al.with_stroke(&n.stroke);
+        let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
+        let kids: Vec<designos_doc::layout_solver::ChildIn> = n.children.iter().filter_map(|id| d.flow_child_input(*id, true)).collect();
+        let expected_widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
+        let expected_rows = designos_doc::layout_solver::grid_row_heights(&al_s, n.size, own, &kids);
+        let expected_placed = designos_doc::layout_solver::place_children(&kids, expected_widths.len());
+
+        assert_eq!(sg.widths, expected_widths);
+        assert_eq!(sg.rows, expected_rows);
+        assert_eq!(sg.col_gap, 12.0);
+        assert_eq!(sg.row_gap, 16.0);
+        let actual_ids: Vec<NodeId> = sg.children.iter().map(|(id, _)| *id).collect();
+        let actual_placed: Vec<designos_doc::layout_solver::Placed> = sg.children.iter().map(|(_, p)| *p).collect();
+        assert_eq!(actual_ids, vec![hero, a, b, c]);
+        assert_eq!(actual_placed, expected_placed);
     }
 }
