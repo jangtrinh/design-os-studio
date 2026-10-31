@@ -330,3 +330,49 @@ fn gradient_stop_colors_bind_filter_scopes_detach_and_undo() {
     assert_eq!(stops[0].color, Color::rgb(0x44, 0x55, 0x66));
     s.rect_of("bound:strokes/0/stops/0");
 }
+
+#[test]
+fn effect_popover_opens_via_panel_flag_not_screenshot_chrome_side_effect() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let (coll, light, _) = theme_ids(s.app());
+    let fx_radius = store.add_variable(&coll, "Effect/Radius", VariableKind::Number).unwrap();
+    store.set_value(&fx_radius, &light, VariableValue::Number(18.0));
+    s.shell.app.commit_store(store, &[], &[]);
+
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.effects = vec![Effect::DropShadow {
+            color: Color::rgba(0, 0, 0, 64),
+            offset: designos_doc::Vec2::new(0.0, 4.0),
+            radius: 18.0,
+            spread: 0.0,
+            visible: true,
+            show_behind: false,
+            blend: BlendMode::Normal,
+        }];
+        n.variables.bindings.insert("effects/0/radius".into(), fx_radius.clone());
+    });
+    s.shell.app.ui.screenshot_chrome = true;
+    s.shell.app.props.pop = None;
+    s.scroll_inspector_down();
+    assert!(
+        s.app().props.pop.is_none(),
+        "screenshot_chrome must not auto-open the effect popover inside effects::section"
+    );
+
+    let s_panel = Sim::with(Options {
+        select: Some("Hero".into()),
+        panel: Some("effect".into()),
+        ..Default::default()
+    });
+    assert!(
+        matches!(
+            s_panel.app().props.pop.as_ref().map(|p| &p.kind),
+            Some(crate::panels::effects::PopKind::Effect(0))
+        ),
+        "--panel effect must open PopKind::Effect(0) on the selected node"
+    );
+    let _ = fx_field_rect(&s_panel, "fxp-b", 0);
+}
+
