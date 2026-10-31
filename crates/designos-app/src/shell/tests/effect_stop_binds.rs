@@ -683,5 +683,57 @@ fn gradient_stop_bindings_follow_stop_across_flip_add_and_delete() {
     assert_eq!(s.app().doc.get(hero).unwrap().variables.bindings.get("strokes/0/stops/1"), None);
 }
 
+#[test]
+fn picker_resync_runs_in_picker_popup_not_unrelated_sections() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [
+                    designos_doc::Vec2::new(0.0, 0.5),
+                    designos_doc::Vec2::new(1.0, 0.5),
+                    designos_doc::Vec2::new(0.0, 1.0),
+                ],
+                stops: vec![
+                    GradientStop { pos: 0.0, color: Color::BLACK },
+                    GradientStop { pos: 1.0, color: Color::WHITE },
+                ],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+
+    // Update the stop colour in the document while `pk.tx` is untouched.
+    let updated = Color::rgb(0x12, 0x34, 0x56);
+    if let Some(n) = s.shell.app.doc.get_mut(hero) {
+        if let PaintKind::LinearGradient { stops, .. } = &mut n.fills[0].kind {
+            stops[0].color = updated;
+        }
+    }
+
+    // Calling `var_bind::bind_picker` when no bind picker is open must not reach into the colour picker.
+    crate::panels::var_bind::bind_picker(&mut s.shell.app, &s.ctx);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().props.picker.as_ref().unwrap().paint.kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_eq!(stops[0].color, Color::BLACK, "var_bind::bind_picker exit must not resync the colour picker");
+
+    // Running a frame runs `properties::picker_popup`, which owns the colour picker resync.
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().props.picker.as_ref().unwrap().paint.kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_eq!(stops[0].color, updated, "properties::picker_popup must resync the colour picker from the document");
+}
+
+
 
 
