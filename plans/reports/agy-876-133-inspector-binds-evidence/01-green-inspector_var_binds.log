@@ -1,0 +1,38 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.15s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 8 tests
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 3978 filtered out; finished in 3.97s
+

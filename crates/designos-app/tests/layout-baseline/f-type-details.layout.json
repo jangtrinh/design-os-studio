@@ -55,6 +55,86 @@
     }
   ],
   "named": {
+    "bind:fontSize": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        712.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:height": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        463.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:letterSpacing": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        748.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:lineHeight": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        748.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:opacity": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        865.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:paragraphIndent": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1320.0,
+        778.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:paragraphSpacing": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1320.0,
+        810.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:width": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        463.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "bound:fills/0": {
       "region": "right_panel",
       "rect": [
@@ -1787,7 +1867,7 @@
       "rect": [
         1200.0,
         778.0,
-        144.0,
+        119.0,
         24.0
       ],
       "sense": [
@@ -1801,7 +1881,7 @@
       "rect": [
         1200.0,
         810.0,
-        144.0,
+        119.0,
         24.0
       ],
       "sense": [
@@ -2167,7 +2247,7 @@
       "rect": [
         1400.0,
         463.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -2193,7 +2273,7 @@
       "rect": [
         1496.0,
         463.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -2323,7 +2403,7 @@
       "rect": [
         1496.0,
         712.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -2349,7 +2429,7 @@
       "rect": [
         1400.0,
         748.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -2375,7 +2455,7 @@
       "rect": [
         1501.0,
         748.0,
-        59.0,
+        34.0,
         32.0
       ],
       "sense": [
@@ -2466,7 +2546,7 @@
       "rect": [
         1400.0,
         865.0,
-        52.25,
+        27.25,
         32.0
       ],
       "sense": [

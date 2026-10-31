@@ -45,6 +45,56 @@
   },
   "overlays": [],
   "named": {
+    "bind:fills/0": {
+      "region": "unknown",
+      "rect": [
+        1456.0,
+        1133.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:height": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        463.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:opacity": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        544.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:topLeftRadius": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        544.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:width": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        463.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "distribute": {
       "region": "right_panel",
       "rect": [
@@ -80,7 +130,7 @@
       "rect": [
         57.0,
         40.0,
-        193.0,
+        184.0,
         24.0
       ],
       "count": 1
@@ -148,10 +198,10 @@
     "layers-collapse-all": {
       "region": "left_panel",
       "rect": [
-        229.0,
-        217.0,
-        24.0,
-        24.0
+        213.0,
+        213.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
@@ -168,10 +218,10 @@
     "layers-search": {
       "region": "left_panel",
       "rect": [
-        257.0,
-        217.0,
-        24.0,
-        24.0
+        249.0,
+        213.0,
+        32.0,
+        32.0
       ],
       "count": 1
     },
@@ -182,6 +232,16 @@
         71.0,
         124.5,
         18.0
+      ],
+      "count": 1
+    },
+    "left-panel-resize-band": {
+      "region": "left_panel",
+      "rect": [
+        278.0,
+        32.0,
+        15.0,
+        1056.0
       ],
       "count": 1
     },
@@ -332,6 +392,16 @@
         205.0,
         240.0,
         6.0
+      ],
+      "count": 1
+    },
+    "pages-layers-separator-band": {
+      "region": "left_panel",
+      "rect": [
+        49.0,
+        196.0,
+        240.0,
+        24.0
       ],
       "count": 1
     },
@@ -785,6 +855,16 @@
       ],
       "count": 1
     },
+    "tab-close-hit-1": {
+      "region": "tab_bar",
+      "rect": [
+        307.0,
+        4.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "tab-unsaved-dot-1": {
       "region": "unknown",
       "rect": [
@@ -851,6 +931,56 @@
         808.0,
         1036.0,
         16.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-0": {
+      "region": "canvas",
+      "rect": [
+        584.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-1": {
+      "region": "canvas",
+      "rect": [
+        640.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-2": {
+      "region": "canvas",
+      "rect": [
+        696.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-3": {
+      "region": "canvas",
+      "rect": [
+        752.0,
+        1036.0,
+        24.0,
+        32.0
+      ],
+      "count": 1
+    },
+    "tool-chevron-hit-4": {
+      "region": "canvas",
+      "rect": [
+        808.0,
+        1036.0,
+        24.0,
         32.0
       ],
       "count": 1
@@ -1036,10 +1166,10 @@
     {
       "region": "left_panel",
       "rect": [
-        253.0,
-        44.0,
-        24.0,
-        24.0
+        245.0,
+        40.0,
+        32.0,
+        32.0
       ],
       "sense": [
         "click",
@@ -1049,10 +1179,10 @@
     {
       "region": "left_panel",
       "rect": [
-        229.0,
-        105.0,
-        24.0,
-        24.0
+        213.0,
+        101.0,
+        32.0,
+        32.0
       ],
       "sense": [
         "click",
@@ -1062,10 +1192,10 @@
     {
       "region": "left_panel",
       "rect": [
-        257.0,
-        105.0,
-        24.0,
-        24.0
+        249.0,
+        101.0,
+        32.0,
+        32.0
       ],
       "sense": [
         "click",
@@ -1489,7 +1619,7 @@
       "rect": [
         1400.0,
         463.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1515,7 +1645,7 @@
       "rect": [
         1496.0,
         463.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1541,7 +1671,7 @@
       "rect": [
         1400.0,
         544.0,
-        52.25,
+        27.25,
         32.0
       ],
       "sense": [
@@ -1567,7 +1697,7 @@
       "rect": [
         1496.0,
         544.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1607,7 +1737,7 @@
       "rect": [
         92.0,
         3.0,
-        216.0,
+        213.0,
         26.0
       ],
       "sense": [

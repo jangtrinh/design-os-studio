@@ -65,6 +65,16 @@
       ],
       "count": 1
     },
+    "bind:fills/0": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1456.0,
+        1027.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "copy-to-figma-slides-btn": {
       "region": "overlay:Foreground/0",
       "rect": [
@@ -2417,7 +2427,7 @@
       "rect": [
         1400.0,
         1027.0,
-        80.0,
+        55.0,
         25.0
       ],
       "sense": [

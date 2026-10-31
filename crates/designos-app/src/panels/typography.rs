@@ -203,21 +203,45 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     }
 
     // ---- family
+    let fam_r = pane.full(0.0);
     let fam_label = sum.family.clone().unwrap_or_else(|| "Mixed".to_string());
-    if let Some(f) = family_picker(ui, pane.full(0.0), &fam_label) {
-        pick_family(app, sel, &f);
+    if in_session {
+        if let Some(f) = family_picker(ui, fam_r, &fam_label) {
+            pick_family(app, sel, &f);
+        }
+    } else if !var_bind::pill_field(app, ui, fam_r, sel, &["fontFamily"]) {
+        let val_r = var_bind::value_rect(app, ui, fam_r, sel, &["fontFamily"], VariableKind::String);
+        if let Some(f) = family_picker(ui, val_r, &fam_label) {
+            pick_family(app, sel, &f);
+        }
+        var_bind::hover_button(app, ui, fam_r, sel, &["fontFamily"], VariableKind::String);
     }
     row_end(pane);
 
     // ---- weight + size
     let names: Vec<String> = WEIGHTS.iter().map(|w| w.0.to_string()).collect();
     let cur = sum.weight.map(weight_name).unwrap_or("Mixed");
-    if let Some(i) = dropdown(ui, pane.col(0, 0.0), "font-weight", cur, &names) {
-        let w = WEIGHTS[i].1;
-        set_style(app, sel, |s| s.font_weight = w);
+    let wt_r = pane.col(0, 0.0);
+    if in_session {
+        if let Some(i) = dropdown(ui, wt_r, "font-weight", cur, &names) {
+            let w = WEIGHTS[i].1;
+            set_style(app, sel, |s| s.font_weight = w);
+        }
+    } else if !var_bind::pill_field(app, ui, wt_r, sel, &["fontStyle"]) && !var_bind::pill_field(app, ui, wt_r, sel, &["fontWeight"]) {
+        let val_r = var_bind::value_rect(app, ui, wt_r, sel, &["fontStyle"], VariableKind::String);
+        if let Some(i) = dropdown(ui, val_r, "font-weight", cur, &names) {
+            let w = WEIGHTS[i].1;
+            set_style(app, sel, |s| s.font_weight = w);
+        }
+        var_bind::hover_button(app, ui, wt_r, sel, &["fontStyle"], VariableKind::String);
     }
     let fs_r = pane.col(1, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, fs_r, sel, &["fontSize"], |ui| field::num_field(ui, fs_r, "font-size", Prefix::Text("S"), sum.size, "")) {
+    let fs_out = if in_session {
+        field::num_field(ui, fs_r, "font-size", Prefix::Text("S"), sum.size, "")
+    } else {
+        var_bind::numeric(app, ui, fs_r, sel, &["fontSize"], |ui, r| field::num_field(ui, r, "font-size", Prefix::Text("S"), sum.size, ""))
+    };
+    if let Some(v) = fs_out {
         let v = v.max(1.0);
         set_style(app, sel, |s| s.font_size = v);
     }
@@ -225,11 +249,25 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
 
     // ---- line height + letter spacing
     let lh = sum.line_height.map(|l| richtext::display_line_height_px(l, sum.size.unwrap_or(t.style.font_size)));
-    if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "line-height", Prefix::Text("\u{2195}"), lh, "") {
+    let lh_r = pane.col(0, 0.0);
+    let lh_out = if in_session {
+        field::num_field(ui, lh_r, "line-height", Prefix::Text("\u{2195}"), lh, "")
+    } else {
+        var_bind::numeric(app, ui, lh_r, sel, &["lineHeight"], |ui, r| field::num_field(ui, r, "line-height", Prefix::Text("\u{2195}"), lh, ""))
+    };
+    if let Some(v) = lh_out {
         let v = v.max(1.0);
         set_style(app, sel, |s| s.line_height = LineHeight::Pixels(v));
     }
-    if let Some(v) = field::num_field(ui, pane.col(1, 0.0), "letter-spacing", Prefix::Text("\u{2194}"), sum.letter_spacing, "") {
+    let ls_r = pane.col(1, 0.0);
+    let ls_out = if in_session {
+        field::num_field(ui, ls_r, "letter-spacing", Prefix::Text("\u{2194}"), sum.letter_spacing, "")
+    } else {
+        var_bind::numeric(app, ui, ls_r, sel, &["letterSpacing"], |ui, r| {
+            field::num_field(ui, r, "letter-spacing", Prefix::Text("\u{2194}"), sum.letter_spacing, "")
+        })
+    };
+    if let Some(v) = ls_out {
         set_style(app, sel, |s| s.letter_spacing = v);
     }
     row_end(pane);
@@ -313,22 +351,24 @@ fn color_row(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], sum: &
             };
             widgets::swatch(ui.painter(), sw, col);
             widgets::record(ui, "text-sw", sw);
-            widgets::record(ui, "text-hex", hex_r);
             let swr = ui.interact(sw, ui.id().with("typo-sw"), Sense::click());
+            let in_session = editing(app, sel);
             // A variable binds the whole layer's colour (key `fills/0`, as the renderer resolves it).
             let field_r = Rect::from_min_max(hex_r.min, Pos2::new(op_r.left() - 4.0, hex_r.bottom()));
-            let bound = var_bind::pill_field(app, ui, field_r, sel, &["fills/0"]);
+            let bound = !in_session && var_bind::pill_field(app, ui, field_r, sel, &["fills/0"]);
+            let val_hex_r = if in_session || bound { hex_r } else { var_bind::value_rect(app, ui, hex_r, sel, &["fills/0"], VariableKind::Color) };
+            widgets::record(ui, "text-hex", val_hex_r);
             if swr.clicked() && !bound {
                 open_picker(app, PickTarget::TextFill, col, sw, sel.to_vec());
             }
             if !bound {
-                if let Some(s) = field::text_input(ui, hex_r, "text-hex", &c.to_hex()) {
+                if let Some(s) = field::text_input(ui, val_hex_r, "text-hex", &c.to_hex()) {
                     if let Some(nc) = Color::from_hex(&s) {
                         set_style_preserving_link(app, sel, |st| set_solid(st, Color { a: c.a, ..nc }, None));
                     }
                 }
                 // Not offered while a character range is being edited: bindings are per layer.
-                if !editing(app, sel) {
+                if !in_session {
                     var_bind::hover_button(app, ui, hex_r, sel, &["fills/0"], VariableKind::Color);
                 }
             }
@@ -803,13 +843,26 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
             widgets::hline(ui.painter(), body.left(), body.right(), sep, theme::BORDER);
             y.set(y.get() + 8.0);
             let p = t.paragraph.clone();
+            let in_session = editing(app, &ids);
             detail_row(ui, body, next(), "Paragraph indent", false, |ui, r| {
-                if let Some(v) = field::num_field(ui, r, "det-indent", Prefix::None, Some(p.indent), "") {
+                let out = if in_session {
+                    field::num_field(ui, r, "det-indent", Prefix::None, Some(p.indent), "")
+                } else {
+                    var_bind::numeric(app, ui, r, &ids, &["paragraphIndent"], |ui, vr| field::num_field(ui, vr, "det-indent", Prefix::None, Some(p.indent), ""))
+                };
+                if let Some(v) = out {
                     set_text_props(app, &ids, |t| t.paragraph.indent = v.max(0.0));
                 }
             });
             detail_row(ui, body, next(), "Paragraph spacing", false, |ui, r| {
-                if let Some(v) = field::num_field(ui, r, "det-pspacing", Prefix::None, Some(t.style.paragraph_spacing), "") {
+                let out = if in_session {
+                    field::num_field(ui, r, "det-pspacing", Prefix::None, Some(t.style.paragraph_spacing), "")
+                } else {
+                    var_bind::numeric(app, ui, r, &ids, &["paragraphSpacing"], |ui, vr| {
+                        field::num_field(ui, vr, "det-pspacing", Prefix::None, Some(t.style.paragraph_spacing), "")
+                    })
+                };
+                if let Some(v) = out {
                     set_base(app, &ids, |s| s.paragraph_spacing = v.max(0.0));
                 }
             });
