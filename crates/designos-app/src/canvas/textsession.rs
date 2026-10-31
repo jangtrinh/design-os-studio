@@ -338,6 +338,10 @@ fn style_owned_changed((style, runs, paragraph): (&TextStyle, &[designos_doc::Te
         || runs.iter().zip(&after.runs).any(|(a, b)| (a.start, a.end) != (b.start, b.end) || !same_text_style(&a.style, &b.style))
 }
 
+fn style_owned_props_changed(before: &TextProps, after: &TextProps) -> bool {
+    style_owned_changed((&before.style, before.runs.as_slice(), (before.paragraph.indent, before.paragraph.list_spacing, before.paragraph.leading_trim)), after)
+}
+
 /// Applies `f` to `n`'s text, detaching its linked text style when any style-owned field changed,
 /// and re-fitting a text node's box.
 pub fn edit_node_text_detaching(n: &mut Node, f: impl FnOnce(&mut TextProps)) {
@@ -397,7 +401,7 @@ fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: Link
                 LinkEdit::Set(None) => {
                     n.style_refs.remove(text_ref());
                 }
-                LinkEdit::DetachIfChanged if props_changed => {
+                LinkEdit::DetachIfChanged if style_owned_props_changed(&snap.props, t) => {
                     n.style_refs.remove(text_ref());
                 }
                 LinkEdit::Keep | LinkEdit::DetachIfChanged => {}
@@ -596,7 +600,7 @@ fn style_selection_impl(app: &mut App, f: impl Fn(&mut TextStyle), kind: EditKin
 
 /// Edits the base style of the edited text (paragraph level fields such as alignment).
 pub fn base_style(app: &mut App, f: impl Fn(&mut TextStyle)) {
-    edit_props(app, Some((EditKind::Other, true)), |t, _, _| f(&mut t.style));
+    edit_props_with_link(app, Some((EditKind::Other, true)), LinkEdit::DetachIfChanged, |t, _, _| f(&mut t.style));
 }
 
 /// [`base_style`] that also links the edited layer to the shared text style `link`, or unlinks it
@@ -608,7 +612,7 @@ pub fn base_style_linked(app: &mut App, link: Option<&str>, f: impl Fn(&mut Text
 
 /// Edits the text properties of the open session's text (paragraph settings, lists, direction).
 pub fn edit_text_props(app: &mut App, f: impl Fn(&mut TextProps)) {
-    edit_props(app, Some((EditKind::Other, true)), |t, _, _| f(t));
+    edit_props_with_link(app, Some((EditKind::Other, true)), LinkEdit::DetachIfChanged, |t, _, _| f(t));
 }
 
 /// Style summary of the open session's selection (for the inspector).

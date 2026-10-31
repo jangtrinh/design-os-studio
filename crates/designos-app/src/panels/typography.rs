@@ -116,12 +116,7 @@ fn set_base(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextStyle)) {
         ts::base_style(app, &f);
         return;
     }
-    app.edit_nodes(sel, |n| {
-        if let NodeKind::Text(t) = &mut n.kind {
-            f(&mut t.style);
-            n.size = layout::fit_text(t, n.size);
-        }
-    });
+    app.edit_nodes(sel, |n| ts::edit_node_text_detaching(n, |t| f(&mut t.style)));
 }
 
 /// Segmented control with short text labels instead of icons.
@@ -570,12 +565,7 @@ pub fn set_text_props(app: &mut App, sel: &[NodeId], f: impl Fn(&mut TextProps))
         ts::edit_text_props(app, &f);
         return;
     }
-    app.edit_nodes(sel, |n| {
-        if let NodeKind::Text(t) = &mut n.kind {
-            f(t);
-            n.size = layout::fit_text(t, n.size);
-        }
-    });
+    app.edit_nodes(sel, |n| ts::edit_node_text_detaching(n, &f));
 }
 
 /// Sets (`Some`) or removes (`None`) OpenType features on the edited range / selected layers.
