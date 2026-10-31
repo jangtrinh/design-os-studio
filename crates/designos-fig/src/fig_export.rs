@@ -1708,6 +1708,13 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             }
             if ovs.contains(&OverrideField::TextStyle) {
                 if let NodeKind::Text(tp) = &n.kind {
+                    // Figma applies an instance text-style relink/detach from the
+                    // override record. The ordinary node style reference is not
+                    // consulted while replaying symbolOverrides, so preserve the
+                    // effective reference whenever it differs from the source.
+                    if let Some(style_override) = instance_text_style_override(cx, n) {
+                        ov.push(("styleIdForText", style_override));
+                    }
                     append_text_style_fields(&mut ov, &tp.style);
                 }
             }
@@ -2375,6 +2382,24 @@ fn append_ot_and_variation_fields(fields: &mut Vec<(&'static str, V)>, ts: &Text
             })
             .collect();
         fields.push(("fontVariations", V::Array(vars)));
+    }
+}
+
+fn instance_text_style_override(cx: &ExportCtx<'_>, n: &Node) -> Option<V> {
+    let source_style = n.component.source.and_then(|source| cx.doc.get(source)).and_then(|source| source.style_refs.get("text"));
+    let effective_style = n.style_refs.get("text");
+    if effective_style == source_style {
+        return None;
+    }
+    match effective_style {
+        Some(id) if id.starts_with("key:") => Some(msg(vec![("assetRef", msg(vec![("key", V::String(id[4..].to_string()))]))])),
+        Some(id) => cx
+            .style_guids
+            .get(id)
+            .copied()
+            .map(|(session, local)| msg(vec![("guid", guid(session, local))]))
+            .or_else(|| Some(msg(vec![("guid", guid(u32::MAX, u32::MAX))]))),
+        None => Some(msg(vec![("guid", guid(u32::MAX, u32::MAX))])),
     }
 }
 
