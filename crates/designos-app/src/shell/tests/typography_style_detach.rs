@@ -733,3 +733,41 @@ fn run_only_style_change_on_cmd_i_detaches_linked_text_style() {
     assert!(!text_of(&s, id).runs[0].style.italic);
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "undo restores the run style and text style link");
 }
+
+#[test]
+fn mixed_text_and_sticky_selection_shortcuts_edit_both_and_detach_linked_text_style() {
+    let (mut s, id) = linked_sim();
+    let mut page = id;
+    while let Some(p) = s.app().doc.get(page).and_then(|n| n.parent) {
+        page = p;
+    }
+    let sid = s.shell.app.doc.alloc_id();
+    let mut sp = designos_doc::StickyProps::default();
+    sp.text.content = "note".into();
+    let mut n = designos_doc::Node::new(sid, NodeKind::Sticky(sp));
+    n.size = designos_doc::Vec2 { x: 200.0, y: 200.0 };
+    s.shell.app.doc.insert(page, n).unwrap();
+    s.shell.app.selection = vec![id, sid];
+    s.frame(vec![]);
+
+    let sticky_style = |s: &Sim| match &s.app().doc.get(sid).unwrap().kind {
+        NodeKind::Sticky(p) => (p.text.style.font_size, p.text.style.letter_spacing),
+        _ => unreachable!(),
+    };
+    let depth = s.app().hist.undo_depth();
+    assert_eq!(sticky_style(&s), (32.0, 0.0));
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+
+    s.cmd_shift_key(Key::Period);
+    assert_eq!(text_of(&s, id).style.font_size, 17.0);
+    assert_eq!(sticky_style(&s), (33.0, 0.0), "Cmd+Shift+. on a [Text, Sticky] selection must also step the sticky's font size");
+    assert_eq!(link_of(&s, id), None, "Cmd+Shift+. must detach the linked Text node's style");
+    assert_eq!(s.app().hist.undo_depth(), depth + 1);
+
+    s.mods = Modifiers { alt: true, ..Modifiers::NONE };
+    s.key(Key::ArrowRight);
+    s.mods = Modifiers::NONE;
+    assert_eq!(text_of(&s, id).style.letter_spacing, 0.5);
+    assert_eq!(sticky_style(&s), (33.0, 0.5), "Alt+ArrowRight on a [Text, Sticky] selection must also step the sticky's letter spacing");
+    assert_eq!(s.app().hist.undo_depth(), depth + 2);
+}
