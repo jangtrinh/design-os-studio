@@ -1824,7 +1824,8 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
             ParsedOp::SetVariables(a) => {
                 check_document_lease_guard(engine.owned_frames.as_deref(), op_idx, op_name)?;
                 let written: Vec<&str> = a.upsert_variables.iter().map(|v| v.id.as_str()).chain(a.delete_variables.iter().map(String::as_str)).collect();
-                let before_vars = VariablesBefore::capture(&trial, &written);
+                let collection_ids: Vec<&str> = a.upsert_collections.iter().map(|c| c.id.as_str()).collect();
+                let before_vars = VariablesBefore::capture(&trial, &written, &collection_ids);
                 let (cmd_opt, count) = apply_set_variables_op(&trial, a, op_idx)?;
                 if let Some(cmd) = cmd_opt {
                     if recording_live {
