@@ -1348,10 +1348,8 @@ fn swap_main(c: &mut Ctx, i: NodeId, new_comp: NodeId) {
     if let NodeKind::Instance { component, component_key, frame } = &mut n.kind {
         *component = Some(new_comp);
         *component_key = None;
-        if !n.component.overrides.contains(&OverrideField::Layout) {
-            if let Some(f) = comp.kind.frame_props() {
-                *frame = f.clone();
-            }
+        if let Some(f) = comp.kind.frame_props() {
+            *frame = f.clone();
         }
     }
     if !same_family && !n.component.overrides.contains(&OverrideField::Name) && old_comp_node.as_ref().is_some_and(|oc| oc.name == n.name) {
