@@ -68,6 +68,7 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_n2c_hug_equal_flex_fill_only_hug_col(),
         scene_n6_stroke_v0_unpadded_hug(),
         scene_n6c_stroke_v0_unpadded_fixed(),
+        scene_c7_single_hug_col_min_w_fill(),
     ]
 }
 
@@ -599,6 +600,33 @@ fn scene_n6c_stroke_v0_unpadded_fixed() -> GridFixture {
     }
 }
 
+fn scene_c7_single_hug_col_min_w_fill() -> GridFixture {
+    let mut al = AutoLayout {
+        grid_columns: 1,
+        grid_rows: 0,
+        item_spacing: 0.0,
+        counter_spacing: 0.0,
+        padding: [0.0, 0.0, 0.0, 0.0],
+        primary_sizing: Sizing::Hug,
+        counter_sizing: Sizing::Hug,
+        ..Default::default()
+    };
+    al.grid_col_tracks[0] = GridTrack::Hug;
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    doc.get_mut(grid).unwrap().layout_child.min_w = Some(200.0);
+    let a = add_item(&mut doc, grid, 50.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    let b = add_item(&mut doc, grid, 80.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "c7_single_hug_col_min_w_fill",
+        doc,
+        grid,
+        items: vec![a, b],
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 60px;\ngrid-template-columns: 80px;\nalign-content: start;",
+        expected_tailwind: "<div class=\"grid grid-cols-[80px] content-start w-[200px] h-15\">\n  <div class=\"h-[30px]\"></div>\n  <div class=\"w-20 h-[30px]\"></div>\n</div>",
+    }
+}
+
 fn json_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     out.push('"');
@@ -754,6 +782,37 @@ fn n6_stroke_v0_unpadded_hug_css_and_tailwind() {
 #[test]
 fn n6c_stroke_v0_unpadded_fixed_css_and_tailwind() {
     assert_fixture_css_and_tailwind("n6c_stroke_v0_unpadded_fixed");
+}
+
+#[test]
+fn c7_single_hug_col_min_w_fill_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("c7_single_hug_col_min_w_fill");
+}
+
+#[test]
+fn one_column_flex_grid_keeps_minmax_0_1fr() {
+    // 1-column Hugging grid with default Flex(1) track and min_w keeps repeat(1, minmax(0, 1fr)) / grid-cols-1.
+    let al = AutoLayout { grid_columns: 1, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..Default::default() };
+    let (mut doc, grid) = new_grid(al, Vec2::new(500.0, 500.0));
+    doc.get_mut(grid).unwrap().layout_child.min_w = Some(200.0);
+    add_item(&mut doc, grid, 50.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    add_item(&mut doc, grid, 80.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc.relayout_subtree(grid);
+    let css = css_for(&doc, grid);
+    let tw = tailwind_for(&doc, grid);
+    assert!(css.contains("grid-template-columns: repeat(1, minmax(0, 1fr));"), "{css}");
+    assert!(tw.contains("grid-cols-1"), "{tw}");
+
+    // 1-column Fixed grid with default Flex(1) track also keeps repeat(1, minmax(0, 1fr)) / grid-cols-1.
+    let al_fixed = AutoLayout { grid_columns: 1, primary_sizing: Sizing::Fixed, counter_sizing: Sizing::Hug, ..Default::default() };
+    let (mut doc_f, grid_f) = new_grid(al_fixed, Vec2::new(200.0, 500.0));
+    add_item(&mut doc_f, grid_f, 50.0, 30.0, Sizing::Fill, Sizing::Fixed);
+    add_item(&mut doc_f, grid_f, 80.0, 30.0, Sizing::Fixed, Sizing::Fixed);
+    doc_f.relayout_subtree(grid_f);
+    let css_f = css_for(&doc_f, grid_f);
+    let tw_f = tailwind_for(&doc_f, grid_f);
+    assert!(css_f.contains("grid-template-columns: repeat(1, minmax(0, 1fr));"), "{css_f}");
+    assert!(tw_f.contains("grid-cols-1"), "{tw_f}");
 }
 
 #[test]
