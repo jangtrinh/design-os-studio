@@ -906,11 +906,17 @@ class ColourClassTests(unittest.TestCase):
         values = dse.parse_theme_colour_values(
             "pub const A: Color32 = rgb(0x0a0b0c);\n"
             "pub const B: Color32 = rgba(0xFFFFFF, 0x1A);\n"
+            "pub const E: Color32 = Color32::from_rgb(151, 71, 255);\n"
+            "pub const F: Color32 = Color32::from_rgb(0x97, 71, 0xFF);\n"
+            "pub const G: Color32 = Color32::from_rgb(001, 008, 003);\n"
             "pub const C: Color32 = A;\n"
             "pub const D: [Color32; 2] = [A, B];\n"
         )
         self.assertEqual(values["A"], "#0A0B0C")
         self.assertEqual(values["B"], "#FFFFFF1A")
+        self.assertEqual(values["E"], "#9747FF")
+        self.assertEqual(values["F"], "#9747FF")
+        self.assertEqual(values["G"], "#010803")
         self.assertEqual(values["C"], "#0A0B0C")
         self.assertIsNone(values["D"])
 

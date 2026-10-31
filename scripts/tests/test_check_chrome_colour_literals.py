@@ -180,6 +180,28 @@ class CheckChromeColourLiteralsTests(unittest.TestCase):
         self.assertIn("SYNTAX_KEYWORD", hits[0])
         self.assertIn("#C792EA", hits[0])
 
+    def test_rust_constant_parser_catches_explicit_from_rgb(self) -> None:
+        """The Purple Ban must cover valid Color32::from_rgb constructor syntax."""
+        theme = "pub const BANNED: Color32 = Color32::from_rgb(0x97, 0x47, 0xFF);\n"
+        self.assertEqual(maybe := dse.parse_rust_theme_constants(theme), {"BANNED": "#9747ff"})
+        self.assertIn("#9747ff", maybe.values())
+
+    def test_rust_constant_parser_accepts_decimal_and_mixed_channels(self) -> None:
+        theme = "pub const DECIMAL: Color32 = Color32::from_rgb(151, 71, 255);\n"
+        mixed = "pub const MIXED: Color32 = Color32::from_rgb(0x97, 71, 0xFF);\n"
+        self.assertEqual(dse.parse_rust_theme_constants(theme + mixed), {"DECIMAL": "#9747ff", "MIXED": "#9747ff"})
+        self.assertEqual(len(dse.purple_band_constants(theme + mixed)), 2)
+
+    def test_rust_constant_parser_accepts_leading_zero_decimal_channels(self) -> None:
+        theme = "pub const RGB: Color32 = Color32::from_rgb(001, 008, 003);\n"
+        self.assertEqual(dse.parse_rust_theme_constants(theme), {"RGB": "#010803"})
+
+    def test_purple_band_covers_rgba_literals(self) -> None:
+        theme = "pub const BANNED: Color32 = rgba(0x9747FF, 0xFF);\n"
+        self.assertEqual(dse.parse_rust_theme_constants(theme), {"BANNED": "#9747ff"})
+        # The alpha argument is separate; the RGB literal remains the audited colour.
+        self.assertEqual(dse.purple_band_constants(theme), ["BANNED #9747FF hue 266 deg, HSL S 1.00"])
+
     def test_purple_band_on_theme_rs_is_empty(self) -> None:
         theme = (SCRIPTS_DIR.parent / "crates/designos-app/src/theme.rs").read_text(encoding="utf-8")
         self.assertEqual(dse.purple_band_constants(theme), [])
