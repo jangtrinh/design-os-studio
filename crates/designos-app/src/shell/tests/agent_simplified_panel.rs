@@ -323,6 +323,24 @@ fn tab_dot_only_when_the_session_needs_the_user() {
 }
 
 #[test]
+fn a_single_tab_with_a_dot_shows_its_full_title_at_the_default_panel_width() {
+    for status in [AgentTabStatus::WaitingForInput(Some("Needs approval".into())), AgentTabStatus::Error(Some("503".into()))] {
+        let mut s = session_sim();
+        let tab_id = s.shell.app.terminal.tabs[0].id;
+        let title = s.shell.app.terminal.tabs[0].title.clone();
+        *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = status.clone();
+        frames(&mut s, 3);
+        assert!(recorded(&s, &format!("agents-tab-dot-{tab_id}")).is_some(), "{status:?} carries the dot");
+        let tab = recorded(&s, "agents-left-tab-select").expect("the tab");
+        let plus = recorded(&s, "agents-new-chat-btn").expect("the + button");
+        assert!(plus.left() - tab.right() > 100.0, "the header has room to spare: tab {tab:?}, + {plus:?}");
+        let texts = painted(&s);
+        assert!(texts.contains(&title), "{status:?}: the lone tab shows {title:?} in full, not elided: {texts:?}");
+        finish(s);
+    }
+}
+
+#[test]
 fn mode_control_sets_the_permission_mode() {
     let mut s = new_chat_sim();
     assert!(s.app().lib.is_none(), "the window has no library, so nothing is saved to disk");

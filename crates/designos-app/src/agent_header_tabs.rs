@@ -12,6 +12,8 @@ const TAB_MANY: f32 = 82.0;
 const TAB_ONE_MIN: f32 = 104.0;
 const TAB_PAD: f32 = 40.0;
 const FIT_SLACK: f32 = 48.0;
+/// How far the status dot pushes the title right: the gap before the dot's centre plus the gap after it, as `paint_tab` places them.
+const DOT_LABEL_SHIFT: f32 = theme::SPACE_FACT + theme::SPACE_INLINE;
 pub(super) const NEW_CHAT_LABEL: &str = "New chat";
 
 /// One tab that fits the strip. `tab` is `None` for the New chat tab; its tooltip and screen-reader name are built when read.
@@ -52,8 +54,11 @@ pub(super) fn layout_tabs<'a>(state: &'a TerminalState, p: &egui::Painter, left:
             hidden_from = idx;
             break;
         }
+        let dot = tab_dot(tab, idx == state.active_tab, pending);
         let width = if total == 1 {
-            let title_w = widgets::text_width(p, &tab.title, &theme::font_caption()) + TAB_PAD;
+            // The dot moves the label right (see `paint_tab`): its room counts in the width, or the lone tab elides its own title.
+            let dot_w = if dot.is_some() { DOT_LABEL_SHIFT } else { 0.0 };
+            let title_w = widgets::text_width(p, &tab.title, &theme::font_caption()) + TAB_PAD + dot_w;
             TAB_ONE_MIN.max(title_w).min(room.max(TAB_FLOOR))
         } else {
             TAB_MANY.min(((right - x) / (total as f32)).max(TAB_FLOOR)).min(room)
@@ -62,7 +67,7 @@ pub(super) fn layout_tabs<'a>(state: &'a TerminalState, p: &egui::Painter, left:
             hidden_from = idx;
             break;
         }
-        drawn.push(DrawnTab { idx: Some(idx), tab: Some(tab), dot: tab_dot(tab, idx == state.active_tab, pending), width });
+        drawn.push(DrawnTab { idx: Some(idx), tab: Some(tab), dot, width });
         x += width + theme::SPACE_ROW;
     }
     if new_chat && new_chat_w >= TAB_FLOOR {
