@@ -106,7 +106,6 @@ fn search_box(ui: &mut Ui, rect: Rect, id: &'static str, text: &mut String, hint
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
         .hint_text(egui::RichText::new(hint).color(theme::TEXT_PLACEHOLDER))
-        .margin(egui::Margin::symmetric(0, 0))
         .vertical_align(egui::Align::Center)
         .desired_width(rect.width() - 36.0);
     ui.put(Rect::from_min_max(Pos2::new(rect.left() + 28.0, rect.top()), rect.max), te);

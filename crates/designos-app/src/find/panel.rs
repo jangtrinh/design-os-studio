@@ -166,8 +166,7 @@ fn input(ui: &mut Ui, rect: Rect, id: egui::Id, text: &mut String, hint: &str, f
         .id(id)
         .font(font.clone())
         .text_color(theme::TEXT)
-        .frame(egui::Frame::NONE)
-        .margin(Margin::symmetric(theme::FIELD_PLAIN_X as i8, 0))
+        .frame(egui::Frame::NONE.inner_margin(Margin::symmetric(theme::FIELD_PLAIN_X as i8, 0)))
         .vertical_align(Align::Center)
         .hint_text(egui::RichText::new(hint).font(font).color(theme::TEXT_PLACEHOLDER))
         .desired_width(rect.width());

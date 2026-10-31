@@ -953,7 +953,6 @@ mod sidebar {
             .font(theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular))
             .text_color(theme::TEXT)
             .frame(egui::Frame::NONE)
-            .margin(egui::Margin::ZERO)
             .vertical_align(egui::Align::Center)
             .hint_text(
                 egui::RichText::new("Search").font(theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular)).color(theme::TEXT_PLACEHOLDER),

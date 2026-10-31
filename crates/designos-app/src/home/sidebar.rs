@@ -35,7 +35,6 @@ pub fn show(h: &mut Home, ui: &mut Ui, rect: Rect, acts: &mut Vec<Act>) {
         .font(theme::font_body())
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
-        .margin(egui::Margin::ZERO)
         .vertical_align(egui::Align::Center)
         .hint_text(egui::RichText::new("Search files").font(theme::font_body()).color(theme::TEXT_TERTIARY))
         .min_size(tr.size())
