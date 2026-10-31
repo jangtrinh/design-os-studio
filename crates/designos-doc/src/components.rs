@@ -6365,4 +6365,69 @@ mod tests {
         }
         assert!(bad.is_empty(), "cross-kind Size carry draws the wrong outline: {bad:?}");
     }
+
+    #[test]
+    fn direct_cross_type_swap_with_fills_only_keeps_imported_outline_before_sync() {
+        for kb in ["frame", "ellipse"] {
+            let mut d = Document::new("dc");
+            let page = d.add_page("P");
+            let a = icon_of_kind(&mut d, page, "Icon/A", 0.0, "vector");
+            let b = icon_of_kind(&mut d, page, "Icon/B", 40.0, kb);
+            {
+                let gb = d.get(b).unwrap().children[0];
+                let mut g = d.get(gb).unwrap().clone();
+                let p = vec![crate::Path {
+                    cmds: vec![
+                        crate::PathCmd::MoveTo(Vec2::new(3.0, 2.0)),
+                        crate::PathCmd::LineTo(Vec2::new(13.0, 4.0)),
+                        crate::PathCmd::LineTo(Vec2::new(8.0, 14.0)),
+                        crate::PathCmd::Close,
+                    ],
+                    ..Default::default()
+                }];
+                g.fill_geometry = Some(p);
+                apply(&mut d, Command::Update { node: Box::new(g) });
+            }
+            let id = d.alloc_id();
+            let mut btn = Node::frame(id, Rect::new(0.0, 100.0, 32.0, 32.0));
+            btn.name = "Tool".into();
+            let btn = d.insert(page, btn).unwrap();
+            let c = create_component(&mut d, btn);
+            apply(&mut d, c);
+            let c = create_instance(&mut d, a, btn, Vec2::new(6.0, 6.0));
+            apply(&mut d, c);
+            let slot = d.get(btn).unwrap().children[0];
+            let gl = child_named(&d, slot, "Glyph");
+            {
+                let mut gn = d.get(gl).unwrap().clone();
+                let before = gn.clone();
+                gn.fills = vec![Paint::solid(Color::rgb(200, 30, 30))];
+                gn.component.overrides.extend(record_override(&before, &gn));
+                apply(&mut d, Command::Update { node: Box::new(gn) });
+            }
+            let c = create_instance(&mut d, btn, page, Vec2::new(200.0, 100.0));
+            apply(&mut d, c);
+            let bi = *d.get(page).unwrap().children.last().unwrap();
+            let si = d.get(bi).unwrap().children[0];
+            let c = swap_instance(&mut d, si, b);
+            apply(&mut d, c);
+            let want = Some((3.0, 2.0, 13.0, 14.0));
+            let g0 = d.get(child_named(&d, si, "Glyph")).unwrap();
+            assert_eq!(
+                g0.fill_geometry.as_ref().map(|p| path_bbox(p)),
+                want,
+                "vector->{kb} Fills-only direct swap must keep new main's imported outline before sync"
+            );
+            for m in [btn, b, a] {
+                let c = sync_instances(&mut d, m);
+                apply(&mut d, c);
+            }
+            let g1 = d.get(child_named(&d, si, "Glyph")).unwrap();
+            assert_eq!(
+                g1.fill_geometry.as_ref().map(|p| path_bbox(p)),
+                want,
+                "vector->{kb} Fills-only direct swap keeps new main's imported outline after sync"
+            );
+        }
+    }
 }
