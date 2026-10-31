@@ -2236,8 +2236,13 @@ impl App {
             }
         };
         let Some(path) = target else { return };
+        let _ = self.persist_document_to(&path);
+    }
+
+    pub(crate) fn persist_document_to(&mut self, path: &std::path::Path) -> Result<std::path::PathBuf, std::io::Error> {
+        crate::decks::ui::flush_notes(self);
         self.settle_pending_relayout();
-        match io::save_path_counted(&self.doc, &path) {
+        match io::save_path_counted(&self.doc, path) {
             Ok((p, replaced)) => {
                 if replaced > 0 {
                     self.doc.neutralize_non_finite();
@@ -2269,8 +2274,12 @@ impl App {
                         self.mark_saved();
                     }
                 }
+                Ok(p)
             }
-            Err(e) => self.show_toast(e, true),
+            Err(e) => {
+                self.show_toast(e.to_string(), true);
+                Err(e)
+            }
         }
     }
 

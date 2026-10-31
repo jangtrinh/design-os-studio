@@ -1,0 +1,592 @@
+{
+ "name": "props-A-reference-order",
+ "role": "owner",
+ "lastModified": "2026-10-30T00:00:00Z",
+ "version": "1",
+ "schemaVersion": 0,
+ "components": {
+  "20:1": {
+   "key": "k0",
+   "name": "Variant=primary, State=rest, Size=default",
+   "description": "",
+   "componentSetId": "20:0"
+  },
+  "20:2": {
+   "key": "k1",
+   "name": "Variant=secondary, State=rest, Size=default",
+   "description": "",
+   "componentSetId": "20:0"
+  },
+  "20:3": {
+   "key": "k2",
+   "name": "Variant=secondary, State=hover, Size=large",
+   "description": "",
+   "componentSetId": "20:0"
+  }
+ },
+ "componentSets": {
+  "20:0": {
+   "key": "ks",
+   "name": "Button",
+   "description": "Primary action button. Reference: ui-kit/components/Button.tsx and the full spec for the primary action across the product."
+  }
+ },
+ "styles": {},
+ "document": {
+  "id": "0:0",
+  "name": "Document",
+  "type": "DOCUMENT",
+  "children": [
+   {
+    "id": "0:1",
+    "name": "Page 1",
+    "type": "CANVAS",
+    "backgroundColor": {
+     "r": 0.9803921568627451,
+     "g": 0.9803921568627451,
+     "b": 0.9803921568627451,
+     "a": 1
+    },
+    "children": [
+     {
+      "id": "1:1",
+      "name": "Props demo",
+      "type": "FRAME",
+      "visible": true,
+      "clipsContent": true,
+      "absoluteBoundingBox": {
+       "x": 0,
+       "y": 0,
+       "width": 400,
+       "height": 200
+      },
+      "size": {
+       "x": 400,
+       "y": 200
+      },
+      "relativeTransform": [
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        1,
+        0
+       ]
+      ],
+      "fills": [
+       {
+        "type": "SOLID",
+        "color": {
+         "r": 0.9607843137254902,
+         "g": 0.9607843137254902,
+         "b": 0.9686274509803922,
+         "a": 1
+        },
+        "opacity": 1,
+        "visible": true
+       }
+      ],
+      "effects": [],
+      "children": [
+       {
+        "id": "1:2",
+        "name": "Button",
+        "type": "INSTANCE",
+        "visible": true,
+        "componentId": "20:1",
+        "cornerRadius": 8,
+        "absoluteBoundingBox": {
+         "x": 60,
+         "y": 60,
+         "width": 112,
+         "height": 40
+        },
+        "size": {
+         "x": 112,
+         "y": 40
+        },
+        "relativeTransform": [
+         [
+          1,
+          0,
+          60
+         ],
+         [
+          0,
+          1,
+          60
+         ]
+        ],
+        "fills": [
+         {
+          "type": "SOLID",
+          "color": {
+           "r": 0.1450980392156863,
+           "g": 0.38823529411764707,
+           "b": 0.9215686274509803,
+           "a": 1
+          },
+          "opacity": 1,
+          "visible": true
+         }
+        ],
+        "effects": [],
+        "componentProperties": {
+         "Variant#1:3": {
+          "type": "VARIANT",
+          "value": "secondary"
+         },
+         "State#1:4": {
+          "type": "VARIANT",
+          "value": "rest"
+         },
+         "Size#1:5": {
+          "type": "VARIANT",
+          "value": "default"
+         },
+         "Has leading icon#1:1": {
+          "type": "BOOLEAN",
+          "value": true
+         },
+         "Has trailing icon#1:2": {
+          "type": "BOOLEAN",
+          "value": false
+         },
+         "Label#1:0": {
+          "type": "TEXT",
+          "value": "Filter"
+         }
+        },
+        "children": [
+         {
+          "id": "1:3",
+          "name": "Label",
+          "type": "TEXT",
+          "visible": true,
+          "characters": "Filter",
+          "absoluteBoundingBox": {
+           "x": 16,
+           "y": 10,
+           "width": 80,
+           "height": 20
+          },
+          "size": {
+           "x": 80,
+           "y": 20
+          },
+          "relativeTransform": [
+           [
+            1,
+            0,
+            16
+           ],
+           [
+            0,
+            1,
+            10
+           ]
+          ],
+          "fills": [
+           {
+            "type": "SOLID",
+            "color": {
+             "r": 1.0,
+             "g": 1.0,
+             "b": 1.0,
+             "a": 1
+            },
+            "opacity": 1,
+            "visible": true
+           }
+          ],
+          "style": {
+           "fontFamily": "Inter",
+           "fontPostScriptName": "Inter-Medium",
+           "fontSize": 14,
+           "fontWeight": 500,
+           "textAlignHorizontal": "LEFT",
+           "textAlignVertical": "CENTER"
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "id": "20:0",
+      "name": "Button",
+      "type": "COMPONENT_SET",
+      "visible": true,
+      "absoluteBoundingBox": {
+       "x": 0,
+       "y": 240,
+       "width": 400,
+       "height": 200
+      },
+      "size": {
+       "x": 400,
+       "y": 200
+      },
+      "relativeTransform": [
+       [
+        1,
+        0,
+        0
+       ],
+       [
+        0,
+        1,
+        240
+       ]
+      ],
+      "fills": [],
+      "effects": [],
+      "componentPropertyDefinitions": {
+       "Variant": {
+        "type": "VARIANT",
+        "defaultValue": "secondary",
+        "variantOptions": [
+         "primary",
+         "secondary",
+         "ghost",
+         "destructive"
+        ]
+       },
+       "State": {
+        "type": "VARIANT",
+        "defaultValue": "rest",
+        "variantOptions": [
+         "rest",
+         "hover",
+         "pressed",
+         "disabled"
+        ]
+       },
+       "Size": {
+        "type": "VARIANT",
+        "defaultValue": "default",
+        "variantOptions": [
+         "small",
+         "default",
+         "large"
+        ]
+       },
+       "Has leading icon#1:1": {
+        "type": "BOOLEAN",
+        "defaultValue": true
+       },
+       "Has trailing icon#1:2": {
+        "type": "BOOLEAN",
+        "defaultValue": false
+       },
+       "Label#1:0": {
+        "type": "TEXT",
+        "defaultValue": "Filter"
+       }
+      },
+      "children": [
+       {
+        "id": "20:1",
+        "name": "Variant=primary, State=rest, Size=default",
+        "type": "COMPONENT",
+        "visible": true,
+        "cornerRadius": 8,
+        "absoluteBoundingBox": {
+         "x": 0,
+         "y": 0,
+         "width": 112,
+         "height": 40
+        },
+        "size": {
+         "x": 112,
+         "y": 40
+        },
+        "relativeTransform": [
+         [
+          1,
+          0,
+          0
+         ],
+         [
+          0,
+          1,
+          0
+         ]
+        ],
+        "fills": [
+         {
+          "type": "SOLID",
+          "color": {
+           "r": 0.1450980392156863,
+           "g": 0.38823529411764707,
+           "b": 0.9215686274509803,
+           "a": 1
+          },
+          "opacity": 1,
+          "visible": true
+         }
+        ],
+        "effects": [],
+        "children": [
+         {
+          "id": "21:1",
+          "name": "Label",
+          "type": "TEXT",
+          "visible": true,
+          "characters": "Button",
+          "absoluteBoundingBox": {
+           "x": 16,
+           "y": 10,
+           "width": 80,
+           "height": 20
+          },
+          "size": {
+           "x": 80,
+           "y": 20
+          },
+          "relativeTransform": [
+           [
+            1,
+            0,
+            16
+           ],
+           [
+            0,
+            1,
+            10
+           ]
+          ],
+          "fills": [
+           {
+            "type": "SOLID",
+            "color": {
+             "r": 1.0,
+             "g": 1.0,
+             "b": 1.0,
+             "a": 1
+            },
+            "opacity": 1,
+            "visible": true
+           }
+          ],
+          "style": {
+           "fontFamily": "Inter",
+           "fontPostScriptName": "Inter-Medium",
+           "fontSize": 14,
+           "fontWeight": 500,
+           "textAlignHorizontal": "LEFT",
+           "textAlignVertical": "CENTER"
+          },
+          "componentPropertyReferences": {
+           "characters": "Label#1:0"
+          }
+         }
+        ]
+       },
+       {
+        "id": "20:2",
+        "name": "Variant=secondary, State=rest, Size=default",
+        "type": "COMPONENT",
+        "visible": true,
+        "cornerRadius": 8,
+        "absoluteBoundingBox": {
+         "x": 0,
+         "y": 0,
+         "width": 112,
+         "height": 40
+        },
+        "size": {
+         "x": 112,
+         "y": 40
+        },
+        "relativeTransform": [
+         [
+          1,
+          0,
+          0
+         ],
+         [
+          0,
+          1,
+          0
+         ]
+        ],
+        "fills": [
+         {
+          "type": "SOLID",
+          "color": {
+           "r": 0.29411764705882354,
+           "g": 0.3333333333333333,
+           "b": 0.38823529411764707,
+           "a": 1
+          },
+          "opacity": 1,
+          "visible": true
+         }
+        ],
+        "effects": [],
+        "children": [
+         {
+          "id": "21:2",
+          "name": "Label",
+          "type": "TEXT",
+          "visible": true,
+          "characters": "Button",
+          "absoluteBoundingBox": {
+           "x": 16,
+           "y": 10,
+           "width": 80,
+           "height": 20
+          },
+          "size": {
+           "x": 80,
+           "y": 20
+          },
+          "relativeTransform": [
+           [
+            1,
+            0,
+            16
+           ],
+           [
+            0,
+            1,
+            10
+           ]
+          ],
+          "fills": [
+           {
+            "type": "SOLID",
+            "color": {
+             "r": 1.0,
+             "g": 1.0,
+             "b": 1.0,
+             "a": 1
+            },
+            "opacity": 1,
+            "visible": true
+           }
+          ],
+          "style": {
+           "fontFamily": "Inter",
+           "fontPostScriptName": "Inter-Medium",
+           "fontSize": 14,
+           "fontWeight": 500,
+           "textAlignHorizontal": "LEFT",
+           "textAlignVertical": "CENTER"
+          },
+          "componentPropertyReferences": {
+           "characters": "Label#1:0"
+          }
+         }
+        ]
+       },
+       {
+        "id": "20:3",
+        "name": "Variant=secondary, State=hover, Size=large",
+        "type": "COMPONENT",
+        "visible": true,
+        "cornerRadius": 8,
+        "absoluteBoundingBox": {
+         "x": 0,
+         "y": 0,
+         "width": 112,
+         "height": 40
+        },
+        "size": {
+         "x": 112,
+         "y": 40
+        },
+        "relativeTransform": [
+         [
+          1,
+          0,
+          0
+         ],
+         [
+          0,
+          1,
+          0
+         ]
+        ],
+        "fills": [
+         {
+          "type": "SOLID",
+          "color": {
+           "r": 0.21568627450980393,
+           "g": 0.2549019607843137,
+           "b": 0.3176470588235294,
+           "a": 1
+          },
+          "opacity": 1,
+          "visible": true
+         }
+        ],
+        "effects": [],
+        "children": [
+         {
+          "id": "21:3",
+          "name": "Label",
+          "type": "TEXT",
+          "visible": true,
+          "characters": "Button",
+          "absoluteBoundingBox": {
+           "x": 16,
+           "y": 10,
+           "width": 80,
+           "height": 20
+          },
+          "size": {
+           "x": 80,
+           "y": 20
+          },
+          "relativeTransform": [
+           [
+            1,
+            0,
+            16
+           ],
+           [
+            0,
+            1,
+            10
+           ]
+          ],
+          "fills": [
+           {
+            "type": "SOLID",
+            "color": {
+             "r": 1.0,
+             "g": 1.0,
+             "b": 1.0,
+             "a": 1
+            },
+            "opacity": 1,
+            "visible": true
+           }
+          ],
+          "style": {
+           "fontFamily": "Inter",
+           "fontPostScriptName": "Inter-Medium",
+           "fontSize": 14,
+           "fontWeight": 500,
+           "textAlignHorizontal": "LEFT",
+           "textAlignVertical": "CENTER"
+          },
+          "componentPropertyReferences": {
+           "characters": "Label#1:0"
+          }
+         }
+        ]
+       }
+      ],
+      "description": "Primary action button. Reference: ui-kit/components/Button.tsx and the full spec for the primary action across the product."
+     }
+    ]
+   }
+  ]
+ }
+}

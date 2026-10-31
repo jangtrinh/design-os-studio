@@ -825,10 +825,10 @@ impl App {
         lf: &LibFile,
         doc: &mut Document,
         hist: &mut designos_doc::History,
-    ) -> Result<(Option<String>, bool), String> {
+    ) -> Result<(Option<String>, bool), LibrarySaveError> {
         let disk_path = library_file_disk_path(lib, &lf.project_id, &lf.id);
-        let wrote_backup = crate::io::write_pending_repair_backup(&disk_path)?;
-        let replaced = lib.save_file_counted(&lf.id, doc).map_err(|e| format!("Cannot save: {e}"))?;
+        let wrote_backup = crate::io::write_pending_repair_backup(&disk_path).map_err(LibrarySaveError::other)?;
+        let replaced = lib.save_file_counted(&lf.id, doc).map_err(LibrarySaveError::from_library)?;
         if wrote_backup {
             crate::io::clear_pending_repair_backup(&disk_path);
         }
@@ -843,7 +843,7 @@ impl App {
     /// Writes the open library file; also refreshes its thumbnail. There is no "Saved" toast, but a save
     /// that replaced non-finite numbers says so, because no later open of the file would.
     pub fn save_library_file(&mut self) -> Result<(), String> {
-        if let Some(notice) = self.save_library_file_noticing()? {
+        if let Some(notice) = self.save_library_file_noticing().map_err(|e| e.message)? {
             self.show_toast(&notice, true);
             self.pending_flush_notice = Some((self.now, notice));
         }
@@ -852,12 +852,12 @@ impl App {
 
     /// [`Self::save_library_file`] without any toast: returns the once-per-file notice for the
     /// non-finite numbers this save replaced, for the caller to show.
-    fn save_library_file_noticing(&mut self) -> Result<Option<String>, String> {
+    fn save_library_file_noticing(&mut self) -> Result<Option<String>, LibrarySaveError> {
         crate::decks::ui::flush_notes(self);
-        let (Some(lib), Some(lf)) = (self.lib.clone(), self.lib_file.clone()) else { return Err("This file is not in the library".into()) };
+        let (Some(lib), Some(lf)) = (self.lib.clone(), self.lib_file.clone()) else { return Err(LibrarySaveError::other("This file is not in the library")) };
         if self.history.viewing.is_some() {
             // an old version is on screen: the file on disk must keep the live document
-            return Err("Go back to the current version before saving".into());
+            return Err(LibrarySaveError::other("Go back to the current version before saving"));
         }
         self.settle_pending_relayout();
         let (notice, neutralized) = Self::save_doc_to_library(&lib, &lf, &mut self.doc, &mut self.hist)?;
@@ -879,6 +879,10 @@ impl App {
 
     /// Ctrl+S on a library file.
     pub fn save_library_file_with_toast(&mut self) {
+        let _ = self.save_library_file_reporting();
+    }
+
+    pub(crate) fn save_library_file_reporting(&mut self) -> Result<(), LibrarySaveError> {
         match self.save_library_file_noticing() {
             Ok(notice) => {
                 let project = self.lib_file.as_ref().map(|f| f.project.clone()).unwrap_or_default();
@@ -886,8 +890,12 @@ impl App {
                     Some(w) => self.show_toast(format!("Saved to {project} ({w})"), true),
                     None => self.show_toast(format!("Saved to {project}"), false),
                 }
+                Ok(())
             }
-            Err(e) => self.show_toast(e, true),
+            Err(e) => {
+                self.show_toast(e.message.clone(), true);
+                Err(e)
+            }
         }
     }
 
@@ -1708,5 +1716,28 @@ mod tests {
         ed.app.toast = None;
         ed.app.open_library_file(&entry.id);
         assert!(ed.app.toast.as_ref().is_none_or(|t| !t.error), "the second open in the same run stays quiet");
+    }
+}
+
+/// Why a library save failed: the text for the person, and the operating-system error kind when a disk write failed, so a
+/// caller can tell "read-only" from "disk error" without reading the text.
+#[derive(Debug)]
+pub(crate) struct LibrarySaveError {
+    pub message: String,
+    /// `None` when no disk write was attempted or the failure was not an I/O error (a precondition, bad JSON).
+    pub io_kind: Option<std::io::ErrorKind>,
+}
+
+impl LibrarySaveError {
+    pub(crate) fn other(message: impl Into<String>) -> Self {
+        Self { message: message.into(), io_kind: None }
+    }
+
+    fn from_library(e: designos_library::LibraryError) -> Self {
+        let io_kind = match &e {
+            designos_library::LibraryError::Io(io) => Some(io.kind()),
+            _ => None,
+        };
+        Self { message: format!("Cannot save: {e}"), io_kind }
     }
 }

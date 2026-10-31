@@ -22,6 +22,11 @@ pub const FS_CALLS: &[Allowed] = &[
     Allowed { file: "src/server.rs", func: Some("fig_output_path"), why: WORKSPACE_PATH },
     Allowed {
         file: "src/server.rs",
+        func: Some("editor_tab_is_gone"),
+        why: "asks only whether the tab folder still exists (NotFound); the marker file inside it is read through session_file_io::stat",
+    },
+    Allowed {
+        file: "src/server.rs",
         func: Some("call_inner"),
         why: "open, save, render, export and import: the paths come from input_path and the *_output_path checks",
     },
@@ -51,6 +56,7 @@ pub const NAMES: &[Allowed] = &[
     Allowed { file: "src/server.rs", func: Some("new"), why: "the ledger's path; Ledger reads and writes it through session_file_io" },
     Allowed { file: "src/server.rs", func: Some("with_session_dir"), why: "the ledger's path; Ledger reads and writes it through session_file_io" },
     Allowed { file: "src/server.rs", func: Some("sync_from_live_canvas_if_newer"), why: "reads mcp-config.json and bootstrap.json through file_problems" },
+    Allowed { file: "src/server.rs", func: Some("leave_is_asking"), why: "reads the leave-asking marker through file_problems" },
     Allowed { file: "src/tools/ledger.rs", func: Some("-"), why: "the ledger's file name" },
     Allowed { file: "src/tools/session_options.rs", func: Some("file_path"), why: PATH_ONLY },
 ];

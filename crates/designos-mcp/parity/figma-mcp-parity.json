@@ -47,10 +47,8 @@
     },
     {
       "figma_tool": "get_generative_plugin",
-      "status": "task",
-      "studio_tool": "designos_get_generative_plugin",
-      "task_id": "T8.21",
-      "note": "Read a generative plugin's source from the local library"
+      "status": "excluded",
+      "reason": "Figma plugin support dropped (owner decision 2026-10-30)"
     },
     {
       "figma_tool": "get_libraries",
@@ -99,10 +97,8 @@
     },
     {
       "figma_tool": "list_generative_plugins",
-      "status": "task",
-      "studio_tool": "designos_list_generative_plugins",
-      "task_id": "T8.21",
-      "note": "List generative plugins in the local library"
+      "status": "excluded",
+      "reason": "Figma plugin support dropped (owner decision 2026-10-30)"
     },
     {
       "figma_tool": "list_shaders",
@@ -133,10 +129,8 @@
     },
     {
       "figma_tool": "create_generative_plugin",
-      "status": "task",
-      "studio_tool": "designos_create_generative_plugin",
-      "task_id": "T8.21",
-      "note": "Create a generative plugin starter in the local library"
+      "status": "excluded",
+      "reason": "Figma plugin support dropped (owner decision 2026-10-30)"
     },
     {
       "figma_tool": "create_new_file",
@@ -193,10 +187,8 @@
     },
     {
       "figma_tool": "update_generative_plugin",
-      "status": "task",
-      "studio_tool": "designos_update_generative_plugin",
-      "task_id": "T8.21",
-      "note": "Update a generative plugin's source in the local library"
+      "status": "excluded",
+      "reason": "Figma plugin support dropped (owner decision 2026-10-30)"
     },
     {
       "figma_tool": "update_shader",
@@ -214,10 +206,8 @@
     },
     {
       "figma_tool": "use_figma",
-      "status": "task",
-      "studio_tool": "designos_run_plugin_script",
-      "task_id": "T7.13",
-      "note": "Declarative writes exist via designos_apply_spec and node tools; T7.13 adds Plugin-API JS script execution (designos_run_plugin_script)"
+      "status": "excluded",
+      "reason": "Figma Plugin API scripts dropped (owner decision 2026-10-30); declarative writes stay with designos_apply_spec and the node tools"
     },
     {
       "figma_tool": "weave_list_tools",

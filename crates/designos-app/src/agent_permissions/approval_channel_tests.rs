@@ -18,22 +18,43 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub(super) fn new(tag: &str) -> Self {
+        Self::open(tag, false)
+    }
+
+    /// The same channel install as [`Self::new`], with the read and additive auto-allow block compiled in.
+    pub(super) fn risky(tag: &str) -> Self {
+        Self::open(tag, true)
+    }
+
+    fn open(tag: &str, auto_allow_safe_tiers: bool) -> Self {
         let session = std::env::temp_dir().join("designos-sessions").join(format!("channel-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&session);
         std::fs::create_dir_all(&session).unwrap();
-        let script = write_approval_hook_script(&session).expect("install the hook");
+        let channel = crate::agent_approval_channel::prepare_channel_dir(&session).expect("channel");
+        let status = crate::agent_hook_outputs::HookPaths::locate(&session).status();
+        let script = install_hook_script(&channel, Some(&status), auto_allow_safe_tiers).expect("install the hook");
         let tab_dir = crate::agent_approval_channel::tab_approvals_dir(&session, TAB.parse().unwrap()).expect("a private channel folder");
         Self { session, script, tab_dir }
     }
 
     pub(super) fn start(&self, timeout_ms: u64, payload: &serde_json::Value) -> Child {
-        spawn_hook("sh", &self.script, Some(TAB), timeout_ms, &[], payload)
+        self.start_text(timeout_ms, &payload.to_string())
+    }
+
+    /// Feeds `payload` to the hook as written. `serde_json` sorts object keys, which would put a nested `tool_name` ahead of the real one.
+    pub(super) fn start_text(&self, timeout_ms: u64, payload: &str) -> Child {
+        let mut cmd = Command::new("sh");
+        cmd.arg(&self.script).env("DESIGNOS_APPROVAL_TIMEOUT_MS", timeout_ms.to_string()).env("DESIGNOS_TAB_ID", TAB);
+        let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap_or_else(|e| panic!("spawn sh approve-hook.sh: {e}"));
+        child.stdin.take().unwrap().write_all(payload.as_bytes()).unwrap();
+        child
     }
 }
 
 impl Drop for Fixture {
     fn drop(&mut self) {
         crate::agent_approval_channel::remove_channel(&self.session);
+        super::remove_auto_allow_log(&self.session);
         let _ = std::fs::remove_dir_all(&self.session);
     }
 }
@@ -197,7 +218,7 @@ fn the_handler_command_runs_the_script_from_a_path_with_a_space() {
     let session = base.join("session dir");
     std::fs::create_dir_all(&session).unwrap();
     let channel = crate::agent_approval_channel::prepare_channel_dir_in(&base.join("Application Support").join("ap"), &session).unwrap();
-    let script = install_hook_script(&channel, Some(&channel.join("hook out").join("agent-status.json"))).unwrap();
+    let script = install_hook_script(&channel, Some(&channel.join("hook out").join("agent-status.json")), false).unwrap();
 
     let handler = approval_hook_handler(&script);
     let command = handler["command"].as_str().unwrap();

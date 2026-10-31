@@ -419,7 +419,7 @@ pub fn comment_threads_left_out(doc: &Document, path: &Path) -> usize {
 /// Writes the native format (or `.fig` binary / `.pen` JSON when the extension matches); returns the final path.
 /// This is the headless save (the Agent CLI), so what the file leaves out goes to stderr.
 pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
-    let (p, replaced) = save_path_counted(doc, path)?;
+    let (p, replaced) = save_path_counted(doc, path).map_err(|e| e.to_string())?;
     if replaced > 0 {
         eprintln!("designos: {}: wrote {replaced} non-finite numbers as their neutral value", p.display());
     }
@@ -431,7 +431,7 @@ pub fn save_path(doc: &Document, path: &Path) -> Result<PathBuf, String> {
 
 /// [`save_path`], also returning how many non-finite numbers the native format wrote as their neutral
 /// value, counted by the one serialization the save performs (`.fig` and `.pen` exports replace none).
-pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize), String> {
+pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize), std::io::Error> {
     let mut p = path.to_path_buf();
     if p.extension().is_none() {
         p.set_extension(NATIVE_EXT);
@@ -439,19 +439,22 @@ pub fn save_path_counted(doc: &Document, path: &Path) -> Result<(PathBuf, usize)
     let mut replaced = 0;
     let payload = match save_format(&p) {
         SaveFormat::Fig => {
-            let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| format!("Cannot export .fig: {e}"))?;
+            let (bytes, _omitted) = designos_fig::export_fig_with_report(doc).map_err(|e| std::io::Error::other(format!("Cannot export .fig: {e}")))?;
             bytes
         }
-        SaveFormat::Pen => designos_fig::export_pen_json(doc).map_err(|e| format!("Cannot export .pen: {e}"))?.into_bytes(),
+        SaveFormat::Pen => designos_fig::export_pen_json(doc).map_err(|e| std::io::Error::other(format!("Cannot export .pen: {e}")))?.into_bytes(),
         SaveFormat::Native => {
-            let (json, n) = doc.to_json_counted().map_err(|e| format!("Cannot serialize: {e}"))?;
+            let (json, n) = doc.to_json_counted().map_err(|e| std::io::Error::other(format!("Cannot serialize: {e}")))?;
             replaced = n;
             json.into_bytes()
         }
     };
 
-    let wrote_backup = write_pending_repair_backup(&p)?;
-    designos_library::write_atomic(&p, &payload).map_err(|e| format!("Cannot write {}: {e}", p.display()))?;
+    let wrote_backup = write_pending_repair_backup(&p).map_err(std::io::Error::other)?;
+    designos_library::write_atomic(&p, &payload).map_err(|e| match e {
+        designos_library::LibraryError::Io(io) => std::io::Error::new(io.kind(), format!("Cannot write {}: {io}", p.display())),
+        other => std::io::Error::other(format!("Cannot write {}: {other}", p.display())),
+    })?;
     if wrote_backup {
         clear_pending_repair_backup(&p);
     }
@@ -488,7 +491,7 @@ pub fn export_request(default_name: &str) -> FileRequest {
 /// The app saves through [`save_path_counted`] so it can repair the open document; tests use this wrapper.
 #[cfg(test)]
 pub fn save_path_with_notice(doc: &Document, path: &Path) -> Result<(PathBuf, Option<String>), String> {
-    let (p, replaced) = save_path_counted(doc, path)?;
+    let (p, replaced) = save_path_counted(doc, path).map_err(|e| e.to_string())?;
     let notice = non_finite_notice_once(&p, replaced);
     Ok((p, notice))
 }
