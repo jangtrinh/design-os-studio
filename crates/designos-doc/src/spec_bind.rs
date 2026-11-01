@@ -1265,6 +1265,12 @@ pub fn detach_fill_paints(node: &mut Node) {
     node.style_refs.remove("fill");
 }
 
+/// Cuts the links between a node's stroke paints and what colours them from outside.
+pub fn detach_stroke_paints(node: &mut Node) {
+    node.variables.bindings.retain(|key, _| !key.starts_with("strokes/"));
+    node.style_refs.remove("stroke");
+}
+
 /// Binds a variable ID to `prop_keys` on `node_id` in `doc` and writes the resolved value via [`set_bound_property`].
 pub fn apply_variable_binding(
     doc: &mut Document,
@@ -2380,5 +2386,21 @@ mod tests {
         let left: Vec<&str> = node.variables.bindings.keys().map(String::as_str).collect();
         assert_eq!(left, ["strokes/0", "width"]);
         assert_eq!(node.style_refs.keys().map(String::as_str).collect::<Vec<_>>(), ["stroke"]);
+    }
+
+    #[test]
+    fn detach_stroke_paints_drops_every_stroke_binding_and_the_stroke_style_link_only() {
+        let mut node = Node::rectangle(NodeId(1), Rect::new(0.0, 0.0, 10.0, 10.0));
+        for (key, var) in [("strokes/0", "a"), ("strokes/0/opacity", "b"), ("fills/0", "c"), ("width", "d")] {
+            node.variables.bindings.insert(key.to_string(), var.to_string());
+        }
+        node.style_refs.insert("fill".to_string(), "s_fill".to_string());
+        node.style_refs.insert("stroke".to_string(), "s_stroke".to_string());
+
+        detach_stroke_paints(&mut node);
+
+        let left: Vec<&str> = node.variables.bindings.keys().map(String::as_str).collect();
+        assert_eq!(left, ["fills/0", "width"]);
+        assert_eq!(node.style_refs.keys().map(String::as_str).collect::<Vec<_>>(), ["fill"]);
     }
 }
