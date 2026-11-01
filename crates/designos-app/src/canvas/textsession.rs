@@ -456,7 +456,7 @@ pub fn insert_text(app: &mut App, s: &str, kind: EditKind) {
     let typing = app.canvas.text.as_mut().and_then(|x| x.typing.take());
     let Some(sess) = app.canvas.text.as_ref() else { return };
     let new_word = props_of(app).is_some_and(|(t, _)| te::starts_new_word(&t.content, sess.range().start, &s)) || s.contains('\n');
-    edit_props(app, Some((kind, new_word)), |t, caret, anchor| {
+    edit_props_with_link(app, Some((kind, new_word)), LinkEdit::DetachIfStyleOwnedChanged, |t, caret, anchor| {
         let r = (*caret).min(*anchor)..(*caret).max(*anchor);
         let end = richtext::splice(t, r, &s, typing.clone());
         *caret = end;
@@ -926,6 +926,42 @@ mod tests {
         let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
         assert_eq!(t.style.font_size, 24.0);
         assert!(!n.style_refs.contains_key("text"));
+    }
+
+    #[test]
+    fn typing_after_a_collapsed_style_edit_detaches_the_linked_text_style() {
+        let (mut app, id) = app_with_linked_text_style();
+        begin_text_edit(&mut app, id);
+        set_sel(&mut app, 5, 5, false);
+        text_command(&mut app, TextCmd::SizeUp);
+        insert_text(&mut app, "x", EditKind::Typing);
+
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.content, "hellox");
+        assert_eq!((t.runs[0].start, t.runs[0].end, t.runs[0].style.font_size), (5, 6, 17.0));
+        assert!(!n.style_refs.contains_key("text"), "a run that differs from the linked style must detach it");
+
+        key(&mut app, egui::Key::Z, false, true);
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.content, "hello");
+        assert!(t.runs.is_empty());
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
+    }
+
+    #[test]
+    fn typing_with_the_linked_style_keeps_the_text_style_link() {
+        let (mut app, id) = app_with_linked_text_style();
+        begin_text_edit(&mut app, id);
+        set_sel(&mut app, 5, 5, false);
+        insert_text(&mut app, "x", EditKind::Typing);
+
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.content, "hellox");
+        assert!(t.runs.is_empty(), "matching typing style should not create a redundant run");
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
     }
 
     fn key(app: &mut App, k: egui::Key, shift: bool, ctrl: bool) {
