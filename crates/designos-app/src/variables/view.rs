@@ -686,8 +686,7 @@ fn main(app: &mut App, ui: &mut Ui, g: &Geom, fr: &mut Frame) {
         .hint_text(egui::RichText::new("Search").color(theme::TEXT_PLACEHOLDER))
         .font(theme::font_body())
         .text_color(theme::TEXT)
-        .frame(egui::Frame::NONE)
-        .margin(egui::Margin::symmetric(4, 0))
+        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 0)))
         .vertical_align(egui::Align::Center);
     ui.put(Rect::from_min_max(search.min + Vec2::new(24.0, -1.0), search.max + Vec2::new(0.0, -1.0)), te);
     widgets::record(ui, "vars-search", search);

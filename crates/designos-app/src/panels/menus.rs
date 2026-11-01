@@ -736,8 +736,7 @@ fn show_zoom_menu(app: &mut App, ctx: &Context, id: Id, anchor: Option<Rect>) {
             .id(id.with("zoom-input"))
             .font(theme::font_body())
             .text_color(theme::TEXT)
-            .frame(egui::Frame::NONE)
-            .margin(egui::Margin::symmetric(8, 0))
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(8, 0)))
             .vertical_align(egui::Align::Center)
             .desired_width(input_box.width() - 16.0);
         let resp = ui.put(input_box, te);
@@ -977,7 +976,6 @@ fn palette(app: &mut App, ctx: &Context) {
             .font(font.clone())
             .text_color(theme::TEXT)
             .frame(egui::Frame::NONE)
-            .margin(egui::Margin::ZERO)
             .vertical_align(egui::Align::Center)
             .hint_text(egui::RichText::new("Search...").font(font.clone()).color(theme::TEXT_PLACEHOLDER))
             .desired_width(field.width());

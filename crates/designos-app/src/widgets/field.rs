@@ -71,8 +71,7 @@ pub fn edit_text_hint(
         .id(id)
         .font(font.clone())
         .text_color(if focused { color } else { Color32::TRANSPARENT })
-        .frame(egui::Frame::NONE)
-        .margin(Margin::symmetric(pad_x as i8, 0))
+        .frame(egui::Frame::NONE.inner_margin(Margin::symmetric(pad_x as i8, 0)))
         .vertical_align(Align::Center)
         .min_size(rect.size())
         .desired_width(rect.width());
@@ -803,6 +802,28 @@ mod tests {
         assert_eq!(eval_number_expr(&format!("{}1", "-".repeat(10)), None, false), Some(1.0));
         assert_eq!(eval_number_expr(&format!("{}5{}", "(".repeat(20), ")".repeat(20)), None, false), Some(5.0));
         assert_eq!(eval_number_expr("2^2^3", None, false), Some(256.0));
+    }
+
+    #[test]
+    fn focused_text_starts_after_the_requested_horizontal_inset() {
+        let ctx = egui::Context::default();
+        theme::apply(&ctx);
+        theme::install_fonts(&ctx);
+        let rect = Rect::from_min_size(Pos2::new(24.0, 24.0), Vec2::new(120.0, theme::FIELD_HEIGHT));
+        let id = Id::new("focused-inset");
+        let mut text_shape = None;
+        for _ in 0..2 {
+            let out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 200.0))), ..Default::default() }, |ui| {
+                ui.memory_mut(|m| m.request_focus(id));
+                edit_text_hint(ui, rect, id, "123", theme::font_body(), theme::TEXT, 8.0, None);
+            });
+            text_shape = out.shapes.iter().find_map(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) if shape.galley.text() == "123" => Some(shape.clone()),
+                _ => None,
+            });
+        }
+        let shape = text_shape.expect("focused field text is painted");
+        assert!((shape.pos.x - (rect.left() + 8.0)).abs() < 0.1, "text starts at {}, expected {}", shape.pos.x, rect.left() + 8.0);
     }
 
     #[test]
