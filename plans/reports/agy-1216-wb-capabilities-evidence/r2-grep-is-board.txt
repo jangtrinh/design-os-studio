@@ -1,0 +1,17 @@
+crates/designos-app/src/board/caps.rs:11:        self.is_board()
+crates/designos-app/src/board/caps.rs:16:        self.is_board()
+crates/designos-app/src/board/caps.rs:21:        self.is_board()
+crates/designos-app/src/board/caps.rs:26:        self.is_board()
+crates/designos-app/src/board/caps.rs:31:        self.is_board()
+crates/designos-app/src/board/caps.rs:36:        self.is_board()
+crates/designos-app/src/board/caps.rs:41:        self.is_board()
+crates/designos-app/src/board/caps.rs:46:        self.is_board()
+crates/designos-app/src/board/caps.rs:51:        !self.is_board()
+crates/designos-app/src/board/caps.rs:56:        !self.is_board()
+crates/designos-app/src/board/caps.rs:61:        !self.is_board()
+crates/designos-app/src/shell/tests/board.rs:62:    assert!(s.app().is_board());
+crates/designos-app/src/shell/tests/board.rs:72:    assert!(!d.app().is_board());
+crates/designos-app/src/shell/tests/board_home.rs:36:    assert!(s.app().is_board());
+crates/designos-app/src/shell/tests/board_home.rs:58:    assert!(!s.app().is_board());
+crates/designos-app/src/shell/tests/board_home.rs:83:    assert!(s.app().is_board(), "File > New board opens an empty board");
+crates/designos-app/src/shell/tests/dev_mode_shortcut.rs:130:    assert!(s.app().is_board(), "precondition: a board has no </> button");

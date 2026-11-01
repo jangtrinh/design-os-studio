@@ -709,7 +709,7 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
         return;
     }
     // board: a magnet dot starts a connector
-    if app.is_board() && !mid && !inp.space && matches!(app.tool, Tool::Move | Tool::Connector) {
+    if app.wb_connectors_enabled() && !mid && !inp.space && matches!(app.tool, Tool::Move | Tool::Connector) {
         if let Some((node, magnet)) = crate::board::connect::dot_hit(app, rect, pos) {
             crate::board::connect::start(app, Some((node, magnet)), page);
             return;
@@ -2375,7 +2375,7 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
 
     if !idle {
         // Skip recomputing hover / hit_under while actively panning, dragging, resizing, or marquee-selecting.
-        if app.is_board() && matches!(app.canvas.inter, Interaction::Connect(_)) {
+        if app.wb_connectors_enabled() && matches!(app.canvas.inter, Interaction::Connect(_)) {
             let board_page = (hovered && app.canvas.text.is_none()).then(|| inp.pos.map(|p| app.view.to_page(rect.min, p))).flatten();
             crate::board::connect::update_hover(app, board_page);
         } else {
@@ -2412,7 +2412,7 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
     }
 
     // board: magnet dots follow the pointer only on board documents
-    let over_dot = if app.is_board() {
+    let over_dot = if app.wb_connectors_enabled() {
         let board_page = (hovered && app.canvas.text.is_none()).then(|| inp.pos.map(|p| app.view.to_page(rect.min, p))).flatten();
         crate::board::connect::update_hover(app, board_page);
         hovered && inp.pos.is_some_and(|p| crate::board::connect::dot_hit(app, rect, p).is_some())

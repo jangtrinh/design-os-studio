@@ -1,0 +1,5 @@
+3dda5f6f3902340d5c4e7bd76b1921d3f22716f6f67feb86e256bfea11bb9bcf  /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OTRaov/board.designos
+3dda5f6f3902340d5c4e7bd76b1921d3f22716f6f67feb86e256bfea11bb9bcf  /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OTRaov/after/board.designos
+3afd94482f64975ec4c18d668236a3e4f7be14a54a5cd7d088154083aa3a9f3b  /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OTRaov/after/designos-studio-landing.designos
+3d5beaae9469bf61b6f6841a4ca7e8a7705a21aeac544a62dabbe1432ed2b8ae  /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OTRaov/after/frame-labels-1197.designos
+f6150b2dfde90c60d1a5f5519c9580af5446c5512fb3336031b5a5b8d55bdb43  /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.OTRaov/after/kit.designos

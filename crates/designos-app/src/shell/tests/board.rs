@@ -983,3 +983,123 @@ fn facilitator_timer_label_uses_tabular_digits() {
     assert!(!families.is_empty(), "the 05:00 label is painted");
     assert!(families.iter().all(|f| *f == egui::FontFamily::Monospace), "digits must not jitter each second: {families:?}");
 }
+
+#[test]
+fn section_and_text_creation_defaults_across_document_kinds() {
+    use designos_doc::{Document, DocumentKind, StrokeAlign};
+
+    for (kind, is_board) in [(DocumentKind::Board, true), (DocumentKind::Design, false), (DocumentKind::Deck, false)] {
+        let mut doc = Document::new("Creation defaults");
+        doc.kind = kind;
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+
+        let sec = crate::canvas::create::new_shape(&mut app, Tool::Section);
+        assert_eq!(sec.kind, NodeKind::Section);
+        assert_eq!(sec.size, designos_doc::Vec2::ZERO);
+        if is_board {
+            assert_eq!(sec.fills, vec![Paint::solid(Color::WHITE)], "{kind:?}: section fill");
+            assert_eq!(sec.stroke.paints, vec![Paint::solid(Color::rgb(0xCF, 0xCF, 0xCF))], "{kind:?}: section stroke");
+            assert_eq!(sec.stroke.weight, 1.0, "{kind:?}: section stroke weight");
+            assert_eq!(sec.stroke.align, StrokeAlign::Inside, "{kind:?}: section stroke align");
+        } else {
+            assert_eq!(sec.fills, vec![Paint::solid(Color::rgb(0xF5, 0xF5, 0xF5))], "{kind:?}: section fill");
+            assert!(sec.stroke.paints.is_empty(), "{kind:?}: section stroke");
+        }
+
+        let (txt, _) = crate::canvas::create::new_text(&mut app, page, designos_doc::Vec2::ZERO).expect("new text");
+        let NodeKind::Text(tp) = &txt.kind else { panic!("expected text node") };
+        let expected_size = if is_board { 24.0 } else { crate::theme::DEFAULT_TEXT_SIZE };
+        assert_eq!(tp.style.font_size, expected_size, "{kind:?}: text font size");
+    }
+}
+
+#[test]
+fn dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas() {
+    fn page_bg(s: &Sim) -> egui::Color32 {
+        match s.app().doc.get(s.app().page).map(|n| &n.kind) {
+            Some(NodeKind::Page { background }) => {
+                let f = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                egui::Color32::from_rgb(f(background.r), f(background.g), f(background.b))
+            }
+            _ => egui::Color32::from_rgb(0x5A, 0x5A, 0x5A),
+        }
+    }
+    fn page_fill_index(s: &Sim) -> Option<usize> {
+        let canvas = s.app().canvas_rect;
+        let bg = page_bg(s);
+        assert_ne!(bg, crate::theme::BG, "page colour must differ from the window background");
+        s.shapes.iter().rposition(|c| match &c.shape {
+            egui::Shape::Rect(r) => r.fill == bg && r.rect.contains_rect(canvas.shrink(1.0)),
+            _ => false,
+        })
+    }
+    fn dots_index(s: &Sim) -> Option<usize> {
+        fn has_board_dots(shape: &egui::Shape) -> bool {
+            match shape {
+                egui::Shape::Mesh(m) => m.vertices.iter().any(|v| v.color == crate::theme::BOARD_DOT),
+                egui::Shape::Vec(v) => v.iter().any(has_board_dots),
+                _ => false,
+            }
+        }
+        s.shapes.iter().position(|c| has_board_dots(&c.shape))
+    }
+
+    let b = board_sim();
+    let dots = dots_index(&b).expect("board canvas paints the dotted background mesh");
+    let last_fill = page_fill_index(&b);
+    assert!(
+        last_fill.is_none_or(|i| i < dots),
+        "no rect filled with the page colour and covering the canvas is painted after the board dots: fill {last_fill:?} dots {dots}"
+    );
+
+    let d = Sim::new();
+    assert!(dots_index(&d).is_none(), "design canvas omits the dotted background mesh");
+    assert!(page_fill_index(&d).is_some(), "design canvas paints a rect filled with the page colour covering the canvas");
+}
+
+#[test]
+fn frame_stepping_shortcut_steps_top_level_frames_only_when_available() {
+    let mut d = Sim::new();
+    d.shell.app.selection.clear();
+    d.frame(vec![]);
+    d.key(Key::N);
+    let d_page = d.app().page;
+    let sel = d.app().selection.clone();
+    assert_eq!(sel.len(), 1, "N selects exactly one node when frame stepping is available: {sel:?}");
+    let n = d.app().doc.get(sel[0]).expect("selected node exists");
+    assert!(matches!(n.kind, NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_)), "N selects a frame-like node: {:?}", n.kind);
+    assert!(n.visible, "N selects a visible frame");
+    let is_top_level_or_in_top_section = n.parent == Some(d_page)
+        || n.parent.and_then(|pid| d.app().doc.get(pid)).is_some_and(|p| p.visible && matches!(p.kind, NodeKind::Section) && p.parent == Some(d_page));
+    assert!(is_top_level_or_in_top_section, "selected frame parent must be the page or a top-level Section: {:?}", n.parent);
+
+    let mut b = board_sim();
+    let b_page = b.app().page;
+    let b_frame_id = b.shell.app.doc.alloc_id();
+    let mut b_frame = Node::frame(b_frame_id, DRect::new(100.0, 100.0, 200.0, 150.0));
+    b_frame.name = "Board Frame".into();
+    b.shell.app.doc.insert(b_page, b_frame).unwrap();
+    b.shell.app.selection.clear();
+    b.shell.app.changed();
+    b.frame(vec![]);
+    b.key(Key::N);
+    assert!(b.app().selection.is_empty(), "N does not step frames on a board document");
+}
+
+#[test]
+fn right_click_on_ruler_strip_skips_canvas_menu_only_when_enabled() {
+    let mut d = Sim::new();
+    d.shell.app.ui.rulers = true;
+    d.frame(vec![]);
+    let d_strip = Pos2::new(d.app().canvas_rect.left() + 60.0, d.app().canvas_rect.top() + 8.0);
+    d.right_click(d_strip);
+    assert!(d.app().ui.ctx_menu.is_none(), "Design ruler strip skips the canvas context menu on right-click");
+
+    let mut b = board_sim();
+    b.shell.app.ui.rulers = true;
+    b.frame(vec![]);
+    let b_strip = Pos2::new(b.app().canvas_rect.left() + 60.0, b.app().canvas_rect.top() + 8.0);
+    b.right_click(b_strip);
+    assert_eq!(b.app().ui.ctx_menu, Some(b_strip), "Board ruler strip does not suppress the canvas context menu on right-click");
+}

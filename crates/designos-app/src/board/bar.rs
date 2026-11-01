@@ -200,7 +200,7 @@ pub fn place(canvas: ERect, sel: ERect, width: f32) -> ERect {
 
 /// Paints the bar for the current selection and applies clicks.
 pub fn show(app: &mut App, ui: &mut Ui, canvas: ERect) {
-    if !app.is_board() || app.selection.is_empty() || app.canvas.vedit.is_some() {
+    if !app.wb_contextual_bar_enabled() || app.selection.is_empty() || app.canvas.vedit.is_some() {
         app.board.bar_menu = None;
         return;
     }
