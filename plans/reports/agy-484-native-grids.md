@@ -655,3 +655,165 @@ b2ff5b82 test(export): add round 2 regression tests for grid export (#484)
 7890220f test(export): add native grid generator fixtures and tests (#484)
 a41e8ebf refactor(layout): extract grid_row_heights solver accessor (#484)
 ```
+
+---
+
+## Round 3
+
+### 1. What Could Not Be Verified
+
+1. **Jetpack Compose runtime layout execution on an Android device/emulator:** The Compose sub-cell wrapper (`Box(Modifier.align(Alignment.TopStart)[.offset(x, y)].wrapContentSize(Alignment.TopStart, unbounded = true).size(width, height), contentAlignment = ...)`) and the `Sizing::Fill` grid height rule (`if n.layout_child.vertical == Sizing::Fill { grid_h = n.size.y; }`) were verified by static code inspection, anchored per-child AST/string assertions (`compose_cell_for`), and mutation testing, not by executing a Compose runtime on an Android device or emulator.
+2. **UIKit runtime layout execution in an iOS Simulator:** The UIKit `stackCell` `UIView` wrapper (`leadingAnchor`, `topAnchor`, `widthAnchor`, `heightAnchor` pinned to the host `cell`, with the stacked child constrained inside `stackCell` using its own `grid_cell_align`) was verified by static code inspection, anchored assertions, and mutation testing (plus `xcrun swiftc` typecheck in Round 2), not by rendering inside an iOS Simulator.
+3. **Direct worker re-execution of the Untitled UI PRO v8.0 `.fig` kit probe:** Per the worker rules (`brief-common-argon.txt`), worker processes do not open `.fig` files directly. Instead, R7 below rests on the reviewer's kit-wide comparison probe (`plans/reports/code-reviewer-261031-2335-pr-1450-r2-evidence/scripts/review_probe_1450_r7.rs`, `r7/summary.json`, `logs/r7-base.log`, `logs/r7-head.log`) plus the observation that all Round 3 code edits (`codegen.rs`, `swiftui.rs`, `compose.rs`, `uikit.rs`) are strictly inside `SolvedGrid` / `LayoutDirection::Grid` branches and are unreachable for non-grid nodes.
+
+---
+
+### 2. Summary of Round 3 Fixes (`N1`–`N4`, Minor `9c`)
+
+1. **Ruling 1 (`N1`) — Stacked children land where the solver puts them (`crates/designos-export/src/{codegen,swiftui,compose,uikit}.rs`):**
+   - **`codegen.rs`:**
+     - Removed `SolvedGrid.rects` and the redundant `compute_grid(&al_s, n.size, own, &kids)` call from `solved_grid`; `solved_grid` now calls only `grid_column_widths`, `grid_row_heights`, and `place_children`.
+     - Added `placed: Placed` to `StackedGridChild` and changed the stacked child offset in `SolvedGrid::row_cells(r)` from `(s_rect.x - origin.0, s_rect.y - origin.1)` to `(s_origin.0 - origin.0, s_origin.1 - origin.1)` where `s_origin = self.cell_origin(&p)` and `origin = self.cell_origin(&g.placed)`. Same-cell overlaps now always carry offset `(0.0, 0.0)`, and span-interior overlaps carry `(cell_origin(child) - cell_origin(host))` without double-counting child alignment.
+   - **`swiftui.rs`:**
+     - When `group.stacked` is non-empty, the outer cell container is `ZStack(alignment: .topLeading)` with `.frame(width: cell_w, height: cell_h, alignment: .topLeading)` (plus `.gridCellColumns(p.col_span)` when `p.col_span > 1`).
+     - The primary child receives its own `.frame(width: cell_w, height: cell_h, alignment: align)` inside the `ZStack`.
+     - Each stacked child `s` is emitted with `emit(doc, s.id, me, depth + 4, o)` (without `emit_with_offset`), followed by its own `.frame(width: sw, height: sh, alignment: s_align)` (`sw = grid.cell_width(&s.placed)`, `sh = grid.cell_height(&s.placed, false)`, `(sah, sav) = grid_cell_align(doc, s.id, al)`) and `.offset(x: s.offset.0, y: s.offset.1)` when `s.offset != (0.0, 0.0)`.
+     - Removed the unused `emit_with_offset` helper in `swiftui.rs`.
+   - **`compose.rs`:**
+     - Inside the host cell's `Box(Modifier.height(cell_h.dp), contentAlignment = align)`, each stacked child `s` is wrapped in its own sub-cell `Box(Modifier.align(Alignment.TopStart)[.offset(x = ..., y = ...)].wrapContentSize(Alignment.TopStart, unbounded = true).size(width = sw.dp, height = sh.dp), contentAlignment = s_align) { emit(doc, s.id, me, g_depth + 4, o) }`.
+     - Removed the unused `emit_with_offset` helper in `compose.rs`.
+   - **`uikit.rs`:**
+     - Removed `offset: Option<(f32, f32)>` from `Host::Cell`.
+     - For each stacked child `s`, allocates `let stackCell = UIView()`, adds it as a subview of `cell`, constrains `stackCell.leadingAnchor` (`constant: s.offset.0`), `stackCell.topAnchor` (`constant: s.offset.1`), `stackCell.widthAnchor` (`equalToConstant: sw`), and `stackCell.heightAnchor` (`equalToConstant: sh`), and emits `s.id` with `Host::Cell { parent: &sub_v, align_h: sh_al, align_v: sv_al }` so the stacked child's alignment and `Dim::Fill` anchors bind against its own cell (`stackCell`), not the host's span.
+2. **Ruling 2 (`N2`) — Compose grid height when `n.layout_child.vertical == Sizing::Fill` (`crates/designos-export/src/compose.rs`):**
+   - Added `if n.layout_child.vertical == Sizing::Fill { grid_h = n.size.y; }` alongside `if al.counter_sizing == Sizing::Fixed { grid_h = n.size.y; }` at `compose.rs:403-408`. A grid whose height comes from `Fill container` now exports its solved frame height (`n.size.y`), while `rows.sum() + row_gap * (rows.len() - 1) + padding_top + padding_bottom` applies only when the grid hugs its rows (`counter_sizing == Sizing::Hug` and `layout_child.vertical != Sizing::Fill`).
+   - Extended `m4_compose_grid_height_fixed_vs_hug_and_fill` in `crates/designos-export/tests/grid_native_fixtures.rs` to cover all three cases (`Fixed` `200.dp`, `Hug` `82.dp`, and `Fill` `200.dp`).
+3. **Ruling 3 (`N3`) — Per-child anchored cell assertions (`crates/designos-export/tests/grid_native_fixtures.rs`):**
+   - Added `find_child_slot`, `swiftui_cell_for(&doc, grid, &swift, child_name)`, and `compose_cell_for(&doc, grid, &compose, child_name)` in `crates/designos-export/tests/grid_native_fixtures.rs`.
+   - Updated `assert_swiftui_scene`, `assert_compose_scene`, `m5_bound_counter_axis_spacing_and_non_start_cell_alignments`, `b1_*`, and `n1_*` to slice each child's specific `GridRow` cell or `LazyVerticalGrid` `item` block before asserting its cell frame and alignment, killing the mirror-alignment mutants `A1` and `A2`.
+4. **Ruling 4 (`N4`) & Minor `9c` — Android XML gap margin convention (`R6`) and Kit-Wide `R7`:**
+   - **Minor `9c` (R6 convention):** Android XML emits column and row gaps as `android:layout_marginStart` on cells/spaces with `col > 0` and `android:layout_marginTop` on cells/spaces with `row > 0` instead of R6's literal `marginEnd` / `marginBottom` wording (`col + col_span < cols` / `row + row_span < rows`), and `android.widget.GridLayout`'s Bellman-Ford track distribution gives the exact same cell origins and track sizes under both conventions (verified across all 6 acceptance scenes in `plans/reports/code-reviewer-261031-2335-pr-1450-r2-evidence/gridlayout-model-r2-head.txt` and all 5 kit grids in `gridlayout-model-r2-kit.txt`).
+   - **`R7` (Non-grid codegen unchanged, resting on the kit-wide output comparison):** Rather than resting on a `git diff` of `tests/codegen_fixtures.rs`, R7 rests on the kit-wide output comparison (`plans/reports/code-reviewer-261031-2335-pr-1450-r2-evidence/scripts/review_probe_1450_r7.rs`, `r7/summary.json`, `logs/r7-base.log`, `logs/r7-head.log`), which hashed **24,852** outputs (`4,142` non-grid nodes across the Untitled UI PRO v8.0 kit × 6 generators) plus a **96-case** synthetic non-grid matrix (`16` shapes × 6 generators) against `origin/main`:
+     - **CSS, Tailwind, React, SwiftUI, UIKit, Android XML:** **0 diffs** across all 4,142 kit nodes and all 16 synthetic non-grid shapes.
+     - **Compose:** **138 diffs** out of 4,142 kit nodes (`2` out of 16 synthetic shapes), all 138 caused solely by the intentional one-line counter-axis stretch fix in `codegen.rs:424` (`Dim::Fill` emitting `.fillMaxHeight()` for children with `layout_child.vertical == Sizing::Fill` inside a horizontal `Row`).
+     - **Round 3 delta on non-grid nodes:** **0 diffs**, because every Round 3 edit in `codegen.rs`, `swiftui.rs`, `compose.rs`, and `uikit.rs` is inside `SolvedGrid` / `LayoutDirection::Grid` code paths.
+
+---
+
+### 3. Acceptance Checklist & Evidence (`plans/reports/agy-484-native-grids-evidence/r3-*`)
+
+| # | Acceptance Requirement | Verdict | Evidence |
+|---|---|---|---|
+| **1** | New/rewritten tests fail on `d2c6997e` (`r3-red-on-d2c6997e.log`) and pass on the fix (`r3-green.log`) | **PASS** | `7 failed` on `d2c6997e` (`b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets`, `b1_overlap_same_cell_keeps_all_children_and_solver_offsets`, `m4_compose_grid_height_fixed_vs_hug_and_fill`, and all 4 `n1_*` tests); `29/29 passed` (`337/337` in `designos-export`) on `decb0c8f` |
+| **2** | All 30 mutants (`M1`–`M14`, `D1`–`D3`, `X1`–`X11`, `A1`–`A2`) die (`r3-mutants.log`) | **PASS** | **30 / 30 KILLED (`0 survived`)**, worktree clean after run |
+| **3** | Render the 4 `N1` scenes on macOS with `xcrun swiftc -parse-as-library -target arm64-apple-macos14` + `ImageRenderer` and verify pixel bboxes match `compute_grid().rects` (`r3-b1-renders.png`, `r3-b1-renders.log`) | **PASS** | Every child in all 4 `N1` scenes matches `compute_grid(&al_s, n.size, own, &kids).rects` with **`(0, 0, 0, 0)` pixel delta** |
+| **4** | All final gates pass on the final code (`r3-gates.log`, `r3-chrome-compare.log`) | **PASS** | `cargo fmt` (`0`), `cargo clippy -p designos-doc -p designos-export` (`0`), `cargo test -p designos-doc --lib` (`708 passed`), `cargo test -p designos-export` (`337 passed`), `cargo test --workspace --lib` (`1,481 passed`), `grid-chrome-compare.py` (`38/38 passed`, `0.00px` error) |
+| **5** | Report updated with `## Round 3` starting with what could not be verified, 9c sentence, kit-wide R7, pushed to `jangtrinh/agy-484-native-grids`, `out/cargo` removed | **PASS** | See sections 1–7 of `## Round 3` |
+
+---
+
+### 4. Acceptance #1 — Red on `d2c6997e` and Green on Fix (`r3-red-on-d2c6997e.log`, `r3-green.log`)
+
+#### Red on `d2c6997e` (`plans/reports/agy-484-native-grids-evidence/r3-red-on-d2c6997e.log`)
+```text
+failures:
+    b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets
+    b1_overlap_same_cell_keeps_all_children_and_solver_offsets
+    m4_compose_grid_height_fixed_vs_hug_and_fill
+    n1_overlap_centered_dot_with_bigger_card_stacked
+    n1_overlap_centered_icon_and_top_right_badge
+    n1_overlap_centered_photo_and_start_chip
+    n1_overlap_fill_child_inside_two_col_span
+
+test result: FAILED. 22 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+#### Green on Fix (`plans/reports/agy-484-native-grids-evidence/r3-green.log`)
+```text
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-1e3dc0963dd7a310)
+running 29 tests
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+All 16 test binaries in `designos-export` pass (`337 passed; 0 failed`).
+
+---
+
+### 5. Acceptance #2 — 30-Mutant Kill Table (`plans/reports/agy-484-native-grids-evidence/r3-mutants.log`)
+
+| ID | Mutant Description | File | Verdict | Killing Tests (sample) |
+|---|---|---|---|---|
+| `M1` | SwiftUI cell height uses row span | `swiftui.rs` | **KILLED** | `item3_swiftui_all_six_scenes`, `row_and_column_spans_native_generators` |
+| `M2` | `cell_width` drops inner col gap | `codegen.rs` | **KILLED** | `b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets`, `row_and_column_spans_native_generators` |
+| `M3` | Compose R6b height drops padding | `compose.rs` | **KILLED** | `m4_compose_grid_height_fixed_vs_hug_and_fill`, `hugging_grid_native_generators` |
+| `M4` | Compose R6b height = frame height | `compose.rs` | **KILLED** | `m4_compose_grid_height_fixed_vs_hug_and_fill` |
+| `M5` | SwiftUI hole filler width = row height | `swiftui.rs` | **KILLED** | `explicit_hole_emits_filler_and_keeps_column_width`, `swiftui::tests::grid_emits_swiftui_grid_rows_spans_holes_and_abs_child` |
+| `M6` | Row gap key always `itemSpacing` | `codegen.rs` | **KILLED** | `m5_bound_counter_axis_spacing_and_non_start_cell_alignments` |
+| `M7` | Android drops row-gap `marginTop` on cells | `android_xml.rs` | **KILLED** | `item3_android_xml_all_six_scenes`, `m5_bound_counter_axis_spacing_and_non_start_cell_alignments` |
+| `M8` | `solved_grid` `row_gap = col_gap` | `codegen.rs` | **KILLED** | `codegen::tests::solved_grid_matches_solver_accessors_and_place_children`, `item3_android_xml_all_six_scenes` |
+| `M9` | Android no `<Space>` for uncovered columns | `android_xml.rs` | **KILLED** | `m2_android_span_only_column_and_row_emit_space`, `explicit_hole_emits_filler_and_keeps_column_width` |
+| `M10` | Compose never emits `GridItemSpan` | `compose.rs` | **KILLED** | `item3_compose_all_six_scenes`, `row_and_column_spans_native_generators` |
+| `M11` | UIKit cell height constraint = cell width | `uikit.rs` | **KILLED** | `item3_uikit_all_six_scenes`, `equal_tracks_native_generators` |
+| `M12` | Android cell height ignores row span | `android_xml.rs` | **KILLED** | `item3_android_xml_all_six_scenes`, `row_and_column_spans_native_generators` |
+| `M13` | Cell alignment ignores child align (always `Start`) | `codegen.rs` | **KILLED** | `b1_overlap_same_cell_keeps_all_children_and_solver_offsets`, `m5_bound_counter_axis_spacing_and_non_start_cell_alignments`, `n1_overlap_centered_dot_with_bigger_card_stacked` |
+| `M14` | UIKit row-span comment dropped | `uikit.rs` | **KILLED** | `uikit::tests::uikit_grid_emits_row_stacks_cell_views_and_holes`, `row_and_column_spans_native_generators` |
+| `D1` | Solver: no span leveling | `layout_solver_grid.rs` | **KILLED** | `layout_solver_grid::tests::margins_on_children_spanning_tracks_beyond_eight_size_and_inset_correctly` |
+| `D2` | Solver: no flex auto-row leveling | `layout_solver_grid.rs` | **KILLED** | `layout_solver_grid::tests::flex_auto_row_track_distributes_leftover_height_in_a_fixed_grid` |
+| `D3` | `grid_row_heights` ignores `grid_rows` | `layout_solver_grid.rs` | **KILLED** | `layout_solver_grid::tests::grid_row_heights_honors_explicit_grid_rows_beyond_placed_children`, `d3_explicit_trailing_grid_rows_exported` |
+| `X1` | `row_cells` groups same start only | `codegen.rs` | **KILLED** | `b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets`, `n1_overlap_fill_child_inside_two_col_span` |
+| `X2` | SwiftUI stacked offset never emitted | `swiftui.rs` | **KILLED** | `b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets`, `n1_overlap_fill_child_inside_two_col_span` |
+| `X3` | Compose stacked offset dropped | `compose.rs` | **KILLED** | `b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets`, `n1_overlap_fill_child_inside_two_col_span` |
+| `X4` | UIKit stacked offset dropped | `uikit.rs` | **KILLED** | `b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets`, `b1_overlap_same_cell_keeps_all_children_and_solver_offsets`, `n1_overlap_fill_child_inside_two_col_span`, `n1_overlap_centered_icon_and_top_right_badge` |
+| `X5` | Compose out-of-flow children dropped | `compose.rs` | **KILLED** | `b2_compose_out_of_flow_children_wrap_grid_in_outer_box`, `absolute_child_in_grid_keeps_generator_handling_in_all_four_generators` |
+| `X6` | Android out-of-flow children dropped | `android_xml.rs` | **KILLED** | `m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout`, `absolute_child_in_grid_keeps_generator_handling_in_all_four_generators` |
+| `X7` | Android wrapped `GridLayout` always `match_parent` height | `android_xml.rs` | **KILLED** | `m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout` |
+| `X8` | `cell_origin` drops padding | `codegen.rs` | **KILLED** | `codegen::tests::solved_grid_matches_solver_accessors_and_place_children` |
+| `X9` | Compose `Fixed`-height rule removed | `compose.rs` | **KILLED** | `m4_compose_grid_height_fixed_vs_hug_and_fill`, `item3_compose_all_six_scenes` |
+| `X10` | SwiftUI grid arm ignores slot site | `swiftui.rs` | **KILLED** | `b3_grid_slot_keeps_slot_parameter`, `grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose` |
+| `X11` | Compose grid arm ignores slot site | `compose.rs` | **KILLED** | `b3_grid_slot_keeps_slot_parameter`, `grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose` |
+| `A1` | SwiftUI cell alignment from row's mirror child | `swiftui.rs` | **KILLED** | `m5_bound_counter_axis_spacing_and_non_start_cell_alignments`, `n1_overlap_centered_icon_and_top_right_badge`, `n1_overlap_centered_photo_and_start_chip`, `n1_overlap_centered_dot_with_bigger_card_stacked` |
+| `A2` | Compose cell alignment from row's mirror child | `compose.rs` | **KILLED** | `m5_bound_counter_axis_spacing_and_non_start_cell_alignments`, `n1_overlap_centered_icon_and_top_right_badge`, `n1_overlap_centered_dot_with_bigger_card_stacked` |
+
+---
+
+### 6. Acceptance #3 — macOS `ImageRenderer` Pixel Verification of the 4 `N1` Scenes (`r3-b1-renders.png`, `r3-b1-renders.log`)
+
+Each of the four `N1` scenes was dumped from `swiftui_for(&doc, grid)` in `crates/designos-export/tests/grid_native_fixtures.rs`, compiled with `xcrun swiftc -parse-as-library -target arm64-apple-macos14`, and rendered at `scale = 1.0` via `SwiftUI.ImageRenderer`. Pixel bounding boxes `(x, y, w, h)` of every child were measured directly from the rendered PNGs and compared against `compute_grid(&al_s, n.size, own, &kids).rects`:
+
+| Scene | Child | Solver `compute_grid().rects` | `d2c6997e` Before (`ImageRenderer`) | Round 3 After (`ImageRenderer`) | Delta |
+|---|---|---|---|---|---|
+| **1. `n1_overlap_centered_icon_and_top_right_badge`** (`210×60`) | `Icon` (`20×20`, `Center/Center`) | `(40, 20, 20, 20)` | `(40, 20, 20, 20)` | **`(40, 20, 20, 20)`** | `(0, 0, 0, 0)` |
+| | `Badge` (`20×20`, `End/Start`) | `(80, 0, 20, 20)` | `(120, 20, 20, 20)` (shifted into col 1 under `Caption`) | **`(80, 0, 20, 20)`** | `(0, 0, 0, 0)` |
+| | `Caption` (`100×60`, col 1) | `(110, 0, 100, 60)` | `(110, 0, 100, 60)` | **`(110, 0, 100, 60)`** | `(0, 0, 0, 0)` |
+| **2. `n1_overlap_centered_photo_and_start_chip`** (`210×60`) | `Photo` (`60×30`, `Center/Center`) | `(20, 15, 60, 30)` | `(20, 15, 60, 30)` | **`(20, 15, 60, 30)`** | `(0, 0, 0, 0)` |
+| | `Chip` (`30×12`, `Start/Start`) | `(0, 0, 30, 12)` | `(20, 15, 30, 12)` (dragged to `Photo`'s top-left) | **`(0, 0, 30, 12)`** | `(0, 0, 0, 0)` |
+| | `Caption` (`100×60`, col 1) | `(110, 0, 100, 60)` | `(110, 0, 100, 60)` | **`(110, 0, 100, 60)`** | `(0, 0, 0, 0)` |
+| **3. `n1_overlap_centered_dot_with_bigger_card_stacked`** (`210×60`) | `Dot` (`20×20`, `Center/Center`) | `(40, 20, 20, 20)` | `(0, 0, 20, 20)` (pulled to `(0, 0)` when `ZStack` grew to `100×60`) | **`(40, 20, 20, 20)`** | `(0, 0, 0, 0)` |
+| | `Card` (`100×60`, `Start/Start`) | `(0, 0, 100, 60)` | `(0, 0, 100, 60)` | **`(0, 0, 100, 60)`** | `(0, 0, 0, 0)` |
+| | `Other` (`100×60`, col 1) | `(110, 0, 100, 60)` | `(110, 0, 100, 60)` | **`(110, 0, 100, 60)`** | `(0, 0, 0, 0)` |
+| **4. `n1_overlap_fill_child_inside_two_col_span`** (`220×40`) | `Wide` (`150×40`, `col_span=2`) | `(0, 0, 150, 40)` | `(0, 0, 150, 40)` | **`(0, 0, 150, 40)`** | `(0, 0, 0, 0)` |
+| | `InnerFill` (`Fill×20`, col 1 = `40pt`) | `(110, 0, 40, 20)` | `(110, 0, 110, 20)` (`150pt` span wide, overflowing to `x=260`) | **`(110, 0, 40, 20)`** | `(0, 0, 0, 0)` |
+
+---
+
+### 7. Acceptance #4 — Final Harness Gates (`r3-gates.log`, `r3-chrome-compare.log`)
+
+- **`cargo fmt --all -- --check`:** `exit=0`
+- **`cargo clippy -p designos-doc -p designos-export --all-targets --locked -- -D warnings`:** `exit=0` (`0` warnings, `0` errors)
+- **`cargo clippy --workspace --all-targets --locked -- -D warnings`:** Fails only on `main`'s pre-existing `crates/designos-app/src/agent_permissions.rs:1163,1181` (`clippy::needless_return`).
+- **`cargo test -p designos-doc --locked --lib`:** `708 passed; 0 failed` (`exit=0`)
+- **`cargo test -p designos-export --locked`:** All 16 test targets pass (`158` unit + `29` `grid_native_fixtures` + `29` `slot_codegen` + all other export suites = `337 passed; 0 failed`, `exit=0`)
+- **`cargo test --workspace --locked --lib`:** All 12 workspace crates pass (`1,481 passed; 0 failed`, `exit=0`)
+- **`python3 scripts/qa/grid-chrome-compare.py`:** `38/38 passed` at `max_item_err=0.00px grid_err=(0.00px, 0.00px)` (`exit=0`)
+
+---
+
+### 8. Assumptions & Commit Log
+
+- **Assumptions:** None beyond the rulings in `brief-agy-484-native-r3.txt` (in Scene 4 `n1_overlap_fill_child_inside_two_col_span`, compiling the raw `swiftui_for` output with `xcrun swiftc` uses a 6-line `View.frame(maxWidth:height:)` overload extension in the test harness to bridge pre-existing `#1454`, while the emitted SwiftUI code itself is unmodified).
+- **Round 3 Commits (`d2c6997e..HEAD`):**
+  - `4d241887` — `Merge remote-tracking branch 'origin/main' into jangtrinh/agy-484-native-grids`
+  - `f3c401d4` — `test(export): anchor cell assertions and add round 3 overlap and fill height tests (#484)`
+  - `da502ea7` — `fix(export): give stacked grid children own cell frames and export Fill grid height in Compose (#484)`
+  - `decb0c8f` — `test(export): align round 3 N1 overlap dimensions with probe scenes and solver rects (#484)`
+
+Status: DONE
