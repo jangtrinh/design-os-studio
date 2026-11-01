@@ -5,7 +5,7 @@ use serde_json::json;
 use std::fs;
 
 #[test]
-fn partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_honest_retry() {
+fn partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_needs_human() {
     let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let ws_path = std::env::temp_dir().join(format!("designos-mcp-paths-efbig-{}-{nonce}", std::process::id()));
     fs::create_dir_all(&ws_path).unwrap();
@@ -44,7 +44,13 @@ fn partial_write_failure_preserves_original_leaves_no_partial_file_and_reports_h
 
     assert!(!new_exists, "failed write must not leave a partial new.designos on disk");
     assert_eq!(precious_after, original_bytes, "failed overwrite must preserve precious.designos intact");
-    assert!(new_err.safe_to_retry, "new_err must report safe_to_retry: true when nothing changed on disk");
-    assert!(ow_err.safe_to_retry, "ow_err must report safe_to_retry: true when original is intact");
+    // A size limit is something only the user can change: the agent stops and tells them; it is never "safe to retry" at the same size.
+    for err in [&new_err, &ow_err] {
+        let wire = err.to_json_value();
+        assert_eq!(wire["error_kind"], "needs_human", "{wire}");
+        assert_eq!(wire["safe_to_retry"], false, "{wire}");
+        assert!(wire["next_step"].as_str().unwrap().starts_with("Stop and tell the user"), "{wire}");
+        assert!(!wire["next_step"].as_str().unwrap().contains("before retrying"), "{wire}");
+    }
     assert!(retry_res.is_ok(), "retrying new.designos without overwrite after failed write must succeed: {retry_res:?}");
 }

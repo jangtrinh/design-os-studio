@@ -14,3 +14,6 @@
 
 # Claude Code session-state written by hooks into nested working dirs
 **/.claude/session-state/
+
+# Local run-cli output (contains host paths)
+.run-cli-last.log

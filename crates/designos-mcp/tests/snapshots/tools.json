@@ -1836,12 +1836,13 @@
   },
   {
     "name": "designos_open_file",
-    "description": "Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true.",
+    "description": "Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "discard_changes": {
           "default": false,
+          "description": "Set discard_changes=true only when the user has explicitly confirmed, in this conversation, that the unsaved changes may be thrown away. Never set it on your own to get past an unsaved-changes refusal; stop and ask the user instead.",
           "type": "boolean"
         },
         "path": {
@@ -1960,12 +1961,13 @@
   },
   {
     "name": "designos_new_document",
-    "description": "Start a blank document with one page. Unsaved changes require discard_changes=true.",
+    "description": "Start a blank document with one page. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "discard_changes": {
           "default": false,
+          "description": "Set discard_changes=true only when the user has explicitly confirmed, in this conversation, that the unsaved changes may be thrown away. Never set it on your own to get past an unsaved-changes refusal; stop and ask the user instead.",
           "type": "boolean"
         },
         "name": {
