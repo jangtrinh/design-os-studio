@@ -37,6 +37,7 @@ fn frame_requests_screenshot(s: &mut Sim) -> bool {
     let ctx = s.ctx.clone();
     let shell = &mut s.shell;
     let out = ctx.run_ui(raw_input(s.t, vec![]), |ui| shell.draw(ui));
+    shell.app.canvas.gpu.ack_prepared_for_test();
     out.viewport_output.values().any(|v| v.commands.iter().any(|c| matches!(c, egui::ViewportCommand::Screenshot(_))))
 }
 
@@ -95,6 +96,7 @@ fn run_window(s: &mut Sim, shot: &Path, limit: usize, lag: usize, mut before_fra
         let ctx = s.ctx.clone();
         let shell = &mut s.shell;
         let out = ctx.run_ui(raw_input(s.t, events), |ui| shell.draw(ui));
+        shell.app.canvas.gpu.ack_prepared_for_test();
         run.at_rest.push(s.app().canvas.gpu.at_rest());
         if asked_in.take().is_some() {
             in_flight = Some((n, n + lag));

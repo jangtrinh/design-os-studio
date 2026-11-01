@@ -162,6 +162,14 @@ impl GpuView {
         self.settle = Settle::None;
         self.idle_frames = 0;
         self.restarts = 0;
+        self.chunk_ack.store(0, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ack_prepared_for_test(&self) {
+        if let Settle::Refine(job) = &self.settle {
+            self.chunk_ack.store(job.chunks, Ordering::SeqCst);
+        }
     }
 
     /// Records the work the UI frame that just ended took, for the next frame's `plan`.
@@ -200,8 +208,8 @@ impl GpuView {
                 }
                 let chunks = job.chunks;
                 let step = match job.step {
-                    Step::Compile { .. } => return FramePlan::Refine,
-                    Step::Warm { .. } => return FramePlan::Warm,
+                    Step::Compile { .. } => FramePlan::Refine,
+                    Step::Warm { .. } => FramePlan::Warm,
                     Step::Submit { .. } => FramePlan::Submit,
                     Step::Confirm => FramePlan::Finish,
                 };
@@ -254,6 +262,7 @@ impl GpuView {
         self.refined = false;
         self.stable_since = now;
         self.idle_frames = 0;
+        self.chunk_ack.store(0, Ordering::SeqCst);
         if self.restarts >= MAX_CHUNK_RESTARTS {
             self.give_up();
             return FramePlan::Reuse;
@@ -267,6 +276,7 @@ impl GpuView {
     /// `FramePlan::Refine` compiles it.
     fn begin_refine(&mut self, top: Vec<NodeId>, first: Range<usize>) {
         self.refined = false;
+        self.chunk_ack.store(0, Ordering::SeqCst);
         self.settle = Settle::Refine(Job { top: Arc::new(top), sliced: true, cur: first, step: Step::Compile { passes: 0 }, chunks: 0, programs: 0 });
     }
 
@@ -310,7 +320,10 @@ impl GpuView {
         }
         let mut job = match std::mem::replace(&mut self.settle, Settle::None) {
             Settle::Refine(job) => job,
-            Settle::None => Job::whole_page(),
+            Settle::None => {
+                self.chunk_ack.store(0, Ordering::SeqCst);
+                Job::whole_page()
+            }
         };
         let passes = match job.step {
             Step::Compile { passes } => passes,
@@ -327,8 +340,11 @@ impl GpuView {
             self.settle = Settle::Refine(job);
             return Repaint::Now;
         }
-        self.refined = true;
-        Repaint::None
+        self.chunk_ack.store(0, Ordering::SeqCst);
+        job.chunks = 1;
+        job.step = Step::Confirm;
+        self.settle = Settle::Refine(job);
+        Repaint::Now
     }
 
     /// Whether the frame of the last `compiled` call goes to the screen whole: not that of a
@@ -357,12 +373,15 @@ impl GpuView {
     /// to spread: this does nothing then and the frame goes out whole.
     fn begin_submit(&mut self, frame: Arc<Frame>, ranges: Vec<Range<usize>>) -> Repaint {
         if !self.sliced() && ranges.len() < 2 {
-            return Repaint::None;
+            return Repaint::Now;
         }
         let mut job = match std::mem::replace(&mut self.settle, Settle::None) {
             Settle::Refine(job) => job,
             Settle::None => Job::whole_page(),
         };
+        if !job.sliced {
+            job.chunks = 0;
+        }
         if job.chunks == 0 {
             self.chunk_ack.store(0, Ordering::SeqCst);
         }
@@ -491,7 +510,7 @@ impl GpuView {
                 repaint = self.begin_submit(frame, ranges);
                 (Cb::Blit, repaint)
             }
-            _ => (Cb::Frame(frame), repaint),
+            _ => (Cb::Frame(frame, refine.then(|| self.chunk_ack.clone())), repaint),
         }
     }
 
@@ -606,8 +625,8 @@ enum Cb {
     /// Nothing: blit the page the canvas holds.
     Blit,
     /// Render a whole frame (an interactive compile, or a refine that fits one frame's
-    /// budget) and show it.
-    Frame(Arc<Frame>),
+    /// budget, which stores `1` in its `ack` once `Canvas::prepare` ran) and show it.
+    Frame(Arc<Frame>, Option<Arc<AtomicUsize>>),
     /// Render one chunk of a refine into the refine's own page texture; the page on
     /// screen changes only with the last one.
     Chunk(Chunk),
@@ -623,16 +642,18 @@ impl egui_wgpu::CallbackTrait for Cb {
         resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<egui_wgpu::wgpu::CommandBuffer> {
         match (self, resources.get_mut::<Canvas>()) {
-            (Cb::Blit, _) => {}
-            (Cb::Frame(frame), Some(c)) => c.prepare(device, encoder, frame),
+            (Cb::Blit, _) | (_, None) => {}
+            (Cb::Frame(frame, ack), Some(c)) => {
+                c.prepare(device, encoder, frame);
+                if let Some(ack) = ack {
+                    ack.store(1, Ordering::SeqCst);
+                }
+            }
             (Cb::Chunk(k), Some(c)) => {
                 if c.prepare_chunk(device, &k.frame, k.ops.clone(), k.index, k.last, k.slice_done) {
                     k.ack.store(k.index + 1, Ordering::SeqCst);
                 }
             }
-            // no renderer to take it (the canvas is not on the GPU): nothing to void
-            (Cb::Chunk(k), None) => k.ack.store(k.index + 1, Ordering::SeqCst),
-            (Cb::Frame(_), None) => {}
         }
         Vec::new()
     }
@@ -784,12 +805,21 @@ mod tests {
         assert_eq!(g.plan(key(1), 5.0, false, false), FramePlan::Interactive, "deferred geometry keeps the interactive compile");
     }
 
+    /// Confirms the one-chunk refine frame that `compiled(..., true)` just prepared.
+    fn finish_one_chunk(g: &mut GpuView, k: FrameKey, t: f64) {
+        g.chunk_ack.store(1, Ordering::SeqCst);
+        assert_eq!(g.plan(k, t, false, false), FramePlan::Finish);
+        g.settle = Settle::None;
+        g.refined = true;
+        g.restarts = 0;
+    }
+
     #[test]
     fn refined_view_reuses_without_repaint() {
         for (t, down, input) in [(0.0, false, false), (0.3, false, false), (9.0, false, false), (9.0, true, false), (9.0, false, true)] {
             assert_eq!(view(true).plan(key(1), t, down, input), FramePlan::Reuse, "t={t} down={down} input={input}");
         }
-        assert_eq!(GpuView::default().compiled(key(1), true), Repaint::None, "the refined compile asks for no further frame");
+        assert_eq!(GpuView::default().compiled(key(1), true), Repaint::Now, "the refined compile asks for a confirmation frame");
     }
 
     #[test]
@@ -801,9 +831,10 @@ mod tests {
         // t=0.01: unchanged, still inside the delay -> blit and one wake-up after the rest
         let d = waits(g.plan(key(1), 0.01, false, false));
         assert!((d - 0.24).abs() < 1e-9);
-        // the wake-up frame refines and asks for nothing
+        // the wake-up frame refines, then confirms on the next frame and asks for nothing
         assert_eq!(g.plan(key(1), 0.25, false, false), FramePlan::Refine);
-        assert_eq!(g.compiled(key(1), true), Repaint::None);
+        assert_eq!(g.compiled(key(1), true), Repaint::Now);
+        finish_one_chunk(&mut g, key(1), 0.26);
         // every later idle frame reuses the cached output and never asks again
         for t in [0.3, 1.0, 60.0] {
             assert_eq!(g.plan(key(1), t, false, false), FramePlan::Reuse);
@@ -872,8 +903,10 @@ mod tests {
         full_compiles += 1;
         g.compiler.geom.stale_hits = 0;
         g.compiler.geom.deferred.clear();
-        assert_eq!(g.compiled(key(1), true), Repaint::None);
-        assert!(g.refined && g.presents_last_compile());
+        assert_eq!(g.compiled(key(1), true), Repaint::Now);
+        assert!(g.presents_last_compile() && !g.refined);
+        finish_one_chunk(&mut g, key(1), 0.41);
+        assert!(g.refined);
         assert_eq!(full_compiles, 2, "one compile to learn the list, one once it is empty");
         for t in [0.5, 1.0, 60.0] {
             assert_eq!(g.plan(key(1), t, false, false), FramePlan::Reuse, "silent once the page is cached");
@@ -891,10 +924,17 @@ mod tests {
                     compiles += 1;
                     defer(&mut g, 1);
                     g.compiled(key(1), true);
+                    if g.presents_last_compile() {
+                        g.chunk_ack.store(1, Ordering::SeqCst);
+                    }
                 }
                 FramePlan::Warm => {
                     let left = warm_one(&mut g);
                     g.warmed(left);
+                }
+                FramePlan::Finish => {
+                    g.settle = Settle::None;
+                    g.refined = true;
                 }
                 FramePlan::Reuse => break,
                 other => panic!("round {round}: unexpected {other:?}"),
@@ -909,7 +949,7 @@ mod tests {
         let (doc, _) = cards_doc(3);
         let mut g = GpuView { painting: true, last_key: Some(key(1)), stable_since: 0.0, ..GpuView::default() };
         assert_eq!(g.plan(key(1), 0.25, false, false), FramePlan::Refine);
-        assert_eq!(g.compiled(key(1), true), Repaint::None);
+        assert_eq!(g.compiled(key(1), true), Repaint::Now);
         assert_eq!(g.begin_submit(some_frame(), pieces(3)), Repaint::Now, "three chunks to come");
         assert!(!g.refined && !g.at_rest(), "the interactive frame is still what is on screen");
         let mut seen = Vec::new();
@@ -927,8 +967,10 @@ mod tests {
     fn a_frame_that_is_one_chunk_is_not_spread() {
         let mut g = view(false);
         g.compiled(key(1), true);
-        assert_eq!(g.begin_submit(some_frame(), pieces(1)), Repaint::None);
-        assert!(g.refined, "it goes out whole, like any frame");
+        assert_eq!(g.begin_submit(some_frame(), pieces(1)), Repaint::Now);
+        assert!(!g.refined, "it goes out whole as Cb::Frame and waits for prepare confirmation");
+        finish_one_chunk(&mut g, key(1), 0.5);
+        assert!(g.refined);
         assert_eq!(g.plan(key(1), 1.0, false, false), FramePlan::Reuse);
     }
 
@@ -1054,7 +1096,9 @@ mod tests {
         assert!(!g.at_rest(), "still waiting for the idle delay");
         assert_eq!(g.plan(key(1), 0.25, false, false), FramePlan::Refine);
         g.compiled(key(1), true);
-        assert!(g.at_rest(), "the refined frame is cached");
+        assert!(!g.at_rest(), "not at rest before prepare is acknowledged");
+        finish_one_chunk(&mut g, key(1), 0.26);
+        assert!(g.at_rest(), "the refined frame is cached and confirmed");
         assert_eq!(g.plan(key(2), 1.0, false, false), FramePlan::Interactive);
         g.compiled(key(2), false);
         assert!(!g.at_rest(), "a changed view leaves rest again");
@@ -1088,10 +1132,14 @@ mod tests {
         for n in 0..60_000 {
             let plan = g.plan(key, n as f64 * 0.016, false, false);
             let (cb, _) = g.step(plan, &cx);
-            if let Cb::Chunk(k) = &cb {
-                if take(k) {
-                    k.ack.store(k.index + 1, Ordering::SeqCst);
+            match &cb {
+                Cb::Chunk(k) => {
+                    if take(k) {
+                        k.ack.store(k.index + 1, Ordering::SeqCst);
+                    }
                 }
+                Cb::Frame(_, Some(ack)) => ack.store(1, Ordering::SeqCst),
+                _ => {}
             }
             run.cbs.push(cb);
             run.frames += 1;
@@ -1165,7 +1213,7 @@ mod tests {
         for cb in &run.cbs {
             let f = match cb {
                 Cb::Chunk(k) => &k.frame,
-                Cb::Frame(f) => f,
+                Cb::Frame(f, _) => f,
                 Cb::Blit => continue,
             };
             if !seen.iter().any(|s| Arc::ptr_eq(s, f)) {
@@ -1183,7 +1231,7 @@ mod tests {
         let (vp, size) = (test_vp(0.2), (1000, 1000));
         let mut g = painting_view();
         let run = drive(&mut g, &doc, page, &vp, size, |_| true);
-        let frames: Vec<Arc<Frame>> = run.cbs.iter().filter_map(|c| if let Cb::Frame(f) = c { Some(f.clone()) } else { None }).collect();
+        let frames: Vec<Arc<Frame>> = run.cbs.iter().filter_map(|c| if let Cb::Frame(f, _) = c { Some(f.clone()) } else { None }).collect();
         assert!(frames.len() >= 2, "an interactive frame, then the refined one: {} frames shown", frames.len());
         let (interactive, refined) = (frames[0].stats(), frames.last().unwrap().stats());
         let reference = designos_gpu::SceneCompiler::new().compile(&doc, page, 1, &vp, size).stats();
@@ -1204,7 +1252,7 @@ mod tests {
         let plan = g.plan(key, 0.0, false, false);
         assert_eq!(plan, FramePlan::Interactive);
         let (cb, _) = g.step(plan, &cx);
-        assert!(matches!(cb, Cb::Frame(_)), "interactive frames always show");
+        assert!(matches!(cb, Cb::Frame(..)), "interactive frames always show");
         let plan = g.plan(key, 0.3, false, false);
         assert_eq!(plan, FramePlan::Refine);
         let (cb, repaint) = g.step(plan, &cx);
@@ -1493,5 +1541,126 @@ mod tests {
         g.give_up();
         assert!(g.at_rest());
         assert_eq!(g.plan(key(1), 1.0, false, false), FramePlan::Reuse);
+    }
+
+    fn headless_gpu() -> (designos_gpu::GpuContext, egui_wgpu::ScreenDescriptor) {
+        let gpu = designos_gpu::GpuContext::new().expect("headless GPU context");
+        let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: [100, 100], pixels_per_point: 1.0 };
+        (gpu, screen)
+    }
+
+    fn run_cb_prepare(cb: &Cb, gpu: &designos_gpu::GpuContext, screen: &egui_wgpu::ScreenDescriptor, resources: &mut egui_wgpu::CallbackResources) {
+        let mut enc = gpu.device.create_command_encoder(&egui_wgpu::wgpu::CommandEncoderDescriptor { label: Some("test-cb") });
+        <Cb as egui_wgpu::CallbackTrait>::prepare(cb, &gpu.device, &gpu.queue, screen, &mut enc, resources);
+    }
+
+    #[test]
+    fn a_chunk_callback_with_no_canvas_does_not_let_the_job_reach_finish() {
+        let (gpu, screen) = headless_gpu();
+        let mut no_canvas = egui_wgpu::CallbackResources::default();
+        let (doc, page) = cards_doc(3);
+        let cx = FrameCtx { doc: &doc, page, rev: 1, vp: test_vp(1.0), size: (100, 100), key: key(1) };
+        let mut g = painting_view();
+        g.last_key = Some(key(1));
+        assert_eq!(g.plan(key(1), 0.25, false, false), FramePlan::Refine);
+        g.compiled(key(1), true);
+        g.begin_submit(some_frame(), pieces(2));
+        // chunk 0 is acknowledged; chunk 1 (the last chunk, moving the job to Confirm) runs with no Canvas
+        assert_eq!(g.plan(key(1), 0.30, false, false), FramePlan::Submit);
+        let c0 = g.next_chunk(&doc).expect("chunk 0");
+        c0.ack.store(c0.index + 1, Ordering::SeqCst);
+        assert_eq!(g.plan(key(1), 0.32, false, false), FramePlan::Submit);
+        let (cb, _) = g.step(FramePlan::Submit, &cx);
+        run_cb_prepare(&cb, &gpu, &screen, &mut no_canvas);
+        let next = g.plan(key(1), 0.4, false, false);
+        assert_ne!(next, FramePlan::Finish, "a chunk callback with no Canvas must not let the job reach Finish");
+        assert!(matches!(next, FramePlan::Wait(_)), "unacknowledged chunk restarts the refine, got {next:?}");
+        assert!(!g.at_rest());
+    }
+
+    #[test]
+    fn a_dropped_last_chunk_of_a_middle_slice_restarts_without_compiling_the_next_slice() {
+        let (mut g, doc, page) = sliced_view();
+        g.compiler.geom.budget = Some(Duration::from_secs(1));
+        let vp = test_vp(1.0);
+        let size = (1200, 800);
+        let k = frame_key(page, 1, &vp, size);
+        let cx = FrameCtx { doc: &doc, page, rev: 1, vp, size, key: k };
+        g.last_key = Some(k);
+        // slice 0 (cards 0..6): compiles and both chunks are acknowledged
+        assert_eq!(g.plan(k, 0.3, false, false), FramePlan::Refine);
+        g.compiled(k, true);
+        g.begin_submit(some_frame(), pieces(2));
+        for _ in 0..2 {
+            assert_eq!(g.plan(k, 0.31, false, false), FramePlan::Submit);
+            let c = g.next_chunk(&doc).expect("slice 0 chunk");
+            c.ack.store(c.index + 1, Ordering::SeqCst);
+        }
+        // slice 1 (middle slice, cards 6..12): chunk 0 is acknowledged, last chunk is dropped
+        assert_eq!(g.plan(k, 0.32, false, false), FramePlan::Refine);
+        assert_eq!(g.current_slice().unwrap().1, 6..12);
+        g.compiled(k, true);
+        g.begin_submit(some_frame(), pieces(2));
+        assert_eq!(g.plan(k, 0.33, false, false), FramePlan::Submit);
+        let c0 = g.next_chunk(&doc).expect("slice 1 first chunk");
+        c0.ack.store(c0.index + 1, Ordering::SeqCst);
+        assert_eq!(g.plan(k, 0.34, false, false), FramePlan::Submit);
+        let dropped = g.next_chunk(&doc).expect("slice 1 last chunk");
+        assert!(dropped.slice_done && !dropped.last);
+        // next frame: must restart instead of compiling slice 2 (12..18)
+        let after_drop = g.plan(k, 0.35, false, false);
+        assert_ne!(after_drop, FramePlan::Refine, "dropped last chunk of middle slice must never compile the next slice first");
+        assert!(matches!(after_drop, FramePlan::Wait(_)), "expected Wait from restart_refine, got {after_drop:?}");
+        assert!(g.current_slice().is_none());
+        // after the idle delay, the restarted refine begins again from slice 0 (0..6) and chunk 0
+        assert_eq!(g.plan(k, 0.35 + IDLE_REFINE_DELAY, false, false), FramePlan::Refine);
+        g.step(FramePlan::Refine, &cx);
+        assert_eq!(g.current_slice().unwrap().1, 0..6);
+        let c = g.next_chunk(&doc).expect("restarted first chunk");
+        assert_eq!(c.index, 0);
+        // Warm step with an unacknowledged prior chunk also restarts instead of warming
+        if let Settle::Refine(job) = &mut g.settle {
+            job.step = Step::Warm { passes: 1 };
+        }
+        let after_warm_gap = g.plan(k, 0.70, false, false);
+        assert_ne!(after_warm_gap, FramePlan::Warm, "unacknowledged chunk before Warm must restart");
+        assert!(matches!(after_warm_gap, FramePlan::Wait(_)));
+    }
+
+    #[test]
+    fn a_one_chunk_refine_waits_for_prepare_and_restarts_when_prepare_is_dropped() {
+        let (gpu, screen) = headless_gpu();
+        let mut with_canvas = egui_wgpu::CallbackResources::default();
+        with_canvas.insert(designos_gpu::Canvas::new(&gpu.device, &gpu.queue, egui_wgpu::wgpu::TextureFormat::Rgba8Unorm, 1).expect("canvas"));
+        let (doc, page) = labels_doc(6);
+        let (vp, size) = (test_vp(0.2), (1000, 1000));
+        let k = frame_key(page, 1, &vp, size);
+        let cx = FrameCtx { doc: &doc, page, rev: 1, vp, size, key: k };
+        let mut g = painting_view();
+        g.compiler.geom.budget = Some(Duration::from_secs(1));
+        assert_eq!(g.plan(k, 0.0, false, false), FramePlan::Interactive);
+        g.step(FramePlan::Interactive, &cx);
+        assert_eq!(g.plan(k, 0.30, false, false), FramePlan::Refine);
+        let (cb, repaint) = g.step(FramePlan::Refine, &cx);
+        assert!(matches!(cb, Cb::Frame(..)), "a 6-label page fits in one frame (Cb::Frame)");
+        assert!(!g.refined && !g.at_rest(), "one-chunk refine must not set refined before Cb::Frame::prepare succeeds");
+        assert_eq!(repaint, Repaint::Now);
+        // drop prepare on the first run: next plan must restart like the chunk path
+        let after_drop = g.plan(k, 0.32, false, false);
+        assert!(matches!(after_drop, FramePlan::Wait(_)), "a dropped prepare on Cb::Frame must restart the refine, got {after_drop:?}");
+        assert!(!g.refined && !g.at_rest());
+        // second run: prepare succeeds with a real Canvas, then Finish sets refined
+        assert_eq!(g.plan(k, 0.32 + IDLE_REFINE_DELAY, false, false), FramePlan::Refine);
+        let (cb, repaint) = g.step(FramePlan::Refine, &cx);
+        assert!(!g.refined && !g.at_rest());
+        assert_eq!(repaint, Repaint::Now);
+        run_cb_prepare(&cb, &gpu, &screen, &mut with_canvas);
+        assert!(!g.at_rest(), "confirmed on the Finish frame after prepare");
+        assert_eq!(g.plan(k, 0.60, false, false), FramePlan::Finish);
+        let (cb, repaint) = g.step(FramePlan::Finish, &cx);
+        assert!(matches!(cb, Cb::Blit));
+        assert_eq!(repaint, Repaint::None);
+        assert!(g.refined && g.at_rest());
+        assert_eq!(g.plan(k, 0.62, false, false), FramePlan::Reuse);
     }
 }
