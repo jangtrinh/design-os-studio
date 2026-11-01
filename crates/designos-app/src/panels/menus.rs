@@ -264,7 +264,15 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SaveVersion => app.begin_save_version(),
         Action::YourName => app.ask_author_name(),
         Action::ToggleGpu => app.toggle_gpu(),
-        Action::ToggleHoverHighlight => app.ui.hide_hover_highlight = !app.ui.hide_hover_highlight,
+        Action::ToggleHoverHighlight => {
+            app.ui.hide_hover_highlight = !app.ui.hide_hover_highlight;
+            let on = !app.ui.hide_hover_highlight;
+            if let Some(lib) = &app.lib {
+                if let Err(e) = crate::comments::settings::save_flag(lib.root(), "highlight_layers_on_hover", on) {
+                    app.show_toast(e, true);
+                }
+            }
+        }
         Action::AgentPermissions => app.open_agent_permissions(),
         Action::SelectLayer(id) => app.select_only(id),
         Action::Shortcuts => app.show_shortcuts(),

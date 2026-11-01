@@ -85,6 +85,28 @@ fn marquee_enters(doc: &Document, node: &Node) -> bool {
     selects_through(doc, node, false) && !matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))
 }
 
+/// True when `id` sits deeper than plain-click depth (an ancestor container between `id`
+/// and the page is opaque to a plain click with nothing selected, so a plain click at `id`'s
+/// position would select that ancestor instead of `id`). A direct child of a top-level frame
+/// is at click depth and is not nested.
+pub fn is_nested_selection_layer(doc: &Document, id: NodeId) -> bool {
+    if designos_doc::find::matching_scope_of(doc, id).is_none() {
+        return false;
+    }
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(pid) = cur {
+        let Some(pn) = doc.get(pid) else { return false };
+        if matches!(pn.kind, NodeKind::Page { .. }) {
+            break;
+        }
+        if !selects_through(doc, pn, false) {
+            return true;
+        }
+        cur = pn.parent;
+    }
+    false
+}
+
 /// Finds the node under `p` (page space).
 ///
 /// * `deep` selects the deepest node (ctrl/cmd-click).
@@ -230,15 +252,17 @@ fn hit_in(
 /// ordered from top-most leaf down to container/frame (capped at 32 items).
 pub fn hit_all_under(doc: &Document, page: NodeId, p: Vec2, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
     let mut out = Vec::new();
-    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, false, index, &mut out);
+    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, false, false, index, &mut out);
     out
 }
 
 /// Collects all visible nodes (including locked layers) on `page` under `p` (page space),
-/// ordered from top-most leaf down to container/frame (capped at 32 items).
-pub fn hit_all_under_including_locked(doc: &Document, page: NodeId, p: Vec2, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
+/// capped at 32 items. When `parents_first` is true, containers are listed before their
+/// children in Layers-panel (front-to-back sibling) order, and the 32-item cap drops the
+/// deepest layers rather than the parents.
+pub fn hit_all_under_including_locked(doc: &Document, page: NodeId, p: Vec2, parents_first: bool, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
     let mut out = Vec::new();
-    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, true, index, &mut out);
+    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, true, parents_first, index, &mut out);
     out
 }
 
@@ -250,6 +274,7 @@ fn hit_all_in(
     p: Vec2,
     tol: f32,
     include_locked: bool,
+    parents_first: bool,
     index: Option<&designos_render::SceneIndex>,
     out: &mut Vec<NodeId>,
 ) {
@@ -281,11 +306,14 @@ fn hit_all_in(
             k => local_hit(k, n.size, local, tol),
         };
         if n.kind.is_container() {
+            if parents_first && inside && out.len() < 32 {
+                out.push(cid);
+            }
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
             if !clips || inside {
-                hit_all_in(doc, cid, world, p, tol, include_locked, index, out);
+                hit_all_in(doc, cid, world, p, tol, include_locked, parents_first, index, out);
             }
-            if inside && out.len() < 32 {
+            if !parents_first && inside && out.len() < 32 {
                 out.push(cid);
             }
         } else if inside && out.len() < 32 {
@@ -295,8 +323,9 @@ fn hit_all_in(
 }
 
 /// Nodes selected by a marquee (page space). Fully-enclosed top-level objects
-/// are selected as a whole; frames only partly covered are entered. Main
-/// components and component sets are always selected as a whole.
+/// are selected as a whole; top-level frames and sections only partly covered
+/// are entered, while nested frames, groups, instances, main components, and
+/// component sets are selected as a whole (matching plain-click depth).
 #[allow(dead_code)]
 pub fn marquee_select(doc: &Document, root: NodeId, r: &Rect) -> Vec<NodeId> {
     marquee_select_with_index(doc, root, r, None)

@@ -254,6 +254,7 @@ impl Shell {
             app.attach_library(root);
             if let Some(lib) = &app.lib {
                 app.agent_presence.cursor_size = crate::agent_presence::AgentCursorSize::load(lib.root());
+                app.ui.hide_hover_highlight = crate::comments::settings::load_flag(lib.root(), "highlight_layers_on_hover") == Some(false);
             }
         }
         let mut shot_open_failed = false;

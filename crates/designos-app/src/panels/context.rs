@@ -54,14 +54,11 @@ fn select_submenu(app: &App, sep_after: bool) -> Entry {
 
 /// The "Select layer" submenu shown when right-clicking over layers on the canvas.
 fn select_layer_submenu(app: &App) -> Option<Entry> {
-    let page_pt = app.ui.ctx_menu_page.or(app.canvas.pointer_page)?;
+    let page_pt = app.ui.ctx_menu_page?;
     let idx = crate::canvas::interact::active_index(app);
-    let mut ids = crate::canvas::hit::hit_all_under_including_locked(&app.doc, app.page, page_pt, idx);
+    let ids = crate::canvas::hit::hit_all_under_including_locked(&app.doc, app.page, page_pt, select_layer_submenu_lists_parents_first(), idx);
     if ids.is_empty() {
         return None;
-    }
-    if select_layer_submenu_lists_parents_first() {
-        ids.reverse();
     }
     let kids: Vec<(MenuItem, Action)> = ids
         .into_iter()

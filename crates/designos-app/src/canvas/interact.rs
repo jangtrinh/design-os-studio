@@ -161,6 +161,40 @@ pub fn hit_under(app: &App, page: DV, deep: bool) -> Option<NodeId> {
     hit::hit_test_with_index(&app.doc, app.page, page, tol, deep, &entered(app), active_index(app))
 }
 
+fn selection_hover_hash(sel: &[NodeId]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    sel.hash(&mut h);
+    h.finish()
+}
+
+/// Shared canvas node hit test for pointer press and hover preview, including
+/// `Cmd/Ctrl` deep selection and `Shift` matching-layer target resolution.
+pub(crate) fn press_target(app: &App, page: DV, mods: egui::Modifiers) -> Option<NodeId> {
+    let deep = mods.command;
+    if mods.shift && !deep && !app.selection.is_empty() {
+        let stack = hit::hit_all_under(&app.doc, app.page, page, active_index(app));
+        if let Some(m) = stack.into_iter().find(|&c| {
+            app.selection.iter().any(|&s| designos_doc::find::matches_layer_across_containers(&app.doc, s, c))
+                || (app.is_selected(c) && designos_doc::find::matching_scope_of(&app.doc, c).is_some())
+        }) {
+            return Some(m);
+        }
+    }
+    hit_under(app, page, deep)
+}
+
+fn marquee_matching_candidates(app: &App, base: &[NodeId]) -> Option<Vec<(NodeId, Rect)>> {
+    let nested = base.iter().any(|&s| hit::is_nested_selection_layer(&app.doc, s));
+    if !nested {
+        return None;
+    }
+    let mut ids = designos_doc::find::find_matching_layers(&app.doc, base);
+    ids.extend(base.iter().copied().filter(|&b| base.iter().any(|&s| s != b && designos_doc::find::matches_layer_across_containers(&app.doc, s, b))));
+    let idx = active_index(app);
+    Some(ids.into_iter().map(|cid| (cid, super::fast_world_aabb(&app.doc, idx, cid))).collect())
+}
+
 /// Like [`hit_under`], descending through nested frames at any depth
 /// (used by non-selection callers such as comment pins and vector path hover).
 pub fn hit_under_any_depth(app: &App, page: DV, deep: bool) -> Option<NodeId> {
@@ -732,7 +766,6 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
             return;
         }
     }
-    let deep = inp.mods.command;
     let over_handle = handle_hit(app, rect, pos);
     let over_corner = matches!(over_handle, Some(HandleHit::Resize(h)) if h.is_corner());
     if !over_corner && !mid && !inp.space && matches!(app.tool, Tool::Move) {
@@ -745,18 +778,9 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
             return;
         }
     }
-    let shift_match = if inp.mods.shift && !deep && !app.selection.is_empty() {
-        let stack = hit::hit_all_under(&app.doc, app.page, page, active_index(app));
-        stack.into_iter().find(|&c| {
-            app.selection.iter().any(|&s| designos_doc::find::matches_layer_across_containers(&app.doc, s, c))
-                || (app.is_selected(c) && designos_doc::find::matching_scope_of(&app.doc, c).is_some())
-        })
-    } else {
-        None
-    };
     let target = if let Some(h) = over_handle {
         PressTarget::Handle(h)
-    } else if let Some(id) = label_hit(app, ctx, rect, pos).or(shift_match).or_else(|| hit_under(app, page, deep)) {
+    } else if let Some(id) = label_hit(app, ctx, rect, pos).or_else(|| press_target(app, page, inp.mods)) {
         if app.is_selected(id) {
             PressTarget::SelectedNode(id)
         } else {
@@ -790,7 +814,8 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
             if !inp.mods.shift {
                 app.clear_selection();
             }
-            app.canvas.inter = Interaction::Marquee { start: page, cur: page, base };
+            let matching = marquee_matching_candidates(app, &base);
+            app.canvas.inter = Interaction::Marquee { start: page, cur: page, base, matching };
         }
         PressAction::Draw(tool) => start_draw(app, tool, page),
         PressAction::Build => builder::press(app, page, inp.mods.alt),
@@ -1077,7 +1102,7 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
         Interaction::Pending(_) | Interaction::Move(_) | Interaction::Resize(_) | Interaction::Rotate(_) => follow_pointer(app, &mut inter, pos, cur, inp),
         Interaction::Guide(g) => rulers::drag(app, g, rect, pos),
         Interaction::Connect(c) => crate::board::connect::drag(app, c, cur),
-        Interaction::Marquee { start, cur: c, base } => {
+        Interaction::Marquee { start, cur: c, base, matching } => {
             if inp.space {
                 let delta = sub(cur, *c);
                 *start = add(*start, delta);
@@ -1091,25 +1116,21 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
                 } else {
                     hit::marquee_select_with_index(&app.doc, app.page, &r, idx)
                 };
-            } else {
-                let base_scopes: Vec<NodeId> = base.iter().filter_map(|&s| designos_doc::find::matching_scope_of(&app.doc, s).map(|(_, root)| root)).collect();
-                let hits = if !base_scopes.is_empty() {
-                    let matching_cands = designos_doc::find::find_matching_layers(&app.doc, base);
-                    let matching_hits: Vec<NodeId> =
-                        matching_cands.into_iter().filter(|&cid| r.intersects(&super::fast_world_aabb(&app.doc, idx, cid))).collect();
-                    if !matching_hits.is_empty() {
-                        matching_hits
-                    } else {
-                        let normal = hit::marquee_select_with_index(&app.doc, app.page, &r, idx);
-                        let touches_other_container =
-                            normal.iter().any(|&nid| !base_scopes.contains(&nid) && app.doc.get(nid).is_some_and(|n| n.kind.is_container()));
-                        if touches_other_container {
-                            Vec::new()
-                        } else {
-                            normal
-                        }
+            } else if let Some(cands) = matching.as_ref() {
+                let mut sel = base.clone();
+                for &(cid, ref bb) in cands {
+                    if !r.intersects(bb) {
+                        continue;
                     }
-                } else if inp.mods.command {
+                    if let Some(i) = sel.iter().position(|&x| x == cid) {
+                        sel.remove(i);
+                    } else {
+                        sel.push(cid);
+                    }
+                }
+                app.selection = sel;
+            } else {
+                let hits = if inp.mods.command {
                     hit::marquee_select_deep_with_index(&app.doc, app.page, &r, idx)
                 } else {
                     hit::marquee_select_with_index(&app.doc, app.page, &r, idx)
@@ -2503,9 +2524,10 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
                             if special_handle_hovered(app, rect, pos) {
                                 cursor = egui::CursorIcon::PointingHand;
                             }
-                            let query_key = (pos, app.canvas.tiles.rev(), inp.mods.command, app.view.zoom);
+                            let query_key =
+                                (pos, app.canvas.tiles.rev(), inp.mods.command, inp.mods.shift, app.view.zoom, selection_hover_hash(&app.selection));
                             if app.canvas.dirty || app.canvas.last_hover_query != Some(query_key) {
-                                app.hover = label_hit(app, ctx, rect, pos).or_else(|| page.and_then(|p| hit_under(app, p, inp.mods.command)));
+                                app.hover = label_hit(app, ctx, rect, pos).or_else(|| page.and_then(|p| press_target(app, p, inp.mods)));
                                 app.canvas.last_hover_query = Some(query_key);
                             }
                         }
@@ -3034,7 +3056,7 @@ mod tests {
     #[test]
     fn marquee_selects_enclosed() {
         let (mut app, a, b) = app_with_two();
-        app.canvas.inter = Interaction::Marquee { start: v2(-10.0, -10.0), cur: v2(-10.0, -10.0), base: vec![] };
+        app.canvas.inter = Interaction::Marquee { start: v2(-10.0, -10.0), cur: v2(-10.0, -10.0), base: vec![], matching: None };
         let r = rect_from_points(v2(-10.0, -10.0), v2(150.0, 150.0));
         let ids = hit::marquee_select(&app.doc, app.page, &r);
         assert_eq!(ids, vec![a]);
