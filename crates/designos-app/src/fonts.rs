@@ -17,14 +17,17 @@ pub struct FontLoader {
     /// Faces edits asked for that no finished load has resolved yet. Every load asks for them
     /// again, so a load started by a later edit never drops what an earlier one wanted.
     wanted: BTreeSet<FontRequest>,
-    /// Faces whose failure has been reported this session. Edits leave them out of their loads, so
-    /// a Ctrl+B on one text never fetches or toasts a face of another that is not on Fontsource.
-    /// A document-level load still tries them (the network may be back) but does not toast again.
-    failed: HashSet<FontRequest>,
+    /// Faces whose failure has been reported this session, mapped to their formatted failure string.
+    /// Edits leave them out of their loads, so a Ctrl+B on one text never fetches or toasts a face of
+    /// another that is not on Fontsource. A document-level load still tries them (the network may be
+    /// back) but does not toast again.
+    failed: HashMap<FontRequest, String>,
     /// Opens the cache a load resolves through.
     open_cache: Arc<dyn Fn() -> FontCache + Send + Sync>,
     /// The texts waiting to be re-measured with the faces that arrived.
     pub(crate) refit: crate::font_refit::TextRefit,
+    /// A Flatten or Outline stroke waiting for missing text faces to arrive in `poll_fonts`.
+    pub(crate) pending_vecop: Option<(u64, crate::vecops::PendingVecOp, BTreeSet<FontRequest>)>,
     /// The faces the latest `load_for` asked for (tests read it instead of waiting for a fetch).
     #[cfg(test)]
     requested: BTreeSet<FontRequest>,
@@ -39,9 +42,10 @@ impl Default for FontLoader {
             pending: None,
             registered: HashSet::new(),
             wanted: BTreeSet::new(),
-            failed: HashSet::new(),
+            failed: HashMap::new(),
             open_cache: Arc::new(default_cache),
             refit: Default::default(),
+            pending_vecop: None,
             #[cfg(test)]
             requested: Default::default(),
             #[cfg(test)]
@@ -78,7 +82,7 @@ impl FontLoader {
     /// no load when there are none: a face that is bundled, installed, already registered, or that
     /// failed before needs nothing, and a Ctrl+B in Inter must not wake the network.
     pub fn request_new_faces(&mut self, doc: &Document, added: Vec<FontRequest>) {
-        let fresh: BTreeSet<FontRequest> = added.into_iter().filter(|r| !self.failed.contains(r)).collect();
+        let fresh: BTreeSet<FontRequest> = added.into_iter().filter(|r| !self.failed.contains_key(r)).collect();
         let covered = self.available(&fresh);
         let needed: Vec<FontRequest> = fresh.into_iter().filter(|r| !covered.contains(r)).collect();
         if needed.is_empty() {
@@ -91,7 +95,7 @@ impl FontLoader {
     /// Forgets that `family` failed, so the next load reports it again: picking the family again
     /// is the explicit retry.
     pub fn retry_family(&mut self, family: &str) {
-        self.failed.retain(|r| !r.family.eq_ignore_ascii_case(family));
+        self.failed.retain(|r, _| !r.family.eq_ignore_ascii_case(family));
     }
 
     /// Starts a load of the document's faces and everything wanted, leaving out the faces that
@@ -102,7 +106,7 @@ impl FontLoader {
         requests.extend(self.wanted.iter().cloned());
         requests.extend(designos_fonts::script_requests_for(doc));
         if skip_failed {
-            requests.retain(|r| !self.failed.contains(r));
+            requests.retain(|r| !self.failed.contains_key(r));
         }
         #[cfg(test)]
         {
@@ -153,6 +157,25 @@ impl FontLoader {
         self.available(&faces).len() < faces.len()
     }
 
+    /// Splits `requests` that are not yet available in the renderer into `(missing, failed)` without
+    /// touching the network on the UI thread.
+    pub(crate) fn check_requests(&self, requests: &BTreeSet<FontRequest>) -> (Vec<FontRequest>, Vec<String>) {
+        let covered = self.available(requests);
+        let mut missing = Vec::new();
+        let mut failed = Vec::new();
+        for r in requests {
+            if covered.contains(r) {
+                continue;
+            }
+            if let Some(msg) = self.failed.get(r) {
+                failed.push(msg.clone());
+            } else {
+                missing.push(r.clone());
+            }
+        }
+        (missing, failed)
+    }
+
     /// Registers finished fonts with the renderer. Returns `Some` once per load.
     pub fn poll(&mut self) -> Option<FontsLoaded> {
         let report = self.pending.as_ref()?.try_recv().ok()?;
@@ -169,8 +192,13 @@ impl FontLoader {
             self.register(f);
         }
         // A failure is reported the first time; a later load that fails again stays quiet.
-        let failed =
-            report.failed.iter().filter(|(req, _)| self.failed.insert(req.clone())).map(|(req, err)| format!("{} {}: {err}", req.family, req.weight)).collect();
+        let mut failed = Vec::new();
+        for (req, err) in &report.failed {
+            let msg = format!("{} {}: {err}", req.family, req.weight);
+            if self.failed.insert(req.clone(), msg.clone()).is_none() {
+                failed.push(msg);
+            }
+        }
         Some(FontsLoaded { loaded, failed, families: families.into_iter().collect() })
     }
 
@@ -273,12 +301,18 @@ pub(crate) mod testkit {
         }
     }
 
-    /// What a download returns, by URL.
-    struct Served(Arc<HashMap<String, Vec<u8>>>);
+    /// What a download returns, by URL, with an optional per-request delay.
+    struct Served {
+        routes: Arc<HashMap<String, Vec<u8>>>,
+        delay: std::time::Duration,
+    }
 
     impl Fetch for Served {
         fn get(&self, url: &str) -> Result<Vec<u8>, FontError> {
-            self.0.get(url).cloned().ok_or_else(|| FontError::NotFound(url.to_string()))
+            if !self.delay.is_zero() {
+                std::thread::sleep(self.delay);
+            }
+            self.routes.get(url).cloned().ok_or_else(|| FontError::NotFound(url.to_string()))
         }
     }
 
@@ -300,6 +334,11 @@ pub(crate) mod testkit {
 
     /// A loader whose downloads are served for each of `families` from memory, into a private cache directory.
     pub fn serving(families: &[&str]) -> FontLoader {
+        serving_with_delay(families, std::time::Duration::ZERO)
+    }
+
+    /// [`serving`] with an artificial delay on every fetch call.
+    pub fn serving_with_delay(families: &[&str], delay: std::time::Duration) -> FontLoader {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!("designos-app-fonts-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         let mut routes = HashMap::new();
@@ -309,7 +348,10 @@ pub(crate) mod testkit {
         let routes = Arc::new(routes);
         // The directory goes when the loader and its last worker are gone.
         let scratch = Scratch(dir);
-        FontLoader { open_cache: Arc::new(move || FontCache::with_dir(&scratch.0).with_fetcher(Box::new(Served(routes.clone())))), ..FontLoader::default() }
+        FontLoader {
+            open_cache: Arc::new(move || FontCache::with_dir(&scratch.0).with_fetcher(Box::new(Served { routes: routes.clone(), delay }))),
+            ..FontLoader::default()
+        }
     }
 
     /// Waits for the running load and registers what it fetched.
