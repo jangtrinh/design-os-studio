@@ -914,3 +914,235 @@ fn select_same_instance_matches_main_component_while_select_same_variant_matches
     crate::panels::menus::run(&mut t.sim.shell.app, &ctx, Action::SelectSame(MatchCriteria::Variant));
     assert_eq!(t.sim.app().selection, vec![instances[2], instances[1], instances[0]], "SelectSame(Variant) must match all instances across the component set");
 }
+
+fn collect_page_nodes(doc: &Document, root: NodeId, out: &mut Vec<NodeId>) {
+    let Some(n) = doc.get(root) else { return };
+    if !matches!(n.kind, NodeKind::Page { .. }) {
+        out.push(root);
+    }
+    for &cid in &n.children {
+        collect_page_nodes(doc, cid, out);
+    }
+}
+
+fn assert_matching_layers_oracle_on_page(doc: &Document, page: NodeId) {
+    let mut all = Vec::new();
+    collect_page_nodes(doc, page, &mut all);
+    for &id in &all {
+        let mut got = designos_doc::find::find_matching_layers(doc, &[id]);
+        got.sort();
+        let mut oracle: Vec<NodeId> = all.iter().copied().filter(|&c| c != id && designos_doc::find::matches_layer_across_containers(doc, id, c)).collect();
+        oracle.sort();
+        assert_eq!(got, oracle, "find_matching_layers diverged from brute-force oracle for {:?} ({:?})", id, doc.get(id).map(|n| &n.name));
+    }
+}
+
+#[test]
+fn top_level_instance_child_shift_marquee_ignores_unrelated_layers_and_matches_across_instances() {
+    let mut t = fixture_t();
+    let page = t.sim.app().page;
+    let comps = t.sim.app().doc.pages[1];
+    let main_btn = t.sim.app().doc.get(comps).unwrap().children[0];
+
+    // Place a single component instance directly on the page and an unrelated rectangle nearby.
+    let cmd1 = create_instance(&mut t.sim.shell.app.doc, main_btn, page, DV::new(1050.0, 40.0));
+    let designos_doc::Command::Insert { nodes: nodes1, .. } = &cmd1 else {
+        panic!("expected Insert command");
+    };
+    let top_inst1 = nodes1[0].id;
+    cmd1.apply(&mut t.sim.shell.app.doc).unwrap();
+    t.sim.shell.app.doc.get_mut(top_inst1).unwrap().name = "TopInst1".into();
+    let top_inst1_label = find_child_named(&t.sim.app().doc, top_inst1, "Label");
+
+    let unrelated_rect = add_rect(&mut t, page, "UnrelatedRect", DRect::new(1050.0, 140.0, 80.0, 40.0));
+    settle(&mut t);
+
+    // Double-click the top-level instance to select its inner Label.
+    t.sim.shell.app.clear_selection();
+    t.sim.frame(vec![]);
+    let inst1_pt = center_screen(&t.sim, top_inst1_label);
+    t.sim.t += 1.0;
+    t.sim.click(inst1_pt);
+    assert_eq!(t.sim.app().selection, vec![top_inst1]);
+    t.sim.click(inst1_pt);
+    assert_eq!(t.sim.app().selection, vec![top_inst1_label]);
+
+    // Shift+drag over the unrelated rectangle adds nothing.
+    shift_drag(&mut t, (1040.0, 130.0), (1160.0, 200.0));
+    assert_eq!(
+        t.sim.app().selection,
+        vec![top_inst1_label],
+        "Shift+drag over an unrelated rectangle with a top-level instance's child selected must add nothing"
+    );
+    assert!(!t.sim.app().selection.contains(&unrelated_rect));
+    assert!(crate::canvas::hit::is_nested_selection_layer(&t.sim.app().doc, top_inst1_label));
+
+    // Also build a standalone top-level component on the page with a nested frame + leaf (no matching scope) to verify no scope bailout.
+    let comp_id = t.sim.shell.app.doc.alloc_id();
+    let mut comp_node = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp_node.name = "StandaloneComp".into();
+    comp_node.transform = Affine::translate(1050.0, 320.0);
+    comp_node.size = DV::new(120.0, 80.0);
+    let standalone_comp = t.sim.shell.app.doc.insert(page, comp_node).unwrap();
+    let inner_frame_id = t.sim.shell.app.doc.alloc_id();
+    let mut inner_frame = Node::frame(inner_frame_id, DRect::new(10.0, 10.0, 80.0, 50.0));
+    inner_frame.name = "InnerBox".into();
+    let inner_frame = t.sim.shell.app.doc.insert(standalone_comp, inner_frame).unwrap();
+    let scopeless_leaf = add_rect(&mut t, inner_frame, "ScopelessLeaf", DRect::new(4.0, 4.0, 20.0, 20.0));
+    settle(&mut t);
+
+    assert_eq!(designos_doc::find::matching_scope_of(&t.sim.app().doc, scopeless_leaf), None);
+    assert!(crate::canvas::hit::is_nested_selection_layer(&t.sim.app().doc, scopeless_leaf));
+    t.sim.shell.app.select_only(scopeless_leaf);
+    t.sim.frame(vec![]);
+    shift_drag(&mut t, (1040.0, 130.0), (1160.0, 200.0));
+    assert_eq!(t.sim.app().selection, vec![scopeless_leaf], "nested layer without a matching scope must add nothing on Shift+drag");
+
+    // Add a second top-level instance on the page; Q, Shift+click, and Shift+drag now match its Label.
+    let cmd2 = create_instance(&mut t.sim.shell.app.doc, main_btn, page, DV::new(1050.0, 220.0));
+    let designos_doc::Command::Insert { nodes: nodes2, .. } = &cmd2 else {
+        panic!("expected Insert command");
+    };
+    let top_inst2 = nodes2[0].id;
+    cmd2.apply(&mut t.sim.shell.app.doc).unwrap();
+    t.sim.shell.app.doc.get_mut(top_inst2).unwrap().name = "TopInst2".into();
+    let top_inst2_label = find_child_named(&t.sim.app().doc, top_inst2, "Label");
+    settle(&mut t);
+
+    t.sim.shell.app.select_only(top_inst1_label);
+    t.sim.key(Key::Q);
+    assert!(t.sim.app().selection.contains(&top_inst1_label) && t.sim.app().selection.contains(&top_inst2_label));
+
+    t.sim.shell.app.select_only(top_inst1_label);
+    t.sim.frame(vec![]);
+    let inst2_pt = center_screen(&t.sim, top_inst2_label);
+    t.sim.t += 1.0;
+    t.sim.mods = Modifiers::SHIFT;
+    t.sim.click(inst2_pt);
+    t.sim.mods = Modifiers::NONE;
+    assert_eq!(t.sim.app().selection, vec![top_inst1_label, top_inst2_label]);
+
+    t.sim.shell.app.select_only(top_inst1_label);
+    t.sim.frame(vec![]);
+    shift_drag(&mut t, (1040.0, 130.0), (1380.0, 280.0));
+    assert_eq!(t.sim.app().selection, vec![top_inst1_label, top_inst2_label]);
+    assert!(!t.sim.app().selection.contains(&unrelated_rect));
+
+    assert_matching_layers_oracle_on_page(&t.sim.app().doc, page);
+}
+
+#[test]
+fn component_set_inside_frame_matches_variant_layers_via_shortcut_shift_click_and_shift_marquee() {
+    let mut t = fixture_t();
+    let page = t.sim.app().page;
+
+    assert_matching_layers_oracle_on_page(&t.sim.app().doc, page);
+
+    // Put a ComponentSet inside a top-level Frame (and another inside a Group inside that Frame).
+    let holder_id = t.sim.shell.app.doc.alloc_id();
+    let mut holder = Node::frame(holder_id, DRect::new(550.0, 500.0, 360.0, 320.0));
+    holder.name = "ComponentSheet".into();
+    let holder = t.sim.shell.app.doc.insert(page, holder).unwrap();
+
+    let set_id = t.sim.shell.app.doc.alloc_id();
+    let mut set = Node::new(set_id, NodeKind::ComponentSet(FrameProps::default()));
+    set.name = "IconButtonSet".into();
+    set.transform = Affine::translate(20.0, 20.0);
+    set.size = DV::new(300.0, 100.0);
+    let set = t.sim.shell.app.doc.insert(holder, set).unwrap();
+
+    let mut icons = Vec::new();
+    for (idx, vname) in ["Variant=Primary", "Variant=Secondary"].into_iter().enumerate() {
+        let vid = t.sim.shell.app.doc.alloc_id();
+        let mut v = Node::new(vid, NodeKind::Component(FrameProps::default()));
+        v.name = vname.into();
+        v.transform = Affine::translate(idx as f32 * 140.0, 10.0);
+        v.size = DV::new(100.0, 60.0);
+        let v = t.sim.shell.app.doc.insert(set, v).unwrap();
+        let icon = add_rect(&mut t, v, "Icon", DRect::new(10.0, 10.0, 24.0, 24.0));
+        icons.push(icon);
+    }
+
+    let grp_id = t.sim.shell.app.doc.alloc_id();
+    let mut grp = Node::new(grp_id, NodeKind::Group);
+    grp.name = "SetGroup".into();
+    grp.transform = Affine::translate(20.0, 150.0);
+    grp.size = DV::new(300.0, 100.0);
+    let grp = t.sim.shell.app.doc.insert(holder, grp).unwrap();
+
+    let gset_id = t.sim.shell.app.doc.alloc_id();
+    let mut gset = Node::new(gset_id, NodeKind::ComponentSet(FrameProps::default()));
+    gset.name = "GroupedSet".into();
+    gset.size = DV::new(300.0, 100.0);
+    let gset = t.sim.shell.app.doc.insert(grp, gset).unwrap();
+    for (idx, vname) in ["Tone=Neutral", "Tone=Danger"].into_iter().enumerate() {
+        let vid = t.sim.shell.app.doc.alloc_id();
+        let mut v = Node::new(vid, NodeKind::Component(FrameProps::default()));
+        v.name = vname.into();
+        v.transform = Affine::translate(idx as f32 * 140.0, 10.0);
+        v.size = DV::new(100.0, 60.0);
+        let v = t.sim.shell.app.doc.insert(gset, v).unwrap();
+        add_rect(&mut t, v, "Glyph", DRect::new(10.0, 10.0, 24.0, 24.0));
+    }
+    settle(&mut t);
+
+    // 1. Q (Select matching layers) finds the matching Icon in the second variant inside the framed ComponentSet.
+    t.sim.shell.app.select_only(icons[0]);
+    t.sim.key(Key::Q);
+    assert_eq!(t.sim.app().selection, vec![icons[0], icons[1]]);
+
+    // 2. Shift+click on the second variant's Icon adds it.
+    t.sim.shell.app.select_only(icons[0]);
+    t.sim.frame(vec![]);
+    let icon2_pt = center_screen(&t.sim, icons[1]);
+    t.sim.t += 1.0;
+    t.sim.mods = Modifiers::SHIFT;
+    t.sim.click(icon2_pt);
+    t.sim.mods = Modifiers::NONE;
+    assert_eq!(t.sim.app().selection, vec![icons[0], icons[1]]);
+
+    // 3. Shift+drag across the second variant adds its Icon.
+    t.sim.shell.app.select_only(icons[0]);
+    t.sim.frame(vec![]);
+    shift_drag(&mut t, (680.0, 490.0), (850.0, 620.0));
+    assert_eq!(t.sim.app().selection, vec![icons[0], icons[1]]);
+
+    assert_matching_layers_oracle_on_page(&t.sim.app().doc, page);
+}
+
+#[test]
+fn select_layer_submenu_cap_keeps_sibling_parents_across_branches_before_deep_descendants() {
+    let mut t = fixture_t();
+    let page = t.sim.app().page;
+
+    // Back branch at (1100, 0): BackParent -> BackChild.
+    let back_parent_id = t.sim.shell.app.doc.alloc_id();
+    let mut back_parent = Node::frame(back_parent_id, DRect::new(1100.0, 0.0, 100.0, 100.0));
+    back_parent.name = "BackParent".into();
+    back_parent.fills = vec![Paint::solid(Color::rgb(0x28, 0x28, 0x30))];
+    let back_parent = t.sim.shell.app.doc.insert(page, back_parent).unwrap();
+    let _back_child = add_rect(&mut t, back_parent, "BackChild", DRect::new(0.0, 0.0, 100.0, 100.0));
+
+    // Front branch at the same (1100, 0): 35-deep chain Front0 -> Front1 -> ... -> Front34.
+    let mut parent = page;
+    let mut leaf = page;
+    for depth in 0..35 {
+        let id = t.sim.shell.app.doc.alloc_id();
+        let mut f = Node::frame(id, DRect::new(if depth == 0 { 1100.0 } else { 0.0 }, 0.0, 100.0, 100.0));
+        f.name = format!("Front{depth}");
+        f.fills = vec![Paint::solid(Color::rgb(0x30, 0x30, 0x36))];
+        parent = t.sim.shell.app.doc.insert(parent, f).unwrap();
+        leaf = parent;
+    }
+    settle(&mut t);
+
+    let pt = center_screen(&t.sim, leaf);
+    t.sim.right_click(pt);
+    let capped = crate::panels::context::select_layer_labels(t.sim.app());
+    assert_eq!(capped.len(), 32);
+    assert_eq!(capped.first().map(String::as_str), Some("Front0"));
+    assert!(capped.iter().any(|s| s == "BackParent"), "later sibling parent must not be dropped when an earlier branch has 35 levels: {capped:?}");
+    assert!(capped.iter().any(|s| s == "BackChild"), "shallow child in second branch must be kept before deep descendants of first branch: {capped:?}");
+    assert!(!capped.iter().any(|s| s == "Front30"), "deepest layers of earlier branch must be dropped to stay within 32 items: {capped:?}");
+    assert!(!capped.iter().any(|s| s == "Front34"));
+}

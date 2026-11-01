@@ -90,9 +90,6 @@ fn marquee_enters(doc: &Document, node: &Node) -> bool {
 /// position would select that ancestor instead of `id`). A direct child of a top-level frame
 /// is at click depth and is not nested.
 pub fn is_nested_selection_layer(doc: &Document, id: NodeId) -> bool {
-    if designos_doc::find::matching_scope_of(doc, id).is_none() {
-        return false;
-    }
     let mut cur = doc.get(id).and_then(|n| n.parent);
     while let Some(pid) = cur {
         let Some(pn) = doc.get(pid) else { return false };
@@ -252,18 +249,76 @@ fn hit_in(
 /// ordered from top-most leaf down to container/frame (capped at 32 items).
 pub fn hit_all_under(doc: &Document, page: NodeId, p: Vec2, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
     let mut out = Vec::new();
-    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, false, false, index, &mut out);
+    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, false, index, &mut out);
     out
 }
 
 /// Collects all visible nodes (including locked layers) on `page` under `p` (page space),
 /// capped at 32 items. When `parents_first` is true, containers are listed before their
-/// children in Layers-panel (front-to-back sibling) order, and the 32-item cap drops the
-/// deepest layers rather than the parents.
+/// children in front-to-back sibling order and the 32-item cap keeps parents before deeper
+/// layers across all branches (breadth-first by depth).
 pub fn hit_all_under_including_locked(doc: &Document, page: NodeId, p: Vec2, parents_first: bool, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
+    if parents_first {
+        let mut by_depth = Vec::new();
+        hit_all_parents_first_in(doc, page, Affine::IDENTITY, p, 2.0, true, 0, index, &mut by_depth);
+        by_depth.sort_by_key(|&(_, depth)| depth);
+        by_depth.truncate(32);
+        return by_depth.into_iter().map(|(id, _)| id).collect();
+    }
     let mut out = Vec::new();
-    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, true, parents_first, index, &mut out);
+    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, true, index, &mut out);
     out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hit_all_parents_first_in(
+    doc: &Document,
+    parent: NodeId,
+    parent_world: Affine,
+    p: Vec2,
+    tol: f32,
+    include_locked: bool,
+    depth: usize,
+    index: Option<&designos_render::SceneIndex>,
+    out: &mut Vec<(NodeId, usize)>,
+) {
+    if depth >= 32 {
+        return;
+    }
+    let Some(pn) = doc.get(parent) else { return };
+    for &cid in pn.children_front_to_back() {
+        let Some(n) = doc.get(cid) else { continue };
+        if !n.visible || (!include_locked && n.locked) {
+            continue;
+        }
+        if !matches!(n.kind, NodeKind::Connector(_)) {
+            if let Some(bb) = indexed_bounds(index, cid) {
+                let m = tol + 2.0;
+                if !Rect::new(bb.x - m, bb.y - m, bb.w + 2.0 * m, bb.h + 2.0 * m).contains(p) {
+                    continue;
+                }
+            }
+        }
+        let world = parent_world * n.transform;
+        let Some(inv) = world.invert() else { continue };
+        let local = inv.apply(p);
+        let inside = match &n.kind {
+            NodeKind::Connector(_) => parent_world.invert().is_some_and(|pi| connector_hit(doc, cid, pi.apply(p), tol)),
+            k => local_hit(k, n.size, local, tol),
+        };
+        if n.kind.is_container() {
+            if inside {
+                out.push((cid, depth));
+            }
+            let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
+            if !clips || inside {
+                let next_depth = if inside { depth + 1 } else { depth };
+                hit_all_parents_first_in(doc, cid, world, p, tol, include_locked, next_depth, index, out);
+            }
+        } else if inside {
+            out.push((cid, depth));
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -274,7 +329,6 @@ fn hit_all_in(
     p: Vec2,
     tol: f32,
     include_locked: bool,
-    parents_first: bool,
     index: Option<&designos_render::SceneIndex>,
     out: &mut Vec<NodeId>,
 ) {
@@ -306,14 +360,11 @@ fn hit_all_in(
             k => local_hit(k, n.size, local, tol),
         };
         if n.kind.is_container() {
-            if parents_first && inside && out.len() < 32 {
-                out.push(cid);
-            }
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
             if !clips || inside {
-                hit_all_in(doc, cid, world, p, tol, include_locked, parents_first, index, out);
+                hit_all_in(doc, cid, world, p, tol, include_locked, index, out);
             }
-            if !parents_first && inside && out.len() < 32 {
+            if inside && out.len() < 32 {
                 out.push(cid);
             }
         } else if inside && out.len() < 32 {
