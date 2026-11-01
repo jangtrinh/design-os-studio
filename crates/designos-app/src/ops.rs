@@ -943,6 +943,14 @@ impl App {
         for id in ids {
             let mut relayout_text = false;
             if let Some(n) = tx.ed.node(&mut self.doc, id) {
+                // These values are replaced by the copied snapshot. Any bindings or shared
+                // style links that point at the old indexed items must be removed in the same
+                // transaction; otherwise the target's variables keep overriding the pasted
+                // paints/effects.
+                n.variables.bindings.retain(|key, _| !key.starts_with("fills/") && !key.starts_with("strokes/") && !key.starts_with("effects/"));
+                n.style_refs.remove("fill");
+                n.style_refs.remove("stroke");
+                n.style_refs.remove("effect");
                 n.fills = snap.fills.clone();
                 n.stroke = snap.stroke.clone();
                 n.effects = snap.effects.clone();
@@ -953,6 +961,7 @@ impl App {
                 let is_text = matches!(n.kind, NodeKind::Text(_));
                 if let (Some(style), Some(tp)) = (&snap.text_style, n.kind.any_text_mut()) {
                     crate::richtext::apply_all(tp, |st| *st = style.clone());
+                    n.style_refs.remove("text");
                     if is_text {
                         n.size = layout::fit_text(tp, n.size);
                         relayout_text = true;
@@ -2710,6 +2719,80 @@ mod tests {
         assert_eq!(app.doc.get(replaced_id).unwrap().transform.tx, 100.0);
         assert_eq!(app.doc.get(replaced_id).unwrap().transform.ty, 20.0);
         assert_eq!(app.doc.get(app.page).unwrap().children[orig_idx], replaced_id);
+    }
+
+    #[test]
+    fn paste_properties_drops_target_paint_bindings_in_the_same_undo_step() {
+        let (mut app, ids) = app_with_rects();
+        let source = ids[0];
+        let target = ids[1];
+        let gradient = |color: Color| Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [v2(0.0, 0.0), v2(1.0, 0.0), v2(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        };
+        app.doc.get_mut(source).unwrap().fills = vec![gradient(Color::rgb(0x0D, 0x99, 0xFF))];
+        let target_node = app.doc.get_mut(target).unwrap();
+        target_node.fills = vec![gradient(Color::rgb(0xFF, 0x00, 0x00))];
+        target_node.variables.bindings.insert("fills/0/stops/0".into(), "var-target".into());
+        target_node.variables.bindings.insert("opacity".into(), "var-opacity".into());
+
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![target];
+        app.paste_properties();
+
+        let pasted = app.doc.get(target).unwrap();
+        assert_eq!(pasted.fills, app.doc.get(source).unwrap().fills);
+        assert!(!pasted.variables.bindings.contains_key("fills/0/stops/0"), "a replaced paint must not keep the target's indexed binding");
+        assert_eq!(pasted.variables.bindings.get("opacity").map(String::as_str), Some("var-opacity"));
+
+        app.undo();
+        let restored = app.doc.get(target).unwrap();
+        assert!(matches!(restored.fills[0].kind, PaintKind::LinearGradient { .. }));
+        assert_eq!(restored.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-target"));
+    }
+
+    #[test]
+    fn paste_properties_detaches_target_text_style_and_undo_restores_link() {
+        let mut d = Document::new("paste-text-properties");
+        let page = d.add_page("p");
+        let source_id = d.alloc_id();
+        let source = d
+            .insert(
+                page,
+                Node::text(source_id, Rect::new(0.0, 0.0, 160.0, 32.0), "Source", TextStyle { font_size: 32.0, font_weight: 700, ..Default::default() }),
+            )
+            .unwrap();
+        let target_id = d.alloc_id();
+        let mut target =
+            Node::text(target_id, Rect::new(0.0, 48.0, 160.0, 20.0), "Target", TextStyle { font_size: 10.0, font_weight: 400, ..Default::default() });
+        target.style_refs.insert("text".into(), "Body".into());
+        let target = d.insert(page, target).unwrap();
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 12.0, font_weight: 500, ..Default::default() }));
+
+        let mut app = App::new(d);
+        app.selection = vec![source];
+        app.copy_properties();
+        app.selection = vec![target];
+        app.paste_properties();
+
+        let pasted = app.doc.get(target).expect("target text");
+        assert!(!pasted.style_refs.contains_key("text"), "pasted text properties must detach the target shared text style");
+        let NodeKind::Text(tp) = &pasted.kind else { panic!("target text") };
+        let NodeKind::Text(source_tp) = &app.doc.get(source).expect("source text").kind else { panic!("source text") };
+        assert_eq!(tp.style, source_tp.style);
+
+        app.undo();
+        let restored = app.doc.get(target).expect("restored target text");
+        assert_eq!(restored.style_refs.get("text").map(String::as_str), Some("Body"));
+        let NodeKind::Text(tp) = &restored.kind else { panic!("restored target text") };
+        assert_eq!(tp.style.font_size, 10.0);
+        assert_eq!(tp.style.font_weight, 400);
     }
 
     #[test]
