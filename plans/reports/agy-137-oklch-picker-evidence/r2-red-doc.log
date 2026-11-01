@@ -1,0 +1,72 @@
+info: syncing channel updates for 1.93.1-aarch64-apple-darwin
+info: latest update on 2026-02-12 for version 1.93.1 (01f6ddf75 2026-02-11)
+info: downloading 5 components
+warn: the missing active toolchain `1.93.1-aarch64-apple-darwin` has been auto-installed
+warn: this might cause rustup commands to take longer time to finish than expected
+info: you may opt out with `RUSTUP_AUTO_INSTALL=0` or `rustup set auto-install disable`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded quote v1.0.47
+  Downloaded itoa v1.0.18
+  Downloaded thiserror v2.0.21
+  Downloaded zmij v1.0.23
+  Downloaded thiserror-impl v2.0.21
+  Downloaded proc-macro2 v1.0.107
+  Downloaded serde_core v1.0.229
+  Downloaded unicode-ident v1.0.27
+  Downloaded serde_derive v1.0.229
+  Downloaded serde v1.0.229
+  Downloaded memchr v2.8.3
+  Downloaded serde_json v1.0.154
+  Downloaded regex v1.13.1
+  Downloaded aho-corasick v1.1.5
+  Downloaded regex-syntax v0.8.11
+  Downloaded syn v3.0.9
+  Downloaded regex-automata v0.4.18
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling zmij v1.0.23
+   Compiling serde_json v1.0.154
+   Compiling regex-syntax v0.8.11
+   Compiling serde v1.0.229
+   Compiling thiserror v2.0.21
+   Compiling itoa v1.0.18
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling regex v1.13.1
+   Compiling syn v3.0.9
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 28.94s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 4 tests
+test color_space::tests::known_values_srgb_to_oklab_and_oklch ... ok
+test color_space::tests::gamut_clamping_and_non_finite_inputs ... ok
+test color_space::tests::positive_infinity_srgb_and_huge_oklab_l_clamp_to_white ... FAILED
+test color_space::tests::round_trip_17_step_srgb_grid_4913_colours ... ok
+
+failures:
+
+---- color_space::tests::positive_infinity_srgb_and_huge_oklab_l_clamp_to_white stdout ----
+
+thread 'color_space::tests::positive_infinity_srgb_and_huge_oklab_l_clamp_to_white' (48291581) panicked at crates/designos-doc/src/color_space.rs:241:9:
+assertion `left == right` failed: srgb_to_oklab(+inf, +inf, +inf) must be white
+  left: [0.0, 0.0, 0.0]
+ right: [1.0, 0.0, 0.0]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    color_space::tests::positive_infinity_srgb_and_huge_oklab_l_clamp_to_white
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 674 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

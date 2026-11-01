@@ -1,0 +1,502 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling smallvec v1.16.3
+   Compiling log v0.4.34
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling simd-adler32 v0.3.10
+   Compiling zerocopy v0.8.62
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling crc32fast v1.5.2
+   Compiling thiserror v2.0.21
+   Compiling adler2 v2.0.1
+   Compiling foldhash v0.2.0
+   Compiling miniz_oxide v0.9.1
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling bitflags v1.3.2
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_properties_data v2.3.0
+   Compiling miniz_oxide v0.8.9
+   Compiling num-traits v0.2.19
+   Compiling fdeflate v0.3.7
+   Compiling shlex v2.0.1
+   Compiling linebender_resource_handle v0.1.1
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling find-msvc-tools v0.1.14
+   Compiling serde v1.0.229
+   Compiling zmij v1.0.23
+   Compiling cc v1.7.0
+   Compiling zune-core v0.5.3
+   Compiling quick-error v2.0.1
+   Compiling objc2-core-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling weezl v0.1.12
+   Compiling itoa v1.0.18
+   Compiling percent-encoding v2.3.2
+   Compiling equivalent v1.0.3
+   Compiling zeroize v1.9.1
+   Compiling core_maths v0.1.1
+   Compiling serde_json v1.0.154
+   Compiling rustls-pki-types v1.15.1
+   Compiling form_urlencoded v1.2.2
+   Compiling zune-jpeg v0.5.15
+   Compiling slotmap v1.1.1
+   Compiling unicode-segmentation v1.13.3
+   Compiling fax v0.2.7
+   Compiling ref-cast v1.0.27
+   Compiling crossbeam-utils v0.8.23
+   Compiling self_cell v1.3.0
+   Compiling pxfm v0.1.30
+   Compiling byteorder-lite v0.1.0
+   Compiling either v1.19.0
+   Compiling color_quant v1.1.0
+   Compiling gif v0.14.1
+   Compiling getrandom v0.2.17
+   Compiling image-webp v0.2.4
+   Compiling ttf-parser v0.25.1
+   Compiling hashbrown v0.16.1
+   Compiling parking_lot_core v0.9.12
+   Compiling objc2-foundation v0.3.2
+   Compiling float-cmp v0.9.0
+   Compiling pin-project-lite v0.2.17
+   Compiling untrusted v0.9.0
+   Compiling crossbeam-epoch v0.9.21
+   Compiling getrandom v0.4.3
+   Compiling raw-window-handle v0.6.2
+   Compiling strict-num v0.1.1
+   Compiling indexmap v2.14.2
+   Compiling euclid v0.22.14
+   Compiling memmap2 v0.9.11
+   Compiling aho-corasick v1.1.5
+   Compiling regex-syntax v0.8.11
+   Compiling crossbeam-deque v0.8.8
+   Compiling rustls v0.23.45
+   Compiling scopeguard v1.2.0
+   Compiling tinyvec v1.13.3
+   Compiling arrayref v0.3.9
+   Compiling dyn-clone v1.0.20
+   Compiling objc-sys v0.3.5
+   Compiling unicode-script v0.5.8
+   Compiling rustc-hash v2.1.3
+   Compiling base64 v0.22.1
+   Compiling lock_api v0.4.14
+   Compiling webpki-roots v1.0.9
+   Compiling unicode-bidi v0.3.18
+   Compiling subtle v2.6.1
+   Compiling rayon-core v1.13.0
+   Compiling option-ext v0.2.0
+   Compiling dirs-sys v0.4.1
+   Compiling parking_lot v0.12.5
+   Compiling webpki-roots v0.26.11
+   Compiling uuid v1.28.0
+   Compiling i_float v5.0.0
+   Compiling naga v29.0.4
+   Compiling moxcms v0.8.1
+   Compiling fontdb v0.23.0
+   Compiling flate2 v1.1.10
+   Compiling synstructure v0.14.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling png v0.18.1
+   Compiling regex-automata v0.4.18
+   Compiling png v0.17.16
+   Compiling profiling v1.0.18
+   Compiling zeno v0.3.3
+   Compiling yazi v0.2.1
+   Compiling unicode-width v0.2.2
+   Compiling bit-vec v0.9.1
+   Compiling bit-set v0.9.1
+   Compiling codespan-reporting v0.13.1
+   Compiling objc2-metal v0.3.2
+   Compiling regex v1.13.1
+   Compiling i_shape v5.0.0
+   Compiling objc2 v0.5.3
+   Compiling ring v0.17.14
+   Compiling dirs v5.0.1
+   Compiling polycool v0.4.0
+   Compiling rustc-hash v1.1.0
+   Compiling i_key_sort v0.12.0
+   Compiling hexf-parse v0.2.1
+   Compiling i_tree v0.20.0
+   Compiling rangemap v1.8.0
+   Compiling smol_str v0.3.6
+   Compiling unicode-linebreak v0.1.5
+   Compiling sys-locale v0.3.2
+   Compiling block2 v0.5.1
+   Compiling i_overlay v9.1.0
+   Compiling kurbo v0.13.1
+   Compiling rayon v1.12.0
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling core-foundation-sys v0.8.7
+   Compiling unicode-properties v0.1.4
+   Compiling objc2-quartz-core v0.3.2
+   Compiling dispatch v0.2.0
+   Compiling unicode-ccc v0.4.0
+   Compiling utf8parse v0.2.2
+   Compiling siphasher v1.0.4
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling raw-window-metal v1.1.0
+   Compiling svgtypes v0.15.3
+   Compiling objc2-foundation v0.2.2
+   Compiling core-foundation v0.9.4
+   Compiling accesskit v0.24.1
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling unicode-vo v0.1.0
+   Compiling data-url v0.3.2
+   Compiling futures-sink v0.3.34
+   Compiling imagesize v0.13.0
+   Compiling futures-core v0.3.34
+   Compiling unicode-general-category v1.1.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling fearless_simd v0.4.1
+   Compiling xmlwriter v0.1.0
+   Compiling pico-args v0.5.0
+   Compiling roxmltree v0.20.0
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling nix v0.31.3
+   Compiling wgpu-core v29.0.4
+   Compiling rustls-webpki v0.103.15
+   Compiling winit v0.30.13
+   Compiling winnow v1.0.4
+   Compiling litrs v1.0.0
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling document-features v0.2.12
+   Compiling objc2-app-kit v0.2.2
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling nohash-hasher v0.2.0
+   Compiling cursor-icon v1.2.0
+   Compiling anstyle v1.0.14
+   Compiling bumpalo v3.20.3
+   Compiling smol_str v0.2.2
+   Compiling colorchoice v1.0.5
+   Compiling slab v0.4.12
+   Compiling dpi v0.1.2
+   Compiling futures-io v0.3.34
+   Compiling epaint_default_fonts v0.35.0
+   Compiling futures-task v0.3.34
+   Compiling anstream v1.0.0
+   Compiling zopfli v0.8.4
+   Compiling serde_spanned v1.1.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling memoffset v0.6.5
+   Compiling typed-path v0.12.3
+   Compiling strsim v0.11.1
+   Compiling twox-hash v2.1.5
+   Compiling heck v0.5.0
+   Compiling thiserror v1.0.69
+   Compiling clap_lex v1.1.1
+   Compiling static_assertions v1.1.0
+   Compiling bytes v1.12.1
+   Compiling zip v9.0.4
+   Compiling clap_builder v4.6.7
+   Compiling ruzstd v0.9.1
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling lyon_geom v1.0.19
+   Compiling ioctl-rs v0.1.6
+   Compiling termios v0.2.2
+   Compiling serial-core v0.4.0
+   Compiling web-time v1.1.0
+   Compiling rmcp v3.5.1
+   Compiling anyhow v1.0.104
+   Compiling winresource v0.1.34
+   Compiling serial-unix v0.4.0
+   Compiling lyon_path v1.0.19
+   Compiling accesskit_macos v0.26.3
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling pastey v0.2.3
+   Compiling rfd v0.17.2
+   Compiling pollster v0.4.0
+   Compiling pin-utils v0.1.1
+   Compiling float_next_after v1.0.0
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-mcp)
+   Compiling lyon_tessellation v1.0.22
+   Compiling nix v0.25.1
+   Compiling vte v0.11.1
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app)
+   Compiling serial v0.4.0
+   Compiling dispatch2 v0.3.1
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling unicode-width v0.1.14
+   Compiling downcast-rs v1.2.1
+   Compiling shell-words v1.1.1
+   Compiling vt100 v0.15.2
+   Compiling open v5.4.4
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling thiserror-impl v1.0.69
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling tracing v0.1.44
+   Compiling foreign-types-macros v0.2.4
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling clap_derive v4.6.7
+   Compiling zerofrom v0.1.8
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling foreign-types v0.5.0
+   Compiling core-graphics v0.23.2
+   Compiling filedescriptor v0.8.3
+   Compiling portable-pty v0.8.1
+   Compiling icu_provider v2.3.1
+   Compiling bytemuck v1.25.2
+   Compiling font-types v0.11.3
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling font-types v0.12.7
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling read-fonts v0.41.0
+   Compiling url v2.5.8
+   Compiling read-fonts v0.37.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling color v0.3.3
+   Compiling wgpu-types v29.0.4
+   Compiling read-fonts v0.39.2
+   Compiling peniko v0.6.1
+   Compiling rustybuzz v0.20.1
+   Compiling ureq v2.12.1
+   Compiling tiny-skia v0.11.4
+   Compiling vello_common v0.0.9
+   Compiling usvg v0.45.1
+   Compiling half v2.7.1
+   Compiling tiff v0.11.3
+   Compiling emath v0.35.0
+   Compiling ecolor v0.35.0
+   Compiling vello_cpu v0.0.9
+   Compiling futures-util v0.3.34
+   Compiling tokio v1.53.2
+   Compiling clap v4.6.7
+   Compiling image v0.25.10
+   Compiling webbrowser v1.2.4
+   Compiling accesskit_winit v0.32.2
+   Compiling rgb v0.8.53
+   Compiling skrifa v0.44.0
+   Compiling chrono v0.4.45
+   Compiling harfrust v0.5.2
+   Compiling skrifa v0.40.0
+   Compiling schemars v1.2.3
+   Compiling swash v0.2.10
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-doc)
+   Compiling cosmic-text v0.19.0
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling harfrust v0.7.0
+   Compiling skrifa v0.42.1
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling epaint v0.35.0
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling tokio-util v0.7.20
+   Compiling egui v0.35.0
+   Compiling arboard v3.6.1
+   Compiling designos-diff v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-diff)
+   Compiling resvg v0.45.1
+   Compiling designos-fonts v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-fonts)
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-render)
+   Compiling egui-winit v0.35.0
+   Compiling egui-wgpu v0.35.0
+   Compiling designos-svg v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-svg)
+   Compiling designos-export v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-export)
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-gpu)
+   Compiling eframe v0.35.0
+   Compiling designos-webcapture v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-webcapture)
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-fig)
+   Compiling designos-library v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 55s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 96 tests
+test agent_picker::tests::arrow_steps_skip_disabled_rows_and_wrap ... ok
+test agent_picker::tests::closing_the_picker_discards_the_other_cli_draft ... ok
+test agent_picker::tests::ask_risky_disables_clis_without_a_shared_hook ... ok
+test agent_picker::tests::cold_open_settles_to_spec_order_then_stays_pinned ... ok
+test agent_picker::tests::uninstalled_cli_opens_its_install_page_not_a_tab ... ok
+test agent_picker::tests::ask_risky_menu_rows_without_a_hook_are_disabled_and_keep_the_reason_in_the_tooltip ... ok
+test agent_picker::tests::an_install_action_opens_the_cli_install_page ... ok
+test agent_picker::tests::plus_menu_shows_the_same_list_compactly ... ok
+test agent_picker::tests::a_long_other_cli_error_keeps_8px_from_the_buttons_and_stays_in_the_card ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_fill_picker_is_silent_on_cancel ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::the_image_fill_picker_says_so_and_leaves_the_paint_alone ... ok
+test panels::style_picker::tests::the_create_row_uses_the_noun_of_the_empty_state_row ... ok
+test agent_picker::tests::the_other_cli_caption_keeps_8px_from_the_buttons_and_is_not_cut ... ok
+test panels::style_picker::tests::us01_ac03_layer_with_deleted_or_orphan_style_shows_no_style_chip ... ok
+test panels::style_picker::tests::us01_ac04_unnamed_style_shows_fallback_label_and_id_only_in_tooltip ... ok
+test agent_open_flow::tests::open_with_no_sessions_shows_the_picker_and_spawns_nothing ... ok
+test proto::tests::animation_picker_keeps_duration_and_direction ... ok
+test panels::style_picker::tests::us01_ac02_orphan_styles_are_excluded_from_picker_and_reopened_designos_while_unpublished_stay_listed ... ok
+test agent_open_flow::tests::open_flow_shows_picker_when_no_resumable_sessions ... ok
+test agent_picker::tests::failed_resume_last_session_keeps_the_plus_menu_open_with_a_notice ... ok
+test agent_sessions::tests::unresumable_newest_entry_leaves_picker_open_and_does_not_skip_to_older_entry ... ok
+test canvas::textsession::tests::the_family_picker_keeps_its_face_on_a_large_document ... ok
+test agent_picker::tests::other_cli_form_saves_and_lists_the_entry ... ok
+test agent_picker::tests::reopening_picker_keeps_cached_result_while_starting_new_probe ... ok
+test agent_open_flow::tests::closing_last_tab_shows_picker ... ok
+test agent_open_flow::tests::closing_the_last_tab_shows_the_picker ... ok
+test agent_picker::tests::custom_cli_saved_in_fallback_mode_uses_library_root ... ok
+test agent_picker::tests::clicking_row_mid_staggered_probe_starts_the_clicked_cli ... ok
+test panels::style_picker::tests::us01_ac02_round2_style_entries_of_on_200k_nodes_and_50_styles_is_o1_per_key_and_under_budget ... ok
+test shell::tests::agent_picker_return::bare_return_in_the_agents_panel_starts_no_session ... ok
+test shell::tests::agent_picker_return::no_row_looks_focused_until_the_keyboard_is_on_one ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_cell_colour_picker_keeps_the_field_outline ... ok
+test shell::tests::assets_variables_libraries_chrome::variable_picker_rows_are_menu_rows ... ok
+test shell::tests::agent_picker_return::arrows_move_focus_between_selectable_rows_and_wrap ... ok
+test shell::tests::agent_picker_return::return_on_the_row_the_arrows_reached_opens_it ... ok
+test shell::tests::agent_picker_return::arrows_and_return_with_no_row_focused_leave_the_picker_to_the_canvas ... ok
+test shell::tests::agent_picker_return::the_plus_menu_ignores_arrows_and_return_until_a_row_has_focus ... ok
+test shell::tests::agent_picker_return::tab_reaches_a_row_and_return_acts_on_that_row_only ... ok
+test shell::tests::color_swatch_opens_picker_without_panic ... ok
+test shell::tests::board::shapes_are_created_with_text_and_the_shape_picker_changes_what_is_placed ... ok
+test shell::tests::agent_simplified_panel::tab_click_clears_picker_open_and_new_chat_card_reads_open_tab ... ok
+test shell::tests::agent_picker_return::the_plus_menu_moves_focus_with_arrows_and_returns_on_the_focused_row ... ok
+test shell::tests::effect_stop_binds::picker_resync_runs_in_picker_popup_not_unrelated_sections ... ok
+test shell::tests::empty_slot_flows::a_drop_elsewhere_after_the_plus_picker_does_not_go_into_the_still_selected_slot ... ok
+test shell::tests::agent_simplified_panel::the_agents_picker_capture_panel_opens_the_agent_menu_and_the_agents_panel_does_not ... ok
+test shell::tests::effect_stop_binds::probe_stop_bind_after_a_picker_edit_survives_the_next_picker_edit ... ok
+test agent_sessions::tests::closing_the_last_agent_tab_shows_the_picker_and_does_not_resume ... ok
+test agent_open_flow::tests::cmd_k_prompt_uses_resume_or_picker_never_first_installed ... ok
+test skills::hook_delivery::tests::the_slots_hold_the_largest_set_the_picker_allows_however_its_lines_fall ... ok
+test shell::tests::effect_stop_binds::eyedropper_sample_closes_picker_and_commits_one_undo_step ... ok
+test skills::picker_popover_tests::the_budget_line_shows_only_near_or_over_a_limit ... ok
+test skills::picker_popover_tests::thousands_groups_by_three ... ok
+test skills::picker_popover_tests::skills_popover_rows_hold_name_description_and_check_only ... ok
+test shell::tests::overlays_chrome_layout::context_menu_and_layer_picker_rows_are_menu_items ... ok
+test shell::tests::picker_libraries_tooltip::colour_picker_libraries_tab_shows_style_description_tooltip_only_when_non_empty ... ok
+test terminal::tests::the_install_check_reads_the_pickers_cached_probes_not_the_path ... ok
+test widgets::picker::tests::active_color_edits_the_selected_stop ... ok
+test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... FAILED
+test widgets::picker::tests::css_and_hsl_roundtrip ... FAILED
+test widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap ... FAILED
+test widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba ... ok
+test widgets::picker::tests::gradient_shape_switch_keeps_stops ... ok
+test widgets::picker::tests::gradient_to_solid_takes_first_stop ... ok
+test widgets::picker::tests::hsb_is_computed_in_gamma_space ... ok
+test widgets::picker::tests::hue_survives_grey ... ok
+test widgets::picker::tests::oklch_and_oklab_format_list_and_default ... ok
+test widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue ... ok
+test widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps ... ok
+test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... FAILED
+test widgets::picker::tests::procedural_png_presets_generate_valid_png_headers_and_distinct_textures ... ok
+test widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells ... FAILED
+test widgets::picker::tests::solid_to_gradient_keeps_color_as_first_stop ... ok
+test widgets::picker::tests::stop_color_interpolates ... ok
+test widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid ... FAILED
+test widgets::picker::tests::visible_text_css_mode ... FAILED
+test widgets::picker::tests::visible_text_hex_mode ... ok
+test widgets::picker::tests::visible_text_hsb_at_full_s_b ... ok
+test widgets::picker::tests::visible_text_hsl_mode ... ok
+test widgets::picker::tests::visible_text_oklab_mode ... ok
+test widgets::picker::tests::visible_text_oklch_mode ... ok
+test widgets::picker::tests::visible_text_rgb_at_255_255_255 ... ok
+test shell::tests::empty_slot_flows::reset_after_filling_an_empty_slot_with_the_picker_brings_the_placeholder_back ... ok
+test shell::tests::effect_stop_binds::unbound_gradient_picker_session_with_flip_stays_one_undo_step ... ok
+test shell::tests::libraries::creating_a_style_from_the_picker_is_one_undo_step ... ok
+test skills::tests::run_json_not_overwritten_by_page_sync_or_picker_open ... ok
+test shell::tests::components::empty_slot_placeholder_preferred_picker_and_stretch_on_insert_ui ... ok
+test shell::tests::variables::bind_button_opens_picker_and_binds_a_fill ... ok
+test skills::tests::choosing_skills_in_the_picker_attaches_nothing_and_a_refused_send_keeps_run_json ... ok
+test shell::tests::libraries::color_picker_libraries_tab_lists_library_styles_and_applies_one_undoably ... ok
+test shell::tests::components::slot_preferred_picker_checks_and_shows_every_selected_component ... ok
+test shell::tests::components::slot_preferred_picker_tells_same_named_components_apart_by_id ... ok
+test shell::tests::libraries::library_variables_bind_through_the_picker_in_one_undo_step ... ok
+test shell::tests::libraries::library_variables_bind_to_a_style_through_the_picker_in_one_undo_step ... ok
+test skills::tests::picker_scrolls_to_reach_all_100_skills_and_ephemeral_selection_preserves_settings ... ok
+test shell::tests::proto::popover_action_dropdown_switches_kind_and_destination_picker_lists_frames ... ok
+test shell::tests::style_edit::style_picker_and_styles_list_show_description_tooltip_only_when_non_empty ... ok
+
+failures:
+
+---- widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision stdout ----
+
+thread 'widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision' (57722977) panicked at crates/designos-app/src/widgets/picker.rs:2314:9:
+retyping unchanged displayed channels must not mark out.changed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- widgets::picker::tests::css_and_hsl_roundtrip stdout ----
+
+thread 'widgets::picker::tests::css_and_hsl_roundtrip' (57722980) panicked at crates/designos-app/src/widgets/picker.rs:1909:9:
+assertion `left == right` failed
+  left: "rgba(217, 217, 217, 1)"
+ right: "rgb(217, 217, 217)"
+
+---- widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap stdout ----
+
+thread 'widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap' (57722982) panicked at crates/designos-app/src/widgets/picker.rs:2409:9:
+On this page must start at PAD + 8.0 (24.0), got 22
+
+---- widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness stdout ----
+
+thread 'widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness' (57722999) panicked at crates/designos-app/src/widgets/picker.rs:2354:9:
+assertion failed: out_white.changed
+
+---- widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells stdout ----
+
+thread 'widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells' (57723002) panicked at crates/designos-app/src/widgets/picker.rs:2067:13:
+mode Oklch missing expected visible text "62.8% 0.26 29.23" in ["Custom", "Libraries", "4.00 : 1", "AA Large", "OKLCH", "62.8% 0.26 29.23 / 0.5", "On this page"]
+
+---- widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid stdout ----
+
+thread 'widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid' (57723005) panicked at crates/designos-app/src/widgets/picker.rs:2192:21:
+mode Css showed alpha in value cell at rest: ["Custom", "Libraries", "4.50 : 1", "AA", "CSS", "rgba(52, 120, 200, 0.5)", "On this page"]
+
+---- widgets::picker::tests::visible_text_css_mode stdout ----
+
+thread 'widgets::picker::tests::visible_text_css_mode' (57723008) panicked at crates/designos-app/src/widgets/picker.rs:2067:13:
+mode Css missing expected visible text "rgb(255, 0, 0)" in ["Custom", "Libraries", "4.00 : 1", "AA Large", "CSS", "rgba(255, 0, 0, 1)", "On this page"]
+
+
+failures:
+    widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision
+    widgets::picker::tests::css_and_hsl_roundtrip
+    widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap
+    widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness
+    widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells
+    widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid
+    widgets::picker::tests::visible_text_css_mode
+
+test result: FAILED. 89 passed; 7 failed; 0 ignored; 0 measured; 3957 filtered out; finished in 7.14s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

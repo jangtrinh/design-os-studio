@@ -1,0 +1,5 @@
+NULL control | PASS | rc=0 test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 4008 filtered out; finished in 47.86s failed=[]
+R03 CSS bare-L clamp 0..1 removed | KILLED | rc=101 test result: FAILED. 44 passed; 1 failed; 0 ignored; 0 measured; 4008 filtered out; finished in 54.13s failed=['widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness']
+R04 func-form disp_ch special case removed | KILLED | rc=101 test result: FAILED. 44 passed; 1 failed; 0 ignored; 0 measured; 4008 filtered out; finished in 49.09s failed=['widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness']
+R08 format chevron 2 px left (gap 4 -> 2) | KILLED | rc=101 test result: FAILED. 44 passed; 1 failed; 0 ignored; 0 measured; 4008 filtered out; finished in 54.32s failed=['widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap']
+R11 CSS percent-alpha /100 removed | KILLED | rc=101 test result: FAILED. 44 passed; 1 failed; 0 ignored; 0 measured; 4008 filtered out; finished in 18.67s failed=['widgets::picker::tests::css_and_hsl_roundtrip']
