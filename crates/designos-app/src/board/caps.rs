@@ -41,7 +41,7 @@ impl App {
         self.is_board()
     }
 
-    /// Whether board chrome gates the right panel, the toolbar choice, the contextual bar, the zoom pill, and the Specs reader.
+    /// Whether the board chrome replaces the Design chrome: no right panel (Inspector or Specs reader), the board toolbar instead of the Design toolbar, and the contextual bar and zoom pill.
     pub fn board_chrome(&self) -> bool {
         self.is_board()
     }

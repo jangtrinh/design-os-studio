@@ -1016,35 +1016,63 @@ fn section_and_text_creation_defaults_across_document_kinds() {
 
 #[test]
 fn dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas() {
-    fn has_board_dots(shape: &egui::Shape) -> bool {
-        match shape {
-            egui::Shape::Mesh(m) => m.vertices.iter().any(|v| v.color == crate::theme::BOARD_DOT),
-            egui::Shape::Vec(v) => v.iter().any(has_board_dots),
-            _ => false,
+    fn page_bg(s: &Sim) -> egui::Color32 {
+        match s.app().doc.get(s.app().page).map(|n| &n.kind) {
+            Some(NodeKind::Page { background }) => {
+                let f = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                egui::Color32::from_rgb(f(background.r), f(background.g), f(background.b))
+            }
+            _ => egui::Color32::from_rgb(0x5A, 0x5A, 0x5A),
         }
+    }
+    fn page_fill_index(s: &Sim) -> Option<usize> {
+        let canvas = s.app().canvas_rect;
+        let bg = page_bg(s);
+        assert_ne!(bg, crate::theme::BG, "page colour must differ from the window background");
+        s.shapes.iter().rposition(|c| match &c.shape {
+            egui::Shape::Rect(r) => r.fill == bg && r.rect.contains_rect(canvas.shrink(1.0)),
+            _ => false,
+        })
+    }
+    fn dots_index(s: &Sim) -> Option<usize> {
+        fn has_board_dots(shape: &egui::Shape) -> bool {
+            match shape {
+                egui::Shape::Mesh(m) => m.vertices.iter().any(|v| v.color == crate::theme::BOARD_DOT),
+                egui::Shape::Vec(v) => v.iter().any(has_board_dots),
+                _ => false,
+            }
+        }
+        s.shapes.iter().position(|c| has_board_dots(&c.shape))
     }
 
     let b = board_sim();
-    assert!(b.shapes.iter().any(|c| has_board_dots(&c.shape)), "board canvas paints the dotted background mesh");
+    let dots = dots_index(&b).expect("board canvas paints the dotted background mesh");
+    let last_fill = page_fill_index(&b);
+    assert!(
+        last_fill.is_none_or(|i| i < dots),
+        "no rect filled with the page colour and covering the canvas is painted after the board dots: fill {last_fill:?} dots {dots}"
+    );
 
     let d = Sim::new();
-    assert!(!d.shapes.iter().any(|c| has_board_dots(&c.shape)), "design canvas omits the dotted background mesh");
+    assert!(dots_index(&d).is_none(), "design canvas omits the dotted background mesh");
+    assert!(page_fill_index(&d).is_some(), "design canvas paints a rect filled with the page colour covering the canvas");
 }
 
 #[test]
 fn frame_stepping_shortcut_steps_top_level_frames_only_when_available() {
     let mut d = Sim::new();
-    let d_page = d.app().page;
-    let d_frame_id = d.shell.app.doc.alloc_id();
-    let mut d_frame = Node::frame(d_frame_id, DRect::new(100.0, 100.0, 200.0, 150.0));
-    d_frame.name = "Step Target".into();
-    let d_frame_id = d.shell.app.doc.insert(d_page, d_frame).unwrap();
     d.shell.app.selection.clear();
-    d.shell.app.changed();
     d.frame(vec![]);
     d.key(Key::N);
-    assert!(!d.app().selection.is_empty(), "N selects a top-level frame when frame stepping is available");
-    assert!(d.app().selection.contains(&d_frame_id) || d.app().doc.get(d.app().selection[0]).is_some());
+    let d_page = d.app().page;
+    let sel = d.app().selection.clone();
+    assert_eq!(sel.len(), 1, "N selects exactly one node when frame stepping is available: {sel:?}");
+    let n = d.app().doc.get(sel[0]).expect("selected node exists");
+    assert!(matches!(n.kind, NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_)), "N selects a frame-like node: {:?}", n.kind);
+    assert!(n.visible, "N selects a visible frame");
+    let is_top_level_or_in_top_section = n.parent == Some(d_page)
+        || n.parent.and_then(|pid| d.app().doc.get(pid)).is_some_and(|p| p.visible && matches!(p.kind, NodeKind::Section) && p.parent == Some(d_page));
+    assert!(is_top_level_or_in_top_section, "selected frame parent must be the page or a top-level Section: {:?}", n.parent);
 
     let mut b = board_sim();
     let b_page = b.app().page;
