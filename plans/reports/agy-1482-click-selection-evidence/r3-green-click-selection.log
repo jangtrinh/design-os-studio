@@ -1,0 +1,43 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.67s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 31 tests
+test shell::tests::click_selection::select_all_with_same_text_properties_and_variant ... ok
+test shell::tests::click_selection::hover_outline_matches_plain_and_cmd_click_target ... ok
+test shell::tests::click_selection::comment_pin_inside_nested_frame_attaches_to_nested_layer ... ok
+test shell::tests::click_selection::hover_highlight_preference_toggles_canvas_hover_outline_and_persists_across_shells ... ok
+test shell::tests::click_selection::cmd_marquee_over_nested_container_selects_leaf_layers_without_ancestors ... ok
+test shell::tests::click_selection::click_nested_layer_inside_section_frame_selects_direct_child_of_section_frame ... ok
+test shell::tests::click_selection::cmd_click_deep_selects_innermost_layer ... ok
+test shell::tests::click_selection::click_nested_label_with_nothing_selected_selects_top_frame_child ... ok
+test shell::tests::click_selection::click_group_child_with_nothing_selected_selects_group ... ok
+test shell::tests::click_selection::click_other_top_level_frame_when_deeply_selected_selects_outermost_child_of_other_frame ... ok
+test shell::tests::click_selection::click_sibling_branch_when_deeply_selected_selects_direct_child_of_shared_ancestor ... ok
+test shell::tests::click_selection::right_click_select_layer_submenu_lists_parents_first_and_selects_picked ... ok
+test shell::tests::click_selection::double_click_drills_one_level_per_double_click_and_starts_text_edit_on_text ... ok
+test shell::tests::click_selection::enter_selects_children_and_shift_enter_selects_parent ... ok
+test shell::tests::click_selection::select_layer_submenu_cap_keeps_sibling_parents_across_branches_before_deep_descendants ... ok
+test shell::tests::click_selection::select_same_instance_matches_main_component_while_select_same_variant_matches_component_set ... ok
+test shell::tests::click_selection::eyedropper_shift_click_samples_deep_nested_token_and_vector_edit_exits_on_nested_sibling ... ok
+test shell::tests::click_selection::select_layer_submenu_includes_locked_layers_and_can_select_them ... ok
+test shell::tests::click_selection::shift_click_on_non_matching_layer_uses_normal_outside_in_hit ... ok
+test shell::tests::click_selection::select_matching_layers_selects_matching_in_other_frames_with_toast ... ok
+test shell::tests::click_selection::select_matching_layers_in_section_scopes_to_section ... ok
+test shell::tests::click_selection::shift_marquee_over_frame_with_nested_selection_adds_only_matching_layers ... ok
+test shell::tests::click_selection::shift_click_toggles_matching_nested_layer_across_frames ... ok
+test shell::tests::click_selection::shift_hover_and_selection_change_update_hover_target_to_match_press_target ... ok
+test shell::tests::click_selection::component_set_inside_frame_matches_variant_layers_via_shortcut_shift_click_and_shift_marquee ... ok
+test shell::tests::click_selection::select_layer_submenu_orders_frontmost_sibling_first_caps_deepest_and_skips_layers_panel_menu ... ok
+test shell::tests::click_selection::single_click_or_drag_inside_selected_frame_keeps_and_moves_selected_frame ... ok
+test shell::tests::click_selection::shift_marquee_with_nested_selection_toggles_only_matching_layers_and_caches_candidates ... ok
+test shell::tests::click_selection::shift_marquee_with_direct_child_selected_extends_to_siblings_and_plain_marquee_hits_nested_frame ... ok
+test shell::tests::click_selection::select_matching_layers_enforces_symmetric_section_scope_sibling_index_and_text_override_rules ... ok
+test shell::tests::click_selection::top_level_instance_child_shift_marquee_ignores_unrelated_layers_and_matches_across_instances ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 8.16s
+

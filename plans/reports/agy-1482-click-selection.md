@@ -282,3 +282,131 @@ ZERO FAKE UI GATE: 17/17 invariants satisfied. PASS.
 ```
 
 Status: DONE
+
+---
+
+## Round 3
+
+### 1. What Could Not Be Verified
+
+- Live Figma Desktop side-by-side manual click/marquee interaction could not be run in this headless agent session; all Round 3 rulings were verified via deterministic `Sim` integration tests, `designos-doc` brute-force oracle unit tests across all selection fixtures, red/green verification against `6d12cb22`, and release-mode benchmarking on an APFS clone of the Untitled UI kit (`"      ❖ Landing pages"`, 67,717 nodes).
+- Compiling `designos-app` unit tests under `--release` is blocked by pre-existing `st.debug.show_interactive_widgets` references in `agent_simplified_panel.rs:80` and `layout_unchanged/mod.rs:387` (`egui::Style::debug` is gated on `#[cfg(debug_assertions)]`); the release-mode Shift+drag benchmark on the 67,717-node `"      ❖ Landing pages"` page was therefore executed via `designos-fig` (`r3-perf-landing-page.log`) against `designos_doc::find::find_matching_layers` and `designos_render::SceneIndex`.
+
+### 2. Skills Loaded & Epistemic Ledger
+
+- **Skills Loaded**: `es:dev`, `es:feature-dev`, `es:rust`, `es:rust-gpu-canvas`, `es:astra-work`, `es:fable-thinking`.
+- **Epistemic Ledger**:
+  - `FACT`: On `6d12cb22`, `is_nested_selection_layer` in `crates/designos-app/src/canvas/hit.rs` had an early `if designos_doc::find::matching_scope_of(doc, id).is_none() { return false; }` bailout, and `matching_scope_of` in `crates/designos-doc/src/find.rs` only treated `NodeKind::Frame(_) | NodeKind::Group` (not `NodeKind::Instance { .. }`) as top-level scope roots under a `Page` or `Section`. Consequently, selecting a child inside a top-level instance caused `is_nested_selection_layer` to return `false` and `Shift + drag` to fall back to the plain marquee union instead of matching-layer marquee mode (`r3-red-6d12cb22-doc.log`, `r3-red-6d12cb22-app.log`).
+  - `FACT`: On `6d12cb22`, `walk_matching_layers` only entered `ComponentSet` variants when the `ComponentSet` was a direct child of a `Page` or `Section`, missing `ComponentSet` nodes nested inside a `Frame`, `Group`, or deeper container (`r3-red-6d12cb22-doc.log`, `r3-red-6d12cb22-app.log`).
+  - `FACT`: On `6d12cb22`, `hit_all_under_including_locked` with `parents_first == true` pushed nodes in depth-first pre-order and stopped at `out.len() >= 32`, allowing a deep earlier branch (e.g. 35 nested containers) to exhaust all 32 slots and drop a later sibling top-level parent (`r3-red-6d12cb22-app.log`).
+  - `FACT`: On `ad8bde20`, `find_matching_layers` matches the brute-force filter over all page nodes with `matches_layer_across_containers` across every selection fixture in `click_selection.rs` and `find.rs`, and the longest release-mode Shift+drag frame on `"      ❖ Landing pages"` (67,717 nodes, 9,774 nested text candidates including 13 top-level instance text candidates) is `0.0002 ms` (`drag_start_max_ms = 3.249 ms < 8 ms`, `r3-perf-landing-page.log`).
+  - `INFERENCE`: Collecting `(NodeId, depth)` pairs up to `depth < 32`, stable-sorting by `depth`, and truncating to 32 entries guarantees breadth-first parent retention across all sibling branches while preserving front-to-back paint order within each depth level.
+  - `ASSUMPTION`: None remaining.
+
+### 3. Round 3 Rulings & Acceptance Table
+
+| Ruling / Gate | Implementation & Verification | Evidence | Status |
+|---|---|---|---|
+| **1. Nested = deeper than a plain click, no scope bailout** | Removed `matching_scope_of(doc, id).is_none()` early return from `is_nested_selection_layer` (`crates/designos-app/src/canvas/hit.rs:429-449`). Any layer with an ancestor between it and the page that fails `selects_through(doc, ancestor, false)` is nested; when its matching candidates are empty, `Shift + drag` adds nothing (never the plain marquee union). | `r3-red-6d12cb22-app.log`, `r3-green-click-selection.log` | PASS |
+| **2. Top-level instance is a matching scope root** | Extended `matching_scope_of` (`crates/designos-doc/src/find.rs:534`) and `walk_matching_layers` (`crates/designos-doc/src/find.rs:822`) to include `NodeKind::Instance { .. }` alongside `NodeKind::Frame(_) \| NodeKind::Group` when parented by a `Page` or `Section`. `Q` (`Select matching layers`), `Shift + click`, and `Shift + drag` work for layers inside top-level instances. | `r3-red-6d12cb22-doc.log`, `r3-red-6d12cb22-app.log`, `r3-green-click-selection.log` | PASS |
+| **3. Matching walks find every scope + brute-force oracle** | Added `walk_component_set_variants` and `walk_component_sets_in` (`crates/designos-doc/src/find.rs:746-810`) so `walk_matching_layers` and `walk_in_scope_root` reach `ComponentSet` nodes at any depth (inside frames, groups, or nested sections) and walk each visible unlocked `Component` variant from depth 0. Added `assert_matching_layers_oracle_on_page` across all selection fixtures in `click_selection.rs` and `find_matching_layers_equals_brute_force_oracle_across_top_level_instances_and_nested_component_sets` in `find.rs`. | `r3-red-6d12cb22-doc.log`, `r3-test-doc-lib.log`, `r3-green-click-selection.log` | PASS |
+| **4. `Select layer` 32-entry cap (breadth-first by depth)** | Updated `hit_all_under_including_locked` (`crates/designos-app/src/canvas/hit.rs:285-330`) when `parents_first == true` to collect `(NodeId, usize)` with `depth < 32`, stable-sort by `depth`, and truncate to 32 entries so sibling parents across all branches are kept before deeper descendants. Verified by `select_layer_submenu_cap_keeps_sibling_parents_across_branches_before_deep_descendants`. | `r3-red-6d12cb22-app.log`, `r3-green-click-selection.log` | PASS |
+| **5. Ruling 2 timing (`< 8 ms` on largest page)** | Measured release-mode `find_matching_layers` + `SceneIndex::bounds_of` (`drag_start_ms`) and 10-step marquee intersection (`drag_frame_ms`) on an APFS clone of Untitled UI PRO v8.0's largest page (`"      ❖ Landing pages"`, 67,717 nodes, 9,774 nested text layers + 13 top-level instance text layers): `drag_start_median_ms = 0.414 ms`, `drag_start_max_ms = 3.249 ms` (`< 8 ms`); `drag_frame_median_ms = 0.0001 ms`, `drag_frame_max_ms = 0.0002 ms` (`< 8 ms`). | `r3-perf-landing-page.log` | PASS |
+| **6. Tests for both MAJOR inputs (red on `6d12cb22`, green on `HEAD`)** | (a) `top_level_instance_child_shift_marquee_ignores_unrelated_layers_and_matches_across_instances` (label inside top-level instance + `Shift + drag` over unrelated rectangle adds nothing; nested layer with zero matching candidates + `Shift + drag` adds nothing; matching top-level instance children toggle across instances); (b) `component_set_inside_frame_matches_variant_layers_via_shortcut_shift_click_and_shift_marquee` (`Icon` in two variants of a `ComponentSet` inside a `Frame` is found by `Q`, `Shift + click`, and `Shift + drag`). All 4 new tests failed on `6d12cb22` and passed on `ad8bde20`. | `r3-red-6d12cb22-doc.log`, `r3-red-6d12cb22-app.log`, `r3-green-click-selection.log` | PASS |
+| **7. Workspace formatting, clippy, unit tests & Zero Fake UI gate** | `cargo fmt --all -- --check` exits 0; `cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::needless_return` exits 0; `cargo test -p designos-doc --locked --lib` passes 712/712; `cargo test -p designos-app --bin designos --locked select` passes 279/279; `cargo test --workspace --locked --lib` passes 1,480/1,480; `python3 scripts/zero_fake_ui_gate.py` passes 17/17. | `r3-fmt.log`, `r3-clippy.log`, `r3-clippy-clean.log`, `r3-test-doc-lib.log`, `r3-test-app-select.log`, `r3-test-workspace-lib.log` | PASS |
+
+### 4. Ruling 2 / Ruling 5 Timing Method & Numbers
+
+- **Method**:
+  1. Created an APFS copy-on-write clone (`cp -c`) of `/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` in `$TMPDIR` and deleted the clone immediately after reading.
+  2. Imported the file in `--release` mode via `designos_fig::import_fig`, expanded all pages via `doc.hydrate_all_pages()`, selected the largest page (`NodeId(88674)`, `"      ❖ Landing pages"`, `67,717` scene nodes), and built `designos_render::SceneIndex`.
+  3. Collected all `9,774` visible unlocked nested text layers on `"      ❖ Landing pages"` (including `13` text layers inside top-level `NodeKind::Instance` scope roots), sampled 8 nested text layers evenly across the page plus 4 top-level instance text layers (12 total probes).
+  4. For each probe `sel`, timed `drag_start_ms` (`designos_doc::find::find_matching_layers(&doc, &[sel])` plus `SceneIndex::bounds_of` for each matched node, matching `marquee_matching_candidates` on drag start) and `drag_frame_ms` (maximum single-frame duration across 10 expanding marquee rectangles toggling matching candidates).
+- **Numbers (`plans/reports/agy-1482-click-selection-evidence/r3-perf-landing-page.log`)**:
+
+```text
+running 1 test
+PROBE import_s=30.2
+PROBE largest_page=NodeId(88674) name="      ❖ Landing pages" nodes=67717
+PROBE nested_text_candidates=9774 top_instance_text_candidates=13
+PROBE sel=NodeId(695506) depth=7 matches=35 drag_start_ms=0.448 drag_frame_ms=0.0002 frame_sel=5
+PROBE sel=NodeId(704524) depth=10 matches=3 drag_start_ms=1.005 drag_frame_ms=0.0002 frame_sel=1
+PROBE sel=NodeId(712971) depth=9 matches=0 drag_start_ms=3.249 drag_frame_ms=0.0002 frame_sel=1
+PROBE sel=NodeId(722697) depth=8 matches=6 drag_start_ms=0.338 drag_frame_ms=0.0001 frame_sel=2
+PROBE sel=NodeId(730712) depth=8 matches=1 drag_start_ms=0.414 drag_frame_ms=0.0000 frame_sel=1
+PROBE sel=NodeId(738090) depth=10 matches=21 drag_start_ms=1.143 drag_frame_ms=0.0001 frame_sel=4
+PROBE sel=NodeId(745582) depth=9 matches=15 drag_start_ms=3.069 drag_frame_ms=0.0002 frame_sel=4
+PROBE sel=NodeId(753921) depth=12 matches=1 drag_start_ms=0.335 drag_frame_ms=0.0000 frame_sel=0
+PROBE sel=NodeId(764304) depth=3 matches=0 drag_start_ms=0.035 drag_frame_ms=0.0000 frame_sel=1
+PROBE sel=NodeId(764318) depth=6 matches=0 drag_start_ms=0.025 drag_frame_ms=0.0000 frame_sel=0
+PROBE sel=NodeId(764321) depth=6 matches=0 drag_start_ms=0.021 drag_frame_ms=0.0000 frame_sel=0
+PROBE sel=NodeId(764322) depth=4 matches=0 drag_start_ms=0.019 drag_frame_ms=0.0000 frame_sel=1
+PROBE SUMMARY drag_start_median_ms=0.414 drag_start_max_ms=3.249 drag_frame_median_ms=0.0001 drag_frame_max_ms=0.0002
+test perf_probe_landing_page_shift_marquee ... ok
+```
+
+### 5. Exact Commands & Pasted Outputs
+
+```text
+$ git log --oneline origin/main..HEAD
+ad8bde20 fix(canvas): support top-level instance matching scopes, deep component sets, and breadth-first Select layer cap (#1482)
+6ff3f7b9 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1482-click-selection
+4e9ee144 docs(report): add round-2 click selection report and evidence (#1482)
+6d12cb22 fix(canvas): refine Shift-marquee matching, hover cache, Select layer order, and matching rules (#1482)
+1ebd79ee Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1482-click-selection
+012bdf57 feat(canvas): click selects outside-in like Figma, and Shift-click adds matching layers (#1482)
+
+$ git diff origin/main -- ':(exclude)plans/' | grep -nE '^\+.*\b(t[0-9]{1,2}_|R[0-9]{1,2}|F[0-9]{1,2}|M[0-9]{1,2}|L[0-9]|#14[0-9]{2})\b'
+(0 matches, exit 1)
+
+$ cargo fmt --all -- --check
+(exit 0, plans/reports/agy-1482-click-selection-evidence/r3-fmt.log)
+
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+error: unneeded `return` statement (crates/designos-app/src/agent_permissions.rs:1176:9, 1194:9 — main's 2 pre-existing lints; plans/reports/agy-1482-click-selection-evidence/r3-clippy.log)
+$ cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::needless_return
+Finished `dev` profile [unoptimized + debuginfo] target(s) (exit 0, plans/reports/agy-1482-click-selection-evidence/r3-clippy-clean.log)
+
+$ cargo test -p designos-doc --locked --lib find::
+# on 6d12cb22 (plans/reports/agy-1482-click-selection-evidence/r3-red-6d12cb22-doc.log):
+failures:
+    find::tests::find_matching_layers_equals_brute_force_oracle_across_top_level_instances_and_nested_component_sets
+test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+# on HEAD ad8bde20 (plans/reports/agy-1482-click-selection-evidence/r3-test-doc-lib.log):
+test result: ok. 712 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.31s
+
+$ cargo test -p designos-app --bin designos --locked click_selection
+# on 6d12cb22 (plans/reports/agy-1482-click-selection-evidence/r3-red-6d12cb22-app.log):
+failures:
+    shell::tests::click_selection::component_set_inside_frame_matches_variant_layers_via_shortcut_shift_click_and_shift_marquee
+    shell::tests::click_selection::select_layer_submenu_cap_keeps_sibling_parents_across_branches_before_deep_descendants
+    shell::tests::click_selection::top_level_instance_child_shift_marquee_ignores_unrelated_layers_and_matches_across_instances
+test result: FAILED. 28 passed; 3 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 7.40s
+# on HEAD ad8bde20 (plans/reports/agy-1482-click-selection-evidence/r3-green-click-selection.log):
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 6.53s
+
+$ cargo test -p designos-app --bin designos --locked select
+# (plans/reports/agy-1482-click-selection-evidence/r3-test-app-select.log)
+test result: ok. 279 passed; 0 failed; 0 ignored; 0 measured; 3789 filtered out; finished in 29.46s
+
+$ cargo test --workspace --locked --lib
+# (plans/reports/agy-1482-click-selection-evidence/r3-test-workspace-lib.log)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 712 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.15s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.55s
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.26s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+test result: ok. 322 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.04s
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 33.25s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+(Total: 1,480 passed; 0 failed)
+
+$ python3 scripts/zero_fake_ui_gate.py
+Gate Verdict: PASS (17/17 invariants satisfied)
+```
+
+Status: DONE
