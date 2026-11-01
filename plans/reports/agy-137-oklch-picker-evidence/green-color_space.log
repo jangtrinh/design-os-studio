@@ -1,0 +1,14 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.70s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 3 tests
+test color_space::tests::known_values_srgb_to_oklab_and_oklch ... ok
+test color_space::tests::gamut_clamping_and_non_finite_inputs ... ok
+test color_space::tests::round_trip_17_step_srgb_grid_4913_colours ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 674 filtered out; finished in 0.00s
+

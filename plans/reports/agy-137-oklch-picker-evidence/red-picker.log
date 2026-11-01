@@ -1,0 +1,85 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.52s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 14 tests
+test widgets::picker::tests::hsb_is_computed_in_gamma_space ... ok
+test widgets::picker::tests::solid_to_gradient_keeps_color_as_first_stop ... ok
+test widgets::picker::tests::active_color_edits_the_selected_stop ... ok
+test widgets::picker::tests::gradient_to_solid_takes_first_stop ... ok
+test widgets::picker::tests::gradient_shape_switch_keeps_stops ... ok
+test widgets::picker::tests::hue_survives_grey ... ok
+test widgets::picker::tests::oklch_and_oklab_format_list_and_default ... FAILED
+test widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps ... FAILED
+test widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells ... FAILED
+test widgets::picker::tests::stop_color_interpolates ... ok
+test widgets::picker::tests::procedural_png_presets_generate_valid_png_headers_and_distinct_textures ... ok
+test widgets::picker::tests::css_and_hsl_roundtrip ... ok
+test widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue ... FAILED
+test widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba ... FAILED
+
+failures:
+
+---- widgets::picker::tests::oklch_and_oklab_format_list_and_default stdout ----
+
+thread 'widgets::picker::tests::oklch_and_oklab_format_list_and_default' (45717268) panicked at crates/designos-app/src/widgets/picker.rs:1817:9:
+assertion `left == right` failed
+  left: [Hex, Rgb, Css, Hsl, Hsb, Hex, Hex]
+ right: [Hex, Rgb, Css, Hsl, Hsb, Oklch, Oklab]
+
+---- widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps stdout ----
+
+thread 'widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps' (45717270) panicked at crates/designos-app/src/widgets/picker.rs:1853:65:
+C 50%
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells stdout ----
+
+thread 'widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells' (45717272) panicked at crates/designos-app/src/widgets/picker.rs:1831:9:
+assertion `left == right` failed
+  left: ["", "", ""]
+ right: ["62.8", "0.26", "29.23"]
+
+---- widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue stdout ----
+
+thread 'widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue' (45717269) panicked at crates/designos-app/src/widgets/picker.rs:1942:9:
+assertion failed: (red_hue - 29.233_885).abs() < 1e-2
+
+---- widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba stdout ----
+
+thread 'widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba' (45717263) panicked at crates/designos-app/src/widgets/picker.rs:1907:9:
+editing OKLCH L must mark out.changed
+
+
+failures:
+    widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba
+    widgets::picker::tests::oklch_and_oklab_format_list_and_default
+    widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue
+    widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps
+    widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells
+
+test result: FAILED. 9 passed; 5 failed; 0 ignored; 0 measured; 3969 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

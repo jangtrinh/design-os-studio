@@ -21,6 +21,7 @@ pub mod branch_diff;
 mod branch_diff_tests;
 pub mod branch_merge;
 pub mod changelog_features;
+mod color_space;
 mod comments;
 #[cfg(test)]
 mod component_cycle_tests;
@@ -39,6 +40,8 @@ pub mod layout_solver;
 mod layout_solver_grid;
 mod layout_solver_grid_placement;
 mod layout_solver_types;
+#[cfg(test)]
+mod layout_wrapped_text_tests;
 mod library;
 mod library_ops;
 pub mod lint;
@@ -84,6 +87,7 @@ pub use branch_merge::{
     merge, merge_branch, validate_merged_references, ConflictSide, DanglingReference, MergeError, MergePlan, MergeReport, Resolution, Side, UnresolvedItem,
 };
 pub use changelog_features::*;
+pub use color_space::*;
 pub use comments::*;
 pub use components::*;
 pub use dev::*;
