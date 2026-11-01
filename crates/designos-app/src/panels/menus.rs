@@ -44,6 +44,7 @@ pub enum Action {
     Group,
     Ungroup,
     FrameSelection,
+    ResizeToFit,
     AutoLayout,
     UpdateAutoLayout,
     FitAll,
@@ -164,6 +165,9 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::Group => app.group_selection(false),
         Action::Ungroup => app.ungroup_selection(),
         Action::FrameSelection => app.group_selection(true),
+        Action::ResizeToFit => {
+            app.resize_to_fit();
+        }
         Action::AutoLayout => app.toggle_auto_layout(),
         Action::UpdateAutoLayout => {
             app.upgrade_auto_layout_version();
@@ -468,7 +472,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Copy properties", "Ctrl+Alt+C", Action::CopyProperties).off(!has_sel),
         leaf("Paste properties", "Ctrl+Alt+V", Action::PasteProperties).off(!has_sel),
         leaf("Paste over selection", "Ctrl+Shift+V", Action::PasteOverSelection).off(app.clip.is_none()),
-        leaf("Paste to replace", "Ctrl+Alt+Shift+R", Action::PasteToReplace).off(!has_sel || app.clip.is_none()),
+        leaf("Paste to replace", "Ctrl+Shift+R", Action::PasteToReplace).off(!has_sel || app.clip.is_none()),
     ];
     let view = vec![
         leaf("Zoom in", "Ctrl+=", Action::ZoomIn),
@@ -486,6 +490,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Group selection", "Ctrl+G", Action::Group).off(!has_sel),
         leaf("Ungroup", "Ctrl+Shift+G", Action::Ungroup).off(!has_sel),
         leaf("Frame selection", "Ctrl+Alt+G", Action::FrameSelection).off(!has_sel),
+        leaf("Resize to fit", "Ctrl+Alt+Shift+R", Action::ResizeToFit).off(!app.can_resize_to_fit()),
         leaf("Add auto layout", "Shift+A", Action::AutoLayout).off(!has_sel),
         leaf("Update auto layout", "", Action::UpdateAutoLayout).off(!app.has_upgradable_auto_layout()).sep(),
         leaf("Create component", "Ctrl+Alt+K", Action::CreateComponent).off(!has_sel),
@@ -1231,5 +1236,59 @@ mod tests {
         }
         // Several surface roles share one fill, so only the size says this is the palette frame.
         assert!(found.iter().any(|(w, h)| (w - 520.0).abs() < 0.5 && (h - 394.0).abs() < 0.5), "palette frame is 520 by 394, got {found:?}");
+    }
+
+    #[test]
+    fn resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+        let empty_frame = doc.alloc_id();
+        doc.insert(page, DocNode::frame(empty_frame, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let full_frame = doc.alloc_id();
+        doc.insert(page, DocNode::frame(full_frame, Rect::new(250.0, 0.0, 200.0, 200.0))).unwrap();
+        let child = doc.alloc_id();
+        doc.insert(full_frame, DocNode::rectangle(child, Rect::new(10.0, 10.0, 40.0, 40.0))).unwrap();
+        let shape = doc.alloc_id();
+        doc.insert(page, DocNode::rectangle(shape, Rect::new(500.0, 0.0, 60.0, 60.0))).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let edit_row = |app: &App, label: &str| {
+            let nodes = main_nodes(app);
+            let edit = nodes.iter().find(|n| n.item.label == "Edit").expect("Edit submenu");
+            edit.kids.iter().find(|n| n.item.label == label).expect("Edit row").item.clone()
+        };
+        let object_row = |app: &App, label: &str| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == label).expect("Object row").item.clone()
+        };
+
+        let paste_replace = edit_row(&app, "Paste to replace");
+        assert_eq!(paste_replace.shortcut, "Ctrl+Shift+R");
+
+        // No selection -> disabled
+        app.selection = vec![];
+        let rtf0 = object_row(&app, "Resize to fit");
+        assert_eq!(rtf0.shortcut, "Ctrl+Alt+Shift+R");
+        assert!(rtf0.disabled, "empty selection disables Resize to fit");
+
+        // Plain shape -> disabled
+        app.selection = vec![shape];
+        assert!(object_row(&app, "Resize to fit").disabled, "leaf shape disables Resize to fit");
+
+        // Empty frame -> disabled
+        app.selection = vec![empty_frame];
+        assert!(object_row(&app, "Resize to fit").disabled, "empty frame disables Resize to fit");
+
+        // Frame with visible child -> enabled
+        app.selection = vec![full_frame];
+        assert!(!object_row(&app, "Resize to fit").disabled, "frame with visible child enables Resize to fit");
+
+        // Hide the only child -> disabled
+        app.doc.get_mut(child).unwrap().visible = false;
+        assert!(object_row(&app, "Resize to fit").disabled, "frame with only hidden children disables Resize to fit");
     }
 }

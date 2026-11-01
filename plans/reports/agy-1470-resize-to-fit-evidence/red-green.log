@@ -1,0 +1,191 @@
+=== RED: cargo test -p designos-doc --locked --lib resize_to_fit ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 40.11s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-6a14e6c7eed30945)
+
+running 9 tests
+test layout_constraints::tests::resize_to_fit_frame_smaller_than_children_grows_and_keeps_child_page_positions ... FAILED
+test layout_constraints::tests::resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text ... FAILED
+test layout_constraints::tests::resize_to_fit_rotated_child_and_rotated_container_use_container_space ... FAILED
+test layout_constraints::tests::resize_to_fit_frame_larger_than_children_shrinks_and_keeps_child_page_positions ... FAILED
+test layout_constraints::tests::resize_to_fit_auto_layout_frame_turns_hug_on_both_axes ... FAILED
+test layout_constraints::tests::resize_to_fit_component_and_component_set_fit_visible_children ... FAILED
+test layout_constraints::tests::resize_to_fit_does_not_apply_child_constraints ... FAILED
+test layout_constraints::tests::resize_to_fit_ignores_hidden_children_and_disables_when_none_visible ... FAILED
+test layout_constraints::tests::resize_to_fit_group_fits_visible_children ... FAILED
+
+failures:
+
+---- layout_constraints::tests::resize_to_fit_frame_smaller_than_children_grows_and_keeps_child_page_positions stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_frame_smaller_than_children_grows_and_keeps_child_page_positions' (53999314) panicked at crates/designos-doc/src/layout_constraints.rs:571:9:
+assertion failed: doc.resize_to_fit(&mut hist, &[fid])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- layout_constraints::tests::resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text' (53999317) panicked at crates/designos-doc/src/layout_constraints.rs:816:9:
+assertion failed: doc.resize_to_fit(&mut hist, &[f1, f2, shape, text])
+
+---- layout_constraints::tests::resize_to_fit_rotated_child_and_rotated_container_use_container_space stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_rotated_child_and_rotated_container_use_container_space' (53999318) panicked at crates/designos-doc/src/layout_constraints.rs:738:9:
+assertion failed: doc.resize_to_fit(&mut hist, &[fid])
+
+---- layout_constraints::tests::resize_to_fit_frame_larger_than_children_shrinks_and_keeps_child_page_positions stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_frame_larger_than_children_shrinks_and_keeps_child_page_positions' (53999313) panicked at crates/designos-doc/src/layout_constraints.rs:545:9:
+assertion failed: doc.resize_to_fit(&mut hist, &[fid])
+
+---- layout_constraints::tests::resize_to_fit_auto_layout_frame_turns_hug_on_both_axes stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_auto_layout_frame_turns_hug_on_both_axes' (53999310) panicked at crates/designos-doc/src/layout_constraints.rs:676:9:
+assertion failed: doc.resize_to_fit(&mut hist, &[fid])
+
+---- layout_constraints::tests::resize_to_fit_component_and_component_set_fit_visible_children stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_component_and_component_set_fit_visible_children' (53999311) panicked at crates/designos-doc/src/layout_constraints.rs:636:9:
+assertion failed: doc.resize_to_fit(&mut hist, &[comp_id, set_id])
+
+---- layout_constraints::tests::resize_to_fit_does_not_apply_child_constraints stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_does_not_apply_child_constraints' (53999312) panicked at crates/designos-doc/src/layout_constraints.rs:769:9:
+assertion failed: doc.resize_to_fit(&mut hist, &[fid])
+
+---- layout_constraints::tests::resize_to_fit_ignores_hidden_children_and_disables_when_none_visible stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_ignores_hidden_children_and_disables_when_none_visible' (53999316) panicked at crates/designos-doc/src/layout_constraints.rs:704:9:
+assertion failed: can_resize_to_fit(&doc, &[fid])
+
+---- layout_constraints::tests::resize_to_fit_group_fits_visible_children stdout ----
+
+thread 'layout_constraints::tests::resize_to_fit_group_fits_visible_children' (53999315) panicked at crates/designos-doc/src/layout_constraints.rs:594:9:
+assertion failed: doc.resize_to_fit(&mut hist, &[gid])
+
+
+failures:
+    layout_constraints::tests::resize_to_fit_auto_layout_frame_turns_hug_on_both_axes
+    layout_constraints::tests::resize_to_fit_component_and_component_set_fit_visible_children
+    layout_constraints::tests::resize_to_fit_does_not_apply_child_constraints
+    layout_constraints::tests::resize_to_fit_frame_larger_than_children_shrinks_and_keeps_child_page_positions
+    layout_constraints::tests::resize_to_fit_frame_smaller_than_children_grows_and_keeps_child_page_positions
+    layout_constraints::tests::resize_to_fit_group_fits_visible_children
+    layout_constraints::tests::resize_to_fit_ignores_hidden_children_and_disables_when_none_visible
+    layout_constraints::tests::resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text
+    layout_constraints::tests::resize_to_fit_rotated_child_and_rotated_container_use_container_space
+
+test result: FAILED. 0 passed; 9 failed; 0 ignored; 0 measured; 706 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+
+=== RED: cargo test -p designos-app --bin designos --locked resize_to_fit ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-doc)
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-mcp)
+   Compiling designos-fonts v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-fonts)
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-render)
+   Compiling designos-svg v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-svg)
+   Compiling designos-export v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-export)
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-webcapture)
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-fig)
+   Compiling designos-library v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-library)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app)
+warning: variant `ResizeToFit` is never constructed
+  --> crates/designos-app/src/panels/menus.rs:47:5
+   |
+17 | pub enum Action {
+   |          ------ variant in this enum
+...
+47 |     ResizeToFit,
+   |     ^^^^^^^^^^^
+   |
+   = note: `Action` has derived impls for the traits `Debug` and `Clone`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.65s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 3 tests
+test panels::menus::tests::resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state ... FAILED
+test ops::tests::app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step ... FAILED
+test shell::tests::agent_a11y::shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace ... FAILED
+
+failures:
+
+---- panels::menus::tests::resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state stdout ----
+
+thread 'panels::menus::tests::resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state' (54011780) panicked at crates/designos-app/src/panels/menus.rs:1269:9:
+assertion `left == right` failed
+  left: "Ctrl+Alt+Shift+R"
+ right: "Ctrl+Shift+R"
+
+---- ops::tests::app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step stdout ----
+
+thread 'ops::tests::app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step' (54011779) panicked at crates/designos-app/src/ops.rs:3023:9:
+assertion failed: app.can_resize_to_fit()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::agent_a11y::shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace stdout ----
+
+thread 'shell::tests::agent_a11y::shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace' (54011781) panicked at crates/designos-app/src/shell/tests.rs:1951:46:
+frame still exists and was not replaced by clipboard
+
+
+failures:
+    ops::tests::app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step
+    panels::menus::tests::resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state
+    shell::tests::agent_a11y::shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 3999 filtered out; finished in 0.53s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+
+
+
+
+
+=== GREEN: cargo test -p designos-doc --locked --lib resize_to_fit ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-6a14e6c7eed30945)
+
+running 9 tests
+test layout_constraints::tests::resize_to_fit_group_fits_visible_children ... ok
+test layout_constraints::tests::resize_to_fit_frame_larger_than_children_shrinks_and_keeps_child_page_positions ... ok
+test layout_constraints::tests::resize_to_fit_does_not_apply_child_constraints ... ok
+test layout_constraints::tests::resize_to_fit_rotated_child_and_rotated_container_use_container_space ... ok
+test layout_constraints::tests::resize_to_fit_frame_smaller_than_children_grows_and_keeps_child_page_positions ... ok
+test layout_constraints::tests::resize_to_fit_ignores_hidden_children_and_disables_when_none_visible ... ok
+test layout_constraints::tests::resize_to_fit_component_and_component_set_fit_visible_children ... ok
+test layout_constraints::tests::resize_to_fit_auto_layout_frame_turns_hug_on_both_axes ... ok
+test layout_constraints::tests::resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 706 filtered out; finished in 0.00s
+
+
+=== GREEN: cargo test -p designos-app --bin designos --locked resize_to_fit ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1470-resize-to-fit/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.27s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 4 tests
+test panels::menus::tests::resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state ... ok
+test ops::tests::app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step ... ok
+test ops::tests::resize_to_fit_cpu_render_preserves_child_pixels_and_trims_excess_frame_bounds ... ok
+test shell::tests::agent_a11y::shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3999 filtered out; finished in 4.92s
+

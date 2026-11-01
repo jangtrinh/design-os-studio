@@ -1,0 +1,16 @@
+## M0-null SURVIVED (77s) :: null control (head as-is)
+exit=0 test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 5.65s failed=[]
+
+## M6 KILLED (83s) :: targets shallowest-first
+exit=101 test result: FAILED. 16 passed; 1 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 1.12s failed=['ops::tests::resize_to_fit_nested_selection_fits_deepest_container_before_outer_container']
+
+## M10 KILLED (96s) :: non-AL target: no ancestor relayout
+exit=101 test result: FAILED. 15 passed; 2 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 0.98s failed=['ops::tests::resize_to_fit_frame_inside_auto_layout_parent_reflows_parent_and_moves_child_on_page', 'ops::tests::resize_to_fit_frame_inside_group_refits_enclosing_group']
+
+## M11 KILLED (32s) :: non-AL target keeps Fill/Hug layout sizing
+exit=101 test result: FAILED. 16 passed; 1 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 0.80s failed=['ops::tests::resize_to_fit_fill_width_frame_in_auto_layout_parent_becomes_fixed_and_keeps_fitted_size']
+
+## M14-equiv KILLED (23s) :: shipped App::resize_to_fit: drop relayout from shipped path
+exit=101 test result: FAILED. 12 passed; 5 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 0.76s failed=['ops::tests::resize_to_fit_auto_layout_frame_turns_hug_on_both_axes', 'ops::tests::resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text', 'ops::tests::app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step', 'ops::tests::resize_to_fit_frame_inside_group_refits_enclosing_group', 'ops::tests::resize_to_fit_frame_inside_auto_layout_parent_reflows_parent_and_moves_child_on_page']
+
+SUMMARY [('M0-null', 'SURVIVED'), ('M6', 'KILLED'), ('M10', 'KILLED'), ('M11', 'KILLED'), ('M14-equiv', 'KILLED')]
