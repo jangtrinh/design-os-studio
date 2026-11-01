@@ -1924,4 +1924,44 @@ mod agent_a11y {
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos() {
+        let tmp = std::env::temp_dir().join(format!("designos-mask-key-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+        let ctx = egui::Context::default();
+        let opts = Options { library: Some(tmp.join("lib")), fixture: Some("demo".to_string()), ..Options::default() };
+        let mut shell = Shell::build(&ctx, opts);
+        let page = shell.app.page;
+        let id = shell.app.doc.alloc_id();
+        shell.app.doc.insert(page, designos_doc::Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+
+        let try_chord = |shell: &mut Shell, m: egui::Modifiers| -> bool {
+            shell.app.doc.get_mut(id).unwrap().is_mask = false;
+            shell.app.selection = vec![id];
+            shell.key(&ctx, egui::Key::M, m);
+            shell.app.doc.get(id).unwrap().is_mask
+        };
+
+        if cfg!(target_os = "macos") {
+            let ctrl_cmd = egui::Modifiers { alt: false, ctrl: true, shift: false, mac_cmd: true, command: true };
+            let alt_cmd = egui::Modifiers { alt: true, ctrl: false, shift: false, mac_cmd: true, command: true };
+            let ctrl_alt_cmd = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: true, command: true };
+            let plain_cmd = egui::Modifiers { alt: false, ctrl: false, shift: false, mac_cmd: true, command: true };
+            let ctrl_alt = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: false };
+            assert!(try_chord(&mut shell, ctrl_cmd), "⌃⌘M must toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, alt_cmd), "⌥⌘M must not toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, ctrl_alt_cmd), "⌃⌥⌘M must not toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, plain_cmd), "⌘M must not toggle Use as mask");
+            assert!(!try_chord(&mut shell, ctrl_alt), "⌃⌥M without ⌘ must not toggle Use as mask on macOS");
+        } else {
+            let ctrl_alt = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: true };
+            let plain_ctrl = egui::Modifiers { alt: false, ctrl: true, shift: false, mac_cmd: false, command: true };
+            assert!(try_chord(&mut shell, ctrl_alt), "Ctrl+Alt+M must toggle Use as mask");
+            assert!(!try_chord(&mut shell, plain_ctrl), "Ctrl+M must not toggle Use as mask");
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

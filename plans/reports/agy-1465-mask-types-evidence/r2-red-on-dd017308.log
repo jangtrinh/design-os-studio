@@ -1,0 +1,147 @@
+=== HEAD: dd017308 ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-6a14e6c7eed30945)
+
+running 1 test
+test node::mask_type_serde_tests::mask_type_fixture_merges_branches_and_syncs_component_instances ... FAILED
+
+failures:
+
+---- node::mask_type_serde_tests::mask_type_fixture_merges_branches_and_syncs_component_instances stdout ----
+
+thread 'node::mask_type_serde_tests::mask_type_fixture_merges_branches_and_syncs_component_instances' (60336007) panicked at crates/designos-doc/src/node.rs:1281:58:
+committed synthetic mask types fixture must exist: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    node::mask_type_serde_tests::mask_type_fixture_merges_branches_and_syncs_component_instances
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 707 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.79s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-ab37cec47eaf5b06)
+
+running 1 test
+test legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector ... FAILED
+
+failures:
+
+---- legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector stdout ----
+
+thread 'legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector' (60336584) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4170:5:
+assertion `left == right` failed
+  left: Alpha
+ right: Vector
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.02s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-0f3196e55216fa9f)
+
+running 2 tests
+test luminance_mask_rgb_channels_and_shader_coefficients_match_rec709 ... FAILED
+test vector_mask_uses_own_outline_for_shape_frame_group_and_text ... FAILED
+
+failures:
+
+---- luminance_mask_rgb_channels_and_shader_coefficients_match_rec709 stdout ----
+
+thread 'luminance_mask_rgb_channels_and_shader_coefficients_match_rec709' (60338373) panicked at crates/designos-render/tests/mask_without_own_fill.rs:436:5:
+designos-gpu pipelines.rs must source luminance coefficients from designos_render::LUMINANCE_MASK_COEFFS
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- vector_mask_uses_own_outline_for_shape_frame_group_and_text stdout ----
+
+thread 'vector_mask_uses_own_outline_for_shape_frame_group_and_text' (60338374) panicked at crates/designos-render/tests/mask_without_own_fill.rs:302:9:
+assertion `left == right` failed: inside frame box outside child
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+
+
+failures:
+    luminance_mask_rgb_channels_and_shader_coefficients_match_rec709
+    vector_mask_uses_own_outline_for_shape_frame_group_and_text
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test mask_without_own_fill`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Blocking waiting for file lock on package cache
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.11s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-2ce90af7d717be90)
+
+running 1 test
+test gpu_vector_mask_outlines_and_rgb_luminance_match_cpu ... FAILED
+
+failures:
+
+---- gpu_vector_mask_outlines_and_rgb_luminance_match_cpu stdout ----
+GPU: Apple M4 Max (Metal)
+
+thread 'gpu_vector_mask_outlines_and_rgb_luminance_match_cpu' (60340656) panicked at crates/designos-gpu/tests/mask_without_own_fill.rs:525:9:
+assertion `left == right` failed: settled GPU covers full frame box at (80,80)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    gpu_vector_mask_outlines_and_rgb_luminance_match_cpu
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 3.95s
+
+error: test failed, to rerun pass `-p designos-gpu --test mask_without_own_fill`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 14s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 2 tests
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... FAILED
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... FAILED
+
+failures:
+
+---- panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle stdout ----
+
+thread 'panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle' (60363633) panicked at crates/designos-app/src/panels/properties.rs:3054:9:
+dropdown edit removes legacy fig_metadata maskType
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos stdout ----
+
+thread 'shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos' (60363634) panicked at crates/designos-app/src/shell/tests.rs:1952:13:
+⌥⌘M must not toggle Use as mask on macOS
+
+
+failures:
+    panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle
+    shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4001 filtered out; finished in 1.48s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

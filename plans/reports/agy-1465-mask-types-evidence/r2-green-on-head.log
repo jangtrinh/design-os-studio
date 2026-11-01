@@ -1,0 +1,60 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-6a14e6c7eed30945)
+
+running 1 test
+test node::mask_type_serde_tests::mask_type_fixture_merges_branches_and_syncs_component_instances ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.14s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.52s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-ab37cec47eaf5b06)
+
+running 1 test
+test legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.03s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-0f3196e55216fa9f)
+
+running 2 tests
+test luminance_mask_rgb_channels_and_shader_coefficients_match_rec709 ... ok
+test vector_mask_uses_own_outline_for_shape_frame_group_and_text ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.06s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.70s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-2ce90af7d717be90)
+
+running 1 test
+test gpu_vector_mask_outlines_and_rgb_luminance_match_cpu ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.45s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 13s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 2 tests
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... ok
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4039 filtered out; finished in 0.76s
+

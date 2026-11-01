@@ -1024,7 +1024,11 @@ impl<'a> FrameRun<'a> {
                         tint: c.tint.unwrap_or([0.0; 4]),
                         opacity: c.opacity,
                         has_tint: c.tint.is_some() as u32,
-                        aux_mode: aux.as_ref().map_or(0, |(_, _, m)| if *m == AuxMode::Mul { 1 } else { 2 }),
+                        aux_mode: aux.as_ref().map_or(0, |(_, _, m)| match m {
+                            AuxMode::Mul => 1,
+                            AuxMode::MulInv => 2,
+                            AuxMode::MulLum => 3,
+                        }),
                         blend: 0,
                     };
                     let spec = CompSpec { params, src: &src_view, aux: aux.as_ref().map(|(v, _, _)| v), snap: None, kind, scissor: sc, clip_mask: cd.mask };
@@ -1137,7 +1141,11 @@ impl<'a> FrameRun<'a> {
             tint,
             opacity: c.opacity,
             has_tint: c.tint.is_some() as u32,
-            aux_mode: aux.as_ref().map_or(0, |(_, _, m)| if *m == AuxMode::Mul { 1 } else { 2 }),
+            aux_mode: aux.as_ref().map_or(0, |(_, _, m)| match m {
+                AuxMode::Mul => 1,
+                AuxMode::MulInv => 2,
+                AuxMode::MulLum => 3,
+            }),
             blend: blend_id(mode),
         };
         let spec = CompSpec {

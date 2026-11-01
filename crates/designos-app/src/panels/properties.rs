@@ -851,8 +851,9 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             app.rename(sel[0], &s);
         }
     }
+    let all_mask = sel.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask));
     let btns = [
-        (Icon::Mask, "Use as mask", n0.is_mask),
+        (Icon::Mask, "Use as mask", all_mask),
         (if n0.locked { Icon::Lock } else { Icon::Unlock }, "Lock", n0.locked),
         (if n0.visible { Icon::Eye } else { Icon::EyeOff }, "Hide / show", !n0.visible),
     ];
@@ -860,7 +861,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         let r = pane.rect(theme::RIGHT_NAME_ACTION_X[i] - 1.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         if widgets::icon_button(ui, r, ("hdr", i), *icon, *on, tip).clicked() {
             match i {
-                0 => app.edit_nodes(sel, |n| n.is_mask = !on),
+                0 => super::menus::toggle_mask_selection(app),
                 1 => app.edit_nodes(sel, |n| n.locked = !on),
                 _ => app.edit_nodes(sel, |n| n.visible = !n.visible),
             }
@@ -1037,6 +1038,28 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         var_bind::mode_rows(app, ui, pane, sel);
     }
     pane.y += 4.0;
+
+    // ---- Mask
+    let masks: Vec<NodeId> = sel.iter().take(128).copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();
+    if !masks.is_empty() {
+        section_sep(ui, pane, false);
+        title(ui, pane, "Mask", None, false);
+        let mt = common(app, &masks, |n| n.mask_type);
+        let cur = mt.map_or("Mixed", MaskType::label);
+        let opts = MaskType::ALL.map(|m| String::from(m.label()));
+        let r = pane.full(0.0);
+        widgets::record(ui, "mask-type", r);
+        if let Some(i) = dropdown(ui, r, "mask-type", cur, &opts) {
+            let chosen = MaskType::ALL[i];
+            let masks: Vec<NodeId> = sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();
+            app.edit_nodes(&masks, |n| {
+                n.mask_type = chosen;
+                n.fig_metadata.remove("maskType");
+            });
+        }
+        row_end(pane);
+        pane.y += theme::SPACE_ROW;
+    }
 
     // ---- Fill
     if matches!(n0.kind, NodeKind::Text(_)) {
@@ -2941,5 +2964,148 @@ mod tests {
         let n2 = app2.doc.get(cid2).unwrap();
         assert_eq!(n2.size, v2(30.0, 100.0));
         assert_eq!(n2.layout_child.align_self, AlignSelf::Auto);
+    }
+
+    #[test]
+    fn mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step() {
+        let mut doc = designos_doc::Document::new("mask-ui");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let m1 = app.doc.alloc_id();
+        let mut n1 = Node::rectangle(m1, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        n1.is_mask = true;
+        n1.mask_type = MaskType::Alpha;
+        let m1 = app.doc.insert(page, n1).unwrap();
+
+        let m2 = app.doc.alloc_id();
+        let mut n2 = Node::rectangle(m2, designos_doc::Rect::new(50.0, 0.0, 40.0, 40.0));
+        n2.is_mask = true;
+        n2.mask_type = MaskType::Luminance;
+        let m2 = app.doc.insert(page, n2).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let step = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| show(app, ui, region));
+        };
+        let click = |app: &mut App, pos: Pos2| {
+            step(app, vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+        };
+
+        // Select mixed masks: Mask section dropdown renders and reports Mixed (`common` is None)
+        app.selection = vec![m1, m2];
+        assert_eq!(common(&app, &app.selection, |n| n.mask_type), None);
+        step(&mut app, vec![]);
+        let dd_rect = test_rect(&ctx, "mask-type").expect("mask-type dropdown rendered for mask selection");
+
+        // Open the dropdown (release sets open=true; next pass renders popup_menu) and pick "Vector" (row 1)
+        click(&mut app, dd_rect.center());
+        step(&mut app, vec![]);
+        let vector_row = test_rect(&ctx, "menu-row-0-1").expect("Vector row rendered in mask-type menu");
+        click(&mut app, vector_row.center());
+
+        assert_eq!(app.doc.get(m1).unwrap().mask_type, MaskType::Vector);
+        assert_eq!(app.doc.get(m2).unwrap().mask_type, MaskType::Vector);
+
+        // One undo step restores both nodes' original mask types
+        app.undo();
+        assert_eq!(app.doc.get(m1).unwrap().mask_type, MaskType::Alpha);
+        assert_eq!(app.doc.get(m2).unwrap().mask_type, MaskType::Luminance);
+    }
+
+    #[test]
+    fn mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle() {
+        let mut doc = designos_doc::Document::new("mask-ui-filter");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let m1 = app.doc.alloc_id();
+        let mut n1 = Node::rectangle(m1, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        n1.is_mask = true;
+        n1.mask_type = MaskType::Luminance;
+        n1.fig_metadata.insert("maskType".into(), "LUMINANCE".into());
+        let m1 = app.doc.insert(page, n1).unwrap();
+
+        let plain = app.doc.alloc_id();
+        let n2 = Node::rectangle(plain, designos_doc::Rect::new(50.0, 0.0, 40.0, 40.0));
+        let plain = app.doc.insert(page, n2).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let step = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| show(app, ui, region));
+        };
+        let click = |app: &mut App, pos: Pos2| {
+            step(app, vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+        };
+
+        // Select one Luminance mask and one non-mask layer:
+        // The dropdown label must read only mask layers ("Luminance", so row 2 is checked, not "Mixed"),
+        // and picking Vector must only update the mask layer and clear its legacy fig_metadata["maskType"].
+        app.selection = vec![m1, plain];
+        step(&mut app, vec![]);
+        let dd_rect = test_rect(&ctx, "mask-type").expect("mask-type dropdown rendered");
+        click(&mut app, dd_rect.center());
+        step(&mut app, vec![]);
+        assert!(
+            test_rect(&ctx, "menu-check-0-2").is_some_and(|r| r.is_positive()),
+            "dropdown label for [Luminance mask, plain] must read mask layers only (Luminance checked, not Mixed)"
+        );
+        let vector_row = test_rect(&ctx, "menu-row-0-1").expect("Vector row in mask-type menu");
+        click(&mut app, vector_row.center());
+
+        assert_eq!(app.doc.get(m1).unwrap().mask_type, MaskType::Vector, "mask layer updated to Vector");
+        assert!(!app.doc.get(m1).unwrap().fig_metadata.contains_key("maskType"), "dropdown edit removes legacy fig_metadata maskType");
+        assert_eq!(app.doc.get(plain).unwrap().mask_type, MaskType::Alpha, "non-mask layer must never receive mask_type");
+        assert!(!app.doc.get(plain).unwrap().is_mask);
+
+        // Clicking the header Use as mask button on a mixed [masked, unmasked] selection must turn all selected layers into masks,
+        // matching the Object -> Use as mask menu action.
+        let hdr_mask_pos = Pos2::new(
+            crate::theme::RIGHT_NAME_ACTION_X[0] - 1.0 + crate::theme::PANEL_ACTION_BUTTON * 0.5,
+            crate::theme::RIGHT_SELECTION_HEADER_Y - crate::theme::RIGHT_CONTENT_TOP + crate::theme::PANEL_ACTION_BUTTON * 0.5,
+        );
+        click(&mut app, hdr_mask_pos);
+        assert!(
+            app.doc.get(m1).unwrap().is_mask && app.doc.get(plain).unwrap().is_mask,
+            "header mask button on mixed selection must turn all selected nodes into masks"
+        );
+
+        // Per-frame scan bound (`take(128)`): when 128 non-mask layers precede a mask at index 128,
+        // the per-frame Mask section check stops at 128 and does not render the Mask dropdown.
+        app.doc.get_mut(plain).unwrap().is_mask = false;
+        let mut bounded_sel = Vec::with_capacity(129);
+        bounded_sel.push(plain);
+        for _ in 1..128 {
+            let pid = app.doc.alloc_id();
+            let pn = Node::rectangle(pid, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+            bounded_sel.push(app.doc.insert(page, pn).unwrap());
+        }
+        bounded_sel.push(m1);
+        assert_eq!(bounded_sel.len(), 129);
+        app.selection = bounded_sel;
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("test-rect", "mask-type".to_string())), Rect::NOTHING));
+        step(&mut app, vec![]);
+        assert!(
+            !test_rect(&ctx, "mask-type").is_some_and(|r| r.is_positive()),
+            "Mask section per-frame scan must be bounded to take(128) and not scan beyond index 127"
+        );
     }
 }

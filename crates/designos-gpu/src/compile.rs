@@ -14,7 +14,7 @@ use designos_doc as d;
 use designos_doc::{resolve_node, Document, Effect, Node, NodeId, NodeKind, Vec2};
 use designos_render::board;
 use designos_render::tiny_skia as sk;
-use designos_render::{mask_frame_box, mask_stencil, node_margin, render_node_into, SceneIndex, StrokeClip, Viewport};
+use designos_render::{mask_frame_box, mask_stencil, node_margin, render_node_into, vector_mask_descendant_stencil, SceneIndex, StrokeClip, Viewport};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -674,7 +674,11 @@ impl Ctx<'_> {
         let deferred = self.geom.deferred_empty;
         let enclosing = (self.stencil_root.replace(mask.id), std::mem::take(&mut self.stencil_children_skipped));
         self.with_prog(mprog, |c| {
-            c.draw_node(&mask_node, ts, mclip);
+            if mask.mask_type == d::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
+                c.draw_vector_group_children(&mask_node.children, ts, mclip);
+            } else {
+                c.draw_node(&mask_node, ts, mclip);
+            }
             // A frame mask takes its alpha from its children. If this frame left
             // them out (geometry not built yet, or a frame too small for its
             // children) and nothing else drew into the stencil, it is empty and
@@ -688,15 +692,34 @@ impl Ctx<'_> {
         });
         (self.stencil_root, self.stencil_children_skipped) = enclosing;
         let pclip = self.full_clip(rect);
+        let aux_mode = if mask.mask_type == d::MaskType::Luminance { AuxMode::MulLum } else { AuxMode::Mul };
         self.push_op(Op::Composite(Box::new(CompositeOp {
             src: layer,
             rect,
             opacity: 1.0,
             tint: None,
-            aux: Some((mprog, AuxMode::Mul)),
+            aux: Some((mprog, aux_mode)),
             mode: CompMode::Over,
             clip: pclip,
         })));
+    }
+
+    fn draw_vector_group_children(&mut self, children: &[NodeId], parent_ts: sk::Transform, clip: ClipId) {
+        let doc = self.doc;
+        for cid in children {
+            let Some(child) = board::get(doc, *cid) else { continue };
+            let child = resolve_node(doc, &child);
+            if !child.visible {
+                continue;
+            }
+            let ts = parent_ts.pre_concat(to_sk(&child.transform));
+            let stencil_child = vector_mask_descendant_stencil(&child);
+            if matches!(stencil_child.kind, NodeKind::Group) {
+                self.draw_vector_group_children(&stencil_child.children, ts, clip);
+            } else {
+                self.draw_node(&stencil_child, ts, clip);
+            }
+        }
     }
 
     /// Whether `n` or any drawn descendant has a visible background blur.

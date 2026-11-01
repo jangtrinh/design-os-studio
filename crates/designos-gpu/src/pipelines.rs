@@ -240,16 +240,19 @@ fn instance_attrs() -> [wgpu::VertexAttribute; 7] {
     ]
 }
 
+fn composite_shader_source() -> String {
+    let [r, g, b] = designos_render::LUMINANCE_MASK_COEFFS;
+    include_str!("shaders/composite.wgsl").replace("LUMINANCE_MASK_COEFFS", &format!("vec3<f32>({r:?}, {g:?}, {b:?})"))
+}
+
 impl Pipelines {
     pub fn new(dev: &wgpu::Device, l: &Layouts) -> Self {
         let draw_src = dev.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("draw"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/draw.wgsl").into()),
         });
-        let comp_src = dev.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("composite"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/composite.wgsl").into()),
-        });
+        let comp_wgsl = composite_shader_source();
+        let comp_src = dev.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("composite"), source: wgpu::ShaderSource::Wgsl(comp_wgsl.into()) });
         let blur_src = dev.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("blur"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/blur.wgsl").into()),
@@ -360,5 +363,21 @@ impl Pipelines {
             displace: full("displace", &fx_layout, &fx_src, "fs_displace"),
             glass: full("glass", &fx_layout, &fx_src, "fs_glass"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn composite_shader_injects_luminance_mask_coeffs_from_render_constant() {
+        let raw = include_str!("shaders/composite.wgsl");
+        assert!(raw.contains("dot(aux.rgb, LUMINANCE_MASK_COEFFS)"), "composite.wgsl must hold the LUMINANCE_MASK_COEFFS token");
+        let src = composite_shader_source();
+        assert!(!src.contains("LUMINANCE_MASK_COEFFS"), "processed composite shader must not retain the LUMINANCE_MASK_COEFFS token");
+        let [r, g, b] = designos_render::LUMINANCE_MASK_COEFFS;
+        let expected = format!("vec3<f32>({r:?}, {g:?}, {b:?})");
+        assert!(src.contains(&expected), "processed composite shader must contain injected constant {expected}");
     }
 }

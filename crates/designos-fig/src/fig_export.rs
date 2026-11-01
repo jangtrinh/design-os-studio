@@ -791,6 +791,19 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if node.is_mask {
         fields.push(("mask", V::Bool(true)));
     }
+    if node.is_mask || node.mask_type != MaskType::Alpha {
+        // A type kept only in fig_metadata (imported before mask types were mapped) is written back.
+        let mt = match node.mask_type {
+            MaskType::Alpha => match node.fig_metadata.get("maskType").map(String::as_str) {
+                Some("OUTLINE" | "VECTOR") => "OUTLINE",
+                Some("LUMINANCE") => "LUMINANCE",
+                _ => "ALPHA",
+            },
+            MaskType::Vector => "OUTLINE",
+            MaskType::Luminance => "LUMINANCE",
+        };
+        fields.push(("maskType", en(mt)));
+    }
     if node.lock_aspect {
         fields.push(("proportionsConstrained", V::Bool(true)));
     }

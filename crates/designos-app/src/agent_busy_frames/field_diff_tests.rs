@@ -11,8 +11,8 @@ use crate::edit::Tx;
 use crate::test_alloc_count::allocations_in;
 use designos_doc::{
     Affine, BlendMode, Color, ComponentLink, ComponentPropDef, Constraint, Constraints, DevInfo, DevStatus, Effect, ExportPreset, FrameProps, LayoutChild,
-    Node, NodeId, NodeKind, NodeVariables, OverrideField, Paint, Path, PathCmd, PropKind, PropValue, PrototypeProps, SlideProps, SlotPropConfig, Stroke,
-    TextProps, Vec2,
+    MaskType, Node, NodeId, NodeKind, NodeVariables, OverrideField, Paint, Path, PathCmd, PropKind, PropValue, PrototypeProps, SlideProps, SlotPropConfig,
+    Stroke, TextProps, Vec2,
 };
 use std::collections::BTreeSet;
 
@@ -102,6 +102,7 @@ fn populated() -> Node {
     n.constraints = Constraints { horizontal: Constraint::Max, vertical: Constraint::Stretch };
     n.layout_child = LayoutChild { absolute: true, ..Default::default() };
     n.is_mask = true;
+    n.mask_type = MaskType::Vector;
     n.style_refs.insert("fill".into(), "S:1".into());
     n.fill_geometry = Some(vec![path_with(2)]);
     n.stroke_geometry = Some(vec![path_with(1)]);
@@ -167,6 +168,7 @@ fn field_edits() -> Vec<(&'static str, Vec<Edit>)> {
         ),
         ("layout_child", vec![|n| n.layout_child = LayoutChild::default(), |n| n.layout_child = LayoutChild { grow: 1.0, ..Default::default() }]),
         ("is_mask", vec![|n| n.is_mask = false]),
+        ("mask_type", vec![|n| n.mask_type = MaskType::Alpha, |n| n.mask_type = MaskType::Luminance]),
         ("style_refs", vec![|n| n.style_refs.clear(), |n| n.style_refs.insert("stroke".into(), "S:2".into()).map_or((), |_| ())]),
         ("fill_geometry", vec![|n| n.fill_geometry = None, |n| n.fill_geometry = Some(Vec::new()), |n| n.fill_geometry = Some(vec![path_with(3)])]),
         ("stroke_geometry", vec![|n| n.stroke_geometry = None, |n| n.stroke_geometry = Some(Vec::new()), |n| n.stroke_geometry = Some(vec![path_with(3)])]),
@@ -311,7 +313,7 @@ fn the_corpus_edits_every_field_a_populated_node_serializes() {
     let serialized: BTreeSet<&str> = map.keys().map(String::as_str).filter(|k| !matches!(*k, "id" | "parent" | "children")).collect();
     let edited: BTreeSet<&str> = field_edits().iter().map(|(f, _)| *f).collect();
     assert_eq!(serialized, edited, "every serialized field of a populated node needs edits here, and every edit names a serialized field");
-    assert_eq!(serialized.len(), 31);
+    assert_eq!(serialized.len(), 32);
 }
 
 #[test]
@@ -386,7 +388,7 @@ fn random_combinations_of_edits_are_reported_as_the_value_diff_reported_them() {
         seen_fields.extend(value_diff_oracle(&a, &b));
         assert_same_as_value_diff(&a, &b, &format!("round {round} of seed 0x5EED0993"));
     }
-    assert_eq!(seen_fields.len(), 31, "the random pairs differ in every field at least once, saw {seen_fields:?}");
+    assert_eq!(seen_fields.len(), 32, "the random pairs differ in every field at least once, saw {seen_fields:?}");
 }
 
 #[test]
