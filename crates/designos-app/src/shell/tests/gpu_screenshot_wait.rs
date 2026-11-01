@@ -147,13 +147,13 @@ fn screenshot_of_a_canvas_not_on_the_gpu_is_taken_as_before() {
 fn screenshot_gives_up_waiting_for_a_view_that_never_settles() {
     let (mut s, shot) = shot_sim(true, "never_settles");
     // a view that moves every frame never goes idle
-    let n = (1..=400)
+    let n = (1..=SHOT_CLOSE_FRAMES + 100)
         .find(|_| {
             s.shell.app.view.offset.x += 1.0;
             frame_requests_screenshot(&mut s)
         })
         .expect("the screenshot is eventually requested");
-    assert!((100..240).contains(&n), "settle limit hit after {n} frames, before the 240 frame close");
+    assert!((100..SHOT_CLOSE_FRAMES).contains(&n), "settle limit hit after {n} frames, before the {SHOT_CLOSE_FRAMES} frame close");
     assert!(!s.app().canvas.gpu.at_rest(), "it captured the interactive frame, as announced");
     cleanup(&shot);
 }
@@ -181,10 +181,14 @@ fn a_cpu_canvas_is_saved_after_the_usual_dozen_frames() {
 #[test]
 fn a_view_that_never_settles_is_saved_before_the_window_closes() {
     let (mut s, shot) = shot_sim(true, "never_saved");
-    let run = run_window(&mut s, &shot, 400, DELIVERY_LAG, |s, _| s.shell.app.view.offset.x += 1.0);
+    let run = run_window(&mut s, &shot, SHOT_CLOSE_FRAMES as usize + 100, DELIVERY_LAG, |s, _| s.shell.app.view.offset.x += 1.0);
     let from = run.saved_from.unwrap_or_else(|| panic!("no image was saved: {run:?}"));
     assert!(!run.at_rest[from], "the view never rested, so the interactive frame is what was kept");
-    assert!(run.closed_at.is_some_and(|n| n + 3 < 240), "closed at frame {:?}, the run itself gives up after 240", run.closed_at);
+    assert!(
+        run.closed_at.is_some_and(|n| n + 3 < SHOT_CLOSE_FRAMES as usize),
+        "closed at frame {:?}, the run itself gives up after {SHOT_CLOSE_FRAMES}",
+        run.closed_at
+    );
     assert_eq!(run.requests.len(), 1, "no retries once the settle limit has passed: {run:?}");
     cleanup(&shot);
 }

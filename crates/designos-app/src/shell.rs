@@ -81,8 +81,13 @@ struct Shot {
 }
 
 /// Frames a GPU `--screenshot` waits for the view to reach its at-rest frame before it
-/// keeps whatever is on screen (the run closes after 240).
-const SHOT_GPU_SETTLE_FRAMES: u32 = 180;
+/// keeps whatever is on screen (the run closes after `SHOT_CLOSE_FRAMES`). The refine of a
+/// big page is spread over frames (slices, geometry warm-up, chunks): the largest page of the
+/// Untitled UI kit at fit takes 205 of them, a page of a million-record file more.
+const SHOT_GPU_SETTLE_FRAMES: u32 = 600;
+
+/// Frames after which a `--screenshot` run closes, saved or not.
+const SHOT_CLOSE_FRAMES: u32 = SHOT_GPU_SETTLE_FRAMES + 60;
 
 /// Height of the custom top window title bar (`🟠 design:os studio`).
 pub const TOP_TITLE_BAR_HEIGHT: f32 = 28.0;
@@ -715,7 +720,7 @@ impl Shell {
             (r.width() - shot.size.0 as f32).abs() < 1.5 && (r.height() - shot.size.1 as f32).abs() < 1.5
         };
         shot.due = !shot.requested && ((shot.frames >= 12 && sized) || shot.frames >= 60);
-        if shot.frames > 240 && shot.seq.is_none() {
+        if shot.frames > SHOT_CLOSE_FRAMES && shot.seq.is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -723,7 +728,7 @@ impl Shell {
     /// Sends the screenshot request that `drive_screenshot` found due, once this frame has drawn.
     /// A GPU canvas first shows the capped interactive frame; the full-quality frame of the at-rest
     /// view follows once the idle refine has run. Ask for that one, but never wait past the point
-    /// where the run would give up (`shot.frames > 240` in `drive_screenshot`).
+    /// where the run would give up (`SHOT_CLOSE_FRAMES` in `drive_screenshot`).
     fn request_screenshot(&mut self, ctx: &Context) {
         let Some(shot) = &mut self.shot else { return };
         let at_rest = self.app.canvas.gpu.at_rest();
