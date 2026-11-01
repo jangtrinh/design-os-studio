@@ -560,3 +560,214 @@ f76a626d refactor(app): split board_chrome and board_key_map capabilities and ad
 - **Unresolved questions:** None.
 
 Status: DONE — Round 2 complete: 11 single-question capabilities in board/caps.rs, phantom test replaced with creation default and capability behaviour tests, all 11 single-flip mutants killed by both table and behaviour tests, PR #1460 body updated, out/cargo deleted, and pushed.
+
+---
+
+## Round 3
+
+### 1. What Could NOT Be Verified
+- **Connector following at `crates/designos-app/src/board/connect.rs:158` (`reroute_touched`):** Still checks `doc.kind != DocumentKind::Board` on `&mut Document` (deferred to WB-7 per Round 2 Ruling 7; out of scope for #1216).
+- **Board `Tab` non-sticky sibling fallthrough at `crates/designos-app/src/shell.rs:1119`:** `crate::board::create::tab_next(app)` return value remains ignored on boards (deferred per Round 2 Ruling 7; out of scope for #1216).
+- **No new GUI window captures in Round 3:** Round 3 modifies only `board_chrome()`'s doc comment in `crates/designos-app/src/board/caps.rs` and two test functions in `crates/designos-app/src/shell/tests/board.rs` (plus merging `origin/main` `de6b81ff`). Zero runtime capability booleans changed from Round 1 (`176c0cb5`).
+
+### 2. Conclusion & Epistemic Ledger
+- **Conclusion:** Merged `origin/main` (`de6b81ff` -> merge commit `af7e86ff`, resolving the conflict in `crates/designos-app/src/shell.rs` by preserving `let board = self.app.board_chrome();` alongside `#1483`'s `columns::columns(...)`) and applied all four Round 3 rulings (`b0d29b93`):
+  1. **Ruling 1 (MINOR-1):** Updated `dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas` in `crates/designos-app/src/shell/tests/board.rs` to compute the page background colour from `NodeKind::Page { background }` (matching `canvas/tiles.rs::page_background`, verified `!= theme::BG`) and assert that on a board no `Shape::Rect` filled with the page colour and covering `canvas_rect.shrink(1.0)` is painted after the `BOARD_DOT` mesh, whereas on a Design canvas that rect exists. Both `crates/designos-app/src/canvas/tiles.rs:123` mutants (`if true` and `if false`) are killed.
+  2. **Ruling 2 (LOW-1):** Updated the Design half of `frame_stepping_shortcut_steps_top_level_frames_only_when_available` in `crates/designos-app/src/shell/tests/board.rs` to drop the tautological assertion and instead assert that pressing `N` selects (`selection.len() == 1`) a visible `Frame` / `Component` / `ComponentSet` whose parent is either the page or a visible top-level `Section` on the page. The `crates/designos-app/src/shell.rs:1156` `select_all_layers()` mutant is killed.
+  3. **Ruling 3 (LOW-2):** Updated `App::board_chrome()`'s doc comment in `crates/designos-app/src/board/caps.rs:44` to the review's wording: `/// Whether the board chrome replaces the Design chrome: no right panel (Inspector or Specs reader), the board toolbar instead of the Design toolbar, and the contextual bar and zoom pill.`
+  4. **Ruling 4 (LOW-3):** Updated PR #1460's description so the `1440×900` visual captures bullet states that it was measured in round 1 (`176c0cb5`) and that rounds 2–3 only rename call sites with identical bodies and refine doc comments/tests.
+- **Epistemic Ledger:**
+  - **FACT:** Both directions of `crates/designos-app/src/canvas/tiles.rs:123` (`if !app.wb_dotted_background()` -> `if true` and -> `if false`) and the `crates/designos-app/src/shell.rs:1156` `app.step_frame(!m.shift, true)` -> `app.select_all_layers()` mutant are killed (`exit_code=101`; `plans/reports/agy-1216-wb-capabilities-evidence/r3-mutants.log`).
+  - **FACT:** `cargo fmt --all -- --check` exits `0`; `cargo clippy --workspace --all-targets --locked -- -D warnings` reports only `origin/main`'s 2 known `unneeded return statement` lints (`crates/designos-app/src/agent_permissions.rs:1176:9` and `:1194:9`); `cargo test -p designos-app --bin designos --locked board` passes `137 passed; 0 failed`; `cargo test --workspace --locked --lib` passes all 12 workspace lib suites (`1476 passed; 0 failed`).
+  - **INFERENCE:** None required for acceptance; every Round 3 acceptance check was executed and observed directly.
+  - **ASSUMPTION:** During `git merge origin/main` (required by `brief-common-argon.txt`), resolving the 1-line conflict in `crates/designos-app/src/shell.rs` (`let board = self.app.board_chrome();` vs `origin/main`'s `let board = self.app.is_board();` from `#1483`) inside the merge commit `af7e86ff` is required to preserve Round 2's `board_chrome()` site while keeping the Round 3 feature commit (`b0d29b93`) strictly restricted to `crates/designos-app/src/board/caps.rs` and `crates/designos-app/src/shell/tests/board.rs`.
+  - **Weakest link:** `board_chrome()` at `shell.rs:1793` still gates the right panel, toolbar choice, contextual bar, zoom pill, and Specs reader together until WB-3 / WB-5 split their draw order.
+
+### 3. Skills Loaded & Impact (Round 3)
+- `es:dev` (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`) & `es:feature-dev` (`/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`): Executed the Round 3 controller rulings directly as the approved DEV spec without pausing for brainstorm or spawning a sub-verifier, and avoided tautological assertions in `frame_stepping_shortcut_steps_top_level_frames_only_when_available`.
+- `es:rust` (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`): Kept the test helpers in `crates/designos-app/src/shell/tests/board.rs` allocation-free and idiomatic.
+- `es:rust-gpu-canvas` (`/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Verified the `canvas/tiles.rs:123` page-fill rect order against the `BOARD_DOT` mesh in `egui::Shape` list (`b.shapes` / `d.shapes`), matching `page_background` colour conversion and distinguishing it from `shell.rs`'s window-wide `theme::BG` rect.
+- `es:fable-thinking` (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`) & `es:astra-work` (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`): Falsified each of the 3 surviving Round 2 site mutants (`tiles.rs:123` `if true`, `tiles.rs:123` `if false`, `shell.rs:1156` `select_all_layers()`) and verified all 3 die on the updated tests.
+
+### 4. Round 3 Acceptance Table & Verbatim Outputs
+
+| # | Acceptance Check | Result | Evidence |
+|---|---|---|---|
+| 1 | Three mutants (`tiles.rs:123` `if true`, `tiles.rs:123` `if false`, `shell.rs:1156` `select_all_layers()`) killed | **PASS (3/3 KILLED)** | `plans/reports/agy-1216-wb-capabilities-evidence/r3-mutants.log` |
+| 2a | `cargo fmt --all -- --check` | **PASS (`rc = 0`)** | `plans/reports/agy-1216-wb-capabilities-evidence/r3-fmt.log` |
+| 2b | `cargo clippy --workspace --all-targets --locked -- -D warnings` (only main's 2 known lints) | **PASS (only `agent_permissions.rs:1176:9,1194:9`)** | `plans/reports/agy-1216-wb-capabilities-evidence/r3-clippy.log` |
+| 2c | `cargo test -p designos-app --bin designos --locked board` | **PASS (`137 passed; 0 failed`)** | `plans/reports/agy-1216-wb-capabilities-evidence/r3-test-board.log` |
+| 2d | `cargo test --workspace --locked --lib` | **PASS (12/12 suites, `1476 passed; 0 failed`)** | `plans/reports/agy-1216-wb-capabilities-evidence/r3-test-workspace-lib.log` |
+| 3 | Pushed; `git log --oneline origin/main..HEAD`; `out/cargo` deleted | **PASS** | Pasted below |
+
+#### 4.1 Acceptance #1 — Three Mutants Killed (`plans/reports/agy-1216-wb-capabilities-evidence/r3-mutants.log`)
+```text
+=== 0a. Null control: dotted_background (unmodified head) ===
+$ cargo test -p designos-app --bin designos --locked dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+running 1 test
+test shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 1.15s
+exit_code=0
+
+=== 0b. Null control: frame_stepping (unmodified head) ===
+$ cargo test -p designos-app --bin designos --locked frame_stepping_shortcut_steps_top_level_frames_only_when_available
+running 1 test
+test shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 0.79s
+exit_code=0
+
+=== 1. Mutant tiles.rs:123 `if !app.wb_dotted_background()` -> `if true` ===
+$ cargo test -p designos-app --bin designos --locked dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+running 1 test
+test shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas ... FAILED
+failures:
+thread 'shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas' (57710393) panicked at crates/designos-app/src/shell/tests/board.rs:1051:5:
+no rect filled with the page colour and covering the canvas is painted after the board dots: fill Some(3) dots 2
+failures:
+    shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 0.20s
+exit_code=101
+
+=== 2. Mutant tiles.rs:123 `if !app.wb_dotted_background()` -> `if false` ===
+$ cargo test -p designos-app --bin designos --locked dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+running 1 test
+test shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas ... FAILED
+failures:
+thread 'shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas' (57722257) panicked at crates/designos-app/src/shell/tests/board.rs:1058:5:
+design canvas paints a rect filled with the page colour covering the canvas
+failures:
+    shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 1.82s
+exit_code=101
+
+=== 3. Mutant shell.rs:1156 `app.step_frame(!m.shift, true)` -> `app.select_all_layers()` ===
+$ cargo test -p designos-app --bin designos --locked frame_stepping_shortcut_steps_top_level_frames_only_when_available
+running 1 test
+test shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available ... FAILED
+failures:
+thread 'shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available' (57731855) panicked at crates/designos-app/src/shell/tests/board.rs:1069:5:
+assertion `left == right` failed: N selects exactly one node when frame stepping is available: [NodeId(30), NodeId(26), NodeId(4), NodeId(11), NodeId(15)]
+failures:
+    shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4041 filtered out; finished in 0.41s
+exit_code=101
+
+restored tiles.rs and shell.rs
+```
+
+#### 4.2 Acceptance #2 — Gates Under the Harness
+
+##### `cargo fmt --all -- --check`
+Command:
+```sh
+cargo fmt --all -- --check
+```
+Output (`plans/reports/agy-1216-wb-capabilities-evidence/r3-fmt.log`):
+```text
+fmt_rc=0
+```
+
+##### `cargo clippy --workspace --all-targets --locked -- -D warnings`
+Command:
+```sh
+env HOME="$S/home" TMPDIR="$S/tmp/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo clippy --workspace --all-targets --locked -- -D warnings > plans/reports/agy-1216-wb-capabilities-evidence/r3-clippy.log 2>&1
+```
+Output (`plans/reports/agy-1216-wb-capabilities-evidence/r3-clippy.log` tail):
+```text
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1176:9
+     |
+1176 | ...   return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_return
+     = note: `-D clippy::needless-return` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_return)]`
+help: remove `return`
+     |
+1176 -         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+1176 +         std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"))
+     |
+
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1194:9
+     |
+1194 | ...   return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_return
+help: remove `return`
+     |
+1194 -         return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+1194 +         std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"))
+     |
+
+error: could not compile `designos-app` (bin "designos-studio") due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `designos-app` (bin "designos") due to 2 previous errors
+error: could not compile `designos-app` (bin "designos-studio" test) due to 2 previous errors
+error: could not compile `designos-app` (bin "designos" test) due to 2 previous errors
+```
+
+##### `cargo test -p designos-app --bin designos --locked board`
+Command:
+```sh
+env HOME="$S/home" TMPDIR="$S/tmp/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked board
+```
+Output (`plans/reports/agy-1216-wb-capabilities-evidence/r3-test-board.log`):
+```text
+running 137 tests
+...
+test board::caps::tests::wb_capabilities_table_for_board_design_and_deck ... ok
+...
+test shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas ... ok
+test shell::tests::board::section_and_text_creation_defaults_across_document_kinds ... ok
+test shell::tests::board::right_click_on_ruler_strip_skips_canvas_menu_only_when_enabled ... ok
+test shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available ... ok
+...
+test result: ok. 137 passed; 0 failed; 0 ignored; 0 measured; 3905 filtered out; finished in 72.63s
+```
+
+##### `cargo test --workspace --locked --lib`
+Command:
+```sh
+env HOME="$S/home" TMPDIR="$S/tmp/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test --workspace --locked --lib
+```
+Summary Output (`plans/reports/agy-1216-wb-capabilities-evidence/r3-test-workspace-lib.log`):
+```text
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 708 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.45s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.46s
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.72s
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.59s
+test result: ok. 322 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.44s
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 80.39s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+```
+
+#### 4.3 Acceptance #3 — Pushed Branch Log & Cleanup
+Command:
+```sh
+git log --oneline origin/main..HEAD
+```
+Output:
+```text
+b0d29b93 test(app): pin page fill on wb_dotted_background and single-frame step on N (#1216)
+af7e86ff Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1216-wb-capabilities
+9a59df32 docs(report): append round 2 verification for #1216
+f76a626d refactor(app): split board_chrome and board_key_map capabilities and add behaviour pins (#1216)
+08f494a8 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1216-wb-capabilities
+176c0cb5 refactor(app): gate whiteboard behaviour on named capabilities, not the file kind (#1216)
+```
+(Plus the report update commit at the tip of `jangtrinh/agy-1216-wb-capabilities`; `out/cargo` removed and verified absent via `rm -rf out/cargo && test ! -e out/cargo`.)
+
+### 5. Round 3 Assumptions & Unresolved Questions
+- **Assumptions:**
+  1. During `git merge origin/main` (mandated by `brief-common-argon.txt`), resolving the conflict in `crates/designos-app/src/shell.rs` by keeping `let board = self.app.board_chrome();` in the merge commit (`af7e86ff`) preserves Round 2's capability call site while keeping the Round 3 commit (`b0d29b93`) strictly limited to `crates/designos-app/src/board/caps.rs` and `crates/designos-app/src/shell/tests/board.rs`.
+- **Unresolved questions:** None.
+
+Status: DONE — Round 3 complete: MINOR-1 page-fill pin and LOW-1 single-frame step pin added in shell/tests/board.rs, all 3 site mutants killed, LOW-2 board_chrome() doc comment and LOW-3 PR #1460 body updated, all gates green, out/cargo deleted, and pushed.

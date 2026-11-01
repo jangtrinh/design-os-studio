@@ -1,0 +1,152 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1216-wb-capabilities/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1216-wb-capabilities/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1216-wb-capabilities/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1216-wb-capabilities/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.99s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 137 tests
+test board::bar::tests::bar_sits_above_the_selection_or_below_when_cramped ... ok
+test board::bar::tests::colours_go_where_each_kind_keeps_them ... ok
+test board::bar::tests::size_steps_walk_the_scale ... ok
+test board::bar::tests::controls_follow_the_selected_kinds ... ok
+test clipboard::tests::instantiate_assigns_fresh_ids_and_links ... ok
+test clipboard::tests::a_main_that_was_cut_or_changed_since_the_copy_is_copied_for_real ... ok
+test clipboard::tests::a_main_copied_in_its_own_file_becomes_an_instance_where_the_original_stood ... ok
+test clipboard::tests::a_main_pasted_into_itself_or_a_set_stays_a_copy_and_a_paste_moves_out_of_the_main ... ok
+test clipboard::tests::a_clip_from_an_older_build_has_no_origin_and_copies_for_real ... ok
+test clipboard::tests::a_clip_names_the_document_it_came_from_in_its_json ... ok
+test clipboard::tests::json_roundtrip_and_rejects_foreign_text ... ok
+test clipboard::tests::clipboard_json_roundtrips_non_finite_numbers_and_repairs_legacy_nulls ... ok
+test present::tests::keyboard_stands_in_for_a_controller_only_with_alt_shift ... ok
+test clipboard::tests::pasting_into_a_document_with_an_exhausted_id_counter_keeps_every_copy_distinct ... ok
+test agent_mention_popup::tests::popup_keyboard ... ok
+test board::caps::tests::wb_capabilities_table_for_board_design_and_deck ... ok
+test ops::tests::keyboard_resize_of_an_imported_stretch_child_ends_the_stretch_on_the_counter_axis ... ok
+test clipboard::tests::malformed_figma_payload_toasts_and_leaves_the_document_alone ... ok
+test clipboard::tests::non_figma_html_falls_through_to_svg_and_text_paste ... ok
+test panels::rail::tests::rail_shows_tooltip_on_hover_and_on_keyboard_focus ... ok
+test clipboard::tests::figma_paste_remaps_slot_and_swap_ids_and_drops_and_reports_unknown_ids ... ok
+test clipboard::tests::undoing_a_figma_paste_takes_its_images_along_and_redo_brings_them_back ... ok
+test clipboard::tests::undoing_a_figma_paste_keeps_an_image_the_document_already_held ... ok
+test clipboard::tests::figma_paste_adds_the_layers_centered_selected_with_one_undo_step ... ok
+test clipboard::tests::figma_paste_points_instances_at_the_pasted_component_and_drops_foreign_refs ... ok
+test canvas::textsession::tests::ctrl_a_and_clipboard_text ... ok
+test clipboard::tests::a_figma_payload_over_the_clipboard_budget_toasts_instead_of_aborting ... ok
+test shell::tests::agent_panel_keyboard::hidden_other_cli_form::a_hidden_form_in_the_new_chat_menu_gets_none_of_a_renames_letters ... ok
+test shell::tests::agent_panel_keyboard::hidden_other_cli_form::closing_the_form_or_leaving_the_agents_panel_leaves_no_caret_in_it ... ok
+test shell::tests::agent_panel_keyboard::dev_mode_shortcut::a_capital_d_typed_into_the_composer_does_not_toggle_dev_mode ... ok
+test shell::tests::agent_panel_keyboard::dev_mode_shortcut::a_capital_d_typed_while_the_agent_terminal_has_focus_goes_to_the_terminal ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_and_arrows_stay_out_of_the_terminal_while_an_overlay_is_open ... ok
+test shell::tests::agent_panel_keyboard::hand_built_popovers::the_check_designs_panel_never_holds_the_keys_from_the_terminal ... ok
+test shell::tests::agent_panel_keyboard::hidden_other_cli_form::a_hidden_form_in_the_agent_menu_over_a_session_gets_none_of_a_renames_letters ... ok
+test shell::tests::agent_panel_keyboard::hidden_other_cli_form::another_text_field_gets_the_letters_after_the_form_is_hidden ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_closes_the_overlay_without_also_closing_the_session_menu_below_it ... ok
+test shell::tests::agent_panel_keyboard::clipped_other_cli_form::the_form_takes_letters_once_the_menu_is_scrolled_to_it ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_belongs_to_the_terminal_while_it_holds_the_keyboard_and_to_the_report_sheet_otherwise ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::a_font_dropdown_whose_section_disappeared_does_not_leave_the_terminal_deaf ... ok
+test shell::tests::agent_picker_return::no_row_looks_focused_until_the_keyboard_is_on_one ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::an_export_scale_menu_whose_section_disappeared_does_not_leave_the_terminal_deaf ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_for_a_dialog_never_stops_the_turn_after_a_click_in_the_panel_header ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::the_floating_web_capture_report_does_not_take_the_keyboard_from_the_terminal ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_in_the_composer_never_stops_a_running_turn ... ok
+test shell::tests::agent_panel_keyboard::session_rename_keyboard::a_rename_takes_the_keyboard_from_the_agent_terminal ... ok
+test shell::tests::agent_panel_keyboard::review_card_focus::keep_hands_the_keyboard_back_to_the_composer ... ok
+test shell::tests::agent_panel_keyboard::clipped_other_cli_form::a_form_clipped_out_of_the_menu_holds_no_keys ... ok
+test shell::tests::agent_simplified_panel::new_chat_from_the_keyboard_closes_every_menu_and_popover ... ok
+test shell::tests::agent_panel_keyboard::review_card_focus::revert_hands_the_keyboard_back_to_the_composer ... ok
+test shell::tests::agent_simplified_panel::skills_popover_closes_on_esc_and_an_outside_press_and_returns_the_keyboard ... ok
+test shell::tests::board::board_items_survive_a_copy_paste_with_their_connectors ... ok
+test shell::tests::agent_panel_keyboard::review_card_focus::revert_does_not_steal_the_keyboard_from_the_canvas ... ok
+test shell::tests::agents_tab_strip::the_tab_close_button_has_a_name_and_shows_keyboard_focus ... ok
+test shell::tests::board::a_typed_sticky_text_shrinks_instead_of_overflowing_the_note ... ok
+test shell::tests::board::a_click_on_a_dot_without_dragging_makes_no_connector ... ok
+test shell::tests::approval_banner_tab::keyboard_tab_and_enter_reach_show_prompt_and_open_tab_with_accessible_labels ... ok
+test shell::tests::board::board_files_get_the_board_ui ... ok
+test shell::tests::board::alt_drag_duplicates_a_sticky_and_keeps_the_original ... ok
+test shell::tests::board::author_line_toggle_on_the_bar ... ok
+test shell::tests::board::dotted_background_paints_on_boards_and_solid_page_fill_on_design_canvas ... ok
+test shell::tests::board::deleting_a_node_leaves_its_connector_with_a_free_end_and_undo_reattaches ... ok
+test shell::tests::board::contextual_bar_recolors_notes_and_undoes ... ok
+test shell::tests::agent_simplified_panel::attach_and_mode_menus_own_the_keyboard ... ok
+test shell::tests::board::contextual_bar_for_shapes_swaps_the_shape ... ok
+test shell::tests::board::facilitator_timer_chrome_sits_on_the_four_pixel_grid ... ok
+test shell::tests::board::facilitator_timer_keeps_requesting_frames_after_start_and_stops_when_paused ... ok
+test shell::tests::board::facilitator_timer_label_uses_tabular_digits ... ok
+test shell::tests::board::connector_labels_can_be_typed_by_double_clicking_the_line ... ok
+test shell::tests::board::facilitator_timer_stops_asking_for_frames_at_zero ... ok
+test shell::tests::board::contextual_bar_text_size_and_alignment ... ok
+test shell::tests::board::double_click_edits_a_sticky ... ok
+test shell::tests::board::dropping_a_connector_on_empty_canvas_leaves_a_free_end ... ok
+test shell::tests::board::facilitator_timer_hud_stays_usable_over_a_selection_bar_pinned_to_the_bottom ... ok
+test shell::tests::board::highlighter_is_wide_and_translucent ... ok
+test shell::tests::board::section_and_text_creation_defaults_across_document_kinds ... ok
+test shell::tests::board::facilitator_timer_runs_while_canvas_is_in_use ... ok
+test shell::tests::board::plus_one_minute_extends_the_countdown_but_reset_returns_to_the_preset ... ok
+test shell::tests::board::hovering_a_shape_shows_four_magnet_dots ... ok
+test shell::tests::board::marker_draws_thick_round_strokes_and_stays_active ... ok
+test shell::tests::board::right_click_on_ruler_strip_skips_canvas_menu_only_when_enabled ... ok
+test shell::tests::board::frame_stepping_shortcut_steps_top_level_frames_only_when_available ... ok
+test shell::tests::board::contextual_bar_for_connectors_has_line_style_and_caps ... ok
+test shell::tests::board::connectors_follow_nudges_resizes_and_moves_of_a_whole_section ... ok
+test shell::tests::board::shapes_are_created_with_text_and_the_shape_picker_changes_what_is_placed ... ok
+test shell::tests::board::stamp_tool_places_stamps ... ok
+test shell::tests::board::section_tool_makes_a_section_that_adopts_notes_dropped_into_it ... ok
+test shell::tests::board::tool_popovers_stay_above_the_timer_hud ... ok
+test shell::tests::board_home::boards_get_a_thumbnail_of_the_whole_page_on_the_dotted_canvas ... ok
+test shell::tests::board::toolbar_buttons_pick_tools_and_shortcuts_follow_the_board_keys ... ok
+test shell::tests::board::sticky_tool_places_a_note_and_typing_goes_into_it ... ok
+test shell::tests::board_home::seed_a_library_for_the_home_screenshot ... ok
+test shell::tests::agent_panel_keyboard::hand_built_popovers::an_outside_press_closes_each_hand_built_popover_and_the_terminal_hears_typing_again ... ok
+test shell::tests::board::dragging_from_a_dot_to_another_shape_attaches_a_connector_and_moving_reroutes_it ... ok
+test shell::tests::board::tab_makes_the_next_sticky_to_the_right ... ok
+test shell::tests::board::text_tool_in_a_board_makes_larger_text ... ok
+test shell::tests::home::board_badge_is_a_bordered_gray_badge ... ok
+test shell::tests::dev_mode_shortcut::shift_d_does_nothing_on_a_board ... ok
+test shell::tests::board::tab_works_on_a_selected_note_too_and_undoes ... ok
+test shell::tests::figma_paste::a_plain_v_tap_never_reads_the_clipboard ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w400 ... ok
+test shell::tests::board::moving_a_free_connector_carries_its_loose_ends ... ok
+test shell::tests::board_home::file_menu_offers_new_board ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w468 ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w469 ... ok
+test shell::tests::fast_drag_draw::flick_draws_the_dragged_size_with_keyboard_shortcut_tool ... ok
+test shell::tests::menus::keyboard_navigates_submenus ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w709 ... ok
+test shell::tests::board::sticky_creation_and_text_undo ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w710 ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w400 ... ok
+test shell::tests::narrow_window_layout::board_popovers::the_brush_popover_of_the_toolbar_survives_a_window_narrower_than_itself ... ok
+test shell::tests::figma_paste::releasing_cmd_before_v_still_pastes_a_figma_html_only_clipboard_once ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w468 ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w469 ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w709 ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w710 ... ok
+test shell::tests::narrow_window_layout::board_popovers::the_shape_popover_of_the_selection_bar_survives_a_window_narrower_than_itself ... ok
+test shell::tests::proto::present_opens_clicking_the_button_lands_on_dashboard ... ok
+test shell::tests::system_paste_and_drop::nothing_on_the_clipboard_and_nothing_copied_says_so ... ok
+test theme::tests::purple_constants_flags_a_scalar_an_array_and_a_pale_purple_but_not_board_content ... ok
+test shell::tests::pages_layers_separator::a_click_on_a_page_row_leaves_the_keyboard_with_the_document ... ok
+test widgets::kit::focus_tests::keyboard_focus_keeps_the_selected_state ... ok
+test widgets::kit::focus_tests::swatch_keyboard_ring_is_the_focus_ring ... ok
+test shell::tests::pages_layers_separator::keyboard_navigation_steps_clamps_and_resets_with_accesskit_and_focus_ring ... ok
+test shell::tests::system_paste_and_drop::a_clipboard_read_that_times_out_still_pastes_the_text_it_had ... ok
+test shell::tests::board_home::home_creates_boards_separately_from_design_files_and_marks_them ... ok
+test shell::tests::system_paste_and_drop::an_image_alone_on_the_clipboard_becomes_one_image_layer_capped_at_400px ... ok
+test shell::tests::system_paste_and_drop::edit_paste_pastes_the_clipboard_image_too ... ok
+test shell::tests::system_paste_and_drop::a_paste_waiting_for_the_clipboard_worker_keeps_the_window_drawing_until_it_lands ... ok
+test shell::tests::system_paste_and_drop::a_clipboard_read_that_never_answers_times_out_with_a_toast_and_blocks_nothing ... ok
+test shell::tests::system_paste_and_drop::when_the_system_clipboard_cannot_be_read_the_in_app_copy_still_pastes ... ok
+test shell::tests::board::the_connector_tool_connects_two_notes_and_the_connector_survives_a_move_of_either_end ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::a_menu_whose_host_stopped_drawing_does_not_leave_the_terminal_deaf ... ok
+test shell::tests::board::undo_and_redo_cover_every_board_edit_in_one_history ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_never_reaches_the_terminal_while_an_overlay_is_open has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_reaches_the_terminal_again_once_the_overlay_is_closed has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_closes_the_open_overlay_and_never_reaches_the_terminal has been running for over 60 seconds
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_closes_the_open_overlay_and_never_reaches_the_terminal ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_reaches_the_terminal_again_once_the_overlay_is_closed ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::enter_never_reaches_the_terminal_while_an_overlay_is_open ... ok
+
+test result: ok. 137 passed; 0 failed; 0 ignored; 0 measured; 3905 filtered out; finished in 72.63s
+
