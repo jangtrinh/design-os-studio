@@ -309,7 +309,7 @@ fn snap_point(p: DV, targets: &[Rect], zoom: f32) -> (DV, snap::SnapResult) {
 // ------------------------------------------------------------------ main entry
 pub fn process(app: &mut App, ui: &mut Ui, rect: ERect, resp: &Response) {
     let ctx = ui.ctx().clone();
-    let agent_rail_open = !app.ui.left_collapsed && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+    let agent_rail_open = !app.ui.left_hidden() && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
     let typing = (crate::agent_a11y::non_canvas_has_focus(&ctx) || app.terminal.is_capturing_keyboard(agent_rail_open)) && app.canvas.text.is_none();
     let inp = gather(ui, typing);
     let hovered = resp.hovered();

@@ -15,6 +15,7 @@ use egui::{Align2, Context, Event, Key, Pos2, Rect, Vec2};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+mod columns;
 mod toast_layout;
 
 /// The toast action that shows an exported file in its folder.
@@ -89,7 +90,7 @@ pub const TOP_TITLE_BAR_HEIGHT: f32 = 28.0;
 
 #[allow(dead_code)]
 pub fn is_typing_in_agent_panel(app: &App, ctx: &Context) -> bool {
-    let agent_rail_open = !app.ui.left_collapsed && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+    let agent_rail_open = !app.ui.left_hidden() && matches!(app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
     crate::agent_a11y::non_canvas_has_focus(ctx) || app.terminal.is_capturing_keyboard(agent_rail_open)
 }
 
@@ -755,7 +756,7 @@ impl Shell {
         if self.app.canvas.text.is_none() && crate::agent_a11y::try_focus_shortcut(&mut self.app, ctx) {
             return;
         }
-        let agent_rail_open = !self.app.ui.left_collapsed && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+        let agent_rail_open = !self.app.ui.left_hidden() && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
         let capturing_terminal = self.app.terminal.is_capturing_keyboard(agent_rail_open);
         if capturing_terminal {
             self.handle_terminal_undo_keys(ctx);
@@ -1338,7 +1339,7 @@ impl Shell {
         };
         // A floating sheet, not a dialog: while the agent's terminal holds the keyboard Esc is the terminal's key, so one
         // press never closes the sheet and interrupts the agent at once (`#923`).
-        let agent_rail_open = !self.app.ui.left_collapsed && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
+        let agent_rail_open = !self.app.ui.left_hidden() && matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
         if !self.app.terminal.is_capturing_keyboard(agent_rail_open) && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.app.web_capture_report_open = false;
             return;
@@ -1791,17 +1792,18 @@ impl Shell {
 
         ui.painter().rect_filled(full, 0.0, theme::BG);
         let board = self.app.is_board();
-        let right_w = if board { 0.0 } else { theme::RIGHT_PANEL_WIDTH + theme::BORDER_WIDTH };
-        let rail_w = theme::RAIL_WIDTH + theme::BORDER_WIDTH;
         let is_ai_panel = matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));
-        let max_left_w = (full.width() - right_w - rail_w - 160.0).max(220.0);
-        let base_panel_w =
-            if is_ai_panel { self.app.ui.ai_panel_width.clamp(260.0, max_left_w) } else { self.app.ui.left_panel_width.clamp(200.0, max_left_w) };
-        let panel_w = base_panel_w + theme::BORDER_WIDTH;
-        let rail_rect = Rect::from_min_max(full.min, Pos2::new(full.left() + rail_w, full.bottom()));
+        let (kind, requested_left_w) =
+            if is_ai_panel { (columns::LeftKind::Ai, self.app.ui.ai_panel_width) } else { (columns::LeftKind::Tree, self.app.ui.left_panel_width) };
+        let cols = columns::columns(full.width(), board, kind, requested_left_w, self.app.ui.left_collapsed);
+        // Derived every frame from the window: widening the window brings the panel back, and the user's own choice is untouched.
+        self.app.ui.left_auto_collapsed = cols.left_auto_collapsed;
+        let left_hidden = self.app.ui.left_hidden();
+        let panel_w = cols.left_w + theme::BORDER_WIDTH;
+        let rail_rect = Rect::from_min_max(full.min, Pos2::new(full.left() + cols.rail_w, full.bottom()));
         let left_rect = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), Pos2::new(rail_rect.right() + panel_w, full.bottom()));
-        let right_rect = Rect::from_min_max(Pos2::new(full.right() - right_w, full.top()), full.max);
-        let canvas_left = if self.app.ui.left_collapsed { rail_rect.right() } else { left_rect.right() };
+        let right_rect = Rect::from_min_max(Pos2::new(full.right() - cols.right_w, full.top()), full.max);
+        let canvas_left = if left_hidden { rail_rect.right() } else { left_rect.right() };
         let deck = self.app.is_deck();
         let notes_h = if deck { 132.0_f32.min(full.height() * 0.28) } else { 0.0 };
         let canvas_rect = Rect::from_min_max(Pos2::new(canvas_left, full.top()), Pos2::new(right_rect.left(), full.bottom() - notes_h));
@@ -1813,14 +1815,14 @@ impl Shell {
             let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
             regions.variables_full = Some(content);
         } else {
-            if !self.app.ui.left_collapsed {
+            if !left_hidden {
                 regions.left_panel = Some(left_rect);
             }
             regions.canvas = Some(canvas_rect);
             if deck {
                 regions.notes = Some(notes_rect);
             }
-            if !board {
+            if !board && !cols.right_hidden {
                 regions.right_panel = Some(right_rect);
             }
         }
@@ -1831,7 +1833,7 @@ impl Shell {
         }
         let win_focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
         self.app.terminal.set_window_focused(win_focused);
-        self.app.terminal.surface_visible = !self.app.ui.left_collapsed && is_ai_panel;
+        self.app.terminal.surface_visible = !left_hidden && is_ai_panel;
         // An agent that writes while no frame runs (Agents panel closed, no input) still reaches the canvas.
         self.app.terminal.live_patch.wake_on_writes(&ctx, &self.app.terminal.live_spec_path);
         self.app.terminal.overlay_owns_keyboard = crate::terminal::overlay_owns_keyboard(&self.app, &ctx);
@@ -1884,7 +1886,8 @@ impl Shell {
                 if widgets::icon_button(ui, b, "show-sidebar", Icon::Sidebar, false, "Show sidebar").clicked() {
                     self.app.ui.left_collapsed = false;
                 }
-            } else {
+            } else if !left_hidden {
+                // (A window too narrow for a panel shows neither the panel nor the reopen button: it returns with the window.)
                 let edge = left_rect.right();
                 let half = theme::DRAG_DIVIDER_HIT * 0.5;
                 // egui's rect hit test includes the far edge. A quarter pixel keeps the canvas side half open,
@@ -1920,7 +1923,7 @@ impl Shell {
                 }
                 if band_resp.dragged() || drag_resp.dragged() {
                     if let Some(pointer) = ctx.input(|i| i.pointer.interact_pos()) {
-                        let new_w = (pointer.x - rail_rect.right()).clamp(200.0, max_left_w);
+                        let new_w = crate::widgets::clamp::clamp_within(pointer.x - rail_rect.right(), 200.0, cols.left_max_w);
                         if is_ai_panel {
                             self.app.ui.ai_panel_width = new_w.max(260.0);
                         } else {
@@ -1936,7 +1939,9 @@ impl Shell {
                     crate::board::canvas::zoom_pill(&mut self.app, ui, canvas_rect);
                 }
             } else {
-                if specs_reader_open {
+                if cols.right_hidden {
+                    // Too narrow for the inspector: it returns with the window.
+                } else if specs_reader_open {
                     crate::specs::show_right(&mut self.app, ui, right_rect);
                 } else {
                     right::show(&mut self.app, ui, right_rect);

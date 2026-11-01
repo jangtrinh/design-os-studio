@@ -111,6 +111,8 @@ pub struct UiState {
     pub menu: Option<MenuKind>,
     pub menu_anchor: Option<egui::Rect>,
     pub left_collapsed: bool,
+    /// True while the window is too narrow for a left panel. Derived every frame by the shell, never the user's choice.
+    pub left_auto_collapsed: bool,
     pub left_panel_width: f32,
     pub pages_height: Option<f32>,
     pub ai_panel_width: f32,
@@ -146,6 +148,13 @@ pub struct UiState {
     pub regions: ShellRegions,
     /// True when launched with `--screenshot` or `apply_launch_defaults(true)` (`#1126`).
     pub screenshot_chrome: bool,
+}
+
+impl UiState {
+    /// True when no left panel is on screen: the user collapsed it, or the window is too narrow for it.
+    pub fn left_hidden(&self) -> bool {
+        self.left_collapsed || self.left_auto_collapsed
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -297,6 +306,7 @@ pub struct App {
 
 impl App {
     pub fn new(doc: Document) -> Self {
+        crate::textmeasure::install_layout_measurer();
         let page = doc.pages.first().copied().unwrap_or(NodeId(0));
         let load_next_id = doc.peek_next_id();
         Self {
