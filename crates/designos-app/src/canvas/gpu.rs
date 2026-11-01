@@ -386,7 +386,7 @@ struct Chunk {
 
 #[derive(Debug, PartialEq, Eq)]
 enum FramePlan {
-    /// Re-blit the cached output (`Cb { frame: None }`) and ask for nothing.
+    /// Re-blit the cached output (`Cb::Blit`) and ask for nothing.
     Reuse,
     /// Re-blit the cached output; the view is unchanged but has not been idle
     /// for `IDLE_REFINE_DELAY` yet: come back after this long.
@@ -836,7 +836,8 @@ mod tests {
 
     #[test]
     fn an_input_event_mid_settle_abandons_it_and_a_gesture_only_pauses_it() {
-        let phases: [(&str, fn(&mut GpuView), FramePlan); 3] = [
+        type Phase = (&'static str, fn(&mut GpuView), FramePlan);
+        let phases: [Phase; 3] = [
             (
                 "warm",
                 |g| {
