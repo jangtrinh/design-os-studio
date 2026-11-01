@@ -628,7 +628,7 @@ fn align_to_pen_str(a: LayoutAlign) -> &'static str {
 
 fn export_effect(eff: &Effect) -> Option<Value> {
     match eff {
-        Effect::DropShadow { color, offset, radius, spread, visible, .. } => Some(json!({
+        Effect::DropShadow { color, offset, radius, spread, visible, blend, .. } => Some(json!({
             "type": "shadow",
             "shadowType": "outer",
             "color": format_pen_color(*color),
@@ -636,8 +636,9 @@ fn export_effect(eff: &Effect) -> Option<Value> {
             "blur": radius,
             "spread": spread,
             "enabled": visible,
+            "blend": blend_mode_to_pen_str(*blend),
         })),
-        Effect::InnerShadow { color, offset, radius, spread, visible, .. } => Some(json!({
+        Effect::InnerShadow { color, offset, radius, spread, visible, blend } => Some(json!({
             "type": "shadow",
             "shadowType": "inner",
             "color": format_pen_color(*color),
@@ -645,6 +646,7 @@ fn export_effect(eff: &Effect) -> Option<Value> {
             "blur": radius,
             "spread": spread,
             "enabled": visible,
+            "blend": blend_mode_to_pen_str(*blend),
         })),
         Effect::LayerBlur { radius, visible } => Some(json!({
             "type": "blur",

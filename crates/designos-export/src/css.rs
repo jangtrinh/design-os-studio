@@ -218,15 +218,18 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
 
     // effects
     let mut shadows = Vec::new();
+    let mut unsupported_shadow_blend = false;
     let mut text_shadows = Vec::new();
     for e in &n.effects {
         match e {
-            Effect::DropShadow { color, offset, radius, spread, visible: true, .. } => {
+            Effect::DropShadow { color, offset, radius, spread, visible: true, blend, .. } => {
+                unsupported_shadow_blend |= !matches!(blend, BlendMode::Normal | BlendMode::PassThrough);
                 let c = css_color(color, 1.0);
                 shadows.push(format!("{}px {}px {}px {}px {c}", num(offset.x), num(offset.y), num(*radius), num(*spread)));
                 text_shadows.push(format!("{}px {}px {}px {c}", num(offset.x), num(offset.y), num(*radius)));
             }
-            Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } => {
+            Effect::InnerShadow { color, offset, radius, spread, visible: true, blend, .. } => {
+                unsupported_shadow_blend |= !matches!(blend, BlendMode::Normal | BlendMode::PassThrough);
                 shadows.push(format!("inset {}px {}px {}px {}px {}", num(offset.x), num(offset.y), num(*radius), num(*spread), css_color(color, 1.0)));
             }
             _ => {}
@@ -256,6 +259,9 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
         push("mix-blend-mode", b.into());
     }
     crate::codegen::apply_css_vars(doc, n, &mut out);
+    if unsupported_shadow_blend {
+        out.push("/* DESIGNOS limitation: non-normal shadow blend is not representable in CSS; box-shadow values are approximate. */".into());
+    }
     out.join("\n")
 }
 
@@ -537,6 +543,31 @@ mod tests {
             css_for(&d, id),
             "width: 200px;\nheight: 100px;\nbackground: #FFF;\nborder: 1px solid #E5E5E5;\nborder-radius: 8px;\nbox-shadow: 0px 4px 4px 0px rgba(0, 0, 0, 0.25);\nfilter: blur(5px);\nopacity: 0.5;"
         );
+    }
+
+    #[test]
+    fn non_normal_shadow_blend_is_marked_as_approximate() {
+        let (mut d, id) = doc_with(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.effects = vec![Effect::DropShadow {
+                color: Color::BLACK,
+                offset: Vec2::new(0.0, 2.0),
+                radius: 4.0,
+                spread: 0.0,
+                visible: true,
+                show_behind: false,
+                blend: BlendMode::Multiply,
+            }];
+            d.insert(page, n).unwrap();
+        });
+        let css = css_for(&d, id);
+        assert!(css.contains("DESIGNOS limitation: non-normal shadow blend is not representable in CSS"), "{css}");
+
+        if let Effect::DropShadow { blend, .. } = &mut d.get_mut(id).unwrap().effects[0] {
+            *blend = BlendMode::Normal;
+        }
+        assert!(!css_for(&d, id).contains("DESIGNOS limitation:"));
     }
 
     #[test]

@@ -12,6 +12,29 @@
 use designos_doc::{Color, Effect, Vec2};
 use usvg::filter::{CompositeOperator, Input, Kind, MorphologyOperator};
 
+fn blend_mode(mode: usvg::BlendMode) -> designos_doc::BlendMode {
+    use designos_doc::BlendMode as D;
+    use usvg::BlendMode as U;
+    match mode {
+        U::Multiply => D::Multiply,
+        U::Screen => D::Screen,
+        U::Overlay => D::Overlay,
+        U::Darken => D::Darken,
+        U::Lighten => D::Lighten,
+        U::ColorDodge => D::ColorDodge,
+        U::ColorBurn => D::ColorBurn,
+        U::HardLight => D::HardLight,
+        U::SoftLight => D::SoftLight,
+        U::Difference => D::Difference,
+        U::Exclusion => D::Exclusion,
+        U::Hue => D::Hue,
+        U::Saturation => D::Saturation,
+        U::Color => D::Color,
+        U::Luminosity => D::Luminosity,
+        U::Normal => D::Normal,
+    }
+}
+
 pub fn effects_of(filters: &[std::sync::Arc<usvg::filter::Filter>]) -> Vec<Effect> {
     let mut out = Vec::new();
     for f in filters {
@@ -45,6 +68,15 @@ fn one_filter(prims: &[usvg::filter::Primitive]) -> Vec<Effect> {
     let mut chain = Chain::default();
     for p in prims {
         match p.kind() {
+            Kind::Blend(b) => {
+                let Input::Reference(name) = b.input1() else { continue };
+                let Some(index) = name.strip_prefix("innerShadow").or_else(|| name.strip_prefix("shadow")).and_then(|n| n.parse::<usize>().ok()) else {
+                    continue;
+                };
+                if let Some(Effect::DropShadow { blend, .. } | Effect::InnerShadow { blend, .. }) = out.get_mut(index) {
+                    *blend = blend_mode(b.mode());
+                }
+            }
             Kind::DropShadow(s) => {
                 let sd = (s.std_dev_x().get() + s.std_dev_y().get()) / 2.0;
                 let c = s.color();

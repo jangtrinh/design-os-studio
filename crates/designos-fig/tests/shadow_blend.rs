@@ -4,7 +4,8 @@ use designos_doc::*;
 use designos_fig::container::{self, Compression};
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{color, en, figma_like_schema, fl, msg, node, vec2};
-use designos_fig::{export_fig, export_rest_json, import_fig, import_rest_json};
+use designos_fig::{export_fig, export_pen_json, export_rest_json, import_fig, import_pen_json, import_rest_json};
+use serde_json::Value;
 
 fn find<'a>(doc: &'a Document, name: &str) -> &'a Node {
     doc.nodes.values().find(|n| n.name == name).unwrap_or_else(|| panic!("no node named {name}"))
@@ -125,4 +126,18 @@ fn imported_pass_through_shadow_blend_round_trips_unchanged() {
     assert_eq!(modes(find(&d2, "Shadowed")), vec![BlendMode::PassThrough], "fig re-import");
     let back = import_rest_json(&export_rest_json(&d2).to_string()).unwrap();
     assert_eq!(modes(find(&back, "Shadowed")), vec![BlendMode::PassThrough], "REST round trip");
+}
+
+#[test]
+fn pen_shadow_blend_round_trips_and_defaults_missing_to_normal() {
+    let d1 = doc_with(shadows(&[BlendMode::Multiply, BlendMode::Screen]));
+    let exported = export_pen_json(&d1).unwrap();
+    let back = import_pen_json(&exported).unwrap();
+    assert_eq!(modes(find(&back, "Shadowed")), vec![BlendMode::Multiply, BlendMode::Screen], ".pen export/import");
+
+    // Older files omit the optional blend field; those effects keep the format's Normal default.
+    let mut legacy: Value = serde_json::from_str(&exported).unwrap();
+    legacy["children"][0]["effect"][0].as_object_mut().unwrap().remove("blend");
+    let legacy_back = import_pen_json(&serde_json::to_string(&legacy).unwrap()).unwrap();
+    assert_eq!(modes(find(&legacy_back, "Shadowed")), vec![BlendMode::Normal, BlendMode::Screen], "missing blend defaults to Normal");
 }

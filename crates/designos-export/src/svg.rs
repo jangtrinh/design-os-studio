@@ -696,7 +696,7 @@ impl Svg<'_> {
         self.def("  <feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"/>");
         let mut shadows = Vec::new();
         for (i, e) in n.effects.iter().enumerate() {
-            if let Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, .. } = e {
+            if let Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } = e {
                 let mut input = "hardAlpha".to_string();
                 if *spread != 0.0 {
                     let op = if *spread > 0.0 { "dilate" } else { "erode" };
@@ -714,7 +714,13 @@ impl Svg<'_> {
                     input = format!("knockout{i}");
                 }
                 self.def(&format!("  <feColorMatrix in=\"{input}\" type=\"matrix\" values=\"{}\" result=\"shadow{i}\"/>", colorize(color)));
-                shadows.push(format!("shadow{i}"));
+                let shadow_result = if let Some(mode) = blend_css(*blend) {
+                    self.def(&format!("  <feBlend mode=\"{mode}\" in=\"shadow{i}\" in2=\"SourceGraphic\" result=\"blendedShadow{i}\"/>"));
+                    format!("blendedShadow{i}")
+                } else {
+                    format!("shadow{i}")
+                };
+                shadows.push(shadow_result);
             }
         }
         let mut current = "SourceGraphic".to_string();
@@ -728,7 +734,7 @@ impl Svg<'_> {
             current = "withShadows".into();
         }
         for (i, e) in n.effects.iter().enumerate() {
-            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } = e {
+            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
                 let mut input = "hardAlpha".to_string();
                 if *spread > 0.0 {
                     self.def(&format!("  <feMorphology in=\"{input}\" operator=\"erode\" radius=\"{}\" result=\"inset{i}\"/>", num(*spread)));
@@ -742,7 +748,8 @@ impl Svg<'_> {
                 }
                 self.def(&format!("  <feComposite in=\"hardAlpha\" in2=\"{input}\" operator=\"arithmetic\" k2=\"1\" k3=\"-1\" result=\"innerCut{i}\"/>"));
                 self.def(&format!("  <feColorMatrix in=\"innerCut{i}\" type=\"matrix\" values=\"{}\" result=\"innerShadow{i}\"/>", colorize(color)));
-                self.def(&format!("  <feBlend mode=\"normal\" in=\"innerShadow{i}\" in2=\"{current}\" result=\"withInner{i}\"/>"));
+                let mode = blend_css(*blend).unwrap_or("normal");
+                self.def(&format!("  <feBlend mode=\"{mode}\" in=\"innerShadow{i}\" in2=\"{current}\" result=\"withInner{i}\"/>"));
                 current = format!("withInner{i}");
             }
         }
