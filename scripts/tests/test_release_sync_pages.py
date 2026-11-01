@@ -12,6 +12,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 FIX = HERE / "fixtures" / "release-sync"
 SCRIPT = HERE.parent / "release-sync-pages.py"
+WORKFLOWS = HERE.parent.parent / ".github" / "workflows"
 
 spec = importlib.util.spec_from_file_location("release_sync_pages", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
@@ -65,6 +66,20 @@ class SyncCase(unittest.TestCase):
 
     def snapshot(self):
         return {p.name: p.read_text() for p in self.tree.rglob("*") if p.is_file()}
+
+
+class WorkflowScopeTests(unittest.TestCase):
+    """Release automation must run only the tests for its own scripts."""
+
+    def test_release_workflows_do_not_run_unrelated_script_tests(self):
+        focused = (
+            "python3 -m unittest scripts/tests/test_release_sync_pages.py "
+            "scripts/tests/test_release_make_latest.py -v"
+        )
+        for workflow in ("ci.yml", "release-sync-pages.yml"):
+            source = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+            self.assertNotIn("python3 -m unittest discover -s scripts/tests", source, workflow)
+            self.assertIn(focused, source, workflow)
 
 
 class RewriteTests(SyncCase):

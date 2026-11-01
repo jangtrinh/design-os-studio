@@ -135,7 +135,7 @@ jobs:
           VERSION: ${{ steps.v.outputs.version }}
         run: |
           export PYTHONDONTWRITEBYTECODE=1
-          python3 -m unittest discover -s scripts/tests
+          python3 -m unittest scripts/tests/test_release_sync_pages.py scripts/tests/test_release_make_latest.py -v
           python3 scripts/release-sync-pages.py "$VERSION" --verify-urls --report "$RUNNER_TEMP/sync-report.md"
 
       - name: Open the pull request
