@@ -1,0 +1,10 @@
+I added the "Draft" frame (node 2) to the current document, but I couldn't open `other.designos`, so I can't tell you its frame names yet.
+
+The Draft frame is unsaved, and opening a file replaces the current document. The tool refused to open it while there were unsaved changes. I left the Draft frame in place instead of discarding it, since you asked me not to save it.
+
+To continue, you can either:
+- tell me to discard the Draft frame so I can open `other.designos` and list its frames, or
+- give me a path to save the current document to first, and then I'll open `other.designos`.
+
+I wrote the same explanation to `answer.md`.
+claude exit 0

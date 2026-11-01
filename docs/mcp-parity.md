@@ -53,11 +53,11 @@ Each tool takes the tier of the most severe effect a call can have. The tiers ar
 | `designos_get_design_context` | read-only | read | `node_id` | Return generated code in the target language, Dev Mode hints (variables with CSS/platform code syntax, linked styles, component instances/properties, annotations, dev status, Code Connect stub), and an inline screenshot (scale 0.5, max_long_edge 1024), with an XML outline fallback when the subtree exceeds 5,000 nodes or generated code exceeds 40,000 characters. |
 | `designos_configure_session` | mutating | modify | — | Configure per-session MCP options for the automatic mutating-call lint issues block (issues.mode: preset \| errors_only \| off, issues.preset, issues.max_items: 1..=100) and auto_fix settings. Persists across reconnects in the session directory and resets on document switch. |
 | `designos_get_app_state` | read-only | read | — | Return the pre-fetched design context block. Sections: freshness, document, depth-3 target frames outline, variables summary, components and libraries, active style, and rules pack, plus session state. Pass include_selection=true ONLY when the user explicitly asks about their canvas selection. |
-| `designos_open_file` | mutating | additive | `path` | Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes require discard_changes=true. |
+| `designos_open_file` | mutating | additive | `path` | Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace into this isolated session. Does not control an open editor. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them. |
 | `designos_save_file` | mutating | destructive | — | Save this session to a .designos file inside the workspace, or in place when path is omitted. Untitled documents require path. Existing files are not overwritten unless overwrite=true. Parent directory must exist. |
 | `designos_close_document` | mutating | modify | — | Close this session document using unsaved save, discard, or fail (default fail). fail returns UNSAVED_CHANGES on a dirty document and never opens a dialog. Static risk tier destructive; treat as modify when unsaved is not discard. |
 | `designos_render_png` | mutating | additive | `node_id`, `path` | Rasterize a frame or layer to a NEW .png file inside the workspace using DESIGN:OS Studio's deterministic renderer. Existing files are never overwritten. |
-| `designos_new_document` | mutating | additive | `name` | Start a blank document with one page. Unsaved changes require discard_changes=true. |
+| `designos_new_document` | mutating | additive | `name` | Start a blank document with one page. Unsaved changes are refused unless discard_changes=true, which needs the user's explicit confirmation to discard them. |
 <!-- designos-mcp-tools:end -->
 
 ### Compatibility Aliases (`Engine::ALIASES`)
@@ -123,3 +123,93 @@ Each tool takes the tier of the most severe effect a call can have. The tiers ar
 ## 3. Loop detection
 
 `LOOP_SUSPECTED` on a repeated identical successful read-only call is a top-level `warning` object `{code, message, next_step, safe_to_retry: false}` on the unchanged result. The same detector returns a named tool error (`safe_to_retry: false`) for a repeated identical failing call (read-only or mutating), a repeated identical mutating call, a write tool failing with the same code, or a ping-pong that ends on a write. A first mutating call that actually changes the document has a different result and resets the window, so K identical no-op results after that fire on the Kth of those no-ops. Thresholds are `DESIGNOS_LOOP_GUARD_K` (default 3) and `DESIGNOS_LOOP_GUARD_N` hashed records (default 20), one window per session, cleared on reconnect, on a document revision change, and by a different call. The detector never mutates the document and never kills the session.
+
+## 4. MCP error kinds
+
+Each catalogue `ErrorCode` has a default `error_kind`. `retryable`: fix the arguments and call again. `fatal`: this call cannot succeed. `needs_human`: stop and ask the user; do not retry or work around.
+
+| Code | error_kind | Status |
+| --- | --- | --- |
+| `INVALID_ARGUMENTS` | `retryable` | active |
+| `UNKNOWN_FIELD` | `retryable` | active |
+| `MISSING_FIELD` | `retryable` | active |
+| `VALUE_OUT_OF_RANGE` | `retryable` | active |
+| `TEXT_TOO_LONG` | `retryable` | active |
+| `INVALID_COLOR` | `retryable` | active |
+| `NODE_NOT_FOUND` | `retryable` | active |
+| `NOT_A_CONTAINER` | `retryable` | active |
+| `PAGE_ROOT_PROTECTED` | `retryable` | active |
+| `MOVE_CYCLE` | `retryable` | active |
+| `INSTANCE_CYCLE` | `retryable` | active |
+| `OVERRIDE_FIELD_NOT_APPLICABLE` | `retryable` | active |
+| `UNSUPPORTED_NODE_KIND` | `retryable` | active |
+| `UNKNOWN_COMPONENT` | `retryable` | active |
+| `AMBIGUOUS_COMPONENT` | `retryable` | active |
+| `UNKNOWN_VARIANT_PROPERTY` | `retryable` | active |
+| `UNKNOWN_VARIANT_VALUE` | `retryable` | active |
+| `NO_SUCH_VARIANT` | `retryable` | active |
+| `UNKNOWN_OVERRIDE_PATH` | `retryable` | active |
+| `AMBIGUOUS_OVERRIDE_PATH` | `retryable` | active |
+| `UNKNOWN_COMPONENT_PROPERTY` | `retryable` | active |
+| `PROPERTY_TYPE_MISMATCH` | `retryable` | active |
+| `FIELD_NOT_ALLOWED_ON_INSTANCE` | `retryable` | active |
+| `UNKNOWN_SLOT` | `retryable` | active |
+| `SLOT_FILL_NOT_ALLOWED` | `retryable` | active |
+| `SLOT_CHILD_COUNT` | `retryable` | active |
+| `INVALID_SLOT_VALUE` | `retryable` | active |
+| `SLOT_CONTAINER_NOT_FOUND` | `retryable` | active |
+| `UNKNOWN_VARIABLE` | `retryable` | active |
+| `AMBIGUOUS_VARIABLE` | `retryable` | active |
+| `VARIABLE_TYPE_MISMATCH` | `retryable` | active |
+| `VARIABLE_SCOPE_MISMATCH` | `retryable` | active |
+| `UNKNOWN_STYLE` | `retryable` | active |
+| `STYLE_TYPE_MISMATCH` | `retryable` | active |
+| `UNKNOWN_VARIABLE_MODE` | `retryable` | active |
+| `BATCH_OP_FAILED` | `retryable` | active |
+| `UNKNOWN_REF` | `retryable` | active |
+| `DUPLICATE_AS` | `retryable` | active |
+| `BATCH_TOO_LARGE` | `retryable` | active |
+| `UNKNOWN_TOOL` | `retryable` | active |
+| `TOOL_DISABLED` | `needs_human` | active |
+| `UNSAVED_CHANGES` | `needs_human` | active |
+| `PATH_REQUIRED` | `needs_human` | active |
+| `PATH_OUTSIDE_WORKSPACE` | `needs_human` | active |
+| `FILE_EXISTS` | `retryable` | active |
+| `FILE_TOO_LARGE` | `fatal` | active |
+| `DOCUMENT_INVALID` | `fatal` | active |
+| `EDITOR_NOT_NOTIFIED` | `retryable` | active |
+| `EDITOR_PUBLISH_FAILED` | `retryable` | active |
+| `PATCH_TOO_LARGE` | `retryable` | active |
+| `HISTORY_DROPPED` | `fatal` | active |
+| `INTERNAL_ERROR` | `fatal` | active |
+| `UNSUPPORTED_EXTENSION` | `retryable` | active |
+| `UNSUPPORTED_FILE_TYPE` | `fatal` | active |
+| `ANOTHER_WINDOW_OWNS_SESSION` | `needs_human` | reserved |
+| `APPROVAL_DENIED` | `needs_human` | active |
+| `APPROVAL_TIMEOUT` | `needs_human` | reserved |
+| `INVALID_SELECTOR` | `retryable` | active |
+| `UNKNOWN_LANGUAGE` | `retryable` | active |
+| `OUTSIDE_OWNED_FRAMES` | `retryable` | active |
+| `IN_PROGRESS_TARGET_NOT_ROOT` | `retryable` | active |
+| `NODE_IN_PROGRESS_BY_OTHER_RUN` | `retryable` | active |
+| `UNKNOWN_PRESET` | `retryable` | active |
+| `UNKNOWN_RULE` | `retryable` | active |
+| `EXACTLY_ONE_SCOPE` | `retryable` | active |
+| `INVALID_CURSOR` | `retryable` | active |
+| `UNKNOWN_TOPIC` | `retryable` | active |
+| `TOPIC_NOT_AVAILABLE` | `retryable` | active |
+| `UNKNOWN_PROPERTY_KEY` | `retryable` | active |
+| `EXACTLY_ONE_TARGET` | `retryable` | active |
+| `INVALID_REGION` | `retryable` | active |
+| `IMAGE_TOO_LARGE` | `retryable` | active |
+| `NODES_ON_DIFFERENT_PAGES` | `retryable` | active |
+| `UNKNOWN_PROMPT` | `retryable` | active |
+| `IDEMPOTENCY_KEY_REUSED` | `retryable` | active |
+| `IDEMPOTENCY_KEY_STALE` | `retryable` | active |
+| `CURSOR_STALE` | `retryable` | active |
+| `RULE_UNAVAILABLE` | `retryable` | active |
+| `INVALID_NAME` | `retryable` | active |
+| `NAME_TOO_LONG` | `retryable` | active |
+| `LOOP_SUSPECTED` | `needs_human` | active |
+
+`reserved` codes are kept in the registry but no tool call emits them today. `APPROVAL_TIMEOUT` is reserved because the Ask-mode approval hook exits 0 on timeout and the agent CLI shows its own prompt. `ANOTHER_WINDOW_OWNS_SESSION` is reserved because it surfaces only through `fallback_lock_outcome` in `crates/designos-app/src/agent_sessions.rs`, which Studio shows as the `ANOTHER_WINDOW_OWNS_SESSION_MSG` status line, not as a tool error. `APPROVAL_DENIED` is active: the hook deny message carries it so the agent stops. `designos_open_file` returns `UNSUPPORTED_FILE_TYPE` for a file whose extension is not importable and whose content is not native design JSON; `designos_save_file` returns `UNSUPPORTED_EXTENSION` for a wrong output extension.
