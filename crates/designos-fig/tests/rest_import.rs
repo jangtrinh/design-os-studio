@@ -1,5 +1,5 @@
 use designos_doc::*;
-use designos_fig::{export_rest_json, image_refs, import_rest_json};
+use designos_fig::{export_rest_json, image_refs, import_rest_json, import_rest_json_with_report, import_variables_json};
 
 const FIXTURE: &str = include_str!("fixtures/rest_file.json");
 
@@ -285,4 +285,92 @@ fn new_effects_tolerate_missing_fields() {
     assert!(matches!(r.effects[0], Effect::Noise(_)));
     assert!(matches!(r.effects[1], Effect::Texture(_)));
     assert!(matches!(r.effects[2], Effect::Glass(_)));
+}
+
+#[test]
+fn rest_import_keeps_bindings_to_variables_missing_from_file() {
+    let json = r#"{
+      "name": "MissingVariable",
+      "document": {"type": "DOCUMENT", "children": [{"type": "CANVAS", "name": "P", "children": [
+        {"id": "1:1", "type": "RECTANGLE", "name": "Gradient",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 40},
+         "fills": [{"type": "GRADIENT_LINEAR", "gradientHandlePositions": [
+           {"x": 0, "y": 0.5}, {"x": 1, "y": 0.5}, {"x": 0, "y": 1}],
+           "gradientStops": [{"position": 0, "color": {"r": 1, "g": 0, "b": 0, "a": 1},
+             "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:9"}}},
+             {"position": 1, "color": {"r": 0, "g": 0, "b": 1, "a": 1}}]}]
+        }
+      ]}]}
+    }"#;
+    let (doc, report) = import_rest_json_with_report(json).unwrap();
+    let gradient = find(&doc, "Gradient");
+    assert!(doc.variables.is_empty());
+    assert_eq!(report.missing_variable_bindings, 1);
+    assert_eq!(gradient.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("VariableID:9:9"));
+}
+
+#[test]
+fn rest_import_bindings_resolve_after_separate_variables_import() {
+    let file = r#"{
+      "name": "SeparateVariables",
+      "document": {"type": "DOCUMENT", "children": [{"type": "CANVAS", "name": "P", "children": [
+        {"id": "1:1", "type": "RECTANGLE", "name": "Gradient",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 40},
+         "fills": [{"type": "GRADIENT_LINEAR", "gradientHandlePositions": [
+           {"x": 0, "y": 0.5}, {"x": 1, "y": 0.5}, {"x": 0, "y": 1}],
+           "gradientStops": [{"position": 0, "color": {"r": 1, "g": 0, "b": 0, "a": 1},
+             "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:9"}}}]}]
+        }
+      ]}]}
+    }"#;
+    let vars = r#"{
+      "meta": {
+        "variableCollections": {"VariableCollectionId:9:1": {
+          "id": "VariableCollectionId:9:1", "name": "Theme",
+          "modes": [{"modeId": "9:0", "name": "Default"}],
+          "defaultModeId": "9:0", "variableIds": ["VariableID:9:9"]
+        }},
+        "variables": {"VariableID:9:9": {
+          "id": "VariableID:9:9", "name": "Accent", "variableCollectionId": "VariableCollectionId:9:1",
+          "resolvedType": "COLOR", "valuesByMode": {"9:0": {"r": 0.2, "g": 0.4, "b": 0.6, "a": 1}}
+        }}
+      }
+    }"#;
+    let (mut doc, report) = import_rest_json_with_report(file).unwrap();
+    assert_eq!(report.missing_variable_bindings, 1);
+    let gradient_id = find(&doc, "Gradient").id;
+    assert_eq!(doc.get(gradient_id).unwrap().variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("VariableID:9:9"));
+    assert_eq!(doc.bound_value(gradient_id, "fills/0/stops/0"), None);
+    assert_eq!(import_variables_json(&mut doc, vars).unwrap(), 1);
+    assert_eq!(doc.bound_value(gradient_id, "fills/0/stops/0"), Some(VariableValue::Color(Color { r: 0.2, g: 0.4, b: 0.6, a: 1.0 })));
+}
+
+#[test]
+fn rest_import_keeps_bindings_to_variables_present_in_file() {
+    let json = r#"{
+      "name": "PresentVariable",
+      "meta": {
+        "variableCollections": {"VariableCollectionId:9:1": {
+          "id": "VariableCollectionId:9:1", "name": "Theme",
+          "modes": [{"modeId": "9:0", "name": "Default"}],
+          "defaultModeId": "9:0", "variableIds": ["VariableID:9:9"]
+        }},
+        "variables": {"VariableID:9:9": {
+          "id": "VariableID:9:9", "name": "Accent", "variableCollectionId": "VariableCollectionId:9:1",
+          "resolvedType": "COLOR", "valuesByMode": {"9:0": {"r": 1, "g": 0, "b": 0, "a": 1}}
+        }}
+      },
+      "document": {"type": "DOCUMENT", "children": [{"type": "CANVAS", "name": "P", "children": [
+        {"id": "1:1", "type": "RECTANGLE", "name": "Gradient",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 40},
+         "fills": [{"type": "GRADIENT_LINEAR", "gradientHandlePositions": [
+           {"x": 0, "y": 0.5}, {"x": 1, "y": 0.5}, {"x": 0, "y": 1}],
+           "gradientStops": [{"position": 0, "color": {"r": 1, "g": 0, "b": 0, "a": 1},
+             "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:9"}}}]}]
+        }
+      ]}]}
+    }"#;
+    let doc = import_rest_json(json).unwrap();
+    let gradient = find(&doc, "Gradient");
+    assert_eq!(gradient.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("VariableID:9:9"));
 }
