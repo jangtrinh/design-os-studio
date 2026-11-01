@@ -21,6 +21,28 @@ fn simple_shapes() {
 }
 
 #[test]
+fn background_blur_without_a_visible_fill_leaves_backdrop_sharp() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.rect(None, Rect::new(10.0, 0.0, 10.0, 40.0), Color::BLACK);
+    t.add(None, |id| {
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.fills.clear();
+        n.effects = vec![Effect::BackgroundBlur { radius: 8.0, visible: true }];
+        n
+    });
+    let c = compare(&mut g, "background_blur_fill_less", &t.doc, t.page, Viewport::default(), (60, 40), 2);
+    let stripe_cpu = c.cpu.pixel(15, 20).unwrap();
+    let stripe_gpu = c.gpu.pixel(15, 20).unwrap();
+    assert_eq!([stripe_cpu.red(), stripe_cpu.green(), stripe_cpu.blue(), stripe_cpu.alpha()], [0, 0, 0, 255]);
+    assert_eq!([stripe_gpu.red(), stripe_gpu.green(), stripe_gpu.blue(), stripe_gpu.alpha()], [0, 0, 0, 255]);
+    let clear_cpu = c.cpu.pixel(25, 20).unwrap();
+    let clear_gpu = c.gpu.pixel(25, 20).unwrap();
+    assert_eq!([clear_cpu.red(), clear_cpu.green(), clear_cpu.blue(), clear_cpu.alpha()], [255, 255, 255, 255]);
+    assert_eq!([clear_gpu.red(), clear_gpu.green(), clear_gpu.blue(), clear_gpu.alpha()], [255, 255, 255, 255]);
+}
+
+#[test]
 fn render_demo() {
     let Some(mut g) = gpu() else { return };
     let (doc, page) = demo::demo_scene();

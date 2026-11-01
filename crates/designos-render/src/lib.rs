@@ -432,9 +432,10 @@ impl Renderer<'_> {
             return false;
         }
         (!matches!(n.kind, NodeKind::Unknown { .. })
-            && n.effects
-                .iter()
-                .any(|e| matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) || matches!(e, Effect::Glass(g) if g.visible)))
+            && n.effects.iter().any(|e| {
+                (matches!(e, Effect::BackgroundBlur { visible: true, radius } if *radius > 0.0) && !self.visible_fills(n).is_empty())
+                    || matches!(e, Effect::Glass(g) if g.visible)
+            }))
             || (Self::draws_children(n) && n.children.iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c))))
     }
 
@@ -590,7 +591,7 @@ impl Renderer<'_> {
                     }
                     effects::drop_shadow(target, clip, bb, scale, color, *offset, *radius, *spread, *show_behind, *blend, alpha, &sil)
                 }
-                Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 => {
+                Effect::BackgroundBlur { radius, visible: true } if *radius > 0.0 && !self.visible_fills(n).is_empty() => {
                     effects::background_blur(target, back, clip, inner_bb, scale, *radius, &sil)
                 }
                 Effect::Glass(g) if g.visible => fx::glass(target, back, clip, inner_bb, scale, g, &sil),
