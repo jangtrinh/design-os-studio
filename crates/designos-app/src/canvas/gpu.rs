@@ -29,12 +29,12 @@ const MAX_REFINE_COMPILES: u32 = 4;
 
 /// Document nodes one slice of a big page's refine compiles: a slice compiles in a few tens of
 /// milliseconds, so the compile of a page of any size never holds a frame for long.
-const SLICE_NODES: usize = 8_000;
+const SLICE_NODES: usize = 3_000;
 
 /// Estimated microseconds one chunk of the refined frame may cost to render (see
 /// `designos_gpu::PROGRAM_COST_US`): well inside a 60 fps frame, so the UI stays live while
 /// thousands of passes are recorded.
-pub const CHUNK_BUDGET_US: f32 = 12_000.0;
+pub const CHUNK_BUDGET_US: f32 = 8_000.0;
 
 type FrameKey = (designos_doc::NodeId, u64, [u32; 2], u32, u32, (u32, u32), usize);
 
