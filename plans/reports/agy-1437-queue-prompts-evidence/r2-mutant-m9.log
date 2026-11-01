@@ -1,0 +1,28 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.03s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 2 tests
+
+thread 'agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends' (58030312) panicked at crates/designos-app/src/agent_composer.rs:3399:9:
+entry two must not be pasted behind an unsubmitted held entry: "\u{1b}[200~entry one\u{1b}[201~\u{1b}[200~entry two\u{1b}[201~\r"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends ... FAILED
+
+thread 'agent_composer::tests::working_agent_waits_for_turn_end_before_flushing_next_entry' (58030313) panicked at crates/designos-app/src/agent_composer.rs:3432:9:
+entry two must not flush one tick after Enter
+test agent_composer::tests::working_agent_waits_for_turn_end_before_flushing_next_entry ... FAILED
+
+failures:
+
+failures:
+    agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends
+    agent_composer::tests::working_agent_waits_for_turn_end_before_flushing_next_entry
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4050 filtered out; finished in 0.79s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

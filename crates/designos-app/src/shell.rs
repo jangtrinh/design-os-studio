@@ -440,6 +440,13 @@ impl Shell {
                 app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
                 app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
             }
+            Some("agents-chat:two-waiting") => {
+                app.ui.rail = Some(crate::app::RailItem::Agents);
+                app.ui.left_collapsed = false;
+                app.terminal.active_runtime = crate::terminal::AgentCliPreset::Claude;
+                app.terminal.submit_chat_prompt("Create a SaaS analytics card in Claude Code", app.file_path.as_deref());
+                app.terminal.submit_chat_prompt("Also add a quarterly revenue sparkline", app.file_path.as_deref());
+            }
             Some("agents-skills") => {
                 app.ui.rail = Some(crate::app::RailItem::Agents);
                 app.ui.left_collapsed = false;

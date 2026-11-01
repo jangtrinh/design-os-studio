@@ -13,10 +13,14 @@ pub fn placeholder(state: &TerminalState, pill: &str, shell: bool, any_cli: bool
     if shell && !new_chat {
         return "Select an agent tab".to_string();
     }
-    if state.active_composer().pending_send.is_some() {
-        return format!("Starting {pill}… your message will be sent");
+    let comp = state.active_composer();
+    if !comp.pending_send.is_empty() {
+        if comp.pending_send.len() >= 2 {
+            return format!("{} messages waiting to send", comp.pending_send.len());
+        }
+        return comp.notice.clone().unwrap_or_else(|| format!("Starting {pill}… your message will be sent"));
     }
-    if state.active_composer().send_count == 0 {
+    if comp.send_count == 0 {
         format!("Ask {pill}…  @ to mention a layer")
     } else {
         format!("Reply to {pill}…")
@@ -28,6 +32,11 @@ pub fn caption(state: &TerminalState) -> Option<String> {
         return Some(note.to_string());
     }
     let comp = state.active_composer();
+    if !comp.pending_send.is_empty() && !comp.draft.is_empty() {
+        if let Some(note) = comp.notice.clone() {
+            return Some(note);
+        }
+    }
     match comp.last_outcome {
         Some(crate::agent_composer::SendOutcome::Refused(reason)) if reason != crate::agent_composer::RefuseReason::NoAgent => {
             comp.notice.clone().or_else(|| Some(reason.message().to_string()))

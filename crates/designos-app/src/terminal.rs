@@ -3366,13 +3366,11 @@ impl TerminalState {
                 }
             }
         }
-        if let Some(tab) = self.active_tab() {
+        if let Some(tab) = self.active_tab_mut() {
             if let Ok(mut last_out) = tab.last_output_at.lock() {
                 *last_out = Some(std::time::Instant::now());
             }
-            if let Ok(mut st) = tab.agent_status.lock() {
-                *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
-            }
+            tab.composer.premark = Some(prompt.chars().take(64).collect());
         }
         let _ = self.send_system_prompt(prompt, file_path);
     }
@@ -3419,7 +3417,6 @@ impl TerminalState {
                 if self.tabs.is_empty() || self.picker_open {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
-                let has_queued = tab.composer.pending_send.is_some();
                 tab.spawned_command = Some(command.to_string());
                 self.tabs.push(tab);
                 self.active_tab = self.tabs.len() - 1;
@@ -3428,9 +3425,7 @@ impl TerminalState {
                 self.viewport_focused = true;
                 self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    if !has_queued {
-                        self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
-                    }
+                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
                 }
                 Ok(self.active_tab)
             }
@@ -3577,7 +3572,6 @@ impl TerminalState {
                 if self.tabs.is_empty() || self.picker_open {
                     tab.composer = std::mem::take(&mut self.unattached_composer);
                 }
-                let has_queued = tab.composer.pending_send.is_some();
                 if register_new_entry && crate::agent_sessions::is_agent_cli_preset(preset) {
                     self.session_registry.last_cli = Some(preset.binary_name().to_string());
                     if crate::agent_sessions::is_registrable_cli_scoped(preset, self.agy_cwd_scoped) {
@@ -3617,9 +3611,7 @@ impl TerminalState {
                     None => spawned,
                 });
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    if !has_queued {
-                        self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
-                    }
+                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
                 }
                 Ok(self.active_tab)
             }
@@ -3888,6 +3880,11 @@ impl TerminalState {
                     // A classified failure keeps its `Error` dot until the next turn starts (`#686`).
                     let keeps_failure = self.tabs[tab_idx].session_failure.is_some() && !is_turn_start && !matches!(new_status, AgentTabStatus::Error(_));
                     if !keeps_failure {
+                        if is_turn_start && self.tabs[tab_idx].composer.pending_enter_deadline.is_none() {
+                            self.tabs[tab_idx].composer.flush_paused = false;
+                            self.tabs[tab_idx].composer.awaiting_turn_end = true;
+                            self.tabs[tab_idx].composer.turn_started_since_send = true;
+                        }
                         if let Ok(mut st) = self.tabs[tab_idx].agent_status.lock() {
                             if matches!(*st, AgentTabStatus::WaitingForInput(_)) && matches!(new_status, AgentTabStatus::Working(_) | AgentTabStatus::Done) {
                                 tabs_left_waiting.push(tab_idx);
@@ -4313,7 +4310,9 @@ impl TerminalState {
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
         let outcome = self.send_to_agent(cli_prompt, file_path);
         if self.tabs.is_empty() && self.picker_open {
-            self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
+            if outcome != crate::agent_composer::SendOutcome::Queued {
+                self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
+            }
         } else if matches!(outcome, crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued) {
             let title = self.active_tab().map(|t| t.title.clone()).unwrap_or_else(|| "Agent".into());
             self.status_msg = Some(format!("Dispatched '{task_title}' to {title} PTY"));
@@ -11771,7 +11770,7 @@ mod tests {
         let outcome = st.send_from_composer_box("hello", None);
         assert_eq!(outcome, crate::agent_composer::SendOutcome::Refused(crate::agent_composer::RefuseReason::NoAgent));
         assert_eq!(st.composer_draft(), "hello", "Enter keeps the draft too");
-        assert!(st.tabs.is_empty() && st.active_composer().pending_send.is_none(), "and queues nothing for a later agent");
+        assert!(st.tabs.is_empty() && st.active_composer().pending_send.is_empty(), "and queues nothing for a later agent");
 
         // The agent menu names the way out: every built-in row offers Install.
         st.runtime_dropdown_open = true;
@@ -12056,7 +12055,7 @@ mod tests {
         }
         let outcome = st.send_system_prompt("make the hero card blue", None);
         assert_eq!(outcome, crate::agent_composer::SendOutcome::Queued, "a busy tab queues the prompt");
-        assert!(st.active_tab().is_some_and(|t| t.composer.pending_send.is_some()), "the prompt waits for a quiet tab");
+        assert!(st.active_tab().is_some_and(|t| !t.composer.pending_send.is_empty()), "the prompt waits for a quiet tab");
         assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_none(), "a queued prompt starts a new turn and clears the banner when it is sent");
 
         // A new failure arrives while the prompt still waits, then the tab turns ready and the prompt is written.
@@ -12066,7 +12065,7 @@ mod tests {
             t.spawned_at = std::time::Instant::now() - crate::agent_start_failure::START_FAILURE_WINDOW - std::time::Duration::from_secs(1);
         }
         st.tick_composer();
-        assert!(st.active_tab().is_some_and(|t| t.composer.pending_send.is_none()), "the ready tab flushed the queued prompt");
+        assert!(st.active_tab().is_some_and(|t| t.composer.pending_send.is_empty()), "the ready tab flushed the queued prompt");
         assert_eq!(st.active_tab().and_then(|t| t.last_user_prompt.as_deref()), Some("make the hero card blue"));
         assert!(st.active_tab().and_then(|t| t.session_failure.as_ref()).is_some(), "the queued write must not wipe a failure that arrived while it waited");
         kill_tabs(&mut st);

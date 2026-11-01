@@ -1,0 +1,25 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 38s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 6 tests
+test agent_composer::tests::rvw2_direct_send_after_a_held_enter ... PROBE r2_direct o1=Written o2=Queued written="\u{1b}[200~entry one\u{1b}[201~" enter_between=false
+ok
+test agent_composer::tests::rvw2_entry_point_over_a_shell_with_no_startable_agent ... PROBE r2_shell_noagent picker_open=false active=0 last_outcome=Some(Refused(NoAgent)) notice=Some("Select an agent tab") status=Some("Select an agent tab") pending_prompt=None text_kept_anywhere=true
+ok
+test agent_composer::tests::rvw2_held_enter_then_permission_answered_and_turn_ends ... PROBE r2_held_answer held_after_hold=true written="\u{1b}[200~entry one\u{1b}[201~" enter_between=false
+ok
+test agent_composer::tests::rvw2_image_job_behind_a_waiting_user_prompt_at_start ... PROBE r2_image_stall tabs=1 queue_at_submit=["user prompt first", "Image task 4: Remove background."] user_written_after_ticks=Some(0) status=Idle written="\u{1b}[200~user prompt first\u{1b}[201~\r"
+ok
+test agent_composer::tests::rvw2_image_job_during_a_running_turn ... PROBE r2_image_midturn tabs=1 pasted_while_turn_one_runs_after_ticks=None written="\u{1b}[200~turn one\u{1b}[201~\r"
+ok
+test agent_composer::tests::rvw2_render_r3_composer_png ... PROBE r3_raster texts=["2 messages waiting to send", "Ask first", "Claude Code", "Answer the permission prompt in the terminal"]
+PROBE r3_raster saved "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/../../plans/reports/agy-1437-queue-prompts-evidence/r3-composer.png" (914x520)
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4056 filtered out; finished in 2.08s
+

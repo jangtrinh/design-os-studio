@@ -25,13 +25,13 @@ fn a_tab_nobody_is_looking_at_keeps_its_queued_prompt_while_its_dialog_is_open()
     assert_eq!(st.active_tab, 1, "the shell tab is the one on show");
     st.tabs[0].spawned_at = std::time::Instant::now() - Duration::from_secs(60);
     show(&mut st, 0, &dialog_screen(1, 1));
-    st.tabs[0].composer.pending_send = Some("queued while the dialog is open".to_string());
+    st.tabs[0].composer.pending_send.push_back(crate::agent_composer::QueuedSend::new("queued while the dialog is open", false));
     st.tick_composer();
-    assert!(st.tabs[0].composer.pending_send.is_some(), "a queued prompt was pasted into an open dialog of a hidden tab");
+    assert!(!st.tabs[0].composer.pending_send.is_empty(), "a queued prompt was pasted into an open dialog of a hidden tab");
     // The dialog goes: the hidden tab's screen is current, and the prompt goes out.
     dialog_goes(&mut st, 0);
     st.tick_composer();
-    assert!(st.tabs[0].composer.pending_send.is_none(), "the prompt stayed queued after the dialog was gone");
+    assert!(st.tabs[0].composer.pending_send.is_empty(), "the prompt stayed queued after the dialog was gone");
     // A hook wait on the hidden tab shows in its status.
     show(&mut st, 0, &dialog_screen(1, 1));
     ask_permission(&mut st);

@@ -4152,7 +4152,7 @@ mod tests {
         let send_r = get_rect(&ctx, "specs-ask-agent-send");
         click_at(&ctx, &mut app, send_r.center());
         assert!(
-            app.terminal.active_composer().pending_send.as_deref() == Some("Verify AC-01 on canvas")
+            app.terminal.active_composer().pending_send.front().map(|e| e.text.as_str()) == Some("Verify AC-01 on canvas")
                 || app.terminal.active_composer().history.iter().any(|h| h.contains("Verify AC-01 on canvas"))
                 || app.terminal.active_composer().last_outcome.is_some()
         );
