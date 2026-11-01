@@ -1186,7 +1186,7 @@ impl Shell {
             Key::Quote if m.shift => menus::run(app, ctx, Action::TogglePixelGrid),
             k => {
                 if !m.alt {
-                    let tool = if app.wb_tools_enabled() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
+                    let tool = if app.board_key_map() { Tool::from_key_board(k, m.shift) } else { Tool::from_key(k, m.shift) };
                     if let Some(t) = tool {
                         app.set_tool(t);
                     }
@@ -1201,7 +1201,7 @@ impl Shell {
         let (clicked, pos, cmd) = ui.ctx().input(|i| (i.pointer.secondary_clicked(), i.pointer.interact_pos(), i.modifiers.command));
         let Some(pos) = pos.filter(|p| clicked && canvas_rect.contains(*p) && !self.app.vars.open) else { return };
         if self.app.ui.rulers
-            && self.app.rulers_available()
+            && self.app.ruler_strip_skips_canvas_menu()
             && (pos.x - canvas_rect.left() <= theme::RULER_SIZE || pos.y - canvas_rect.top() <= theme::RULER_SIZE)
         {
             return;
@@ -1788,7 +1788,7 @@ impl Shell {
         }
 
         ui.painter().rect_filled(full, 0.0, theme::BG);
-        let board = !self.app.inspector_panel_visible();
+        let board = self.app.board_chrome();
         let right_w = if board { 0.0 } else { theme::RIGHT_PANEL_WIDTH + theme::BORDER_WIDTH };
         let rail_w = theme::RAIL_WIDTH + theme::BORDER_WIDTH;
         let is_ai_panel = matches!(self.app.ui.rail, Some(crate::app::RailItem::Agents | crate::app::RailItem::Tools));

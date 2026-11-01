@@ -6,8 +6,13 @@
 use crate::app::App;
 
 impl App {
-    /// Whether the whiteboard tool set and keyboard shortcuts are active.
+    /// Whether whiteboard tools (such as Tab creating the next sticky note) are active.
     pub fn wb_tools_enabled(&self) -> bool {
+        self.is_board()
+    }
+
+    /// Whether single-key tool shortcuts use the board map (V H P S R X T E) instead of the Design map.
+    pub fn board_key_map(&self) -> bool {
         self.is_board()
     }
 
@@ -36,6 +41,11 @@ impl App {
         self.is_board()
     }
 
+    /// Whether board chrome gates the right panel, the toolbar choice, the contextual bar, the zoom pill, and the Specs reader.
+    pub fn board_chrome(&self) -> bool {
+        self.is_board()
+    }
+
     /// Whether Dev Mode (`Shift+D`) can be toggled in the active document.
     pub fn dev_mode_available(&self) -> bool {
         !self.is_board()
@@ -46,13 +56,8 @@ impl App {
         !self.is_board()
     }
 
-    /// Whether canvas rulers capture right-clicks along the ruler strips.
-    pub fn rulers_available(&self) -> bool {
-        !self.is_board()
-    }
-
-    /// Whether the right-hand Inspector panel is shown instead of the board chrome.
-    pub fn inspector_panel_visible(&self) -> bool {
+    /// Whether a right-click on the ruler strip skips the canvas context menu.
+    pub fn ruler_strip_skips_canvas_menu(&self) -> bool {
         !self.is_board()
     }
 }
@@ -72,7 +77,7 @@ mod tests {
     #[test]
     fn wb_capabilities_table_for_board_design_and_deck() {
         let table = [
-            // (kind, wb_*, *_available / inspector_panel_visible)
+            // (kind, wb_* / board_*, *_available / ruler_strip_skips_canvas_menu)
             (DocumentKind::Board, true, false),
             (DocumentKind::Design, false, true),
             (DocumentKind::Deck, false, true),
@@ -80,15 +85,16 @@ mod tests {
         for (kind, wb_expected, design_expected) in table {
             let app = app_with_kind(kind);
             assert_eq!(app.wb_tools_enabled(), wb_expected, "{kind:?}: wb_tools_enabled");
+            assert_eq!(app.board_key_map(), wb_expected, "{kind:?}: board_key_map");
             assert_eq!(app.wb_contextual_bar_enabled(), wb_expected, "{kind:?}: wb_contextual_bar_enabled");
             assert_eq!(app.wb_connectors_enabled(), wb_expected, "{kind:?}: wb_connectors_enabled");
             assert_eq!(app.wb_section_defaults(), wb_expected, "{kind:?}: wb_section_defaults");
             assert_eq!(app.wb_text_defaults(), wb_expected, "{kind:?}: wb_text_defaults");
             assert_eq!(app.wb_dotted_background(), wb_expected, "{kind:?}: wb_dotted_background");
+            assert_eq!(app.board_chrome(), wb_expected, "{kind:?}: board_chrome");
             assert_eq!(app.dev_mode_available(), design_expected, "{kind:?}: dev_mode_available");
             assert_eq!(app.frame_stepping_available(), design_expected, "{kind:?}: frame_stepping_available");
-            assert_eq!(app.rulers_available(), design_expected, "{kind:?}: rulers_available");
-            assert_eq!(app.inspector_panel_visible(), design_expected, "{kind:?}: inspector_panel_visible");
+            assert_eq!(app.ruler_strip_skips_canvas_menu(), design_expected, "{kind:?}: ruler_strip_skips_canvas_menu");
         }
     }
 }
