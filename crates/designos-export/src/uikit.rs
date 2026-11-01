@@ -24,7 +24,7 @@ pub fn uikit_for(doc: &Document, node: NodeId) -> String {
 enum Host<'a> {
     Stack(&'a str),
     Plain(&'a str),
-    Cell { parent: &'a str, align_h: GridChildAlign, align_v: GridChildAlign, offset: Option<(f32, f32)> },
+    Cell { parent: &'a str, align_h: GridChildAlign, align_v: GridChildAlign },
 }
 
 struct Cx<'a> {
@@ -277,13 +277,22 @@ impl Cx<'_> {
                         self.line("])");
                         self.line(format!("{row_v}.addArrangedSubview({cell_v})"));
                         let (align_h, align_v) = grid_cell_align(doc, cid, al);
-                        self.emit(cid, me, Some(Host::Cell { parent: &cell_v, align_h, align_v, offset: None }));
+                        self.emit(cid, me, Some(Host::Cell { parent: &cell_v, align_h, align_v }));
                         for s in &group.stacked {
-                            self.emit(
-                                s.id,
-                                me,
-                                Some(Host::Cell { parent: &cell_v, align_h: GridChildAlign::Start, align_v: GridChildAlign::Start, offset: Some(s.offset) }),
-                            );
+                            let sub_v = self.ident("stackCell");
+                            let sw = grid.cell_width(&s.placed);
+                            let sh = grid.cell_height(&s.placed, false);
+                            self.line(format!("let {sub_v} = UIView()"));
+                            self.line(format!("{sub_v}.translatesAutoresizingMaskIntoConstraints = false"));
+                            self.line(format!("{cell_v}.addSubview({sub_v})"));
+                            self.line("NSLayoutConstraint.activate([");
+                            self.out.line(1, format!("{sub_v}.leadingAnchor.constraint(equalTo: {cell_v}.leadingAnchor, constant: {}),", num(s.offset.0)));
+                            self.out.line(1, format!("{sub_v}.topAnchor.constraint(equalTo: {cell_v}.topAnchor, constant: {}),", num(s.offset.1)));
+                            self.out.line(1, format!("{sub_v}.widthAnchor.constraint(equalToConstant: {}),", num(sw)));
+                            self.out.line(1, format!("{sub_v}.heightAnchor.constraint(equalToConstant: {}),", num(sh)));
+                            self.line("])");
+                            let (sh_al, sv_al) = grid_cell_align(doc, s.id, al);
+                            self.emit(s.id, me, Some(Host::Cell { parent: &sub_v, align_h: sh_al, align_v: sv_al }));
                         }
                         c += p.col_span;
                     } else {
@@ -487,7 +496,7 @@ impl Cx<'_> {
     /// Size and position: constraints inside stacks, `frame` elsewhere.
     fn layout(&mut self, v: &str, n: &Node, sz: &Sizes, host: Option<Host>, parent: Parent) {
         let doc = self.doc;
-        if let Some(Host::Cell { parent: cell_v, align_h, align_v, offset }) = host {
+        if let Some(Host::Cell { parent: cell_v, align_h, align_v }) = host {
             self.line(format!("{v}.translatesAutoresizingMaskIntoConstraints = false"));
             self.line(format!("{cell_v}.addSubview({v})"));
             let mut cons: Vec<String> = Vec::new();
@@ -501,28 +510,15 @@ impl Cx<'_> {
                 Dim::Fill => cons.push(format!("{v}.heightAnchor.constraint(equalTo: {cell_v}.heightAnchor)")),
                 Dim::Hug => {}
             }
-            if let Some((dx, dy)) = offset {
-                if dx != 0.0 {
-                    cons.push(format!("{v}.leadingAnchor.constraint(equalTo: {cell_v}.leadingAnchor, constant: {})", num(dx)));
-                } else {
-                    cons.push(format!("{v}.leadingAnchor.constraint(equalTo: {cell_v}.leadingAnchor)"));
-                }
-                if dy != 0.0 {
-                    cons.push(format!("{v}.topAnchor.constraint(equalTo: {cell_v}.topAnchor, constant: {})", num(dy)));
-                } else {
-                    cons.push(format!("{v}.topAnchor.constraint(equalTo: {cell_v}.topAnchor)"));
-                }
-            } else {
-                match align_h {
-                    GridChildAlign::Center => cons.push(format!("{v}.centerXAnchor.constraint(equalTo: {cell_v}.centerXAnchor)")),
-                    GridChildAlign::End => cons.push(format!("{v}.trailingAnchor.constraint(equalTo: {cell_v}.trailingAnchor)")),
-                    _ => cons.push(format!("{v}.leadingAnchor.constraint(equalTo: {cell_v}.leadingAnchor)")),
-                }
-                match align_v {
-                    GridChildAlign::Center => cons.push(format!("{v}.centerYAnchor.constraint(equalTo: {cell_v}.centerYAnchor)")),
-                    GridChildAlign::End => cons.push(format!("{v}.bottomAnchor.constraint(equalTo: {cell_v}.bottomAnchor)")),
-                    _ => cons.push(format!("{v}.topAnchor.constraint(equalTo: {cell_v}.topAnchor)")),
-                }
+            match align_h {
+                GridChildAlign::Center => cons.push(format!("{v}.centerXAnchor.constraint(equalTo: {cell_v}.centerXAnchor)")),
+                GridChildAlign::End => cons.push(format!("{v}.trailingAnchor.constraint(equalTo: {cell_v}.trailingAnchor)")),
+                _ => cons.push(format!("{v}.leadingAnchor.constraint(equalTo: {cell_v}.leadingAnchor)")),
+            }
+            match align_v {
+                GridChildAlign::Center => cons.push(format!("{v}.centerYAnchor.constraint(equalTo: {cell_v}.centerYAnchor)")),
+                GridChildAlign::End => cons.push(format!("{v}.bottomAnchor.constraint(equalTo: {cell_v}.bottomAnchor)")),
+                _ => cons.push(format!("{v}.topAnchor.constraint(equalTo: {cell_v}.topAnchor)")),
             }
             self.line("NSLayoutConstraint.activate([");
             for c in cons {

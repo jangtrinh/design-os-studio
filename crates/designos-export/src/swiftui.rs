@@ -552,19 +552,6 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                     if let Some(comment) = SolvedGrid::overlap_comment(doc, group) {
                         o.line(depth + 2, comment);
                     }
-                    if group.stacked.is_empty() {
-                        view(doc, cid, me, depth + 2, o);
-                    } else {
-                        o.line(depth + 2, "ZStack(alignment: .topLeading) {");
-                        view(doc, cid, me, depth + 3, o);
-                        for s in &group.stacked {
-                            view(doc, s.id, me, depth + 3, o);
-                            if s.offset.0 != 0.0 || s.offset.1 != 0.0 {
-                                o.line(depth + 4, format!(".offset(x: {}, y: {})", num(s.offset.0), num(s.offset.1)));
-                            }
-                        }
-                        o.line(depth + 2, "}");
-                    }
                     let cell_w = grid.cell_width(p);
                     let cell_h = grid.cell_height(p, false);
                     let (ah, av) = grid_cell_align(doc, cid, al);
@@ -579,7 +566,37 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                         _ => "top",
                     };
                     let cell_align = alignment(h_word, v_word);
-                    o.line(depth + 3, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                    if group.stacked.is_empty() {
+                        view(doc, cid, me, depth + 2, o);
+                        o.line(depth + 3, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                    } else {
+                        o.line(depth + 2, "ZStack(alignment: .topLeading) {");
+                        view(doc, cid, me, depth + 3, o);
+                        o.line(depth + 4, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                        for s in &group.stacked {
+                            view(doc, s.id, me, depth + 3, o);
+                            let sw = grid.cell_width(&s.placed);
+                            let sh = grid.cell_height(&s.placed, false);
+                            let (sah, sav) = grid_cell_align(doc, s.id, al);
+                            let sh_word = match sah {
+                                GridChildAlign::Center => "center",
+                                GridChildAlign::End => "trailing",
+                                _ => "leading",
+                            };
+                            let sv_word = match sav {
+                                GridChildAlign::Center => "center",
+                                GridChildAlign::End => "bottom",
+                                _ => "top",
+                            };
+                            let s_align = alignment(sh_word, sv_word);
+                            o.line(depth + 4, format!(".frame(width: {}, height: {}, alignment: {s_align})", num(sw), num(sh)));
+                            if s.offset.0 != 0.0 || s.offset.1 != 0.0 {
+                                o.line(depth + 4, format!(".offset(x: {}, y: {})", num(s.offset.0), num(s.offset.1)));
+                            }
+                        }
+                        o.line(depth + 2, "}");
+                        o.line(depth + 3, format!(".frame(width: {}, height: {}, alignment: .topLeading)", num(cell_w), num(cell_h)));
+                    }
                     if p.col_span > 1 {
                         o.line(depth + 3, format!(".gridCellColumns({})", p.col_span));
                     }

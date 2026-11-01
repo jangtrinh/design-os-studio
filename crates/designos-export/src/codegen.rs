@@ -607,7 +607,6 @@ pub(crate) struct SolvedGrid {
     pub col_gap: f32,
     pub row_gap: f32,
     pub pad_tl: (f32, f32),
-    pub rects: Vec<Rect>,
     pub children: Vec<(NodeId, designos_doc::layout_solver::Placed)>,
 }
 
@@ -629,7 +628,7 @@ impl SolvedGrid {
 
     pub fn row_cells(&self, r: usize) -> Vec<GridCellGroup> {
         let mut groups: Vec<GridCellGroup> = Vec::new();
-        for (idx, (id, p)) in self.children.iter().enumerate() {
+        for (id, p) in &self.children {
             if p.row != r {
                 continue;
             }
@@ -641,8 +640,8 @@ impl SolvedGrid {
                 c_start < g_end && g_start < c_end
             }) {
                 let (hx, hy) = self.cell_origin(&host.placed);
-                let rect = self.rects[idx];
-                host.stacked.push(StackedGridChild { id: *id, placed: *p, offset: (rect.x - hx, rect.y - hy) });
+                let (sx, sy) = self.cell_origin(p);
+                host.stacked.push(StackedGridChild { id: *id, placed: *p, offset: (sx - hx, sy - hy) });
             } else {
                 groups.push(GridCellGroup { id: *id, placed: *p, stacked: Vec::new() });
             }
@@ -679,12 +678,11 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
     let widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
     let rows = designos_doc::layout_solver::grid_row_heights(&al_s, n.size, own, &kids);
-    let out = designos_doc::layout_solver::compute_grid(&al_s, n.size, own, &kids);
     let col_gap = al_s.item_spacing.max(0.0);
     let row_gap = if al_s.counter_spacing > 0.0 { al_s.counter_spacing } else { col_gap };
     let placed = designos_doc::layout_solver::place_children(&kids, widths.len());
     let children = ids.into_iter().zip(placed).collect();
-    Some(SolvedGrid { widths, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), rects: out.rects, children })
+    Some(SolvedGrid { widths, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), children })
 }
 
 pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'static str {

@@ -318,10 +318,6 @@ fn compose_cell_align(ah: GridChildAlign, av: GridChildAlign) -> &'static str {
 }
 
 fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Out) {
-    emit_with_offset(doc, id, parent, depth, None, o);
-}
-
-fn emit_with_offset(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, extra_offset: Option<(f32, f32)>, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
     if !n.visible {
         return;
@@ -332,7 +328,7 @@ fn emit_with_offset(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize
     let grid_opt = own_al.filter(|_| site.is_none()).and_then(|al| solved_grid(doc, n, al).map(|g| (al, g)));
     let kids = if site.is_some() { Vec::new() } else { visible_children(doc, n) };
     let mut mods: Vec<String> = Vec::new();
-    if let Some((x, y)) = extra_offset.or_else(|| offset(n, parent, &sz)) {
+    if let Some((x, y)) = offset(n, parent, &sz) {
         if x != 0.0 || y != 0.0 {
             mods.push(format!(".offset(x = {}.dp, y = {}.dp)", num(x), num(y)));
         }
@@ -407,6 +403,9 @@ fn emit_with_offset(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize
         if al.counter_sizing == Sizing::Fixed {
             grid_h = n.size.y;
         }
+        if n.layout_child.vertical == Sizing::Fill {
+            grid_h = n.size.y;
+        }
         sz.h = Dim::Fixed(grid_h);
     }
     size_mods(doc, n, &sz, parent, &mut mods);
@@ -478,7 +477,25 @@ fn emit_with_offset(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize
                     o.line(g_depth + 2, format!("Box(Modifier.height({}.dp), contentAlignment = {align}) {{", num(cell_h)));
                     emit(doc, cid, me, g_depth + 3, o);
                     for s in &group.stacked {
-                        emit_with_offset(doc, s.id, me, g_depth + 3, Some(s.offset), o);
+                        let sw = grid.cell_width(&s.placed);
+                        let sh = grid.cell_height(&s.placed, false);
+                        let (sah, sav) = grid_cell_align(doc, s.id, al);
+                        let s_align = compose_cell_align(sah, sav);
+                        let off = if s.offset.0 != 0.0 || s.offset.1 != 0.0 {
+                            format!(".offset(x = {}.dp, y = {}.dp)", num(s.offset.0), num(s.offset.1))
+                        } else {
+                            String::new()
+                        };
+                        o.line(
+                            g_depth + 3,
+                            format!(
+                                "Box(Modifier.align(Alignment.TopStart){off}.wrapContentSize(Alignment.TopStart, unbounded = true).size(width = {}.dp, height = {}.dp), contentAlignment = {s_align}) {{",
+                                num(sw),
+                                num(sh)
+                            ),
+                        );
+                        emit(doc, s.id, me, g_depth + 4, o);
+                        o.line(g_depth + 3, "}");
                     }
                     o.line(g_depth + 2, "}");
                     o.line(g_depth + 1, "}");
