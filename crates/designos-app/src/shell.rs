@@ -801,7 +801,7 @@ impl Shell {
                     self.app.paste_from_system(Some(&s));
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => {
-                    if self.try_typography_shortcut(key, modifiers) {
+                    if !editing_text && self.try_typography_shortcut(key, modifiers) {
                         continue;
                     }
                     if editing_text {
