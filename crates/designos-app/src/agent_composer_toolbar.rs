@@ -143,6 +143,6 @@ pub fn mode_label(mode: PermissionMode) -> &'static str {
     match mode {
         PermissionMode::Ask => "Ask first",
         PermissionMode::Skip => "Skip permissions",
-        PermissionMode::AskRisky => "Ask for risky only",
+        PermissionMode::AskRisky => "Ask risky only",
     }
 }
