@@ -312,16 +312,24 @@ pub fn parse_css(s: &str, keep_alpha: u8) -> Option<[u8; 4]> {
         .or_else(|| lower.strip_prefix("hsla").or_else(|| lower.strip_prefix("hsl")).map(|r| (false, r)));
     if let Some((is_rgb, rest)) = func {
         let inner = rest.trim().strip_prefix('(')?.strip_suffix(')')?;
-        let nums: Vec<f32> = inner
-            .split([',', ' ', '/'])
-            .map(|p| p.trim().trim_end_matches(['%', '°']))
+        let parts: Vec<&str> = inner.split([',', ' ', '/']).map(str::trim).filter(|p| !p.is_empty()).collect();
+        let nums: Vec<f32> = parts
+            .iter()
+            .map(|p| p.trim_end_matches(['%', '°']))
             .filter(|p| !p.is_empty())
             .map(|p| p.trim_end_matches("deg").parse::<f32>().ok())
             .collect::<Option<_>>()?;
         if nums.len() < 3 {
             return None;
         }
-        let a = nums.get(3).map(|a| (a.clamp(0.0, 1.0) * 255.0).round() as u8).unwrap_or(keep_alpha);
+        // A percent alpha (`/ 25%`) is 0..100%, as in CSS; a bare alpha is 0..1.
+        let a = nums
+            .get(3)
+            .map(|a| {
+                let unit = if parts[3].ends_with('%') { a / 100.0 } else { *a };
+                (unit.clamp(0.0, 1.0) * 255.0).round() as u8
+            })
+            .unwrap_or(keep_alpha);
         let rgb = if is_rgb {
             [nums[0].clamp(0.0, 255.0).round() as u8, nums[1].clamp(0.0, 255.0).round() as u8, nums[2].clamp(0.0, 255.0).round() as u8]
         } else {
@@ -492,7 +500,7 @@ impl State {
         [fmt_ok_channel(0, t[0]), fmt_ok_channel(1, t[1]), fmt_ok_channel(2, t[2])]
     }
 
-    pub(crate) fn ok_text(&self, fmt: Fmt, _alpha: u8) -> String {
+    pub(crate) fn ok_text(&self, fmt: Fmt) -> String {
         let t = match fmt {
             Fmt::Oklab => self.oklab,
             _ => self.oklch,
@@ -1384,7 +1392,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             }
             Fmt::Oklch | Fmt::Oklab => {
                 let r = Rect::from_min_size(fields.min, Vec2::new(fields.width(), 24.0));
-                let disp = st.ok_text(st.fmt, cur[3]);
+                let disp = st.ok_text(st.fmt);
                 if let Some(s) = grouped_text(ui, r, "picker-ok", &disp, theme::cr(theme::RADIUS_CONTROL), 3.0) {
                     typed = st.apply_ok_input(st.fmt, &s, cur[3]);
                 }
@@ -1911,6 +1919,9 @@ mod tests {
         assert_eq!(parse_css("transparent", 255), Some([0, 0, 0, 0]));
         assert_eq!(parse_css("rgb(10, 20, 30)", 255), Some([10, 20, 30, 255]));
         assert_eq!(parse_css("rgba(10 20 30 / 0.5)", 255), Some([10, 20, 30, 128]));
+        assert_eq!(parse_css("rgb(10 20 30 / 25%)", 255), Some([10, 20, 30, 64]));
+        assert_eq!(parse_css("rgba(10, 20, 30, 50%)", 255), Some([10, 20, 30, 128]));
+        assert_eq!(parse_css("hsl(240 100% 50% / 50%)", 255), Some([0, 0, 255, 128]));
         assert_eq!(parse_css("nonsense", 255), None);
         assert_eq!(css_text([217, 217, 217, 255]), "rgb(217, 217, 217)");
         assert_eq!(css_text([217, 217, 217, 128]), "rgb(217, 217, 217)");
@@ -2217,8 +2228,8 @@ mod tests {
                         let mut st = State::new(&solid(r, g, b, 1.0));
                         st.sync([r, g, b, 255]);
                         for alpha in [128_u8, 140_u8] {
-                            let lch = st.ok_text(Fmt::Oklch, alpha);
-                            let lab = st.ok_text(Fmt::Oklab, alpha);
+                            let lch = st.ok_text(Fmt::Oklch);
+                            let lab = st.ok_text(Fmt::Oklab);
                             let css = css_text([r, g, b, alpha]);
                             assert!(!lch.contains('/'), "OKLCH at-rest text must omit alpha: {lch}");
                             assert!(!lab.contains('/'), "OKLAB at-rest text must omit alpha: {lab}");
@@ -2312,7 +2323,7 @@ mod tests {
         let mut paint = solid(52, 120, 200, 1.0);
         let mut st = State::new(&paint);
         st.fmt = Fmt::Oklch;
-        assert_eq!(st.ok_text(Fmt::Oklch, 255), "56.93% 0.14 254.47");
+        assert_eq!(st.ok_text(Fmt::Oklch), "56.93% 0.14 254.47");
         let orig_oklch = st.oklch;
 
         // Retyping the shown channels with No alpha change is a no-op and keeps exact channels.
@@ -2383,6 +2394,19 @@ mod tests {
         assert!(out_comma.changed);
         assert_eq!(&active_rgba(&paint, 0)[..3], &designos_doc::oklch_to_srgb_u8(0.70, 0.15, 145.0));
 
+        // CSS bare L > 1 clamps to 1.0: oklch(62.8 0.26 29.23) gives st.oklch[0] == 1.0.
+        let out_clamp_l = commit_picker_ok(&ctx, "oklch(62.8 0.26 29.23)", &mut paint, &mut st);
+        assert!(out_clamp_l.changed);
+        assert_eq!(st.oklch[0], 1.0);
+
+        // Pasting bare L matching the 0..100 channel string on [52, 120, 200] still clamps L to 1.0.
+        let mut paint_blue = solid(52, 120, 200, 1.0);
+        let mut st_blue = State::new(&paint_blue);
+        st_blue.fmt = Fmt::Oklch;
+        let out_bare_match = commit_picker_ok(&ctx, "oklch(56.93 0.14 254.47)", &mut paint_blue, &mut st_blue);
+        assert!(out_bare_match.changed);
+        assert_eq!(st_blue.oklch[0], 1.0);
+
         // Fewer or more than 3 channel tokens are rejected.
         assert!(st.apply_ok_input(Fmt::Oklch, "62.8% 0.26", 255).is_none());
         assert!(st.apply_ok_input(Fmt::Oklch, "62.8% 0.26 29.23 0.5", 255).is_none());
@@ -2411,11 +2435,33 @@ mod tests {
             }
             shapes.iter().find_map(|cs| walk(&cs.shape, target))
         }
+        fn find_mesh_in(shapes: &[egui::epaint::ClippedShape], x_min: f32, x_max: f32, cy: f32) -> Option<Rect> {
+            fn walk(shape: &egui::Shape, x_min: f32, x_max: f32, cy: f32) -> Option<Rect> {
+                match shape {
+                    egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, x_min, x_max, cy)),
+                    egui::Shape::Mesh(m) => {
+                        let b = m.calc_bounds();
+                        if b.left() >= x_min && b.right() <= x_max && (b.center().y - cy).abs() < 6.0 && (b.width() - 12.0).abs() < 1.0 {
+                            Some(b)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            shapes.iter().find_map(|cs| walk(&cs.shape, x_min, x_max, cy))
+        }
         let source_rect = find_text(&full.shapes, "On this page").expect("On this page text");
         assert!((source_rect.left() - (PAD + 8.0)).abs() < 0.1, "On this page must start at PAD + 8.0 (24.0), got {}", source_rect.left());
         let fmt_rect = find_text(&full.shapes, "OKLCH").expect("OKLCH text");
-        let fmt_chev_left = PAD + 66.0 - 10.0 - 6.0;
-        assert!(fmt_chev_left - fmt_rect.right() >= 4.0, "OKLCH label right ({}) must keep >= 4.0px gap to chevron left ({fmt_chev_left})", fmt_rect.right());
+        let fmt_chev = find_mesh_in(&full.shapes, PAD, PAD + 66.0, fmt_rect.center().y).expect("format dropdown chevron mesh");
+        assert!(
+            fmt_chev.left() - fmt_rect.right() >= 4.0,
+            "OKLCH label right ({}) must keep >= 4.0px gap to chevron left ({})",
+            fmt_rect.right(),
+            fmt_chev.left()
+        );
     }
 
     #[test]
