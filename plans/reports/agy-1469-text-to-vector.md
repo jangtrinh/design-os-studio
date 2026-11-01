@@ -130,7 +130,7 @@ designos-webcapture:    7 passed; 0 failed; 0 ignored
 - **Draft PR**: https://github.com/jangtrinh/design-os-studio/pull/1491
 - **`git log --oneline origin/main..HEAD`**:
   ```text
-  b9e77134 feat(vector): Flatten and Outline stroke convert text to vector paths (#1469)
+  af6c702f feat(vector): Flatten and Outline stroke convert text to vector paths (#1469)
   ```
 
 Status: PASS
