@@ -435,3 +435,151 @@ fn headless_gpu_matches_cpu_for_alpha_vector_and_luminance_mask_types() {
         assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Luminance mask");
     }
 }
+
+#[test]
+fn gpu_vector_mask_outlines_and_rgb_luminance_match_cpu() {
+    let Some(mut g) = common::gpu() else { return };
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    // 1. Vector shape mask with drop shadow ignores the drop shadow on GPU
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        b.add(None, |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n.fills = vec![Paint::solid(Color::BLACK)];
+            n.effects = vec![Effect::DropShadow {
+                color: Color::BLACK,
+                offset: Vec2::new(20.0, 20.0),
+                radius: 0.0,
+                spread: 0.0,
+                visible: true,
+                show_behind: true,
+                blend: BlendMode::Normal,
+            }];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let pm = g.render_page(&b.doc, b.page, &vp, SIZE);
+        assert_eq!(px(&pm, 20, 20), [255, 0, 0, 255], "inside shape outline");
+        assert_eq!(px(&pm, 50, 50), [255, 255, 255, 255], "drop shadow region ignored by vector mask");
+    }
+
+    // 2. Vector text mask with 0%-opacity text fill reveals glyph pixels on GPU
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        b.add(None, |id| {
+            let mut n = Node::text(id, Rect::new(4.0, 4.0, 80.0, 60.0), "H", designos_doc::TextStyle::default());
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.style.font_size = 48.0;
+                let mut p = Paint::solid(Color::BLACK);
+                p.opacity = 0.0;
+                tp.style.fills = vec![p];
+            }
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let pm = g.render_page(&b.doc, b.page, &vp, SIZE);
+        let mut hits = 0usize;
+        for y in 0..60 {
+            for x in 0..60 {
+                if px(&pm, x, y) != [255, 255, 255, 255] {
+                    hits += 1;
+                }
+            }
+        }
+        assert!(hits > 20, "vector text mask with transparent text fill must reveal glyph pixels on GPU, got {hits}");
+    }
+
+    // 3. Vector frame mask with own fill and a 40x40 Vector child: covers the 100x100 frame box,
+    //    and interactive zero-budget agrees with settled headless GPU and CPU.
+    {
+        let mut b = common::T::new();
+        let mask = b.add(None, |id| {
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n.fills = vec![Paint::solid(Color::WHITE)];
+            n
+        });
+        b.add(Some(mask), |id| square_vector(id, 40.0));
+        b.rect(None, Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        g.compiler.geom.budget = None;
+        let settled = g.render_page(&b.doc, b.page, &vp, (100, 100));
+
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        g.compiler.geom.budget = Some(Duration::ZERO);
+        let interactive = g.render_page(&b.doc, b.page, &vp, (100, 100));
+
+        assert_eq!(px(&settled, 80, 80), [255, 0, 0, 255], "settled GPU covers full frame box at (80,80)");
+        assert_eq!(px(&interactive, 80, 80), [255, 0, 0, 255], "interactive GPU covers full frame box at (80,80)");
+        assert_eq!(px(&settled, 80, 80), px(&interactive, 80, 80), "interactive and settled GPU frames agree");
+    }
+
+    // 4. Vector group mask with transparent-fill children: covers the union of descendants' outlines on GPU.
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        let grp = b.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(80.0, 80.0);
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n
+        });
+        b.add(Some(grp), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 30.0, 30.0));
+            n.opacity = 0.25;
+            n.fills.clear();
+            n
+        });
+        b.add(Some(grp), |id| {
+            let mut n = Node::rectangle(id, Rect::new(50.0, 50.0, 30.0, 30.0));
+            let mut p = Paint::solid(Color::TRANSPARENT);
+            p.opacity = 0.0;
+            n.fills = vec![p];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let c = common::compare(&mut g, "mask-type-vector-group", &b.doc, b.page, vp, SIZE, 4);
+        assert_eq!(px(&c.gpu, 15, 15), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 65, 65), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 40, 40), [255, 255, 255, 255]);
+        assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Vector group mask");
+    }
+
+    // 5. Non-grey Luminance mask (pure red, pure green, pure blue) on GPU against literal Rec. 709 expectations
+    for (col, expected_alpha, label) in [
+        (Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }, 54i32, "pure red"),
+        (Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 }, 182i32, "pure green"),
+        (Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }, 18i32, "pure blue"),
+    ] {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        b.doc.get_mut(b.page).unwrap().kind = NodeKind::Page { background: Color::BLACK };
+        b.add(None, |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 32.0, 32.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Luminance;
+            n.fills = vec![Paint::solid(col)];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 32.0, 32.0), Color::WHITE);
+        let pm = g.render_page(&b.doc, b.page, &vp, (32, 32));
+        let ch = px(&pm, 16, 16)[0] as i32;
+        assert!((ch - expected_alpha).abs() <= 2, "gpu {label}: expected {expected_alpha}, got {ch}");
+    }
+}

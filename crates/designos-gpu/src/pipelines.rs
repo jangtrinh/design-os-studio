@@ -240,16 +240,22 @@ fn instance_attrs() -> [wgpu::VertexAttribute; 7] {
     ]
 }
 
+fn composite_shader_source() -> String {
+    let [r, g, b] = designos_render::LUMINANCE_MASK_COEFFS;
+    let raw = include_str!("shaders/composite.wgsl");
+    let expr = format!("dot(aux.rgb, vec3<f32>({r:.4}, {g:.4}, {b:.4}))");
+    assert!(raw.contains(&expr), "composite.wgsl luminance coefficients must match designos_render::LUMINANCE_MASK_COEFFS");
+    raw.replace("dot(aux.rgb, vec3<f32>(0.2126, 0.7152, 0.0722))", &expr)
+}
+
 impl Pipelines {
     pub fn new(dev: &wgpu::Device, l: &Layouts) -> Self {
         let draw_src = dev.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("draw"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/draw.wgsl").into()),
         });
-        let comp_src = dev.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("composite"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/composite.wgsl").into()),
-        });
+        let comp_wgsl = composite_shader_source();
+        let comp_src = dev.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("composite"), source: wgpu::ShaderSource::Wgsl(comp_wgsl.into()) });
         let blur_src = dev.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("blur"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/blur.wgsl").into()),

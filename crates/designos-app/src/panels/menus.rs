@@ -139,6 +139,14 @@ pub enum Action {
     Tool(Tool),
 }
 
+/// Shared "Use as mask" toggle rule used by both the Object menu and the properties header button:
+/// if any selected layer is not a mask, turns all selected layers into masks; otherwise unmasks all.
+pub fn toggle_mask_selection(app: &mut App) {
+    let sel = app.selection.clone();
+    let any_unmasked = sel.iter().any(|id| app.doc.get(*id).is_some_and(|n| !n.is_mask));
+    app.edit_nodes(&sel, |n| n.is_mask = any_unmasked);
+}
+
 pub fn run(app: &mut App, ctx: &Context, a: Action) {
     match a {
         Action::New => app.new_file_here(),
@@ -180,11 +188,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SendBackward => app.reorder(false, false),
         Action::BringToFront => app.reorder(true, true),
         Action::SendToBack => app.reorder(false, true),
-        Action::ToggleMask => {
-            let sel = app.selection.clone();
-            let any_unmasked = sel.iter().any(|id| app.doc.get(*id).is_some_and(|n| !n.is_mask));
-            app.edit_nodes(&sel, |n| n.is_mask = any_unmasked);
-        }
+        Action::ToggleMask => toggle_mask_selection(app),
         Action::ToggleSidebar => app.ui.left_collapsed = !app.ui.left_collapsed,
         Action::CreateComponent => app.create_component(),
         Action::ConvertToSlot => app.convert_selection_to_slot(),

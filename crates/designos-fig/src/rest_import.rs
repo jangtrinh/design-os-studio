@@ -1175,6 +1175,8 @@ impl<'a> Ctx<'a> {
         n.is_mask = fbool(v, "isMask").unwrap_or(false);
         if let Some(mt) = fstr(v, "maskType").and_then(parse_mask_type) {
             n.mask_type = mt;
+        } else if fbool(v, "isMaskOutline") == Some(true) {
+            n.mask_type = MaskType::Vector;
         }
         if let Some(hl) = fstr(v, "hyperlink").filter(|s| !s.is_empty()) {
             n.hyperlink = Some(hl.to_string());
@@ -2836,6 +2838,8 @@ impl<'a> Ctx<'a> {
         }
         if let Some(mt) = fstr(set, "maskType").and_then(parse_mask_type) {
             n.mask_type = mt;
+        } else if let Some(b) = fbool(set, "isMaskOutline") {
+            n.mask_type = if b { MaskType::Vector } else { MaskType::Alpha };
         }
         if set.get("fills").is_some() {
             n.variables.bindings.retain(|k, _| !k.starts_with("fills/"));

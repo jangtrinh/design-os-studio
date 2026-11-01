@@ -277,3 +277,164 @@ fn luminance_mask_over_white_to_black_ramp_keeps_white_hides_black_and_halves_mi
     let expected_green_alpha = (designos_render::LUMINANCE_MASK_COEFFS[1] * 255.0).round() as i32;
     assert!((green[3] as i32 - expected_green_alpha).abs() <= 1, "pure green uses Rec. 709 G weight (0.7152): {green:?}");
 }
+
+#[test]
+fn vector_mask_uses_own_outline_for_shape_frame_group_and_text() {
+    // 1. Frame mask with own fill and a small 40x40 child: Vector coverage is the frame's 100x100 box.
+    {
+        let mut t = T::new();
+        let mask_frame = t.add(None, |id| {
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n.fills = vec![Paint::solid(Color::WHITE)];
+            n
+        });
+        let stand_in = designos_render::mask_frame_box(t.doc.get(mask_frame).unwrap());
+        t.rect(Some(mask_frame), Rect::new(0.0, 0.0, 40.0, 40.0), Color::WHITE);
+        assert!(
+            designos_render::mask_frame_box(t.doc.get(mask_frame).unwrap()).is_some() && stand_in.is_none(),
+            "vector frame with children returns its own box from mask_frame_box even when it has a visible fill"
+        );
+        t.rect(None, Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+        let pm = t.render(100);
+        assert_eq!(px(&pm, 20, 20), [255, 0, 0, 255], "inside child and frame");
+        assert_eq!(px(&pm, 80, 80), [255, 0, 0, 255], "inside frame box outside child");
+    }
+
+    // 2. Rounded frame mask with no own fill and an unclipped 100x100 child at 50% opacity:
+    //    Vector coverage is the frame's rounded box at full opacity, ignoring the child.
+    {
+        let mut t = T::new();
+        let mask_frame = t.add(None, |id| {
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            if let NodeKind::Frame(fp) = &mut n.kind {
+                fp.clips_content = false;
+            }
+            n.fills.clear();
+            n.corner_radii = [40.0; 4];
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n
+        });
+        t.add(Some(mask_frame), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+            n.opacity = 0.5;
+            n.fills = vec![Paint::solid(Color::BLACK)];
+            n
+        });
+        t.rect(None, Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+        let pm = t.render(100);
+        assert_eq!(px(&pm, 50, 50), [255, 0, 0, 255], "center of rounded vector frame is fully opaque");
+        assert_eq!(px(&pm, 2, 2), WHITE, "outside rounded corner of vector frame is clipped despite unclipped child");
+    }
+
+    // 3. Group mask: Vector coverage is the union of its descendants' outlines, ignoring their fills and opacity.
+    {
+        let mut t = T::new();
+        let mask_group = t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(100.0, 100.0);
+            n.fills = vec![Paint::solid(Color::WHITE)];
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n
+        });
+        t.add(Some(mask_group), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.opacity = 0.25;
+            let mut p = Paint::solid(Color::TRANSPARENT);
+            p.opacity = 0.0;
+            n.fills = vec![p];
+            n
+        });
+        let nested_group = t.add(Some(mask_group), |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(40.0, 40.0);
+            n
+        });
+        t.add(Some(nested_group), |id| {
+            let mut n = Node::rectangle(id, Rect::new(60.0, 60.0, 30.0, 30.0));
+            n.fills.clear();
+            n
+        });
+        let group_ref = t.doc.get(mask_group).unwrap();
+        assert!(designos_render::mask_stencil(group_ref).fills.is_empty(), "vector group stencil clears group fills");
+        assert!(designos_render::mask_frame_box(group_ref).is_none(), "vector group has no box of its own");
+
+        t.rect(None, Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+        let pm = t.render(100);
+        assert_eq!(px(&pm, 20, 20), [255, 0, 0, 255], "first group child outline is covered at full opacity");
+        assert_eq!(px(&pm, 75, 75), [255, 0, 0, 255], "nested group child outline is covered at full opacity");
+        assert_eq!(px(&pm, 50, 50), WHITE, "gap between group descendants is not covered");
+    }
+
+    // 4. Text mask with 0%-opacity text style fill: Vector coverage uses glyph outlines.
+    {
+        let mut t = T::new();
+        t.add(None, |id| {
+            let mut n = Node::text(id, Rect::new(4.0, 4.0, 90.0, 60.0), "H", designos_doc::TextStyle::default());
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.style.font_size = 48.0;
+                let mut p = Paint::solid(Color::BLACK);
+                p.opacity = 0.0;
+                tp.style.fills = vec![p];
+            }
+            n
+        });
+        t.rect(None, Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+        let pm = t.render(100);
+        let mut glyph_hits = 0usize;
+        for y in 0..60 {
+            for x in 0..60 {
+                if px(&pm, x, y) == [255, 0, 0, 255] {
+                    glyph_hits += 1;
+                }
+            }
+        }
+        assert!(glyph_hits > 20, "vector text mask with transparent text fill must reveal glyph pixels, got {glyph_hits}");
+        assert_eq!(px(&pm, 95, 95), WHITE, "outside text bounds remains unmasked background");
+    }
+}
+
+#[test]
+fn luminance_mask_rgb_channels_and_shader_coefficients_match_rec709() {
+    for (col, expected_alpha, label) in [
+        (Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }, 54i32, "pure red"),
+        (Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 }, 182i32, "pure green"),
+        (Color { r: 0.0, g: 0.0, b: 1.0, a: 1.0 }, 18i32, "pure blue"),
+    ] {
+        let mut doc = Document::new(label);
+        let page = doc.add_page("p");
+        doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::TRANSPARENT };
+
+        let mid = doc.alloc_id();
+        let mut m = Node::rectangle(mid, Rect::new(0.0, 0.0, 32.0, 32.0));
+        m.is_mask = true;
+        m.mask_type = MaskType::Luminance;
+        m.fills = vec![Paint::solid(col)];
+        doc.insert(page, m).unwrap();
+
+        let tid = doc.alloc_id();
+        let mut target = Node::rectangle(tid, Rect::new(0.0, 0.0, 32.0, 32.0));
+        target.fills = vec![Paint::solid(Color::WHITE)];
+        doc.insert(page, target).unwrap();
+
+        let mut pm = Pixmap::new(32, 32).unwrap();
+        render_page(&doc, page, &Viewport::default(), &mut pm);
+        let a = px(&pm, 16, 16)[3] as i32;
+        assert!((a - expected_alpha).abs() <= 1, "{label}: expected alpha {expected_alpha}, got {a}");
+    }
+
+    let [cr, cg, cb] = designos_render::LUMINANCE_MASK_COEFFS;
+    let wgsl = include_str!("../../designos-gpu/src/shaders/composite.wgsl");
+    let expected_expr = format!("dot(aux.rgb, vec3<f32>({cr:.4}, {cg:.4}, {cb:.4}))");
+    assert!(wgsl.contains(&expected_expr), "composite.wgsl must match LUMINANCE_MASK_COEFFS ({expected_expr})");
+    let pipelines_rs = include_str!("../../designos-gpu/src/pipelines.rs");
+    assert!(
+        pipelines_rs.contains("LUMINANCE_MASK_COEFFS"),
+        "designos-gpu pipelines.rs must source luminance coefficients from designos_render::LUMINANCE_MASK_COEFFS"
+    );
+}

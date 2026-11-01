@@ -1,0 +1,7 @@
+crates/designos-app/assets/starter/designos-studio-starter.designos: fig_metadata.maskType=0 mask_type=0 bytes=1860182
+crates/designos-app/tests/fixtures/designos-studio-landing.designos: fig_metadata.maskType=0 mask_type=0 bytes=41805
+crates/designos-app/tests/fixtures/frame-labels-1197.designos: fig_metadata.maskType=0 mask_type=0 bytes=4128
+plans/261017-figma-parity-wave-ab/screens/s5-vars-codegen/demo-with-code-syntax.designos: fig_metadata.maskType=0 mask_type=0 bytes=20892
+plans/reports/agy-1140-dtcg-export-bundle-evidence/synthetic-kit-1140.designos: fig_metadata.maskType=0 mask_type=0 bytes=125365
+plans/reports/agy-1242-instance-vector-scale-evidence/chevron-fixture.designos: fig_metadata.maskType=0 mask_type=0 bytes=39364
+crates/designos-app/tests/fixtures/mask-types.designos: fig_metadata.maskType=0 mask_type=2 bytes=3183

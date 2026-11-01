@@ -1,0 +1,27 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-doc)
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-mcp)
+   Compiling designos-fonts v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fonts)
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render)
+   Compiling designos-svg v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-svg)
+   Compiling designos-export v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-export)
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-webcapture)
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+   Compiling designos-library v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-library)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.23s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 6 tests
+test check_designs::tests::covering_sibling::a_mask_before_the_rectangle_leaves_the_backdrop_unknown ... ok
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... ok
+test panels::properties::tests::mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step ... ok
+test image_jobs::tests::erase_without_region_omits_mask_file_and_field ... ok
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4035 filtered out; finished in 0.58s
+

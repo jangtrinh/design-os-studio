@@ -4145,3 +4145,54 @@ fn mask_types_round_trip_through_fig_and_rest_import() {
         assert_eq!(n.mask_type, expected, "{name} mask_type after .fig round-trip");
     }
 }
+
+#[test]
+fn legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector() {
+    let mut doc = Document::new("legacy-mask-metadata");
+    let page = doc.add_page("Page 1");
+    for (name, is_mask, meta_val) in
+        [("LegacyAlpha", true, "ALPHA"), ("LegacyOutline", true, "OUTLINE"), ("LegacyLuminance", true, "LUMINANCE"), ("NotAMaskOutline", false, "OUTLINE")]
+    {
+        let id = doc.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.name = name.into();
+        n.is_mask = is_mask;
+        n.fig_metadata.insert("maskType".into(), meta_val.into());
+        doc.insert(page, n).unwrap();
+    }
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let rt = import_fig(&bytes).expect("import_fig");
+    assert_eq!(find(&rt, "LegacyAlpha").mask_type, MaskType::Alpha);
+    assert_eq!(find(&rt, "LegacyOutline").mask_type, MaskType::Vector);
+    assert_eq!(find(&rt, "LegacyLuminance").mask_type, MaskType::Luminance);
+    let non_mask = find(&rt, "NotAMaskOutline");
+    assert!(!non_mask.is_mask);
+    assert_eq!(non_mask.mask_type, MaskType::Vector);
+
+    let rest_payload = json!({
+        "name": "RestMaskOutlineFlag",
+        "document": {
+            "id": "0:0",
+            "name": "Document",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "name": "Page 1",
+                "type": "CANVAS",
+                "children": [{
+                    "id": "1:1",
+                    "name": "OutlineFlagMask",
+                    "type": "RECTANGLE",
+                    "isMask": true,
+                    "isMaskOutline": true,
+                    "size": {"x": 40.0, "y": 40.0}
+                }]
+            }]
+        }
+    });
+    let rest_doc = designos_fig::import_rest_json(&rest_payload.to_string()).expect("import_rest_json");
+    let flag_node = find(&rest_doc, "OutlineFlagMask");
+    assert!(flag_node.is_mask);
+    assert_eq!(flag_node.mask_type, MaskType::Vector);
+}

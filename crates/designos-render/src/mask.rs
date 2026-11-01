@@ -48,8 +48,11 @@ pub fn mask_stencil(mask: &Node) -> Node {
                 for r in &mut t.runs {
                     r.style.fills = vec![Paint::solid(Color::BLACK)];
                 }
-            } else if !draws_children(&n) {
+            } else if !matches!(n.kind, NodeKind::Group) {
                 n.fills = vec![Paint::solid(Color::BLACK)];
+                if !matches!(n.kind, NodeKind::BooleanOp(_)) {
+                    n.children.clear();
+                }
             } else {
                 n.fills.clear();
             }
@@ -59,10 +62,21 @@ pub fn mask_stencil(mask: &Node) -> Node {
     n
 }
 
+/// The stencil node for a descendant inside a [`MaskType::Vector`] group mask:
+/// applies the [`MaskType::Vector`] outline rule to `node`.
+pub fn vector_mask_descendant_stencil(node: &Node) -> Node {
+    let mut v = node.clone();
+    v.mask_type = MaskType::Vector;
+    mask_stencil(&v)
+}
+
 /// The opaque box of a mask whose stencil takes its alpha from its children
 /// alone (a frame, component or instance with children and no visible fill of
 /// its own), drawn without those children; `None` for any other mask.
 pub fn mask_frame_box(mask: &Node) -> Option<Node> {
+    if matches!(mask.kind, NodeKind::Group) {
+        return None;
+    }
     if (mask.mask_type != MaskType::Vector && has_own_fill(mask)) || !draws_children(mask) {
         return None;
     }
