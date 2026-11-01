@@ -1,0 +1,10 @@
+I added the "Draft" frame, but I couldn't open other.designos, so I don't have its frame names.
+
+The open attempt failed with `UNSAVED_CHANGES`. Opening a file replaces the current document, and that can only go ahead if you confirm the unsaved Draft frame can be thrown away. You also asked me not to save yet, so I stopped.
+
+You can either:
+1. Tell me it's fine to discard Draft. I'll open other.designos and list its frames, and Draft will be lost.
+2. Give me a path to save the current document to. I'll then open other.designos.
+
+I wrote this explanation to `answer.md` as you asked.
+claude exit 0

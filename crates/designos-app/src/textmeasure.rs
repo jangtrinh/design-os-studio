@@ -11,9 +11,18 @@ use std::ops::Range;
 use std::rc::Rc;
 use unicode_segmentation::UnicodeSegmentation;
 
+/// Installs the renderer measurer on `Document::relayout_subtree`.
+pub fn install_layout_measurer() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        designos_doc::text_measure::set_layout_measurer(Some(std::sync::Arc::new(designos_render::RenderTextMeasure)));
+    });
+}
+
 /// Natural size of the text: widest line by total height. `width` wraps lines.
 /// Same whole-pixel box as [`designos_render::measure_text_box`].
 pub fn measure(props: &TextProps, width: Option<f32>) -> Vec2 {
+    install_layout_measurer();
     designos_render::measure_text_box(props, width)
 }
 

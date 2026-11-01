@@ -1,0 +1,104 @@
+run-cli-netproxy listening on unix:/tmp/run-cli-snap.MyeVpo/run-cli-proxy.sock
+PROXY_FIRST_REQ ts_ms=1793291187190 CONNECT auth.x.ai:443
+WARN CONCURRENT_CHANGE:
+CHANGED MAINT/checks/publish-copy-fixtures/ALT_TEXT.fail.md
+CHANGED MAINT/checks/publish-copy-fixtures/ALT_TEXT.pass.md
+CHANGED MAINT/checks/publish-copy-fixtures/ALT_TEXT_html.fail.html
+CHANGED MAINT/checks/publish-copy-fixtures/ALT_TEXT_html.pass.html
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION.fail.md
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION.pass.md
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION_html.fail.html
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION_html.pass.html
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION_missing.fail.md
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION_missing.pass.md
+CHANGED MAINT/checks/publish_copy_lint.py
+NEW MAINT/checks/publish-copy-fixtures/IMG_ANCHOR_FAR.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_ANCHOR_FAR_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_ANCHOR_MISSING.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_ANCHOR_MISSING_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_CLUSTER.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_CLUSTER_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_DECORATIVE_AS_EXAMPLE.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_DECORATIVE_AS_EXAMPLE_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_DECORATIVE_AS_EXAMPLE_inside.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_FILE_MISSING.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_OK.pass.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_OK_cover_diagram.pass.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_OK_html.pass.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_ROLE_INVALID.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_ROLE_MISSING.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_ROLE_MISSING_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_TOO_SMALL.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_TOO_SMALL_719.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_TOO_SMALL_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_anchor_after.pass.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_width_720.pass.md
+NEW MAINT/checks/publish-copy-fixtures/img/deco-1200.png
+NEW MAINT/checks/publish-copy-fixtures/img/diagram-900.png
+NEW MAINT/checks/publish-copy-fixtures/img/ui-1000.png
+NEW MAINT/checks/publish-copy-fixtures/img/ui-300.png
+NEW MAINT/checks/publish-copy-fixtures/img/ui-719.png
+NEW MAINT/checks/publish-copy-fixtures/img/ui-720.png
+UNCHECKED_AREAS:
+- outbound net only via CONNECT proxy (no raw sockets; loopback/private blocked by resolved IP)
+- host processes outside the bwrap pid namespace (after --die-with-parent cleanup)
+- filesystem areas outside: repo toplevel (/workspace/dev/ac08/slot-grok-3), maintenance/ (/workspace/projects/maintenance), and exact --frozen file paths
+- .git object store / pack files / reflogs (only HEAD, packed-refs, config, index, hooks/, info/, refs/ are checked)
+- /proc /sys /dev contents beyond sandbox setup
+- file owners/xattrs/timestamps (mtime); only mode+sha256 (files), symlink targets, empty dirs
+- kernel memory, swap, and other hosts' disks
+- CLI home paths under RW allowlist (sessions/tmp/sqlite/locks/auth) — intentional; NEW/CHANGED elsewhere are checked
+- host loopback/RFC1918/CGNAT/ULA/docker/metadata: blocked via CONNECT proxy (resolved-IP)
+WARN CONCURRENT_CHANGE:
+CHANGED MAINT/checks/publish-copy-fixtures/ALT_TEXT.fail.md
+CHANGED MAINT/checks/publish-copy-fixtures/ALT_TEXT.pass.md
+CHANGED MAINT/checks/publish-copy-fixtures/ALT_TEXT_html.fail.html
+CHANGED MAINT/checks/publish-copy-fixtures/ALT_TEXT_html.pass.html
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION.fail.md
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION.pass.md
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION_html.fail.html
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION_html.pass.html
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION_missing.fail.md
+CHANGED MAINT/checks/publish-copy-fixtures/CAPTION_missing.pass.md
+CHANGED MAINT/checks/publish_copy_lint.py
+NEW MAINT/checks/publish-copy-fixtures/IMG_ANCHOR_FAR.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_ANCHOR_FAR_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_ANCHOR_MISSING.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_ANCHOR_MISSING_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_CLUSTER.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_CLUSTER_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_DECORATIVE_AS_EXAMPLE.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_DECORATIVE_AS_EXAMPLE_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_DECORATIVE_AS_EXAMPLE_inside.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_FILE_MISSING.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_OK.pass.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_OK_cover_diagram.pass.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_OK_html.pass.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_ROLE_INVALID.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_ROLE_MISSING.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_ROLE_MISSING_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_TOO_SMALL.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_TOO_SMALL_719.fail.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_TOO_SMALL_html.fail.html
+NEW MAINT/checks/publish-copy-fixtures/IMG_anchor_after.pass.md
+NEW MAINT/checks/publish-copy-fixtures/IMG_width_720.pass.md
+NEW MAINT/checks/publish-copy-fixtures/img/deco-1200.png
+NEW MAINT/checks/publish-copy-fixtures/img/diagram-900.png
+NEW MAINT/checks/publish-copy-fixtures/img/ui-1000.png
+NEW MAINT/checks/publish-copy-fixtures/img/ui-300.png
+NEW MAINT/checks/publish-copy-fixtures/img/ui-719.png
+NEW MAINT/checks/publish-copy-fixtures/img/ui-720.png
+UNCHECKED_AREAS:
+- outbound net only via CONNECT proxy (no raw sockets; loopback/private blocked by resolved IP)
+- host processes outside the bwrap pid namespace (after --die-with-parent cleanup)
+- filesystem areas outside: repo toplevel (/workspace/dev/ac08/slot-grok-3), maintenance/ (/workspace/projects/maintenance), and exact --frozen file paths
+- .git object store / pack files / reflogs (only HEAD, packed-refs, config, index, hooks/, info/, refs/ are checked)
+- /proc /sys /dev contents beyond sandbox setup
+- file owners/xattrs/timestamps (mtime); only mode+sha256 (files), symlink targets, empty dirs
+- kernel memory, swap, and other hosts' disks
+- CLI home paths under RW allowlist (sessions/tmp/sqlite/locks/auth) — intentional; NEW/CHANGED elsewhere are checked
+SANDBOX_MOUNTS:
+  ro-bind / /
+  bind /workspace/dev/ac08/slot-grok-3 (RW); .git RO; tmpfs /tmp /run + ~/.cache + ~/.config/blender + XDG_RUNTIME_DIR; CLI home RO except explicit RW allowlist; grok cache eph
+VERDICT: YES
+run-cli exit 0

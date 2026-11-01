@@ -1,0 +1,6 @@
+I added the "Draft" frame, but I couldn't open other.designos, so I don't have its frame names.
+
+The open was refused because the Draft frame is unsaved, and opening a file replaces the current session. To go ahead I'd have to either save the document, which you said not to do, or discard the Draft frame. I didn't discard it without your say-so.
+
+I wrote this up in `answer.md`. Tell me whether to save first (and where) or to discard the Draft frame, and I'll open the file and list its frames.
+claude exit 0
