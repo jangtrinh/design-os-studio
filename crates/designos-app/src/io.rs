@@ -224,6 +224,9 @@ fn load_path_importing_pen_with_mode(
             if report.instances_left_unexpanded > 0 {
                 warning = Some(clone_budget_notice(report.instances_left_unexpanded));
             }
+            if report.missing_variable_bindings > 0 {
+                append_import_warning(&mut warning, missing_variable_bindings_notice(report.missing_variable_bindings));
+            }
             d
         }
         "pen" => {
@@ -257,10 +260,10 @@ fn load_path_importing_pen_with_mode(
                         }
                         if report.instances_left_unexpanded > 0 {
                             let budget_msg = clone_budget_notice(report.instances_left_unexpanded);
-                            warning = Some(match warning {
-                                Some(prev) => format!("{prev} {budget_msg}"),
-                                None => budget_msg,
-                            });
+                            append_import_warning(&mut warning, budget_msg);
+                        }
+                        if report.missing_variable_bindings > 0 {
+                            append_import_warning(&mut warning, missing_variable_bindings_notice(report.missing_variable_bindings));
                         }
                         d
                     }
@@ -310,6 +313,21 @@ fn load_path_importing_pen_with_mode(
 /// because expanding them would exceed [`designos_fig::MAX_IMPORT_CLONES`].
 pub fn clone_budget_notice(unexpanded: usize) -> String {
     format!("This file has more nested component copies than Studio can expand (limit 8,000,000). {unexpanded} instances are shown empty.")
+}
+
+/// Formats the warning shown when a REST file carries variable aliases but
+/// does not include the separate variables payload. The aliases stay attached
+/// so a later `variables/local` import can resolve them.
+pub fn missing_variable_bindings_notice(missing: usize) -> String {
+    let noun = if missing == 1 { "binding is" } else { "bindings are" };
+    format!("{missing} gradient-stop variable {noun} waiting for the file's variables payload.")
+}
+
+fn append_import_warning(warning: &mut Option<String>, message: String) {
+    *warning = Some(match warning.take() {
+        Some(previous) => format!("{previous} {message}"),
+        None => message,
+    });
 }
 
 /// Toast text after a successful open; carries the import warning so it reaches the user.
@@ -1302,6 +1320,26 @@ mod tests {
     fn clone_budget_notice_keeps_user_facing_8m_limit() {
         assert_eq!(designos_fig::MAX_IMPORT_CLONES, 8_000_000);
         assert_eq!(clone_budget_notice(5), "This file has more nested component copies than Studio can expand (limit 8,000,000). 5 instances are shown empty.");
+    }
+
+    #[test]
+    fn opening_rest_file_with_missing_variable_bindings_surfaces_warning() {
+        let p = tmp("missing_variable_binding.json");
+        std::fs::write(
+            &p,
+            r#"{"name":"MissingVariable","document":{"type":"DOCUMENT","children":[{"type":"CANVAS","name":"P","children":[
+                {"id":"1:1","type":"RECTANGLE","name":"Gradient","absoluteBoundingBox":{"x":0,"y":0,"width":40,"height":40},
+                 "fills":[{"type":"GRADIENT_LINEAR","gradientHandlePositions":[{"x":0,"y":0.5},{"x":1,"y":0.5},{"x":0,"y":1}],
+                 "gradientStops":[{"position":0,"color":{"r":1,"g":0,"b":0,"a":1},"boundVariables":{"color":{"type":"VARIABLE_ALIAS","id":"VariableID:9:9"}}}]}]}
+            ]}]}}"#,
+        )
+        .unwrap();
+        let (doc, warning) = load_path_with_warning(&p).unwrap();
+        std::fs::remove_file(&p).ok();
+        assert!(!doc.pages.is_empty());
+        assert_eq!(warning.as_deref(), Some("1 gradient-stop variable binding is waiting for the file's variables payload."));
+        let toast = opened_toast_text(&doc.name, warning.as_deref());
+        assert!(toast.contains("waiting for the file's variables payload"), "{toast}");
     }
 
     #[test]

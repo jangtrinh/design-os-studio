@@ -602,6 +602,12 @@ pub struct ImportReport {
     /// (other than its frost radius) and of a noise (other than its colour and opacity) on every layer and effect
     /// style. The field keeps its stored value; only the binding is dropped.
     pub dropped_variable_bindings: usize,
+    /// How many variable bindings refer to variables absent from this REST payload.
+    ///
+    /// Bindings remain attached to the document because Figma can provide the
+    /// variables through a separate `variables/local` response. Callers can
+    /// use this count to surface that the document is waiting for that payload.
+    pub missing_variable_bindings: usize,
 }
 
 struct Ctx<'a> {
@@ -893,8 +899,9 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     crate::variables::import_variables_value(&mut cx.doc, &v);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
+    let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
     drop(v);
-    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len(), dropped_variable_bindings: 0 };
+    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len(), dropped_variable_bindings: 0, missing_variable_bindings };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);
@@ -1030,7 +1037,8 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     crate::variables::import_variables_value(&mut cx.doc, v);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
-    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len(), dropped_variable_bindings: 0 };
+    let missing_variable_bindings = count_missing_variable_bindings(&cx.doc);
+    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len(), dropped_variable_bindings: 0, missing_variable_bindings };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);
@@ -3807,6 +3815,24 @@ fn apply_style_node_values(doc: &mut Document, styles: Option<&Value>) {
         };
         doc.styles.insert(id.clone(), style);
     }
+}
+
+fn is_gradient_stop_binding(key: &str) -> bool {
+    key.strip_prefix("fills/").is_some_and(|rest| rest.contains("/stops/")) || key.strip_prefix("strokes/").is_some_and(|rest| rest.contains("/stops/"))
+}
+
+/// Counts unresolved gradient-stop bindings without deleting them. A REST file
+/// response can omit `meta.variables`; the caller may import that payload later
+/// through `import_variables_json`, at which point these bindings become live.
+fn count_missing_variable_bindings(doc: &Document) -> usize {
+    let mut count = 0;
+    for node in doc.nodes.values() {
+        count += node.variables.bindings.iter().filter(|(key, id)| is_gradient_stop_binding(key) && !doc.variables.contains_key(*id)).count();
+    }
+    for meta in doc.style_meta.values() {
+        count += meta.bindings.iter().filter(|(key, id)| is_gradient_stop_binding(key) && !doc.variables.contains_key(*id)).count();
+    }
+    count
 }
 
 /// Library style metadata from the top-level REST `styles` map. A FILL style
