@@ -264,7 +264,10 @@ fn popup(app: &mut App, ui: &mut Ui) {
         _ => Vec2::new(cols as f32 * CELL + pad * 2.0, rows as f32 * CELL + pad * 2.0),
     };
     let screen = ctx.content_rect();
-    let pos = Pos2::new((anchor.center().x - size.x / 2.0).clamp(screen.left() + 8.0, screen.right() - size.x - 8.0), anchor.top() - 8.0 - size.y);
+    let pos = Pos2::new(
+        crate::widgets::clamp::clamp_within(anchor.center().x - size.x / 2.0, screen.left() + 8.0, screen.right() - size.x - 8.0),
+        anchor.top() - 8.0 - size.y,
+    );
     let rect = Rect::from_min_size(pos, size);
     let mut picked: Option<Pick> = None;
     let area = egui::Area::new(egui::Id::new("board-tool-menu")).order(egui::Order::Foreground).fixed_pos(rect.min).show(&ctx, |ui| {
