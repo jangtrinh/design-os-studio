@@ -1033,7 +1033,8 @@ fn inspector_var_binds_scope_oracle_and_per_target_fill_scopes() {
     }
 
     // 2. Exhaustive oracle: `value_rect` (driven by `has_matching_var`) matches `designos_doc::scope_allows`
-    //    with 0 mismatches across all 4 variable kinds, 24 scope lists, 7 target NodeKinds, and 38 property keys.
+    //    with 0 mismatches across all 4 variable kinds, 25 scope lists, 19 node-level target NodeKinds,
+    //    and 49 property keys, plus multi-variable / multi-scope documents and style targets.
     const UI_KEYS: &[(&str, VariableKind)] = &[
         ("width", VariableKind::Number),
         ("height", VariableKind::Number),
@@ -1116,13 +1117,25 @@ fn inspector_var_binds_scope_oracle_and_per_target_fill_scopes() {
 
     clear_all_variables_and_bindings(&mut s.shell.app);
     let target_kinds: Vec<(&str, NodeKind)> = vec![
+        ("Frame", NodeKind::Frame(Default::default())),
+        ("Group", NodeKind::Group),
+        ("Section", NodeKind::Section),
         ("Rectangle", NodeKind::Rectangle),
         ("Ellipse", NodeKind::Ellipse(Default::default())),
-        ("Frame", NodeKind::Frame(Default::default())),
-        ("Component", NodeKind::Component(Default::default())),
-        ("Instance", NodeKind::Instance { frame: Default::default(), component: Some(NodeId(0)), component_key: None }),
-        ("Section", NodeKind::Section),
+        ("Line", NodeKind::Line),
+        ("Polygon", NodeKind::Polygon { count: 3 }),
+        ("Star", NodeKind::Star { count: 5, inner_ratio: 0.4 }),
+        ("Vector", NodeKind::Vector { paths: vec![], network: None }),
         ("Text", NodeKind::Text(Default::default())),
+        ("BooleanOp", NodeKind::BooleanOp(designos_doc::BooleanOp::Union)),
+        ("Component", NodeKind::Component(Default::default())),
+        ("ComponentSet", NodeKind::ComponentSet(Default::default())),
+        ("Instance", NodeKind::Instance { frame: Default::default(), component: Some(NodeId(0)), component_key: None }),
+        ("Sticky", NodeKind::Sticky(Default::default())),
+        ("Connector", NodeKind::Connector(Default::default())),
+        ("ShapeWithText", NodeKind::ShapeWithText(Default::default())),
+        ("Stamp", NodeKind::Stamp { kind: "x".into() }),
+        ("Unknown", NodeKind::Unknown { type_name: "X".into() }),
     ];
 
     let mut scope_configs: Vec<Vec<String>> = vec![vec![]];
@@ -1162,6 +1175,84 @@ fn inspector_var_binds_scope_oracle_and_per_target_fill_scopes() {
             });
         }
     }
+
+    // 3. Multi-variable and multi-scope documents: two variables of one kind (`[FRAME_FILL]` then `[SHAPE_FILL]`)
+    //    and one variable with two scopes (`[FRAME_FILL, SHAPE_FILL]`).
+    let multi_docs: Vec<(&str, Vec<(VariableKind, Vec<String>)>)> = vec![
+        (
+            "two-vars [FRAME_FILL] then [SHAPE_FILL]",
+            vec![(VariableKind::Color, vec!["FRAME_FILL".to_string()]), (VariableKind::Color, vec!["SHAPE_FILL".to_string()])],
+        ),
+        (
+            "two-vars [SHAPE_FILL] then [FRAME_FILL]",
+            vec![(VariableKind::Color, vec!["SHAPE_FILL".to_string()]), (VariableKind::Color, vec!["FRAME_FILL".to_string()])],
+        ),
+        ("one-var [FRAME_FILL, SHAPE_FILL]", vec![(VariableKind::Color, vec!["FRAME_FILL".to_string(), "SHAPE_FILL".to_string()])]),
+        (
+            "two-vars [FONT_SIZE] then [LINE_HEIGHT]",
+            vec![(VariableKind::Number, vec!["FONT_SIZE".to_string()]), (VariableKind::Number, vec!["LINE_HEIGHT".to_string()])],
+        ),
+        ("one-var [FONT_SIZE, LINE_HEIGHT]", vec![(VariableKind::Number, vec!["FONT_SIZE".to_string(), "LINE_HEIGHT".to_string()])]),
+        (
+            "two-vars [FONT_FAMILY] then [FONT_STYLE]",
+            vec![(VariableKind::String, vec!["FONT_FAMILY".to_string()]), (VariableKind::String, vec!["FONT_STYLE".to_string()])],
+        ),
+        ("one-var [FONT_FAMILY, FONT_STYLE]", vec![(VariableKind::String, vec!["FONT_FAMILY".to_string(), "FONT_STYLE".to_string()])]),
+    ];
+    for (doc_label, doc_vars) in &multi_docs {
+        clear_all_variables_and_bindings(&mut s.shell.app);
+        let mut mstore = VariableStore::default();
+        let mcoll = mstore.add_collection("MultiOracle");
+        for (i, (vk, sc)) in doc_vars.iter().enumerate() {
+            let id = mstore.add_variable(&mcoll, &format!("V{i}"), *vk).unwrap();
+            mstore.variables.get_mut(&id).unwrap().scopes = sc.clone();
+        }
+        s.shell.app.doc.variable_collections = mstore.collections;
+        s.shell.app.doc.variables = mstore.variables;
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            for (tname, tk) in &target_kinds {
+                s.shell.app.doc.get_mut(hero_rect).unwrap().kind = tk.clone();
+                for &(key, field_kind) in UI_KEYS.iter().chain(LATENT_KEYS.iter()) {
+                    let expected = doc_vars.iter().any(|(vk, sc)| *vk == field_kind && designos_doc::scope_allows(sc, key, tk));
+                    let got = crate::panels::var_bind::value_rect(&mut s.shell.app, ui, full, &[hero_rect], &[key], field_kind).width() < 88.0;
+                    if got != expected {
+                        mismatches
+                            .push(format!("doc={doc_label} target={tname} key={key} ({field_kind:?}): has_matching_var={got} != scope_allows={expected}"));
+                    }
+                }
+            }
+        });
+    }
+
+    // 4. Style targets (`Style::Text` and `Style::Fill`): compare `style_value_rect` on `"fills/0"` (`Color`)
+    //    with `scope_allows(scopes, "fills/0", Text | Rectangle)` for `TEXT_FILL`-only and `SHAPE_FILL`-only variables.
+    s.shell.app.doc.styles.insert("Text/Oracle".into(), designos_doc::Style::Text(designos_doc::TextStyle::default()));
+    s.shell.app.doc.styles.insert("Fill/Oracle".into(), designos_doc::Style::Fill(vec![]));
+    let style_targets: Vec<(&str, NodeKind)> = vec![("Text/Oracle", NodeKind::Text(Default::default())), ("Fill/Oracle", NodeKind::Rectangle)];
+    for scope in ["TEXT_FILL", "SHAPE_FILL", "FRAME_FILL", "ALL_FILLS"] {
+        clear_all_variables_and_bindings(&mut s.shell.app);
+        let mut sstore = VariableStore::default();
+        let scoll = sstore.add_collection("StyleOracle");
+        let svid = sstore.add_variable(&scoll, "Color/StyleScoped", VariableKind::Color).unwrap();
+        let scopes = vec![scope.to_string()];
+        sstore.variables.get_mut(&svid).unwrap().scopes = scopes.clone();
+        s.shell.app.doc.variable_collections = sstore.collections;
+        s.shell.app.doc.variables = sstore.variables;
+
+        let ctx = egui::Context::default();
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            for (style_key, picker_target) in &style_targets {
+                let expected = designos_doc::scope_allows(&scopes, "fills/0", picker_target);
+                let got = crate::panels::var_bind::style_value_rect(&mut s.shell.app, ui, full, style_key, "fills/0", VariableKind::Color).width() < 88.0;
+                if got != expected {
+                    mismatches.push(format!("style={style_key} scope={scope} key=fills/0: style_value_rect={got} != scope_allows={expected}"));
+                }
+            }
+        });
+    }
+
     assert!(
         mismatches.is_empty(),
         "has_matching_var disagreed with scope_allows in {} cases (first 10: {:#?})",
