@@ -1,0 +1,69 @@
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    68Gi    15%    459k  709M    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-doc)
+   Compiling designos-diff v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-diff)
+   Compiling designos-fonts v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fonts)
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render)
+   Compiling designos-svg v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-svg)
+   Compiling designos-webcapture v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-webcapture)
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 00s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-2ce90af7d717be90)
+
+running 1 test
+test gpu_vector_mask_outlines_and_rgb_luminance_match_cpu ... FAILED
+
+failures:
+
+---- gpu_vector_mask_outlines_and_rgb_luminance_match_cpu stdout ----
+GPU: Apple M4 Max (Metal)
+mask-type-vector-group: mismatch 0.0000% (0 px of 6400) at tolerance 4, ssim 1.0000
+mask-type-vector-group: 0.0000% with AA pixels forgiven (0 px)
+mask-type-vector-boolean-union: mismatch 0.0000% (0 px of 6400) at tolerance 4, ssim 1.0000
+mask-type-vector-boolean-union: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'gpu_vector_mask_outlines_and_rgb_luminance_match_cpu' (63223772) panicked at crates/designos-gpu/tests/mask_without_own_fill.rs:628:9:
+gpu pure red: expected 54, got 76
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    gpu_vector_mask_outlines_and_rgb_luminance_match_cpu
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.48s
+
+error: test failed, to rerun pass `-p designos-gpu --test mask_without_own_fill`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-doc)
+   Compiling designos-fonts v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fonts)
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render)
+   Compiling designos-svg v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-svg)
+   Compiling designos-webcapture v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-webcapture)
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 12s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-0f3196e55216fa9f)
+
+running 1 test
+test luminance_mask_rgb_channels_and_shader_coefficients_match_rec709 ... FAILED
+
+failures:
+
+---- luminance_mask_rgb_channels_and_shader_coefficients_match_rec709 stdout ----
+
+thread 'luminance_mask_rgb_channels_and_shader_coefficients_match_rec709' (63237149) panicked at crates/designos-render/tests/mask_without_own_fill.rs:471:9:
+pure red: expected alpha 54, got 76
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    luminance_mask_rgb_channels_and_shader_coefficients_match_rec709
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test mask_without_own_fill`

@@ -1947,10 +1947,12 @@ mod agent_a11y {
         if cfg!(target_os = "macos") {
             let ctrl_cmd = egui::Modifiers { alt: false, ctrl: true, shift: false, mac_cmd: true, command: true };
             let alt_cmd = egui::Modifiers { alt: true, ctrl: false, shift: false, mac_cmd: true, command: true };
+            let ctrl_alt_cmd = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: true, command: true };
             let plain_cmd = egui::Modifiers { alt: false, ctrl: false, shift: false, mac_cmd: true, command: true };
             let ctrl_alt = egui::Modifiers { alt: true, ctrl: true, shift: false, mac_cmd: false, command: false };
             assert!(try_chord(&mut shell, ctrl_cmd), "⌃⌘M must toggle Use as mask on macOS");
             assert!(!try_chord(&mut shell, alt_cmd), "⌥⌘M must not toggle Use as mask on macOS");
+            assert!(!try_chord(&mut shell, ctrl_alt_cmd), "⌃⌥⌘M must not toggle Use as mask on macOS");
             assert!(!try_chord(&mut shell, plain_cmd), "⌘M must not toggle Use as mask");
             assert!(!try_chord(&mut shell, ctrl_alt), "⌃⌥M without ⌘ must not toggle Use as mask on macOS");
         } else {

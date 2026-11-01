@@ -358,6 +358,17 @@ fn vector_mask_uses_own_outline_for_shape_frame_group_and_text() {
             n.fills.clear();
             n
         });
+        let hidden_nested_group = t.add(Some(mask_group), |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(40.0, 40.0);
+            n.visible = false;
+            n
+        });
+        t.add(Some(hidden_nested_group), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 60.0, 30.0, 30.0));
+            n.fills = vec![Paint::solid(Color::BLACK)];
+            n
+        });
         let group_ref = t.doc.get(mask_group).unwrap();
         assert!(designos_render::mask_stencil(group_ref).fills.is_empty(), "vector group stencil clears group fills");
         assert!(designos_render::mask_frame_box(group_ref).is_none(), "vector group has no box of its own");
@@ -366,6 +377,7 @@ fn vector_mask_uses_own_outline_for_shape_frame_group_and_text() {
         let pm = t.render(100);
         assert_eq!(px(&pm, 20, 20), [255, 0, 0, 255], "first group child outline is covered at full opacity");
         assert_eq!(px(&pm, 75, 75), [255, 0, 0, 255], "nested group child outline is covered at full opacity");
+        assert_eq!(px(&pm, 15, 75), WHITE, "child inside hidden nested group is not covered");
         assert_eq!(px(&pm, 50, 50), WHITE, "gap between group descendants is not covered");
     }
 
@@ -397,6 +409,37 @@ fn vector_mask_uses_own_outline_for_shape_frame_group_and_text() {
         assert!(glyph_hits > 20, "vector text mask with transparent text fill must reveal glyph pixels, got {glyph_hits}");
         assert_eq!(px(&pm, 95, 95), WHITE, "outside text bounds remains unmasked background");
     }
+
+    // 5. BooleanOp (Union) mask with 0%-opacity fills on both the boolean and its two operands:
+    //    Vector coverage keeps the boolean operands and covers their union at full opacity.
+    {
+        let mut t = T::new();
+        let bo = t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::BooleanOp(designos_doc::BooleanOp::Union));
+            n.size = Vec2::new(100.0, 100.0);
+            let mut p = Paint::solid(Color::BLACK);
+            p.opacity = 0.0;
+            n.fills = vec![p];
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n
+        });
+        t.add(Some(bo), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills.clear();
+            n
+        });
+        t.add(Some(bo), |id| {
+            let mut n = Node::rectangle(id, Rect::new(30.0, 30.0, 40.0, 40.0));
+            n.fills.clear();
+            n
+        });
+        t.rect(None, Rect::new(0.0, 0.0, 100.0, 100.0), RED);
+        let pm = t.render(100);
+        assert_eq!(px(&pm, 15, 15), [255, 0, 0, 255], "first boolean operand covered at full opacity");
+        assert_eq!(px(&pm, 55, 55), [255, 0, 0, 255], "second boolean operand covered at full opacity");
+        assert_eq!(px(&pm, 85, 15), WHITE, "outside boolean union is clipped");
+    }
 }
 
 #[test]
@@ -427,14 +470,4 @@ fn luminance_mask_rgb_channels_and_shader_coefficients_match_rec709() {
         let a = px(&pm, 16, 16)[3] as i32;
         assert!((a - expected_alpha).abs() <= 1, "{label}: expected alpha {expected_alpha}, got {a}");
     }
-
-    let [cr, cg, cb] = designos_render::LUMINANCE_MASK_COEFFS;
-    let wgsl = include_str!("../../designos-gpu/src/shaders/composite.wgsl");
-    let expected_expr = format!("dot(aux.rgb, vec3<f32>({cr:.4}, {cg:.4}, {cb:.4}))");
-    assert!(wgsl.contains(&expected_expr), "composite.wgsl must match LUMINANCE_MASK_COEFFS ({expected_expr})");
-    let pipelines_rs = include_str!("../../designos-gpu/src/pipelines.rs");
-    assert!(
-        pipelines_rs.contains("LUMINANCE_MASK_COEFFS"),
-        "designos-gpu pipelines.rs must source luminance coefficients from designos_render::LUMINANCE_MASK_COEFFS"
-    );
 }

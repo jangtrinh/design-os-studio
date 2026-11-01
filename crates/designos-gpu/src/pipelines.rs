@@ -242,10 +242,7 @@ fn instance_attrs() -> [wgpu::VertexAttribute; 7] {
 
 fn composite_shader_source() -> String {
     let [r, g, b] = designos_render::LUMINANCE_MASK_COEFFS;
-    let raw = include_str!("shaders/composite.wgsl");
-    let expr = format!("dot(aux.rgb, vec3<f32>({r:.4}, {g:.4}, {b:.4}))");
-    assert!(raw.contains(&expr), "composite.wgsl luminance coefficients must match designos_render::LUMINANCE_MASK_COEFFS");
-    raw.replace("dot(aux.rgb, vec3<f32>(0.2126, 0.7152, 0.0722))", &expr)
+    include_str!("shaders/composite.wgsl").replace("LUMINANCE_MASK_COEFFS", &format!("vec3<f32>({r:?}, {g:?}, {b:?})"))
 }
 
 impl Pipelines {
@@ -366,5 +363,21 @@ impl Pipelines {
             displace: full("displace", &fx_layout, &fx_src, "fs_displace"),
             glass: full("glass", &fx_layout, &fx_src, "fs_glass"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn composite_shader_injects_luminance_mask_coeffs_from_render_constant() {
+        let raw = include_str!("shaders/composite.wgsl");
+        assert!(raw.contains("dot(aux.rgb, LUMINANCE_MASK_COEFFS)"), "composite.wgsl must hold the LUMINANCE_MASK_COEFFS token");
+        let src = composite_shader_source();
+        assert!(!src.contains("LUMINANCE_MASK_COEFFS"), "processed composite shader must not retain the LUMINANCE_MASK_COEFFS token");
+        let [r, g, b] = designos_render::LUMINANCE_MASK_COEFFS;
+        let expected = format!("vec3<f32>({r:?}, {g:?}, {b:?})");
+        assert!(src.contains(&expected), "processed composite shader must contain injected constant {expected}");
     }
 }

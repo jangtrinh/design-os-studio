@@ -1,0 +1,462 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-9b14b2798b267e2b)
+
+running 58 tests
+test blur::tests::scan_thresholds ... ignored
+test blur::tests::where_is_worst ... ignored
+test fx::tests::value_noise_is_continuous_and_bounded ... ok
+test fx::tests::hashing_is_stable_and_spread ... ok
+test blur::tests::empty_pixmap_is_untouched ... ok
+test geom::tests::rounded_rect_bounds ... ok
+test blur::tests::blur_preserves_energy_and_spreads ... ok
+test index::tests::hiding_an_ancestor_drops_the_layout_grids_beneath_it ... ok
+test index::tests::grid_nodes_stay_in_paint_order_after_incremental_edits ... ok
+test index::tests::grid_nodes_tracks_only_visible_frames_with_layout_grids ... ok
+test index::tests::hiding_a_deep_ancestor_drops_every_nested_layout_grid ... ok
+test index::tests::grid_nodes_follow_paint_order_in_reverse_z_frames_on_open_and_after_a_toggle ... ok
+test index::tests::incremental_insert_remove_reparent_and_translate_match_full_ensure ... ok
+test board::tests::empty_sticky_has_no_text_and_author_adds_a_line ... ok
+test index::tests::moving_a_gridded_frame_to_another_page_drops_its_layout_grid ... ok
+test index::tests::moving_a_gridded_frame_under_a_hidden_group_drops_its_layout_grid ... ok
+test index::tests::moving_a_listed_frame_into_another_group_re_sorts_the_layout_grid_list ... ok
+test index::tests::reordering_siblings_inside_a_group_re_sorts_the_layout_grid_list ... ok
+test index::tests::reordering_siblings_on_the_page_re_sorts_the_layout_grid_list ... ok
+test index::tests::query_top_level_and_update_subtree_match_full_ensure ... ok
+test shadow_tests::patch_size_independent_of_shape_size ... ok
+test index::tests::swapping_two_artboards_re_sorts_the_layout_grids_inside_them ... ok
+test index::tests::reordering_while_the_group_is_translated_still_re_sorts_later_reorders ... ok
+test text::tests::cache_clears_by_total_entries_not_by_bucket ... ok
+test shadow_tests::identical_shadows_hit_the_cache ... ok
+test text::tests::empty_soft_break_lines_start_after_their_separator ... ok
+test text::tests::soft_line_break_u2028_breaks_line_without_paragraph_spacing ... ok
+test text::tests::many_variants_sharing_a_bucket_all_stay_cached ... ok
+test text::tests::geometry_maps_runs_cases_and_paragraphs ... ok
+test text::tests::geometry_glyphs_match_drawn_ink ... ok
+test text::wrap::tests::auto_never_changes_the_width ... ok
+test blur::tests::odd_sizes_and_tiny_images ... ok
+test text::wrap::tests::balance_keeps_a_word_wider_than_the_box_on_its_own_line ... ok
+test text::wrap::tests::balance_evens_out_the_lines_for_the_same_line_count ... ok
+test text::wrap::tests::balance_never_adds_lines_or_exceeds_the_box ... ok
+test text::wrap::tests::balance_leaves_one_line_and_long_paragraphs_alone ... ok
+test text::wrap::tests::pretty_keeps_the_greedy_breaks_when_a_fix_would_add_a_line ... ok
+test text::wrap::tests::pretty_leaves_a_paragraph_alone_that_already_ends_well_or_is_one_line ... ok
+test text::wrap::tests::pretty_never_ends_with_a_one_word_line_on_the_fixture ... ok
+test text::wrap::tests::pretty_pulls_a_word_down_so_the_last_line_is_not_a_single_word ... ok
+test board::tests::connector_lowers_to_path_caps_and_label ... ok
+test text::tests::cached_layout_needs_equal_inputs_not_just_an_equal_bucket ... ok
+test board::tests::sticky_lowers_to_rect_shadow_and_fitted_text ... ok
+test board::tests::stamps_and_shapes_lower ... ok
+test text::tests::truncate_stops_at_max_lines ... ok
+test text::tests::semibold_measures_wider_than_regular ... ok
+test text::wrap::tests::shaped_auto_and_a_fitting_paragraph_are_untouched ... ok
+test text::wrap::tests::shaped_balance_keeps_centered_lines_centered_in_the_full_box ... ok
+test text::tests::truncate_ends_last_line_with_ellipsis ... ok
+test text::tests::truncate_leaves_fitting_text_alone ... ok
+test text::tests::truncate_without_max_lines_uses_box_height ... ok
+test text::wrap::tests::shaped_pretty_does_not_leave_a_single_word_on_the_last_line ... ok
+test text::wrap::tests::shaped_balance_narrows_the_gap_between_the_longest_and_shortest_line ... ok
+test blur::tests::origin_shift_invariance ... ok
+test blur::tests::full_res_matches_reference ... ok
+test blur::tests::margined_within_two_levels ... ok
+test blur::tests::downsampled_within_two_levels ... ok
+test shadow_tests::rrect_shadow_matches_generic ... ok
+
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 34.30s
+
+     Running tests/backdrop.rs (out/cargo/debug/deps/backdrop-918f2803637af521)
+
+running 4 tests
+test background_blur_on_translucent_node_itself ... ok
+test background_blur_at_top_level_blurs_page_content ... ok
+test background_blur_inside_opacity_group_sees_parent_canvas ... ok
+test background_blur_in_nested_groups_and_sees_layer_siblings ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/backdrop_index.rs (out/cargo/debug/deps/backdrop_index-d14464e2ab290eed)
+
+running 3 tests
+test layers_that_blur_into_the_window_are_drawn_though_they_miss_it ... ok
+test a_lint_pass_through_the_index_finds_what_a_pass_without_it_finds ... ok
+test a_window_rendered_through_the_index_has_the_pixels_of_the_full_render ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+     Running tests/blend.rs (out/cargo/debug/deps/blend-53a7d0333fca6984)
+
+running 7 tests
+test linear_burn_with_opacity_mixes_with_backdrop ... ok
+test linear_dodge_adds_and_clamps ... ok
+test linear_burn_over_transparent_backdrop_is_source ... ok
+test linear_burn_on_fill_paint ... ok
+test linear_burn_is_exact ... ok
+test linear_dodge_translucent_source_is_exact ... ok
+test linear_burn_on_translucent_source_uses_proper_alpha_compositing ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/board.rs (out/cargo/debug/deps/board-b2fe49acd37169a3)
+
+running 9 tests
+test stamps_draw_badges_with_white_glyphs ... ok
+test sticky_is_a_rounded_colored_square_with_a_shadow ... ok
+test author_line_sits_at_the_bottom ... ok
+test connector_draws_line_caps_and_label ... ok
+test board_items_respect_opacity_and_visibility ... ok
+test shapes_with_text_draw_fill_outline_and_centered_text ... ok
+test sticky_text_is_drawn_and_shrinks_as_it_grows ... ok
+test elbow_connector_runs_orthogonally_between_offset_notes ... ok
+test connector_moves_with_its_node ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/board_gallery.rs (out/cargo/debug/deps/board_gallery-cb265c97000f2eb5)
+
+running 1 test
+test gallery ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/corners.rs (out/cargo/debug/deps/corners-e9162862dc781415)
+
+running 7 tests
+test smoothing_is_symmetric_across_corners ... ok
+test polygon_corner_radius_rounds_vertices ... ok
+test smoothing_applies_to_frames_and_clips_children ... ok
+test star_corner_radius_rounds_tips ... ok
+test smoothing_changes_corner_pixels_only ... ok
+test smoothing_is_limited_by_side_length ... ok
+test zero_smoothing_matches_plain_rounding ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/font_arrival.rs (out/cargo/debug/deps/font_arrival-db36f67a54f4cf03)
+
+running 3 tests
+test what_the_thread_measures_follows_a_face_that_arrives ... ok
+test a_hugging_box_holds_its_glyphs_before_and_after_a_face_arrives ... ok
+test a_long_lived_thread_draws_with_a_face_registered_after_it_cached_the_text ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fonts.rs (out/cargo/debug/deps/fonts-33f5df4744ab61f0)
+
+running 9 tests
+test inter_resolves_to_the_bundled_face ... ok
+test hermetic_database_holds_only_bundled_faces ... ok
+test rendering_is_deterministic ... ok
+test unknown_family_falls_back_to_inter ... ok
+test sf_pro_text_renders_through_inter ... ok
+test italic_uses_the_italic_face ... ok
+test a_wght_axis_overrides_font_weight_when_drawn ... ok
+test a_bold_run_on_inter_draws_heavier_than_the_regular_run ... ok
+test variable_weight_axis_is_applied ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fx.rs (out/cargo/debug/deps/fx-a9a411e045329f33)
+
+running 12 tests
+test texture_with_zero_radius_changes_nothing ... ok
+test hidden_effects_draw_nothing ... ok
+test noise_grain_size_is_in_page_units ... ok
+test mono_noise_covers_density_share_and_stays_inside_the_shape ... ok
+test noise_is_deterministic_and_seeded ... ok
+test noise_follows_the_rounded_shape_and_opacity ... ok
+test duo_and_multi_noise_use_their_colors ... ok
+test texture_roughens_edges_and_can_clip_to_the_shape ... ok
+test glass_frosts_the_backdrop_only_inside_its_shape ... ok
+test glass_highlight_sits_on_the_edge_facing_the_light ... ok
+test glass_dispersion_splits_colour_channels_at_the_edge ... ok
+test glass_is_deterministic ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/geometry.rs (out/cargo/debug/deps/geometry-56f97b0fe9a7d739)
+
+running 5 tests
+test fill_geometry_replaces_derived_shape ... ok
+test stroke_geometry_is_filled_with_stroke_paints ... ok
+test stroke_geometry_honours_even_odd_fill_rule ... ok
+test outside_stroke_with_imported_outer_disc_keeps_fill_in_centre ... ok
+test boolean_op_uses_precomputed_geometry ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/gradients.rs (out/cargo/debug/deps/gradients-c0806adaa5ac9e77)
+
+running 5 tests
+test diamond_gradient_is_four_fold_symmetric ... ok
+test angular_gradient_start_follows_handles ... ok
+test angular_gradient_loop_has_no_seam ... ok
+test angular_gradient_sweeps_around_centre ... ok
+test radial_gradient_on_non_square_frame_centres_and_reaches_all_four_edges ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/lint_contrast.rs (out/cargo/debug/deps/lint_contrast-e7147cd73dbefef7)
+
+running 10 tests
+test test_1_analytic_fast_path_solid_on_solid_does_not_call_backdrop ... ok
+test test_8_backdrop_variable_suggestion_scores_roles_and_drops_failing_candidate ... ok
+test test_6_wcag_aaa_mode_and_warning_severity_when_aa_passes ... ok
+test test_7_suggest_passing_variable_pair_by_cie76_delta_e ... ok
+test test_9_white_on_white_with_adjacent_overlapping_icon_keeps_ratio_message ... ok
+test overlay_on_image_within_0_05 ... ok
+test test_4_covering_sibling_emits_covered_by_message ... ok
+test test_2_semi_transparent_sibling_uses_pixel_path ... ok
+test test_3_linear_gradient_backdrop_flags_failing_half ... ok
+test test_5_large_text_thresholds_24px_and_18_66px_bold ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/lint_rules.rs (out/cargo/debug/deps/lint_rules-61548a0b5519472f)
+
+running 32 tests
+test fail_and_clean_default_layer_name ... ok
+test fail_and_clean_clipped_full ... ok
+test fail_and_clean_empty_container ... ok
+test fail_and_clean_misaligned_siblings ... ok
+test fail_and_clean_inconsistent_radius ... ok
+test fail_and_clean_deeply_nested ... ok
+test fail_and_clean_collapsed_size ... ok
+test fail_and_clean_inconsistent_spacing ... ok
+test fail_and_clean_detached_text_style ... ok
+test fail_and_clean_missing_auto_layout ... ok
+test fail_and_clean_absolute_in_auto_layout ... ok
+test fail_and_clean_clipped_partial ... ok
+test fail_and_clean_detached_instance ... ok
+test fail_and_clean_hardcoded_color ... ok
+test check_designs_property_ignore_does_not_suppress_other_hardcoded_colors ... ok
+test fail_and_clean_non_scale_font_size ... ok
+test fail_and_clean_non_4px_grid ... ok
+test fail_and_clean_placeholder_text ... ok
+test fail_and_clean_overflow_parent ... ok
+test fail_and_clean_sibling_overlap ... ok
+test fail_and_clean_small_touch_target ... ok
+test fail_and_clean_sizing_conflict ... ok
+test fail_and_clean_text_missing_fill ... ok
+test low_contrast_text_is_an_alias_of_the_pixel_backed_contrast_rule ... ok
+test fail_and_clean_tiny_text ... ok
+test fail_and_clean_unbalanced_padding ... ok
+test presets_name_only_registered_rules ... ok
+test ignored_never_reappears ... ok
+test fail_and_clean_text_truncated ... ok
+test fail_and_clean_text_unexpected_wrap ... ok
+test cosmic_text_measurement_catches_real_overflow ... ok
+test large_fixture_off_thread_budget ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.21s
+
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-0f3196e55216fa9f)
+
+running 11 tests
+test frame_mask_without_fill_uses_the_alpha_of_its_children ... ok
+test luminance_mask_rgb_channels_and_shader_coefficients_match_rec709 ... ok
+test frame_mask_with_children_still_adds_its_own_fill ... ok
+test mask_frame_box_matches_alpha_only_from_children_rule ... ok
+test vector_mask_with_zero_opacity_fill_still_clips_to_geometry_coverage ... ok
+test childless_frame_without_fill_masks_as_an_opaque_box ... ok
+test frame_mask_without_fill_keeps_partial_alpha_of_children ... ok
+test reverse_z_auto_layout_draws_masked_background_pattern_behind_earlier_siblings ... ok
+test childless_shape_without_fill_still_masks_as_an_opaque_stencil ... ok
+test luminance_mask_over_white_to_black_ramp_keeps_white_hides_black_and_halves_mid_grey ... ok
+test vector_mask_uses_own_outline_for_shape_frame_group_and_text ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/pixmap_size_cap.rs (out/cargo/debug/deps/pixmap_size_cap-151b98f9b500c805)
+
+running 6 tests
+test large_legitimate_exports_are_allowed_and_absurd_ones_rejected ... ok
+test pixel_budget_equals_the_side_limit_squared ... ok
+test huge_scale_on_a_small_node_is_rejected ... ok
+test huge_node_is_rejected_not_allocated ... ok
+test ordinary_sizes_are_unchanged ... ok
+test one_pixel_over_the_side_limit_is_rejected_and_the_limit_itself_renders ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/render.rs (out/cargo/debug/deps/render-f08b6c6501086629)
+
+running 29 tests
+test default_page_background ... ok
+test hidden_nodes_are_skipped ... ok
+test dashed_line_and_caps ... ok
+test culling_offscreen_nodes_is_harmless ... ok
+test corner_radius_cuts_corner ... ok
+test auto_layout_reverse_z_paints_first_child_on_top ... ok
+test blend_multiply ... ok
+test ellipse_and_arc ... ok
+test opacity_and_group_opacity ... ok
+test frame_clips_children ... ok
+test page_background_and_rect_fill ... ok
+test linear_gradient_endpoints ... ok
+test boolean_subtract_union ... ok
+test per_side_stroke_follows_rounded_corners ... ok
+test image_fill_modes ... ok
+test mask_applies_to_following_siblings ... ok
+test per_side_stroke_weights ... ok
+test polygon_star_vector ... ok
+test render_node_exports_subtree ... ok
+test radial_angular_diamond_gradients_render ... ok
+test stroke_alignment_extents ... ok
+test transforms_rotation_and_nesting ... ok
+test viewport_zoom_offset_dpr ... ok
+test unknown_table_and_cell_paint_and_index_children ... ok
+test drop_shadow_present_and_blurred ... ok
+test layer_blur_and_background_blur ... ok
+test inner_shadow_darkens_edges_only ... ok
+test text_case_and_decoration ... ok
+test text_renders_ink ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/scripts.rs (out/cargo/debug/deps/scripts-6577a57da375a539)
+
+running 3 tests
+test arabic_is_shaped_and_laid_out_right_to_left ... ignored, needs network access to api.fontsource.org
+test devanagari_conjuncts_and_vowel_signs_form_clusters ... ignored, needs network access to api.fontsource.org
+test hebrew_runs_right_to_left_with_real_glyphs ... ignored, needs network access to api.fontsource.org
+
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/shadow_blend.rs (out/cargo/debug/deps/shadow_blend-1ed6dcd84fde0b10)
+
+running 5 tests
+test blend_applies_after_the_show_behind_knockout ... ok
+test multiply_inner_shadow_darkens_what_is_beneath ... ok
+test multiply_drop_shadow_darkens_the_backdrop_at_a_literal_pixel ... ok
+test normal_drop_shadow_still_covers_the_backdrop ... ok
+test screen_and_linear_dodge_shadows_lighten_the_backdrop ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/shadow_fillless.rs (out/cargo/debug/deps/shadow_fillless-fc441343652fc901)
+
+running 8 tests
+test fillless_frame_knockout_follows_children_opaque_rule ... ok
+test filled_frame_shadow_comes_from_its_own_shape ... ok
+test show_behind_on_never_knocks_out ... ok
+test fixture_pair_probes_on_one_page ... ok
+test fillless_frame_shadow_is_not_erased_inside_the_frame ... ok
+test hidden_and_transparent_children_add_nothing ... ok
+test clipping_frame_clips_children_in_silhouette_and_knockout ... ok
+test tile_render_equals_full_render_for_the_fixture_pair ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/text_fill_source.rs (out/cargo/debug/deps/text_fill_source-be3fa173ded82248)
+
+running 1 test
+test text_node_fills_do_not_recolour_glyphs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/text_lists.rs (out/cargo/debug/deps/text_lists-114bc7ac04c13993)
+
+running 15 tests
+test right_to_left_list_items_put_the_marker_on_the_right ... ok
+test tabular_figures_equalise_digit_widths ... ok
+test stylistic_sets_and_features_change_the_outlines ... ok
+test nested_levels_indent_further ... ok
+test forced_direction_reorders_runs ... ok
+test bullets_draw_a_marker_and_indent_the_text ... ok
+test hanging_punctuation_pulls_an_opening_quote_out ... ok
+test list_spacing_replaces_paragraph_spacing_between_items ... ok
+test paragraph_indent_shifts_first_lines_only ... ok
+test hanging_list_puts_markers_outside_the_box ... ok
+test forced_rtl_keeps_a_latin_line_looking_left_to_right ... ok
+test wrapped_list_lines_hang_under_the_text ... ok
+test leading_trim_respects_fixed_box_alignment ... ok
+test leading_trim_cuts_the_box_to_cap_height_and_baseline ... ok
+test numbered_markers_count_and_restart ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/tile_fonts.rs (out/cargo/debug/deps/tile_fonts-3c4ff3ccdf28a042)
+
+running 1 test
+test registered_fonts_reach_worker_threads ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+     Running tests/tiles.rs (out/cargo/debug/deps/tiles-8ce0a0a7eb19b4f2)
+
+running 7 tests
+test invalidate_rect_and_all ... ok
+test zoom_change_falls_back_to_previous_scale ... ok
+test tiles_match_when_panned_by_whole_tiles ... ok
+test tiles_match_within_rounding_for_arbitrary_geometry ... ok
+test indexed_render_page_matches_plain ... ok
+test tiles_stitch_to_render_page_exactly ... ok
+test edit_reredraws_only_affected_tiles_and_stays_exact ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.02s
+
+     Running tests/tiles_edit_while_converging.rs (out/cargo/debug/deps/tiles_edit_while_converging-6c1cc441408aca93)
+
+running 2 tests
+test edits_that_arrive_before_the_last_picture_is_finished_end_on_the_latest_document ... ok
+test a_removed_row_and_the_reflow_below_it_are_redrawn_one_tile_at_a_time ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/variables.rs (out/cargo/debug/deps/variables-f9755d3d62cd847c)
+
+running 5 tests
+test white_paint_with_stored_opacity_bound_to_translucent_color_variable_composites_at_twenty_percent ... ok
+test switching_a_frames_mode_changes_rendered_pixels ... ok
+test tile_cache_notices_variable_value_and_mode_edits ... ok
+test text_drop_shadow_uses_the_bound_colour_alpha_not_full_ink ... ok
+test per_side_stroke_renders_with_fill_geometry_and_visible_variable_binding ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/vector_network.rs (out/cargo/debug/deps/vector_network-d17281623fd3bdb2)
+
+running 3 tests
+test only_filled_faces_of_a_network_are_painted ... ok
+test unfilled_regions_are_not_painted_but_still_stroked ... ok
+test per_vertex_cap_is_drawn_at_that_end_only ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/vectorops.rs (out/cargo/debug/deps/vectorops-7d65333604a06fef)
+
+running 23 tests
+test offset_of_an_open_path_alone_returns_it_unchanged ... ok
+test flatten_skips_text_and_empty_selections ... ok
+test arrange_cuts_overlapping_rectangles_into_three_regions ... ok
+test flatten_a_subtract_boolean_group_computes_the_geometry ... ok
+test merging_cells_unions_them_and_cuts_the_remainders ... ok
+test outline_of_a_closed_rectangle_by_alignment ... ok
+test flatten_merges_a_selection_in_the_target_space ... ok
+test outline_of_a_line_honours_weight_and_caps ... ok
+test outline_of_a_curve_keeps_curves ... ok
+test dashes_split_the_outline ... ok
+test inset_erodes_the_outline_of_overlapping_squares_not_their_inner_edges ... ok
+test inset_ignores_a_path_that_lies_inside_another ... ok
+test offset_path_expands_100px_square_and_shrinks_on_negative_offset ... ok
+test separate_paths_stay_separate_regions ... ok
+test a_fully_eroded_closed_part_returns_nothing_even_next_to_an_open_segment ... ok
+test joins_change_the_outer_corner ... ok
+test disjoint_pieces_of_one_region_become_separate_cells ... ok
+test subtracting_the_lens_leaves_two_crescent_remainders ... ok
+test per_vertex_caps_override_the_node_cap ... ok
+test offset_passes_an_open_segment_through_next_to_a_closed_square ... ok
+test offset_moves_the_boundary_of_a_hole_the_other_way ... ok
+test circles_arrange_into_a_lens_and_two_crescents_and_fit_back_to_curves ... ok
+test offset_of_a_circle_keeps_its_curve ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests designos_render
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

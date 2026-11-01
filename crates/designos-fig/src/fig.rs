@@ -2192,8 +2192,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             "mask" => {
                 m.insert("isMask".into(), val.clone());
             }
-            "maskType" => {
-                m.insert("maskType".into(), val.clone());
+            "maskType" | "isMaskOutline" => {
+                m.insert(k.clone(), val.clone());
             }
             "overrideLevel" => {
                 if let Some(lvl) = val.as_i64() {

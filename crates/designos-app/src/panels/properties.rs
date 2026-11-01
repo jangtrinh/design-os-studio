@@ -851,7 +851,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             app.rename(sel[0], &s);
         }
     }
-    let all_mask = sel.iter().all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask));
+    let all_mask = sel.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask));
     let btns = [
         (Icon::Mask, "Use as mask", all_mask),
         (if n0.locked { Icon::Lock } else { Icon::Unlock }, "Lock", n0.locked),
@@ -1040,7 +1040,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     pane.y += 4.0;
 
     // ---- Mask
-    let masks: Vec<NodeId> = sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();
+    let masks: Vec<NodeId> = sel.iter().take(128).copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();
     if !masks.is_empty() {
         section_sep(ui, pane, false);
         title(ui, pane, "Mask", None, false);
@@ -1051,6 +1051,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         widgets::record(ui, "mask-type", r);
         if let Some(i) = dropdown(ui, r, "mask-type", cur, &opts) {
             let chosen = MaskType::ALL[i];
+            let masks: Vec<NodeId> = sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();
             app.edit_nodes(&masks, |n| {
                 n.mask_type = chosen;
                 n.fig_metadata.remove("maskType");
@@ -3056,12 +3057,17 @@ mod tests {
         };
 
         // Select one Luminance mask and one non-mask layer:
-        // Picking Vector from the Mask dropdown must only update the mask layer and clear its legacy fig_metadata["maskType"].
+        // The dropdown label must read only mask layers ("Luminance", so row 2 is checked, not "Mixed"),
+        // and picking Vector must only update the mask layer and clear its legacy fig_metadata["maskType"].
         app.selection = vec![m1, plain];
         step(&mut app, vec![]);
         let dd_rect = test_rect(&ctx, "mask-type").expect("mask-type dropdown rendered");
         click(&mut app, dd_rect.center());
         step(&mut app, vec![]);
+        assert!(
+            test_rect(&ctx, "menu-check-0-2").is_some_and(|r| r.is_positive()),
+            "dropdown label for [Luminance mask, plain] must read mask layers only (Luminance checked, not Mixed)"
+        );
         let vector_row = test_rect(&ctx, "menu-row-0-1").expect("Vector row in mask-type menu");
         click(&mut app, vector_row.center());
 
@@ -3080,6 +3086,26 @@ mod tests {
         assert!(
             app.doc.get(m1).unwrap().is_mask && app.doc.get(plain).unwrap().is_mask,
             "header mask button on mixed selection must turn all selected nodes into masks"
+        );
+
+        // Per-frame scan bound (`take(128)`): when 128 non-mask layers precede a mask at index 128,
+        // the per-frame Mask section check stops at 128 and does not render the Mask dropdown.
+        app.doc.get_mut(plain).unwrap().is_mask = false;
+        let mut bounded_sel = Vec::with_capacity(129);
+        bounded_sel.push(plain);
+        for _ in 1..128 {
+            let pid = app.doc.alloc_id();
+            let pn = Node::rectangle(pid, designos_doc::Rect::new(0.0, 0.0, 10.0, 10.0));
+            bounded_sel.push(app.doc.insert(page, pn).unwrap());
+        }
+        bounded_sel.push(m1);
+        assert_eq!(bounded_sel.len(), 129);
+        app.selection = bounded_sel;
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("test-rect", "mask-type".to_string())), Rect::NOTHING));
+        step(&mut app, vec![]);
+        assert!(
+            !test_rect(&ctx, "mask-type").is_some_and(|r| r.is_positive()),
+            "Mask section per-frame scan must be bounded to take(128) and not scan beyond index 127"
         );
     }
 }

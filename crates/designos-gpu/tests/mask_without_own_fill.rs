@@ -552,12 +552,57 @@ fn gpu_vector_mask_outlines_and_rgb_luminance_match_cpu() {
             n.fills = vec![p];
             n
         });
+        let hidden_sub = b.add(Some(grp), |id| {
+            let mut n = Node::new(id, NodeKind::Group);
+            n.size = Vec2::new(30.0, 30.0);
+            n.visible = false;
+            n
+        });
+        b.add(Some(hidden_sub), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 50.0, 30.0, 30.0));
+            n.fills = vec![Paint::solid(Color::BLACK)];
+            n
+        });
         b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
         let c = common::compare(&mut g, "mask-type-vector-group", &b.doc, b.page, vp, SIZE, 4);
         assert_eq!(px(&c.gpu, 15, 15), [255, 0, 0, 255]);
         assert_eq!(px(&c.gpu, 65, 65), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 15, 65), [255, 255, 255, 255], "child inside hidden nested group is not covered on GPU");
         assert_eq!(px(&c.gpu, 40, 40), [255, 255, 255, 255]);
         assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Vector group mask");
+    }
+
+    // 4b. Vector BooleanOp (Union) mask with 0%-opacity fills keeps its operands on GPU and matches CPU.
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        let bo = b.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::BooleanOp(designos_doc::BooleanOp::Union));
+            n.size = Vec2::new(80.0, 80.0);
+            let mut p = Paint::solid(Color::BLACK);
+            p.opacity = 0.0;
+            n.fills = vec![p];
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n
+        });
+        b.add(Some(bo), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+            n.fills.clear();
+            n
+        });
+        b.add(Some(bo), |id| {
+            let mut n = Node::rectangle(id, Rect::new(30.0, 30.0, 40.0, 40.0));
+            n.fills.clear();
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let c = common::compare(&mut g, "mask-type-vector-boolean-union", &b.doc, b.page, vp, SIZE, 4);
+        assert_eq!(px(&c.gpu, 15, 15), [255, 0, 0, 255], "first boolean operand covered on GPU");
+        assert_eq!(px(&c.gpu, 55, 55), [255, 0, 0, 255], "second boolean operand covered on GPU");
+        assert_eq!(px(&c.gpu, 75, 5), [255, 255, 255, 255], "outside boolean union is clipped on GPU");
+        assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Vector BooleanOp mask");
     }
 
     // 5. Non-grey Luminance mask (pure red, pure green, pure blue) on GPU against literal Rec. 709 expectations

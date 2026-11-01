@@ -4180,14 +4180,40 @@ fn legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_v
                 "id": "0:1",
                 "name": "Page 1",
                 "type": "CANVAS",
-                "children": [{
-                    "id": "1:1",
-                    "name": "OutlineFlagMask",
-                    "type": "RECTANGLE",
-                    "isMask": true,
-                    "isMaskOutline": true,
-                    "size": {"x": 40.0, "y": 40.0}
-                }]
+                "children": [
+                    {
+                        "id": "1:1",
+                        "name": "OutlineFlagMask",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "isMaskOutline": true,
+                        "size": {"x": 40.0, "y": 40.0}
+                    },
+                    {
+                        "id": "1:10",
+                        "name": "MaskHostComp",
+                        "type": "COMPONENT",
+                        "size": {"x": 80.0, "y": 80.0},
+                        "children": [{
+                            "id": "1:11",
+                            "name": "CompMaskChild",
+                            "type": "RECTANGLE",
+                            "isMask": true,
+                            "size": {"x": 40.0, "y": 40.0}
+                        }]
+                    },
+                    {
+                        "id": "1:20",
+                        "name": "MaskHostInst",
+                        "type": "INSTANCE",
+                        "componentId": "1:10",
+                        "size": {"x": 80.0, "y": 80.0},
+                        "_overrides": [{
+                            "path": ["1:11"],
+                            "set": {"isMaskOutline": true}
+                        }]
+                    }
+                ]
             }]
         }
     });
@@ -4195,4 +4221,53 @@ fn legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_v
     let flag_node = find(&rest_doc, "OutlineFlagMask");
     assert!(flag_node.is_mask);
     assert_eq!(flag_node.mask_type, MaskType::Vector);
+    let inst = find(&rest_doc, "MaskHostInst");
+    let inst_mask = inst.children.iter().filter_map(|id| rest_doc.get(*id)).find(|n| n.name == "CompMaskChild").expect("CompMaskChild in REST instance");
+    assert_eq!(inst_mask.mask_type, MaskType::Vector, "REST symbol override with isMaskOutline: true must map to MaskType::Vector");
+
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let nc = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 80.0, "y": 80.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        nc((1, 10), (0, 1), "!", "SYMBOL", "FigMaskComp", json!({"size": {"x": 80.0, "y": 80.0}})),
+        nc((1, 11), (1, 10), "!", "ROUNDED_RECTANGLE", "FigCompMask", json!({"mask": true, "size": {"x": 40.0, "y": 40.0}})),
+        nc(
+            (1, 20),
+            (0, 1),
+            "\"",
+            "INSTANCE",
+            "FigMaskInst",
+            json!({
+                "size": {"x": 80.0, "y": 80.0},
+                "symbolData": {
+                    "symbolID": g(1, 10),
+                    "symbolOverrides": [{
+                        "guidPath": {"guids": [g(1, 11)]},
+                        "isMaskOutline": true
+                    }]
+                }
+            })
+        )
+    ]);
+    let fig_ov_doc = import_fig_node_changes(&changes, "FigSymbolOverrideMaskOutline").expect("import_fig_node_changes");
+    let fig_inst = find(&fig_ov_doc, "FigMaskInst");
+    let fig_inst_mask = fig_inst.children.iter().filter_map(|id| fig_ov_doc.get(*id)).find(|n| n.name == "FigCompMask").expect("FigCompMask in .fig instance");
+    assert_eq!(fig_inst_mask.mask_type, MaskType::Vector, ".fig symbolOverrides with isMaskOutline: true must map to MaskType::Vector");
 }

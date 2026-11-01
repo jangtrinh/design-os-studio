@@ -1,0 +1,774 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.30s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-fccf9acfc4106716)
+
+running 143 tests
+test clipboard::tests::the_clipboard_budgets_are_far_below_a_whole_file ... ok
+test clipboard::tests::decoded_size_is_capped_before_decoding ... ok
+test clipboard::tests::whitespace_and_missing_padding_are_tolerated ... ok
+test container::tests::archive_records_what_opening_it_inflated ... ok
+test container::tests::chunk_inflation_shares_the_archive_budget ... ok
+test clipboard::tests::raw_and_escaped_markers_decode_the_same_bytes ... ok
+test container::tests::damaged_image_or_meta_entry_is_skipped_not_fatal ... ok
+test clipboard::tests::missing_or_broken_payload_is_an_error ... ok
+test container::tests::compression_roundtrips ... ok
+test container::tests::container_roundtrip_and_zip ... ok
+test container::tests::garbage_is_an_error_not_a_panic ... ok
+test container::tests::chunks_of_a_zipped_container_draw_on_the_file_wide_ratio_room ... ok
+test container::tests::explicit_budget_covers_zip_entries_and_chunks_of_a_bare_container_alike ... ok
+test container::tests::zip_entry_count_is_capped ... ok
+test container::tests::entry_declaring_a_huge_compressed_size_is_still_ratio_checked ... ok
+test container::tests::zip_total_inflate_budget_spans_entries ... ok
+test container::tests::entries_each_under_the_grace_cannot_add_up_to_a_bomb ... ok
+test clipboard::tests::a_payload_decoding_past_the_value_budget_is_an_error ... ok
+test fig::tests::guid_pair_max_max_is_unset ... ok
+test fig::tests::guid_session_max_local_5_is_a_real_id ... ok
+test fig::tests::guid_session_5_local_max_is_a_real_id ... ok
+test fig::tests::guid_session_max_minus_one_local_max_is_a_real_id ... ok
+test fig::tests::blob_decoding_is_tolerant ... ok
+test clipboard::tests::a_payload_inflating_past_the_budget_is_an_error ... ok
+test fig::tests::kiwi_export_settings_and_guides_map_to_rest_shapes ... ok
+test fig::tests::style_names ... ok
+test kiwi::tests::ac01_u64_max_and_bit63_roundtrip_in_9_bytes ... ok
+test kiwi::tests::ac02_var_u64_boundary_byte_lengths ... ok
+test kiwi::tests::ac03_field_after_9_byte_varint_decodes_correctly ... ok
+test kiwi::tests::ac05_truncated_9_byte_varint_returns_error_without_panic ... ok
+test kiwi::tests::claimed_counts_reserve_a_bounded_prefix ... ok
+test kiwi::tests::edge_case_10_byte_varint_from_old_build_returns_error_without_panic ... ok
+test kiwi::tests::edge_case_2_pow_63_high_byte_is_data_not_continuation ... ok
+test container::tests::image_entry_past_the_ratio_limit_still_fails_the_open ... ok
+test kiwi::tests::edge_case_zigzag_var_i64_min_and_max ... ok
+test kiwi::tests::float_roundtrip ... ok
+test kiwi::tests::skip_heavy_fields_without_allocation ... ok
+test kiwi::tests::truncated_never_panics ... ok
+test kiwi::tests::value_budget_covers_real_files_with_margin ... ok
+test kiwi::tests::varint64_ninth_byte_is_full_width ... ok
+test kiwi::tests::varint_roundtrip ... ok
+test fig::tests::half_null_guid_round_trips_through_fig_export ... ok
+test pen::tests::chained_component_refs_hit_the_clone_budget ... ok
+test pen::tests::exhausted_clone_budget_keeps_earlier_instances_and_skips_later_ones ... ok
+test pen::tests::cyclic_variable_aliases_fall_back_instead_of_recursing ... ok
+test pen::tests::public_warning_entry_point_reports_none_for_a_small_document ... ok
+test pen::tests::ref_to_own_component_or_itself_is_rejected ... ok
+test pen::tests::pen_import_and_export_roundtrip ... ok
+test pen::tests::scene_format_does_not_carry_flag ... ok
+test kiwi::tests::ac04_fixture_with_bit63_stroke_seed_imports_and_roundtrips ... ok
+test pen::tests::subtree_count_stops_once_it_passes_the_limit ... ok
+test kiwi::tests::old_cap_inputs_decode_unchanged ... ok
+test proto::tests::key_names_roundtrip ... ok
+test proto::tests::tolerant_of_garbage ... ok
+test proto::tests::fig_interactions_become_reactions ... ok
+test pen::tests::fig_round_trip_keeps_flag ... ok
+test rest_import::expand_depth_tests::component_cycles_still_terminate ... ok
+test rest_import::expand_depth_tests::an_unexpanded_instance_survives_a_fig_round_trip ... ok
+test rest_import::expand_depth_tests::deferred_page_hydration_counts_skipped_instances_and_propagates_id_exhaustion ... ok
+test rest_import::expand_depth_tests::fresh_id_is_checked ... ok
+test container::tests::zip_bomb_stream_rejected_before_buffering ... ok
+test rest_import::expand_depth_tests::a_budgeted_import_is_deterministic ... ok
+test container::tests::dense_entries_listed_before_an_incompressible_one_still_open ... ok
+test rest_import::expand_depth_tests::max_id_overflow_is_an_error_in_import ... ok
+test rest_import::expand_depth_tests::nan_round_trip_import_save_reopen ... ok
+test kiwi::tests::zero_size_cap_follows_the_input_length_and_keeps_the_hostile_bound ... ok
+test container::tests::zip_entry_with_compressible_prefix_and_low_overall_ratio_opens ... ok
+test rest_import::grid_sizing_tests::deeply_nested_repeat_stops_at_depth_cap ... ok
+test pen::tests::long_acyclic_alias_chain_still_resolves ... ok
+test rest_import::grid_sizing_tests::nested_repeat_bomb_is_counted_not_expanded ... ok
+test rest_import::grid_sizing_tests::non_finite_track_tokens_fall_back_to_finite_defaults ... ok
+test rest_import::grid_sizing_tests::plain_and_repeat_tracks_keep_their_meaning ... ok
+test rest_import::grid_sizing_tests::unclosed_minmax_stops_the_scan_in_linear_time ... ok
+test svgpath::tests::arc_ends_at_target ... ok
+test svgpath::tests::garbage_does_not_panic ... ok
+test svgpath::tests::implicit_lineto_and_compact_numbers ... ok
+test svgpath::tests::parses_basic_commands ... ok
+test svgpath::tests::smooth_curves_reflect ... ok
+test svgpath::tests::write_roundtrip ... ok
+test textfmt::tests::flags_round_trip ... ok
+test textfmt::tests::kiwi_conversions ... ok
+test textfmt::tests::lines_round_trip ... ok
+test textfmt::tests::paragraph_round_trip ... ok
+test variables::tests::export_variables_json_replaces_non_finite_numbers_and_roundtrips ... ok
+test variables::tests::fig_variable_nodes_map_tolerantly ... ok
+test variables::tests::library_marker_survives_the_rest_shaped_export ... ok
+test variables::tests::subscribed_library_sets_are_marked_and_keep_their_variables ... ok
+test variables_dtcg::tests::alias_cycle_and_display_p3_reported ... ok
+test variables_dtcg::tests::collection_filter_prefers_the_local_copy ... ok
+test variables_dtcg::tests::collection_selected_by_both_name_and_id_is_not_in_skipped_collections ... ok
+test variables_dtcg::tests::color_format_hex_writes_strings_with_alpha ... ok
+test variables_dtcg::tests::dtcg_deprecated_round_trips_without_clearing_mode_extensions ... ok
+test variables_dtcg::tests::dtcg_export_gives_same_named_collections_unique_groups_and_files ... ok
+test variables_dtcg::tests::dtcg_export_has_no_figma_keys ... ok
+test variables_dtcg::tests::dtcg_export_validates ... ok
+test container::tests::deflate_chunk_with_compressible_prefix_and_low_overall_ratio_opens ... ok
+test variables_dtcg::tests::dtcg_merge_preserves_mode_extensions_and_excludes_deprecated_from_omitted ... ok
+test kiwi::tests::zero_byte_struct_fanout_fails_cleanly ... ok
+test variables_dtcg::tests::dtcg_round_trip_keeps_every_collection ... ok
+test variables_dtcg::tests::dtcg_mixed_root_group_and_token_preserves_both ... ok
+test variables_dtcg::tests::dtcg_round_trip_lossless ... ok
+test variables_dtcg::tests::dtcg_zip_export_with_same_named_collections_succeeds ... ok
+test variables_dtcg::tests::figma_native_export_matches_figma_dialect ... ok
+test variables_dtcg::tests::extensions_serde_default ... ok
+test variables_dtcg::tests::figma_native_import_lossless ... ok
+test variables_dtcg::tests::figma_native_multi_collection_export_and_round_trip ... ok
+test variables_dtcg::tests::figma_native_round_trip_json_equal ... ok
+test variables_dtcg::tests::import_toast_puts_counts_in_plain_text_and_agrees_in_number ... ok
+test variables_dtcg::tests::merge_not_replace ... ok
+test variables_dtcg::tests::mode_export_is_one_self_contained_file ... ok
+test variables_dtcg::tests::mode_export_without_resolve_aliases_writes_default_mode_target_so_no_alias_dangles ... ok
+test variables_dtcg::tests::mode_extensions_follow_mode_edits ... ok
+test variables_dtcg::tests::native_merge_keys_extensions_by_existing_mode_id ... ok
+test variables_dtcg::tests::non_native_exports_report_extensions ... ok
+test variables_dtcg::tests::resolve_aliases_counts_default_mode_fallback_and_never_uses_non_default_mode ... ok
+test variables_dtcg::tests::resolve_aliases_writes_literals_and_keeps_provenance ... ok
+test variables_dtcg::tests::rest_round_trip_unchanged ... ok
+test variables_dtcg::tests::staged_library_guard_protects_local_variables_and_does_not_count_existing_library_as_skipped ... ok
+test variables_dtcg::tests::studio_cross_collection_alias_two_modes_exports_per_mode_literals ... ok
+test variables_dtcg::tests::two_mode_extensions_differ_per_mode ... ok
+test variables_dtcg::tests::unknown_mode_is_an_error_listing_modes ... ok
+test variables_dtcg::tests::unresolvable_alias_stops_the_export_and_writes_nothing ... ok
+test variables_dtcg::tests::variable_with_no_value_in_any_mode_is_refused_when_aliased_and_omitted_when_unreferenced ... ok
+test vecnet::tests::blob_decodes_vertices_segments_and_regions ... ok
+test vecnet::tests::corrupt_blobs_are_rejected_not_panicked_on ... ok
+test vecnet::tests::json_round_trip_keeps_per_vertex_properties ... ok
+test web_capture::tests::detects_and_imports_web_capture_bundle ... ok
+test web_capture::tests::looks_like_web_capture_ignores_nested_substring ... ok
+test rest_import::grid_sizing_tests::long_track_list_parses_in_linear_time ... ok
+test rest_import::expand_depth_tests::instance_swap_chain_expands_completely ... ok
+test kiwi::tests::value_budget_ignores_zero_padding ... ok
+test container::tests::chunk_whose_whole_ratio_is_past_the_limit_is_rejected_while_streaming ... ok
+test pen::tests::skipped_refs_do_not_re_walk_a_huge_component ... ok
+test rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget ... ok
+test rest_import::expand_depth_tests::override_swap_chain_expands_completely_and_on_a_small_stack ... ok
+test rest_import::expand_depth_tests::deep_component_chain_expands_completely ... ok
+test variables_dtcg::tests::perf_5000_vars_4_modes_within_budget ... ok
+test rest_import::expand_depth_tests::per_instance_budget_still_applies ... ok
+test rest_import::expand_depth_tests::long_component_chain_expands_without_exhausting_the_stack ... ok
+test container::tests::zstd_chunk_with_compressible_prefix_and_low_overall_ratio_opens ... ok
+test variables_dtcg::tests::dtcg_import_scales_linearly_with_variable_count ... ok
+test rest_import::expand_depth_tests::long_instance_swap_chain_expands_without_exhausting_the_stack ... ok
+test container::tests::legitimate_160mib_stream_opens_cleanly ... ok
+
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.31s
+
+     Running tests/clipboard.rs (out/cargo/debug/deps/clipboard-474c991cf562ad88)
+
+running 8 tests
+test partial_copy_without_a_canvas_lands_on_a_synthetic_page ... ok
+test orphaned_roots_beside_a_document_and_canvas_are_adopted_onto_a_pasted_page ... ok
+test orphaned_roots_beside_a_canvas_without_a_document_are_adopted_too ... ok
+test a_payload_without_orphans_gets_no_synthetic_page ... ok
+test zip_archive_payload_pastes_frames_text_vectors_images_and_instances ... ok
+test malformed_payloads_are_errors_not_panics ... ok
+test bare_container_payload_with_escaped_markers_matches_the_zip_payload ... ok
+test a_clipboard_payload_inflating_past_the_clipboard_budget_is_an_error_not_an_abort ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/component_props.rs (out/cargo/debug/deps/component_props-81ffed32c3b036df)
+
+running 3 tests
+test nested_instance_sources_follow_inline_ids ... ok
+test maps_property_definitions_values_and_references ... ok
+test links_children_and_records_rest_overrides ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dev_mode.rs (out/cargo/debug/deps/dev_mode-524bafe760f31cb1)
+
+running 3 tests
+test dev_status_and_annotations_are_imported ... ok
+test changed_exports_as_ready_for_dev ... ok
+test dev_data_round_trips ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fig_child_margins.rs (out/cargo/debug/deps/fig_child_margins-e167bd669a741c22)
+
+running 3 tests
+test uniform_scale_scales_the_copied_children_margins_with_their_padding ... ok
+test cleared_margin_override_is_written_for_a_reader_that_rebuilds_the_instance_from_its_master ... ok
+test instance_override_clearing_a_master_margin_survives_the_fig_round_trip ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/fig_effect_grid_styles.rs (out/cargo/debug/deps/fig_effect_grid_styles-6af902dbb8235fde)
+
+running 21 tests
+test own_font_style_binding_and_style_font_weight_binding_preserve_resolved_node_across_modes ... ok
+test legacy_inherit_refs_resolve_to_the_style_nodes ... ok
+test a_stroke_style_node_is_a_stroke_style ... ok
+test consumers_take_effect_and_grid_values_from_the_style_node ... ok
+test fig_style_colorvar_round_trips ... ok
+test effect_style_shadow_vars_round_trip ... ok
+test mixed_positioned_and_unpositioned_styles_keep_order_through_fig_round_trip ... ok
+test a_soft_deleted_style_is_ignored ... ok
+test a_style_used_by_a_remote_component_on_the_library_page_cannot_be_deleted ... ok
+test style_values_and_metadata_are_imported ... ok
+test fill_style_gradient_stop_binding_round_trips ... ok
+test style_sort_position_and_folder_order_round_trip ... ok
+test noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport ... ok
+test export_then_import_keeps_effect_and_grid_styles_and_their_links ... ok
+test text_style_paragraph_indent_and_weight_round_trip ... ok
+test style_description_fig_round_trip_keeps_empty_and_non_empty_descriptions ... ok
+test unpositioned_ten_fill_styles_keep_order_through_fig_round_trip ... ok
+test us01_ac04_empty_and_whitespace_style_names_use_typed_unnamed_fallbacks ... ok
+test deleted_style_leaves_no_orphan_style_node_or_dangling_ref_on_fig_round_trip ... ok
+test us01_ac02_and_ac03_deleted_removed_and_orphan_styles_keep_layer_values_and_round_trip_style_refs ... ok
+test deleting_colour_and_text_styles_on_mixed_run_text_preserves_rendered_pixels ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/fig_export_field_shapes.rs (out/cargo/debug/deps/fig_export_field_shapes-88a6bf82d6228ac9)
+
+running 8 tests
+test the_rich_document_round_trips_through_figmas_shapes ... ok
+test a_variant_spec_with_no_definition_keeps_its_name_in_a_carrier ... ok
+test every_changed_field_has_figmas_id_and_type_in_the_embedded_schema_and_in_the_reference ... ok
+test layout_guides_are_stripes_on_an_axis_and_round_trip ... ok
+test text_lists_use_integer_indentation_and_auto_truncation_uses_the_truncation_field ... ok
+test component_properties_are_written_with_figmas_field_ids_and_survive ... ok
+test size_limits_are_vectors_with_zero_and_infinity_for_the_side_that_is_not_set ... ok
+test every_connector_cap_round_trips_on_figmas_stroke_cap_values ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/fig_export_grid_shapes.rs (out/cargo/debug/deps/fig_export_grid_shapes-866aa2be011d03f0)
+
+running 6 tests
+test an_override_under_a_grid_that_does_not_restate_names_the_components_track ... ok
+test tracks_are_guid_keyed_maps_and_cells_name_their_track ... ok
+test every_grid_shape_round_trips_without_loss ... ok
+test an_override_names_the_track_of_the_grid_that_restates_its_tracks ... ok
+test a_cell_outside_the_tracks_and_a_grid_past_the_entry_cap_use_carriers ... ok
+test a_second_grid_round_trip_changes_nothing ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/fig_export_non_finite.rs (out/cargo/debug/deps/fig_export_non_finite-f9c35b6b4f4d2fb2)
+
+running 5 tests
+test the_path_commands_blob_never_holds_a_non_finite_coordinate ... ok
+test an_exported_non_finite_number_re_imports_as_its_neutral_value ... ok
+test a_vector_network_with_a_non_finite_vertex_keeps_its_network_on_export ... ok
+test non_finite_grid_tracks_export_and_reimport_as_finite_defaults ... ok
+test the_exporter_writes_no_non_finite_float ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/fig_export_real_schema.rs (out/cargo/debug/deps/fig_export_real_schema-c5335aa64725017f)
+
+running 4 tests
+test the_walk_stops_at_the_first_field_with_another_id - should panic ... ok
+test the_embedded_schema_is_a_subset_of_figmas_real_schema ... ok
+test the_message_walk_stops_at_the_first_field_with_another_id - should panic ... ok
+test every_definition_and_field_an_export_writes_is_figmas ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+     Running tests/fig_export_real_tags.rs (out/cargo/debug/deps/fig_export_real_tags-999041cb8aba6e4b)
+
+running 11 tests
+test files_written_with_the_old_field_names_still_import ... ok
+test a_name_figma_does_not_know_has_no_tag ... ok
+test every_node_change_field_of_the_export_schema_is_in_figmas_map_with_its_tag ... ok
+test every_tag_of_an_exported_message_decodes_with_figmas_real_field_table ... ok
+test real_tags_check_rejects_a_longer_key ... ok
+test padding_round_trips_on_frames_and_inside_instance_overrides_through_real_fields_only ... ok
+test sticky_author_and_slot_content_id_round_trip_through_a_reserved_plugin_data_carrier ... ok
+test connector_caps_are_written_on_connector_start_cap_and_connector_end_cap_and_round_trip ... ok
+test a_nodes_own_plugin_data_comes_back_unchanged_beside_the_carrier ... ok
+test the_embedded_schema_import_agrees_with_the_real_fields_import ... ok
+test grid_anchors_and_spans_round_trip_on_the_real_anchor_fields ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fig_grid_fixed_row_export.rs (out/cargo/debug/deps/fig_grid_fixed_row_export-36c61ce1beed74d8)
+
+running 13 tests
+test fixed_row_slot_without_explicit_rows_keeps_its_height_through_rest_json ... ok
+test auto_track_modes_survive_the_rest_export ... ok
+test a_flow_frame_never_gets_explicit_rows_from_stale_slots ... ok
+test fixed_row_slot_after_a_flex_slot_keeps_the_auto_track_height_for_the_slot_before_it ... ok
+test a_fixed_slot_inside_the_placed_rows_keeps_working ... ok
+test instance_layout_override_writes_only_fixed_row_slots_inside_placed_rows ... ok
+test auto_track_of_explicit_rows_survives_the_rest_export ... ok
+test only_the_fixed_slots_inside_the_placed_rows_are_written ... ok
+test rows_a_pinned_child_places_count_as_placed_rows ... ok
+test fixed_row_slot_without_explicit_rows_keeps_its_height_through_fig ... ok
+test a_fixed_slot_past_the_placed_rows_is_not_written_as_an_empty_row ... ok
+test an_absolute_child_does_not_place_a_row ... ok
+test explicit_rows_and_plain_grids_are_unchanged ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fig_grid_override_anchors.rs (out/cargo/debug/deps/fig_grid_override_anchors-d505bd04310b12fd)
+
+running 21 tests
+test master_child_anchors_resolve_to_indexes ... ok
+test an_instance_restating_the_tracks_does_not_disturb_the_others ... ok
+test restated_track_maps_at_same_path_merge_per_axis ... ok
+test instance_override_moves_a_component_child_to_another_column_and_row ... ok
+test index_valued_override_anchor_is_kept ... ok
+test a_track_id_two_grids_place_differently_is_not_guessed ... ok
+test explicit_flex_sizing_on_the_instance_node_is_not_replaced_by_component_sizes ... ok
+test instance_override_reads_columns_alone ... ok
+test restated_track_list_without_anchor_does_not_fall_through_to_file_wide_index ... ok
+test instance_override_reads_rows_alone ... ok
+test instance_track_reorder_remaps_component_child_anchor_without_repeating_it ... ok
+test real_v106_binary_fig_with_instance_grid_overrides_remaps_and_relayouts ... ok
+test reorder_only_override_permutes_unequal_track_sizes ... ok
+test tracks_restated_by_the_instance_decide_the_index ... ok
+test stack_mode_none_override_and_instance_node_remove_inherited_grid ... ok
+test unknown_override_anchor_leaves_the_component_cell ... ok
+test tracks_on_the_instance_node_decide_the_index_of_a_one_step_path ... ok
+test instance_that_never_set_stack_mode_is_not_exported_as_none ... ok
+test stack_mode_none_instance_stays_without_a_grid_through_a_fig_round_trip ... ok
+test stack_mode_none_override_on_a_nested_frame_survives_a_fig_round_trip ... ok
+test partial_layout_override_on_a_stack_instance_keeps_layout_and_padding_through_a_fig_round_trip ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/fig_import.rs (out/cargo/debug/deps/fig_import-4a7a9cd864ccd6bd)
+
+running 4 tests
+test fig_document_exports_and_reimports ... ok
+test decode_to_json_is_readable ... ok
+test imports_every_container_variant ... ok
+test bad_input_never_panics ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+
+     Running tests/fig_import_legacy_export.rs (out/cargo/debug/deps/fig_import_legacy_export-4788ca125b726583)
+
+running 4 tests
+test the_fixtures_carry_the_old_numbering ... ok
+test a_0_4_0_export_of_the_rich_document_imports_with_everything_it_held ... ok
+test a_circle_and_a_diamond_cap_written_as_round_and_square_come_back_as_caps ... ok
+test a_0_4_0_export_of_the_grids_imports_with_every_track_and_cell ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fig_library.rs (out/cargo/debug/deps/fig_library-b759d4addd2f2fa3)
+
+running 10 tests
+test linked_text_styles_replace_stale_properties_before_character_overrides ... ok
+test variable_sets_map_by_asset_key_with_modes_aliases_and_bindings ... ok
+test overrides_that_name_a_library_style_take_its_paints ... ok
+test internal_canvas_becomes_the_library_page_with_external_assets ... ok
+test files_without_content_on_the_internal_canvas_have_no_library_page ... ok
+test nested_library_instances_expand_and_overrides_follow_override_keys ... ok
+test unavailable_text_style_keeps_local_properties ... ok
+test instance_text_style_link_override_survives_main_edit ... ok
+test uniform_scale_scales_the_copied_contents ... ok
+test instance_text_style_override_replaces_or_clears_the_master_link ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fig_non_finite_derived.rs (out/cargo/debug/deps/fig_non_finite_derived-9536128de18584af)
+
+running 2 tests
+test a_non_finite_derived_entry_is_skipped_and_the_rest_of_the_file_imports_as_before ... ok
+test non_finite_derived_symbol_data_never_reaches_the_document ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/fig_prop_var_value.rs (out/cargo/debug/deps/fig_prop_var_value-681fbaf858c978fb)
+
+running 5 tests
+test definition_default_in_var_value_is_read ... ok
+test value_still_wins_over_var_value_when_both_are_present ... ok
+test assignment_in_var_value_hides_the_bound_icon ... ok
+test assignment_in_var_value_can_also_show_the_icon ... ok
+test no_assignment_keeps_the_main_components_visibility ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-ab37cec47eaf5b06)
+
+running 40 tests
+test commands_blob_roundtrip_preserves_all_verbs_and_winding_rules ... ok
+test editor_and_importer_call_the_shared_pass ... ok
+test derived_entry_overrides_the_pass ... ok
+test fig_import_resolves_symbol_overrides_bindings_nested_swaps_and_handoff_map ... ok
+test bold_text_with_a_wght_axis_keeps_weight_and_axis_through_fig_export_and_import ... ok
+test counter_fill_child_keeps_its_cross_size_in_a_hugging_frame_through_a_fig_round_trip ... ok
+test fig_v106_wave5_schema_99pct_coverage_roundtrip ... ok
+test layout_guide_alignment_fixed_width_auto_count_and_visibility_roundtrip ... ok
+test layout_guide_with_no_fixed_width_keeps_section_size_zero_through_rest ... ok
+test fig_v106_schema_functional_fields_roundtrip ... ok
+test grid_child_without_align_keys_is_placed_by_the_frame_alignment ... ok
+test both_fallback_call_sites_agree ... ok
+test child_of_a_flow_frame_keeps_the_default_alignment_and_writes_no_alignment_keys ... ok
+test nested_instance_swap_updates_shell_fills_strokes_effects_and_reapplies_props ... ok
+test explicit_key_takes_precedence_over_comp_prefix_fallback ... ok
+test instance_override_of_a_margin_leaves_the_grid_child_alignment_following_the_main_component ... ok
+test grid_auto_tracks_and_v106_track_maps_roundtrip ... ok
+test per_side_stroke_weights_ignore_stale_borders_and_merge_partial_overrides ... ok
+test grid_child_horizontal_and_vertical_align_roundtrip ... ok
+test resized_instance_applies_stretch_and_scale_constraints_to_children_without_derived_data ... ok
+test keyless_component_guid_colliding_with_explicit_key_stays_distinct ... ok
+test instance_override_that_resets_a_grid_child_alignment_to_start_survives_a_roundtrip ... ok
+test legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector ... ok
+test mask_types_round_trip_through_fig_and_rest_import ... ok
+test passthrough_color_struct_array_and_quoted_string_roundtrip ... ok
+test radial_gradient_transform_imports_centred_handles_and_roundtrips ... ok
+test layout_guide_with_no_fixed_width_keeps_section_size_zero_through_fig ... ok
+test roundtrip_stack_child_margins_606_to_609 ... ok
+test resized_instance_scales_rotated_vector_and_boolean_geometry_without_derived_data ... ok
+test rea_v106_all_seven_gaps_fidelity_and_roundtrip ... ok
+test roundtrip_twelve_track_grid_columns_and_rows ... ok
+test roundtrip_figma_parity_grid_slots_axes_props_and_overrides ... ok
+test export_fig_then_import_fig_roundtrips_sample_and_rich_documents ... ok
+test slot_fields_stay_typed_and_a_cleared_flag_is_not_resurrected_by_passthrough_metadata ... ok
+test stack_child_align_self_max_center_min_stretch_roundtrip_and_relayout ... ok
+test roundtrip_preserves_node_count_across_saves_and_keeps_instance_child_alignment ... ok
+test typed_kiwi_passthrough_keeps_slide_out_transition_and_symbol_link_display_text ... ok
+test uncollided_keyless_component_still_round_trips ... ok
+test instance_multi_paragraph_and_mixed_style_text_override_resolves_with_null_override_key_and_linked_styles ... ok
+test typed_kiwi_passthrough_draw_motion_table_slide_and_large_file_roundtrip ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+     Running tests/fig_slots.rs (out/cargo/debug/deps/fig_slots-14304bf667755ce2)
+
+running 32 tests
+test an_instance_never_overrides_the_component_that_owns_the_key ... ok
+test exported_fig_uses_figmas_real_kiwi_numbering_for_component_prop_type_and_node_change_tags ... ok
+test imports_slot_fields_from_a_kiwi_shaped_fixture ... ok
+test a_legacy_native_file_keeps_its_node_slot_content_id_and_gains_no_property_assignment ... ok
+test a_node_slot_content_id_on_a_one_slot_component_is_not_written_as_a_property_assignment ... ok
+test fig_instance_slot_with_custom_children_survives_main_edit ... ok
+test a_key_from_the_rest_component_maps_round_trips_through_fig_export ... ok
+test a_node_slot_content_id_without_a_property_assignment_stays_the_nodes_own_field_through_fig ... ok
+test an_instance_key_is_not_written_onto_a_component_that_does_not_own_it ... ok
+test preferred_components_are_kept_when_the_file_wrote_no_slot_config ... ok
+test raw_numeric_slot_entries_are_rejected_and_do_not_bind_unrelated_nodes ... ok
+test preferred_key_resolves_to_the_component_even_when_an_instance_of_it_comes_later ... ok
+test preferred_key_carried_only_by_an_instance_resolves_to_the_instanced_component ... ok
+test an_instance_key_never_replaces_the_key_its_component_already_has ... ok
+test a_second_round_trip_changes_nothing ... ok
+test fig_instance_slot_with_instance_child_and_cleared_slot_survive_main_edit ... ok
+test a_renamed_slot_property_keeps_its_settings_in_the_exported_file ... ok
+test slot_scan_counts_only_the_exact_key ... ok
+test fig_mirror_only_slot_is_not_marked ... ok
+test vsf_pcp_fig_slot_counts_are_the_measured_ones ... ok
+test unknown_slot_prop_config_keys_are_preserved_in_native_format ... ok
+test data_beside_the_slots_is_not_disturbed ... ok
+test a_fresh_instance_of_a_two_slot_component_adds_no_slot_assignments_through_fig ... ok
+test per_property_slot_assignments_and_the_node_field_stay_separate_through_fig ... ok
+test preferred_component_survives_import_export_import_when_an_instance_repeats_its_key ... ok
+test the_slot_scan_finds_every_slot_record_a_fig_export_writes ... ok
+test slot_flags_config_and_instance_content_survive_a_fig_round_trip ... ok
+test two_slot_props_on_one_node_round_trip_separate_slot_content_ids_through_fig ... ok
+test preferred_components_without_a_slot_config_survive_a_fig_round_trip ... ok
+test real_preferred_values_object_round_trips_for_slot_and_instance_swap_and_keeps_legacy_guid_list ... ok
+test a_key_carried_only_by_the_symbol_key_field_round_trips_through_fig_export ... ok
+test only_the_slot_fields_the_file_wrote_come_back ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/fig_stroke_seed_varint64.rs (out/cargo/debug/deps/fig_stroke_seed_varint64-e0612e2237e576f6)
+
+running 1 test
+test ac04_fixture_with_bit63_stroke_seed_imports_and_roundtrips ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/fig_unmapped_layer_edits.rs (out/cargo/debug/deps/fig_unmapped_layer_edits-4a44030ae4f06862)
+
+running 4 tests
+test moving_a_table_cell_out_can_be_undone_at_the_same_index ... ok
+test leaf_layers_still_refuse_children ... ok
+test an_unmapped_layer_accepts_new_children_and_moved_in_layers ... ok
+test deleting_a_table_cell_can_be_undone_at_the_same_index ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/fig_upgrade.rs (out/cargo/debug/deps/fig_upgrade-5d5f53d490df80c8)
+
+running 15 tests
+test rest_text_node_reads_figma_line_types ... ok
+test ids_are_deterministic_across_imports ... ok
+test nested_instances_resolve_multi_step_paths ... ok
+test linear_blend_modes_map_in_fig ... ok
+test style_nodes_become_style_meta ... ok
+test instance_overrides_apply_to_the_copy_only ... ok
+test fig_text_lists_paragraph_settings_and_features ... ok
+test text_truncation_and_max_lines ... ok
+test layout_grids ... ok
+test fill_and_stroke_geometry_from_blobs ... ok
+test line_height_semantics ... ok
+test fig_round_trips_through_rest_export ... ok
+test instance_children_link_to_their_component_nodes_and_record_overrides ... ok
+test text_lists_survive_rest_export_and_reimport ... ok
+test corrupted_override_data_never_panics ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/figjam.rs (out/cargo/debug/deps/figjam-c9ec1777c8efcec1)
+
+running 7 tests
+test natively_built_boards_roundtrip_through_rest_json ... ok
+test stamp_import ... ok
+test shape_with_text_import ... ok
+test sticky_import ... ok
+test connector_import_links_nodes_and_routes ... ok
+test editor_type_makes_a_board ... ok
+test export_marks_figjam_and_roundtrips_every_board_kind ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/grid_child_align_patch.rs (out/cargo/debug/deps/grid_child_align_patch-7d5347417490d65d)
+
+running 6 tests
+test grid_cell_offset_with_margins_larger_than_cell_centres_margin_box_like_flow_solver ... ok
+test rest_overridden_fields_grid_align_keep_the_overridden_axis_through_component_sync ... ok
+test instance_expansion_clears_axis_flags_copied_from_the_component_subtree ... ok
+test in_document_component_sync_copies_unoverridden_grid_align_axes_under_margin_or_single_axis_override ... ok
+test designos_saved_without_axis_flags_infers_them_from_the_layout_override_on_load ... ok
+test legacy_designos_fig_metadata_grid_child_align_migrates_on_load_and_survives_fig_roundtrip ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/instance_vector_scale.rs (out/cargo/debug/deps/instance_vector_scale-3e0175b5d9ff09dc)
+
+running 4 tests
+test unchanged_instance_at_main_component_size_keeps_byte_identical_geometry ... ok
+test resized_instance_without_derived_geometry_scales_geometry_to_fit_child_size ... ok
+test nested_icon_instance_inside_resized_button_instance_scales_child_vectors ... ok
+test resized_instance_with_derived_stroke_geometry_applies_scaled_outline_in_small_and_large_files ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/kiwi_zero_size_struct_limit.rs (out/cargo/debug/deps/kiwi_zero_size_struct_limit-c49c88c05deee980)
+
+running 6 tests
+test zero_size_structs_within_the_cap_still_decode ... ok
+test array_fields_inside_a_struct_make_it_take_bytes ... ok
+test zero_size_cap_spans_the_whole_message_not_a_single_array ... ok
+test structs_that_take_bytes_are_not_subject_to_the_zero_size_cap ... ok
+test rejects_array_of_empty_structs_beyond_the_zero_size_cap ... ok
+test rejects_array_of_wide_empty_structs_beyond_the_zero_size_cap ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/node_effect_stop_bindings.rs (out/cargo/debug/deps/node_effect_stop_bindings-877f6e955e103392)
+
+running 1 test
+test node_effect_and_gradient_stop_bindings_round_trip_and_resolve_per_mode ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/pen_component_depth_limits.rs (out/cargo/debug/deps/pen_component_depth_limits-7e4804e31905ae55)
+
+running 2 tests
+test clone_keeps_sibling_order_and_depth_first_ids ... ok
+test expands_a_chain_of_deeply_nested_components_on_a_small_stack ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/pen_schema_2_21.rs (out/cargo/debug/deps/pen_schema_2_21-3431196df4233237)
+
+running 34 tests
+test frame_defaults_horizontal_and_fit_content_vs_layout_none ... ok
+test instance_inherits_unset_component_properties_and_overrides_explicit_ones ... ok
+test export_always_writes_explicit_layout_and_dimensions ... ok
+test icon_font_never_renders_raw_identifier_as_text ... ok
+test defaults_missing_version_to_1_0_and_migrates_to_2_21 ... ok
+test href_and_blend_mode_roundtrip ... ok
+test ellipse_arc_and_path_viewbox_scaling ... ok
+test instance_single_axis_width_override_preserves_inherited_height_across_roundtrip_and_sync ... ok
+test library_import_without_base_dir_records_warning ... ok
+test connection_node_roundtrips_endpoints_and_label ... ok
+test gradient_linear_radial_angular_import_and_export ... ok
+test image_fill_relative_path_scale_modes_and_traversal_refusal ... ok
+test layout_position_absolute_and_flips_and_text_decorations ... ok
+test instance_root_partial_stroke_override_preserves_component_stroke_paints ... ok
+test descendants_overrides_stroke_padding_font_and_icon ... ok
+test rejects_unsupported_future_version_2_22 ... ok
+test multi_axis_variable_stores_all_combinations_outside_key_and_resolves_with_node_theme ... ok
+test multi_axis_variable_entry_roundtrips_verbatim ... ok
+test remote_image_url_records_warning_and_plugin_data ... ok
+test snaps_intermediate_version_2_15_and_migrates ... ok
+test icon_nodes_render_non_zero_pixels_for_plus_check_trash_2_and_unknown ... ok
+test nested_slash_path_in_descendants_resolves ... ok
+test stroke_per_side_weights_alignment_cap_join_and_fill_list ... ok
+test unknown_node_types_preserved_as_unknown_with_raw_payload_roundtrip ... ok
+test library_imports_resolution_cycle_detection_and_traversal_refusal ... ok
+test reusable_non_frame_nodes_and_placeholder_roundtrip ... ok
+test slot_declaration_and_instance_children_replacement ... ok
+test multi_page_library_import_resolves_components_from_all_pages ... ok
+test multi_page_pen_migrates_imports_and_exports_all_pages ... ok
+test themes_and_variables_multi_axis_and_order ... ok
+test user_stroke_and_size_edits_on_pen_instance_survive_sync_and_pen_round_trip ... ok
+test variable_bindings_on_text_and_font_family_warning ... ok
+test exported_fixtures_validate_against_2_21_schema_shape ... ok
+test migrates_1_0_through_2_21_fixtures ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/proto_import.rs (out/cargo/debug/deps/proto_import-5a54da550a1bd2e0)
+
+running 6 tests
+test documents_without_prototype_data_export_none ... ok
+test unknown_and_dangling_entries_are_dropped ... ok
+test legacy_node_level_transition_fields ... ok
+test scroll_behaviour ... ok
+test reactions_map_triggers_actions_and_transitions ... ok
+test prototype_round_trips_through_rest_export ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/proto_vars.rs (out/cargo/debug/deps/proto_vars-50b042d68107f597)
+
+running 6 tests
+test model_serde_is_backward_compatible ... ok
+test key_gamepad_mode_and_media ... ok
+test set_variable_and_conditional_import ... ok
+test exported_json_uses_figma_names ... ok
+test hostile_expressions_are_dropped_not_followed ... ok
+test variable_interactions_round_trip_through_rest_export ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/real_files.rs (out/cargo/debug/deps/real_files-6cada966adfb89db)
+
+running 6 tests
+test kit_resized_instances_match_shared_constraint_solver ... ignored, needs private reference .fig kits
+test private_ui_kit_imports_with_library_instances_resolved ... ignored, needs the private reference/private-ui-kit.fig
+test shadcn_ui_imports_with_local_components ... ignored, needs the private reference/shadcn-ui.fig
+test untitled_ui_instance_text_overrides_resolve ... ignored, needs the private Untitled UI .fig
+test untitled_ui_pie_chart_resized_instances_match ... ignored, needs the private reference/untitled-ui.fig
+test untitled_ui_swapped_link_and_secondary_buttons_match_variant_shell ... ignored, needs the private Untitled UI PRO VARIABLES v8.0 kit
+
+test result: ok. 0 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/remote_components.rs (out/cargo/debug/deps/remote_components-f485c435911d347f)
+
+running 2 tests
+test files_without_remote_components_have_no_library_state ... ok
+test remote_components_become_external_assets_of_a_placeholder_library ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rest_import.rs (out/cargo/debug/deps/rest_import-e9b0eed6057660c9)
+
+running 10 tests
+test tolerates_minimal_and_odd_input ... ok
+test new_effects_tolerate_missing_fields ... ok
+test noise_texture_and_glass_effects_roundtrip ... ok
+test frame_properties ... ok
+test pages_and_structure ... ok
+test shapes_and_vectors ... ok
+test child_layout_paints_and_relative_positions ... ok
+test text_runs_use_utf16_indices ... ok
+test components_instances_and_auto_layout_children ... ok
+test export_roundtrip_is_stable ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/rest_import_grid_sizing.rs (out/cargo/debug/deps/rest_import_grid_sizing-afcbf8bce8e5a244)
+
+running 2 tests
+test a_grid_that_hugs_its_width_reads_primary_as_horizontal_and_survives_relayout ... ok
+test a_grid_that_hugs_its_height_keeps_its_width_and_columns_on_relayout ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/rest_upgrade.rs (out/cargo/debug/deps/rest_upgrade-6b800c3446d010ec)
+
+running 7 tests
+test rest_import_consumer_node_slot_binding_does_not_promote_onto_shared_style ... ok
+test geometry_is_stored_on_every_node_that_has_it ... ok
+test grids_and_invisible_grids ... ok
+test style_metadata_and_property_per_use ... ok
+test linear_blend_modes ... ok
+test text_truncation_and_max_lines ... ok
+test geometry_round_trips_through_export ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/settings_import.rs (out/cargo/debug/deps/settings_import-800e5582911073ad)
+
+running 3 tests
+test export_settings_and_guides_are_imported ... ok
+test documents_without_settings_export_none ... ok
+test export_settings_and_guides_round_trip ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/shadow_blend.rs (out/cargo/debug/deps/shadow_blend-807b2894a9c3a34a)
+
+running 5 tests
+test rest_shadows_without_a_blend_mode_load_as_normal ... ok
+test rest_export_reimport_keeps_the_shadow_blend_mode ... ok
+test imported_pass_through_shadow_blend_round_trips_unchanged ... ok
+test fig_import_export_reimport_keeps_the_shadow_blend_mode ... ok
+test rest_and_fig_exports_agree_after_a_cross_round_trip ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/stack_wrap_and_text_wrap.rs (out/cargo/debug/deps/stack_wrap_and_text_wrap-8fee41f535ad8284)
+
+running 11 tests
+test pen_format_roundtrips_the_new_alignments ... ok
+test rest_json_reads_the_figma_names ... ok
+test partial_override_without_layout_mode_patches_stack_layout_version_and_align ... ok
+test rest_json_roundtrips_distribution_wrap_content_and_text_wrap ... ok
+test counter_align_content_and_layout_version_roundtrip_through_fig ... ok
+test space_evenly_with_layout_version_one_is_written_as_the_css_enum_and_reads_back ... ok
+test default_stack_writes_neither_new_field ... ok
+test legacy_space_evenly_on_the_wire_imports_as_space_between ... ok
+test space_around_and_space_between_roundtrip_through_fig ... ok
+test space_evenly_is_always_written_as_the_css_enum_never_the_legacy_one ... ok
+test text_wrap_style_roundtrips_through_fig ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/variables.rs (out/cargo/debug/deps/variables-cf27fccf5633f6dc)
+
+running 5 tests
+test imports_collections_variables_and_values ... ok
+test imports_node_bindings_and_modes ... ok
+test files_without_variables_export_without_the_key ... ok
+test top_level_variables_key_is_accepted ... ok
+test round_trips_through_export ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/variables_code_syntax_opacity.rs (out/cargo/debug/deps/variables_code_syntax_opacity-eea641f89d47213d)
+
+running 5 tests
+test rest_code_syntax_is_stored_and_written_back ... ok
+test fig_import_reads_code_syntax_and_opacity_bindings ... ok
+test native_json_round_trip_keeps_code_syntax_with_figma_labels ... ok
+test rest_bound_variables_carry_opacity_bindings_both_ways ... ok
+test fig_export_then_import_keeps_code_syntax_and_opacity_bindings ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/variables_library_collections.rs (out/cargo/debug/deps/variables_library_collections-bd90da5e3faaf6db)
+
+running 1 test
+test fig_export_then_import_keeps_the_library_marker ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/vector_network.rs (out/cargo/debug/deps/vector_network-31b62d189f3b9f23)
+
+running 4 tests
+test malformed_networks_fall_back_to_plain_paths ... ok
+test figma_outline_stays_the_rendered_geometry ... ok
+test network_is_imported_with_per_vertex_properties ... ok
+test export_and_reimport_keep_the_network ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests designos_fig
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

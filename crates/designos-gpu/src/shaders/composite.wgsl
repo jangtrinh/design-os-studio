@@ -190,7 +190,7 @@ fn source(root: vec2<f32>) -> vec4<f32> {
         } else if (p.aux_mode == 2u) {
             s = s * (1.0 - aux.a);
         } else {
-            let m = dot(aux.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+            let m = dot(aux.rgb, LUMINANCE_MASK_COEFFS);
             s = s * m;
         }
     }
