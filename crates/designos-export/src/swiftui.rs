@@ -289,6 +289,20 @@ fn alignment(h: &str, v: &str) -> String {
     }
 }
 
+fn cell_alignment(ah: GridChildAlign, av: GridChildAlign) -> String {
+    let h = match ah {
+        GridChildAlign::Center => "center",
+        GridChildAlign::End => "trailing",
+        _ => "leading",
+    };
+    let v = match av {
+        GridChildAlign::Center => "center",
+        GridChildAlign::End => "bottom",
+        _ => "top",
+    };
+    alignment(h, v)
+}
+
 fn layout_frame_align(al: &AutoLayout, horizontal: bool) -> Option<String> {
     let pos = |a: LayoutAlign| match a {
         LayoutAlign::Center => 1,
@@ -555,17 +569,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                     let cell_w = grid.cell_width(p);
                     let cell_h = grid.cell_height(p, false);
                     let (ah, av) = grid_cell_align(doc, cid, al);
-                    let h_word = match ah {
-                        GridChildAlign::Center => "center",
-                        GridChildAlign::End => "trailing",
-                        _ => "leading",
-                    };
-                    let v_word = match av {
-                        GridChildAlign::Center => "center",
-                        GridChildAlign::End => "bottom",
-                        _ => "top",
-                    };
-                    let cell_align = alignment(h_word, v_word);
+                    let cell_align = cell_alignment(ah, av);
                     if group.stacked.is_empty() {
                         view(doc, cid, me, depth + 2, o);
                         o.line(depth + 3, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
@@ -578,17 +582,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                             let sw = grid.cell_width(&s.placed);
                             let sh = grid.cell_height(&s.placed, false);
                             let (sah, sav) = grid_cell_align(doc, s.id, al);
-                            let sh_word = match sah {
-                                GridChildAlign::Center => "center",
-                                GridChildAlign::End => "trailing",
-                                _ => "leading",
-                            };
-                            let sv_word = match sav {
-                                GridChildAlign::Center => "center",
-                                GridChildAlign::End => "bottom",
-                                _ => "top",
-                            };
-                            let s_align = alignment(sh_word, sv_word);
+                            let s_align = cell_alignment(sah, sav);
                             o.line(depth + 4, format!(".frame(width: {}, height: {}, alignment: {s_align})", num(sw), num(sh)));
                             if s.offset.0 != 0.0 || s.offset.1 != 0.0 {
                                 o.line(depth + 4, format!(".offset(x: {}, y: {})", num(s.offset.0), num(s.offset.1)));
