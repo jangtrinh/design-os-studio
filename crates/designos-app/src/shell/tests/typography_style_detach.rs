@@ -801,3 +801,37 @@ fn set_style_fill_change_in_session_keeps_linked_text_style() {
     assert_eq!(link_of(&s, id).as_deref(), Some("Body/Regular"), "fill change via set_style in a session must keep the text style link");
     assert!(s.app().canvas.text.as_ref().unwrap().log.can_undo(), "fill change in a session records a session undo step");
 }
+
+#[test]
+fn cmd_shift_period_in_a_text_session_changes_font_size_once() {
+    let (mut s, id) = linked_sim();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+    s.cmd_shift_key(Key::Period);
+
+    assert_eq!(
+        text_of(&s, id).style.font_size,
+        17.0,
+        "one Cmd+Shift+. event must be owned by exactly one text-session handler"
+    );
+}
+
+#[test]
+fn cmd_shift_comma_in_a_text_session_changes_font_size_once() {
+    let (mut s, id) = linked_sim();
+    crate::canvas::textsession::begin_text_edit(&mut s.shell.app, id);
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    assert_eq!(text_of(&s, id).style.font_size, 16.0);
+    s.cmd_shift_key(Key::Comma);
+
+    assert_eq!(
+        text_of(&s, id).style.font_size,
+        15.0,
+        "one Cmd+Shift+, event must be owned by exactly one text-session handler"
+    );
+}
