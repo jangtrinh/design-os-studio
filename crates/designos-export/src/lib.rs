@@ -201,18 +201,20 @@ mod tests {
             blend: Default::default(),
         });
         let b = render_bounds(&d, id);
-        // blur 4 reaches 4px left/right; offset 6 pushes the bottom out to 10
-        // and the top reach (4 - 6) is inside the layer
-        assert_eq!((b.x, b.y, b.w, b.h), (-4.0, 0.0, 28.0, 20.0));
+        // At 1x, sigma = 2: the three-sigma tail plus two safety pixels
+        // reaches 8px; offset 6 pushes the bottom out to 14px.
+        assert_eq!((b.x, b.y, b.w, b.h), (-8.0, -2.0, 36.0, 26.0));
         let pm = decode(&export_png(&d, id, 2.0));
-        assert_eq!((pm.width(), pm.height()), (56, 40));
-        // the layer body starts at x = 4 * 2; its top-left pixel stays red
-        let c = pm.pixel(8, 0).unwrap();
+        // The 2x export converts the renderer's two device-pixel safety margin
+        // back to one document unit: bounds are (-7, -1, 34, 24).
+        assert_eq!((pm.width(), pm.height()), (68, 48));
+        // the layer body starts at x = 7 * 2 and y = 1 * 2.
+        let c = pm.pixel(14, 2).unwrap();
         assert_eq!((c.red(), c.green(), c.blue(), c.alpha()), (255, 0, 0, 255));
         // below the layer the shadow is visible, in the far corner it is transparent
-        let below = pm.pixel(28, 24).unwrap();
+        let below = pm.pixel(36, 32).unwrap();
         assert!(below.alpha() > 0 && below.red() < 40, "shadow pixel {:?}", (below.red(), below.alpha()));
-        assert_eq!(pm.pixel(0, 39).unwrap().alpha(), 0);
+        assert_eq!(pm.pixel(0, 47).unwrap().alpha(), 0);
     }
 
     #[test]
