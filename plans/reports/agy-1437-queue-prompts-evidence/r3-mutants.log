@@ -1,0 +1,14 @@
+=== M0_null (SURVIVED, rc=0) ===
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4055 filtered out; finished in 1.34s
+=== N6_no_pause_flag_on_hold (KILLED, rc=101) ===
+   test agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends ... FAILED
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4055 filtered out; finished in 0.37s
+   thread 'agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends' (62509047) panicked at crates/designos-app/src/agent_composer.rs:3444:9:
+=== N7_terminal_never_clears_pause (KILLED, rc=101) ===
+   test agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends ... FAILED
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4055 filtered out; finished in 1.16s
+   thread 'agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends' (62523948) panicked at crates/designos-app/src/agent_composer.rs:3460:39:
+=== N9_no_output_at_enter_fallback (KILLED, rc=101) ===
+   test agent_composer::tests::image_job_queued_behind_user_prompt_at_start_flushes_both_in_order ... FAILED
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4055 filtered out; finished in 0.17s
+   thread 'agent_composer::tests::image_job_queued_behind_user_prompt_at_start_flushes_both_in_order' (62542629) panicked at crates/designos-app/src/agent_composer.rs:3496:65:
