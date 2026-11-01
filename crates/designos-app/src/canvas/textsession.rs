@@ -419,7 +419,17 @@ fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: Link
     }
     follow_label(doc, &mut sess.tx, id);
     if let (Some(b), Some((kind, new_word))) = (before, log) {
-        sess.log.record(b, kind, now, new_word);
+        if kind == EditKind::Style {
+            let after = Snap {
+                props: sess.tx.ed.node(doc, id).and_then(|n| n.kind.any_text()).cloned().unwrap_or_default(),
+                style_ref: sess.tx.ed.node(doc, id).and_then(|n| n.style_refs.get(text_ref()).cloned()),
+                caret,
+                anchor,
+            };
+            sess.log.record_style(b, &after, now, new_word);
+        } else {
+            sess.log.record(b, kind, now, new_word);
+        }
     }
     sess.caret = caret;
     sess.anchor = anchor;
@@ -842,7 +852,7 @@ pub fn caret_screen_rect(app: &App, origin: egui::Pos2) -> Option<ERect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designos_doc::{Document, Node, Style};
+    use designos_doc::{Color, Document, Node, Style};
 
     fn app_with_text(s: &str) -> (App, NodeId) {
         app_with_styled_text(s, TextStyle { font_size: 16.0, ..Default::default() })
@@ -1411,6 +1421,50 @@ mod tests {
         text_command(&mut app, TextCmd::SizeDown);
         let t = text_of(&app, id);
         assert_eq!((t.runs[0].start, t.runs[0].end, t.runs[0].style.font_size), (0, 1, 16.0));
+    }
+
+    #[test]
+    fn style_edits_on_different_properties_undo_separately() {
+        let (mut app, id) = app_with_text("hello");
+        set_sel(&mut app, 0, 2, false);
+        style_selection_as(&mut app, |s| crate::panels::typography::set_solid(s, Color::rgb(255, 0, 0), None), EditKind::Style);
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 24.0);
+        let t = text_of(&app, id);
+        assert_eq!(t.runs.len(), 1, "partial selection must remain a run");
+        assert_eq!(t.runs[0].style.font_size, 24.0);
+        assert!(matches!(t.runs[0].style.fills.first().map(|p| &p.kind), Some(designos_doc::PaintKind::Solid(c)) if *c == Color::rgb(255, 0, 0)));
+        undo_step(&mut app, false);
+        let t = text_of(&app, id);
+        assert_eq!(t.style.font_size, 16.0);
+        assert_eq!(t.runs.len(), 1);
+        assert_eq!(t.runs[0].style.font_size, 16.0);
+        assert!(matches!(t.runs[0].style.fills.first().map(|p| &p.kind), Some(designos_doc::PaintKind::Solid(c)) if *c == Color::rgb(255, 0, 0)));
+        undo_step(&mut app, false);
+        let t = text_of(&app, id);
+        assert!(t.runs.is_empty());
+        assert_eq!(t.style.font_size, 16.0);
+        assert!(matches!(t.style.fills.first().map(|p| &p.kind), Some(designos_doc::PaintKind::Solid(c)) if *c == Color::BLACK));
+        undo_step(&mut app, true);
+        undo_step(&mut app, true);
+        let t = text_of(&app, id);
+        assert_eq!(t.runs.len(), 1);
+        assert_eq!(t.runs[0].style.font_size, 24.0);
+        assert!(matches!(t.runs[0].style.fills.first().map(|p| &p.kind), Some(designos_doc::PaintKind::Solid(c)) if *c == Color::rgb(255, 0, 0)));
+    }
+
+    #[test]
+    fn repeated_style_edits_on_one_property_still_coalesce() {
+        let (mut app, id) = app_with_text("hello");
+        select_all(&mut app);
+        app.now = 0.0;
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 20.0);
+        app.now = 0.1;
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 24.0);
+        assert_eq!(text_of(&app, id).style.font_size, 24.0);
+        undo_step(&mut app, false);
+        assert_eq!(text_of(&app, id).style.font_size, 16.0);
+        undo_step(&mut app, false);
+        assert_eq!(text_of(&app, id).style.font_size, 16.0, "the two size edits share one undo step");
     }
 
     #[test]
