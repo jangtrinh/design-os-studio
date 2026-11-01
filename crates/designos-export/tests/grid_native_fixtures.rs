@@ -234,6 +234,32 @@ fn solver_flow_ids(doc: &Document, grid: NodeId) -> Vec<NodeId> {
     n.children.iter().copied().filter(|id| doc.flow_child_input(*id, true).is_some()).collect()
 }
 
+fn solver_rects(doc: &Document, grid: NodeId) -> Vec<(String, Rect)> {
+    let n = doc.get(grid).unwrap();
+    let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    let al_s = al.with_stroke(&n.stroke);
+    let own = SizeLimits::from(&n.layout_child);
+    let flow: Vec<(String, ChildIn)> =
+        n.children.iter().copied().filter_map(|id| doc.flow_child_input(id, true).map(|ci| (doc.get(id).unwrap().name.clone(), ci))).collect();
+    let kids: Vec<ChildIn> = flow.iter().map(|(_, ci)| *ci).collect();
+    let out = compute_grid(&al_s, n.size, own, &kids);
+    flow.into_iter().zip(out.rects).map(|((name, _), r)| (name, r)).collect()
+}
+
+fn maybe_dump_n1_scene(name: &str, doc: &Document, grid: NodeId, swift: &str) {
+    if let Ok(dir) = std::env::var("R3_N1_DUMP_DIR") {
+        let _ = std::fs::create_dir_all(&dir);
+        let p = std::path::Path::new(&dir);
+        std::fs::write(p.join(format!("{name}.swiftui.txt")), swift).unwrap();
+        let n = doc.get(grid).unwrap();
+        let mut solver_txt = format!("{} {}\n", n.size.x, n.size.y);
+        for (cname, r) in solver_rects(doc, grid) {
+            solver_txt.push_str(&format!("{cname} {} {} {} {}\n", r.x, r.y, r.w, r.h));
+        }
+        std::fs::write(p.join(format!("{name}.solver.txt")), solver_txt).unwrap();
+    }
+}
+
 struct TestCellSlot {
     row: usize,
     flat_item_idx: usize,
@@ -315,7 +341,7 @@ fn split_swiftui_blocks(lines: &[&str], block_indent: usize) -> Vec<String> {
             cur.push(line);
             blocks.push(cur);
         } else if let Some(last) = blocks.last_mut() {
-            last.extend(pending.drain(..));
+            last.append(&mut pending);
             last.push(line);
         }
     }
@@ -449,7 +475,7 @@ fn compose_cell_for(doc: &Document, grid: NodeId, compose: &str, child_name: &st
             cur.push(line);
             subs.push(cur);
         } else if let Some(last) = subs.last_mut() {
-            last.extend(pending.drain(..));
+            last.append(&mut pending);
             last.push(line);
         }
     }
@@ -1186,7 +1212,7 @@ fn b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets() {
 
 #[test]
 fn n1_overlap_centered_icon_and_top_right_badge() {
-    let al = AutoLayout {
+    let mut al = AutoLayout {
         grid_columns: 2,
         grid_rows: 1,
         item_spacing: 10.0,
@@ -1195,10 +1221,14 @@ fn n1_overlap_centered_icon_and_top_right_badge() {
         counter_sizing: Sizing::Fixed,
         ..Default::default()
     };
-    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 100.0));
-    let icon = add_named_item(&mut doc, grid, "Icon", 40.0, 40.0, Sizing::Fixed, Sizing::Fixed);
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_col_tracks[1] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(60.0);
+    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 60.0));
+    let icon = add_named_item(&mut doc, grid, "Icon", 20.0, 20.0, Sizing::Fixed, Sizing::Fixed);
     {
         let n = doc.get_mut(icon).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0x35, 0x82, 0xFF))];
         n.layout_child.grid_column = Some(0);
         n.layout_child.grid_row = Some(0);
         n.layout_child.grid_align_h = GridChildAlign::Center;
@@ -1207,43 +1237,54 @@ fn n1_overlap_centered_icon_and_top_right_badge() {
     let badge = add_named_item(&mut doc, grid, "Badge", 20.0, 20.0, Sizing::Fixed, Sizing::Fixed);
     {
         let n = doc.get_mut(badge).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0xFF, 0x30, 0x30))];
         n.layout_child.grid_column = Some(0);
         n.layout_child.grid_row = Some(0);
         n.layout_child.grid_align_h = GridChildAlign::End;
         n.layout_child.grid_align_v = GridChildAlign::Start;
     }
-    let other = add_named_item(&mut doc, grid, "Other", 100.0, 100.0, Sizing::Fixed, Sizing::Fixed);
+    let caption = add_named_item(&mut doc, grid, "Caption", 100.0, 60.0, Sizing::Fixed, Sizing::Fixed);
     {
-        let n = doc.get_mut(other).unwrap();
+        let n = doc.get_mut(caption).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0x20, 0xC0, 0x60))];
         n.layout_child.grid_column = Some(1);
         n.layout_child.grid_row = Some(0);
     }
     doc.relayout_subtree(grid);
+    assert_eq!(
+        solver_rects(&doc, grid),
+        vec![
+            ("Icon".to_string(), Rect::new(40.0, 20.0, 20.0, 20.0)),
+            ("Badge".to_string(), Rect::new(80.0, 0.0, 20.0, 20.0)),
+            ("Caption".to_string(), Rect::new(110.0, 0.0, 100.0, 60.0)),
+        ]
+    );
 
     let swift = swiftui_for(&doc, grid);
+    maybe_dump_n1_scene("n1_overlap_centered_icon_and_top_right_badge", &doc, grid, &swift);
     let icon_swift = swiftui_cell_for(&doc, grid, &swift, "Icon");
     assert!(
-        icon_swift.contains(".frame(width: 40, height: 40)\n                .frame(width: 100, height: 100, alignment: .center)")
-            && icon_swift.contains("}\n            .frame(width: 100, height: 100, alignment: .topLeading)"),
-        "SwiftUI Icon should be centered in its own 100x100 frame inside a .topLeading ZStack:\n{icon_swift}"
+        icon_swift.contains(".frame(width: 20, height: 20)\n                .frame(width: 100, height: 60, alignment: .center)")
+            && icon_swift.contains("}\n            .frame(width: 100, height: 60, alignment: .topLeading)"),
+        "SwiftUI Icon should be centered in its own 100x60 frame inside a .topLeading ZStack:\n{icon_swift}"
     );
     let badge_swift = swiftui_cell_for(&doc, grid, &swift, "Badge");
     assert!(
-        badge_swift.contains(".frame(width: 20, height: 20)\n                .frame(width: 100, height: 100, alignment: .topTrailing)")
+        badge_swift.contains(".frame(width: 20, height: 20)\n                .frame(width: 100, height: 60, alignment: .topTrailing)")
             && !badge_swift.contains(".offset("),
-        "SwiftUI Badge should be .topTrailing in its own 100x100 frame without double-counting offset:\n{badge_swift}"
+        "SwiftUI Badge should be .topTrailing in its own 100x60 frame without double-counting offset:\n{badge_swift}"
     );
 
     let compose = compose_for(&doc, grid);
     let icon_compose = compose_cell_for(&doc, grid, &compose, "Icon");
     assert!(
-        icon_compose.contains("Box(Modifier.height(100.dp), contentAlignment = Alignment.Center)") && icon_compose.contains(".size(40.dp)"),
+        icon_compose.contains("Box(Modifier.height(60.dp), contentAlignment = Alignment.Center)") && icon_compose.contains(".size(20.dp)"),
         "Compose Icon cell:\n{icon_compose}"
     );
     let badge_compose = compose_cell_for(&doc, grid, &compose, "Badge");
     assert!(
         badge_compose.contains(
-            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 100.dp), contentAlignment = Alignment.TopEnd)"
+            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 60.dp), contentAlignment = Alignment.TopEnd)"
         ) && badge_compose.contains(".size(20.dp)")
             && !badge_compose.contains(".offset("),
         "Compose Badge sub-cell:\n{badge_compose}"
@@ -1256,7 +1297,7 @@ fn n1_overlap_centered_icon_and_top_right_badge() {
             && uikit.contains("stackCell.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 0)")
             && uikit.contains("stackCell.topAnchor.constraint(equalTo: cell.topAnchor, constant: 0)")
             && uikit.contains("stackCell.widthAnchor.constraint(equalToConstant: 100)")
-            && uikit.contains("stackCell.heightAnchor.constraint(equalToConstant: 100)")
+            && uikit.contains("stackCell.heightAnchor.constraint(equalToConstant: 60)")
             && uikit.contains("badge.trailingAnchor.constraint(equalTo: stackCell.trailingAnchor)")
             && uikit.contains("badge.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
         "UIKit Icon/Badge anchors:\n{uikit}"
@@ -1265,7 +1306,7 @@ fn n1_overlap_centered_icon_and_top_right_badge() {
 
 #[test]
 fn n1_overlap_centered_photo_and_start_chip() {
-    let al = AutoLayout {
+    let mut al = AutoLayout {
         grid_columns: 2,
         grid_rows: 1,
         item_spacing: 10.0,
@@ -1274,51 +1315,66 @@ fn n1_overlap_centered_photo_and_start_chip() {
         counter_sizing: Sizing::Fixed,
         ..Default::default()
     };
-    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 100.0));
-    let photo = add_named_item(&mut doc, grid, "Photo", 60.0, 60.0, Sizing::Fixed, Sizing::Fixed);
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_col_tracks[1] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(60.0);
+    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 60.0));
+    let photo = add_named_item(&mut doc, grid, "Photo", 60.0, 30.0, Sizing::Fixed, Sizing::Fixed);
     {
         let n = doc.get_mut(photo).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0x35, 0x82, 0xFF))];
         n.layout_child.grid_column = Some(0);
         n.layout_child.grid_row = Some(0);
         n.layout_child.grid_align_h = GridChildAlign::Center;
         n.layout_child.grid_align_v = GridChildAlign::Center;
     }
-    let chip = add_named_item(&mut doc, grid, "Chip", 24.0, 16.0, Sizing::Fixed, Sizing::Fixed);
+    let chip = add_named_item(&mut doc, grid, "Chip", 30.0, 12.0, Sizing::Fixed, Sizing::Fixed);
     {
         let n = doc.get_mut(chip).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0xFF, 0x30, 0x30))];
         n.layout_child.grid_column = Some(0);
         n.layout_child.grid_row = Some(0);
         n.layout_child.grid_align_h = GridChildAlign::Start;
         n.layout_child.grid_align_v = GridChildAlign::Start;
     }
-    let other = add_named_item(&mut doc, grid, "Other", 100.0, 100.0, Sizing::Fixed, Sizing::Fixed);
+    let caption = add_named_item(&mut doc, grid, "Caption", 100.0, 60.0, Sizing::Fixed, Sizing::Fixed);
     {
-        let n = doc.get_mut(other).unwrap();
+        let n = doc.get_mut(caption).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0x20, 0xC0, 0x60))];
         n.layout_child.grid_column = Some(1);
         n.layout_child.grid_row = Some(0);
     }
     doc.relayout_subtree(grid);
+    assert_eq!(
+        solver_rects(&doc, grid),
+        vec![
+            ("Photo".to_string(), Rect::new(20.0, 15.0, 60.0, 30.0)),
+            ("Chip".to_string(), Rect::new(0.0, 0.0, 30.0, 12.0)),
+            ("Caption".to_string(), Rect::new(110.0, 0.0, 100.0, 60.0)),
+        ]
+    );
 
     let swift = swiftui_for(&doc, grid);
+    maybe_dump_n1_scene("n1_overlap_centered_photo_and_start_chip", &doc, grid, &swift);
     let photo_swift = swiftui_cell_for(&doc, grid, &swift, "Photo");
     assert!(
-        photo_swift.contains(".frame(width: 60, height: 60)\n                .frame(width: 100, height: 100, alignment: .center)")
-            && photo_swift.contains("}\n            .frame(width: 100, height: 100, alignment: .topLeading)"),
+        photo_swift.contains(".frame(width: 60, height: 30)\n                .frame(width: 100, height: 60, alignment: .center)")
+            && photo_swift.contains("}\n            .frame(width: 100, height: 60, alignment: .topLeading)"),
         "SwiftUI Photo cell:\n{photo_swift}"
     );
     let chip_swift = swiftui_cell_for(&doc, grid, &swift, "Chip");
     assert!(
-        chip_swift.contains(".frame(width: 24, height: 16)\n                .frame(width: 100, height: 100, alignment: .topLeading)")
+        chip_swift.contains(".frame(width: 30, height: 12)\n                .frame(width: 100, height: 60, alignment: .topLeading)")
             && !chip_swift.contains(".offset("),
-        "SwiftUI Chip should land at (0, 0) via .topLeading in 100x100 without inheriting Photo's center alignment:\n{chip_swift}"
+        "SwiftUI Chip should land at (0, 0) via .topLeading in 100x60 without inheriting Photo's center alignment:\n{chip_swift}"
     );
 
     let compose = compose_for(&doc, grid);
     let chip_compose = compose_cell_for(&doc, grid, &compose, "Chip");
     assert!(
         chip_compose.contains(
-            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 100.dp), contentAlignment = Alignment.TopStart)"
-        ) && chip_compose.contains(".size(width = 24.dp, height = 16.dp)"),
+            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 60.dp), contentAlignment = Alignment.TopStart)"
+        ) && chip_compose.contains(".size(width = 30.dp, height = 12.dp)"),
         "Compose Chip sub-cell:\n{chip_compose}"
     );
 
@@ -1334,7 +1390,7 @@ fn n1_overlap_centered_photo_and_start_chip() {
 
 #[test]
 fn n1_overlap_centered_dot_with_bigger_card_stacked() {
-    let al = AutoLayout {
+    let mut al = AutoLayout {
         grid_columns: 2,
         grid_rows: 1,
         item_spacing: 10.0,
@@ -1343,73 +1399,88 @@ fn n1_overlap_centered_dot_with_bigger_card_stacked() {
         counter_sizing: Sizing::Fixed,
         ..Default::default()
     };
-    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 100.0));
-    let dot = add_named_item(&mut doc, grid, "SmallDot", 20.0, 20.0, Sizing::Fixed, Sizing::Fixed);
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_col_tracks[1] = GridTrack::Fixed(100.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(60.0);
+    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 60.0));
+    let dot = add_named_item(&mut doc, grid, "Dot", 20.0, 20.0, Sizing::Fixed, Sizing::Fixed);
     {
         let n = doc.get_mut(dot).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0xFF, 0x30, 0x30))];
         n.layout_child.grid_column = Some(0);
         n.layout_child.grid_row = Some(0);
         n.layout_child.grid_align_h = GridChildAlign::Center;
         n.layout_child.grid_align_v = GridChildAlign::Center;
     }
-    let card = add_named_item(&mut doc, grid, "BigCard", 80.0, 80.0, Sizing::Fixed, Sizing::Fixed);
+    let card = add_named_item(&mut doc, grid, "Card", 100.0, 60.0, Sizing::Fixed, Sizing::Fixed);
     {
         let n = doc.get_mut(card).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0x35, 0x82, 0xFF))];
         n.layout_child.grid_column = Some(0);
         n.layout_child.grid_row = Some(0);
         n.layout_child.grid_align_h = GridChildAlign::Start;
         n.layout_child.grid_align_v = GridChildAlign::Start;
     }
-    let other = add_named_item(&mut doc, grid, "Other", 100.0, 100.0, Sizing::Fixed, Sizing::Fixed);
+    let other = add_named_item(&mut doc, grid, "Other", 100.0, 60.0, Sizing::Fixed, Sizing::Fixed);
     {
         let n = doc.get_mut(other).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0x20, 0xC0, 0x60))];
         n.layout_child.grid_column = Some(1);
         n.layout_child.grid_row = Some(0);
     }
     doc.relayout_subtree(grid);
+    assert_eq!(
+        solver_rects(&doc, grid),
+        vec![
+            ("Dot".to_string(), Rect::new(40.0, 20.0, 20.0, 20.0)),
+            ("Card".to_string(), Rect::new(0.0, 0.0, 100.0, 60.0)),
+            ("Other".to_string(), Rect::new(110.0, 0.0, 100.0, 60.0)),
+        ]
+    );
 
     let swift = swiftui_for(&doc, grid);
-    let dot_swift = swiftui_cell_for(&doc, grid, &swift, "SmallDot");
+    maybe_dump_n1_scene("n1_overlap_centered_dot_with_bigger_card_stacked", &doc, grid, &swift);
+    let dot_swift = swiftui_cell_for(&doc, grid, &swift, "Dot");
     assert!(
-        dot_swift.contains(".frame(width: 20, height: 20)\n                .frame(width: 100, height: 100, alignment: .center)")
-            && dot_swift.contains("}\n            .frame(width: 100, height: 100, alignment: .topLeading)"),
-        "SwiftUI SmallDot must stay centered in its own 100x100 frame even when BigCard (80x80) is larger:\n{dot_swift}"
+        dot_swift.contains(".frame(width: 20, height: 20)\n                .frame(width: 100, height: 60, alignment: .center)")
+            && dot_swift.contains("}\n            .frame(width: 100, height: 60, alignment: .topLeading)"),
+        "SwiftUI Dot must stay centered in its own 100x60 frame even when Card (100x60) is larger:\n{dot_swift}"
     );
-    let card_swift = swiftui_cell_for(&doc, grid, &swift, "BigCard");
+    let card_swift = swiftui_cell_for(&doc, grid, &swift, "Card");
     assert!(
-        card_swift.contains(".frame(width: 80, height: 80)\n                .frame(width: 100, height: 100, alignment: .topLeading)")
+        card_swift.contains(".frame(width: 100, height: 60)\n                .frame(width: 100, height: 60, alignment: .topLeading)")
             && !card_swift.contains(".offset("),
-        "SwiftUI BigCard cell:\n{card_swift}"
+        "SwiftUI Card cell:\n{card_swift}"
     );
 
     let compose = compose_for(&doc, grid);
-    let dot_compose = compose_cell_for(&doc, grid, &compose, "SmallDot");
+    let dot_compose = compose_cell_for(&doc, grid, &compose, "Dot");
     assert!(
-        dot_compose.contains("Box(Modifier.height(100.dp), contentAlignment = Alignment.Center)") && dot_compose.contains(".size(20.dp)"),
-        "Compose SmallDot cell:\n{dot_compose}"
+        dot_compose.contains("Box(Modifier.height(60.dp), contentAlignment = Alignment.Center)") && dot_compose.contains(".size(20.dp)"),
+        "Compose Dot cell:\n{dot_compose}"
     );
-    let card_compose = compose_cell_for(&doc, grid, &compose, "BigCard");
+    let card_compose = compose_cell_for(&doc, grid, &compose, "Card");
     assert!(
         card_compose.contains(
-            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 100.dp), contentAlignment = Alignment.TopStart)"
-        ) && card_compose.contains(".size(80.dp)"),
-        "Compose BigCard sub-cell:\n{card_compose}"
+            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 60.dp), contentAlignment = Alignment.TopStart)"
+        ) && card_compose.contains(".size(width = 100.dp, height = 60.dp)"),
+        "Compose Card sub-cell:\n{card_compose}"
     );
 
     let uikit = uikit_for(&doc, grid);
     assert!(
-        uikit.contains("smallDot.centerXAnchor.constraint(equalTo: cell.centerXAnchor)")
-            && uikit.contains("smallDot.centerYAnchor.constraint(equalTo: cell.centerYAnchor)")
-            && uikit.contains("bigCard.leadingAnchor.constraint(equalTo: stackCell.leadingAnchor)")
-            && uikit.contains("bigCard.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
-        "UIKit SmallDot/BigCard anchors:\n{uikit}"
+        uikit.contains("dot.centerXAnchor.constraint(equalTo: cell.centerXAnchor)")
+            && uikit.contains("dot.centerYAnchor.constraint(equalTo: cell.centerYAnchor)")
+            && uikit.contains("card.leadingAnchor.constraint(equalTo: stackCell.leadingAnchor)")
+            && uikit.contains("card.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
+        "UIKit Dot/Card anchors:\n{uikit}"
     );
 }
 
 #[test]
 fn n1_overlap_fill_child_inside_two_col_span() {
-    let al = AutoLayout {
-        grid_columns: 2,
+    let mut al = AutoLayout {
+        grid_columns: 3,
         grid_rows: 1,
         item_spacing: 10.0,
         counter_spacing: 10.0,
@@ -1417,48 +1488,59 @@ fn n1_overlap_fill_child_inside_two_col_span() {
         counter_sizing: Sizing::Fixed,
         ..Default::default()
     };
-    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 60.0));
-    let banner = add_named_item(&mut doc, grid, "WideBanner", 210.0, 60.0, Sizing::Fixed, Sizing::Fixed);
+    al.grid_col_tracks[0] = GridTrack::Fixed(100.0);
+    al.grid_col_tracks[1] = GridTrack::Fixed(40.0);
+    al.grid_col_tracks[2] = GridTrack::Fixed(60.0);
+    al.grid_row_tracks[0] = GridTrack::Fixed(40.0);
+    let (mut doc, grid) = new_grid(al, Vec2::new(220.0, 40.0));
+    let wide = add_named_item(&mut doc, grid, "Wide", 150.0, 40.0, Sizing::Fixed, Sizing::Fixed);
     {
-        let n = doc.get_mut(banner).unwrap();
+        let n = doc.get_mut(wide).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0x35, 0x82, 0xFF))];
         n.layout_child.grid_column = Some(0);
         n.layout_child.grid_row = Some(0);
         n.layout_child.col_span = 2;
     }
-    let fill_child = add_named_item(&mut doc, grid, "Col1Fill", 50.0, 24.0, Sizing::Fill, Sizing::Fill);
+    let inner_fill = add_named_item(&mut doc, grid, "InnerFill", 40.0, 20.0, Sizing::Fill, Sizing::Fixed);
     {
-        let n = doc.get_mut(fill_child).unwrap();
+        let n = doc.get_mut(inner_fill).unwrap();
+        n.fills = vec![Paint::solid(Color::rgb(0xFF, 0x30, 0x30))];
         n.layout_child.grid_column = Some(1);
         n.layout_child.grid_row = Some(0);
     }
     doc.relayout_subtree(grid);
+    assert_eq!(
+        solver_rects(&doc, grid),
+        vec![("Wide".to_string(), Rect::new(0.0, 0.0, 150.0, 40.0)), ("InnerFill".to_string(), Rect::new(110.0, 0.0, 40.0, 20.0)),]
+    );
 
     let swift = swiftui_for(&doc, grid);
-    let fill_swift = swiftui_cell_for(&doc, grid, &swift, "Col1Fill");
+    maybe_dump_n1_scene("n1_overlap_fill_child_inside_two_col_span", &doc, grid, &swift);
+    let fill_swift = swiftui_cell_for(&doc, grid, &swift, "InnerFill");
     assert!(
-        fill_swift.contains(".frame(maxWidth: .infinity, height: 60)\n                .frame(width: 100, height: 60, alignment: .topLeading)\n                .offset(x: 110, y: 0)"),
-        "SwiftUI Col1Fill should fill its own 100x60 column-1 cell at offset (110, 0), not the 210x60 span:\n{fill_swift}"
+        fill_swift.contains(".frame(maxWidth: .infinity, height: 20)\n                .frame(width: 40, height: 40, alignment: .topLeading)\n                .offset(x: 110, y: 0)"),
+        "SwiftUI InnerFill should fill its own 40x40 column-1 cell at offset (110, 0), not the 150x40 span:\n{fill_swift}"
     );
 
     let compose = compose_for(&doc, grid);
-    let fill_compose = compose_cell_for(&doc, grid, &compose, "Col1Fill");
+    let fill_compose = compose_cell_for(&doc, grid, &compose, "InnerFill");
     assert!(
         fill_compose.contains(
-            "Box(Modifier.align(Alignment.TopStart).offset(x = 110.dp, y = 0.dp).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 60.dp), contentAlignment = Alignment.TopStart)"
-        ) && fill_compose.contains(".height(60.dp)\n                        .fillMaxWidth()"),
-        "Compose Col1Fill should fill its own 100x60 sub-cell Box at offset (110.dp, 0.dp):\n{fill_compose}"
+            "Box(Modifier.align(Alignment.TopStart).offset(x = 110.dp, y = 0.dp).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 40.dp, height = 40.dp), contentAlignment = Alignment.TopStart)"
+        ) && fill_compose.contains(".height(20.dp)\n                        .fillMaxWidth()"),
+        "Compose InnerFill should fill its own 40x40 sub-cell Box at offset (110.dp, 0.dp):\n{fill_compose}"
     );
 
     let uikit = uikit_for(&doc, grid);
     assert!(
         uikit.contains("stackCell.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 110)")
-            && uikit.contains("stackCell.widthAnchor.constraint(equalToConstant: 100)")
-            && uikit.contains("stackCell.heightAnchor.constraint(equalToConstant: 60)")
-            && uikit.contains("col1Fill.widthAnchor.constraint(equalTo: stackCell.widthAnchor)")
-            && uikit.contains("col1Fill.heightAnchor.constraint(equalToConstant: 60)")
-            && uikit.contains("col1Fill.leadingAnchor.constraint(equalTo: stackCell.leadingAnchor)")
-            && uikit.contains("col1Fill.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
-        "UIKit Col1Fill should stretch to stackCell (100x60 at x=110), not cell (210x60):\n{uikit}"
+            && uikit.contains("stackCell.widthAnchor.constraint(equalToConstant: 40)")
+            && uikit.contains("stackCell.heightAnchor.constraint(equalToConstant: 40)")
+            && uikit.contains("innerFill.widthAnchor.constraint(equalTo: stackCell.widthAnchor)")
+            && uikit.contains("innerFill.heightAnchor.constraint(equalToConstant: 20)")
+            && uikit.contains("innerFill.leadingAnchor.constraint(equalTo: stackCell.leadingAnchor)")
+            && uikit.contains("innerFill.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
+        "UIKit InnerFill should stretch to stackCell (40x40 at x=110), not cell (150x40):\n{uikit}"
     );
 }
 
