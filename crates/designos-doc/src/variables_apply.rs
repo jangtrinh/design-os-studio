@@ -60,7 +60,7 @@ pub fn scope_allows(scopes: &[String], key: &str, kind: &NodeKind) -> bool {
             };
             has(&["ALL_FILLS", specific])
         }
-        k if k.starts_with("strokes/") => has(&["STROKE_COLOR"]),
+        k if k.starts_with("strokes/") => has(&["STROKE", "STROKE_COLOR"]),
         k if effect_field_key(k).is_some() => match effect_field_key(k).map(|(_, f)| f) {
             Some("color") => has(&["EFFECT_COLOR"]),
             Some("radius" | "spread" | "offsetX" | "offsetY") => has(&["EFFECT_FLOAT"]),
@@ -861,6 +861,8 @@ mod tests {
         assert!(!scope_allows(&["FRAME_FILL".into()], "fills/0", &text));
         assert!(scope_allows(&["TEXT_FILL".into()], "fills/0", &text));
         assert!(scope_allows(&["ALL_FILLS".into()], "fills/0", &text));
+        assert!(scope_allows(&["STROKE".into()], "strokes/0", &frame), "Figma editor scope STROKE must allow stroke colours");
+        assert!(scope_allows(&["STROKE_COLOR".into()], "strokes/0", &frame), "REST scope STROKE_COLOR must allow stroke colours");
     }
 
     #[test]

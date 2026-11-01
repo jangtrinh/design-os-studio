@@ -178,7 +178,7 @@ fn folded_key(coll: &str, path: &str) -> String {
 const SCOPE_FILTERS: [(&str, &[&str]); 6] = [
     ("All", &[]),
     ("Fills", &["ALL_FILLS", "FRAME_FILL", "SHAPE_FILL"]),
-    ("Strokes", &["STROKE_COLOR", "STROKE_FLOAT"]),
+    ("Strokes", &["STROKE", "STROKE_COLOR", "STROKE_FLOAT"]),
     ("Text", &["TEXT_FILL", "FONT_FAMILY", "FONT_SIZE", "LINE_HEIGHT", "LETTER_SPACING"]),
     ("Radius", &["CORNER_RADIUS"]),
     ("Gap & Size", &["GAP", "WIDTH_HEIGHT"]),
@@ -1816,6 +1816,11 @@ mod tests {
         assert!(!matches_scope_filter(&var, 3)); // Text
         assert!(matches_scope_filter(&var, 4)); // Radius
         assert!(!matches_scope_filter(&var, 5)); // Gap & Size
+
+        var.scopes = vec!["STROKE".into()];
+        assert!(matches_scope_filter(&var, 2), "Figma editor STROKE scope must appear in Strokes");
+        var.scopes = vec!["STROKE_COLOR".into()];
+        assert!(matches_scope_filter(&var, 2), "REST STROKE_COLOR scope must appear in Strokes");
 
         var.scopes.clear(); // Empty scopes = ALL_SCOPES
         for idx in 0..SCOPE_FILTERS.len() {
