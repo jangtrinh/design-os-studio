@@ -1,0 +1,25 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1469-text-to-vector/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1469-text-to-vector/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1469-text-to-vector/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1469-text-to-vector/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.33s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 1 test
+R2_SHEET stroke_inside op=Flatten max=15 mean_all=0.000271 mean_ink=0.001390 hard_px=0 non_edge_max=0 ink_px=44594
+R2_SHEET stroke_inside op=Outline max=43 mean_all=0.000431 mean_ink=0.002209 hard_px=0 non_edge_max=0 ink_px=44594
+R2_SHEET stroke_outside op=Flatten max=15 mean_all=0.000271 mean_ink=0.001390 hard_px=0 non_edge_max=0 ink_px=44594
+R2_SHEET stroke_outside op=Outline max=43 mean_all=0.000431 mean_ink=0.002209 hard_px=0 non_edge_max=0 ink_px=44594
+R2_SHEET stroke_center op=Flatten max=15 mean_all=0.000271 mean_ink=0.001390 hard_px=0 non_edge_max=0 ink_px=44594
+R2_SHEET stroke_center op=Outline max=43 mean_all=0.000431 mean_ink=0.002209 hard_px=0 non_edge_max=0 ink_px=44594
+R2_SHEET al_fill commit_vec=(10.00,10.00,Vec2 { x: 242.9414, y: 23.28125 },Fixed) after_edit_vec=(10.00,10.00,Vec2 { x: 242.9414, y: 23.28125 },Fixed) parent=Vec2 { x: 520.0, y: 81.28125 }->Vec2 { x: 520.0, y: 81.28125 }
+R2_SHEET gradient op=Flatten max=56 mean_all=0.038383 mean_ink=0.257559 hard_px=0 non_edge_max=0 ink_px=34097
+R2_SHEET gradient op=Outline max=56 mean_all=0.038383 mean_ink=0.257559 hard_px=0 non_edge_max=0 ink_px=34097
+R2_KIT frame_id=NodeId(5509) frame_name="Layout" heading_id=NodeId(5699) font_size=36 text="Layout"
+R2_KIT op=Flatten out_id=NodeId(225113) out_kind=Discriminant(9) size=Vec2 { x: 110.72813, y: 33.671875 } max=29 mean_all=0.000178 mean_ink=0.003809 hard_px=0 non_edge_max=0 ink_px=45882
+R2_KIT op=Outline out_id=NodeId(225113) out_kind=Discriminant(2) kids=6 size=Vec2 { x: 110.72813, y: 33.671875 } max=29 mean_all=0.000178 mean_ink=0.003809 hard_px=0 non_edge_max=0 ink_px=45882
+test vecops::tests::r2_generate_visual_and_kit_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4048 filtered out; finished in 38.44s
+

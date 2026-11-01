@@ -392,6 +392,9 @@ impl App {
             }
         }
         self.step_text_refit();
+        if !self.fonts.is_loading() && !self.text_refit_pending() {
+            self.finish_pending_vecop();
+        }
     }
 
     pub fn show_toast(&mut self, text: impl Into<String>, error: bool) {
