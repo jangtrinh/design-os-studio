@@ -819,7 +819,7 @@ impl Shell {
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => {
                     let (key, modifiers) = (*key, *modifiers);
-                    if self.try_typography_shortcut(key, modifiers) {
+                    if !editing_text && self.try_typography_shortcut(key, modifiers) {
                         continue;
                     }
                     if editing_text {
