@@ -501,6 +501,15 @@ pub struct TextStyle {
 }
 
 impl TextStyle {
+    /// Set the CSS weight and keep an existing variable-font weight axis in sync.
+    /// Styles without a `wght` axis keep their current axis list.
+    pub fn set_font_weight(&mut self, weight: u16) {
+        self.font_weight = weight;
+        if self.get_axis("wght").is_some() {
+            self.set_axis("wght", f32::from(weight));
+        }
+    }
+
     pub fn get_axis(&self, tag: &str) -> Option<f32> {
         self.variation_axes.iter().find(|(k, _)| k.eq_ignore_ascii_case(tag)).map(|(_, v)| *v)
     }

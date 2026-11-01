@@ -246,7 +246,7 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, key: &str, t: &TextStyle, f
         if !super::var_bind::style_pill_field(app, ui, rc, key, "fontWeight") {
             let names: Vec<String> = typography::WEIGHTS.iter().map(|w| w.0.to_string()).collect();
             if let Some(i) = dropdown(ui, rc, "se-weight", typography::weight_name(t.font_weight), &names) {
-                set(app, &|ts| ts.font_weight = typography::WEIGHTS[i].1);
+                set(app, &|ts| ts.set_font_weight(typography::WEIGHTS[i].1));
             }
             super::var_bind::style_hover_button(app, ui, rc, key, "fontWeight", VariableKind::Number);
         }
