@@ -1,0 +1,195 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling libc v0.2.191
+   Compiling cfg-if v1.0.5
+   Compiling stable_deref_trait v1.2.1
+   Compiling libm v0.2.16
+   Compiling simd-adler32 v0.3.10
+   Compiling smallvec v1.16.3
+   Compiling crc32fast v1.5.2
+   Compiling adler2 v2.0.1
+   Compiling log v0.4.34
+   Compiling zlib-rs v0.6.8
+   Compiling find-msvc-tools v0.1.14
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling shlex v2.0.1
+   Compiling bitflags v2.13.2
+   Compiling icu_properties_data v2.3.0
+   Compiling miniz_oxide v0.9.1
+   Compiling cc v1.7.0
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling once_cell v1.21.4
+   Compiling memchr v2.8.3
+   Compiling zeroize v1.9.1
+   Compiling crossbeam-utils v0.8.23
+   Compiling serde_core v1.0.229
+   Compiling rustls-pki-types v1.15.1
+   Compiling version_check v0.9.5
+   Compiling untrusted v0.9.0
+   Compiling zmij v1.0.23
+   Compiling slotmap v1.1.1
+   Compiling crossbeam-epoch v0.9.21
+   Compiling autocfg v1.5.1
+   Compiling num-traits v0.2.19
+   Compiling aho-corasick v1.1.5
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling ring v0.17.14
+   Compiling arrayvec v0.7.8
+   Compiling regex-syntax v0.8.11
+   Compiling rustls v0.23.45
+   Compiling float-cmp v0.9.0
+   Compiling thiserror v2.0.21
+   Compiling serde_json v1.0.154
+   Compiling percent-encoding v2.3.2
+   Compiling serde v1.0.229
+   Compiling crossbeam-deque v0.8.8
+   Compiling syn v3.0.9
+   Compiling regex-automata v0.4.18
+   Compiling getrandom v0.2.17
+   Compiling flate2 v1.1.10
+   Compiling memmap2 v0.9.11
+   Compiling core_maths v0.1.1
+   Compiling ttf-parser v0.25.1
+   Compiling form_urlencoded v1.2.2
+   Compiling synstructure v0.14.0
+   Compiling strict-num v0.1.1
+   Compiling webpki-roots v1.0.9
+   Compiling itoa v1.0.18
+   Compiling subtle v2.6.1
+   Compiling rayon-core v1.13.0
+   Compiling base64 v0.22.1
+   Compiling option-ext v0.2.0
+   Compiling arrayref v0.3.9
+   Compiling tinyvec v1.13.3
+   Compiling zerofrom-derive v0.1.8
+   Compiling bytemuck_derive v1.12.1
+   Compiling yoke-derive v0.8.4
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling unicode-script v0.5.8
+   Compiling fontdb v0.23.0
+   Compiling regex v1.13.1
+   Compiling zerofrom v0.1.8
+   Compiling dirs-sys v0.4.1
+   Compiling webpki-roots v0.26.11
+   Compiling i_float v5.0.0
+   Compiling unicode-bidi v0.3.18
+   Compiling bytemuck v1.25.2
+   Compiling yazi v0.2.1
+   Compiling yoke v0.8.3
+   Compiling color_quant v1.1.0
+   Compiling zeno v0.3.3
+   Compiling byteorder-lite v0.1.0
+   Compiling quick-error v2.0.1
+   Compiling bitflags v1.3.2
+   Compiling pxfm v0.1.30
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling font-types v0.12.7
+   Compiling font-types v0.11.3
+   Compiling tiny-skia-path v0.11.4
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.41.0
+   Compiling zune-core v0.5.3
+   Compiling weezl v0.1.12
+   Compiling png v0.17.16
+   Compiling image-webp v0.2.4
+   Compiling i_shape v5.0.0
+   Compiling zune-jpeg v0.5.15
+   Compiling gif v0.14.1
+   Compiling dirs v5.0.1
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling png v0.18.1
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-doc)
+   Compiling kurbo v0.11.3
+   Compiling cfg_aliases v0.2.2
+   Compiling self_cell v1.3.0
+   Compiling smol_str v0.3.6
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling linebender_resource_handle v0.1.1
+   Compiling sys-locale v0.3.2
+   Compiling i_tree v0.20.0
+   Compiling unicode-ccc v0.4.0
+   Compiling unicode-properties v0.1.4
+   Compiling unicode-segmentation v1.13.3
+   Compiling rangemap v1.8.0
+   Compiling i_key_sort v0.12.0
+   Compiling icu_provider v2.3.1
+   Compiling either v1.19.0
+   Compiling moxcms v0.8.1
+   Compiling siphasher v1.0.4
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling rustc-hash v2.1.3
+   Compiling rustls-webpki v0.103.15
+   Compiling unicode-linebreak v0.1.5
+   Compiling svgtypes v0.15.3
+   Compiling i_overlay v9.1.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling rayon v1.12.0
+   Compiling url v2.5.8
+   Compiling rustybuzz v0.20.1
+   Compiling nix v0.31.3
+   Compiling tiny-skia v0.11.4
+   Compiling simplecss v0.2.2
+   Compiling pico-args v0.5.0
+   Compiling data-url v0.3.2
+   Compiling imagesize v0.13.0
+   Compiling unicode-vo v0.1.0
+   Compiling xmlwriter v0.1.0
+   Compiling roxmltree v0.20.0
+   Compiling equivalent v1.0.3
+   Compiling hashbrown v0.17.1
+   Compiling bumpalo v3.20.3
+   Compiling twox-hash v2.1.5
+   Compiling zopfli v0.8.4
+   Compiling typed-path v0.12.3
+   Compiling ruzstd v0.9.1
+   Compiling usvg v0.45.1
+   Compiling image v0.25.10
+   Compiling skrifa v0.40.0
+   Compiling skrifa v0.44.0
+   Compiling harfrust v0.5.2
+   Compiling indexmap v2.14.2
+   Compiling ureq v2.12.1
+   Compiling zip v9.0.4
+   Compiling swash v0.2.10
+   Compiling cosmic-text v0.19.0
+   Compiling designos-fonts v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-fonts)
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-render)
+   Compiling designos-svg v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-svg)
+   Compiling designos-webcapture v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-webcapture)
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-fig)
+    Finished `release` profile [optimized] target(s) in 39.70s
+     Running tests/perf_probe.rs (out/cargo/release/deps/perf_probe-d760e07deef22ec9)
+
+running 1 test
+PROBE import_s=7.2
+PROBE largest_page=NodeId(88674) name="      ❖ Landing pages" nodes=67717
+PROBE nested_text_candidates=9761
+PROBE sel=NodeId(695506) depth=6 matches=35 drag_start_ms=0.223 drag_frame_ms=0.0002 frame_sel=13
+PROBE sel=NodeId(704517) depth=9 matches=3 drag_start_ms=0.650 drag_frame_ms=0.0000 frame_sel=1
+PROBE sel=NodeId(712957) depth=8 matches=7 drag_start_ms=2.865 drag_frame_ms=0.0000 frame_sel=2
+PROBE sel=NodeId(722684) depth=9 matches=6 drag_start_ms=0.177 drag_frame_ms=0.0000 frame_sel=4
+PROBE sel=NodeId(730694) depth=7 matches=1 drag_start_ms=0.239 drag_frame_ms=0.0000 frame_sel=1
+PROBE sel=NodeId(738063) depth=7 matches=10 drag_start_ms=0.133 drag_frame_ms=0.0001 frame_sel=7
+PROBE sel=NodeId(745544) depth=8 matches=15 drag_start_ms=2.683 drag_frame_ms=0.0000 frame_sel=4
+PROBE sel=NodeId(753914) depth=11 matches=1 drag_start_ms=0.151 drag_frame_ms=0.0000 frame_sel=2
+PROBE SUMMARY drag_start_median_ms=0.239 drag_start_max_ms=2.865 drag_frame_median_ms=0.0000 drag_frame_max_ms=0.0002
+test perf_probe_landing_page_shift_marquee ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 29.21s
+

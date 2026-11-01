@@ -1,0 +1,52 @@
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    34Gi    26%    459k  356M    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 35.63s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 1 test
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4064 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.76s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 1 test
+test agent_mention::tests::search_is_budgeted_on_a_huge_document ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4064 filtered out; finished in 1.73s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.45s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 12 tests
+test shell::tests::close_human_dirty::close_save_into_unwritable_directory_is_not_path_required ... ok
+test shell::tests::close_human_dirty::a_stale_success_answer_does_not_close_or_save_for_a_new_process ... ok
+test shell::tests::close_human_dirty::closing_an_already_closed_tab_is_not_retryable ... ok
+test shell::tests::close_human_dirty::apply_spec_after_a_refused_close_reaches_the_canvas ... ok
+test shell::tests::close_human_dirty::human_edit_then_agent_fail_keeps_the_tab_and_the_file ... ok
+test shell::tests::close_human_dirty::human_edit_then_agent_save_writes_the_edit_and_closes ... ok
+test shell::tests::close_human_dirty::human_edit_then_agent_discard_closes_and_leaves_the_file ... ok
+test shell::tests::close_human_dirty::titled_read_only_file_close_save_is_not_path_required ... ok
+test shell::tests::close_human_dirty::untitled_close_save_without_path_is_path_required ... ok
+test shell::tests::close_human_dirty::library_file_read_only_close_save_is_invalid_arguments_not_path_required ... ok
+test shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required ... ok
+test shell::tests::close_human_dirty::stale_queued_close_does_not_close_a_tab_the_user_switched_back_to ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 4053 filtered out; finished in 6.66s
+
