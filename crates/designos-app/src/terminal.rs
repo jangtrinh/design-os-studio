@@ -3427,10 +3427,7 @@ impl TerminalState {
                 self.viewport_focused = true;
                 self.status_msg = Some(format!("Spawned {} ({} · {})", clean_title, self.doc_name, self.current_page_name));
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    let already_queued = self.tabs[self.active_tab].composer.pending_send.iter().any(|e| e.text == held_prompt);
-                    if !already_queued {
-                        self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
-                    }
+                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
                 }
                 Ok(self.active_tab)
             }
@@ -3616,10 +3613,7 @@ impl TerminalState {
                     None => spawned,
                 });
                 if let Some((held_title, held_prompt)) = self.pending_prompt.take() {
-                    let already_queued = self.tabs[self.active_tab].composer.pending_send.iter().any(|e| e.text == held_prompt);
-                    if !already_queued {
-                        self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
-                    }
+                    self.dispatch_figma_ai_prompt(&held_title, &held_prompt, file_path);
                 }
                 Ok(self.active_tab)
             }
@@ -3888,6 +3882,12 @@ impl TerminalState {
                     // A classified failure keeps its `Error` dot until the next turn starts (`#686`).
                     let keeps_failure = self.tabs[tab_idx].session_failure.is_some() && !is_turn_start && !matches!(new_status, AgentTabStatus::Error(_));
                     if !keeps_failure {
+                        if matches!(new_status, AgentTabStatus::Working(_)) && self.tabs[tab_idx].composer.pending_enter_deadline.is_none() {
+                            self.tabs[tab_idx].composer.flush_paused = false;
+                            if self.tabs[tab_idx].composer.awaiting_turn_end {
+                                self.tabs[tab_idx].composer.turn_started_since_send = true;
+                            }
+                        }
                         if let Ok(mut st) = self.tabs[tab_idx].agent_status.lock() {
                             if matches!(*st, AgentTabStatus::WaitingForInput(_)) && matches!(new_status, AgentTabStatus::Working(_) | AgentTabStatus::Done) {
                                 tabs_left_waiting.push(tab_idx);
@@ -4313,7 +4313,9 @@ impl TerminalState {
     pub fn dispatch_figma_ai_prompt(&mut self, task_title: &str, cli_prompt: &str, file_path: Option<&Path>) {
         let outcome = self.send_to_agent(cli_prompt, file_path);
         if self.tabs.is_empty() && self.picker_open {
-            self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
+            if outcome != crate::agent_composer::SendOutcome::Queued {
+                self.pending_prompt = Some((task_title.to_string(), cli_prompt.to_string()));
+            }
         } else if matches!(outcome, crate::agent_composer::SendOutcome::Written | crate::agent_composer::SendOutcome::Queued) {
             let title = self.active_tab().map(|t| t.title.clone()).unwrap_or_else(|| "Agent".into());
             self.status_msg = Some(format!("Dispatched '{task_title}' to {title} PTY"));

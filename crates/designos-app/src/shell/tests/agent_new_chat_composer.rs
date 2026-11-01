@@ -419,7 +419,7 @@ fn the_pill_repaints_on_its_own_while_probes_run_and_names_the_agent_when_they_e
 }
 
 #[test]
-fn p12_spec_ask_then_send_queues_both_and_writes_in_order() {
+fn spec_ask_then_send_queues_both_and_writes_in_order() {
     let mut s = new_chat_sim();
     type_in_composer(&mut s, "my own draft");
     frames(&mut s, 2);
@@ -430,7 +430,7 @@ fn p12_spec_ask_then_send_queues_both_and_writes_in_order() {
 
     let input = recorded(&s, "agents-composer-input").expect("composer input");
     s.click(input.center());
-    s.key(Key::Enter);
+    s.frame(vec![Event::Key { key: Key::Enter, physical_key: Some(Key::Enter), pressed: true, repeat: false, modifiers: Modifiers::NONE }]);
     assert_eq!(s.shell.app.terminal.tabs.len(), 1, "Enter starts the pill agent tab");
     assert_eq!(
         s.shell.app.terminal.tabs[0].composer.notice.as_deref(),
@@ -452,8 +452,11 @@ fn p12_spec_ask_then_send_queues_both_and_writes_in_order() {
 
     // Ready state 2: after the first turn's Enter is sent, the second prompt flushes in order.
     s.shell.app.terminal.flush_pending_enter_now();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+    s.shell.app.terminal.tick_composer();
     {
         let tab = &mut s.shell.app.terminal.tabs[0];
+        *tab.agent_status.lock().unwrap() = AgentTabStatus::Idle;
         *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
     }
     s.shell.app.terminal.tick_composer();
@@ -466,7 +469,7 @@ fn p12_spec_ask_then_send_queues_both_and_writes_in_order() {
 }
 
 #[test]
-fn p12b_make_design_then_send_queues_both_and_writes_in_order() {
+fn make_design_then_send_queues_both_and_writes_in_order() {
     let mut s = new_chat_sim();
     type_in_composer(&mut s, "my own draft");
     frames(&mut s, 2);
@@ -477,7 +480,7 @@ fn p12b_make_design_then_send_queues_both_and_writes_in_order() {
 
     let input = recorded(&s, "agents-composer-input").expect("composer input");
     s.click(input.center());
-    s.key(Key::Enter);
+    s.frame(vec![Event::Key { key: Key::Enter, physical_key: Some(Key::Enter), pressed: true, repeat: false, modifiers: Modifiers::NONE }]);
     assert_eq!(s.shell.app.terminal.tabs.len(), 1, "Enter starts the pill agent tab");
     assert_eq!(
         s.shell.app.terminal.tabs[0].composer.notice.as_deref(),
@@ -499,8 +502,11 @@ fn p12b_make_design_then_send_queues_both_and_writes_in_order() {
 
     // Ready state 2: flushes "my own draft" in order.
     s.shell.app.terminal.flush_pending_enter_now();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+    s.shell.app.terminal.tick_composer();
     {
         let tab = &mut s.shell.app.terminal.tabs[0];
+        *tab.agent_status.lock().unwrap() = AgentTabStatus::Idle;
         *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
     }
     s.shell.app.terminal.tick_composer();
@@ -514,10 +520,10 @@ fn p12b_make_design_then_send_queues_both_and_writes_in_order() {
 }
 
 #[test]
-fn p13_queued_first_message_then_spec_ask_queues_both_in_order() {
+fn queued_first_message_then_spec_ask_queues_both_in_order() {
     let mut s = new_chat_sim();
     type_in_composer(&mut s, "FIRST message");
-    s.key(Key::Enter);
+    s.frame(vec![Event::Key { key: Key::Enter, physical_key: Some(Key::Enter), pressed: true, repeat: false, modifiers: Modifiers::NONE }]);
     assert_eq!(s.shell.app.terminal.tabs.len(), 1, "Enter starts the tab");
     *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(Some("Allow?".into()));
     frames(&mut s, 2);
@@ -552,8 +558,11 @@ fn p13_queued_first_message_then_spec_ask_queues_both_in_order() {
 
     // Ready state 2 -> flushes @prd SPEC ask after FIRST message.
     s.shell.app.terminal.flush_pending_enter_now();
+    *s.shell.app.terminal.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+    s.shell.app.terminal.tick_composer();
     {
         let tab = &mut s.shell.app.terminal.tabs[0];
+        *tab.agent_status.lock().unwrap() = AgentTabStatus::Idle;
         *tab.last_output_at.lock().unwrap() = Some(std::time::Instant::now() - std::time::Duration::from_millis(200));
     }
     s.shell.app.terminal.tick_composer();

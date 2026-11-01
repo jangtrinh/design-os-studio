@@ -1073,7 +1073,12 @@ mod tests {
         st_empty.dispatch_figma_ai_prompt("Make Design", "Build hero section", None);
         assert!(st_empty.tabs.is_empty(), "Must not auto-spawn first installed CLI when no resumable session exists");
         assert!(st_empty.picker_open, "Must open the picker when no resumable session exists");
-        assert_eq!(st_empty.pending_prompt, Some(("Make Design".to_string(), "Build hero section".to_string())), "Prompt must be held until a CLI is chosen");
+        assert_eq!(
+            st_empty.unattached_composer.pending_send.front().map(|e| e.text.as_str()),
+            Some("Build hero section"),
+            "Prompt must be held in the composer queue until a CLI is chosen"
+        );
+        assert!(st_empty.pending_prompt.is_none(), "A queued prompt is not duplicated in pending_prompt");
 
         // Choosing a CLI from the picker dispatches the held prompt
         st_empty.spawn_tab(AgentCliPreset::Claude, None).expect("spawn chosen cli");
@@ -1562,7 +1567,8 @@ mod tests {
         crate::shell::execute_cmdk_action(&mut app, crate::cmdk::CmdKAction::ApplySpec(Box::new(spec)));
         assert!(app.terminal.tabs.is_empty(), "No process may auto-spawn when no resumable session exists");
         assert!(app.terminal.picker_open, "execute_cmdk_action must open the picker when no resumable session exists");
-        assert_eq!(app.terminal.pending_prompt, Some(("Make Design".to_string(), spec_name)));
+        assert_eq!(app.terminal.unattached_composer.pending_send.front().map(|e| e.text.as_str()), Some(spec_name.as_str()));
+        assert!(app.terminal.pending_prompt.is_none());
 
         // Case B: resumable session exists -> execute_cmdk_action resumes it and dispatches the prompt.
         // The auto-fix only tells the agent about changes it made, so the document has copy under the 11px floor.
