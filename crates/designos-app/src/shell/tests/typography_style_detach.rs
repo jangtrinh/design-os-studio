@@ -812,11 +812,7 @@ fn cmd_shift_period_in_a_text_session_changes_font_size_once() {
     assert_eq!(text_of(&s, id).style.font_size, 16.0);
     s.cmd_shift_key(Key::Period);
 
-    assert_eq!(
-        text_of(&s, id).style.font_size,
-        17.0,
-        "one Cmd+Shift+. event must be owned by exactly one text-session handler"
-    );
+    assert_eq!(text_of(&s, id).style.font_size, 17.0, "one Cmd+Shift+. event must be owned by exactly one text-session handler");
 }
 
 #[test]
@@ -829,9 +825,5 @@ fn cmd_shift_comma_in_a_text_session_changes_font_size_once() {
     assert_eq!(text_of(&s, id).style.font_size, 16.0);
     s.cmd_shift_key(Key::Comma);
 
-    assert_eq!(
-        text_of(&s, id).style.font_size,
-        15.0,
-        "one Cmd+Shift+, event must be owned by exactly one text-session handler"
-    );
+    assert_eq!(text_of(&s, id).style.font_size, 15.0, "one Cmd+Shift+, event must be owned by exactly one text-session handler");
 }
