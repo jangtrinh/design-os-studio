@@ -18,6 +18,7 @@ pub struct MenuItem {
     pub disabled: bool,
     pub separator_after: bool,
     pub icon: Option<Icon>,
+    pub trailing_icon: Option<Icon>,
     pub tooltip: String,
     pub children: Vec<MenuItem>,
 }
@@ -45,6 +46,10 @@ impl MenuItem {
     }
     pub fn icon(mut self, i: Icon) -> Self {
         self.icon = Some(i);
+        self
+    }
+    pub fn trailing_icon(mut self, i: Icon) -> Self {
+        self.trailing_icon = Some(i);
         self
     }
     pub fn tooltip(mut self, t: impl Into<String>) -> Self {
@@ -508,6 +513,14 @@ fn popup_tree_with_row_h(ctx: &egui::Context, id: Id, pos: Pos2, min_w: f32, ite
                         Icon::ChevronRight,
                         Pos2::new(rect.right() - theme::MENU_CHEVRON_PAD - theme::MENU_CHEVRON_BOX / 2.0, cy),
                         theme::MENU_CHEVRON_SIZE,
+                        paint.icon,
+                    );
+                } else if let Some(tic) = it.trailing_icon {
+                    icons::paint(
+                        &p,
+                        tic,
+                        Pos2::new(rect.right() - theme::MENU_CHEVRON_PAD - theme::MENU_CHEVRON_BOX / 2.0, cy),
+                        theme::MENU_ICON_SIZE,
                         paint.icon,
                     );
                 } else if !it.shortcut.is_empty() {

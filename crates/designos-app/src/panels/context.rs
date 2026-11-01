@@ -18,9 +18,17 @@ fn leaf(item: MenuItem, act: Action) -> Entry {
     Entry { item, act: Some(act), kids: vec![] }
 }
 
+/// The Select layer submenu in the context menu lists layers in Layers-panel order with parents first; to be confirmed against Figma.
+fn select_layer_submenu_lists_parents_first() -> bool {
+    true
+}
+
 /// The "Select" submenu: structural selection and the "same ..." family.
-fn select_submenu(has: bool) -> Entry {
-    let same = |label: &str, c: MatchCriteria| (MenuItem::new(label).disabled(!has), Action::SelectSame(c));
+fn select_submenu(app: &App, sep_after: bool) -> Entry {
+    let has = !app.selection.is_empty();
+    let can_inst = designos_doc::find::can_select_same_instance(&app.doc, &app.selection);
+    let can_var = designos_doc::find::can_select_same_variant(&app.doc, &app.selection);
+    let same = |label: &str, c: MatchCriteria, en: bool| (MenuItem::new(label).disabled(!en), Action::SelectSame(c));
     let mut kids = vec![
         (MenuItem::new("Select children").shortcut("Enter").disabled(!has), Action::SelectChildren),
         (MenuItem::new("Select parent").shortcut("Shift+Enter").disabled(!has), Action::SelectParent),
@@ -28,13 +36,48 @@ fn select_submenu(has: bool) -> Entry {
         (MenuItem::new("Select matching layers").shortcut("Ctrl+Alt+A").disabled(!has).sep(), Action::SelectMatching),
     ];
     kids.extend([
-        same("Select all with same fill", MatchCriteria::Fill),
-        same("Select all with same stroke", MatchCriteria::Stroke),
-        same("Select all with same effect", MatchCriteria::Effect),
-        same("Select all with same font", MatchCriteria::Font),
-        same("Select all with same instance", MatchCriteria::Instance),
+        same("Select all with same properties", MatchCriteria::Properties, has),
+        same("Select all with same fill", MatchCriteria::Fill, has),
+        same("Select all with same stroke", MatchCriteria::Stroke, has),
+        same("Select all with same effect", MatchCriteria::Effect, has),
+        same("Select all with same text properties", MatchCriteria::TextProperties, has),
+        same("Select all with same font", MatchCriteria::Font, has),
+        same("Select all with same instance", MatchCriteria::Instance, can_inst),
+        same("Select all with same variant", MatchCriteria::Variant, can_var),
     ]);
-    Entry { item: MenuItem::new("Select").disabled(!has).sep(), act: None, kids }
+    let mut item = MenuItem::new("Select").disabled(!has);
+    if sep_after {
+        item = item.sep();
+    }
+    Entry { item, act: None, kids }
+}
+
+/// The "Select layer" submenu shown when right-clicking over layers on the canvas.
+fn select_layer_submenu(app: &App) -> Option<Entry> {
+    let page_pt = app.ui.ctx_menu_page.or(app.canvas.pointer_page)?;
+    let idx = crate::canvas::interact::active_index(app);
+    let mut ids = crate::canvas::hit::hit_all_under_including_locked(&app.doc, app.page, page_pt, idx);
+    if ids.is_empty() {
+        return None;
+    }
+    if select_layer_submenu_lists_parents_first() {
+        ids.reverse();
+    }
+    let kids: Vec<(MenuItem, Action)> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let n = app.doc.get(id)?;
+            let mut item = MenuItem::new(&n.name).icon(super::layers::kind_icon(&n.kind));
+            if n.locked {
+                item = item.trailing_icon(crate::icons::Icon::Lock);
+            }
+            Some((item, Action::SelectLayer(id)))
+        })
+        .collect();
+    if kids.is_empty() {
+        return None;
+    }
+    Some(Entry { item: MenuItem::new("Select layer").sep(), act: None, kids })
 }
 
 /// The "Copy/Paste" submenu: property copy/paste and positional paste variants.
@@ -88,6 +131,7 @@ fn entries(app: &App) -> Vec<Entry> {
     let can_mark = app.selection.iter().any(|id| crate::dev::markable(app, *id));
     let has_status = app.selection.iter().any(|id| app.doc.get(*id).is_some_and(|n| n.dev.status.is_some()));
     let has_image_fill = crate::image_jobs::selection_target_image_fill(app).is_some();
+    let select_layer = select_layer_submenu(app);
     let mut list = vec![
         leaf(MenuItem::new("Duplicate").shortcut("Ctrl+D").disabled(!has), Action::Duplicate),
         leaf(MenuItem::new("Group selection").shortcut("Ctrl+G").disabled(!has), Action::Group),
@@ -101,9 +145,12 @@ fn entries(app: &App) -> Vec<Entry> {
         leaf(MenuItem::new("Reset all changes").disabled(!has_inst).sep(), Action::ResetInstance),
         leaf(MenuItem::new("Bring to front").shortcut("Ctrl+Shift+]").disabled(!has), Action::BringToFront),
         leaf(MenuItem::new("Send to back").shortcut("Ctrl+Shift+[").disabled(!has).sep(), Action::SendToBack),
-        select_submenu(has),
-        copy_paste_submenu(has, has_clip),
+        select_submenu(app, select_layer.is_none()),
     ];
+    if let Some(sub) = select_layer {
+        list.push(sub);
+    }
+    list.push(copy_paste_submenu(has, has_clip));
     if has_image_fill {
         list.push(ai_image_submenu(app));
     }
@@ -157,11 +204,15 @@ pub fn show(app: &mut App, ctx: &Context) {
     match popup_tree(ctx, Id::new("selection-menu"), at, 230.0, &list, None) {
         TreeResult::Picked(path) => {
             app.ui.ctx_menu = None;
+            app.ui.ctx_menu_page = None;
             if let Some(a) = resolve(&entries, &path) {
                 menus::run(app, ctx, a);
             }
         }
-        TreeResult::Closed => app.ui.ctx_menu = None,
+        TreeResult::Closed => {
+            app.ui.ctx_menu = None;
+            app.ui.ctx_menu_page = None;
+        }
         TreeResult::Open => {}
     }
 }
@@ -243,4 +294,9 @@ fn show_layer_picker(app: &mut App, ctx: &Context) {
 #[cfg(test)]
 pub fn labels(app: &App) -> Vec<String> {
     entries(app).into_iter().map(|e| e.item.label).collect()
+}
+
+#[cfg(test)]
+pub fn select_layer_labels(app: &App) -> Vec<String> {
+    select_layer_submenu(app).map(|e| e.kids.into_iter().map(|(it, _)| it.label).collect()).unwrap_or_default()
 }

@@ -111,8 +111,8 @@ pub fn selection_box(app: &App) -> Option<([DV; 4], bool)> {
     }
 }
 
-/// Containers that may be descended into on click (ancestors of the selection).
-fn entered(app: &App) -> Vec<NodeId> {
+/// Every ancestor of each selected layer is treated as entered so its direct children can be clicked; to be confirmed against Figma.
+fn entered_ancestors(app: &App) -> Vec<NodeId> {
     let mut v = Vec::new();
     for id in app.selection.iter().take(64) {
         let mut cur = app.doc.get(*id).and_then(|n| n.parent);
@@ -124,6 +124,16 @@ fn entered(app: &App) -> Vec<NodeId> {
         }
     }
     v
+}
+
+/// Containers that may be descended into on click (ancestors of the selection).
+fn entered(app: &App) -> Vec<NodeId> {
+    entered_ancestors(app)
+}
+
+/// Drilling into a text layer with a double-click starts text editing immediately; to be confirmed against Figma.
+fn double_click_drills_into_text_edits_immediately() -> bool {
+    true
 }
 
 pub(crate) fn active_index(app: &App) -> Option<&designos_render::SceneIndex> {
@@ -149,6 +159,13 @@ pub(crate) fn active_index(app: &App) -> Option<&designos_render::SceneIndex> {
 pub fn hit_under(app: &App, page: DV, deep: bool) -> Option<NodeId> {
     let tol = 2.0 / app.view.zoom;
     hit::hit_test_with_index(&app.doc, app.page, page, tol, deep, &entered(app), active_index(app))
+}
+
+/// Like [`hit_under`], descending through nested frames at any depth
+/// (used by non-selection callers such as comment pins and vector path hover).
+pub fn hit_under_any_depth(app: &App, page: DV, deep: bool) -> Option<NodeId> {
+    let tol = 2.0 / app.view.zoom;
+    hit::hit_test_any_depth_with_index(&app.doc, app.page, page, tol, deep, &entered(app), active_index(app))
 }
 
 /// Rects of snap candidates (visible nodes near the viewport/moving selection except `exclude` subtrees, capped to 128).
@@ -728,9 +745,18 @@ fn on_press(app: &mut App, ctx: &egui::Context, rect: ERect, inp: &Inp) {
             return;
         }
     }
+    let shift_match = if inp.mods.shift && !deep && !app.selection.is_empty() {
+        let stack = hit::hit_all_under(&app.doc, app.page, page, active_index(app));
+        stack.into_iter().find(|&c| {
+            app.selection.iter().any(|&s| designos_doc::find::matches_layer_across_containers(&app.doc, s, c))
+                || (app.is_selected(c) && designos_doc::find::matching_scope_of(&app.doc, c).is_some())
+        })
+    } else {
+        None
+    };
     let target = if let Some(h) = over_handle {
         PressTarget::Handle(h)
-    } else if let Some(id) = label_hit(app, ctx, rect, pos).or_else(|| hit_under(app, page, deep)) {
+    } else if let Some(id) = label_hit(app, ctx, rect, pos).or(shift_match).or_else(|| hit_under(app, page, deep)) {
         if app.is_selected(id) {
             PressTarget::SelectedNode(id)
         } else {
@@ -1058,10 +1084,36 @@ fn on_drag(app: &mut App, ui: &Ui, rect: ERect, inp: &Inp) {
             }
             *c = cur;
             let r = rect_from_points(*start, cur);
-            let hits = hit::marquee_select_with_index(&app.doc, app.page, &r, active_index(app));
+            let idx = active_index(app);
             if base.is_empty() {
-                app.selection = hits;
+                app.selection = if inp.mods.command {
+                    hit::marquee_select_deep_with_index(&app.doc, app.page, &r, idx)
+                } else {
+                    hit::marquee_select_with_index(&app.doc, app.page, &r, idx)
+                };
             } else {
+                let base_scopes: Vec<NodeId> = base.iter().filter_map(|&s| designos_doc::find::matching_scope_of(&app.doc, s).map(|(_, root)| root)).collect();
+                let hits = if !base_scopes.is_empty() {
+                    let matching_cands = designos_doc::find::find_matching_layers(&app.doc, base);
+                    let matching_hits: Vec<NodeId> =
+                        matching_cands.into_iter().filter(|&cid| r.intersects(&super::fast_world_aabb(&app.doc, idx, cid))).collect();
+                    if !matching_hits.is_empty() {
+                        matching_hits
+                    } else {
+                        let normal = hit::marquee_select_with_index(&app.doc, app.page, &r, idx);
+                        let touches_other_container =
+                            normal.iter().any(|&nid| !base_scopes.contains(&nid) && app.doc.get(nid).is_some_and(|n| n.kind.is_container()));
+                        if touches_other_container {
+                            Vec::new()
+                        } else {
+                            normal
+                        }
+                    }
+                } else if inp.mods.command {
+                    hit::marquee_select_deep_with_index(&app.doc, app.page, &r, idx)
+                } else {
+                    hit::marquee_select_with_index(&app.doc, app.page, &r, idx)
+                };
                 let mut sel = base.clone();
                 let mut seen: std::collections::HashSet<NodeId> = sel.iter().copied().collect();
                 for id in hits {
@@ -1925,7 +1977,7 @@ fn on_double_click(app: &mut App, rect: ERect, inp: &Inp) {
     if let Some(id) = drilled {
         let is_text = matches!(app.doc.get(id).map(|n| &n.kind), Some(NodeKind::Text(_)));
         let board_kind = app.doc.get(id).map(|n| &n.kind);
-        if is_text {
+        if is_text && double_click_drills_into_text_edits_immediately() {
             begin_text_edit(app, id);
         } else if matches!(board_kind, Some(NodeKind::Sticky(_) | NodeKind::ShapeWithText(_))) {
             // stickies and shapes take their text on double-click

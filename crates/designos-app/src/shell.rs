@@ -914,6 +914,11 @@ impl Shell {
         false
     }
 
+    /// Pressing Escape with a nested selection clears the selection rather than climbing to the parent; to be confirmed against Figma.
+    fn escape_clears_selection() -> bool {
+        true
+    }
+
     fn key(&mut self, ctx: &Context, key: Key, m: egui::Modifiers) {
         let app = &mut self.app;
         let cmd = m.command;
@@ -950,12 +955,7 @@ impl Shell {
                     None
                 }
                 (Key::A, true, false) => Some(Action::SelectInverse),
-                (Key::A, false, true) => {
-                    if app.select_matching_layers() == 0 {
-                        return menus::run(app, ctx, Action::SelectMatching);
-                    }
-                    None
-                }
+                (Key::A, false, true) => Some(Action::SelectMatching),
                 (Key::A, false, _) => Some(Action::SelectAll),
                 (Key::F, false, false) => Some(Action::Find),
                 (Key::Quote, false, _) => Some(Action::TogglePixelGrid),
@@ -1079,8 +1079,10 @@ impl Shell {
                     app.close_layer_filter();
                 } else if app.tool != Tool::Move {
                     app.tool = Tool::Move;
-                } else {
+                } else if Self::escape_clears_selection() {
                     app.clear_selection();
+                } else {
+                    app.select_parent();
                 }
             }
             Key::Enter => {
@@ -1214,6 +1216,7 @@ impl Shell {
             let candidates = crate::canvas::hit::hit_all_under(&app.doc, app.page, page, idx);
             if !candidates.is_empty() {
                 app.ui.ctx_menu = None;
+                app.ui.ctx_menu_page = None;
                 app.ui.layer_picker = Some((pos, candidates));
                 return;
             }
@@ -1224,6 +1227,7 @@ impl Shell {
             None => app.clear_selection(),
         }
         app.ui.ctx_menu = Some(pos);
+        app.ui.ctx_menu_page = Some(page);
     }
 
     fn toast(&mut self, ui: &egui::Ui, screen: Rect) {
