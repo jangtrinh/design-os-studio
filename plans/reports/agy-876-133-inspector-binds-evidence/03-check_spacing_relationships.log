@@ -1,0 +1,3 @@
+literal geometry outside theme.rs: offset_literals=1525, inset_literals=41, radius_literals=171, font_literals=23, nonconcentric_pairs=2, legacy_control_refs=6
+note: 1 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline

@@ -1,0 +1,16 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 56.49s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 4 tests
+test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_scope_census_visits_once_per_pass_and_refreshes_on_local_or_library_update ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_weight_menu_checks_current_weight_and_guards_apply_variable ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_scope_oracle_and_per_target_fill_scopes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 3.26s
+

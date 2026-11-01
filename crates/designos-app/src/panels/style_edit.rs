@@ -204,7 +204,8 @@ fn fill_rows(app: &mut App, ui: &mut Ui, body: Rect, key: &str, paint: Option<&P
         let color_prop = format!("fills/{item}");
         popover::row(ui, body, first, "Color", |ui, rc| {
             if !super::var_bind::style_pill_field(app, ui, rc, key, &color_prop) {
-                if let Some(nc) = effects::color_row(app, ui, rc, (item, 9), *c, None) {
+                let val_r = super::var_bind::style_value_rect(app, ui, rc, key, &color_prop, VariableKind::Color);
+                if let Some(nc) = effects::color_row(app, ui, val_r, (item, 9), *c, None) {
                     set(app, &|p| p.kind = PaintKind::Solid(nc));
                 }
                 super::var_bind::style_hover_button(app, ui, rc, key, &color_prop, VariableKind::Color);
@@ -218,8 +219,8 @@ fn fill_rows(app: &mut App, ui: &mut Ui, body: Rect, key: &str, paint: Option<&P
     }
     let op_prop = format!("fills/{item}/opacity");
     popover::row(ui, body, first + 1, "Opacity", |ui, rc| {
-        if let Some(v) = super::var_bind::style_numeric(app, ui, rc, key, &op_prop, |ui| {
-            field::num_field(ui, rc, "se-fill-opacity", Prefix::Icon(Icon::Opacity), Some((p.opacity * 100.0).round()), "%")
+        if let Some(v) = super::var_bind::style_numeric(app, ui, rc, key, &op_prop, |ui, r| {
+            field::num_field(ui, r, "se-fill-opacity", Prefix::Icon(Icon::Opacity), Some((p.opacity * 100.0).round()), "%")
         }) {
             set(app, &|p| p.opacity = (v / 100.0).clamp(0.0, 1.0));
         }
@@ -236,7 +237,8 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, key: &str, t: &TextStyle, f
     };
     popover::row(ui, body, first, "Font", |ui, rc| {
         if !super::var_bind::style_pill_field(app, ui, rc, key, "fontFamily") {
-            if let Some(family) = typography::family_picker(ui, rc, &t.font_family) {
+            let val_r = super::var_bind::style_value_rect(app, ui, rc, key, "fontFamily", VariableKind::String);
+            if let Some(family) = typography::family_picker(ui, val_r, &t.font_family) {
                 set(app, &|ts| ts.font_family = family.clone());
             }
             super::var_bind::style_hover_button(app, ui, rc, key, "fontFamily", VariableKind::String);
@@ -244,31 +246,34 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, key: &str, t: &TextStyle, f
     });
     popover::row(ui, body, first + 1, "Weight", |ui, rc| {
         if !super::var_bind::style_pill_field(app, ui, rc, key, "fontWeight") {
+            let val_r = super::var_bind::style_value_rect(app, ui, rc, key, "fontWeight", VariableKind::Number);
+            #[cfg(test)]
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("field-rect", format!("{:?}", "se-weight"))), val_r));
             let names: Vec<String> = typography::WEIGHTS.iter().map(|w| w.0.to_string()).collect();
-            if let Some(i) = dropdown(ui, rc, "se-weight", typography::weight_name(t.font_weight), &names) {
+            if let Some(i) = dropdown(ui, val_r, "se-weight", typography::weight_name(t.font_weight), &names) {
                 set(app, &|ts| ts.font_weight = typography::WEIGHTS[i].1);
             }
             super::var_bind::style_hover_button(app, ui, rc, key, "fontWeight", VariableKind::Number);
         }
     });
     popover::row(ui, body, first + 2, "Size", |ui, rc| {
-        if let Some(v) = super::var_bind::style_numeric(app, ui, rc, key, "fontSize", |ui| {
-            field::num_field(ui, rc, "se-size", Prefix::Icon(Icon::Text), Some(t.font_size), "")
+        if let Some(v) = super::var_bind::style_numeric(app, ui, rc, key, "fontSize", |ui, r| {
+            field::num_field(ui, r, "se-size", Prefix::Icon(Icon::Text), Some(t.font_size), "")
         }) {
             set(app, &|ts| ts.font_size = v.max(1.0));
         }
     });
     let line = richtext::display_line_height_px(t.line_height, t.font_size);
     popover::row(ui, body, first + 3, "Line height", |ui, rc| {
-        if let Some(v) = super::var_bind::style_numeric(app, ui, rc, key, "lineHeight", |ui| {
-            field::num_field(ui, rc, "se-line-height", Prefix::Icon(Icon::PaddingV), Some(line), "")
+        if let Some(v) = super::var_bind::style_numeric(app, ui, rc, key, "lineHeight", |ui, r| {
+            field::num_field(ui, r, "se-line-height", Prefix::Icon(Icon::PaddingV), Some(line), "")
         }) {
             set(app, &|ts| ts.line_height = LineHeight::Pixels(v.max(1.0)));
         }
     });
     popover::row(ui, body, first + 4, "Letter spacing", |ui, rc| {
-        if let Some(v) = super::var_bind::style_numeric(app, ui, rc, key, "letterSpacing", |ui| {
-            field::num_field(ui, rc, "se-letter-spacing", Prefix::Icon(Icon::PaddingH), Some(t.letter_spacing), "")
+        if let Some(v) = super::var_bind::style_numeric(app, ui, rc, key, "letterSpacing", |ui, r| {
+            field::num_field(ui, r, "se-letter-spacing", Prefix::Icon(Icon::PaddingH), Some(t.letter_spacing), "")
         }) {
             set(app, &|ts| ts.letter_spacing = v);
         }

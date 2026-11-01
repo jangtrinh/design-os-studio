@@ -63,7 +63,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     let w_r = pane.rect(WEIGHT_X, 0.0, WEIGHT_W, theme::FIELD_HEIGHT);
     let sw_val = if sides_on { None } else { common(app, sel, |n| n.stroke.weight) };
     if let Some(w) =
-        var_bind::numeric(app, ui, w_r, sel, &["strokeWeight"], |ui| field::num_field(ui, w_r, "stroke-w", Prefix::Icon(Icon::StrokeWeight), sw_val, ""))
+        var_bind::numeric(app, ui, w_r, sel, &["strokeWeight"], |ui, r| field::num_field(ui, r, "stroke-w", Prefix::Icon(Icon::StrokeWeight), sw_val, ""))
     {
         let w = w.max(0.0);
         app.edit_nodes(sel, |n| {
@@ -88,11 +88,14 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     }
     row_end(pane);
     if sides_on {
+        const SIDE_KEYS: [&str; 4] = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
         let w = common(app, sel, |n| n.stroke.side_weights).flatten().unwrap_or([0.0; 4]);
         for pair in [[("T", 0usize), ("R", 1)], [("B", 2), ("L", 3)]] {
             for (col, (name, idx)) in pair.into_iter().enumerate() {
                 let rect = pane.col(col, 0.0);
-                if let Some(v) = field::num_field(ui, rect, ("stroke-side", idx), Prefix::Text(name), Some(w[idx]), "") {
+                if let Some(v) = var_bind::numeric(app, ui, rect, sel, &[SIDE_KEYS[idx]], |ui, r| {
+                    field::num_field(ui, r, ("stroke-side", idx), Prefix::Text(name), Some(w[idx]), "")
+                }) {
                     app.edit_nodes(sel, |n| {
                         let mut s = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
                         s[idx] = v.max(0.0);
