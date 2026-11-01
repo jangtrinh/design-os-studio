@@ -3100,11 +3100,11 @@ mod tests {
         let mut after_pm = designos_render::tiny_skia::Pixmap::new(400, 300).unwrap();
         designos_render::render_page(&app.doc, page, &vp, &mut after_pm);
 
-        if let Some(out_dir) = std::env::var_os("DESIGNOS_1470_EVIDENCE_OUT") {
+        if let Some(out_dir) = std::env::var_os("DESIGNOS_RESIZE_TO_FIT_EVIDENCE_OUT") {
             let out_path = std::path::Path::new(&out_dir);
             std::fs::create_dir_all(out_path).unwrap();
-            before_pm.save_png(out_path.join("1470-before.png")).unwrap();
-            after_pm.save_png(out_path.join("1470-after.png")).unwrap();
+            before_pm.save_png(out_path.join("resize-to-fit-before.png")).unwrap();
+            after_pm.save_png(out_path.join("resize-to-fit-after.png")).unwrap();
         }
 
         let px = |pm: &designos_render::tiny_skia::Pixmap, x: u32, y: u32| {
@@ -3119,5 +3119,514 @@ mod tests {
         assert_eq!(px(&after_pm, 120, 110), (0xF9, 0x73, 0x16, 0xFF));
         assert_eq!(px(&before_pm, 230, 140), (0x22, 0xC5, 0x5E, 0xFF));
         assert_eq!(px(&after_pm, 230, 140), (0x22, 0xC5, 0x5E, 0xFF));
+    }
+
+    fn page_transform(doc: &Document, id: NodeId) -> Affine {
+        let mut chain = Vec::new();
+        let mut cur = Some(id);
+        while let Some(nid) = cur {
+            let Some(n) = doc.get(nid) else { break };
+            if matches!(n.kind, NodeKind::Page { .. }) {
+                break;
+            }
+            chain.push(n.transform);
+            cur = n.parent;
+        }
+        let mut out = Affine::IDENTITY;
+        for t in chain.into_iter().rev() {
+            out = out * t;
+        }
+        out
+    }
+
+    fn assert_affine_close(a: Affine, b: Affine, eps: f32) {
+        assert!(
+            (a.a - b.a).abs() <= eps
+                && (a.b - b.b).abs() <= eps
+                && (a.c - b.c).abs() <= eps
+                && (a.d - b.d).abs() <= eps
+                && (a.tx - b.tx).abs() <= eps
+                && (a.ty - b.ty).abs() <= eps,
+            "expected affine {b:?}, got {a:?}"
+        );
+    }
+
+    #[test]
+    fn resize_to_fit_frame_larger_than_children_shrinks_and_keeps_child_page_positions() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(100.0, 200.0, 500.0, 400.0))).unwrap();
+        let c1 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c1, Rect::new(40.0, 50.0, 60.0, 80.0))).unwrap();
+        let c2 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c2, Rect::new(140.0, 110.0, 90.0, 70.0))).unwrap();
+
+        let c1_page_before = page_transform(&doc, c1);
+        let c2_page_before = page_transform(&doc, c2);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        assert_eq!((f.transform.tx, f.transform.ty), (140.0, 250.0));
+        assert_eq!(f.size, Vec2::new(190.0, 130.0));
+        assert_eq!((app.doc.get(c1).unwrap().transform.tx, app.doc.get(c1).unwrap().transform.ty), (0.0, 0.0));
+        assert_eq!((app.doc.get(c2).unwrap().transform.tx, app.doc.get(c2).unwrap().transform.ty), (100.0, 60.0));
+        assert_affine_close(page_transform(&app.doc, c1), c1_page_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, c2), c2_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_frame_smaller_than_children_grows_and_keeps_child_page_positions() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(50.0, 60.0, 40.0, 30.0))).unwrap();
+        let c1 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c1, Rect::new(-20.0, -15.0, 50.0, 40.0))).unwrap();
+        let c2 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c2, Rect::new(80.0, 95.0, 60.0, 50.0))).unwrap();
+
+        let c1_page_before = page_transform(&doc, c1);
+        let c2_page_before = page_transform(&doc, c2);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        assert_eq!((f.transform.tx, f.transform.ty), (30.0, 45.0));
+        assert_eq!(f.size, Vec2::new(160.0, 160.0));
+        assert_affine_close(page_transform(&app.doc, c1), c1_page_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, c2), c2_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_group_fits_visible_children() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let gid = doc.alloc_id();
+        let mut g = Node::new(gid, NodeKind::Group);
+        g.transform = Affine::translate(10.0, 20.0);
+        g.size = Vec2::new(300.0, 300.0);
+        doc.insert(page, g).unwrap();
+        let c1 = doc.alloc_id();
+        doc.insert(gid, Node::rectangle(c1, Rect::new(25.0, 35.0, 80.0, 45.0))).unwrap();
+        let c1_page_before = page_transform(&doc, c1);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![gid];
+        assert!(app.resize_to_fit());
+
+        let g_after = app.doc.get(gid).unwrap();
+        assert_eq!((g_after.transform.tx, g_after.transform.ty), (35.0, 55.0));
+        assert_eq!(g_after.size, Vec2::new(80.0, 45.0));
+        assert_affine_close(page_transform(&app.doc, c1), c1_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_component_and_component_set_fit_visible_children() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+
+        let comp_id = doc.alloc_id();
+        let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+        comp.transform = Affine::translate(10.0, 15.0);
+        comp.size = Vec2::new(200.0, 180.0);
+        doc.insert(page, comp).unwrap();
+        let comp_child = doc.alloc_id();
+        doc.insert(comp_id, Node::rectangle(comp_child, Rect::new(12.0, 18.0, 64.0, 32.0))).unwrap();
+
+        let set_id = doc.alloc_id();
+        let mut set_node = Node::new(set_id, NodeKind::ComponentSet(FrameProps::default()));
+        set_node.transform = Affine::translate(300.0, 40.0);
+        set_node.size = Vec2::new(500.0, 400.0);
+        doc.insert(page, set_node).unwrap();
+        let var1 = doc.alloc_id();
+        let mut v1 = Node::new(var1, NodeKind::Component(FrameProps::default()));
+        v1.transform = Affine::translate(24.0, 30.0);
+        v1.size = Vec2::new(80.0, 36.0);
+        doc.insert(set_id, v1).unwrap();
+        let var2 = doc.alloc_id();
+        let mut v2 = Node::new(var2, NodeKind::Component(FrameProps::default()));
+        v2.transform = Affine::translate(124.0, 30.0);
+        v2.size = Vec2::new(96.0, 44.0);
+        doc.insert(set_id, v2).unwrap();
+
+        let comp_child_page = page_transform(&doc, comp_child);
+        let var1_page = page_transform(&doc, var1);
+        let var2_page = page_transform(&doc, var2);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![comp_id, set_id];
+        assert!(app.resize_to_fit());
+
+        let comp_after = app.doc.get(comp_id).unwrap();
+        assert_eq!((comp_after.transform.tx, comp_after.transform.ty), (22.0, 33.0));
+        assert_eq!(comp_after.size, Vec2::new(64.0, 32.0));
+        assert_affine_close(page_transform(&app.doc, comp_child), comp_child_page, 1e-4);
+
+        let set_after = app.doc.get(set_id).unwrap();
+        assert_eq!((set_after.transform.tx, set_after.transform.ty), (324.0, 70.0));
+        assert_eq!(set_after.size, Vec2::new(196.0, 44.0));
+        assert_affine_close(page_transform(&app.doc, var1), var1_page, 1e-4);
+        assert_affine_close(page_transform(&app.doc, var2), var2_page, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_auto_layout_frame_turns_hug_on_both_axes() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(20.0, 30.0, 400.0, 300.0));
+        frame.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                item_spacing: 10.0,
+                padding: [8.0, 12.0, 8.0, 12.0],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, frame).unwrap();
+        let c1 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c1, Rect::new(0.0, 0.0, 50.0, 24.0))).unwrap();
+        let c2 = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(c2, Rect::new(0.0, 0.0, 70.0, 34.0))).unwrap();
+        doc.relayout_subtree(fid);
+        assert_eq!(doc.get(fid).unwrap().size, Vec2::new(400.0, 300.0));
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        let al = f.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!(al.primary_sizing, Sizing::Hug);
+        assert_eq!(al.counter_sizing, Sizing::Hug);
+        // 12 + 50 + 10 + 70 + 12 = 154 width; 8 + max(24, 34) + 8 = 50 height.
+        assert_eq!(f.size, Vec2::new(154.0, 50.0));
+        assert_eq!((f.transform.tx, f.transform.ty), (20.0, 30.0));
+    }
+
+    #[test]
+    fn resize_to_fit_ignores_hidden_children_and_disables_when_none_visible() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 300.0, 300.0))).unwrap();
+        let vis = doc.alloc_id();
+        doc.insert(fid, Node::rectangle(vis, Rect::new(30.0, 40.0, 50.0, 60.0))).unwrap();
+        let hid = doc.alloc_id();
+        let mut hid_node = Node::rectangle(hid, Rect::new(200.0, 220.0, 80.0, 70.0));
+        hid_node.visible = false;
+        doc.insert(fid, hid_node).unwrap();
+
+        let vis_page_before = page_transform(&doc, vis);
+        let hid_page_before = page_transform(&doc, hid);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.can_resize_to_fit());
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        assert_eq!((f.transform.tx, f.transform.ty), (30.0, 40.0));
+        assert_eq!(f.size, Vec2::new(50.0, 60.0));
+        assert_affine_close(page_transform(&app.doc, vis), vis_page_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, hid), hid_page_before, 1e-4);
+
+        // Hide the remaining visible child: resize_to_fit must now be disabled and a no-op.
+        app.doc.get_mut(vis).unwrap().visible = false;
+        assert!(!app.can_resize_to_fit());
+        assert!(!app.resize_to_fit());
+    }
+
+    #[test]
+    fn resize_to_fit_rotated_child_and_rotated_container_use_container_space() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 400.0, 400.0));
+        // Rotate the container itself by 30 degrees and translate to (100, 150).
+        frame.transform = Affine::translate(100.0, 150.0) * Affine::rotate(30.0_f32.to_radians());
+        doc.insert(page, frame).unwrap();
+
+        let cid = doc.alloc_id();
+        let mut child = Node::rectangle(cid, Rect::new(0.0, 0.0, 100.0, 40.0));
+        // Rotate the child 90 degrees inside the container: local corners span x in [20, 60], y in [30, 130].
+        child.transform = Affine { a: 0.0, b: 1.0, c: -1.0, d: 0.0, tx: 60.0, ty: 30.0 };
+        doc.insert(fid, child).unwrap();
+
+        let child_page_before = page_transform(&doc, cid);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        let f = app.doc.get(fid).unwrap();
+        assert!((f.size.x - 40.0).abs() < 1e-4 && (f.size.y - 100.0).abs() < 1e-4, "got size {:?}", f.size);
+        let c = app.doc.get(cid).unwrap();
+        // Child's rotated bounds in container now start at (0, 0), so tx became 60 - 20 = 40, ty became 30 - 30 = 0.
+        assert!((c.transform.tx - 40.0).abs() < 1e-4 && c.transform.ty.abs() < 1e-4, "got child transform {:?}", c.transform);
+        assert_affine_close(page_transform(&app.doc, cid), child_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_does_not_apply_child_constraints() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(10.0, 20.0, 400.0, 300.0))).unwrap();
+
+        let stretch_child = doc.alloc_id();
+        let mut sc = Node::rectangle(stretch_child, Rect::new(50.0, 60.0, 120.0, 80.0));
+        sc.constraints = designos_doc::Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Scale };
+        doc.insert(fid, sc).unwrap();
+
+        let max_child = doc.alloc_id();
+        let mut mc = Node::rectangle(max_child, Rect::new(90.0, 100.0, 100.0, 70.0));
+        mc.constraints = designos_doc::Constraints { horizontal: Constraint::Max, vertical: Constraint::Center };
+        doc.insert(fid, mc).unwrap();
+
+        let sc_page_before = page_transform(&doc, stretch_child);
+        let mc_page_before = page_transform(&doc, max_child);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![fid];
+        assert!(app.resize_to_fit());
+
+        // Neither child's size nor page position may change despite Stretch/Scale/Max/Center constraints.
+        assert_eq!(app.doc.get(stretch_child).unwrap().size, Vec2::new(120.0, 80.0));
+        assert_eq!(app.doc.get(max_child).unwrap().size, Vec2::new(100.0, 70.0));
+        assert_affine_close(page_transform(&app.doc, stretch_child), sc_page_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, max_child), mc_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+
+        let f1 = doc.alloc_id();
+        doc.insert(page, Node::frame(f1, Rect::new(0.0, 0.0, 300.0, 200.0))).unwrap();
+        let f1_c = doc.alloc_id();
+        doc.insert(f1, Node::rectangle(f1_c, Rect::new(20.0, 30.0, 70.0, 50.0))).unwrap();
+
+        let f2 = doc.alloc_id();
+        let mut al_frame = Node::frame(f2, Rect::new(400.0, 0.0, 250.0, 180.0));
+        al_frame.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Vertical,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                padding: [10.0; 4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, al_frame).unwrap();
+        let f2_c = doc.alloc_id();
+        doc.insert(f2, Node::rectangle(f2_c, Rect::new(0.0, 0.0, 60.0, 40.0))).unwrap();
+        doc.relayout_subtree(f2);
+
+        let shape = doc.alloc_id();
+        doc.insert(page, Node::rectangle(shape, Rect::new(700.0, 10.0, 45.0, 35.0))).unwrap();
+        let text = doc.alloc_id();
+        doc.insert(page, Node::text(text, Rect::new(760.0, 10.0, 80.0, 24.0), "Hello", TextStyle::default())).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+        // Selecting only a shape and text does nothing.
+        app.selection = vec![shape, text];
+        assert!(!app.can_resize_to_fit());
+        assert!(!app.resize_to_fit());
+
+        // Selecting both frames + shape + text fits both frames and skips the shape and text in one undo step.
+        app.selection = vec![f1, f2, shape, text];
+        assert!(app.resize_to_fit());
+        assert_eq!(app.doc.get(f1).unwrap().size, Vec2::new(70.0, 50.0));
+        assert_eq!((app.doc.get(f1).unwrap().transform.tx, app.doc.get(f1).unwrap().transform.ty), (20.0, 30.0));
+        assert_eq!(app.doc.get(f2).unwrap().size, Vec2::new(80.0, 60.0));
+        assert_eq!(app.doc.get(shape).unwrap().size, Vec2::new(45.0, 35.0));
+        assert_eq!(app.doc.get(text).unwrap().size, Vec2::new(80.0, 24.0));
+
+        // Single undo restores both frames and their children.
+        app.undo();
+        assert_eq!(app.doc.get(f1).unwrap().size, Vec2::new(300.0, 200.0));
+        assert_eq!((app.doc.get(f1).unwrap().transform.tx, app.doc.get(f1).unwrap().transform.ty), (0.0, 0.0));
+        assert_eq!((app.doc.get(f1_c).unwrap().transform.tx, app.doc.get(f1_c).unwrap().transform.ty), (20.0, 30.0));
+        assert_eq!(app.doc.get(f2).unwrap().size, Vec2::new(250.0, 180.0));
+        let al_restored = app.doc.get(f2).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!(al_restored.primary_sizing, Sizing::Fixed);
+        assert_eq!(al_restored.counter_sizing, Sizing::Fixed);
+    }
+
+    #[test]
+    fn resize_to_fit_frame_inside_auto_layout_parent_reflows_parent_and_moves_child_on_page() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let p = doc.alloc_id();
+        let mut pn = Node::frame(p, Rect::new(0.0, 0.0, 400.0, 300.0));
+        pn.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Hug,
+                counter_sizing: Sizing::Hug,
+                item_spacing: 10.0,
+                padding: [10.0; 4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, pn).unwrap();
+        let a = doc.alloc_id();
+        doc.insert(p, Node::rectangle(a, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        let f = doc.alloc_id();
+        doc.insert(p, Node::frame(f, Rect::new(0.0, 0.0, 200.0, 200.0))).unwrap();
+        let c = doc.alloc_id();
+        doc.insert(f, Node::rectangle(c, Rect::new(40.0, 40.0, 60.0, 60.0))).unwrap();
+        doc.relayout_subtree(p);
+
+        let before = doc.to_json().unwrap();
+        assert_eq!(doc.get(p).unwrap().size, Vec2::new(280.0, 220.0));
+        let c_before = page_transform(&doc, c);
+        assert_eq!((c_before.tx, c_before.ty), (110.0, 50.0));
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![f];
+        assert!(app.resize_to_fit());
+
+        let fn_ = app.doc.get(f).unwrap();
+        assert_eq!(fn_.size, Vec2::new(60.0, 60.0));
+        assert_eq!((fn_.transform.tx, fn_.transform.ty), (70.0, 10.0));
+        assert_eq!((fn_.layout_child.horizontal, fn_.layout_child.vertical), (Sizing::Fixed, Sizing::Fixed));
+        assert_eq!(app.doc.get(p).unwrap().size, Vec2::new(140.0, 80.0));
+        let c_after = page_transform(&app.doc, c);
+        assert_eq!((c_after.tx, c_after.ty), (70.0, 10.0));
+
+        let committed = app.doc.to_json().unwrap();
+        app.undo();
+        assert_eq!(app.doc.to_json().unwrap(), before);
+        app.redo();
+        assert_eq!(app.doc.to_json().unwrap(), committed);
+    }
+
+    #[test]
+    fn resize_to_fit_nested_selection_fits_deepest_container_before_outer_container() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let o = doc.alloc_id();
+        doc.insert(page, Node::frame(o, Rect::new(0.0, 0.0, 600.0, 600.0))).unwrap();
+        let n = doc.alloc_id();
+        doc.insert(o, Node::frame(n, Rect::new(50.0, 50.0, 400.0, 400.0))).unwrap();
+        let nc = doc.alloc_id();
+        doc.insert(n, Node::rectangle(nc, Rect::new(10.0, 10.0, 20.0, 20.0))).unwrap();
+        let s = doc.alloc_id();
+        doc.insert(o, Node::rectangle(s, Rect::new(100.0, 100.0, 10.0, 10.0))).unwrap();
+
+        let nc_before = page_transform(&doc, nc);
+        let s_before = page_transform(&doc, s);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![o, n];
+        assert!(app.resize_to_fit());
+
+        let n_after = app.doc.get(n).unwrap();
+        assert_eq!(n_after.size, Vec2::new(20.0, 20.0));
+        let o_after = app.doc.get(o).unwrap();
+        assert_eq!(o_after.size, Vec2::new(50.0, 50.0));
+        assert_eq!((o_after.transform.tx, o_after.transform.ty), (60.0, 60.0));
+        assert_affine_close(page_transform(&app.doc, nc), nc_before, 1e-4);
+        assert_affine_close(page_transform(&app.doc, s), s_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_frame_inside_group_refits_enclosing_group() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let g = doc.alloc_id();
+        let mut gn = Node::new(g, NodeKind::Group);
+        gn.transform = Affine::translate(10.0, 20.0);
+        gn.size = Vec2::new(300.0, 300.0);
+        doc.insert(page, gn).unwrap();
+        let f = doc.alloc_id();
+        doc.insert(g, Node::frame(f, Rect::new(0.0, 0.0, 300.0, 300.0))).unwrap();
+        let c = doc.alloc_id();
+        doc.insert(f, Node::rectangle(c, Rect::new(40.0, 50.0, 80.0, 60.0))).unwrap();
+
+        let c_before = page_transform(&doc, c);
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![f];
+        assert!(app.resize_to_fit());
+
+        let f_after = app.doc.get(f).unwrap();
+        assert_eq!(f_after.size, Vec2::new(80.0, 60.0));
+        assert_eq!((f_after.transform.tx, f_after.transform.ty), (0.0, 0.0));
+        let g_after = app.doc.get(g).unwrap();
+        assert_eq!(g_after.size, Vec2::new(80.0, 60.0));
+        assert_eq!((g_after.transform.tx, g_after.transform.ty), (50.0, 70.0));
+        assert_affine_close(page_transform(&app.doc, c), c_before, 1e-4);
+
+        app.undo();
+        let g_restored = app.doc.get(g).unwrap();
+        assert_eq!(g_restored.size, Vec2::new(300.0, 300.0));
+        assert_eq!((g_restored.transform.tx, g_restored.transform.ty), (10.0, 20.0));
+    }
+
+    #[test]
+    fn resize_to_fit_fill_width_frame_in_auto_layout_parent_becomes_fixed_and_keeps_fitted_size() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let p = doc.alloc_id();
+        let mut pn = Node::frame(p, Rect::new(0.0, 0.0, 300.0, 200.0));
+        pn.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                padding: [10.0; 4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, pn).unwrap();
+        let f = doc.alloc_id();
+        let mut fn_ = Node::frame(f, Rect::new(0.0, 0.0, 100.0, 100.0));
+        fn_.layout_child.horizontal = Sizing::Fill;
+        fn_.layout_child.vertical = Sizing::Fill;
+        doc.insert(p, fn_).unwrap();
+        let c = doc.alloc_id();
+        doc.insert(f, Node::rectangle(c, Rect::new(20.0, 15.0, 80.0, 50.0))).unwrap();
+        doc.relayout_subtree(p);
+        assert_eq!(doc.get(f).unwrap().size, Vec2::new(280.0, 180.0));
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![f];
+        assert!(app.resize_to_fit());
+
+        let f_after = app.doc.get(f).unwrap();
+        assert_eq!((f_after.layout_child.horizontal, f_after.layout_child.vertical), (Sizing::Fixed, Sizing::Fixed));
+        assert_eq!(f_after.size, Vec2::new(80.0, 50.0));
+
+        app.doc.relayout_subtree(p);
+        assert_eq!(app.doc.get(f).unwrap().size, Vec2::new(80.0, 50.0));
     }
 }
