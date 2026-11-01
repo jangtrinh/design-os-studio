@@ -67,6 +67,12 @@ pub struct CompileOptions {
     /// Lifts the offscreen-program caps of interactive mode, for the one
     /// full-quality compile of an idle view. Headless compiles never cap.
     pub uncap_programs: bool,
+    /// Turns off the zoom-out level of detail of interactive compiles (sub-pixel
+    /// culling, text greeking, leaf and small-container shortcuts, tiny-effect
+    /// skips), for the one compile of a view that is still: only a moving view
+    /// may simplify for speed. Independent of `uncap_programs`, and changes
+    /// nothing for headless compiles, which never simplify.
+    pub full_detail: bool,
     /// With `uncap_programs`: offscreen programs are only opened while the
     /// accounted GPU bytes of all targets of the frame (including the root
     /// output target) stay within this budget (see `program_bytes`); past it
@@ -89,6 +95,7 @@ impl Default for CompileOptions {
             force_fallback: None,
             supersample: 0,
             uncap_programs: false,
+            full_detail: false,
             refine_vram_budget_bytes: DEFAULT_REFINE_VRAM_BUDGET_BYTES,
             refine_max_programs: DEFAULT_REFINE_MAX_PROGRAMS,
             runtime_node_opacities: Vec::new(),
@@ -534,11 +541,13 @@ impl Ctx<'_> {
     // ----- tree -------------------------------------------------------------
 
     /// Interactive approximations (greeking, sub-pixel culling, effect skips)
-    /// apply to index-culled drawing only: a silhouette draws its children at
-    /// full detail. The offscreen-program and VRAM limits do not follow this
-    /// switch: they follow `live` (see `prog_cap_hit` and `over_budget`).
+    /// apply to index-culled drawing of a moving view only: a silhouette draws
+    /// its children at full detail, and so does the compile of a still view
+    /// (`CompileOptions::full_detail`). The offscreen-program and VRAM limits do
+    /// not follow this switch: they follow `live` (see `prog_cap_hit` and
+    /// `over_budget`).
     fn interactive(&self) -> bool {
-        self.cull && self.geom.budget.is_some()
+        self.cull && self.geom.budget.is_some() && !self.opts.full_detail
     }
 
     /// The idle refine compile: interactive mode with its program cap lifted

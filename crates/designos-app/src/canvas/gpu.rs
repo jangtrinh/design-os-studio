@@ -35,8 +35,12 @@ pub struct GpuView {
     pub(crate) compiler: SceneCompiler,
     last_key: Option<FrameKey>,
     /// The frame for `last_key` was compiled with the offscreen-program cap
-    /// lifted (the idle full-quality pass), so there is nothing left to refine.
+    /// lifted and the zoom-out shortcuts off (the idle full-quality pass), so
+    /// there is nothing left to refine.
     refined: bool,
+    /// The last compile was a refine that left geometry deferred over the 8 ms
+    /// budget: the next frames keep refining until none is.
+    refine_pending: bool,
     /// The canvas was last drawn by the GPU, not by the CPU tiles.
     painting: bool,
     /// `egui` input time at which the frame key last changed, or the view last
@@ -60,6 +64,7 @@ impl Default for GpuView {
             compiler,
             last_key: None,
             refined: false,
+            refine_pending: false,
             painting: false,
             stable_since: 0.0,
             last_compile_ms: 0.0,
@@ -85,6 +90,7 @@ impl GpuView {
         self.compiler.index.clear();
         self.last_key = None;
         self.refined = false;
+        self.refine_pending = false;
     }
 
     /// Whether a capture taken now shows the frame a user sees once the view is at
@@ -97,11 +103,17 @@ impl GpuView {
     }
 
     /// What this frame needs: the cached output, the capped interactive
-    /// compile, or the one uncapped compile of a view that has gone idle.
+    /// compile, or the one full-detail compile of a view that has gone idle.
     /// Idle = same frame key as the last compile for `IDLE_REFINE_DELAY`
     /// seconds of input time `now`, all geometry ready, no pointer gesture in
-    /// progress and no scroll or zoom (`view_input`) in this frame.
+    /// progress and no scroll or zoom (`view_input`) in this frame. A refine
+    /// that left geometry deferred continues frame after frame until none is
+    /// (each frame builds at most the 8 ms geometry budget); the view in between
+    /// is never recompiled with the zoom-out shortcuts.
     fn plan(&mut self, key: FrameKey, now: f64, pointer_down: bool, view_input: bool) -> FramePlan {
+        if self.refine_pending && self.last_key == Some(key) {
+            return if pointer_down { FramePlan::Reuse } else { FramePlan::Refine };
+        }
         let still = self.last_key == Some(key) && self.compiler.geom.stale_hits == 0;
         if !still {
             self.stable_since = now;
@@ -128,6 +140,7 @@ impl GpuView {
         let stale = self.compiler.geom.stale_hits > 0;
         self.last_key = Some(key);
         self.refined = refine && !stale;
+        self.refine_pending = refine && stale;
         if stale || !refine {
             Repaint::Now
         } else {
@@ -172,7 +185,8 @@ enum FramePlan {
     Wait(Duration),
     /// Compile with the interactive fast paths and the 64-program cap.
     Interactive,
-    /// Compile once more with the program cap lifted and cache that frame.
+    /// Compile once more with the program cap lifted and the zoom-out
+    /// shortcuts off, and cache that frame.
     Refine,
 }
 
@@ -263,6 +277,7 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) -> bool {
         g.compiler.opts.runtime_node_opacities = runtime_opacities;
         g.last_key = None;
         g.refined = false;
+        g.refine_pending = false;
     }
     let (now, pointer_down, view_input) =
         ui.input(|i| (i.time, i.pointer.any_down(), i.smooth_scroll_delta != egui::Vec2::ZERO || (i.zoom_delta() - 1.0).abs() > 1e-4));
@@ -280,8 +295,10 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) -> bool {
     let start = std::time::Instant::now();
     let refine = plan == FramePlan::Refine;
     g.compiler.opts.uncap_programs = refine;
+    g.compiler.opts.full_detail = refine;
     let frame = g.compiler.compile(doc, page, rev, &vp, size);
     g.compiler.opts.uncap_programs = false;
+    g.compiler.opts.full_detail = false;
     g.last_stats = Some(frame.stats());
     g.last_compile_ms = start.elapsed().as_secs_f32() * 1000.0;
     // some meshes may still have the previous zoom's flattening, or the view
@@ -392,6 +409,48 @@ mod tests {
         g.compiler.geom.stale_hits = 2;
         assert_eq!(g.compiled(key(1), true), Repaint::Now);
         assert!(!g.refined, "a refine with deferred geometry is not final");
+    }
+
+    #[test]
+    fn refine_with_deferred_geometry_continues_as_a_refine() {
+        let mut g = view(false);
+        assert_eq!(g.plan(key(1), 0.25, false, false), FramePlan::Refine);
+        g.compiler.geom.stale_hits = 2;
+        assert_eq!(g.compiled(key(1), true), Repaint::Now);
+        // the next frame finishes the refine: no interactive frame (zoom-out shortcuts, program cap)
+        // in between, and no new idle delay
+        assert_eq!(g.plan(key(1), 0.26, false, false), FramePlan::Refine, "a refine in progress is not an interactive frame");
+        g.compiler.geom.stale_hits = 1;
+        assert_eq!(g.compiled(key(1), true), Repaint::Now);
+        assert_eq!(g.plan(key(1), 0.27, false, false), FramePlan::Refine);
+        g.compiler.geom.stale_hits = 0;
+        assert_eq!(g.compiled(key(1), true), Repaint::None, "the refine is complete once no geometry is deferred");
+        assert!(g.refined, "the refined frame is cached");
+        for t in [0.3, 1.0, 60.0] {
+            assert_eq!(g.plan(key(1), t, false, false), FramePlan::Reuse);
+        }
+    }
+
+    #[test]
+    fn refine_in_progress_pauses_while_the_pointer_is_down() {
+        let mut g = view(false);
+        g.compiler.geom.stale_hits = 2;
+        g.compiled(key(1), true);
+        assert_eq!(g.plan(key(1), 0.3, true, false), FramePlan::Reuse, "no new compile during a pointer gesture");
+        assert_eq!(g.plan(key(1), 0.4, false, false), FramePlan::Refine, "and it resumes when the gesture ends");
+    }
+
+    #[test]
+    fn moving_the_view_abandons_a_refine_in_progress() {
+        let mut g = view(false);
+        g.compiler.geom.stale_hits = 2;
+        g.compiled(key(1), true);
+        let mut moved = key(1);
+        moved.2 = [1.0f32.to_bits(), 0];
+        assert_eq!(g.plan(moved, 0.3, false, false), FramePlan::Interactive);
+        g.compiler.geom.stale_hits = 0;
+        g.compiled(moved, false);
+        assert!(matches!(g.plan(moved, 0.31, false, false), FramePlan::Wait(_)), "after the interactive frame the idle delay applies again");
     }
 
     #[test]
