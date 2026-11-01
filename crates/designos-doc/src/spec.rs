@@ -721,6 +721,10 @@ impl Document {
                     if self.get(parent).and_then(|n| n.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).is_some() { parent } else { root_id };
                 self.relayout_subtree(relayout_root);
                 self.flush_pending_relayout();
+                if crate::spec_instance::remeasure_constrained_hug_texts(self, &ctx.constrained_hug_texts, measure) {
+                    self.relayout_subtree(relayout_root);
+                    self.flush_pending_relayout();
+                }
                 Ok(report)
             }
             Err(err) => {
@@ -1377,6 +1381,10 @@ impl Document {
                     tp.style.align_v = TextAlignV::Center;
                 }
                 let needs_measure = spec.width.is_none() || spec.height.is_none();
+                let constrained_hug = spec.width.is_none()
+                    && spec.width_sizing.as_deref().is_none_or(|s| parse_sizing(s) == Sizing::Hug)
+                    && spec.max_width.is_some()
+                    && spec.height.is_none();
                 if spec.width.is_some() || spec.width_sizing.as_deref() == Some("fill") {
                     tp.auto_resize = TextAutoResize::Height;
                     if spec.height.is_none() {
@@ -1389,6 +1397,14 @@ impl Document {
                     }
                     if spec.height.is_none() {
                         n.size.y = sz.y;
+                    }
+                }
+                if constrained_hug {
+                    // Auto-layout may clamp this hug width to max_width. Re-measure its height
+                    // after that first layout pass using the final width.
+                    tp.auto_resize = TextAutoResize::Height;
+                    if !ctx.constrained_hug_texts.contains(&id) {
+                        ctx.constrained_hug_texts.push(id);
                     }
                 }
                 if needs_measure && ctx.text_fell_back(tp) && !report.measured_with_fallback.contains(&id.0) {
@@ -2279,6 +2295,45 @@ mod tests {
         let tid = doc.apply_spec(page, &spec).unwrap();
         let tn = doc.get(tid).unwrap();
         assert_eq!(tn.size.x, 52.0, "without an installed measurer, 'Delete' at 14px Semibold keeps the 52.0px estimate");
+    }
+
+    #[test]
+    fn max_width_hug_text_remeasures_after_auto_layout() {
+        struct FixedMeasure;
+        impl crate::text_measure::TextMeasure for FixedMeasure {
+            fn measure(&self, _tp: &TextProps, wrap: Option<f32>) -> Vec2 {
+                match wrap {
+                    Some(width) => Vec2::new(width, 90.0),
+                    None => Vec2::new(300.0, 17.0),
+                }
+            }
+        }
+
+        let mut doc = Document::new("Max width hug");
+        let page = doc.add_page("P");
+        let spec: NodeSpec = serde_json::from_value(serde_json::json!({
+            "kind": "frame",
+            "name": "Root",
+            "width_sizing": "hug",
+            "height_sizing": "hug",
+            "layout": {"direction": "column", "padding": [16.0, 16.0, 16.0, 16.0]},
+            "children": [{
+                "kind": "text",
+                "name": "Paragraph",
+                "text": "A long paragraph",
+                "width_sizing": "hug",
+                "max_width": 200.0
+            }]
+        }))
+        .unwrap();
+
+        let report = doc.apply_spec_with_measure(page, &spec, &[], Some(&FixedMeasure)).unwrap();
+        let root = doc.get(report.root_node_id).unwrap();
+        let paragraph_id = root.children[0];
+        let paragraph = doc.get(paragraph_id).unwrap();
+        assert!((paragraph.size.x - 200.0).abs() <= 0.5);
+        assert!((paragraph.size.y - 90.0).abs() <= 0.5);
+        assert!((root.size.y - 122.0).abs() <= 0.5);
     }
 
     /// A measurer passed into one apply must not leak into another thread's apply.
