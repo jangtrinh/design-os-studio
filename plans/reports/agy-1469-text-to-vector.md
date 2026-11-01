@@ -256,8 +256,9 @@ designos-webcapture:   8 passed; 0 failed; 0 ignored
 ### 5. Git Log (`origin/main..HEAD`)
 
 ```text
+33d7d0e6 fix(vector): preserve auto-layout sizing, centered text strokes, and async font loading (#1469)
 14188742 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1469-text-to-vector
-93c8e407 test(vector): add unit, pixel, and Untitled UI kit verification for text-to-vector (#1469)
+93c8e407 docs(report): record final commit hash for #1469
 af6c702f feat(vector): Flatten and Outline stroke convert text to vector paths (#1469)
 ```
 
