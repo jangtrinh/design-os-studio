@@ -69,7 +69,7 @@
      - When `alpha < 255`, appends ` / <a>` where `a` is `alpha / 255.0` rounded to 2 decimals (`62.8% 0.26 29.23 / 0.5` and `62.8% 0.22 0.13 / 0.5`).
    - Added `State::apply_ok_input(&mut self, fmt: Fmt, input: &str, keep_alpha: u8) -> Option<[u8; 4]>`:
      - Accepts 3 space/comma-separated tokens parsed with `parse_ok_channel` rules (clamps, `%`, relative `+=` / `-=`), plus an optional `/ a` (`a` in `0..=1` or as a percent `0%..=100%`), as well as pasted `oklch(...)` or `oklab(...)` strings (`deg` and `°` included).
-     - Preserves R6 (`st.oklch` / `st.oklab` full `f32` precision on unedited tokens and grey hue memory when `C == 0`).
+     - **Correction (`d4a09c33` disclosure):** On `d4a09c33`, `apply_ok_input` preserved unedited channels only when at least one of the three channel tokens differed from its displayed string; when all three channel tokens matched the displayed strings (e.g. an alpha-only edit `"56.93% 0.14 254.47 / 0.5"` on `[52, 120, 200]` or pressing `Enter` without editing), lines `568–570` (`if !changed_mask.iter().any(|&c| c) { changed_mask = [true, true, true]; }`) forced all three channels to re-apply from the 2-decimal rounded strings, drifting `2,337 / 4,096` colours (`[52, 120, 200] -> [51, 121, 199]`). Additionally, editing one channel while `/ a` was shown re-parsed the 2-decimal `a` and drifted `155 / 254` non-endpoint alphas (`141 -> 140`). Both defects are fixed in [`## Round 3`](#round-3).
 2. **Ruling 2 (Every value of every picker mode readable at rest):**
    - Sized the closed format dropdown (`picker-fmt`) dynamically to the longest label in `Fmt::ALL` (`"OKLCH"`, `41.91` px in `theme::font_body_strong()`): `dd_w = (max_label_w + 6.0 + 18.0).ceil() = 66.0` px (`42.0` px text budget).
    - Tightened `picker_dropdown` inner padding to `6.0` px left inset and `18.0` px right chevron reserve (`chevron` centered at `rect.right() - 10.0`).
@@ -116,13 +116,13 @@ Measured with `egui` font layout (`theme::font_body_strong()` for dropdown label
 |---|---|---|---|
 | **1** | Each new test fails on `f82be3e0` (red run) and passes on head (green run) | **PASS** (`1 failed -> 4 passed` in `designos-doc`; `11 failed -> 21 passed` in `picker.rs`) | `r2-red-doc.log`, `r2-red-picker.log`, `r2-green-doc.log`, `r2-green-picker.log` |
 | **2** | Mutants M02, M09, M10, M11, M12 killed; the 11 already-killed ones stay killed | **PASS** (`17/20 KILLED`: M01–M05, M07–M17, M20) | `r2-mutants.log` |
-| **3** | Headless 2x CPU-raster proof sheet (`r2-picker-modes.png`) + visible strings per mode | **PASS** (zero `'…'` in any mode; open dropdown shows all 7 labels) | `r2-picker-modes.png`, `r2-visible-strings.log` |
+| **3** | Headless 2x CPU-raster proof sheet (`r2-picker-modes.png`) + visible strings per mode | **PARTIAL on `d4a09c33` (fixed in Round 3)** — zero `'…'` on `[255, 0, 0]` (`4`-char `H`) at `alpha = 255` and `128`, but on `d4a09c33` elided `3,103 / 4,096` (`75.8%`) of OKLCH and `1,722 / 4,096` (`42.0%`) of OKLAB at `alpha = 140` (`0.55`), `2,069 / 4,096` (`50.5%`) of OKLCH and `353 / 4,096` (`8.6%`) of OKLAB at `alpha = 128` (`0.5`), and `40 / 216` (`18.5%`) of `Fmt::Css` at `alpha = 140` | `r2-picker-modes.png`, `r2-visible-strings.log` |
 | **4a** | `cargo fmt --all -- --check` exits 0 | **PASS** (`exit=0`) | `r2-gates.log` |
 | **4b** | `cargo clippy --workspace --all-targets --locked -- -D warnings`: only `main`'s known errors (`agent_permissions.rs:1163,1181`, `panels/components.rs` items_after_test_module / unused run_ui / ptr_arg) | **PASS** (0 errors/warnings in `designos-doc` or `picker.rs`; only `main`'s 5 known errors) | `r2-gates.log` |
 | **4c** | `cargo test -p designos-doc --locked --lib` passes | **PASS** (`710 passed; 0 failed`) | `r2-gates.log` |
 | **4d** | `cargo test -p designos-app --bin designos --locked picker` passes | **PASS** (`92 passed; 0 failed`) | `r2-gates.log` |
-| **4e** | `… layout_unchanged` passes, or each moved baseline is a picker cell, listed with its old and new rect | **PASS** (`19/20` suites pass; in `layout_unchanged_f`, only the 3 unnamed picker value-row cells moved — listed below) | `r2-gates.log` |
-| **4f** | `cargo test --workspace --locked --lib` passes | **PASS** (all workspace lib crates `0 failed`) | `r2-gates.log` |
+| **4e** | `… layout_unchanged` passes, or each moved baseline is a picker cell, listed with its old and new rect | **FAIL on `d4a09c33` (`19/20` passed; `layout_unchanged_f` failed on the 9 moved picker rects across `f-picker`, `f-picker-gradient`, `picker-page`; fixed to `20/20` in Round 3)** | `r2-gates.log` |
+| **4f** | `cargo test --workspace --locked --lib` passes | **PASS** (all 12 workspace lib crates `0 failed`, including `designos-eval`) | `r2-gates.log` |
 | **4g** | `python3 scripts/check_chrome_colour_literals.py` and `python3 scripts/zero_fake_ui_gate.py` pass | **PASS** (`199/199` baseline; `17/17` invariants) | `r2-gates.log` |
 
 #### Acceptance 1 — RED on `f82be3e0` and GREEN on Head
@@ -389,6 +389,7 @@ test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 3972 filtered o
 $ cargo test --workspace --locked --lib
 designos-diff:       test result: ok. 13 passed; 0 failed
 designos-doc:        test result: ok. 710 passed; 0 failed
+designos-eval:       test result: ok. 78 passed; 0 failed
 designos-export:     test result: ok. 153 passed; 0 failed; 1 ignored
 designos-fig:        test result: ok. 143 passed; 0 failed
 designos-fonts:      test result: ok. 30 passed; 0 failed
@@ -419,14 +420,256 @@ f82be3e0 docs(report): add verification report and gate logs for #137
 
 ---
 
-### 7. Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`), Weakest Link & Unresolved Questions
+### 7. Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`), Weakest Link & Unresolved Questions (Corrected for `d4a09c33`)
 
 - **FACT:** On `f82be3e0`, `picker_dropdown` was `55.0` px wide (`25.0` px text budget) and 3-channel cells were `29.0` px wide (`19.0` px text budget), causing `"OKLCH"` (`41.91` px), `"OKLAB"` (`41.09` px), `"255"` (`21.56` px), `"100"` (`20.03` px), `"360"` (`22.44` px), and all 3-cell OKLCH/OKLAB numbers to elide with `'…'` at rest.
-- **FACT:** Sizing `picker-fmt` to `(max_label_w + 24.0).ceil() = 66.0` px (`42.0` px text budget), rendering `Fmt::Oklch | Fmt::Oklab` as a single `138.0` px cell (`132.0` px text budget with `pad = 3.0` px), and sizing `Fmt::Rgb | Fmt::Hsl | Fmt::Hsb` to `30.67` px cells (`24.67` px text budget) + `43.0` px opacity cell (`21.0` px number text budget) eliminates elision across every mode at rest, verified by both `visible_texts` (`col.a() > 0`) and `r2-picker-modes.png`.
+- **FACT (Corrected per M3):** On `d4a09c33`, sizing `picker-fmt` to `66.0` px (`42.0` px text budget), rendering `Fmt::Oklch | Fmt::Oklab` as a single `138.0` px cell (`132.0` px text budget with `pad = 3.0` px), and sizing `Fmt::Rgb | Fmt::Hsl | Fmt::Hsb` to `30.67` px cells (`24.67` px text budget) + `43.0` px opacity cell (`21.0` px number text budget) eliminated elision at `alpha = 255` (`0 / 4,096` elided in `OKLCH` and `OKLAB`), and on `[255, 0, 0]` (`4`-char `H`) at `alpha = 128` (`"62.8% 0.26 29.23 / 0.5"`, `130.78` px). However, because `d4a09c33` appended ` / a` at rest when `alpha < 255` (and `css_text` formatted `rgba(r, g, b, a)`), `d4a09c33` elided `3,103 / 4,096` (`75.8%`) of OKLCH colours and `1,722 / 4,096` (`42.0%`) of OKLAB colours at `alpha = 140` (`0.55`), `2,069 / 4,096` (`50.5%`) of OKLCH and `353 / 4,096` (`8.6%`) of OKLAB at `alpha = 128` (`0.5`), and `40 / 216` (`18.5%`) of `Fmt::Css` at `alpha = 140`. Resolved in [`## Round 3`](#round-3) by omitting alpha from the value cell at rest in every mode.
 - **FACT:** Clamping `+inf -> 1.0` in `sanitize_unit` and clamping `L` via `sanitize_unit(l)` at the entry of `oklab_to_srgb` maps `srgb_to_oklab(+inf, +inf, +inf)` to `[1.0, 0.0, 0.0]` and `oklab_to_srgb(1e13, 0.0, 0.0)` to `[1.0, 1.0, 1.0]`.
-- **INFERENCE:** Preserving unedited channel values in `State::apply_ok_input` when a token matches `fmt_ok_token(i, cur_triple[i])` or `fmt_ok_channel(i, cur_triple[i])` retains sub-display `f32` precision and grey hue memory (`R6`) in single-cell mode.
+- **INFERENCE (Corrected per M3):** On `d4a09c33`, `State::apply_ok_input` retained unedited channel precision only when at least one of the three channel tokens differed from its displayed string; when all three channel tokens matched the displayed strings (e.g. an alpha-only edit `"56.93% 0.14 254.47 / 0.5"` on `[52, 120, 200]`), lines `568–570` (`if !changed_mask.iter().any(|&c| c) { changed_mask = [true, true, true]; }`) overwrote all three channels with the 2-decimal rounded values (`[52, 120, 200] -> [51, 121, 199]`), and editing one channel at non-1.0 alpha re-parsed the 2-decimal `/ a` and drifted `155 / 254` non-endpoint alphas (`141 -> 140`). Resolved in [`## Round 3`](#round-3).
 - **ASSUMPTION:** In single-cell `Fmt::Oklch` / `Fmt::Oklab` input, both space-separated (`62.8% 0.26 29.23 / 0.5`) and comma-separated (`oklch(62.8%, 0.26, 29.23deg / 50%)`) token lists are accepted so CSS-style pastes and manual space-separated edits both succeed.
-- **Weakest link:** Single-cell `Fmt::Oklch` / `Fmt::Oklab` strings with extreme negative `a`/`b` plus explicit non-unit alpha (`100% -0.4 -0.4 / 0.25`, `126.3` px) sit within `5.7` px of the `132.0` px inner text budget at `AREA = 208.0` px.
+- **Weakest link (Corrected per M3):** On `d4a09c33`, `"100% -0.4 -0.4 / 0.25"` (`126.3` px) was not the widest string because `4` builds a wider glyph than `-` in Inter `11` px: `"68.46% 0.26 332.43 / 0.55"` measured `153.91` px and `"42.26% -0.04 -0.04 / 0.55"` measured `150.22` px, overflowing the `132.0` px inner text budget by up to `21.91` px (`25.88` px in `Fmt::Css` `"rgba(204, 204, 204, 0.44)"` at `141.66` px). Resolved in [`## Round 3`](#round-3).
+- **Unresolved questions:** None.
+
+---
+
+## Round 3
+
+### 8. What Could Not Be Verified (Stated First)
+
+1. **Live Figma Desktop interactive runtime:** Per hard rules, Figma Desktop was not opened during the run; CSS `oklch(...)` / `oklab(...)` unitless `0..1` vs `%` `0..100%` lightness parsing and at-rest single-cell formatting follow the controller's rulings in `/Users/jangtrinh/Products/design-os-studio/plans/261030-2041-e1-wave-1/brief-agy-137-r3.txt`.
+2. **Real-app windowed OS capture:** Per the controller's workflow, rendered verification in this worker was performed via the deterministic headless 2x (`ppp = 2.0`) CPU-raster proof sheet (`plans/reports/agy-137-oklch-picker-evidence/r3-modes.png`), visual inspection of the rendered PNG across all 7 modes at 50% alpha, and automated `visible_texts` + 4,096-colour grid width assertions across all 7 modes at 50% (`128`) and 55% (`140`) alpha.
+
+---
+
+### 9. Acceptance Table & Pasted Outputs (Round 3)
+
+| # | Acceptance Criterion | Verdict | Evidence File |
+|---|---|---|---|
+| **1a** | New test (B2/M1): at-rest value cell has no alpha and does not elide over the colour grid at 50% (`128`) and 55% (`140`) alpha, in every mode (`OKLCH`, `OKLAB`, `CSS`, `RGB`, `HSL`, `HSB`, `Hex`) — RED on `d4a09c33`, GREEN on head | **PASS** (`FAILED` on `d4a09c33` -> `ok` on head; `0 / 4,096` overflow or elide in any mode at 50% or 55% alpha) | `r3-red-picker.log`, `r3-green-picker.log` |
+| **1b** | New test (B3 + m1): `[52, 120, 200]` in OKLCH + `"56.93% 0.14 254.47 / 0.5"` commits `[52, 120, 200, 128]`; `[52, 120, 200, 141]` L-only edit with `/ 0.55` keeps alpha `141` — RED on `d4a09c33`, GREEN on head | **PASS** (`FAILED` on `d4a09c33` -> `ok` on head) | `r3-red-picker.log`, `r3-green-picker.log` |
+| **1c** | New test (M2): pasting `"oklch(0.985 0 0)"` commits `[250, 250, 250, 255]`; pasting `"oklch(62.8% 0.26 29.23)"` commits `[255, 0, 0, 255]` — RED on `d4a09c33`, GREEN on head | **PASS** (`FAILED` on `d4a09c33` -> `ok` on head) | `r3-red-picker.log`, `r3-green-picker.log` |
+| **1d** | New tests (m2, m3, l1, l2): tests kill surviving mutants `N01`, `N03`, `N05`, `N07`, `N15`, `N16`; mutant IDs removed from test comments; `"On this page"` stays at `main`'s `PAD + 8.0` (`24.0` px) and `"OKLCH"` keeps `>= 4.0` px gap to its chevron | **PASS** (`6/6` mutants `N01, N03, N05, N07, N15, N16` KILLED; `dropdown_insets_keep_source_at_main_and_fmt_chevron_gap` `FAILED` on `d4a09c33` -> `ok` on head) | `r3-mutants.log`, `r3-red-picker.log`, `r3-green-picker.log` |
+| **2** | Visual check: render the picker in `OKLCH`, `OKLAB`, `CSS`, `RGB`, `HSL`, `HSB`, and `Hex` at 50% alpha (`plans/reports/agy-137-oklch-picker-evidence/r3-modes.png`) and visually confirm every value is readable and not elided | **PASS** (visually inspected `r3-modes.png` at `2x` `ppp`: all 7 modes at 50% alpha for `[52, 120, 200, 128]` and `[255, 0, 0, 128]` are crisp, unelided, and show no alpha in the value cell) | `r3-modes.png` |
+| **3a** | `cargo fmt --all -- --check` exits 0 | **PASS** (`exit=0`) | `r3-gates.log` |
+| **3b** | `cargo clippy --workspace --all-targets --locked -- -D warnings`: only `main`'s known lints (`agent_permissions.rs:1163,1181`) | **PASS** (0 errors/warnings in `picker.rs` or `designos-doc`; only `main`'s 2 unneeded-return errors in `agent_permissions.rs`) | `r3-gates.log` |
+| **3c** | `cargo test -p designos-app --bin designos --locked picker` passes | **PASS** (`96 passed; 0 failed`) | `r3-green-picker.log` |
+| **3d** | `cargo test -p designos-app --bin designos --locked layout_unchanged` passes (`20/20`) | **PASS** (`20 passed; 0 failed`) | `r3-layout-unchanged.log` |
+| **3e** | `cargo test -p designos-doc --locked --lib` passes | **PASS** (`712 passed; 0 failed`) | `r3-gates.log` |
+| **3f** | `cargo test --workspace --locked --lib` passes | **PASS** (all 12 workspace lib targets pass, `0 failed`) | `r3-gates.log` |
+| **3g** | `python3 scripts/check_chrome_colour_literals.py`, `python3 scripts/check_spacing_relationships.py`, `python3 scripts/zero_fake_ui_gate.py` pass | **PASS** (`199/199` chrome baseline; spacing `PASS: no count rose above the baseline`; zero-fake-UI `17/17` invariants) | `r3-gates.log` |
+
+#### Acceptance 1 — RED on `d4a09c33` (`r3-red-picker.log`) and GREEN on Head (`r3-green-picker.log`)
+
+```text
+$ cargo test -p designos-app --bin designos --locked picker  # on d4a09c33 implementation (r3-red-picker.log)
+failures:
+
+---- widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision stdout ----
+thread 'widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision' (57722977) panicked at crates/designos-app/src/widgets/picker.rs:2314:9:
+retyping unchanged displayed channels must not mark out.changed
+
+---- widgets::picker::tests::css_and_hsl_roundtrip stdout ----
+thread 'widgets::picker::tests::css_and_hsl_roundtrip' (57722980) panicked at crates/designos-app/src/widgets/picker.rs:1909:9:
+assertion `left == right` failed
+  left: "rgba(217, 217, 217, 1)"
+ right: "rgb(217, 217, 217)"
+
+---- widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap stdout ----
+thread 'widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap' (57722982) panicked at crates/designos-app/src/widgets/picker.rs:2409:9:
+On this page must start at PAD + 8.0 (24.0), got 22
+
+---- widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness stdout ----
+thread 'widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness' (57722999) panicked at crates/designos-app/src/widgets/picker.rs:2354:9:
+assertion failed: out_white.changed
+
+---- widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells stdout ----
+thread 'widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells' (57723002) panicked at crates/designos-app/src/widgets/picker.rs:2067:13:
+mode Oklch missing expected visible text "62.8% 0.26 29.23" in ["Custom", "Libraries", "4.00 : 1", "AA Large", "OKLCH", "62.8% 0.26 29.23 / 0.5", "On this page"]
+
+---- widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid stdout ----
+thread 'widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid' (57723005) panicked at crates/designos-app/src/widgets/picker.rs:2192:21:
+mode Css showed alpha in value cell at rest: ["Custom", "Libraries", "4.50 : 1", "AA", "CSS", "rgba(52, 120, 200, 0.5)", "On this page"]
+
+---- widgets::picker::tests::visible_text_css_mode stdout ----
+thread 'widgets::picker::tests::visible_text_css_mode' (57723008) panicked at crates/designos-app/src/widgets/picker.rs:2067:13:
+mode Css missing expected visible text "rgb(255, 0, 0)" in ["Custom", "Libraries", "4.00 : 1", "AA Large", "CSS", "rgba(255, 0, 0, 1)", "On this page"]
+
+test result: FAILED. 89 passed; 7 failed; 0 ignored; 0 measured; 3957 filtered out; finished in 7.14s
+```
+
+```text
+$ cargo test -p designos-app --bin designos --locked picker  # on head (r3-green-picker.log)
+running 96 tests
+test widgets::picker::tests::active_color_edits_the_selected_stop ... ok
+test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... ok
+test widgets::picker::tests::css_and_hsl_roundtrip ... ok
+test widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap ... ok
+test widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba ... ok
+test widgets::picker::tests::gradient_shape_switch_keeps_stops ... ok
+test widgets::picker::tests::gradient_to_solid_takes_first_stop ... ok
+test widgets::picker::tests::hsb_is_computed_in_gamma_space ... ok
+test widgets::picker::tests::hue_survives_grey ... ok
+test widgets::picker::tests::oklch_and_oklab_format_list_and_default ... ok
+test widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue ... ok
+test widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps ... ok
+test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... ok
+test widgets::picker::tests::procedural_png_presets_generate_valid_png_headers_and_distinct_textures ... ok
+test widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells ... ok
+test widgets::picker::tests::solid_to_gradient_keeps_color_as_first_stop ... ok
+test widgets::picker::tests::stop_color_interpolates ... ok
+test widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid ... ok
+test widgets::picker::tests::visible_text_css_mode ... ok
+test widgets::picker::tests::visible_text_hex_mode ... ok
+test widgets::picker::tests::visible_text_hsb_at_full_s_b ... ok
+test widgets::picker::tests::visible_text_hsl_mode ... ok
+test widgets::picker::tests::visible_text_oklab_mode ... ok
+test widgets::picker::tests::visible_text_oklch_mode ... ok
+test widgets::picker::tests::visible_text_rgb_at_255_255_255 ... ok
+...
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 3957 filtered out; finished in 7.77s
+```
+
+#### Surviving Mutants Killed (`r3-mutants.log`)
+
+```text
+N01	KILLED	37.0s	failed=['test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... FAILED']
+N03	KILLED	48.3s	failed=['test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... FAILED']
+N05	KILLED	41.4s	failed=['test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... FAILED']
+N07	KILLED	20.7s	failed=['test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... FAILED']
+N15	KILLED	15.5s	failed=['test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... FAILED']
+N16	KILLED	14.1s	failed=['test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... FAILED']
+SUMMARY: 6/6 killed
+```
+
+#### Acceptance 2 — Visual Proof Sheet at 50% Alpha (`r3-modes.png`)
+
+- Rendered proof sheet: `plans/reports/agy-137-oklch-picker-evidence/r3-modes.png`
+- Shows all 7 modes (`OKLCH`, `OKLAB`, `CSS`, `RGB`, `HSL`, `HSB`, `Hex`) at `ppp = 2.0` and `50%` alpha (`128` / `0.5`) for `[52, 120, 200, 128]` (top row) and `[255, 0, 0, 128]` (bottom row):
+  - `OKLCH`: `"56.93% 0.14 254.47"` (top) and `"62.8% 0.26 29.23"` (bottom), widest across all 4,096 colours = `"68.46% 0.26 332.43"` (`118.03` px <= `132.0` px budget).
+  - `OKLAB`: `"56.93% -0.04 -0.14"` (top) and `"62.8% 0.22 0.13"` (bottom), widest across all 4,096 colours = `"42.26% -0.04 -0.04"` (`114.34` px <= `132.0` px budget).
+  - `CSS`: `"rgb(52, 120, 200)"` (top) and `"rgb(255, 0, 0)"` (bottom), widest across all 256³ colours = `"rgb(204, 204, 204)"` (`105.53` px <= `132.0` px budget).
+  - `RGB`: `"52"`, `"120"`, `"200"`, `"50 %"` (top) and `"255"`, `"0"`, `"0"`, `"50 %"` (bottom).
+  - `HSL`: `"212"`, `"59"`, `"49"`, `"50 %"` (top) and `"0"`, `"100"`, `"50"`, `"50 %"` (bottom).
+  - `HSB`: `"212"`, `"74"`, `"78"`, `"50 %"` (top) and `"0"`, `"100"`, `"100"`, `"50 %"` (bottom).
+  - `Hex`: `"3478C8"`, `"50 %"` (top) and `"FF0000"`, `"50 %"` (bottom).
+
+#### Acceptance 3 — Pasted Gate Outputs (`r3-gates.log` & `r3-layout-unchanged.log`)
+
+```text
+$ cargo fmt --all -- --check
+exit=0
+
+$ cargo clippy --workspace --all-targets --locked -- -D warnings
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1163:9
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1181:9
+error: could not compile `designos-app` (bin "designos-studio") due to 2 previous errors
+error: could not compile `designos-app` (bin "designos") due to 2 previous errors
+error: could not compile `designos-app` (bin "designos-studio" test) due to 2 previous errors
+error: could not compile `designos-app` (bin "designos" test) due to 2 previous errors
+
+$ cargo test -p designos-app --bin designos --locked picker
+test result: ok. 96 passed; 0 failed; 0 ignored; 0 measured; 3957 filtered out; finished in 7.77s
+
+$ cargo test -p designos-app --bin designos --locked layout_unchanged
+running 20 tests
+test shell::tests::layout_unchanged::cases_json_has_no_old_fixture ... ok
+test shell::tests::layout_unchanged::panel_presets::cli_accepts_panel_comments ... ok
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... ok
+test shell::tests::layout_unchanged::new_named_widget_is_reported_not_failed ... ok
+test shell::tests::layout_unchanged::unblessed_cases_file_fails_the_gate ... ok
+test shell::tests::layout_unchanged::prep_helpers_populate_missing_starter_states ... ok
+test shell::tests::layout_unchanged::panel_presets::comments_panel_with_no_thread_opens_comment_mode_only ... ok
+test shell::tests::layout_unchanged::panel_presets::comments_panel_opens_the_first_unresolved_thread_in_paint_order ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_opens_the_selected_nodes_first_reaction ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_with_no_reaction_opens_the_prototype_tab_only ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_without_a_reacting_selection_picks_the_first_reaction_in_paint_order ... ok
+test shell::tests::layout_unchanged::sim_loads_starter_and_seed_library_at_seeds_starter_not_showcase ... ok
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 4033 filtered out; finished in 16.19s
+
+$ cargo test -p designos-doc --locked --lib
+test result: ok. 712 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.93s
+
+$ cargo test --workspace --locked --lib
+designos-diff:       test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+designos-doc:        test result: ok. 712 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.15s
+designos-eval:       test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+designos-export:     test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.87s
+designos-fig:        test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.94s
+designos-fonts:      test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+designos-gpu:        test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+designos-library:    test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.13s
+designos-mcp:        test result: ok. 322 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.86s
+designos-render:     test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 34.61s
+designos-svg:        test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+designos-webcapture: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+$ python3 scripts/check_chrome_colour_literals.py
+Chrome colour literal gate PASSED (29 files with findings, 199/199 baseline chrome sites).
+
+$ python3 scripts/check_spacing_relationships.py
+literal geometry outside theme.rs: offset_literals=1521, inset_literals=41, radius_literals=171, font_literals=23, nonconcentric_pairs=2, legacy_control_refs=6
+note: 2 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+
+$ python3 scripts/zero_fake_ui_gate.py
+ Gate Verdict: PASS (17/17 invariants satisfied)
+```
+
+#### Pushed Branch Log (`git log --oneline origin/main..HEAD`)
+
+```text
+$ git log --oneline origin/main..HEAD
+ef1b0f23 fix(picker): omit alpha in value cell at rest and preserve channel precision (#137)
+ffb2ee3f Merge remote-tracking branch 'origin/main' into jangtrinh/agy-137-oklch-picker
+d4a09c33 docs(report): add round 2 verification report and evidence for #137
+6fd237b5 fix(picker): render OKLCH/OKLAB as a single readable cell and fit all mode labels (#137)
+d1a007de Merge remote-tracking branch 'origin/main' into jangtrinh/agy-137-oklch-picker
+f82be3e0 docs(report): add verification report and gate logs for #137
+95d55aa1 feat(picker): OKLCH and OKLAB colour modes (#137)
+42049287 test(picker): add failing tests for OKLCH/OKLAB conversion and picker modes (#137)
+```
+
+---
+
+### 10. Summary of Round 3 Changes & Skills Applied
+
+1. **Ruling 1 (`B2` and `M1` — No alpha in the value cell at rest, in every mode):**
+   - Updated `css_text(c: [u8; 4])` in `crates/designos-app/src/widgets/picker.rs` to return `format!("rgb({}, {}, {})", c[0], c[1], c[2])` (widest string `"rgb(204, 204, 204)"` is `105.53` px <= `132.0` px text budget). `parse_css` continues to accept `rgba(...)`, `rgb(... / a)`, and `#RGBA` / `#RRGGBBAA` in the edit buffer.
+   - Updated `State::ok_text(&self, fmt: Fmt, _alpha: u8)` to return `format!("{} {} {}", fmt_ok_token(0, t[0]), fmt_ok_token(1, t[1]), fmt_ok_token(2, t[2]))` without ` / a` at rest (widest OKLCH string `"68.46% 0.26 332.43"` is `118.03` px; widest OKLAB string `"42.26% -0.04 -0.04"` is `114.34` px <= `132.0` px text budget). `State::apply_ok_input` continues to accept ` / a` (`0..=1` or `0%..=100%`) in the edit buffer.
+2. **Ruling 2 (`B3` and `m1` — Apply `fix-trial-alpha-keep.diff`):**
+   - Removed the `if !changed_mask.iter().any(|&c| c) { changed_mask = [true, true, true]; }` fallback from `State::apply_ok_input` so an alpha-only edit (`"56.93% 0.14 254.47 / 0.5"` on `[52, 120, 200]`) or retyping the shown channels never rewrites the `f32` channels from the 2-decimal display tokens.
+   - Preserved `keep_alpha` in `State::apply_ok_input` when `keep_alpha < 255 && a_str == shown_a` (`shown_a = fmt_num(((keep_alpha as f32 / 255.0) * 100.0).round() / 100.0)`) so editing a channel with an unchanged 2-decimal `/ a` (e.g. `keep_alpha = 141` with `/ 0.55`) keeps `141` instead of quantizing to `140`.
+3. **Ruling 3 (`B1` — Update the 9 picker rects in the 3 layout baselines):**
+   - Applied `/Users/jangtrinh/Products/design-os-studio/plans/reports/code-reviewer-261101-1000-pr-1451-r2-evidence/fix-trial-9-rects.diff` to `crates/designos-app/tests/layout-baseline/{f-picker,f-picker-gradient,picker-page}.layout.json` (`15 insertions(+), 15 deletions(-)` across the 3 files; `layout_unchanged` passes `20/20`).
+4. **Ruling 4 (`M2` — Pasted `oklch(...)` / `oklab(...)` follows CSS lightness rules):**
+   - In `State::apply_ok_input`, tracked `is_func = true` when stripping `oklch(...)` or `oklab(...)`. When `is_func && i == 0 && !tok.ends_with('%')`, bare `L` is evaluated via `field::eval_number_expr(tok, Some(cur_triple[0]), false)?.clamp(0.0, 1.0)` in `0..=1` (`oklch(0.985 0 0)` commits `[250, 250, 250, 255]`), while `%`-suffixed `L` (`oklch(62.8% 0.26 29.23)`) continues to parse in `0..=100%`.
+5. **Ruling 5 (`m2, m3` — Kill surviving mutants `N01, N03, N05, N07, N15, N16` & remove mutant IDs from comments):**
+   - Added `value_cell_at_rest_has_no_alpha_and_never_elides_across_grid`, `alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision`, and `pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness`, killing all 6 surviving mutants (`N01, N03, N05, N07, N15, N16`).
+   - Removed all mutant IDs (`(M05)`, `(M07)`, `(M08)`, `(M09)`, `(M10)`, `(M17)`, `M11:`, `M12:`) from comments in `crates/designos-app/src/widgets/picker.rs`.
+6. **Ruling 6 (`l1, l2` — Preserve `main`'s `"On this page"` insets and `4.0` px format-chevron gap):**
+   - In `picker_dropdown`, kept `"picker-source"` ("On this page") at `main`'s exact `(left_pad, right_reserve, chev_right) = (8.0, 22.0, 12.0)` (`l1`), and set `"picker-fmt"` to `(4.0, 20.0, 10.0)` with `dd_w = (max_label_w + 4.0 + 20.0).ceil() = 66.0` px so `"OKLCH"` (`41.91` px, ending at `rect.left() + 45.91`) keeps a `4.09` px (`>= 4.0` px) gap to `chev.left()` (`rect.right() - 16.0 = rect.left() + 50.0`, `l2`) while keeping `dd_w = 66.0` px.
+
+---
+
+### 11. Round 3 Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`), Weakest Link & Unresolved Questions
+
+- **FACT:** With alpha omitted at rest from `ok_text` (`"L% C H"` / `"L% a b"`) and `css_text` (`"rgb(r, g, b)"`), the widest at-rest strings across the 16-step (`4,096`-colour) sRGB grid at any alpha (`255`, `140` / 55%, `128` / 50%) are `"68.46% 0.26 332.43"` (`118.03` px) in `Fmt::Oklch`, `"42.26% -0.04 -0.04"` (`114.34` px) in `Fmt::Oklab`, and `"rgb(204, 204, 204)"` (`105.53` px) in `Fmt::Css`, all fitting within the `132.0` px inner text budget (`138.0` px cell, `pad = 3.0` px) with `0` elided strings.
+- **FACT:** Removing the `!changed_mask.iter().any` fallback and preserving `keep_alpha` when `a_str == shown_a` in `State::apply_ok_input` ensures `[52, 120, 200]` + `"56.93% 0.14 254.47 / 0.5"` commits `[52, 120, 200, 128]` with bit-identical `st.oklch`, and an `L`-only edit on `[52, 120, 200, 141]` with `"/ 0.55"` keeps alpha `141`.
+- **FACT:** Parsing bare `L` as `0..=1` inside `oklch(...)` / `oklab(...)` functional syntax while keeping `%`-suffixed `L` as `0..=100%` makes `oklch(0.985 0 0)` commit `[250, 250, 250, 255]` and `oklch(62.8% 0.26 29.23)` commit `[255, 0, 0, 255]`.
+- **INFERENCE:** Setting `disp_ch = disp_tok.clone()` for `i == 0` when `is_func` is `true` ensures a bare unitless `L` in `oklch(0.63 0.26 29.23)` is never mistaken for the `0..100` `fmt_ok_channel` display string while a `%`-suffixed `L` (`oklch(56.93% 0.14 254.47 / 0.5)`) still matches `disp_tok`.
+- **ASSUMPTION:** Per Round 2 Ruling 1 ("One cell (`grouped_text` over `fields.width()`), like `Fmt::Css`. The opacity cell leaves the row in `Fmt::Oklch` and `Fmt::Oklab`, as in `Fmt::Css`") and Round 3 Ruling 1 ("The picker keeps its width (`W = 240.0`, `AREA = 208.0`)"), `Fmt::Css`, `Fmt::Oklch`, and `Fmt::Oklab` keep their `138.0` px single value cell (with alpha controlled via the alpha slider above the row or `/ a` in the edit buffer), because placing `opacity_cell` (`43.0` px) in those rows would shrink the single value cell to `94.0` px (`88.0` px text budget), which cannot fit `"62.8% 0.26 29.23"` (`102.03` px), `"62.8% 0.22 0.13"` (`91.25` px), or `"rgb(255, 255, 255)"` (`102.3` px).
+- **Weakest link:** The widest possible out-of-sRGB-gamut manual OKLCH state (`"100% 0.4 334.44"` or `"68.46% 0.26 332.43"`, `118.03` px) leaves `13.97` px of margin inside the `132.0` px inner text budget (`138.0` px cell, `pad = 3.0` px).
 - **Unresolved questions:** None.
 
 Status: DONE
