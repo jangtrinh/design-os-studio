@@ -1483,6 +1483,8 @@ fn scale_node_properties_proportionally(doc: &mut Document, ed: &mut crate::edit
     while let Some(cur) = stack.pop() {
         let children = doc.get(cur).map(|n| n.children.clone()).unwrap_or_default();
         if let Some(n) = ed.node(doc, cur) {
+            let text_ref = crate::styles::StyleKind::Text.ref_key();
+            let before_text = n.style_refs.contains_key(text_ref).then(|| n.kind.any_text().cloned()).flatten();
             for r in &mut n.corner_radii {
                 *r = (*r * factor).max(0.0);
             }
@@ -1491,6 +1493,9 @@ fn scale_node_properties_proportionally(doc: &mut Document, ed: &mut crate::edit
                 crate::richtext::apply_all(tp, |st| {
                     st.font_size = (st.font_size * factor).clamp(4.0, 512.0);
                 });
+            }
+            if before_text.is_some_and(|before| n.kind.any_text().is_some_and(|after| before != *after)) {
+                n.style_refs.remove(text_ref);
             }
             if let Some(al) = n.kind.frame_props_mut().and_then(|fp| fp.auto_layout.as_mut()) {
                 for p in &mut al.padding {
@@ -2519,6 +2524,28 @@ fn update_hover_and_cursor(app: &mut App, ctx: &egui::Context, rect: ERect, inp:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scale_tool_detaches_linked_text_style_when_font_size_changes() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let id = doc.alloc_id();
+        let id = doc
+            .insert(
+                page,
+                designos_doc::Node::text(id, Rect::new(0.0, 0.0, 120.0, 24.0), "Hello", designos_doc::TextStyle { font_size: 16.0, ..Default::default() }),
+            )
+            .unwrap();
+        doc.get_mut(id).unwrap().style_refs.insert("text".into(), "Body".into());
+
+        let mut edit = crate::edit::Edit::new();
+        scale_node_properties_proportionally(&mut doc, &mut edit, id, 2.0);
+
+        let node = doc.get(id).unwrap();
+        let text = node.kind.any_text().expect("text node");
+        assert_eq!(text.style.font_size, 32.0);
+        assert!(!node.style_refs.contains_key("text"), "a scale override must detach the shared text style");
+    }
 
     #[test]
     fn alt_drag_of_a_main_and_a_plain_frame_makes_an_instance_of_the_main_and_a_copy_of_the_frame() {
