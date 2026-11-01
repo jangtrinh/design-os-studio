@@ -104,12 +104,16 @@ def walk(n, depth=0, path=""):
     for c in n.get("children", []) or []:
         yield from walk(c, depth + 1, path + "/" + str(n.get("name")))
 
+def num(v):
+    """A size bound to a variable exports as "var:<name>"; compare it as text instead of failing."""
+    return round(float(v), 2) if isinstance(v, (int, float)) else v
+
 def sig(root):
     """Id-free structural signature of a spec subtree: kind, name, size, layout."""
     out = []
     for n, depth, _ in walk(root):
-        out.append((depth, n.get("kind"), n.get("name"), round(float(n.get("width", 0)), 2),
-                    round(float(n.get("height", 0)), 2), json.dumps(n.get("layout") or {}, sort_keys=True)))
+        out.append((depth, n.get("kind"), n.get("name"), num(n.get("width", 0)), num(n.get("height", 0)),
+                    json.dumps(n.get("layout") or {}, sort_keys=True)))
     return out
 
 def cmd_summary(spec):
