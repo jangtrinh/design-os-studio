@@ -259,358 +259,7 @@ fn kind_rank(kind: &PropKind) -> u8 {
     }
 }
 
-#[cfg(test)]
-mod props_panel_tests {
-    use super::*;
-
-    fn def(name: &str, kind: PropKind) -> ComponentPropDef {
-        ComponentPropDef { name: name.into(), kind, default: PropValue::Text(String::new()) }
-    }
-
-    #[test]
-    fn property_kind_rank_matches_panel_order() {
-        assert_eq!(kind_rank(&PropKind::Variant { options: vec![] }), 0);
-        assert_eq!(kind_rank(&PropKind::Boolean), 1);
-        assert_eq!(kind_rank(&PropKind::Text), 2);
-        assert_eq!(kind_rank(&PropKind::InstanceSwap { preferred: vec![] }), 3);
-        assert_eq!(kind_rank(&PropKind::Slot), 4);
-    }
-
-    #[test]
-    fn property_sort_is_stable_within_each_kind() {
-        let mut defs = vec![
-            def("text", PropKind::Text),
-            def("bool-a", PropKind::Boolean),
-            def("variant-a", PropKind::Variant { options: vec![] }),
-            def("bool-b", PropKind::Boolean),
-            def("variant-b", PropKind::Variant { options: vec![] }),
-        ];
-        sort_props_by_kind(&mut defs);
-        assert_eq!(defs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["variant-a", "variant-b", "bool-a", "bool-b", "text"]);
-    }
-
-    #[test]
-    fn description_resolution_prefers_own_then_set_and_normalizes_whitespace() {
-        assert_eq!(resolve_description(" own text ", Some("set text")).as_deref(), Some("own text"));
-        assert_eq!(resolve_description("", Some(" set\n fallback ")).as_deref(), Some("set fallback"));
-        assert_eq!(resolve_description("", None), None);
-        assert_eq!(resolve_description(" \n\t ", Some(" \n ")), None);
-        assert_eq!(resolve_description("one\ntwo   three", None).as_deref(), Some("one two three"));
-    }
-
-    #[test]
-    fn description_truncation_keeps_two_lines_and_marks_last_line() {
-        let (lines, truncated) = truncate_description_lines(&["first".into(), "second".into(), "third".into()], 100.0, |line| line.chars().count() as f32);
-        assert!(truncated);
-        assert_eq!(lines, vec!["first".to_string(), "second…".to_string()]);
-        assert_eq!(truncate_description_lines(&["one".into()], 100.0, |line| line.chars().count() as f32), (vec!["one".into()], false));
-    }
-
-    #[test]
-    fn description_truncation_shrinks_to_fit_width() {
-        let truncated = truncate_to_width("second   ", 60.0, |line| line.chars().count() as f32 * 10.0);
-        assert_eq!(truncated, "secon…");
-        assert!(truncated.chars().count() as f32 * 10.0 <= 60.0);
-    }
-
-    #[test]
-    fn description_clipping_accounts_for_row_height() {
-        assert!(!description_clipped(1, 18.0, 40.0));
-        assert!(!description_clipped(2, 18.0, 40.0));
-        assert!(description_clipped(3, 18.0, 40.0));
-        assert!(description_clipped(2, 22.0, 40.0));
-    }
-
-    #[test]
-    fn instance_boolean_toggle_shows_focus_ring_on_tab() {
-        fn ring_strokes(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::epaint::RectShape> {
-            shapes
-                .iter()
-                .filter_map(|clipped| match &clipped.shape {
-                    egui::epaint::Shape::Rect(shape) if shape.stroke.color == theme::FOCUS_RING && shape.stroke.width == 2.0 => Some(shape.clone()),
-                    _ => None,
-                })
-                .collect()
-        }
-
-        let rect = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(92.0, theme::FIELD_HEIGHT));
-        let track = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
-
-        let unfocused_ctx = egui::Context::default();
-        theme::install_fonts(&unfocused_ctx);
-        let mut unfocused_shapes = Vec::new();
-        for _ in 0..3 {
-            unfocused_shapes = unfocused_ctx
-                .run_ui(egui::RawInput::default(), |ui| {
-                    instance_boolean_toggle(ui, rect, "instance-bool", false);
-                })
-                .shapes;
-        }
-        assert!(ring_strokes(&unfocused_shapes).is_empty(), "unfocused toggle has no focus ring");
-
-        let ctx = egui::Context::default();
-        theme::install_fonts(&ctx);
-        let first_id = std::cell::Cell::new(egui::Id::NULL);
-        let toggle_id = std::cell::Cell::new(egui::Id::NULL);
-        let frame = |input: egui::RawInput| {
-            ctx.run_ui(input, |ui| {
-                ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle")));
-                instance_boolean_toggle(ui, rect, "instance-bool", false);
-            })
-        };
-
-        // Request focus on frame one, then let egui register and retain the widget for two frames.
-        ctx.run_ui(egui::RawInput::default(), |ui| {
-            let response = ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle"))).inner;
-            first_id.set(response.id);
-            response.request_focus();
-            toggle_id.set(instance_boolean_toggle(ui, rect, "instance-bool", false).id);
-        });
-        frame(egui::RawInput::default());
-        frame(egui::RawInput::default());
-        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "the first widget holds focus before Tab");
-
-        let before_tab = frame(egui::RawInput::default());
-        assert!(ring_strokes(&before_tab.shapes).is_empty(), "toggle has no focus ring before Tab");
-        let tab =
-            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: true, repeat: false, modifiers: egui::Modifiers::default() };
-        let release =
-            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: false, repeat: false, modifiers: egui::Modifiers::default() };
-        frame(egui::RawInput { events: vec![tab, release], ..Default::default() });
-        let focused = frame(egui::RawInput::default());
-        assert!(ctx.memory(|m| m.has_focus(toggle_id.get())), "Tab moves focus to the toggle");
-        let rings = ring_strokes(&focused.shapes);
-        assert_eq!(rings.len(), 1, "focused toggle has exactly one focus ring");
-        assert_eq!(rings[0].rect, track.expand(theme::SPACE_FACT));
-        assert_eq!(rings[0].stroke.color, theme::FOCUS_RING);
-        assert_eq!(rings[0].stroke.width, 2.0);
-
-        let shift_tab = egui::Event::Key {
-            key: egui::Key::Tab,
-            physical_key: Some(egui::Key::Tab),
-            pressed: true,
-            repeat: false,
-            modifiers: egui::Modifiers { shift: true, ..Default::default() },
-        };
-        let shift_release = egui::Event::Key {
-            key: egui::Key::Tab,
-            physical_key: Some(egui::Key::Tab),
-            pressed: false,
-            repeat: false,
-            modifiers: egui::Modifiers { shift: true, ..Default::default() },
-        };
-        frame(egui::RawInput { events: vec![shift_tab, shift_release], ..Default::default() });
-        let returned = frame(egui::RawInput::default());
-        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "Shift+Tab returns focus to the first widget");
-        assert!(ring_strokes(&returned.shapes).is_empty(), "toggle ring disappears after Shift+Tab");
-    }
-
-    #[test]
-    fn properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo() {
-        let mut doc = Document::new("SwapOverrides");
-        let page = doc.add_page("Page 1");
-        let mut app = App::new(doc);
-        app.page = page;
-
-        let make_icon = |app: &mut App, name: &str, child_name: &str, x: f32, p0: (f32, f32), p1: (f32, f32)| -> NodeId {
-            let id = app.doc.alloc_id();
-            let mut f = Node::frame(id, designos_doc::Rect::new(x, 0.0, 16.0, 16.0));
-            f.name = name.into();
-            let comp = app.doc.insert(page, f).unwrap();
-            let gid = app.doc.alloc_id();
-            let mut g = Node::new(
-                gid,
-                NodeKind::Vector {
-                    paths: vec![designos_doc::Path {
-                        cmds: vec![
-                            designos_doc::PathCmd::MoveTo(designos_doc::Vec2::new(p0.0, p0.1)),
-                            designos_doc::PathCmd::LineTo(designos_doc::Vec2::new(p1.0, p1.1)),
-                        ],
-                        ..Default::default()
-                    }],
-                    network: None,
-                },
-            );
-            g.size = designos_doc::Vec2::new(16.0, 16.0);
-            g.name = child_name.into();
-            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
-            g.variables.bindings.insert("fills/0".into(), "s.color.icon".into());
-            app.doc.insert(comp, g).unwrap();
-            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
-            comp
-        };
-
-        let icon_plus = make_icon(&mut app, "Icon/Plus", "Glyph", 0.0, (2.0, 8.0), (14.0, 8.0));
-        let icon_check = make_icon(&mut app, "Icon/Check", "Glyph", 40.0, (4.0, 8.0), (12.0, 12.0));
-        let icon_mismatch = make_icon(&mut app, "Icon/Mismatch", "OtherPath", 80.0, (1.0, 1.0), (15.0, 15.0));
-
-        let btn = {
-            let id = app.doc.alloc_id();
-            let mut f = Node::frame(id, designos_doc::Rect::new(0.0, 100.0, 120.0, 40.0));
-            f.name = "Button/Primary".into();
-            let comp = app.doc.insert(page, f).unwrap();
-            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
-            create_instance(&mut app.doc, icon_plus, comp, designos_doc::Vec2::new(8.0, 10.0)).apply(&mut app.doc).unwrap();
-            let slot = app.doc.get(comp).unwrap().children[0];
-            {
-                let sn = app.doc.get_mut(slot).unwrap();
-                sn.name = "Leading icon".into();
-                sn.visible = false;
-                sn.size = designos_doc::Vec2::new(20.0, 20.0);
-                sn.component.overrides.insert(OverrideField::Size);
-            }
-            let slot_glyph = app.doc.get(slot).unwrap().children[0];
-            {
-                let mut paint = Paint::solid(Color::rgb(10, 10, 10));
-                paint.opacity = 0.5;
-                let gn = app.doc.get_mut(slot_glyph).unwrap();
-                let tf = gn.transform;
-                designos_doc::layout_constraints::apply_constrained_geometry(gn, tf, designos_doc::Vec2::new(20.0, 20.0));
-                gn.fills = vec![paint];
-                gn.opacity = 0.5;
-                gn.variables.bindings.insert("fills/0".into(), "s.color.text-on-brand".into());
-                gn.component.overrides.insert(OverrideField::Size);
-                gn.component.overrides.insert(OverrideField::Fills);
-                gn.component.overrides.insert(OverrideField::Opacity);
-            }
-            add_prop(&mut app.doc, comp, ComponentPropDef { name: "Has Leading Icon".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) })
-                .apply(&mut app.doc)
-                .unwrap();
-            add_prop(
-                &mut app.doc,
-                comp,
-                ComponentPropDef {
-                    name: "Icon".into(),
-                    kind: PropKind::InstanceSwap { preferred: vec![icon_plus, icon_check, icon_mismatch] },
-                    default: PropValue::Instance(icon_plus),
-                },
-            )
-            .apply(&mut app.doc)
-            .unwrap();
-            bind_prop(&mut app.doc, slot, OverrideField::Visible, Some("Has Leading Icon")).apply(&mut app.doc).unwrap();
-            bind_prop(&mut app.doc, slot, OverrideField::MainComponent, Some("Icon")).apply(&mut app.doc).unwrap();
-            comp
-        };
-
-        let expected_scaled_check_cmds =
-            vec![designos_doc::PathCmd::MoveTo(designos_doc::Vec2::new(5.0, 10.0)), designos_doc::PathCmd::LineTo(designos_doc::Vec2::new(15.0, 15.0))];
-
-        create_instance(&mut app.doc, btn, page, designos_doc::Vec2::new(200.0, 100.0)).apply(&mut app.doc).unwrap();
-        let btn_inst = *app.doc.get(page).unwrap().children.last().unwrap();
-        let slot_inst = app.doc.get(btn_inst).unwrap().children[0];
-        let before_nodes = app.doc.nodes.clone();
-
-        // 1. Properties panel `set_instance_prop` entry point (used by `instance_props` InstanceSwap dropdown).
-        app.set_instance_prop(btn_inst, "Icon", Some(PropValue::Instance(icon_check)));
-        let slot_after = app.doc.get(slot_inst).unwrap();
-        assert_eq!(instance_component(slot_after), Some(icon_check));
-        assert_eq!(slot_after.name, "Leading icon");
-        assert_eq!(slot_after.size, designos_doc::Vec2::new(20.0, 20.0));
-        assert!(!slot_after.visible);
-        assert_eq!(slot_after.component.bindings.get(&OverrideField::Visible).map(String::as_str), Some("Has Leading Icon"));
-        let glyph_after = app.doc.get(slot_after.children[0]).unwrap();
-        assert_eq!(glyph_after.size, designos_doc::Vec2::new(20.0, 20.0));
-        match &glyph_after.kind {
-            NodeKind::Vector { paths, .. } => assert_eq!(paths[0].cmds, expected_scaled_check_cmds),
-            other => panic!("expected Vector, got {other:?}"),
-        }
-        assert_eq!(glyph_after.fills[0].kind, PaintKind::Solid(Color::rgb(10, 10, 10)));
-        assert_eq!(glyph_after.fills[0].opacity, 0.5);
-        assert_eq!(glyph_after.opacity, 0.5);
-        assert_eq!(glyph_after.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.text-on-brand"));
-
-        app.undo();
-        assert_eq!(app.doc.nodes, before_nodes, "one undo step restores old main and overrides");
-
-        // Mismatched child name drops override via Properties panel path.
-        app.set_instance_prop(btn_inst, "Icon", Some(PropValue::Instance(icon_mismatch)));
-        let mismatch_child = app.doc.get(app.doc.get(slot_inst).unwrap().children[0]).unwrap();
-        assert_eq!(mismatch_child.name, "OtherPath");
-        assert_eq!(mismatch_child.fills[0].kind, PaintKind::Solid(Color::rgb(255, 255, 255)));
-        assert_eq!(mismatch_child.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.icon"));
-        app.undo();
-        assert_eq!(app.doc.nodes, before_nodes);
-
-        // 2. Properties panel `swap_instance` entry point (used by `instance_header` swap dropdown).
-        app.swap_instance(slot_inst, icon_check);
-        let slot_direct = app.doc.get(slot_inst).unwrap();
-        assert_eq!(instance_component(slot_direct), Some(icon_check));
-        assert_eq!(slot_direct.name, "Leading icon");
-        assert_eq!(slot_direct.size, designos_doc::Vec2::new(20.0, 20.0));
-        assert!(!slot_direct.visible);
-        let glyph_direct = app.doc.get(slot_direct.children[0]).unwrap();
-        assert_eq!(glyph_direct.size, designos_doc::Vec2::new(20.0, 20.0));
-        match &glyph_direct.kind {
-            NodeKind::Vector { paths, .. } => assert_eq!(paths[0].cmds, expected_scaled_check_cmds),
-            other => panic!("expected Vector, got {other:?}"),
-        }
-        assert_eq!(glyph_direct.fills[0].kind, PaintKind::Solid(Color::rgb(10, 10, 10)));
-        assert_eq!(glyph_direct.fills[0].opacity, 0.5);
-        assert_eq!(glyph_direct.opacity, 0.5);
-        assert_eq!(glyph_direct.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.text-on-brand"));
-
-        app.undo();
-        assert_eq!(app.doc.nodes, before_nodes);
-
-        // 3. Auto-named top-level instance takes new main's name on swap; custom-named keeps its own name.
-        create_instance(&mut app.doc, icon_plus, page, designos_doc::Vec2::new(360.0, 100.0)).apply(&mut app.doc).unwrap();
-        let auto_inst = *app.doc.get(page).unwrap().children.last().unwrap();
-        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Plus");
-        app.swap_instance(auto_inst, icon_check);
-        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Check", "auto-named instance takes new main's name on panel swap");
-        app.undo();
-        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Plus");
-    }
-
-    #[test]
-    fn swapped_slot_follows_new_main_height_edit_in_app() {
-        let mut doc = Document::new("FollowHeight");
-        let page = doc.add_page("Page 1");
-        let mut app = App::new(doc);
-        app.page = page;
-        let mkbtn = |app: &mut App, name: &str, x: f32, h: f32| -> NodeId {
-            let id = app.doc.alloc_id();
-            let mut f = Node::frame(id, designos_doc::Rect::new(x, 300.0, 80.0, h));
-            f.name = name.into();
-            let comp = app.doc.insert(page, f).unwrap();
-            let rid = app.doc.alloc_id();
-            let mut r = Node::rectangle(rid, designos_doc::Rect::new(0.0, 0.0, 80.0, h));
-            r.name = "bg".into();
-            app.doc.insert(comp, r).unwrap();
-            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
-            comp
-        };
-        let ba = mkbtn(&mut app, "Btn/A", 0.0, 32.0);
-        let bb = mkbtn(&mut app, "Btn/B", 100.0, 40.0);
-        let card = {
-            let id = app.doc.alloc_id();
-            let mut f = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0));
-            f.name = "Card".into();
-            let comp = app.doc.insert(page, f).unwrap();
-            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
-            create_instance(&mut app.doc, ba, comp, designos_doc::Vec2::new(10.0, 10.0)).apply(&mut app.doc).unwrap();
-            let slot = app.doc.get(comp).unwrap().children[0];
-            add_prop(
-                &mut app.doc,
-                comp,
-                ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) },
-            )
-            .apply(&mut app.doc)
-            .unwrap();
-            designos_doc::bind_prop(&mut app.doc, slot, OverrideField::MainComponent, Some("Btn")).apply(&mut app.doc).unwrap();
-            comp
-        };
-        create_instance(&mut app.doc, card, page, designos_doc::Vec2::new(400.0, 0.0)).apply(&mut app.doc).unwrap();
-        let ci = *app.doc.get(page).unwrap().children.last().unwrap();
-        let si = app.doc.get(ci).unwrap().children[0];
-        app.set_instance_prop(ci, "Btn", Some(PropValue::Instance(bb)));
-        app.edit_nodes(&[bb], |n| n.size.y = 48.0);
-        let s = app.doc.get(si).unwrap();
-        assert_eq!(s.size.y, 48.0, "the swapped slot was never resized: it follows its main's height edit");
-    }
-}
-
-fn sort_props_by_kind(defs: &mut Vec<ComponentPropDef>) {
+fn sort_props_by_kind(defs: &mut [ComponentPropDef]) {
     defs.sort_by_key(|def| kind_rank(&def.kind));
 }
 
@@ -1139,5 +788,356 @@ fn layer_bindings(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         slot_settings_rows(app, ui, pane, slot_owner, &prop_name);
         pane.y += theme::SPACE_ROW;
         section_sep(ui, pane, false);
+    }
+}
+
+#[cfg(test)]
+mod props_panel_tests {
+    use super::*;
+
+    fn def(name: &str, kind: PropKind) -> ComponentPropDef {
+        ComponentPropDef { name: name.into(), kind, default: PropValue::Text(String::new()) }
+    }
+
+    #[test]
+    fn property_kind_rank_matches_panel_order() {
+        assert_eq!(kind_rank(&PropKind::Variant { options: vec![] }), 0);
+        assert_eq!(kind_rank(&PropKind::Boolean), 1);
+        assert_eq!(kind_rank(&PropKind::Text), 2);
+        assert_eq!(kind_rank(&PropKind::InstanceSwap { preferred: vec![] }), 3);
+        assert_eq!(kind_rank(&PropKind::Slot), 4);
+    }
+
+    #[test]
+    fn property_sort_is_stable_within_each_kind() {
+        let mut defs = vec![
+            def("text", PropKind::Text),
+            def("bool-a", PropKind::Boolean),
+            def("variant-a", PropKind::Variant { options: vec![] }),
+            def("bool-b", PropKind::Boolean),
+            def("variant-b", PropKind::Variant { options: vec![] }),
+        ];
+        sort_props_by_kind(&mut defs);
+        assert_eq!(defs.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["variant-a", "variant-b", "bool-a", "bool-b", "text"]);
+    }
+
+    #[test]
+    fn description_resolution_prefers_own_then_set_and_normalizes_whitespace() {
+        assert_eq!(resolve_description(" own text ", Some("set text")).as_deref(), Some("own text"));
+        assert_eq!(resolve_description("", Some(" set\n fallback ")).as_deref(), Some("set fallback"));
+        assert_eq!(resolve_description("", None), None);
+        assert_eq!(resolve_description(" \n\t ", Some(" \n ")), None);
+        assert_eq!(resolve_description("one\ntwo   three", None).as_deref(), Some("one two three"));
+    }
+
+    #[test]
+    fn description_truncation_keeps_two_lines_and_marks_last_line() {
+        let (lines, truncated) = truncate_description_lines(&["first".into(), "second".into(), "third".into()], 100.0, |line| line.chars().count() as f32);
+        assert!(truncated);
+        assert_eq!(lines, vec!["first".to_string(), "second…".to_string()]);
+        assert_eq!(truncate_description_lines(&["one".into()], 100.0, |line| line.chars().count() as f32), (vec!["one".into()], false));
+    }
+
+    #[test]
+    fn description_truncation_shrinks_to_fit_width() {
+        let truncated = truncate_to_width("second   ", 60.0, |line| line.chars().count() as f32 * 10.0);
+        assert_eq!(truncated, "secon…");
+        assert!(truncated.chars().count() as f32 * 10.0 <= 60.0);
+    }
+
+    #[test]
+    fn description_clipping_accounts_for_row_height() {
+        assert!(!description_clipped(1, 18.0, 40.0));
+        assert!(!description_clipped(2, 18.0, 40.0));
+        assert!(description_clipped(3, 18.0, 40.0));
+        assert!(description_clipped(2, 22.0, 40.0));
+    }
+
+    #[test]
+    fn instance_boolean_toggle_shows_focus_ring_on_tab() {
+        fn ring_strokes(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::epaint::RectShape> {
+            shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::epaint::Shape::Rect(shape) if shape.stroke.color == theme::FOCUS_RING && shape.stroke.width == 2.0 => Some(shape.clone()),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        let rect = Rect::from_min_size(Pos2::new(20.0, 20.0), Vec2::new(92.0, theme::FIELD_HEIGHT));
+        let track = Rect::from_min_size(Pos2::new(rect.left(), rect.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
+
+        let unfocused_ctx = egui::Context::default();
+        theme::install_fonts(&unfocused_ctx);
+        let mut unfocused_shapes = Vec::new();
+        for _ in 0..3 {
+            unfocused_shapes = unfocused_ctx
+                .run_ui(egui::RawInput::default(), |ui| {
+                    instance_boolean_toggle(ui, rect, "instance-bool", false);
+                })
+                .shapes;
+        }
+        assert!(ring_strokes(&unfocused_shapes).is_empty(), "unfocused toggle has no focus ring");
+
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        let first_id = std::cell::Cell::new(egui::Id::NULL);
+        let toggle_id = std::cell::Cell::new(egui::Id::NULL);
+        let frame = |input: egui::RawInput| {
+            ctx.run_ui(input, |ui| {
+                ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle")));
+                instance_boolean_toggle(ui, rect, "instance-bool", false);
+            })
+        };
+
+        // Request focus on frame one, then let egui register and retain the widget for two frames.
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let response = ui.push_id("tab-before-instance-bool", |ui| ui.add(egui::Button::new("Before toggle"))).inner;
+            first_id.set(response.id);
+            response.request_focus();
+            toggle_id.set(instance_boolean_toggle(ui, rect, "instance-bool", false).id);
+        });
+        frame(egui::RawInput::default());
+        frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "the first widget holds focus before Tab");
+
+        let before_tab = frame(egui::RawInput::default());
+        assert!(ring_strokes(&before_tab.shapes).is_empty(), "toggle has no focus ring before Tab");
+        let tab =
+            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: true, repeat: false, modifiers: egui::Modifiers::default() };
+        let release =
+            egui::Event::Key { key: egui::Key::Tab, physical_key: Some(egui::Key::Tab), pressed: false, repeat: false, modifiers: egui::Modifiers::default() };
+        frame(egui::RawInput { events: vec![tab, release], ..Default::default() });
+        let focused = frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(toggle_id.get())), "Tab moves focus to the toggle");
+        let rings = ring_strokes(&focused.shapes);
+        assert_eq!(rings.len(), 1, "focused toggle has exactly one focus ring");
+        assert_eq!(rings[0].rect, track.expand(theme::SPACE_FACT));
+        assert_eq!(rings[0].stroke.color, theme::FOCUS_RING);
+        assert_eq!(rings[0].stroke.width, 2.0);
+
+        let shift_tab = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: Some(egui::Key::Tab),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers { shift: true, ..Default::default() },
+        };
+        let shift_release = egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: Some(egui::Key::Tab),
+            pressed: false,
+            repeat: false,
+            modifiers: egui::Modifiers { shift: true, ..Default::default() },
+        };
+        frame(egui::RawInput { events: vec![shift_tab, shift_release], ..Default::default() });
+        let returned = frame(egui::RawInput::default());
+        assert!(ctx.memory(|m| m.has_focus(first_id.get())), "Shift+Tab returns focus to the first widget");
+        assert!(ring_strokes(&returned.shapes).is_empty(), "toggle ring disappears after Shift+Tab");
+    }
+
+    #[test]
+    fn properties_panel_swap_preserves_slot_child_overrides_variable_bindings_visibility_name_and_undo() {
+        let mut doc = Document::new("SwapOverrides");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let make_icon = |app: &mut App, name: &str, child_name: &str, x: f32, p0: (f32, f32), p1: (f32, f32)| -> NodeId {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(x, 0.0, 16.0, 16.0));
+            f.name = name.into();
+            let comp = app.doc.insert(page, f).unwrap();
+            let gid = app.doc.alloc_id();
+            let mut g = Node::new(
+                gid,
+                NodeKind::Vector {
+                    paths: vec![designos_doc::Path {
+                        cmds: vec![
+                            designos_doc::PathCmd::MoveTo(designos_doc::Vec2::new(p0.0, p0.1)),
+                            designos_doc::PathCmd::LineTo(designos_doc::Vec2::new(p1.0, p1.1)),
+                        ],
+                        ..Default::default()
+                    }],
+                    network: None,
+                },
+            );
+            g.size = designos_doc::Vec2::new(16.0, 16.0);
+            g.name = child_name.into();
+            g.fills = vec![Paint::solid(Color::rgb(255, 255, 255))];
+            g.variables.bindings.insert("fills/0".into(), "s.color.icon".into());
+            app.doc.insert(comp, g).unwrap();
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            comp
+        };
+
+        let icon_plus = make_icon(&mut app, "Icon/Plus", "Glyph", 0.0, (2.0, 8.0), (14.0, 8.0));
+        let icon_check = make_icon(&mut app, "Icon/Check", "Glyph", 40.0, (4.0, 8.0), (12.0, 12.0));
+        let icon_mismatch = make_icon(&mut app, "Icon/Mismatch", "OtherPath", 80.0, (1.0, 1.0), (15.0, 15.0));
+
+        let btn = {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(0.0, 100.0, 120.0, 40.0));
+            f.name = "Button/Primary".into();
+            let comp = app.doc.insert(page, f).unwrap();
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            create_instance(&mut app.doc, icon_plus, comp, designos_doc::Vec2::new(8.0, 10.0)).apply(&mut app.doc).unwrap();
+            let slot = app.doc.get(comp).unwrap().children[0];
+            {
+                let sn = app.doc.get_mut(slot).unwrap();
+                sn.name = "Leading icon".into();
+                sn.visible = false;
+                sn.size = designos_doc::Vec2::new(20.0, 20.0);
+                sn.component.overrides.insert(OverrideField::Size);
+            }
+            let slot_glyph = app.doc.get(slot).unwrap().children[0];
+            {
+                let mut paint = Paint::solid(Color::rgb(10, 10, 10));
+                paint.opacity = 0.5;
+                let gn = app.doc.get_mut(slot_glyph).unwrap();
+                let tf = gn.transform;
+                designos_doc::layout_constraints::apply_constrained_geometry(gn, tf, designos_doc::Vec2::new(20.0, 20.0));
+                gn.fills = vec![paint];
+                gn.opacity = 0.5;
+                gn.variables.bindings.insert("fills/0".into(), "s.color.text-on-brand".into());
+                gn.component.overrides.insert(OverrideField::Size);
+                gn.component.overrides.insert(OverrideField::Fills);
+                gn.component.overrides.insert(OverrideField::Opacity);
+            }
+            add_prop(&mut app.doc, comp, ComponentPropDef { name: "Has Leading Icon".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) })
+                .apply(&mut app.doc)
+                .unwrap();
+            add_prop(
+                &mut app.doc,
+                comp,
+                ComponentPropDef {
+                    name: "Icon".into(),
+                    kind: PropKind::InstanceSwap { preferred: vec![icon_plus, icon_check, icon_mismatch] },
+                    default: PropValue::Instance(icon_plus),
+                },
+            )
+            .apply(&mut app.doc)
+            .unwrap();
+            bind_prop(&mut app.doc, slot, OverrideField::Visible, Some("Has Leading Icon")).apply(&mut app.doc).unwrap();
+            bind_prop(&mut app.doc, slot, OverrideField::MainComponent, Some("Icon")).apply(&mut app.doc).unwrap();
+            comp
+        };
+
+        let expected_scaled_check_cmds =
+            vec![designos_doc::PathCmd::MoveTo(designos_doc::Vec2::new(5.0, 10.0)), designos_doc::PathCmd::LineTo(designos_doc::Vec2::new(15.0, 15.0))];
+
+        create_instance(&mut app.doc, btn, page, designos_doc::Vec2::new(200.0, 100.0)).apply(&mut app.doc).unwrap();
+        let btn_inst = *app.doc.get(page).unwrap().children.last().unwrap();
+        let slot_inst = app.doc.get(btn_inst).unwrap().children[0];
+        let before_nodes = app.doc.nodes.clone();
+
+        // 1. Properties panel `set_instance_prop` entry point (used by `instance_props` InstanceSwap dropdown).
+        app.set_instance_prop(btn_inst, "Icon", Some(PropValue::Instance(icon_check)));
+        let slot_after = app.doc.get(slot_inst).unwrap();
+        assert_eq!(instance_component(slot_after), Some(icon_check));
+        assert_eq!(slot_after.name, "Leading icon");
+        assert_eq!(slot_after.size, designos_doc::Vec2::new(20.0, 20.0));
+        assert!(!slot_after.visible);
+        assert_eq!(slot_after.component.bindings.get(&OverrideField::Visible).map(String::as_str), Some("Has Leading Icon"));
+        let glyph_after = app.doc.get(slot_after.children[0]).unwrap();
+        assert_eq!(glyph_after.size, designos_doc::Vec2::new(20.0, 20.0));
+        match &glyph_after.kind {
+            NodeKind::Vector { paths, .. } => assert_eq!(paths[0].cmds, expected_scaled_check_cmds),
+            other => panic!("expected Vector, got {other:?}"),
+        }
+        assert_eq!(glyph_after.fills[0].kind, PaintKind::Solid(Color::rgb(10, 10, 10)));
+        assert_eq!(glyph_after.fills[0].opacity, 0.5);
+        assert_eq!(glyph_after.opacity, 0.5);
+        assert_eq!(glyph_after.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.text-on-brand"));
+
+        app.undo();
+        assert_eq!(app.doc.nodes, before_nodes, "one undo step restores old main and overrides");
+
+        // Mismatched child name drops override via Properties panel path.
+        app.set_instance_prop(btn_inst, "Icon", Some(PropValue::Instance(icon_mismatch)));
+        let mismatch_child = app.doc.get(app.doc.get(slot_inst).unwrap().children[0]).unwrap();
+        assert_eq!(mismatch_child.name, "OtherPath");
+        assert_eq!(mismatch_child.fills[0].kind, PaintKind::Solid(Color::rgb(255, 255, 255)));
+        assert_eq!(mismatch_child.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.icon"));
+        app.undo();
+        assert_eq!(app.doc.nodes, before_nodes);
+
+        // 2. Properties panel `swap_instance` entry point (used by `instance_header` swap dropdown).
+        app.swap_instance(slot_inst, icon_check);
+        let slot_direct = app.doc.get(slot_inst).unwrap();
+        assert_eq!(instance_component(slot_direct), Some(icon_check));
+        assert_eq!(slot_direct.name, "Leading icon");
+        assert_eq!(slot_direct.size, designos_doc::Vec2::new(20.0, 20.0));
+        assert!(!slot_direct.visible);
+        let glyph_direct = app.doc.get(slot_direct.children[0]).unwrap();
+        assert_eq!(glyph_direct.size, designos_doc::Vec2::new(20.0, 20.0));
+        match &glyph_direct.kind {
+            NodeKind::Vector { paths, .. } => assert_eq!(paths[0].cmds, expected_scaled_check_cmds),
+            other => panic!("expected Vector, got {other:?}"),
+        }
+        assert_eq!(glyph_direct.fills[0].kind, PaintKind::Solid(Color::rgb(10, 10, 10)));
+        assert_eq!(glyph_direct.fills[0].opacity, 0.5);
+        assert_eq!(glyph_direct.opacity, 0.5);
+        assert_eq!(glyph_direct.variables.bindings.get("fills/0").map(String::as_str), Some("s.color.text-on-brand"));
+
+        app.undo();
+        assert_eq!(app.doc.nodes, before_nodes);
+
+        // 3. Auto-named top-level instance takes new main's name on swap; custom-named keeps its own name.
+        create_instance(&mut app.doc, icon_plus, page, designos_doc::Vec2::new(360.0, 100.0)).apply(&mut app.doc).unwrap();
+        let auto_inst = *app.doc.get(page).unwrap().children.last().unwrap();
+        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Plus");
+        app.swap_instance(auto_inst, icon_check);
+        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Check", "auto-named instance takes new main's name on panel swap");
+        app.undo();
+        assert_eq!(app.doc.get(auto_inst).unwrap().name, "Icon/Plus");
+    }
+
+    #[test]
+    fn swapped_slot_follows_new_main_height_edit_in_app() {
+        let mut doc = Document::new("FollowHeight");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+        let mkbtn = |app: &mut App, name: &str, x: f32, h: f32| -> NodeId {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(x, 300.0, 80.0, h));
+            f.name = name.into();
+            let comp = app.doc.insert(page, f).unwrap();
+            let rid = app.doc.alloc_id();
+            let mut r = Node::rectangle(rid, designos_doc::Rect::new(0.0, 0.0, 80.0, h));
+            r.name = "bg".into();
+            app.doc.insert(comp, r).unwrap();
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            comp
+        };
+        let ba = mkbtn(&mut app, "Btn/A", 0.0, 32.0);
+        let bb = mkbtn(&mut app, "Btn/B", 100.0, 40.0);
+        let card = {
+            let id = app.doc.alloc_id();
+            let mut f = Node::frame(id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0));
+            f.name = "Card".into();
+            let comp = app.doc.insert(page, f).unwrap();
+            create_component(&mut app.doc, comp).apply(&mut app.doc).unwrap();
+            create_instance(&mut app.doc, ba, comp, designos_doc::Vec2::new(10.0, 10.0)).apply(&mut app.doc).unwrap();
+            let slot = app.doc.get(comp).unwrap().children[0];
+            add_prop(
+                &mut app.doc,
+                comp,
+                ComponentPropDef { name: "Btn".into(), kind: PropKind::InstanceSwap { preferred: vec![ba, bb] }, default: PropValue::Instance(ba) },
+            )
+            .apply(&mut app.doc)
+            .unwrap();
+            designos_doc::bind_prop(&mut app.doc, slot, OverrideField::MainComponent, Some("Btn")).apply(&mut app.doc).unwrap();
+            comp
+        };
+        create_instance(&mut app.doc, card, page, designos_doc::Vec2::new(400.0, 0.0)).apply(&mut app.doc).unwrap();
+        let ci = *app.doc.get(page).unwrap().children.last().unwrap();
+        let si = app.doc.get(ci).unwrap().children[0];
+        app.set_instance_prop(ci, "Btn", Some(PropValue::Instance(bb)));
+        app.edit_nodes(&[bb], |n| n.size.y = 48.0);
+        let s = app.doc.get(si).unwrap();
+        assert_eq!(s.size.y, 48.0, "the swapped slot was never resized: it follows its main's height edit");
     }
 }

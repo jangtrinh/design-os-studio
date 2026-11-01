@@ -341,3 +341,33 @@ fn stdio_count_follows_snapshot() {
     let snapshot: Vec<Value> = serde_json::from_str(&snapshot_raw).expect("parse tools.json");
     assert_eq!(designos_mcp::server::tools().len(), snapshot.len());
 }
+
+#[test]
+fn parity_doc_lists_window_lock_and_approval_as_needs_human() {
+    let doc = std::fs::read_to_string(repo_root().join("docs/mcp-parity.md")).expect("docs/mcp-parity.md");
+    assert!(
+        doc.contains("| `ANOTHER_WINDOW_OWNS_SESSION` | `needs_human` | reserved |"),
+        "parity table must list ANOTHER_WINDOW_OWNS_SESSION as needs_human and reserved"
+    );
+    assert!(doc.contains("| `APPROVAL_DENIED` | `needs_human` | active |"), "parity table must list APPROVAL_DENIED as needs_human and active");
+    assert!(doc.contains("| `APPROVAL_TIMEOUT` | `needs_human` | reserved |"), "parity table must list APPROVAL_TIMEOUT as needs_human and reserved");
+    assert!(doc.contains("fallback_lock_outcome"), "docs must say the window lock surfaces only via fallback_lock_outcome");
+    assert!(doc.contains("exits 0 on timeout"), "docs must say the hook exits 0 on timeout");
+    assert!(doc.contains("| `UNSUPPORTED_FILE_TYPE` | `fatal` | active |"));
+    assert!(doc.contains("ANOTHER_WINDOW_OWNS_SESSION_MSG"), "docs must still name the Studio status string");
+    assert!(!doc.contains("no `ErrorCode` and no `error_kind`"), "AC-09 is no longer partial: the window lock is a real error kind");
+    assert!(!doc.contains("AC-09 is partial"), "docs must not say AC-09 is partial");
+}
+
+#[test]
+fn discard_changes_requires_explicit_user_confirmation_in_description_and_schema() {
+    let tools = designos_mcp::server::tools();
+    for name in ["designos_open_file", "designos_new_document"] {
+        let tool = tools.iter().find(|t| t.name.as_ref() == name).unwrap_or_else(|| panic!("{name} declared"));
+        let desc = tool.description.as_deref().unwrap_or_default();
+        assert!(desc.contains("explicit confirmation"), "{name} description must say discard_changes needs the user's explicit confirmation: {desc}");
+        let schema = Value::Object((*tool.input_schema).clone());
+        let prop = schema["properties"]["discard_changes"]["description"].as_str().unwrap_or_default();
+        assert!(prop.contains("explicitly confirmed"), "{name} discard_changes schema must require the user's explicit confirmation: {prop}");
+    }
+}

@@ -159,8 +159,7 @@ impl EnabledToolsConfig {
         let canon = canonical_tool_name(tool_name);
         ToolError::new(ErrorCode::ToolDisabled, "", format!("Tool '{canon}' is disabled in this session."))
             .with_received(json!(canon))
-            .with_next_step(format!("Ask the user to enable {canon} in mcp-config.json, then restart."))
-            .with_safe_to_retry(true)
+            .with_next_step(format!("Stop; ask the user to enable {canon} in mcp-config.json."))
     }
 }
 
@@ -500,6 +499,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`NODE_NOT_FOUND`",
             "`NOT_A_CONTAINER`",
             "`VALUE_OUT_OF_RANGE`",
+            "`UNSUPPORTED_NODE_KIND`",
             "`UNKNOWN_VARIABLE`",
             "`VARIABLE_TYPE_MISMATCH`",
             "`AMBIGUOUS_VARIABLE`",
@@ -537,9 +537,16 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_set_in_progress" => {
             &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`IN_PROGRESS_TARGET_NOT_ROOT`", "`NODE_IN_PROGRESS_BY_OTHER_RUN`", "`TOOL_DISABLED`"]
         }
-        "designos_export_fig_file" => {
-            &["`INVALID_ARGUMENTS`", "`INVALID_NAME`", "`NAME_TOO_LONG`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`INTERNAL_ERROR`", "`TOOL_DISABLED`"]
-        }
+        "designos_export_fig_file" => &[
+            "`INVALID_ARGUMENTS`",
+            "`INVALID_NAME`",
+            "`NAME_TOO_LONG`",
+            "`UNSUPPORTED_EXTENSION`",
+            "`PATH_OUTSIDE_WORKSPACE`",
+            "`FILE_EXISTS`",
+            "`INTERNAL_ERROR`",
+            "`TOOL_DISABLED`",
+        ],
         "designos_query_xpath" => &["`INVALID_ARGUMENTS`", "`INVALID_SELECTOR`", "`NODE_NOT_FOUND`", "`CURSOR_STALE`", "`RULE_UNAVAILABLE`", "`TOOL_DISABLED`"],
         "designos_lint" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_guidelines" => &["`INVALID_ARGUMENTS`", "`UNKNOWN_TOPIC`", "`TOPIC_NOT_AVAILABLE`", "`TOOL_DISABLED`"],
@@ -549,9 +556,16 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_open_file" => {
             &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
         }
-        "designos_save_file" => {
-            &["`INVALID_ARGUMENTS`", "`PATH_REQUIRED`", "`INVALID_NAME`", "`NAME_TOO_LONG`", "`PATH_OUTSIDE_WORKSPACE`", "`FILE_EXISTS`", "`TOOL_DISABLED`"]
-        }
+        "designos_save_file" => &[
+            "`INVALID_ARGUMENTS`",
+            "`PATH_REQUIRED`",
+            "`INVALID_NAME`",
+            "`NAME_TOO_LONG`",
+            "`UNSUPPORTED_EXTENSION`",
+            "`PATH_OUTSIDE_WORKSPACE`",
+            "`FILE_EXISTS`",
+            "`TOOL_DISABLED`",
+        ],
         "designos_close_document" => &["`INVALID_ARGUMENTS`", "`PATH_REQUIRED`", "`UNSAVED_CHANGES`", "`TOOL_DISABLED`"],
         "designos_render_png" => &[
             "`INVALID_ARGUMENTS`",
@@ -559,6 +573,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
             "`NAME_TOO_LONG`",
             "`NODE_NOT_FOUND`",
             "`VALUE_OUT_OF_RANGE`",
+            "`UNSUPPORTED_EXTENSION`",
             "`PATH_OUTSIDE_WORKSPACE`",
             "`FILE_EXISTS`",
             "`TOOL_DISABLED`",
@@ -612,7 +627,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_save_file" => r#"{"path":"design.designos","overwrite":true}"#,
         "designos_close_document" => r#"{"unsaved":"save"}"#,
         "designos_render_png" => r#"{"node_id":2,"path":"preview.png","scale":2.0}"#,
-        "designos_new_document" => r#"{"name":"Fintech Workspace","discard_changes":true}"#,
+        "designos_new_document" => r#"{"name":"Fintech Workspace"}"#,
         "designos_search_design_system" => r#"{"query":"button","kinds":["component"],"limit":10}"#,
         "designos_get_design_context" => r#"{"node_id":2,"language":"css"}"#,
         "designos_lint_fix" => r#"{"page_id":1,"rules":["default-layer-name"]}"#,
@@ -708,7 +723,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
     out.push_str("## Per-Call `issues` Block & Error Recovery\n\n");
     if has_write_tools {
         out.push_str(
-            "- **Per-call `issues`:** Mutating replies attach `issues: {total, new_in_this_call, truncated, items}`. Resolve `new_in_this_call > 0` before continuing.\n",
+            "- **Per-call `issues`:** Mutating replies attach `issues: {total, new_in_this_call, truncated, items}`. Resolve `new_in_this_call > 0` first.\n",
         );
         if active_tools.contains("designos_configure_session") {
             out.push_str("- **Session lint:** `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false`.\n");
@@ -716,8 +731,7 @@ fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<St
     }
     out.push_str(
         "- **Structured errors:** `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.\n\
-         - **Retry:** Retry a `safe_to_retry` error once after step 7. For `TOOL_DISABLED`, follow `next_step`.\n\
-         - **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,message,next_step,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
+         - **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
     );
 }
 
@@ -833,6 +847,37 @@ pub const GENERATED_RULES_MD: &str = include_str!("../generated/rules.md");
 mod tests {
     use super::*;
     use designos_doc::Document;
+
+    #[test]
+    fn rules_pack_names_every_error_kind() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        for kind in crate::tools::errors::ErrorKind::ALL {
+            let clause = format!("`{}` =", kind.as_str());
+            assert!(pack.contains(&clause), "rules pack must define error_kind {} as `{clause} ...`", kind.as_str());
+        }
+    }
+
+    /// The one-retry bound: an agent that follows `retryable` retries once, not forever.
+    #[test]
+    fn rules_pack_bounds_the_retry_to_once() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("`retryable` = fix and retry once"), "step 7 must bound the retry");
+    }
+
+    #[test]
+    fn per_tool_error_lists_name_the_unsupported_codes_the_tool_returns() {
+        let has = |tool: &str, code: &str| tool_error_codes(tool).contains(&format!("`{code}`").as_str());
+        assert!(has("designos_create_node", "UNSUPPORTED_NODE_KIND"));
+        for tool in ["designos_save_file", "designos_render_png", "designos_export_fig_file"] {
+            assert!(has(tool, "UNSUPPORTED_EXTENSION"), "{tool}");
+        }
+    }
+
+    #[test]
+    fn rules_pack_says_stop_and_ask_the_user_on_needs_human() {
+        let pack = generate_default_rules_pack().expect("rules pack");
+        assert!(pack.contains("stop and ask the user"), "rules pack must tell the agent to stop and ask the user on needs_human");
+    }
 
     #[test]
     fn disabling_a_tool_removes_its_section() {
@@ -1360,7 +1405,8 @@ mod tests {
 
         let disabled_err = EnabledToolsConfig::tool_disabled_error("designos_create_node").to_json_value();
         assert_eq!(disabled_err["error"]["code"], "TOOL_DISABLED");
-        assert_eq!(disabled_err["error"]["safe_to_retry"], true);
+        assert_eq!(disabled_err["error"]["safe_to_retry"], false);
+        assert_eq!(disabled_err["error"]["error_kind"], "needs_human");
         assert!(disabled_err["error"]["next_step"].as_str().unwrap().contains("designos_create_node"));
     }
 }
