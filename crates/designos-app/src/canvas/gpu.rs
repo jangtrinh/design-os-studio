@@ -148,6 +148,15 @@ impl GpuView {
         }
     }
 
+    /// Whether the frame of the last `compiled` call goes to the screen. A refine
+    /// that left geometry deferred does not: it exists to build that geometry, and
+    /// submitting its thousands of passes again for each 8 ms of progress would
+    /// block the UI thread for hundreds of milliseconds a frame. The frame on
+    /// screen stays until the refine completes and replaces it.
+    fn presents_last_compile(&self) -> bool {
+        !self.refine_pending
+    }
+
     /// Largest texture edge the device supports.
     pub fn set_max_texture(&mut self, max: u32) {
         self.compiler.opts.max_texture = max;
@@ -299,13 +308,16 @@ pub fn paint(app: &mut App, ui: &Ui, rect: ERect) -> bool {
     let frame = g.compiler.compile(doc, page, rev, &vp, size);
     g.compiler.opts.uncap_programs = false;
     g.compiler.opts.full_detail = false;
-    g.last_stats = Some(frame.stats());
     g.last_compile_ms = start.elapsed().as_secs_f32() * 1000.0;
     // some meshes may still have the previous zoom's flattening, or the view
     // may now be idle: come back for another frame (no timer needed); nothing
     // once the refined frame is cached
     g.compiled(key, refine).request(ui.ctx());
-    ui.painter().with_clip_rect(rect).add(egui_wgpu::Callback::new_paint_callback(rect, Cb { frame: Some(Arc::new(frame)) }));
+    let shown = g.presents_last_compile().then(|| {
+        g.last_stats = Some(frame.stats());
+        Arc::new(frame)
+    });
+    ui.painter().with_clip_rect(rect).add(egui_wgpu::Callback::new_paint_callback(rect, Cb { frame: shown }));
     app.canvas.last_render_ms = start.elapsed().as_secs_f32() * 1000.0;
     true
 }
@@ -429,6 +441,22 @@ mod tests {
         for t in [0.3, 1.0, 60.0] {
             assert_eq!(g.plan(key(1), t, false, false), FramePlan::Reuse);
         }
+    }
+
+    #[test]
+    fn partial_refine_keeps_the_frame_on_screen_and_the_last_one_replaces_it() {
+        let mut g = view(false);
+        assert_eq!(g.plan(key(1), 0.25, false, false), FramePlan::Refine);
+        g.compiler.geom.stale_hits = 2;
+        g.compiled(key(1), true);
+        assert!(!g.presents_last_compile(), "a refine that left geometry deferred only warms the geometry cache: no submit, the shown frame stays");
+        g.compiler.geom.stale_hits = 0;
+        g.compiled(key(1), true);
+        assert!(g.presents_last_compile(), "the completed refine is the one frame that replaces it");
+        // interactive frames always go to the screen, deferred geometry or not
+        g.compiler.geom.stale_hits = 3;
+        g.compiled(key(2), false);
+        assert!(g.presents_last_compile());
     }
 
     #[test]
