@@ -1,0 +1,31 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.94s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 1 test
+test cli::tests::parses_panel ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 0.00s
+
