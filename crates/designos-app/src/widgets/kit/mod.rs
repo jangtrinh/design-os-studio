@@ -57,7 +57,7 @@ pub use choice::{
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use feedback::{empty_state, empty_state_look, loading_look, loading_ring, progress_bar, progress_look, tile_icon, tile_look, TileKind};
 #[cfg_attr(not(test), allow(unused_imports))]
-pub use field::{field_look, paint_field, property_field_look, search_look, select_look};
+pub use field::{dropdown_look, field_look, paint_field, property_field_look, search_look, select_look};
 pub use focus::{focus_ring, keyboard_focus};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use rows::{

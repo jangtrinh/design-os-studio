@@ -35,8 +35,20 @@ pub const fn search_look(state: State) -> Look {
     body(state, theme::ICON_QUATERNARY, theme::TEXT_PLACEHOLDER, theme::TEXT)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub const fn select_look(state: State) -> Look {
     body(state, theme::ICON_QUATERNARY, theme::TEXT, theme::TEXT)
+}
+
+/// The dropdown trigger look (issue #1273), distinct from the kit `select_look`.
+pub const fn dropdown_look(state: State) -> Look {
+    let resting = look(theme::BG, Color32::TRANSPARENT, 0.0, theme::TEXT, theme::ICON_QUATERNARY);
+    match state {
+        State::Hover => look(theme::BG, theme::BORDER, W, theme::TEXT, theme::ICON_QUATERNARY),
+        State::Focused => look(theme::BG, theme::BORDER_SELECTED, W, theme::TEXT, theme::ICON_QUATERNARY),
+        State::Disabled => disabled(resting),
+        _ => resting,
+    }
 }
 
 /// Field chrome. Focus widens the border; there is no hover stroke and no focus ring.
@@ -47,4 +59,24 @@ pub fn paint_field(ui: &egui::Ui, rect: egui::Rect, id: egui::Id, size: Size, in
         Size::Xs | Size::Sm | Size::Md => theme::RADIUS_CONTROL,
     };
     paint_frame(ui.painter(), rect, radius, &field_look(state, invalid));
+}
+
+#[cfg(test)]
+mod dropdown_tests {
+    use super::*;
+
+    #[test]
+    fn dropdown_trigger_states_are_distinct_from_kit_select() {
+        let default = dropdown_look(State::Default);
+        assert_eq!(default.border_w, 0.0, "the idle dropdown trigger must skip its stroke");
+        assert_eq!(default.border, Color32::TRANSPARENT, "the idle dropdown border must be transparent");
+        let hover = dropdown_look(State::Hover);
+        assert_eq!(hover.border, theme::BORDER, "hover uses the hairline border token");
+        assert_eq!(hover.border_w, W, "hover uses one border width");
+        let focused = dropdown_look(State::Focused);
+        assert_eq!(focused.border, theme::BORDER_SELECTED, "focus uses the selected border token");
+        assert_eq!(focused.border_w, W, "focus uses a one width ring");
+        assert_eq!(select_look(State::Default).border, theme::BORDER_STRONG, "kit select keeps its strong resting border");
+        assert_eq!(select_look(State::Focused).border_w, W * 2.0, "kit select keeps its two width focus stroke");
+    }
 }
