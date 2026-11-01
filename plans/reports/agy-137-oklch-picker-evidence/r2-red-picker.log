@@ -1,0 +1,813 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+ Downloading crates ...
+  Downloaded accesskit_macos v0.26.3
+  Downloaded accesskit_winit v0.32.2
+  Downloaded accesskit_consumer v0.38.0
+  Downloaded accesskit v0.24.1
+  Downloaded dlib v0.5.3
+  Downloaded dirs v5.0.1
+  Downloaded dpi v0.1.2
+  Downloaded arrayref v0.3.9
+  Downloaded byteorder-lite v0.1.0
+  Downloaded cfg-if v1.0.5
+  Downloaded core_maths v0.1.1
+  Downloaded color_quant v1.1.0
+  Downloaded serial v0.4.0
+  Downloaded clap_lex v1.1.1
+  Downloaded document-features v0.2.12
+  Downloaded float-cmp v0.9.0
+  Downloaded foreign-types-shared v0.3.1
+  Downloaded anstyle-query v1.1.5
+  Downloaded dirs-sys v0.4.1
+  Downloaded cgl v0.3.2
+  Downloaded form_urlencoded v1.2.2
+  Downloaded core-graphics-types v0.1.3
+  Downloaded filedescriptor v0.8.3
+  Downloaded adler2 v2.0.1
+  Downloaded downcast-rs v1.2.1
+  Downloaded futures-macro v0.3.34
+  Downloaded futures-sink v0.3.34
+  Downloaded futures-io v0.3.34
+  Downloaded futures-core v0.3.34
+  Downloaded equivalent v1.0.3
+  Downloaded dispatch v0.2.0
+  Downloaded foreign-types-macros v0.2.4
+  Downloaded foreign-types v0.5.0
+  Downloaded colorchoice v1.0.5
+  Downloaded float_next_after v1.0.0
+  Downloaded dyn-clone v1.0.20
+  Downloaded cfg_aliases v0.2.2
+  Downloaded pollster v0.4.0
+  Downloaded foldhash v0.1.5
+  Downloaded find-msvc-tools v0.1.14
+  Downloaded foldhash v0.2.0
+  Downloaded ecolor v0.35.0
+  Downloaded font-types v0.11.3
+  Downloaded xmlwriter v0.1.0
+  Downloaded profiling v1.0.18
+  Downloaded arrayvec v0.7.8
+  Downloaded futures-executor v0.3.34
+  Downloaded rustc-hash v1.1.0
+  Downloaded crc32fast v1.5.2
+  Downloaded termios v0.2.2
+  Downloaded once_cell v1.21.4
+  Downloaded parking_lot_core v0.9.12
+  Downloaded idna_adapter v1.2.2
+  Downloaded zopfli v0.8.4
+  Downloaded objc2-encode v4.1.0
+  Downloaded objc2-core-graphics v0.3.2
+  Downloaded ordered-float v5.5.0
+  Downloaded potential_utf v0.1.6
+  Downloaded subtle v2.6.1
+  Downloaded wgpu-naga-bridge v29.0.4
+  Downloaded wgpu-core-deps-apple v29.0.4
+  Downloaded writeable v0.6.4
+  Downloaded objc2-io-surface v0.3.2
+  Downloaded wayland-sys v0.31.11
+  Downloaded presser v0.3.1
+  Downloaded winresource v0.1.34
+  Downloaded imagesize v0.13.0
+  Downloaded chrono v0.4.45
+  Downloaded pin-utils v0.1.1
+  Downloaded pico-args v0.5.0
+  Downloaded vte_generate_state_changes v0.1.2
+  Downloaded i_key_sort v0.12.0
+  Downloaded hexf-parse v0.2.1
+  Downloaded objc2 v0.5.3
+  Downloaded yoke-derive v0.8.4
+  Downloaded yoke v0.8.3
+  Downloaded objc2-foundation v0.3.2
+  Downloaded wgpu-core v29.0.4
+  Downloaded toml_writer v1.1.3+spec-1.1.0
+  Downloaded wgpu v29.0.4
+  Downloaded memoffset v0.9.1
+  Downloaded zerofrom v0.1.8
+  Downloaded zerotrie v0.2.5
+  Downloaded zerovec v0.11.8
+  Downloaded num-traits v0.2.19
+  Downloaded gif v0.14.1
+  Downloaded nohash-hasher v0.2.0
+  Downloaded zerofrom-derive v0.1.8
+  Downloaded icu_properties_data v2.3.0
+  Downloaded url v2.5.8
+  Downloaded zune-core v0.5.3
+  Downloaded gpu-descriptor v0.3.2
+  Downloaded ureq v2.12.1
+  Downloaded unicode-segmentation v1.13.3
+  Downloaded gpu-allocator v0.28.0
+  Downloaded glifo v0.1.1
+  Downloaded glutin-winit v0.5.0
+  Downloaded nix v0.25.1
+  Downloaded icu_properties v2.3.0
+  Downloaded tokio-util v0.7.20
+  Downloaded glutin v0.32.3
+  Downloaded objc2-app-kit v0.3.2
+  Downloaded usvg v0.45.1
+  Downloaded zip v9.0.4
+  Downloaded ttf-parser v0.25.1
+  Downloaded swash v0.2.10
+  Downloaded tiny-skia v0.11.4
+  Downloaded unicode-width v0.1.14
+  Downloaded objc2 v0.6.5
+  Downloaded syn v2.0.119
+  Downloaded unicode-width v0.2.2
+  Downloaded skrifa v0.44.0
+  Downloaded rustls v0.23.45
+  Downloaded skrifa v0.42.1
+  Downloaded skrifa v0.40.0
+  Downloaded rustybuzz v0.20.1
+  Downloaded nix v0.31.3
+  Downloaded read-fonts v0.37.0
+  Downloaded typed-path v0.12.3
+  Downloaded tracing v0.1.44
+  Downloaded rayon v1.12.0
+  Downloaded cosmic-text v0.19.0
+  Downloaded read-fonts v0.41.0
+  Downloaded read-fonts v0.39.2
+  Downloaded rmcp v3.5.1
+  Downloaded zeroize v1.9.1
+  Downloaded objc2-app-kit v0.2.2
+  Downloaded tiff v0.11.3
+  Downloaded ruzstd v0.9.1
+  Downloaded schemars v1.2.3
+  Downloaded rustls-webpki v0.103.15
+  Downloaded objc-sys v0.3.5
+  Downloaded zeno v0.3.3
+  Downloaded objc2-core-data v0.2.2
+  Downloaded rayon-core v1.13.0
+  Downloaded tracing-core v0.1.36
+  Downloaded resvg v0.45.1
+  Downloaded naga v29.0.4
+  Downloaded rangemap v1.8.0
+  Downloaded libc v0.2.191
+  Downloaded lyon_geom v1.0.19
+  Downloaded getrandom v0.4.3
+  Downloaded pxfm v0.1.30
+  Downloaded tokio v1.53.2
+  Downloaded unicode-bidi v0.3.18
+  Downloaded toml v1.1.8+spec-1.1.0
+  Downloaded tinyvec v1.13.3
+  Downloaded slotmap v1.1.1
+  Downloaded icu_normalizer_data v2.3.0
+  Downloaded icu_locale_core v2.3.0
+  Downloaded kurbo v0.11.3
+  Downloaded image-webp v0.2.4
+  Downloaded rustls-pki-types v1.15.1
+  Downloaded roxmltree v0.20.0
+  Downloaded zerovec-derive v0.11.6
+  Downloaded icu_collections v2.3.0
+  Downloaded khronos-egl v6.0.0
+  Downloaded is_terminal_polyfill v1.70.2
+  Downloaded ioctl-rs v0.1.6
+  Downloaded iana-time-zone v0.1.65
+  Downloaded unicode-script v0.5.8
+  Downloaded twox-hash v2.1.5
+  Downloaded svgtypes v0.15.3
+  Downloaded smallvec v1.16.3
+  Downloaded self_cell v1.3.0
+  Downloaded rfd v0.17.2
+  Downloaded pkg-config v0.3.34
+  Downloaded winit v0.30.13
+  Downloaded unicode-properties v0.1.4
+  Downloaded unicode-general-category v1.1.0
+  Downloaded tracing-attributes v0.1.31
+  Downloaded toml_parser v1.1.5+spec-1.1.0
+  Downloaded tinystr v0.8.4
+  Downloaded tiny-skia-path v0.11.4
+  Downloaded spirv v0.4.0+sdk-1.4.341.0
+  Downloaded slab v0.4.12
+  Downloaded ring v0.17.14
+  Downloaded schemars_derive v1.2.3
+  Downloaded epaint_default_fonts v0.35.0
+  Downloaded kurbo v0.13.1
+  Downloaded wgpu-hal v29.0.4
+  Downloaded icu_normalizer v2.3.0
+  Downloaded simd-adler32 v0.3.10
+  Downloaded toml_datetime v1.1.2+spec-1.1.0
+  Downloaded thiserror-impl v1.0.69
+  Downloaded thiserror v1.0.69
+  Downloaded termcolor v1.4.1
+  Downloaded synstructure v0.14.0
+  Downloaded static_assertions v1.1.0
+  Downloaded smol_str v0.3.6
+  Downloaded simplecss v0.2.2
+  Downloaded shlex v2.0.1
+  Downloaded serial-unix v0.4.0
+  Downloaded serde_derive_internals v0.30.0
+  Downloaded rgb v0.8.53
+  Downloaded raw-window-handle v0.6.2
+  Downloaded yazi v0.2.1
+  Downloaded objc2-quartz-core v0.2.2
+  Downloaded objc2-core-image v0.2.2
+  Downloaded libloading v0.8.9
+  Downloaded vello_common v0.0.9
+  Downloaded uuid v1.28.0
+  Downloaded png v0.18.1
+  Downloaded png v0.17.16
+  Downloaded i_float v5.0.0
+  Downloaded ash v0.38.0+1.3.281
+  Downloaded portable-pty v0.8.1
+  Downloaded open v5.4.4
+  Downloaded webpki-roots v0.26.11
+  Downloaded ref-cast v1.0.27
+  Downloaded quick-error v2.0.1
+  Downloaded futures-util v0.3.34
+  Downloaded webpki-roots v1.0.9
+  Downloaded objc2-metal v0.3.2
+  Downloaded harfrust v0.7.0
+  Downloaded i_overlay v9.1.0
+  Downloaded egui v0.35.0
+  Downloaded vt100 v0.15.2
+  Downloaded objc2-quartz-core v0.3.2
+  Downloaded i_tree v0.20.0
+  Downloaded i_shape v5.0.0
+  Downloaded guillotiere v0.7.0
+  Downloaded gpu-descriptor-types v0.2.0
+  Downloaded libm v0.2.16
+  Downloaded lyon_tessellation v1.0.22
+  Downloaded winnow v1.0.4
+  Downloaded image v0.25.10
+  Downloaded zerocopy v0.8.62
+  Downloaded raw-window-metal v1.1.0
+  Downloaded percent-encoding v2.3.2
+  Downloaded peniko v0.6.1
+  Downloaded pastey v0.2.3
+  Downloaded parking_lot v0.12.5
+  Downloaded indexmap v2.14.2
+  Downloaded zune-jpeg v0.5.15
+  Downloaded objc2-metal v0.2.2
+  Downloaded itertools v0.14.0
+  Downloaded hashbrown v0.17.1
+  Downloaded hashbrown v0.16.1
+  Downloaded hashbrown v0.15.5
+  Downloaded vello_cpu v0.0.9
+  Downloaded objc2-foundation v0.2.2
+  Downloaded harfrust v0.5.2
+  Downloaded utf8parse v0.2.2
+  Downloaded unicode-linebreak v0.1.5
+  Downloaded type-map v0.5.1
+  Downloaded serial-core v0.4.0
+  Downloaded option-ext v0.2.0
+  Downloaded getrandom v0.3.4
+  Downloaded getrandom v0.2.17
+  Downloaded utf8_iter v1.0.4
+  Downloaded untrusted v0.9.0
+  Downloaded unicode-ccc v0.4.0
+  Downloaded unicode-bidi-mirroring v0.4.0
+  Downloaded strsim v0.11.1
+  Downloaded strict-num v0.1.1
+  Downloaded smol_str v0.2.2
+  Downloaded scopeguard v1.2.0
+  Downloaded weezl v0.1.12
+  Downloaded web-time v1.1.0
+  Downloaded zlib-rs v0.6.8
+  Downloaded unicode-vo v0.1.0
+  Downloaded shell-words v1.1.1
+  Downloaded fearless_simd v0.4.1
+  Downloaded memmap2 v0.9.11
+  Downloaded lyon_path v1.0.19
+  Downloaded clap_builder v4.6.7
+  Downloaded half v2.7.1
+  Downloaded memoffset v0.6.5
+  Downloaded jobserver v0.1.35
+  Downloaded idna v1.1.0
+  Downloaded moxcms v0.8.1
+  Downloaded sys-locale v0.3.2
+  Downloaded glow v0.17.0
+  Downloaded objc2-core-foundation v0.3.2
+  Downloaded version_check v0.9.5
+  Downloaded zerocopy-derive v0.8.62
+  Downloaded tokio-macros v2.7.2
+  Downloaded serde_spanned v1.1.2
+  Downloaded eframe v0.35.0
+  Downloaded cc v1.7.0
+  Downloaded wgpu-types v29.0.4
+  Downloaded stable_deref_trait v1.2.1
+  Downloaded epaint v0.35.0
+  Downloaded log v0.4.34
+  Downloaded litrs v1.0.0
+  Downloaded litemap v0.8.3
+  Downloaded icu_provider v2.3.1
+  Downloaded rustc-hash v2.1.3
+  Downloaded fontdb v0.23.0
+  Downloaded euclid v0.22.14
+  Downloaded color v0.3.3
+  Downloaded codespan-reporting v0.13.1
+  Downloaded bumpalo v3.20.3
+  Downloaded base64 v0.22.1
+  Downloaded lock_api v0.4.14
+  Downloaded linebender_resource_handle v0.1.1
+  Downloaded webbrowser v1.2.4
+  Downloaded miniz_oxide v0.9.1
+  Downloaded miniz_oxide v0.8.9
+  Downloaded flate2 v1.1.10
+  Downloaded clap v4.6.7
+  Downloaded bytes v1.12.1
+  Downloaded arboard v3.6.1
+  Downloaded allocator-api2 v0.2.21
+  Downloaded heck v0.5.0
+  Downloaded vte v0.11.1
+  Downloaded siphasher v1.0.4
+  Downloaded dispatch2 v0.3.1
+  Downloaded bytemuck v1.25.2
+  Downloaded bitflags v2.13.2
+  Downloaded ahash v0.8.12
+  Downloaded renderdoc-sys v1.1.0
+  Downloaded futures v0.3.34
+  Downloaded fdeflate v0.3.7
+  Downloaded egui_glow v0.35.0
+  Downloaded egui-winit v0.35.0
+  Downloaded egui-wgpu v0.35.0
+  Downloaded crossbeam-epoch v0.9.21
+  Downloaded ref-cast-impl v1.0.27
+  Downloaded emath v0.35.0
+  Downloaded anyhow v1.0.104
+  Downloaded futures-task v0.3.34
+  Downloaded futures-channel v0.3.34
+  Downloaded font-types v0.12.7
+  Downloaded crossbeam-utils v0.8.23
+  Downloaded core-foundation-sys v0.8.7
+  Downloaded clap_derive v4.6.7
+  Downloaded block2 v0.6.2
+  Downloaded anstyle v1.0.14
+  Downloaded pin-project-lite v0.2.17
+  Downloaded polycool v0.4.0
+  Downloaded fax v0.2.7
+  Downloaded core-graphics v0.23.2
+  Downloaded core-foundation v0.9.4
+  Downloaded anstream v1.0.0
+  Downloaded either v1.19.0
+  Downloaded crossbeam-deque v0.8.8
+  Downloaded bytemuck_derive v1.12.1
+  Downloaded bitflags v1.3.2
+  Downloaded displaydoc v0.2.7
+  Downloaded data-url v0.3.2
+  Downloaded cursor-icon v1.2.0
+  Downloaded block2 v0.5.1
+  Downloaded bit-vec v0.9.1
+  Downloaded bit-set v0.9.1
+  Downloaded autocfg v1.5.1
+  Downloaded anstyle-parse v1.0.0
+   Compiling unicode-ident v1.0.27
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling smallvec v1.16.3
+   Compiling log v0.4.34
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling simd-adler32 v0.3.10
+   Compiling zerocopy v0.8.62
+   Compiling crc32fast v1.5.2
+   Compiling proc-macro2 v1.0.107
+   Compiling stable_deref_trait v1.2.1
+   Compiling version_check v0.9.5
+   Compiling adler2 v2.0.1
+   Compiling foldhash v0.2.0
+   Compiling miniz_oxide v0.9.1
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling bitflags v1.3.2
+   Compiling litemap v0.8.3
+   Compiling writeable v0.6.4
+   Compiling utf8_iter v1.0.4
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling quote v1.0.47
+   Compiling miniz_oxide v0.8.9
+   Compiling syn v3.0.9
+   Compiling num-traits v0.2.19
+   Compiling syn v2.0.119
+   Compiling fdeflate v0.3.7
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling linebender_resource_handle v0.1.1
+   Compiling cc v1.7.0
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling quick-error v2.0.1
+   Compiling core_maths v0.1.1
+   Compiling zeroize v1.9.1
+   Compiling equivalent v1.0.3
+   Compiling zune-core v0.5.3
+   Compiling weezl v0.1.12
+   Compiling percent-encoding v2.3.2
+   Compiling zune-jpeg v0.5.15
+   Compiling form_urlencoded v1.2.2
+   Compiling rustls-pki-types v1.15.1
+   Compiling slotmap v1.1.1
+   Compiling fax v0.2.7
+   Compiling pxfm v0.1.30
+   Compiling unicode-segmentation v1.13.3
+   Compiling ref-cast v1.0.27
+   Compiling block2 v0.6.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling crossbeam-utils v0.8.23
+   Compiling self_cell v1.3.0
+   Compiling either v1.19.0
+   Compiling byteorder-lite v0.1.0
+   Compiling color_quant v1.1.0
+   Compiling gif v0.14.1
+   Compiling image-webp v0.2.4
+   Compiling indexmap v2.14.2
+   Compiling ttf-parser v0.25.1
+   Compiling objc2-foundation v0.3.2
+   Compiling hashbrown v0.16.1
+   Compiling untrusted v0.9.0
+   Compiling pin-project-lite v0.2.17
+   Compiling getrandom v0.2.17
+   Compiling parking_lot_core v0.9.12
+   Compiling crossbeam-epoch v0.9.21
+   Compiling getrandom v0.4.3
+   Compiling float-cmp v0.9.0
+   Compiling raw-window-handle v0.6.2
+   Compiling strict-num v0.1.1
+   Compiling synstructure v0.14.0
+   Compiling serde_derive_internals v0.30.0
+   Compiling flate2 v1.1.10
+   Compiling moxcms v0.8.1
+   Compiling png v0.18.1
+   Compiling memmap2 v0.9.11
+   Compiling euclid v0.22.14
+   Compiling aho-corasick v1.1.5
+   Compiling unicode-script v0.5.8
+   Compiling rustls v0.23.45
+   Compiling base64 v0.22.1
+   Compiling scopeguard v1.2.0
+   Compiling crossbeam-deque v0.8.8
+   Compiling dyn-clone v1.0.20
+   Compiling rustc-hash v2.1.3
+   Compiling arrayref v0.3.9
+   Compiling objc-sys v0.3.5
+   Compiling tinyvec v1.13.3
+   Compiling lock_api v0.4.14
+   Compiling regex-automata v0.4.18
+   Compiling fontdb v0.23.0
+   Compiling ring v0.17.14
+   Compiling webpki-roots v1.0.9
+   Compiling unicode-bidi v0.3.18
+   Compiling option-ext v0.2.0
+   Compiling rayon-core v1.13.0
+   Compiling subtle v2.6.1
+   Compiling dirs-sys v0.4.1
+   Compiling webpki-roots v0.26.11
+   Compiling uuid v1.28.0
+   Compiling parking_lot v0.12.5
+   Compiling png v0.17.16
+   Compiling i_float v5.0.0
+   Compiling naga v29.0.4
+   Compiling regex v1.13.1
+   Compiling zeno v0.3.3
+   Compiling bit-vec v0.9.1
+   Compiling profiling v1.0.18
+   Compiling unicode-width v0.2.2
+   Compiling yazi v0.2.1
+   Compiling codespan-reporting v0.13.1
+   Compiling objc2 v0.5.3
+   Compiling bit-set v0.9.1
+   Compiling i_shape v5.0.0
+   Compiling dirs v5.0.1
+   Compiling objc2-metal v0.3.2
+   Compiling polycool v0.4.0
+   Compiling smol_str v0.3.6
+   Compiling i_tree v0.20.0
+   Compiling hexf-parse v0.2.1
+   Compiling rustc-hash v1.1.0
+   Compiling rangemap v1.8.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling i_key_sort v0.12.0
+   Compiling sys-locale v0.3.2
+   Compiling i_overlay v9.1.0
+   Compiling block2 v0.5.1
+   Compiling kurbo v0.13.1
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling utf8parse v0.2.2
+   Compiling unicode-ccc v0.4.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling dispatch v0.2.0
+   Compiling unicode-properties v0.1.4
+   Compiling siphasher v1.0.4
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling objc2-foundation v0.2.2
+   Compiling svgtypes v0.15.3
+   Compiling core-foundation v0.9.4
+   Compiling rayon v1.12.0
+   Compiling objc2-quartz-core v0.3.2
+   Compiling raw-window-metal v1.1.0
+   Compiling accesskit v0.24.1
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling unicode-vo v0.1.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling fearless_simd v0.4.1
+   Compiling unicode-general-category v1.1.0
+   Compiling pico-args v0.5.0
+   Compiling futures-sink v0.3.34
+   Compiling data-url v0.3.2
+   Compiling futures-core v0.3.34
+   Compiling imagesize v0.13.0
+   Compiling xmlwriter v0.1.0
+   Compiling roxmltree v0.20.0
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-app-kit v0.2.2
+   Compiling objc2-core-graphics v0.3.2
+   Compiling nix v0.31.3
+   Compiling wgpu-core v29.0.4
+   Compiling winit v0.30.13
+   Compiling winnow v1.0.4
+   Compiling rustls-webpki v0.103.15
+   Compiling litrs v1.0.0
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling futures-channel v0.3.34
+   Compiling document-features v0.2.12
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling smol_str v0.2.2
+   Compiling colorchoice v1.0.5
+   Compiling slab v0.4.12
+   Compiling epaint_default_fonts v0.35.0
+   Compiling futures-task v0.3.34
+   Compiling cursor-icon v1.2.0
+   Compiling dpi v0.1.2
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle v1.0.14
+   Compiling futures-io v0.3.34
+   Compiling bumpalo v3.20.3
+   Compiling nohash-hasher v0.2.0
+   Compiling anstream v1.0.0
+   Compiling zopfli v0.8.4
+   Compiling serde_spanned v1.1.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling memoffset v0.6.5
+   Compiling twox-hash v2.1.5
+   Compiling heck v0.5.0
+   Compiling typed-path v0.12.3
+   Compiling strsim v0.11.1
+   Compiling static_assertions v1.1.0
+   Compiling bytes v1.12.1
+   Compiling clap_lex v1.1.1
+   Compiling thiserror v1.0.69
+   Compiling clap_builder v4.6.7
+   Compiling accesskit_macos v0.26.3
+   Compiling ruzstd v0.9.1
+   Compiling zip v9.0.4
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling lyon_geom v1.0.19
+   Compiling termios v0.2.2
+   Compiling ioctl-rs v0.1.6
+   Compiling serial-core v0.4.0
+   Compiling web-time v1.1.0
+   Compiling rmcp v3.5.1
+   Compiling anyhow v1.0.104
+   Compiling serial-unix v0.4.0
+   Compiling winresource v0.1.34
+   Compiling lyon_path v1.0.19
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling thiserror-impl v1.0.69
+   Compiling pin-utils v0.1.1
+   Compiling rfd v0.17.2
+   Compiling float_next_after v1.0.0
+   Compiling pollster v0.4.0
+   Compiling pastey v0.2.3
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app)
+   Compiling lyon_tessellation v1.0.22
+   Compiling nix v0.25.1
+   Compiling vte v0.11.1
+   Compiling serial v0.4.0
+   Compiling dispatch2 v0.3.1
+   Compiling downcast-rs v1.2.1
+   Compiling unicode-width v0.1.14
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling shell-words v1.1.1
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling futures-macro v0.3.34
+   Compiling foreign-types v0.5.0
+   Compiling tokio-macros v2.7.2
+   Compiling clap_derive v4.6.7
+   Compiling core-graphics v0.23.2
+   Compiling vt100 v0.15.2
+   Compiling filedescriptor v0.8.3
+   Compiling tracing v0.1.44
+   Compiling portable-pty v0.8.1
+   Compiling open v5.4.4
+   Compiling bytemuck v1.25.2
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling thiserror v2.0.21
+   Compiling tiny-skia v0.11.4
+   Compiling wgpu-types v29.0.4
+   Compiling color v0.3.3
+   Compiling read-fonts v0.39.2
+   Compiling peniko v0.6.1
+   Compiling rustybuzz v0.20.1
+   Compiling vello_common v0.0.9
+   Compiling emath v0.35.0
+   Compiling ecolor v0.35.0
+   Compiling vello_cpu v0.0.9
+   Compiling half v2.7.1
+   Compiling usvg v0.45.1
+   Compiling tiff v0.11.3
+   Compiling zerofrom v0.1.8
+   Compiling futures-util v0.3.34
+   Compiling tokio v1.53.2
+   Compiling image v0.25.10
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling chrono v0.4.45
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_collections v2.3.0
+   Compiling skrifa v0.44.0
+   Compiling harfrust v0.5.2
+   Compiling schemars v1.2.3
+   Compiling skrifa v0.40.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-doc)
+   Compiling idna_adapter v1.2.2
+   Compiling swash v0.2.10
+   Compiling idna v1.1.0
+   Compiling url v2.5.8
+   Compiling ureq v2.12.1
+   Compiling cosmic-text v0.19.0
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling skrifa v0.42.1
+   Compiling harfrust v0.7.0
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling epaint v0.35.0
+   Compiling designos-fonts v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-fonts)
+   Compiling designos-render v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-render)
+   Compiling egui v0.35.0
+   Compiling designos-svg v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-svg)
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling webbrowser v1.2.4
+   Compiling designos-webcapture v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-webcapture)
+   Compiling tokio-util v0.7.20
+   Compiling designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-fig)
+   Compiling arboard v3.6.1
+   Compiling clap v4.6.7
+   Compiling accesskit_winit v0.32.2
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-export)
+   Compiling designos-diff v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-diff)
+   Compiling rgb v0.8.53
+   Compiling resvg v0.45.1
+   Compiling designos-gpu v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-gpu)
+   Compiling designos-library v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-library)
+   Compiling egui-wgpu v0.35.0
+   Compiling egui-winit v0.35.0
+   Compiling eframe v0.35.0
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 41s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 21 tests
+test widgets::picker::tests::active_color_edits_the_selected_stop ... ok
+test widgets::picker::tests::hsb_is_computed_in_gamma_space ... ok
+test widgets::picker::tests::solid_to_gradient_keeps_color_as_first_stop ... ok
+test widgets::picker::tests::gradient_to_solid_takes_first_stop ... ok
+test widgets::picker::tests::gradient_shape_switch_keeps_stops ... ok
+test widgets::picker::tests::oklch_and_oklab_format_list_and_default ... ok
+test widgets::picker::tests::hue_survives_grey ... ok
+test widgets::picker::tests::stop_color_interpolates ... ok
+test widgets::picker::tests::css_and_hsl_roundtrip ... ok
+test widgets::picker::tests::procedural_png_presets_generate_valid_png_headers_and_distinct_textures ... ok
+test widgets::picker::tests::visible_text_hsb_at_full_s_b ... FAILED
+test widgets::picker::tests::visible_text_rgb_at_255_255_255 ... FAILED
+test widgets::picker::tests::visible_text_hsl_mode ... FAILED
+test widgets::picker::tests::visible_text_hex_mode ... FAILED
+test widgets::picker::tests::visible_text_css_mode ... FAILED
+test widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps ... FAILED
+test widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba ... FAILED
+test widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells ... FAILED
+test widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue ... FAILED
+test widgets::picker::tests::visible_text_oklch_mode ... FAILED
+test widgets::picker::tests::visible_text_oklab_mode ... FAILED
+
+failures:
+
+---- widgets::picker::tests::visible_text_hsb_at_full_s_b stdout ----
+
+thread 'widgets::picker::tests::visible_text_hsb_at_full_s_b' (48317941) panicked at crates/designos-app/src/widgets/picker.rs:1964:9:
+mode Hsb painted an elided string in visible texts: ["Custom", "Libraries", "4.00 : 1", "AA Large", "HSB", "0", "1…", "1…", "100", "%", "On this page"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- widgets::picker::tests::visible_text_rgb_at_255_255_255 stdout ----
+
+thread 'widgets::picker::tests::visible_text_rgb_at_255_255_255' (48317945) panicked at crates/designos-app/src/widgets/picker.rs:1964:9:
+mode Rgb painted an elided string in visible texts: ["Custom", "Libraries", "16.67 : 1", "AAA", "RGB", "2…", "2…", "2…", "100", "%", "On this page"]
+
+---- widgets::picker::tests::visible_text_hsl_mode stdout ----
+
+thread 'widgets::picker::tests::visible_text_hsl_mode' (48317942) panicked at crates/designos-app/src/widgets/picker.rs:1964:9:
+mode Hsl painted an elided string in visible texts: ["Custom", "Libraries", "4.00 : 1", "AA Large", "HSL", "0", "1…", "50", "100", "%", "On this page"]
+
+---- widgets::picker::tests::visible_text_hex_mode stdout ----
+
+thread 'widgets::picker::tests::visible_text_hex_mode' (48317940) panicked at crates/designos-app/src/widgets/picker.rs:1976:9:
+mode Hex closed format dropdown is too narrow for longest label
+
+---- widgets::picker::tests::visible_text_css_mode stdout ----
+
+thread 'widgets::picker::tests::visible_text_css_mode' (48317939) panicked at crates/designos-app/src/widgets/picker.rs:1976:9:
+mode Css closed format dropdown is too narrow for longest label
+
+---- widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps stdout ----
+
+thread 'widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps' (48317934) panicked at crates/designos-app/src/widgets/picker.rs:2152:9:
+pasting oklch(...) must commit colour and alpha
+
+---- widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba stdout ----
+
+thread 'widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba' (48317927) panicked at crates/designos-app/src/widgets/picker.rs:2165:9:
+editing OKLCH L must mark out.changed
+
+---- widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells stdout ----
+
+thread 'widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells' (48317936) panicked at crates/designos-app/src/widgets/picker.rs:1964:9:
+mode Oklch painted an elided string in visible texts: ["Custom", "Libraries", "4.00 : 1", "AA Large", "O…", "6…", "0…", "2…", "100", "%", "On this page"]
+
+---- widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue stdout ----
+
+thread 'widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue' (48317933) panicked at crates/designos-app/src/widgets/picker.rs:2207:9:
+assertion failed: (st.oklch[1] - 0.0).abs() < 1e-6
+
+---- widgets::picker::tests::visible_text_oklch_mode stdout ----
+
+thread 'widgets::picker::tests::visible_text_oklch_mode' (48317944) panicked at crates/designos-app/src/widgets/picker.rs:1964:9:
+mode Oklch painted an elided string in visible texts: ["Custom", "Libraries", "4.00 : 1", "AA Large", "O…", "6…", "0…", "2…", "100", "%", "On this page"]
+
+---- widgets::picker::tests::visible_text_oklab_mode stdout ----
+
+thread 'widgets::picker::tests::visible_text_oklab_mode' (48317943) panicked at crates/designos-app/src/widgets/picker.rs:1964:9:
+mode Oklab painted an elided string in visible texts: ["Custom", "Libraries", "4.00 : 1", "AA Large", "O…", "6…", "0…", "0…", "100", "%", "On this page"]
+
+
+failures:
+    widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba
+    widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue
+    widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps
+    widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells
+    widgets::picker::tests::visible_text_css_mode
+    widgets::picker::tests::visible_text_hex_mode
+    widgets::picker::tests::visible_text_hsb_at_full_s_b
+    widgets::picker::tests::visible_text_hsl_mode
+    widgets::picker::tests::visible_text_oklab_mode
+    widgets::picker::tests::visible_text_oklch_mode
+    widgets::picker::tests::visible_text_rgb_at_255_255_255
+
+test result: FAILED. 10 passed; 11 failed; 0 ignored; 0 measured; 3969 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,11 @@
+== head (143966 rows)
+   ('effect', 'ov=false', 'via_style=false', 'via_var=true') 148
+   ('effect', 'ov=false', 'via_style=true', 'via_var=false') 4450
+   ('effect', 'ov=false', 'via_style=true', 'via_var=true') 4641
+   ('effect', 'ov=true', 'via_style=false', 'via_var=true') 7
+   ('effect', 'ov=true', 'via_style=true', 'via_var=false') 331
+   ('fill', 'ov=false', 'via_style=false', 'via_var=true') 28839
+   ('fill', 'ov=true', 'via_style=false', 'via_var=true') 3639
+   ('stroke', 'ov=false', 'via_style=false', 'via_var=true') 93733
+   ('stroke', 'ov=true', 'via_style=false', 'via_var=true') 8178
+   Fills/Stroke override rows diverging via style: 0 []

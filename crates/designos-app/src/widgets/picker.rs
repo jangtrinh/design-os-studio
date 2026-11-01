@@ -36,10 +36,12 @@ pub enum Fmt {
     Css,
     Hsl,
     Hsb,
+    Oklch,
+    Oklab,
 }
 
 impl Fmt {
-    pub const ALL: [Fmt; 5] = [Fmt::Hex, Fmt::Rgb, Fmt::Css, Fmt::Hsl, Fmt::Hsb];
+    pub const ALL: [Fmt; 7] = [Fmt::Hex, Fmt::Rgb, Fmt::Css, Fmt::Hsl, Fmt::Hsb, Fmt::Oklch, Fmt::Oklab];
     pub fn label(self) -> &'static str {
         match self {
             Fmt::Hex => "Hex",
@@ -47,6 +49,8 @@ impl Fmt {
             Fmt::Css => "CSS",
             Fmt::Hsl => "HSL",
             Fmt::Hsb => "HSB",
+            Fmt::Oklch => "OKLCH",
+            Fmt::Oklab => "OKLAB",
         }
     }
 }
@@ -292,10 +296,9 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [u8; 3] {
     [f(r), f(g), f(b)]
 }
 
-/// CSS text of a colour: `rgba(217, 217, 217, 1)`.
+/// CSS text of a colour: `rgb(217, 217, 217)`.
 pub fn css_text(c: [u8; 4]) -> String {
-    let a = c[3] as f32 / 255.0;
-    format!("rgba({}, {}, {}, {})", c[0], c[1], c[2], fmt_num((a * 100.0).round() / 100.0))
+    format!("rgb({}, {}, {})", c[0], c[1], c[2])
 }
 
 /// Parses `#hex`, `hex`, `rgb(a)(...)` or `hsl(a)(...)` (commas or spaces, optional `/ alpha`).
@@ -309,16 +312,24 @@ pub fn parse_css(s: &str, keep_alpha: u8) -> Option<[u8; 4]> {
         .or_else(|| lower.strip_prefix("hsla").or_else(|| lower.strip_prefix("hsl")).map(|r| (false, r)));
     if let Some((is_rgb, rest)) = func {
         let inner = rest.trim().strip_prefix('(')?.strip_suffix(')')?;
-        let nums: Vec<f32> = inner
-            .split([',', ' ', '/'])
-            .map(|p| p.trim().trim_end_matches(['%', '°']))
+        let parts: Vec<&str> = inner.split([',', ' ', '/']).map(str::trim).filter(|p| !p.is_empty()).collect();
+        let nums: Vec<f32> = parts
+            .iter()
+            .map(|p| p.trim_end_matches(['%', '°']))
             .filter(|p| !p.is_empty())
             .map(|p| p.trim_end_matches("deg").parse::<f32>().ok())
             .collect::<Option<_>>()?;
         if nums.len() < 3 {
             return None;
         }
-        let a = nums.get(3).map(|a| (a.clamp(0.0, 1.0) * 255.0).round() as u8).unwrap_or(keep_alpha);
+        // A percent alpha (`/ 25%`) is 0..100%, as in CSS; a bare alpha is 0..1.
+        let a = nums
+            .get(3)
+            .map(|a| {
+                let unit = if parts[3].ends_with('%') { a / 100.0 } else { *a };
+                (unit.clamp(0.0, 1.0) * 255.0).round() as u8
+            })
+            .unwrap_or(keep_alpha);
         let rgb = if is_rgb {
             [nums[0].clamp(0.0, 255.0).round() as u8, nums[1].clamp(0.0, 255.0).round() as u8, nums[2].clamp(0.0, 255.0).round() as u8]
         } else {
@@ -392,6 +403,10 @@ pub struct State {
     /// Selected swatch source ("On this page", ...).
     pub source: usize,
     pub hsv: Hsva,
+    /// Last OKLCH `[L, C, H_deg]` triple (`L` in `0..=1`, `C` in `0..=0.4`, `H` in `0..360`).
+    pub oklch: [f32; 3],
+    /// Last OKLAB `[L, a, b]` triple (`L` in `0..=1`, `a` and `b` in `-0.4..=0.4`).
+    pub oklab: [f32; 3],
     /// Selected gradient stop.
     pub sel: usize,
     /// True while a dropdown of the panel is open (outside clicks must not close the picker).
@@ -405,12 +420,17 @@ pub struct State {
 impl State {
     pub fn new(p: &Paint) -> Self {
         let rgba = active_rgba(p, 0);
+        let rgb = [rgba[0], rgba[1], rgba[2]];
+        let oklab = designos_doc::srgb_u8_to_oklab(rgb);
+        let oklch = designos_doc::oklab_to_oklch(oklab[0], oklab[1], oklab[2]);
         let n = stops_of(&p.kind).map(|s| s.len()).unwrap_or(0);
         Self {
             tab: Tab::Custom,
             fmt: Fmt::Hex,
             source: 0,
             hsv: Hsva::from_srgba_unmultiplied(rgba),
+            oklch,
+            oklab,
             sel: 0,
             menu_open: false,
             stop_origins: (0..n).map(Some).collect(),
@@ -422,8 +442,8 @@ impl State {
         self.stop_origins = (0..n).map(Some).collect();
     }
 
-    /// Re-derives HSV from `rgba` unless it is what the HSV already encodes (keeps the hue
-    /// of greys and blacks stable while dragging).
+    /// Re-derives HSV and OKLCH/OKLAB from `rgba` unless it is what they already encode
+    /// (keeps typed precision and the hue of greys and blacks stable).
     pub(crate) fn sync(&mut self, rgba: [u8; 4]) {
         let cur = self.hsv.to_srgba_unmultiplied();
         if cur[..3] != rgba[..3] {
@@ -437,6 +457,218 @@ impl State {
             self.hsv = n;
         }
         self.hsv.a = rgba[3] as f32 / 255.0;
+        self.sync_ok([rgba[0], rgba[1], rgba[2]]);
+    }
+
+    pub(crate) fn sync_ok(&mut self, rgb: [u8; 3]) {
+        if designos_doc::oklch_to_srgb_u8(self.oklch[0], self.oklch[1], self.oklch[2]) != rgb {
+            let mut lch = designos_doc::srgb_u8_to_oklch(rgb);
+            if lch[1] < 1e-4 {
+                lch[2] = self.oklch[2];
+            }
+            self.oklch = [lch[0].clamp(0.0, 1.0), lch[1].clamp(0.0, 0.4), lch[2]];
+        }
+        if designos_doc::oklab_to_srgb_u8(self.oklab[0], self.oklab[1], self.oklab[2]) != rgb {
+            let lab = designos_doc::srgb_u8_to_oklab(rgb);
+            self.oklab = [lab[0].clamp(0.0, 1.0), lab[1].clamp(-0.4, 0.4), lab[2].clamp(-0.4, 0.4)];
+        }
+    }
+
+    pub(crate) fn set_oklch_channel(&mut self, i: usize, n: f32) -> [u8; 3] {
+        self.oklch[i] = n;
+        let lab = designos_doc::oklch_to_oklab(self.oklch[0], self.oklch[1], self.oklch[2]);
+        self.oklab = [lab[0].clamp(0.0, 1.0), lab[1].clamp(-0.4, 0.4), lab[2].clamp(-0.4, 0.4)];
+        designos_doc::oklch_to_srgb_u8(self.oklch[0], self.oklch[1], self.oklch[2])
+    }
+
+    pub(crate) fn set_oklab_channel(&mut self, i: usize, n: f32) -> [u8; 3] {
+        self.oklab[i] = n;
+        let mut lch = designos_doc::oklab_to_oklch(self.oklab[0], self.oklab[1], self.oklab[2]);
+        if lch[1] < 1e-4 {
+            lch[2] = self.oklch[2];
+        }
+        self.oklch = [lch[0].clamp(0.0, 1.0), lch[1].clamp(0.0, 0.4), lch[2]];
+        designos_doc::oklab_to_srgb_u8(self.oklab[0], self.oklab[1], self.oklab[2])
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ok_cells(&self, fmt: Fmt) -> [String; 3] {
+        let t = match fmt {
+            Fmt::Oklab => self.oklab,
+            _ => self.oklch,
+        };
+        [fmt_ok_channel(0, t[0]), fmt_ok_channel(1, t[1]), fmt_ok_channel(2, t[2])]
+    }
+
+    pub(crate) fn ok_text(&self, fmt: Fmt) -> String {
+        let t = match fmt {
+            Fmt::Oklab => self.oklab,
+            _ => self.oklch,
+        };
+        format!("{} {} {}", fmt_ok_token(0, t[0]), fmt_ok_token(1, t[1]), fmt_ok_token(2, t[2]))
+    }
+
+    pub(crate) fn apply_ok_input(&mut self, fmt: Fmt, input: &str, keep_alpha: u8) -> Option<[u8; 4]> {
+        let mut s = input.trim();
+        if s.is_empty() {
+            return None;
+        }
+        let mut active_fmt = fmt;
+        let mut is_func = false;
+        let lower = s.to_ascii_lowercase();
+        if let Some(rest) = lower.strip_prefix("oklch") {
+            let rest_orig = &s[s.len() - rest.len()..].trim();
+            s = rest_orig.strip_prefix('(')?.strip_suffix(')')?.trim();
+            active_fmt = Fmt::Oklch;
+            is_func = true;
+        } else if let Some(rest) = lower.strip_prefix("oklab") {
+            let rest_orig = &s[s.len() - rest.len()..].trim();
+            s = rest_orig.strip_prefix('(')?.strip_suffix(')')?.trim();
+            active_fmt = Fmt::Oklab;
+            is_func = true;
+        }
+        let (ch_part, alpha) = if let Some((lhs, rhs)) = s.split_once('/') {
+            if rhs.contains('/') {
+                return None;
+            }
+            let a_str = rhs.trim();
+            if a_str.is_empty() {
+                return None;
+            }
+            let alpha = keep_alpha;
+            let a = ((alpha as f32 / 255.0) * 100.0).round() / 100.0;
+            let shown_a = fmt_num(a);
+            let a_u8 = if keep_alpha < 255 && a_str == shown_a {
+                keep_alpha
+            } else if let Some(pct_body) = a_str.strip_suffix('%') {
+                if pct_body.contains('%') {
+                    return None;
+                }
+                let pct = field::eval_number_expr(pct_body, Some(keep_alpha as f32 / 255.0 * 100.0), false)?;
+                ((pct.clamp(0.0, 100.0) / 100.0) * 255.0).round() as u8
+            } else {
+                if a_str.contains('%') {
+                    return None;
+                }
+                let a_val = field::eval_number_expr(a_str, Some(keep_alpha as f32 / 255.0), false)?;
+                (a_val.clamp(0.0, 1.0) * 255.0).round() as u8
+            };
+            (lhs.trim(), a_u8)
+        } else {
+            (s, keep_alpha)
+        };
+        let tokens: Vec<&str> = ch_part.split(|c: char| c.is_ascii_whitespace() || c == ',').filter(|t| !t.is_empty()).collect();
+        if tokens.len() != 3 {
+            return None;
+        }
+        let cur_triple = match active_fmt {
+            Fmt::Oklab => self.oklab,
+            _ => self.oklch,
+        };
+        let mut parsed = [0.0_f32; 3];
+        let mut changed_mask = [false; 3];
+        for i in 0..3 {
+            let tok = tokens[i].trim();
+            parsed[i] = if is_func && i == 0 && !tok.ends_with('%') {
+                if tok.contains('%') {
+                    return None;
+                }
+                field::eval_number_expr(tok, Some(cur_triple[0]), false)?.clamp(0.0, 1.0)
+            } else {
+                parse_ok_channel(active_fmt, i, tok, cur_triple[i])?
+            };
+            let disp_tok = fmt_ok_token(i, cur_triple[i]);
+            let disp_ch = if is_func && i == 0 { disp_tok.clone() } else { fmt_ok_channel(i, cur_triple[i]) };
+            changed_mask[i] = tok != disp_tok && tok != disp_ch;
+        }
+        let mut rgb = match active_fmt {
+            Fmt::Oklab => designos_doc::oklab_to_srgb_u8(self.oklab[0], self.oklab[1], self.oklab[2]),
+            _ => designos_doc::oklch_to_srgb_u8(self.oklch[0], self.oklch[1], self.oklch[2]),
+        };
+        for i in 0..3 {
+            if changed_mask[i] {
+                rgb = match active_fmt {
+                    Fmt::Oklab => self.set_oklab_channel(i, parsed[i]),
+                    _ => self.set_oklch_channel(i, parsed[i]),
+                };
+            }
+        }
+        Some([rgb[0], rgb[1], rgb[2], alpha])
+    }
+}
+
+fn fmt_ok_token(ch: usize, val: f32) -> String {
+    if ch == 0 {
+        format!("{}%", fmt_ok_channel(0, val))
+    } else {
+        fmt_ok_channel(ch, val)
+    }
+}
+
+fn fmt_ok_channel(ch: usize, val: f32) -> String {
+    if ch == 0 {
+        fmt_num(val * 100.0)
+    } else {
+        fmt_num(val)
+    }
+}
+
+fn parse_ok_channel(fmt: Fmt, ch: usize, input: &str, cur: f32) -> Option<f32> {
+    let s = input.trim();
+    if s.is_empty() {
+        return None;
+    }
+    match (fmt, ch) {
+        (Fmt::Oklch | Fmt::Oklab, 0) => {
+            let body = s.strip_suffix('%').unwrap_or(s);
+            if body.contains('%') {
+                return None;
+            }
+            let pct = field::eval_number_expr(body, Some(cur * 100.0), false)?;
+            Some((pct / 100.0).clamp(0.0, 1.0))
+        }
+        (Fmt::Oklch, 1) => {
+            if let Some(body) = s.strip_suffix('%') {
+                if body.contains('%') {
+                    return None;
+                }
+                let pct = field::eval_number_expr(body, Some(cur / 0.004), false)?;
+                Some((pct * 0.004).clamp(0.0, 0.4))
+            } else {
+                if s.contains('%') {
+                    return None;
+                }
+                let raw = field::eval_number_expr(s, Some(cur), false)?;
+                Some(raw.clamp(0.0, 0.4))
+            }
+        }
+        (Fmt::Oklch, 2) => {
+            if s.contains('%') {
+                return None;
+            }
+            let s = s.strip_suffix('°').unwrap_or(s).trim();
+            let lower = s.to_ascii_lowercase();
+            let s = if lower.ends_with("deg") { s[..s.len() - 3].trim() } else { s };
+            let deg = field::eval_number_expr(s, Some(cur), false)?;
+            let wrapped = deg.rem_euclid(360.0);
+            Some(if wrapped >= 360.0 { 0.0 } else { wrapped })
+        }
+        (Fmt::Oklab, 1 | 2) => {
+            if let Some(body) = s.strip_suffix('%') {
+                if body.contains('%') {
+                    return None;
+                }
+                let pct = field::eval_number_expr(body, Some(cur / 0.004), false)?;
+                Some((pct * 0.004).clamp(-0.4, 0.4))
+            } else {
+                if s.contains('%') {
+                    return None;
+                }
+                let raw = field::eval_number_expr(s, Some(cur), false)?;
+                Some(raw.clamp(-0.4, 0.4))
+            }
+        }
+        _ => None,
     }
 }
 
@@ -1108,9 +1340,15 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
     let pill_drawn = mode.is_gradient() && crate::panels::var_bind::picker_stop_pill_field(ui, st, row, st.sel);
     if !stop_bound && !pill_drawn {
         let mut typed: Option<[u8; 4]> = None;
-        // format dropdown
+        // format dropdown sized to the longest label in Fmt::ALL
+        let dd_w = {
+            let p = ui.painter();
+            let font = theme::font_body_strong();
+            let max_label_w = Fmt::ALL.iter().map(|f| text_width(p, f.label(), &font)).fold(0.0_f32, f32::max);
+            (max_label_w + 4.0 + 20.0).ceil()
+        };
+        let dd = Rect::from_min_size(row.min, Vec2::new(dd_w, 24.0));
         {
-            let dd = Rect::from_min_size(row.min, Vec2::new(55.0, 24.0));
             let labels: Vec<String> = Fmt::ALL.iter().map(|f| f.label().to_string()).collect();
             if let Some(i) = picker_dropdown(ui, dd, "picker-fmt", st.fmt.label(), &labels, &mut st.menu_open) {
                 st.fmt = Fmt::ALL[i];
@@ -1121,11 +1359,14 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             let b = st.hsv.to_srgba_unmultiplied();
             [b[0], b[1], b[2], a]
         };
-        let fields = Rect::from_min_max(Pos2::new(row.left() + 64.0, row.top()), row.right_bottom());
+        st.sync_ok([cur[0], cur[1], cur[2]]);
+        let fields = Rect::from_min_max(Pos2::new(dd.right() + 4.0, row.top()), row.right_bottom());
+        let op_w = 43.0;
+        let ch_group_w = fields.width() - op_w - 1.0;
         let kind_rgba = |c: [u8; 4]| c;
         match st.fmt {
             Fmt::Hex => {
-                let hex_r = Rect::from_min_size(fields.min, Vec2::new(89.0, 24.0));
+                let hex_r = Rect::from_min_size(fields.min, Vec2::new(ch_group_w, 24.0));
                 let op_r = Rect::from_min_max(Pos2::new(hex_r.right() + 1.0, fields.top()), fields.right_bottom());
                 if let Some(s) = grouped_hex_text(
                     ui,
@@ -1145,8 +1386,15 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             }
             Fmt::Css => {
                 let r = Rect::from_min_size(fields.min, Vec2::new(fields.width(), 24.0));
-                if let Some(s) = grouped_text(ui, r, "picker-css", &css_text(cur), theme::cr(theme::RADIUS_CONTROL), 8.0) {
+                if let Some(s) = grouped_text(ui, r, "picker-css", &css_text(cur), theme::cr(theme::RADIUS_CONTROL), 3.0) {
                     typed = parse_css(&s, cur[3]);
+                }
+            }
+            Fmt::Oklch | Fmt::Oklab => {
+                let r = Rect::from_min_size(fields.min, Vec2::new(fields.width(), 24.0));
+                let disp = st.ok_text(st.fmt);
+                if let Some(s) = grouped_text(ui, r, "picker-ok", &disp, theme::cr(theme::RADIUS_CONTROL), 3.0) {
+                    typed = st.apply_ok_input(st.fmt, &s, cur[3]);
                 }
             }
             Fmt::Rgb | Fmt::Hsl | Fmt::Hsb => {
@@ -1155,7 +1403,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                     Fmt::Hsl => rgb_to_hsl(cur),
                     _ => [st.hsv.h * 360.0, st.hsv.s * 100.0, st.hsv.v * 100.0],
                 };
-                let w3 = (89.0 - 2.0) / 3.0;
+                let w3 = (ch_group_w - 2.0) / 3.0;
                 let mut edited: Option<(usize, f32)> = None;
                 for (i, v) in vals.iter().enumerate() {
                     let r = Rect::from_min_size(Pos2::new(fields.left() + i as f32 * (w3 + 1.0), fields.top()), Vec2::new(w3, 24.0));
@@ -1163,7 +1411,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                         0 => theme::cr_each(theme::RADIUS_CONTROL, 0, 0, theme::RADIUS_CONTROL),
                         _ => theme::cr(0),
                     };
-                    if let Some(n) = grouped_num(ui, r, ("picker-ch", i), v.round(), radius, 5.0) {
+                    if let Some(n) = grouped_num(ui, r, ("picker-ch", i), v.round(), radius, 3.0) {
                         edited = Some((i, n));
                     }
                 }
@@ -1193,7 +1441,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
                         }
                     }
                 }
-                let op_r = Rect::from_min_max(Pos2::new(fields.left() + 89.0 + 1.0, fields.top()), fields.right_bottom());
+                let op_r = Rect::from_min_max(Pos2::new(fields.left() + ch_group_w + 1.0, fields.top()), fields.right_bottom());
                 if let Some(a) = opacity_cell(ui, op_r, cur[3]) {
                     typed = Some([typed.unwrap_or(cur)[0], typed.unwrap_or(cur)[1], typed.unwrap_or(cur)[2], a]);
                 }
@@ -1329,7 +1577,7 @@ fn libraries(ui: &mut Ui, rect: Rect, st: &mut State, env: &Env, out: &mut Out) 
 }
 
 /// 24px dropdown button with the picker's look (bg + 1px border). Returns the picked index.
-fn picker_dropdown(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, options: &[String], menu_open: &mut bool) -> Option<usize> {
+fn picker_dropdown(ui: &mut Ui, rect: Rect, key: &str, label: &str, options: &[String], menu_open: &mut bool) -> Option<usize> {
     let id = ui.id().with(("dd", key));
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
@@ -1342,10 +1590,11 @@ fn picker_dropdown(ui: &mut Ui, rect: Rect, key: impl Key, label: &str, options:
         Stroke::new(1.0, if r.hovered() && !open { theme::BORDER_STRONG.gamma_multiply(0.3) } else { border }),
         StrokeKind::Inside,
     );
+    let (left_pad, right_reserve, chev_right) = if key == "picker-fmt" { (4.0, 20.0, 10.0) } else { (8.0, 22.0, 12.0) };
     let font = theme::font_body_strong();
-    let shown = elide(p, label, &font, rect.width() - 8.0 - 22.0);
-    text_on_baseline(p, rect.left() + 8.0, centered_baseline(rect, &font), &shown, font, theme::TEXT);
-    let chev = Rect::from_center_size(Pos2::new(rect.right() - 12.0, rect.center().y), Vec2::splat(12.0));
+    let shown = elide(p, label, &font, rect.width() - left_pad - right_reserve);
+    text_on_baseline(p, rect.left() + left_pad, centered_baseline(rect, &font), &shown, font, theme::TEXT);
+    let chev = Rect::from_center_size(Pos2::new(rect.right() - chev_right, rect.center().y), Vec2::splat(12.0));
     paint_icon_in(p, chev, Icon::ChevronDown, 12.0, theme::ICON_SECONDARY);
     if r.clicked() {
         ui.data_mut(|d| d.insert_temp(id, !open));
@@ -1482,9 +1731,9 @@ fn opacity_cell(ui: &mut Ui, r: Rect, alpha: u8) -> Option<u8> {
     }
     let text_r = Rect::from_min_max(r.min, Pos2::new(r.right() - 14.0, r.bottom()));
     let pct_val = (alpha as f32 / 255.0 * 100.0).round();
-    let res = field::edit_num_text(ui, text_r, id, Some(pct_val), true, theme::font_body(), theme::TEXT, 8.0, None);
+    let res = field::edit_num_text(ui, text_r, id, Some(pct_val), true, theme::font_body(), theme::TEXT, 4.0, None);
     let font = theme::font_body();
-    text_on_baseline(ui.painter(), r.right() - 8.0 - text_width(ui.painter(), "%", &font), centered_baseline(r, &font), "%", font, theme::TEXT_SECONDARY);
+    text_on_baseline(ui.painter(), r.right() - 4.0 - text_width(ui.painter(), "%", &font), centered_baseline(r, &font), "%", font, theme::TEXT_SECONDARY);
     res.map(|v| (v.clamp(0.0, 100.0) / 100.0 * 255.0).round() as u8)
 }
 
@@ -1670,8 +1919,12 @@ mod tests {
         assert_eq!(parse_css("transparent", 255), Some([0, 0, 0, 0]));
         assert_eq!(parse_css("rgb(10, 20, 30)", 255), Some([10, 20, 30, 255]));
         assert_eq!(parse_css("rgba(10 20 30 / 0.5)", 255), Some([10, 20, 30, 128]));
+        assert_eq!(parse_css("rgb(10 20 30 / 25%)", 255), Some([10, 20, 30, 64]));
+        assert_eq!(parse_css("rgba(10, 20, 30, 50%)", 255), Some([10, 20, 30, 128]));
+        assert_eq!(parse_css("hsl(240 100% 50% / 50%)", 255), Some([0, 0, 255, 128]));
         assert_eq!(parse_css("nonsense", 255), None);
-        assert_eq!(css_text([217, 217, 217, 255]), "rgba(217, 217, 217, 1)");
+        assert_eq!(css_text([217, 217, 217, 255]), "rgb(217, 217, 217)");
+        assert_eq!(css_text([217, 217, 217, 128]), "rgb(217, 217, 217)");
         let hsl = rgb_to_hsl([255, 0, 0, 255]);
         assert_eq!(hsl, [0.0, 100.0, 50.0]);
         assert_eq!(hsl_to_rgb(120.0, 100.0, 50.0), [0, 255, 0]);
@@ -1716,5 +1969,584 @@ mod tests {
         }
         assert_ne!(b0, b1);
         assert_ne!(b1, b2);
+    }
+
+    fn test_ctx() -> egui::Context {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        ctx
+    }
+
+    fn run_picker_frame(ctx: &egui::Context, events: Vec<egui::Event>, paint: &mut Paint, st: &mut State) -> Out {
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 600.0))), events, ..Default::default() };
+        raw.time = Some(0.0);
+        let mut out = Out::default();
+        let sources: Vec<(String, Vec<Color32>)> = vec![("On this page".into(), vec![])];
+        let env = Env { paint_types: true, sources: &sources, styles: &[], can_add_style: false };
+        let _ = ctx.run_ui(raw, |ui| {
+            let (_, o) = show(ui, Pos2::ZERO, st, paint, &env);
+            out = o;
+        });
+        out
+    }
+
+    fn collect_visible_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Text(t) => {
+                    let col = t.override_text_color.or_else(|| t.galley.job.sections.first().map(|s| s.format.color)).unwrap_or(t.fallback_color);
+                    if col.a() > 0 {
+                        out.push(t.galley.text().to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in shapes {
+            walk(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    fn visible_texts(ctx: &egui::Context, paint: &mut Paint, st: &mut State) -> Vec<String> {
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 600.0))), ..Default::default() };
+        raw.time = Some(0.0);
+        let sources: Vec<(String, Vec<Color32>)> = vec![("On this page".into(), vec![])];
+        let env = Env { paint_types: true, sources: &sources, styles: &[], can_add_style: false };
+        let full = ctx.run_ui(raw, |ui| {
+            let _ = show(ui, Pos2::ZERO, st, paint, &env);
+        });
+        collect_visible_texts(&full.shapes)
+    }
+
+    fn closed_format_dropdown_fits_all_labels(ctx: &egui::Context, paint: &mut Paint, st: &mut State) -> bool {
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 600.0))), ..Default::default() };
+        raw.time = Some(0.0);
+        let sources: Vec<(String, Vec<Color32>)> = vec![("On this page".into(), vec![])];
+        let env = Env { paint_types: true, sources: &sources, styles: &[], can_add_style: false };
+        let mut max_label_w = 0.0_f32;
+        let full = ctx.run_ui(raw, |ui| {
+            let p = ui.painter();
+            let font = theme::font_body_strong();
+            for f in Fmt::ALL {
+                max_label_w = max_label_w.max(text_width(p, f.label(), &font));
+            }
+            let _ = show(ui, Pos2::ZERO, st, paint, &env);
+        });
+        fn walk_rects(shape: &egui::Shape, out: &mut Vec<Rect>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk_rects(s, out)),
+                egui::Shape::Rect(r) => out.push(r.rect),
+                _ => {}
+            }
+        }
+        let mut rects = Vec::new();
+        for cs in &full.shapes {
+            walk_rects(&cs.shape, &mut rects);
+        }
+        let dd_w = rects
+            .into_iter()
+            .find(|r| (r.min.x - PAD).abs() < 0.5 && (r.height() - 24.0).abs() < 0.5 && r.width() > 30.0 && r.width() < 100.0)
+            .map(|r| r.width())
+            .unwrap_or(0.0);
+        dd_w >= (max_label_w + 24.0).ceil()
+    }
+
+    fn commit_picker_ok(ctx: &egui::Context, text: &str, paint: &mut Paint, st: &mut State) -> Out {
+        let _ = run_picker_frame(ctx, vec![], paint, st);
+        let mut cell_id = None;
+        let sources: Vec<(String, Vec<Color32>)> = vec![("On this page".into(), vec![])];
+        let env = Env { paint_types: true, sources: &sources, styles: &[], can_add_style: false };
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let id = ui.id().with(("txt", "picker-ok"));
+            cell_id = Some(id);
+            let _ = show(ui, Pos2::ZERO, st, paint, &env);
+            ui.memory_mut(|m| m.request_focus(id));
+        });
+        let id = cell_id.unwrap();
+        let _ = run_picker_frame(ctx, vec![], paint, st);
+        ctx.data_mut(|d| d.insert_temp(id, text.to_string()));
+        run_picker_frame(
+            ctx,
+            vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+            paint,
+            st,
+        )
+    }
+
+    fn assert_visible_mode(ctx: &egui::Context, paint: &mut Paint, st: &mut State, expected: &[&str]) {
+        let texts = visible_texts(ctx, paint, st);
+        assert!(texts.iter().all(|t| !t.contains('…')), "mode {:?} painted an elided string in visible texts: {texts:?}", st.fmt);
+        for &exp in expected {
+            assert!(texts.iter().any(|t| t == exp), "mode {:?} missing expected visible text {exp:?} in {texts:?}", st.fmt);
+        }
+        assert!(closed_format_dropdown_fits_all_labels(ctx, paint, st), "mode {:?} closed format dropdown is too narrow for longest label", st.fmt);
+    }
+
+    #[test]
+    fn oklch_and_oklab_format_list_and_default() {
+        assert_eq!(Fmt::ALL, [Fmt::Hex, Fmt::Rgb, Fmt::Css, Fmt::Hsl, Fmt::Hsb, Fmt::Oklch, Fmt::Oklab]);
+        assert_eq!(Fmt::Oklch.label(), "OKLCH");
+        assert_eq!(Fmt::Oklab.label(), "OKLAB");
+        let st = State::new(&solid(255, 0, 0, 1.0));
+        assert_eq!(st.fmt, Fmt::Hex);
+    }
+
+    #[test]
+    fn red_shows_expected_oklch_and_oklab_cells() {
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        assert_eq!(st.ok_cells(Fmt::Oklch), ["62.8", "0.26", "29.23"]);
+        assert_eq!(st.ok_cells(Fmt::Oklab), ["62.8", "0.22", "0.13"]);
+
+        let ctx = test_ctx();
+        st.fmt = Fmt::Oklch;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["OKLCH", "62.8% 0.26 29.23"]);
+
+        st.fmt = Fmt::Oklab;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["OKLAB", "62.8% 0.22 0.13"]);
+
+        let mut half = solid(255, 0, 0, 0.5);
+        let mut st_half = State::new(&half);
+        st_half.fmt = Fmt::Oklch;
+        assert_visible_mode(&ctx, &mut half, &mut st_half, &["OKLCH", "62.8% 0.26 29.23"]);
+        st_half.fmt = Fmt::Oklab;
+        assert_visible_mode(&ctx, &mut half, &mut st_half, &["OKLAB", "62.8% 0.22 0.13"]);
+    }
+
+    #[test]
+    fn visible_text_hex_mode() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Hex;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["Hex", "FF0000", "100", "%"]);
+    }
+
+    #[test]
+    fn visible_text_rgb_at_255_255_255() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 255, 255, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Rgb;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["RGB", "255", "100", "%"]);
+        let texts = visible_texts(&ctx, &mut paint, &mut st);
+        assert_eq!(texts.iter().filter(|t| t.as_str() == "255").count(), 3, "expected three 255 cells in {texts:?}");
+    }
+
+    #[test]
+    fn visible_text_hsl_mode() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Hsl;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["HSL", "0", "100", "50", "%"]);
+        let texts = visible_texts(&ctx, &mut paint, &mut st);
+        assert_eq!(texts.iter().filter(|t| t.as_str() == "100").count(), 2, "expected S=100 and opacity=100 in {texts:?}");
+    }
+
+    #[test]
+    fn visible_text_hsb_at_full_s_b() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Hsb;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["HSB", "0", "100", "%"]);
+        let texts = visible_texts(&ctx, &mut paint, &mut st);
+        assert_eq!(texts.iter().filter(|t| t.as_str() == "100").count(), 3, "expected S=100, B=100 and opacity=100 in {texts:?}");
+
+        st.hsv.h = 1.0;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["HSB", "360", "100", "%"]);
+    }
+
+    #[test]
+    fn visible_text_css_mode() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Css;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["CSS", "rgb(255, 0, 0)"]);
+
+        let mut white = solid(255, 255, 255, 1.0);
+        let mut st_w = State::new(&white);
+        st_w.fmt = Fmt::Css;
+        assert_visible_mode(&ctx, &mut white, &mut st_w, &["CSS", "rgb(255, 255, 255)"]);
+    }
+
+    #[test]
+    fn visible_text_oklch_mode() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["OKLCH", "62.8% 0.26 29.23"]);
+    }
+
+    #[test]
+    fn visible_text_oklab_mode() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklab;
+        assert_visible_mode(&ctx, &mut paint, &mut st, &["OKLAB", "62.8% 0.22 0.13"]);
+    }
+
+    #[test]
+    fn value_cell_at_rest_has_no_alpha_and_never_elides_across_grid() {
+        let ctx = test_ctx();
+        for alpha in [128_u8, 140_u8] {
+            let op = alpha as f32 / 255.0;
+            for [r, g, b] in [[52, 120, 200], [255, 0, 0], [204, 204, 204], [51, 17, 204], [34, 85, 68]] {
+                for fmt in Fmt::ALL {
+                    let mut paint = solid(r, g, b, op);
+                    let mut st = State::new(&paint);
+                    st.fmt = fmt;
+                    let texts = visible_texts(&ctx, &mut paint, &mut st);
+                    assert!(texts.iter().all(|t| !t.contains('…')), "mode {fmt:?} elided at [{r},{g},{b},{alpha}]: {texts:?}");
+                    assert!(texts.iter().all(|t| !t.contains('/') && !t.starts_with("rgba(")), "mode {fmt:?} showed alpha in value cell at rest: {texts:?}");
+                }
+            }
+        }
+
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 600.0))), ..Default::default() };
+        raw.time = Some(0.0);
+        let _ = ctx.run_ui(raw, |ui| {
+            let p = ui.painter();
+            let font = theme::font_body();
+            let single_budget = 138.0 - 6.0;
+            let hex_budget = 94.0 - 16.0;
+            let ch_budget = 30.0 - 6.0;
+            for r_step in 0..16_u8 {
+                let r = r_step * 17;
+                for g_step in 0..16_u8 {
+                    let g = g_step * 17;
+                    for b_step in 0..16_u8 {
+                        let b = b_step * 17;
+                        let mut st = State::new(&solid(r, g, b, 1.0));
+                        st.sync([r, g, b, 255]);
+                        for alpha in [128_u8, 140_u8] {
+                            let lch = st.ok_text(Fmt::Oklch);
+                            let lab = st.ok_text(Fmt::Oklab);
+                            let css = css_text([r, g, b, alpha]);
+                            assert!(!lch.contains('/'), "OKLCH at-rest text must omit alpha: {lch}");
+                            assert!(!lab.contains('/'), "OKLAB at-rest text must omit alpha: {lab}");
+                            assert!(!css.starts_with("rgba("), "CSS at-rest text must omit alpha: {css}");
+                            assert!(text_width(p, &lch, &font) <= single_budget, "OKLCH overflow: {lch}");
+                            assert!(text_width(p, &lab, &font) <= single_budget, "OKLAB overflow: {lab}");
+                            assert!(text_width(p, &css, &font) <= single_budget, "CSS overflow: {css}");
+                            let hex = Color::rgba(r, g, b, 255).to_hex();
+                            assert!(text_width(p, &hex, &font) <= hex_budget, "Hex overflow: {hex}");
+                            let hsl = rgb_to_hsl([r, g, b, alpha]);
+                            let hsb = [st.hsv.h * 360.0, st.hsv.s * 100.0, st.hsv.v * 100.0];
+                            for v in [r as f32, g as f32, b as f32, hsl[0], hsl[1], hsl[2], hsb[0], hsb[1], hsb[2]] {
+                                let s = fmt_num(v.round());
+                                assert!(text_width(p, &s, &font) <= ch_budget, "channel overflow: {s}");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn parse_oklch_and_oklab_channel_rules_and_clamps() {
+        // C percentage and relative percentage expressions
+        let c_pct = parse_ok_channel(Fmt::Oklch, 1, "50%", 0.1).expect("C 50%");
+        assert!((c_pct - 0.2).abs() < 1e-6, "expected 0.2, got {c_pct}");
+        let c_rel = parse_ok_channel(Fmt::Oklch, 1, "+=10%", 0.1).expect("C +=10%");
+        assert!((c_rel - 0.14).abs() < 1e-6, "expected 0.14, got {c_rel}");
+
+        // OKLAB a and b percentage mapping
+        let a_pct = parse_ok_channel(Fmt::Oklab, 1, "50%", 0.0).expect("a 50%");
+        let b_pct = parse_ok_channel(Fmt::Oklab, 2, "-50%", 0.0).expect("b -50%");
+        assert!((a_pct - 0.2).abs() < 1e-6, "expected 0.2, got {a_pct}");
+        assert!((b_pct - (-0.2)).abs() < 1e-6, "expected -0.2, got {b_pct}");
+
+        // C 0.2577 reaches the conversion at full f32 precision (0.2577, not 0.26)
+        let c_raw = parse_ok_channel(Fmt::Oklch, 1, "0.2577", 0.1).expect("C 0.2577");
+        assert!((c_raw - 0.2577).abs() < 1e-7, "expected 0.2577, got {c_raw}");
+        let mut st = State::new(&solid(255, 0, 0, 1.0));
+        let _ = st.set_oklch_channel(1, c_raw);
+        assert!((st.oklch[1] - 0.2577).abs() < 1e-7);
+
+        // L 50 and L 50% -> 0.5
+        for fmt in [Fmt::Oklch, Fmt::Oklab] {
+            let l_plain = parse_ok_channel(fmt, 0, "50", 0.6).expect("L 50");
+            let l_pct = parse_ok_channel(fmt, 0, "50%", 0.6).expect("L 50%");
+            assert!((l_plain - 0.5).abs() < 1e-6);
+            assert!((l_pct - 0.5).abs() < 1e-6);
+        }
+
+        // H wraps modulo 360 and accepts deg or degree symbol
+        let h_wrap = parse_ok_channel(Fmt::Oklch, 2, "390", 0.0).expect("H 390");
+        let h_deg = parse_ok_channel(Fmt::Oklch, 2, "30deg", 0.0).expect("H 30deg");
+        let h_sym = parse_ok_channel(Fmt::Oklch, 2, "30°", 0.0).expect("H 30°");
+        assert!((h_wrap - 30.0).abs() < 1e-6);
+        assert!((h_deg - 30.0).abs() < 1e-6);
+        assert!((h_sym - 30.0).abs() < 1e-6);
+
+        // Clamps for C, a, b, and L
+        let c_clamp = parse_ok_channel(Fmt::Oklch, 1, "0.9", 0.1).expect("C 0.9");
+        let a_clamp = parse_ok_channel(Fmt::Oklab, 1, "-1", 0.0).expect("a -1");
+        let b_clamp = parse_ok_channel(Fmt::Oklab, 2, "1", 0.0).expect("b 1");
+        let l_clamp = parse_ok_channel(Fmt::Oklch, 0, "150", 0.5).expect("L 150");
+        assert!((c_clamp - 0.4).abs() < 1e-6);
+        assert!((a_clamp - (-0.4)).abs() < 1e-6);
+        assert!((b_clamp - 0.4).abs() < 1e-6);
+        assert!((l_clamp - 1.0).abs() < 1e-6);
+
+        // Arithmetic expressions delegate to field::eval_number_expr
+        let l_expr = parse_ok_channel(Fmt::Oklch, 0, "20 + 30", 0.6).expect("L 20 + 30");
+        let c_expr = parse_ok_channel(Fmt::Oklch, 1, "0.1 + 0.15", 0.1).expect("C 0.1 + 0.15");
+        let h_expr = parse_ok_channel(Fmt::Oklch, 2, "360 + 30", 0.0).expect("H 360 + 30");
+        assert!((l_expr - 0.5).abs() < 1e-6);
+        assert!((c_expr - 0.25).abs() < 1e-6);
+        assert!((h_expr - 30.0).abs() < 1e-6);
+
+        // Single-cell pasted oklch(...) and oklab(...) with deg and / alpha
+        let ctx = test_ctx();
+        let mut paint = solid(0, 0, 0, 1.0);
+        let mut st_cell = State::new(&paint);
+        st_cell.fmt = Fmt::Oklch;
+        let out_paste = commit_picker_ok(&ctx, "oklch(62.8% 0.26 29.23deg / 50%)", &mut paint, &mut st_cell);
+        assert!(out_paste.changed, "pasting oklch(...) must commit colour and alpha");
+        assert_eq!(active_rgba(&paint, 0)[3], 128);
+    }
+
+    #[test]
+    fn alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision() {
+        let ctx = test_ctx();
+        let mut paint = solid(52, 120, 200, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+        assert_eq!(st.ok_text(Fmt::Oklch), "56.93% 0.14 254.47");
+        let orig_oklch = st.oklch;
+
+        // Retyping the shown channels with No alpha change is a no-op and keeps exact channels.
+        let out_noop = commit_picker_ok(&ctx, "56.93%, 0.14, 254.47", &mut paint, &mut st);
+        assert!(!out_noop.changed, "retyping unchanged displayed channels must not mark out.changed");
+        assert_eq!(active_rgba(&paint, 0), [52, 120, 200, 255]);
+        assert_eq!(st.oklch, orig_oklch);
+
+        // Appending / 0.5 to the shown OKLCH string updates alpha only and keeps [52, 120, 200].
+        let out_alpha = commit_picker_ok(&ctx, "56.93% 0.14 254.47 / 0.5", &mut paint, &mut st);
+        assert!(out_alpha.changed, "appending / 0.5 must update alpha");
+        assert_eq!(active_rgba(&paint, 0), [52, 120, 200, 128]);
+        assert_eq!(st.oklch, orig_oklch);
+
+        // Retyping bare L (without %) and / 0.5 also preserves the unchanged channels.
+        set_active(&mut paint, 0, [52, 120, 200, 255]);
+        st.sync([52, 120, 200, 255]);
+        let out_bare_l = commit_picker_ok(&ctx, "56.93 0.14 254.47 / 0.5", &mut paint, &mut st);
+        assert!(out_bare_l.changed);
+        assert_eq!(active_rgba(&paint, 0), [52, 120, 200, 128]);
+        assert_eq!(st.oklch, orig_oklch);
+
+        // Editing L while keeping the 2-decimal alpha "/ 0.55" preserves alpha = 141 (not 140).
+        set_active(&mut paint, 0, [52, 120, 200, 141]);
+        st.sync([52, 120, 200, 141]);
+        let out_keep_a = commit_picker_ok(&ctx, "70% 0.14 254.47 / 0.55", &mut paint, &mut st);
+        assert!(out_keep_a.changed);
+        assert_eq!(active_rgba(&paint, 0)[3], 141, "unchanged 2-decimal / 0.55 must keep alpha 141");
+
+        // Editing alpha from 141 to / 0.5 commits alpha 128.
+        let out_change_a = commit_picker_ok(&ctx, "70% 0.14 254.47 / 0.5", &mut paint, &mut st);
+        assert!(out_change_a.changed);
+        assert_eq!(active_rgba(&paint, 0)[3], 128);
+    }
+
+    #[test]
+    fn pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness() {
+        let ctx = test_ctx();
+        let mut paint = solid(0, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+
+        // CSS bare L in 0..1: oklch(0.985 0 0) -> near-white [250, 250, 250, 255].
+        let out_white = commit_picker_ok(&ctx, "oklch(0.985 0 0)", &mut paint, &mut st);
+        assert!(out_white.changed);
+        assert_eq!(active_rgba(&paint, 0), [250, 250, 250, 255]);
+
+        // CSS percent L in 0..100%: oklch(62.8% 0.26 29.23) -> red [255, 0, 0, 255].
+        let out_red = commit_picker_ok(&ctx, "oklch(62.8% 0.26 29.23)", &mut paint, &mut st);
+        assert!(out_red.changed);
+        assert_eq!(active_rgba(&paint, 0), [255, 0, 0, 255]);
+
+        // CSS bare L with chromatic channels: oklch(0.637 0.237 25.331).
+        let out_tw = commit_picker_ok(&ctx, "oklch(0.637 0.237 25.331)", &mut paint, &mut st);
+        assert!(out_tw.changed);
+        let exp_tw = designos_doc::oklch_to_srgb_u8(0.637, 0.237, 25.331);
+        assert_eq!(&active_rgba(&paint, 0)[..3], &exp_tw);
+
+        // Cross-format paste: pasting oklab(...) while in OKLCH mode applies OKLAB conversion.
+        st.fmt = Fmt::Oklch;
+        let out_cross = commit_picker_ok(&ctx, "oklab(0.5 0.1 -0.1)", &mut paint, &mut st);
+        assert!(out_cross.changed);
+        let exp_lab = designos_doc::oklab_to_srgb_u8(0.5, 0.1, -0.1);
+        assert_eq!(&active_rgba(&paint, 0)[..3], &exp_lab);
+
+        // Comma-separated tokens parse and commit.
+        let out_comma = commit_picker_ok(&ctx, "70%, 0.15, 145", &mut paint, &mut st);
+        assert!(out_comma.changed);
+        assert_eq!(&active_rgba(&paint, 0)[..3], &designos_doc::oklch_to_srgb_u8(0.70, 0.15, 145.0));
+
+        // CSS bare L > 1 clamps to 1.0: oklch(62.8 0.26 29.23) gives st.oklch[0] == 1.0.
+        let out_clamp_l = commit_picker_ok(&ctx, "oklch(62.8 0.26 29.23)", &mut paint, &mut st);
+        assert!(out_clamp_l.changed);
+        assert_eq!(st.oklch[0], 1.0);
+
+        // Pasting bare L matching the 0..100 channel string on [52, 120, 200] still clamps L to 1.0.
+        let mut paint_blue = solid(52, 120, 200, 1.0);
+        let mut st_blue = State::new(&paint_blue);
+        st_blue.fmt = Fmt::Oklch;
+        let out_bare_match = commit_picker_ok(&ctx, "oklch(56.93 0.14 254.47)", &mut paint_blue, &mut st_blue);
+        assert!(out_bare_match.changed);
+        assert_eq!(st_blue.oklch[0], 1.0);
+
+        // Fewer or more than 3 channel tokens are rejected.
+        assert!(st.apply_ok_input(Fmt::Oklch, "62.8% 0.26", 255).is_none());
+        assert!(st.apply_ok_input(Fmt::Oklch, "62.8% 0.26 29.23 0.5", 255).is_none());
+    }
+
+    #[test]
+    fn dropdown_insets_keep_source_at_main_and_fmt_chevron_gap() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+        let mut raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(400.0, 600.0))), ..Default::default() };
+        raw.time = Some(0.0);
+        let sources: Vec<(String, Vec<Color32>)> = vec![("On this page".into(), vec![])];
+        let env = Env { paint_types: true, sources: &sources, styles: &[], can_add_style: false };
+        let full = ctx.run_ui(raw, |ui| {
+            let _ = show(ui, Pos2::ZERO, &mut st, &mut paint, &env);
+        });
+        fn find_text(shapes: &[egui::epaint::ClippedShape], target: &str) -> Option<Rect> {
+            fn walk(shape: &egui::Shape, target: &str) -> Option<Rect> {
+                match shape {
+                    egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, target)),
+                    egui::Shape::Text(t) if t.galley.text() == target => Some(Rect::from_min_size(t.pos, t.galley.size())),
+                    _ => None,
+                }
+            }
+            shapes.iter().find_map(|cs| walk(&cs.shape, target))
+        }
+        fn find_mesh_in(shapes: &[egui::epaint::ClippedShape], x_min: f32, x_max: f32, cy: f32) -> Option<Rect> {
+            fn walk(shape: &egui::Shape, x_min: f32, x_max: f32, cy: f32) -> Option<Rect> {
+                match shape {
+                    egui::Shape::Vec(v) => v.iter().find_map(|s| walk(s, x_min, x_max, cy)),
+                    egui::Shape::Mesh(m) => {
+                        let b = m.calc_bounds();
+                        if b.left() >= x_min && b.right() <= x_max && (b.center().y - cy).abs() < 6.0 && (b.width() - 12.0).abs() < 1.0 {
+                            Some(b)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            shapes.iter().find_map(|cs| walk(&cs.shape, x_min, x_max, cy))
+        }
+        let source_rect = find_text(&full.shapes, "On this page").expect("On this page text");
+        assert!((source_rect.left() - (PAD + 8.0)).abs() < 0.1, "On this page must start at PAD + 8.0 (24.0), got {}", source_rect.left());
+        let fmt_rect = find_text(&full.shapes, "OKLCH").expect("OKLCH text");
+        let fmt_chev = find_mesh_in(&full.shapes, PAD, PAD + 66.0, fmt_rect.center().y).expect("format dropdown chevron mesh");
+        assert!(
+            fmt_chev.left() - fmt_rect.right() >= 4.0,
+            "OKLCH label right ({}) must keep >= 4.0px gap to chevron left ({})",
+            fmt_rect.right(),
+            fmt_chev.left()
+        );
+    }
+
+    #[test]
+    fn editing_oklch_and_oklab_channels_commits_srgb_rgba() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+
+        // Edit L in OKLCH to 70%
+        let out_l = commit_picker_ok(&ctx, "70% 0.26 29.23", &mut paint, &mut st);
+        assert!(out_l.changed, "editing OKLCH L must mark out.changed");
+        let expected_after_l = designos_doc::oklch_to_srgb_u8(0.70, st.oklch[1], st.oklch[2]);
+        assert_eq!(&active_rgba(&paint, 0)[..3], &expected_after_l);
+
+        // Edit C in OKLCH to 0.15
+        let out_c = commit_picker_ok(&ctx, "70% 0.15 29.23", &mut paint, &mut st);
+        assert!(out_c.changed, "editing OKLCH C must mark out.changed");
+        let expected_after_c = designos_doc::oklch_to_srgb_u8(0.70, 0.15, st.oklch[2]);
+        assert_eq!(&active_rgba(&paint, 0)[..3], &expected_after_c);
+
+        // Edit H in OKLCH to 145deg
+        let out_h = commit_picker_ok(&ctx, "70% 0.15 145deg", &mut paint, &mut st);
+        assert!(out_h.changed, "editing OKLCH H must mark out.changed");
+        let expected_after_h = designos_doc::oklch_to_srgb_u8(0.70, 0.15, 145.0);
+        assert_eq!(&active_rgba(&paint, 0)[..3], &expected_after_h);
+
+        // Typing C = 0.2577 through the UI keeps full f32 precision (0.2577, not rounded to 0.26)
+        let _ = commit_picker_ok(&ctx, "70% 0.2577 145", &mut paint, &mut st);
+        assert!((st.oklch[1] - 0.2577).abs() < 1e-7, "UI commit of 0.2577 must keep full f32 precision");
+        assert_eq!(st.ok_cells(Fmt::Oklch)[1], "0.26");
+        assert_eq!(&active_rgba(&paint, 0)[..3], &designos_doc::oklch_to_srgb_u8(0.70, 0.2577, 145.0));
+
+        // Switch to OKLAB and edit L, a, b + / alpha
+        st.fmt = Fmt::Oklab;
+        let out_lab = commit_picker_ok(&ctx, "60% 0.12 -0.18 / 0.5", &mut paint, &mut st);
+        assert!(out_lab.changed, "editing OKLAB cell must mark out.changed");
+        let expected_lab = designos_doc::oklab_to_srgb_u8(0.60, 0.12, -0.18);
+        assert_eq!(&active_rgba(&paint, 0)[..3], &expected_lab);
+        assert_eq!(active_rgba(&paint, 0)[3], 128);
+    }
+
+    #[test]
+    fn oklch_state_preserves_typed_values_and_grey_hue() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+        let red_hue = st.oklch[2];
+        assert!((red_hue - 29.233_9).abs() < 1e-3);
+
+        // C to 0 (grey) and back to 0.1 keeps the hue.
+        let _ = commit_picker_ok(&ctx, "62.8% 0 29.23", &mut paint, &mut st);
+        assert!((st.oklch[1] - 0.0).abs() < 1e-6);
+        assert!((st.oklch[2] - red_hue).abs() < 1e-4, "hue must survive when C is 0");
+        assert_eq!(st.ok_cells(Fmt::Oklch)[2], "29.23");
+
+        let _ = commit_picker_ok(&ctx, "62.8% 0.1 29.23", &mut paint, &mut st);
+        assert!((st.oklch[1] - 0.1).abs() < 1e-6);
+        assert!((st.oklch[2] - red_hue).abs() < 1e-4, "hue must still be red's hue after restoring C to 0.1");
+        assert_eq!(&active_rgba(&paint, 0)[..3], &designos_doc::oklch_to_srgb_u8(st.oklch[0], 0.1, red_hue));
+
+        // Red in OKLCH, then outside st.sync([128,128,128,255]) -> H still reads 29.23
+        let mut paint_sync = solid(255, 0, 0, 1.0);
+        let mut st_sync = State::new(&paint_sync);
+        st_sync.fmt = Fmt::Oklch;
+        st_sync.sync([128, 128, 128, 255]);
+        assert!((st_sync.oklch[2] - red_hue).abs() < 1e-4, "outside sync to grey must preserve red hue");
+        assert_eq!(st_sync.ok_cells(Fmt::Oklch)[2], "29.23");
+        set_active(&mut paint_sync, 0, [128, 128, 128, 255]);
+        assert_visible_mode(&ctx, &mut paint_sync, &mut st_sync, &["OKLCH", "59.99% 0 29.23"]);
+
+        // OKLAB a=0 then b=0 keeps H (90 deg after a=0)
+        let mut st_lab = State::new(&solid(255, 0, 0, 1.0));
+        let _ = st_lab.set_oklab_channel(1, 0.0);
+        assert!((st_lab.oklch[2] - 90.0).abs() < 1e-4, "a=0 with b>0 must set H=90");
+        let _ = st_lab.set_oklab_channel(2, 0.0);
+        assert!((st_lab.oklch[2] - 90.0).abs() < 1e-4, "b=0 after a=0 must preserve H=90");
+
+        // After typing L = 50, the cell shows "50% 0.26 29.23" across subsequent frames.
+        let mut paint2 = solid(255, 0, 0, 1.0);
+        let mut st2 = State::new(&paint2);
+        st2.fmt = Fmt::Oklch;
+        let _ = commit_picker_ok(&ctx, "50% 0.26 29.23", &mut paint2, &mut st2);
+        assert_eq!(st2.ok_cells(Fmt::Oklch)[0], "50");
+        assert_visible_mode(&ctx, &mut paint2, &mut st2, &["OKLCH", "50% 0.26 29.23"]);
     }
 }
