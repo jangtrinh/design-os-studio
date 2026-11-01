@@ -877,9 +877,9 @@ Each of the four `N1` scenes was dumped from `swiftui_for(&doc, grid)` in `crate
 |---|---|---|---|
 | **1** | `Y14` killed; all 44 mutants (`M1`–`M14`, `D1`–`D3`, `X1`–`X11`, `A1`–`A2`, `Y1`–`Y14`) killed (`r4-mutants.log`) | **PASS** | **44 / 44 KILLED (`0 survived`)**, null controls `N0` and `N0b` **SURVIVED** |
 | **2** | All 4 gates pass on the final commit (`cargo fmt --all -- --check`, `cargo clippy -p designos-doc -p designos-export --all-targets --locked -- -D warnings`, `cargo test -p designos-export --locked`, `cargo test --workspace --locked --lib`) (`r4-gates.log`) | **PASS** | All 4 gates exit `0` (`31/31` in `grid_native_fixtures`, `339/339` in `designos-export`, `1,483/1,483` in `--workspace --lib`) |
-| **3** | Four N1 scenes byte-identical after F5 (`r4-n1-byte-identical.log`); pushed to `jangtrinh/agy-484-native-grids`; `out/cargo` deleted | **PASS** | `cmp` exit `0` on all 4 N1 scenes (`n1_1_badge.txt`, `n1_2_chip.txt`, `n1_3_dot_card.txt`, `n1_4_fill_span.txt`) |
+| **3** | Six overlap scenes byte-identical after F5 (`r4-n1-byte-identical.log`); pushed to `jangtrinh/agy-484-native-grids`; `out/cargo` deleted | **PASS** | `cmp` exit `0` on all 6 scenes listed in `r4-n1-byte-identical.log:2-7` (`r2_overlap_centered_cell.txt`, `r2_overlap_centered_primary_start_child.txt`, `r2_overlap_stacked_bigger.txt`, `r2_overlap_fill_child_in_span.txt`, `r2_overlap_span_over_earlier_child.txt`, `r3_two_stacked_in_one_cell.txt`) |
 
-#### Four N1 Scenes Byte-Identity After F5 (`plans/reports/agy-484-native-grids-evidence/r4-n1-byte-identical.log`)
+#### Six Overlap Scenes Byte-Identity After F5 (`plans/reports/agy-484-native-grids-evidence/r4-n1-byte-identical.log`)
 Byte-identity of the 28 grid probe dumps against round 3 is shown by the reviewer's `plans/reports/code-reviewer-261101-1900-pr-1450-r4-evidence/dumps/cmp-vs-r3-dumps-merge.txt`.
 
 ---
