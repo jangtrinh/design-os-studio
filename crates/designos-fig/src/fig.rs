@@ -1864,19 +1864,24 @@ fn bound_variables(nc: &Value, lk: &Lk) -> Option<Value> {
             out.insert((*k).into(), a.clone());
         }
     }
-    for (src, dst, opacity_dst, stops_dst) in
-        [("fillPaints", "fills", "fillOpacities", "fillStops"), ("strokePaints", "strokes", "strokeOpacities", "strokeStops")]
-    {
-        let list: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
+    for (src, style_key, dst, opacity_dst, stops_dst) in [
+        ("fillPaints", "styleIdForFill", "fills", "fillOpacities", "fillStops"),
+        ("strokePaints", "styleIdForStrokeFill", "strokes", "strokeOpacities", "strokeStops"),
+    ] {
+        let own = rest_import::farr(nc, src);
+        if nc.get(style_key).and_then(|r| lk.style_node(r)).is_some() && !own.iter().any(|p| p.get("colorVar").is_some()) {
+            continue;
+        }
+        let list: Vec<Value> = own.iter().map(|p| p.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
         if list.iter().any(|v| !v.is_null()) {
             out.insert(dst.into(), Value::Array(list));
         }
         // `Paint.opacityVar`: REST has no field for it, `variables::parse_node_variables` reads this key.
-        let opacities: Vec<Value> = rest_import::farr(nc, src).iter().map(|p| p.get("opacityVar").and_then(alias).unwrap_or(Value::Null)).collect();
+        let opacities: Vec<Value> = own.iter().map(|p| p.get("opacityVar").and_then(alias).unwrap_or(Value::Null)).collect();
         if opacities.iter().any(|v| !v.is_null()) {
             out.insert(opacity_dst.into(), Value::Array(opacities));
         }
-        let stops_list: Vec<Value> = rest_import::farr(nc, src)
+        let stops_list: Vec<Value> = own
             .iter()
             .map(|p| {
                 let sv: Vec<Value> = rest_import::farr(p, "stopsVar").iter().map(|st| st.get("colorVar").and_then(alias).unwrap_or(Value::Null)).collect();
@@ -2331,12 +2336,21 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             _ => {}
         }
     }
-    for (src, dst, style) in [("fillPaints", "fills", "styleIdForFill"), ("strokePaints", "strokes", "styleIdForStrokeFill")] {
-        if obj.contains_key(src) {
-            m.insert(dst.into(), Value::Array(rest_import::farr(o, src).iter().filter_map(convert_paint).collect()));
-        } else if let Some(sn) = obj.get(style).and_then(|r| lk.style_node(r)) {
-            // An override that only names a library style: the style supplies the paints.
+    for (src, dst, style, slot, clear_key) in [
+        ("fillPaints", "fills", "styleIdForFill", "fill", "_clearFillStyle"),
+        ("strokePaints", "strokes", "styleIdForStrokeFill", "stroke", "_clearStrokeStyle"),
+    ] {
+        let own = rest_import::farr(o, src);
+        let from_style = obj.get(style).and_then(|r| lk.style_node(r)).filter(|_| !own.iter().any(|p| p.get("colorVar").is_some()));
+        if let Some(sn) = from_style {
             m.insert(dst.into(), Value::Array(rest_import::farr(sn, "fillPaints").iter().filter_map(convert_paint).collect()));
+        } else if obj.contains_key(src) {
+            m.insert(dst.into(), Value::Array(own.iter().filter_map(convert_paint).collect()));
+        }
+        if obj.contains_key(style) {
+            insert_style_override_link(&mut m, obj, lk, style, slot, clear_key);
+        } else if obj.contains_key(src) {
+            m.insert(clear_key.into(), Value::Bool(true));
         }
     }
     if has_borders {
@@ -2506,22 +2520,19 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             }
             text_overrides(&mut m, td, base_sz, lk);
         }
-        if let Some((key, val)) = text_style_override_link(obj, lk) {
-            m.insert(key.into(), val);
-        }
+        insert_style_override_link(&mut m, obj, lk, "styleIdForText", "text", "_clearTextStyle");
     }
     m
 }
 
-/// `styleIdForText` naming a style relinks it; a null or unresolved `styleIdForText` clears the link (Figma's detach); every other override keeps the inherited link.
-fn text_style_override_link(obj: &Map<String, Value>, lk: &Lk) -> Option<(&'static str, Value)> {
-    let r = obj.get("styleIdForText")?;
+/// `style_key` naming a style relinks `slot`; a null or unresolved reference clears the link (Figma's detach); every other override keeps the inherited link.
+fn insert_style_override_link(m: &mut Map<String, Value>, obj: &Map<String, Value>, lk: &Lk, style_key: &str, slot: &str, clear_key: &str) {
+    let Some(r) = obj.get(style_key) else { return };
     if let Some(id) = lk.style_id(r).filter(|id| lk.style_node(r).is_some() || id.starts_with("key:")) {
-        let mut styles = Map::new();
-        styles.insert("text".into(), Value::String(id));
-        return Some(("styles", Value::Object(styles)));
+        m.entry("styles".to_string()).or_insert_with(|| Value::Object(Map::new())).as_object_mut().unwrap().insert(slot.into(), Value::String(id));
+    } else {
+        m.insert(clear_key.into(), Value::Bool(true));
     }
-    Some(("_clearTextStyle", Value::Bool(true)))
 }
 
 fn convert_derived_override(o: &Value, lk: &Lk) -> Map<String, Value> {
