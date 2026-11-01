@@ -1,0 +1,81 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.66s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 8 tests
+test agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state ... FAILED
+test agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it ... FAILED
+test agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft ... FAILED
+test agent_composer::tests::notice_reads_2_messages_waiting_to_send_with_two_entries ... ok
+test agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice ... ok
+test shell::tests::agent_new_chat_composer::p13_queued_first_message_then_spec_ask_queues_both_in_order ... FAILED
+test shell::tests::agent_new_chat_composer::p12_spec_ask_then_send_queues_both_and_writes_in_order ... FAILED
+test shell::tests::agent_new_chat_composer::p12b_make_design_then_send_queues_both_and_writes_in_order ... FAILED
+
+failures:
+
+---- agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state stdout ----
+
+thread 'agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state' (48944802) panicked at crates/designos-app/src/agent_composer.rs:3028:9:
+ready state 1 must not write second prompt: "\u{1b}[200~first prompt\u{1b}[201~\u{1b}[200~second prompt\u{1b}[201~\u{1b}[200~third prompt\u{1b}[201~"
+
+---- agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it stdout ----
+
+thread 'agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it' (48944801) panicked at crates/designos-app/src/agent_composer.rs:3204:9:
+system second must wait for ready state 2: "\u{1b}[200~user first\u{1b}[201~\u{1b}[200~system second\u{1b}[201~"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft stdout ----
+
+thread 'agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft' (48944800) panicked at crates/designos-app/src/agent_composer.rs:3129:9:
+refused entries must not be written: "\u{1b}[200~entry one\u{1b}[201~\u{1b}[200~entry two\u{1b}[201~\u{1b}[200~entry three\u{1b}[201~\r"
+
+---- shell::tests::agent_new_chat_composer::p13_queued_first_message_then_spec_ask_queues_both_in_order stdout ----
+
+thread 'shell::tests::agent_new_chat_composer::p13_queued_first_message_then_spec_ask_queues_both_in_order' (48944805) panicked at crates/designos-app/src/shell/tests/agent_new_chat_composer.rs:554:5:
+second prompt must wait for the next ready state: "\u{1b}[200~FIRST message\u{1b}[201~\u{1b}[200~@prd SPEC ask\u{1b}[201~"
+
+---- shell::tests::agent_new_chat_composer::p12_spec_ask_then_send_queues_both_and_writes_in_order stdout ----
+
+thread 'shell::tests::agent_new_chat_composer::p12_spec_ask_then_send_queues_both_and_writes_in_order' (48944803) panicked at crates/designos-app/src/shell/tests/agent_new_chat_composer.rs:451:5:
+second prompt must wait for the next ready state: "\u{1b}[200~@prd HELD spec ask\u{1b}[201~\u{1b}[200~my own draft\u{1b}[201~"
+
+---- shell::tests::agent_new_chat_composer::p12b_make_design_then_send_queues_both_and_writes_in_order stdout ----
+
+thread 'shell::tests::agent_new_chat_composer::p12b_make_design_then_send_queues_both_and_writes_in_order' (48944804) panicked at crates/designos-app/src/shell/tests/agent_new_chat_composer.rs:498:5:
+second prompt must wait for the next ready state: "\u{1b}[200~HELD pricing card\u{1b}[201~\u{1b}[200~my own draft\u{1b}[201~"
+
+
+failures:
+    agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft
+    agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it
+    agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state
+    shell::tests::agent_new_chat_composer::p12_spec_ask_then_send_queues_both_and_writes_in_order
+    shell::tests::agent_new_chat_composer::p12b_make_design_then_send_queues_both_and_writes_in_order
+    shell::tests::agent_new_chat_composer::p13_queued_first_message_then_spec_ask_queues_both_in_order
+
+test result: FAILED. 2 passed; 6 failed; 0 ignored; 0 measured; 3980 filtered out; finished in 1.43s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
