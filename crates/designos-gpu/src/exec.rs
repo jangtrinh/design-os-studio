@@ -13,6 +13,25 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
+/// The refine frame's own page texture, built up one chunk per UI frame while the
+/// interactive frame stays on screen (see [`Renderer::render_chunk`]).
+struct ChunkTarget {
+    output: Output,
+    ms: (wgpu::Texture, wgpu::TextureView),
+    /// Size of the multisampled twin (the frame's render size).
+    render: (u32, u32),
+    /// Index of the chunk the target expects next; `None` once a chunk went missing.
+    next: Option<usize>,
+}
+
+/// What a frame run renders: ops `ops` of the root program, starting on a fresh
+/// target (`first`) or on what earlier chunks drew.
+#[derive(Clone)]
+pub(crate) struct ChunkRun {
+    pub ops: Range<usize>,
+    pub first: bool,
+}
+
 /// Layers up to this many pixels run before their parent's pass starts.
 const HOIST_AREA: i64 = 384 * 384;
 /// Blurs are done at reduced resolution above this sigma.
@@ -67,6 +86,7 @@ pub struct Renderer {
     /// Multisampled twin of `output` (same exact size).
     output_ms: Option<(wgpu::Texture, wgpu::TextureView)>,
     output_ms_size: (u32, u32),
+    chunk_target: Option<ChunkTarget>,
     frame_no: u64,
     max_dim: u32,
     pub stats: ExecStats,
@@ -171,6 +191,7 @@ impl Renderer {
             output: None,
             output_ms: None,
             output_ms_size: (0, 0),
+            chunk_target: None,
             frame_no: 0,
             max_dim: device.limits().max_texture_dimension_2d,
             stats: ExecStats::default(),
@@ -215,13 +236,8 @@ impl Renderer {
         row
     }
 
-    fn ensure_output(&mut self, size: (u32, u32), render: (u32, u32)) -> Output {
-        if let Some(o) = &self.output {
-            if o.size == size && self.output_ms_size == render {
-                return o.clone();
-            }
-        }
-        self.output_ms_size = render;
+    /// A page texture of `size` and its multisampled twin of `render` size.
+    fn make_page_target(&self, size: (u32, u32), render: (u32, u32)) -> (Output, (wgpu::Texture, wgpu::TextureView)) {
         let texture = self.dev.create_texture(&wgpu::TextureDescriptor {
             label: Some("canvas"),
             size: wgpu::Extent3d { width: size.0.max(1), height: size.1.max(1), depth_or_array_layers: 1 },
@@ -244,8 +260,18 @@ impl Renderer {
             view_formats: &[],
         });
         let ms_view = ms.create_view(&Default::default());
-        self.output_ms = Some((ms, ms_view));
-        let o = Output { texture, view, size };
+        (Output { texture, view, size }, (ms, ms_view))
+    }
+
+    fn ensure_output(&mut self, size: (u32, u32), render: (u32, u32)) -> Output {
+        if let Some(o) = &self.output {
+            if o.size == size && self.output_ms_size == render {
+                return o.clone();
+            }
+        }
+        self.output_ms_size = render;
+        let (o, ms) = self.make_page_target(size, render);
+        self.output_ms = Some(ms);
         self.output = Some(o.clone());
         o
     }
@@ -273,7 +299,8 @@ impl Renderer {
         self.ring.reset();
         let output = self.ensure_output(frame.out_size, frame.size);
         let budget = split.then_some(self.submit_budget);
-        let mut run = FrameRun::new(self, frame, enc, output.clone(), budget);
+        let root_ms = self.output_ms.clone().expect("root target");
+        let mut run = FrameRun::new(self, frame, enc, output.clone(), root_ms, budget, None);
         run.run_program(enc, frame.root);
         if frame.ss > 1 {
             run.downsample_root(enc);
@@ -302,10 +329,82 @@ impl Renderer {
         out
     }
 
+    /// Renders ops `ops` of the root program of `frame` into the renderer's second page
+    /// texture and submits them. Chunk `index` 0 starts a page, chunk `index` goes on over
+    /// what the earlier ones drew; the texture is returned once `last` chunk is in. The
+    /// page texture the interactive frames draw into stays as it is, so the frame on screen
+    /// does not change while the page is being built.
+    ///
+    /// The chunks of one `frame` come in order, each exactly once, and `index` counts on over
+    /// the frames of a page compiled in slices (`SceneCompiler::compile_slice`): the chunk
+    /// after a skipped one voids the rest of the page, they return `None`. `slice_done` marks
+    /// the last chunk of a frame: the pooled targets its programs used are freed (`last`
+    /// frees them too), so a page of many slices never holds more than one slice's working
+    /// set. `frame` must be one that [`Frame::plan_chunks`] cut: not supersampled, nothing
+    /// but a root program without post-processing to run.
+    pub fn render_chunk(&mut self, frame: &Frame, ops: Range<usize>, index: usize, last: bool, slice_done: bool) -> Option<Output> {
+        if frame.ss != 1 {
+            return None;
+        }
+        if index == 0 {
+            let fits = self.chunk_target.as_ref().is_some_and(|t| t.output.size == frame.out_size && t.render == frame.size);
+            if !fits {
+                let (output, ms) = self.make_page_target(frame.out_size, frame.size);
+                self.chunk_target = Some(ChunkTarget { output, ms, render: frame.size, next: Some(0) });
+            }
+        }
+        let t = self.chunk_target.as_mut()?;
+        if index == 0 {
+            t.next = Some(0);
+        }
+        if t.next != Some(index) {
+            t.next = None;
+            return None;
+        }
+        t.next = Some(index + 1);
+        let (output, ms) = (t.output.clone(), t.ms.clone());
+        self.frame_no += 1;
+        self.stats = ExecStats::default();
+        self.ring.reset();
+        let mut enc = self.dev.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("designos-gpu refine chunk") });
+        let budget = Some(self.submit_budget);
+        let mut run = FrameRun::new(self, frame, &mut enc, output.clone(), ms, budget, Some(ChunkRun { ops, first: index == 0 }));
+        run.run_program(&mut enc, frame.root);
+        let mut st = run.stats;
+        st.submissions = run.split.submissions;
+        st.hal_buffers_max = run.split.max_used;
+        self.stats = st;
+        self.queue.submit([enc.finish()]);
+        self.stats.submissions += 1;
+        self.stats.meshes_uploaded = std::mem::take(&mut self.arena.uploaded);
+        if last || slice_done {
+            // the pooled targets of this frame's programs are not needed any more
+            self.ms_pool.trim(self.frame_no, 0);
+            self.plain_pool.trim(self.frame_no, 0);
+            self.stats.pool_bytes = self.ms_pool.bytes() + self.plain_pool.bytes();
+            let fno = self.frame_no;
+            self.images.retain(|_, i| fno.saturating_sub(i.last_used) < 900);
+        }
+        last.then_some(output)
+    }
+
     /// Renders `frame` and reads the result back as premultiplied RGBA8 rows.
     pub fn render_to_rgba(&mut self, frame: &Frame) -> Vec<u8> {
         let mut enc = self.dev.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("designos-gpu frame") });
         let out = self.render_into(frame, &mut enc, true);
+        self.stats.submissions += 1;
+        self.read_back(enc, &out)
+    }
+
+    /// Reads a page texture this renderer returned (`render_submitted`, `render_chunk`)
+    /// back as premultiplied RGBA8 rows, once the GPU has finished with it.
+    pub fn read_output(&self, out: &Output) -> Vec<u8> {
+        let enc = self.dev.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("designos-gpu readback") });
+        self.read_back(enc, out)
+    }
+
+    /// Appends the copy of `out` to `enc`, submits it and waits for the pixels.
+    fn read_back(&self, mut enc: wgpu::CommandEncoder, out: &Output) -> Vec<u8> {
         let (w, h) = out.size;
         let row = (w * 4).div_ceil(256) * 256;
         let buf = self.dev.create_buffer(&wgpu::BufferDescriptor {
@@ -320,7 +419,6 @@ impl Renderer {
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         self.queue.submit([enc.finish()]);
-        self.stats.submissions += 1;
         let slice = buf.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
@@ -373,6 +471,9 @@ struct FrameRun<'a> {
     inst_base: Vec<u32>,
     clip_bgs: HashMap<ProgId, wgpu::BindGroup>,
     output: Output,
+    /// Multisampled target of a directly rendered root.
+    root_ms: (wgpu::Texture, wgpu::TextureView),
+    chunk: Option<ChunkRun>,
     stats: ExecStats,
     split: Splitter,
 }
@@ -424,52 +525,76 @@ fn f4(r: IRect) -> [f32; 4] {
 }
 
 impl<'a> FrameRun<'a> {
-    fn new(r: &'a mut Renderer, frame: &'a Frame, enc: &mut wgpu::CommandEncoder, output: Output, budget: Option<u32>) -> Self {
+    fn new(
+        r: &'a mut Renderer,
+        frame: &'a Frame,
+        enc: &mut wgpu::CommandEncoder,
+        output: Output,
+        root_ms: (wgpu::Texture, wgpu::TextureView),
+        budget: Option<u32>,
+        chunk: Option<ChunkRun>,
+    ) -> Self {
         let n = frame.programs.len();
-        // ---- dependencies
+        // The ops of each program this run executes: all of them, but for the root of a chunk.
+        let ops_of = |p: usize| -> Range<usize> {
+            match &chunk {
+                Some(c) if p == frame.root as usize => c.ops.clone(),
+                _ => 0..frame.programs[p].ops.len(),
+            }
+        };
+        // ---- dependencies of the programs this run reaches (all of them, or those a chunk needs)
         let mut deps: Vec<Vec<ProgId>> = vec![Vec::new(); n];
         let mut consumers = vec![0u32; n];
-        for (p, prog) in frame.programs.iter().enumerate() {
-            let mut d: Vec<ProgId> = Vec::new();
-            let clip_dep = |c: ClipId, d: &mut Vec<ProgId>| {
-                if let Some(m) = frame.clips[c as usize].mask {
-                    d.push(m);
+        let mut reach = vec![chunk.is_none(); n];
+        let mut order: Vec<usize> = Vec::new();
+        let mut stack: Vec<usize> = Vec::new();
+        if chunk.is_some() {
+            reach[frame.root as usize] = true;
+            stack.push(frame.root as usize);
+        } else {
+            order.extend(0..n);
+        }
+        let mut next = 0;
+        loop {
+            let p = if chunk.is_some() {
+                let Some(p) = stack.pop() else { break };
+                order.push(p);
+                p
+            } else {
+                if next >= order.len() {
+                    break;
                 }
+                next += 1;
+                order[next - 1]
             };
-            for op in &prog.ops {
-                match op {
-                    Op::Draw(x) => clip_dep(x.clip, &mut d),
-                    Op::Composite(c) => {
-                        d.push(c.src);
-                        if let Some((a, _)) = c.aux {
-                            d.push(a);
-                        }
-                        clip_dep(c.clip, &mut d);
-                    }
-                    Op::Backdrop(b) => {
-                        d.push(b.mask);
-                        clip_dep(b.clip, &mut d);
-                    }
-                }
-            }
-            for post in &prog.post {
-                if let Post::Displace { clip_to: Some(m), .. } = post {
-                    d.push(*m);
-                }
-            }
+            let mut d: Vec<ProgId> = Vec::new();
+            frame.deps_of(p as ProgId, ops_of(p), &mut d);
             d.sort_unstable();
             d.dedup();
-            for x in &d {
-                consumers[*x as usize] += 1;
+            if chunk.is_some() {
+                for x in &d {
+                    if !reach[*x as usize] {
+                        reach[*x as usize] = true;
+                        stack.push(*x as usize);
+                    }
+                }
             }
             deps[p] = d;
+        }
+        for &p in &order {
+            for x in &deps[p] {
+                consumers[*x as usize] += 1;
+            }
         }
 
         // ---- ramps: make room for the gradients of this frame in the ramp texture
         {
             let mut fresh = std::collections::HashSet::new();
-            for prog in &frame.programs {
-                for op in &prog.ops {
+            for (p, prog) in frame.programs.iter().enumerate() {
+                if !reach[p] {
+                    continue;
+                }
+                for op in &prog.ops[ops_of(p)] {
                     if let Op::Draw(d) = op {
                         if let Some(rp) = &d.ramp {
                             if !r.ramp_rows.contains_key(&rp.key) {
@@ -489,9 +614,15 @@ impl<'a> FrameRun<'a> {
         let mut inst_base = Vec::with_capacity(n);
         let mut meshes: Vec<Arc<crate::mesh::Mesh>> = Vec::new();
         let mut images: Vec<Arc<ImageData>> = Vec::new();
-        for prog in &frame.programs {
-            inst_base.push(instances.len() as u32);
-            for op in &prog.ops {
+        for (p, prog) in frame.programs.iter().enumerate() {
+            if !reach[p] {
+                inst_base.push(0);
+                continue;
+            }
+            let range = ops_of(p);
+            // `inst_base + k` is the instance of op `k`, also when the run starts at op `range.start`
+            inst_base.push((instances.len() as u32).wrapping_sub(range.start as u32));
+            for op in &prog.ops[range] {
                 match op {
                     Op::Draw(d) => {
                         let mut inst = d.inst;
@@ -565,6 +696,8 @@ impl<'a> FrameRun<'a> {
             inst_base,
             clip_bgs: HashMap::new(),
             output,
+            root_ms,
+            chunk,
             stats: ExecStats::default(),
             split: splitter,
         }
@@ -639,7 +772,7 @@ impl<'a> FrameRun<'a> {
         let frame_no = self.r.frame_no;
         let direct_root = id == frame.root && frame.ss == 1;
         let ms = if direct_root {
-            let (tex, view) = self.r.output_ms.clone().expect("root target");
+            let (tex, view) = self.root_ms.clone();
             Lease { idx: usize::MAX, tex, view, w, h }
         } else {
             self.r.ms_pool.acquire(&self.r.dev, w, h, frame_no)
@@ -650,11 +783,15 @@ impl<'a> FrameRun<'a> {
             let l = self.r.plain_pool.acquire(&self.r.dev, w, h, frame_no);
             (Some(l.clone()), l.view.clone(), l.tex.clone())
         };
-        self.live.insert(id, Live { ms, resolve_view, resolve, resolve_tex, started: false });
+        // a chunk after the first goes on over what the earlier ones drew
+        let started = direct_root && self.chunk.as_ref().is_some_and(|c| !c.first);
+        self.live.insert(id, Live { ms, resolve_view, resolve, resolve_tex, started });
         self.stack.push(id);
 
-        let mut i = 0;
-        let nops = prog.ops.len();
+        let (mut i, nops) = match &self.chunk {
+            Some(c) if id == frame.root => (c.ops.start, c.ops.end),
+            _ => (0, prog.ops.len()),
+        };
         while i < nops {
             let mut j = i;
             while j < nops && self.passable(&prog.ops[j]) {
@@ -991,7 +1128,7 @@ impl<'a> FrameRun<'a> {
                         pass.set_index_buffer(c.i.slice(..), wgpu::IndexFormat::Uint32);
                         cur_chunk = loc.chunk;
                     }
-                    let inst = self.inst_base[id as usize] + k as u32;
+                    let inst = self.inst_base[id as usize].wrapping_add(k as u32);
                     pass.draw_indexed(loc.first_index..loc.first_index + loc.count, loc.base_vertex, inst..inst + 1);
                     self.stats.draw_calls += 1;
                 }
