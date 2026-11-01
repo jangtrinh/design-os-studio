@@ -69,7 +69,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1456.0,
-        1027.0,
+        1031.0,
         24.0,
         24.0
       ],
@@ -2487,6 +2487,19 @@
       "sense": [
         "click",
         "drag",
+        "focus"
+      ]
+    },
+    {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1456.0,
+        1031.0,
+        24.0,
+        21.0
+      ],
+      "sense": [
+        "click",
         "focus"
       ]
     },

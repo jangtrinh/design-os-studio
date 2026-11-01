@@ -1,0 +1,74 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.84s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 10 tests
+test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+
+failures:
+
+---- layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run stdout ----
+
+thread 'layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run' (52516038) panicked at crates/designos-app/src/layout_snapshot.rs:1628:14:
+drift-bound allow entry that excuses 0 drift after baseline re-save must fail as stale: CompareReport { new_names: [], scroll_changes: [], matched_allow_indices: {0} }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load stdout ----
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load' (52516046) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:318:5:
+weight dropdown must not draw a bind:fontStyle icon on the row
+
+---- shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click stdout ----
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click' (52516039) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:157:5:
+bind:width must be vertically centred on w row: bind cy=443 vs field cy=447
+
+---- shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox stdout ----
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox' (52516042) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:762:9:
+32 px inspector row w must vertically centre bind:width at top + 4.0 (MINOR-4): vr=[[1376.0 595.0] - [1439.0 627.0]], br=[[1440.0 595.0] - [1464.0 619.0]]
+
+---- shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session stdout ----
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session' (52516045) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:597:9:
+bound:fontFamily pill must be painted during an active text editing session
+
+---- shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent stdout ----
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent' (52516040) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:939:5:
+MAJOR-2: frame allocations with 700-variable enabled library (6688) exceeded +10% budget (1824) over baseline (1659)
+
+---- shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library stdout ----
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library' (52516044) panicked at crates/designos-app/src/shell/tests.rs:228:113:
+nothing recorded for menu-row-0-9
+
+
+failures:
+    layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run
+    shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click
+    shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent
+    shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox
+    shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library
+    shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session
+    shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load
+
+test result: FAILED. 3 passed; 7 failed; 0 ignored; 0 measured; 3981 filtered out; finished in 3.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

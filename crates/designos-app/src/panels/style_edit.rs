@@ -247,6 +247,8 @@ fn text_rows(app: &mut App, ui: &mut Ui, body: Rect, key: &str, t: &TextStyle, f
     popover::row(ui, body, first + 1, "Weight", |ui, rc| {
         if !super::var_bind::style_pill_field(app, ui, rc, key, "fontWeight") {
             let val_r = super::var_bind::style_value_rect(app, ui, rc, key, "fontWeight", VariableKind::Number);
+            #[cfg(test)]
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("field-rect", format!("{:?}", "se-weight"))), val_r));
             let names: Vec<String> = typography::WEIGHTS.iter().map(|w| w.0.to_string()).collect();
             if let Some(i) = dropdown(ui, val_r, "se-weight", typography::weight_name(t.font_weight), &names) {
                 set(app, &|ts| ts.font_weight = typography::WEIGHTS[i].1);
