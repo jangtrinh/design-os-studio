@@ -159,8 +159,13 @@ fn open_dropdown_uses_the_focused_border() {
         shapes = out.shapes;
     }
     let open = shapes.iter().any(|clipped| match &clipped.shape {
-        egui::epaint::Shape::Rect(shape) => shape.rect == rect && shape.stroke.color == theme::BORDER_SELECTED && shape.stroke.width == 2.0,
+        egui::epaint::Shape::Rect(shape) => shape.rect == rect && shape.stroke.color == theme::BORDER_SELECTED && shape.stroke.width == theme::BORDER_WIDTH,
         _ => false,
     });
-    assert!(open, "an open dropdown paints the 2 px focused border");
+    let strong = shapes.iter().any(|clipped| match &clipped.shape {
+        egui::epaint::Shape::Rect(shape) => shape.rect == rect && shape.stroke.color == theme::BORDER_STRONG,
+        _ => false,
+    });
+    assert!(open, "an open dropdown paints the 1 px focused ring");
+    assert!(!strong, "an open dropdown does not paint a strong border");
 }
