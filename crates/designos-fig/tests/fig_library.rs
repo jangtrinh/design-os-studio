@@ -703,3 +703,834 @@ fn instance_text_style_link_override_survives_main_edit() {
     );
     assert!(!doc.get(detach_id).unwrap().style_refs.contains_key("text"), "a cleared text style stays cleared after the main changes");
 }
+
+fn paint_style_fixture(overrides: Value) -> Value {
+    let color_var = |id: u64, pos: &str, name: &str, key: &str, r: f64, gr: f64, b: f64| {
+        node(
+            (6, id),
+            (0, 2),
+            pos,
+            "VARIABLE",
+            name,
+            json!({
+                "key": key, "variableResolvedType": "COLOR", "variableSetID": {"guid": g(6, 1)},
+                "variableDataValues": {"entries": [{
+                    "modeID": g(6, 10),
+                    "variableData": {"dataType": "COLOR", "resolvedDataType": "COLOR", "value": {"colorValue": {"r": r, "g": gr, "b": b, "a": 1.0}}}
+                }]}
+            }),
+        )
+    };
+    let fill_style = |id: u64, pos: &str, name: &str, r: f64, gr: f64, b: f64, var_id: u64| {
+        let mut p = solid(r, gr, b);
+        p["colorVar"] = json!({"dataType": "ALIAS", "resolvedDataType": "COLOR", "value": {"alias": {"guid": g(6, var_id)}}});
+        node((8, id), (0, 2), pos, "RECTANGLE", name, json!({"styleType": "FILL", "fillPaints": [p]}))
+    };
+    let mut arr = vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        node(
+            (6, 1),
+            (0, 2),
+            "a",
+            "VARIABLE_SET",
+            "Palette",
+            json!({"key": "PAL", "variableSetModes": [{"id": g(6, 10), "name": "Light", "sortPosition": "!"}]}),
+        ),
+        color_var(2, "b", "Colors/Brand/600", "VAR_BRAND", 0.33, 0.22, 0.62),
+        color_var(3, "c", "Colors/Neutral/600", "VAR_NEUTRAL", 0.32, 0.32, 0.32),
+        color_var(4, "d", "Colors/Accent/600", "VAR_ACCENT", 0.05, 0.58, 0.53),
+        node(
+            (6, 5),
+            (0, 2),
+            "e",
+            "VARIABLE",
+            "Op/25",
+            json!({
+                "key": "VAR_OP", "variableResolvedType": "FLOAT", "variableSetID": {"guid": g(6, 1)},
+                "variableDataValues": {"entries": [{
+                    "modeID": g(6, 10),
+                    "variableData": {"dataType": "FLOAT", "resolvedDataType": "FLOAT", "value": {"floatValue": 0.25}}
+                }]}
+            }),
+        ),
+        fill_style(1, "s", "Brand/600", 0.50, 0.34, 0.85, 2),
+        fill_style(2, "t", "Neutral/600", 0.32, 0.32, 0.32, 3),
+        fill_style(3, "u", "Accent/600", 0.05, 0.58, 0.53, 4),
+        node(
+            (8, 9),
+            (0, 2),
+            "v",
+            "TEXT",
+            "Heading",
+            json!({"styleType": "TEXT", "fontSize": 30.0, "fontName": {"family": "Inter", "style": "Regular"}, "textData": {"characters": "Ag"}}),
+        ),
+        node((5, 1), (0, 2), "c", "SYMBOL", "Swatch", json!({"size": {"x": 80.0, "y": 40.0}})),
+        node(
+            (5, 2),
+            (5, 1),
+            "a",
+            "VECTOR",
+            "Color",
+            json!({
+                "overrideKey": g(9, 2), "size": {"x": 80.0, "y": 40.0},
+                "styleIdForFill": {"guid": g(8, 1)},
+                "fillPaints": [solid(0.50, 0.34, 0.85)],
+                "styleIdForStrokeFill": {"guid": g(8, 1)},
+                "strokePaints": [solid(0.50, 0.34, 0.85)],
+                "strokeWeight": 1.0
+            }),
+        ),
+        node(
+            (5, 3),
+            (5, 1),
+            "b",
+            "TEXT",
+            "Label",
+            json!({
+                "overrideKey": g(9, 3), "size": {"x": 80.0, "y": 20.0},
+                "fontSize": 14.0, "fontName": {"family": "Inter", "style": "Regular"}, "textData": {"characters": "Go"},
+                "styleIdForFill": {"guid": g(8, 1)},
+                "fillPaints": [solid(0.50, 0.34, 0.85)]
+            }),
+        ),
+    ];
+    for inst in overrides.as_array().unwrap() {
+        arr.push(inst.clone());
+    }
+    Value::Array(arr)
+}
+
+fn stroke_solid_of(n: &Node) -> Color {
+    match n.stroke.paints[0].kind {
+        PaintKind::Solid(c) => c,
+        _ => panic!("not solid stroke"),
+    }
+}
+
+/// A fill override with a named `styleIdForFill` relinks `style_refs["fill"]`
+/// instead of keeping the main component's fill style link.
+#[test]
+fn instance_fill_override_with_named_style_relinks() {
+    let input = paint_style_fixture(json!([
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "RelinkFill",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForFill": {"guid": g(8, 2)},
+                    "fillPaints": [solid(0.28, 0.33, 0.40)]
+                }]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "ExternalFill",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForFill": {"assetRef": {"key": "EXT_FILL", "version": "1"}}
+                }]}
+            })
+        )
+    ]));
+    let mut doc = import_fig_node_changes(&input, "t").unwrap();
+    let relink_id = child(&doc, find(&doc, "RelinkFill"), "Color").id;
+    let ext_id = child(&doc, find(&doc, "ExternalFill"), "Color").id;
+    let relink = doc.get(relink_id).unwrap();
+    assert_eq!(doc.style_name(relink.style_refs.get("fill").expect("fill style link")), "Neutral/600");
+    assert!(relink.component.overrides.contains(&OverrideField::Fills));
+    assert_eq!(solid_of(relink), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 }, "local style supplies raw paints over stale override cache");
+    assert_eq!(solid_of(&resolve_node(&doc, relink)), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 });
+    assert_eq!(doc.get(ext_id).unwrap().style_refs.get("fill").map(String::as_str), Some("key:EXT_FILL"));
+
+    let comp_id = find(&doc, "Swatch").id;
+    let master_id = child(&doc, doc.get(comp_id).unwrap(), "Color").id;
+    let accent = doc.style_meta.iter().find(|(_, m)| m.name == "Accent/600").unwrap().0.clone();
+    doc.get_mut(master_id).unwrap().style_refs.insert("fill".into(), accent);
+    sync_instances(&mut doc, comp_id).apply(&mut doc).unwrap();
+    assert_eq!(doc.style_name(doc.get(relink_id).unwrap().style_refs.get("fill").unwrap()), "Neutral/600");
+    assert_eq!(doc.get(ext_id).unwrap().style_refs.get("fill").map(String::as_str), Some("key:EXT_FILL"));
+}
+
+/// A fill override with `fillPaints` and no `styleIdForFill` clears the
+/// inherited fill style link so `resolve_node` keeps the override's paints.
+#[test]
+fn instance_fill_override_with_no_style_clears_inherited_link() {
+    let input = paint_style_fixture(json!([node(
+        (1, 1),
+        (0, 1),
+        "a",
+        "INSTANCE",
+        "NoStyleFill",
+        json!({
+            "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                "guidPath": {"guids": [g(9, 2)]},
+                "fillPaints": [solid(0.10, 0.80, 0.20)]
+            }]}
+        })
+    )]));
+    let mut doc = import_fig_node_changes(&input, "t").unwrap();
+    let cid = child(&doc, find(&doc, "NoStyleFill"), "Color").id;
+    let c = doc.get(cid).unwrap();
+    assert!(!c.style_refs.contains_key("fill"), "fillPaints without styleIdForFill detaches inherited fill style");
+    assert!(c.component.overrides.contains(&OverrideField::Fills));
+    assert_eq!(solid_of(&resolve_node(&doc, c)), Color { r: 0.10, g: 0.80, b: 0.20, a: 1.0 });
+
+    let comp_id = find(&doc, "Swatch").id;
+    let master_id = child(&doc, doc.get(comp_id).unwrap(), "Color").id;
+    let accent = doc.style_meta.iter().find(|(_, m)| m.name == "Accent/600").unwrap().0.clone();
+    doc.get_mut(master_id).unwrap().style_refs.insert("fill".into(), accent);
+    sync_instances(&mut doc, comp_id).apply(&mut doc).unwrap();
+    assert!(!doc.get(cid).unwrap().style_refs.contains_key("fill"));
+}
+
+/// The "no style" sentinel GUID (`4294967295:4294967295`) in `styleIdForFill`
+/// clears the inherited fill style link.
+#[test]
+fn instance_fill_override_with_sentinel_clears_inherited_link() {
+    let input = paint_style_fixture(json!([
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "SentinelFill",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForFill": {"guid": g(4294967295, 4294967295)},
+                    "fillPaints": [solid(0.90, 0.40, 0.10)]
+                }]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "SentinelFillOnly",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForFill": {"guid": g(4294967295, 4294967295)}
+                }]}
+            })
+        )
+    ]));
+    let mut doc = import_fig_node_changes(&input, "t").unwrap();
+    let cid = child(&doc, find(&doc, "SentinelFill"), "Color").id;
+    let only_id = child(&doc, find(&doc, "SentinelFillOnly"), "Color").id;
+    let c = doc.get(cid).unwrap();
+    assert!(!c.style_refs.contains_key("fill"), "sentinel styleIdForFill clears inherited fill style");
+    assert!(c.component.overrides.contains(&OverrideField::Fills));
+    assert_eq!(solid_of(&resolve_node(&doc, c)), Color { r: 0.90, g: 0.40, b: 0.10, a: 1.0 });
+    assert!(!doc.get(only_id).unwrap().style_refs.contains_key("fill"));
+
+    let comp_id = find(&doc, "Swatch").id;
+    let master_id = child(&doc, doc.get(comp_id).unwrap(), "Color").id;
+    let accent = doc.style_meta.iter().find(|(_, m)| m.name == "Accent/600").unwrap().0.clone();
+    doc.get_mut(master_id).unwrap().style_refs.insert("fill".into(), accent);
+    sync_instances(&mut doc, comp_id).apply(&mut doc).unwrap();
+    assert!(!doc.get(cid).unwrap().style_refs.contains_key("fill"));
+    assert!(!doc.get(only_id).unwrap().style_refs.contains_key("fill"));
+}
+
+/// Stroke twin — `styleIdForStrokeFill` naming a style relinks `style_refs["stroke"]`.
+#[test]
+fn instance_stroke_override_with_named_style_relinks() {
+    let input = paint_style_fixture(json!([
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "RelinkStroke",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForStrokeFill": {"guid": g(8, 2)},
+                    "strokePaints": [solid(0.28, 0.33, 0.40)]
+                }]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "ExternalStroke",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForStrokeFill": {"assetRef": {"key": "EXT_STROKE", "version": "1"}}
+                }]}
+            })
+        )
+    ]));
+    let mut doc = import_fig_node_changes(&input, "t").unwrap();
+    let relink_id = child(&doc, find(&doc, "RelinkStroke"), "Color").id;
+    let ext_id = child(&doc, find(&doc, "ExternalStroke"), "Color").id;
+    let relink = doc.get(relink_id).unwrap();
+    assert_eq!(doc.style_name(relink.style_refs.get("stroke").expect("stroke style link")), "Neutral/600");
+    assert!(relink.component.overrides.contains(&OverrideField::Stroke));
+    assert_eq!(stroke_solid_of(relink), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 });
+    assert_eq!(stroke_solid_of(&resolve_node(&doc, relink)), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 });
+    assert_eq!(doc.get(ext_id).unwrap().style_refs.get("stroke").map(String::as_str), Some("key:EXT_STROKE"));
+
+    let comp_id = find(&doc, "Swatch").id;
+    let master_id = child(&doc, doc.get(comp_id).unwrap(), "Color").id;
+    let accent = doc.style_meta.iter().find(|(_, m)| m.name == "Accent/600").unwrap().0.clone();
+    doc.get_mut(master_id).unwrap().style_refs.insert("stroke".into(), accent);
+    sync_instances(&mut doc, comp_id).apply(&mut doc).unwrap();
+    assert_eq!(doc.style_name(doc.get(relink_id).unwrap().style_refs.get("stroke").unwrap()), "Neutral/600");
+    assert_eq!(doc.get(ext_id).unwrap().style_refs.get("stroke").map(String::as_str), Some("key:EXT_STROKE"));
+}
+
+/// Stroke twin — `strokePaints` with no `styleIdForStrokeFill` clears `style_refs["stroke"]`.
+#[test]
+fn instance_stroke_override_with_no_style_clears_inherited_link() {
+    let input = paint_style_fixture(json!([node(
+        (1, 1),
+        (0, 1),
+        "a",
+        "INSTANCE",
+        "NoStyleStroke",
+        json!({
+            "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                "guidPath": {"guids": [g(9, 2)]},
+                "strokePaints": [solid(0.10, 0.80, 0.20)]
+            }]}
+        })
+    )]));
+    let mut doc = import_fig_node_changes(&input, "t").unwrap();
+    let cid = child(&doc, find(&doc, "NoStyleStroke"), "Color").id;
+    let c = doc.get(cid).unwrap();
+    assert!(!c.style_refs.contains_key("stroke"), "strokePaints without styleIdForStrokeFill detaches inherited stroke style");
+    assert!(c.component.overrides.contains(&OverrideField::Stroke));
+    assert_eq!(stroke_solid_of(&resolve_node(&doc, c)), Color { r: 0.10, g: 0.80, b: 0.20, a: 1.0 });
+
+    let comp_id = find(&doc, "Swatch").id;
+    let master_id = child(&doc, doc.get(comp_id).unwrap(), "Color").id;
+    let accent = doc.style_meta.iter().find(|(_, m)| m.name == "Accent/600").unwrap().0.clone();
+    doc.get_mut(master_id).unwrap().style_refs.insert("stroke".into(), accent);
+    sync_instances(&mut doc, comp_id).apply(&mut doc).unwrap();
+    assert!(!doc.get(cid).unwrap().style_refs.contains_key("stroke"));
+}
+
+/// Stroke twin — the sentinel GUID (`4294967295:4294967295`) in `styleIdForStrokeFill`
+/// clears `style_refs["stroke"]`.
+#[test]
+fn instance_stroke_override_with_sentinel_clears_inherited_link() {
+    let input = paint_style_fixture(json!([
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "SentinelStroke",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForStrokeFill": {"guid": g(4294967295, 4294967295)},
+                    "strokePaints": [solid(0.90, 0.40, 0.10)]
+                }]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "SentinelStrokeOnly",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForStrokeFill": {"guid": g(4294967295, 4294967295)}
+                }]}
+            })
+        )
+    ]));
+    let mut doc = import_fig_node_changes(&input, "t").unwrap();
+    let cid = child(&doc, find(&doc, "SentinelStroke"), "Color").id;
+    let only_id = child(&doc, find(&doc, "SentinelStrokeOnly"), "Color").id;
+    let c = doc.get(cid).unwrap();
+    assert!(!c.style_refs.contains_key("stroke"), "sentinel styleIdForStrokeFill clears inherited stroke style");
+    assert!(c.component.overrides.contains(&OverrideField::Stroke));
+    assert_eq!(stroke_solid_of(&resolve_node(&doc, c)), Color { r: 0.90, g: 0.40, b: 0.10, a: 1.0 });
+    assert!(!doc.get(only_id).unwrap().style_refs.contains_key("stroke"));
+
+    let comp_id = find(&doc, "Swatch").id;
+    let master_id = child(&doc, doc.get(comp_id).unwrap(), "Color").id;
+    let accent = doc.style_meta.iter().find(|(_, m)| m.name == "Accent/600").unwrap().0.clone();
+    doc.get_mut(master_id).unwrap().style_refs.insert("stroke".into(), accent);
+    sync_instances(&mut doc, comp_id).apply(&mut doc).unwrap();
+    assert!(!doc.get(cid).unwrap().style_refs.contains_key("stroke"));
+    assert!(!doc.get(only_id).unwrap().style_refs.contains_key("stroke"));
+}
+
+/// A copy without a fill override keeps the main component's fill style link
+/// (and stroke style link when only non-paint fields like `strokeWeight` or `opacity`
+/// are overridden), while a sibling with a fill override takes the override's link.
+#[test]
+fn instance_copy_without_fill_override_keeps_main_style_link() {
+    let input = paint_style_fixture(json!([
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "Unchanged",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "opacity": 0.75,
+                    "strokeWeight": 2.0
+                }]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "Overridden",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "fillPaints": [solid(0.10, 0.80, 0.20)]
+                }]}
+            })
+        )
+    ]));
+    let mut doc = import_fig_node_changes(&input, "t").unwrap();
+    let keep_id = child(&doc, find(&doc, "Unchanged"), "Color").id;
+    let ov_id = child(&doc, find(&doc, "Overridden"), "Color").id;
+    let keep = doc.get(keep_id).unwrap();
+    assert_eq!(doc.style_name(keep.style_refs.get("fill").expect("kept fill style")), "Brand/600");
+    assert_eq!(doc.style_name(keep.style_refs.get("stroke").expect("kept stroke style")), "Brand/600");
+    assert_eq!(solid_of(&resolve_node(&doc, keep)), Color { r: 0.33, g: 0.22, b: 0.62, a: 1.0 });
+    assert!(!doc.get(ov_id).unwrap().style_refs.contains_key("fill"));
+
+    let comp_id = find(&doc, "Swatch").id;
+    let master_id = child(&doc, doc.get(comp_id).unwrap(), "Color").id;
+    let accent = doc.style_meta.iter().find(|(_, m)| m.name == "Accent/600").unwrap().0.clone();
+    doc.get_mut(master_id).unwrap().style_refs.insert("fill".into(), accent);
+    sync_instances(&mut doc, comp_id).apply(&mut doc).unwrap();
+    assert_eq!(doc.style_name(doc.get(keep_id).unwrap().style_refs.get("fill").unwrap()), "Accent/600");
+    assert!(!doc.get(ov_id).unwrap().style_refs.contains_key("fill"));
+}
+
+/// A self-override entry (`guidPath` equal to the instance's `symbolID` or `guid`)
+/// that carries `fillPaints` without `styleIdForFill` keeps the fill style link
+/// declared on the instance node itself.
+#[test]
+fn instance_self_fill_override_with_paints_keeps_instance_style_link() {
+    let input = paint_style_fixture(json!([
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "SelfFillBySym",
+            json!({
+                "styleIdForFill": {"guid": g(8, 2)},
+                "fillPaints": [solid(0.32, 0.32, 0.32)],
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(5, 1)]},
+                    "fillPaints": [solid(0.90, 0.90, 0.10)]
+                }]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "SelfFillByGuid",
+            json!({
+                "styleIdForFill": {"guid": g(8, 2)},
+                "fillPaints": [solid(0.32, 0.32, 0.32)],
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(1, 2)]},
+                    "fillPaints": [solid(0.90, 0.90, 0.10)]
+                }]}
+            })
+        )
+    ]));
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    for name in ["SelfFillBySym", "SelfFillByGuid"] {
+        let inst = find(&doc, name);
+        assert_eq!(doc.style_name(inst.style_refs.get("fill").expect("self fill style link preserved")), "Neutral/600");
+        assert!(inst.component.overrides.contains(&OverrideField::Fills));
+        assert_eq!(solid_of(&resolve_node(&doc, inst)), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 });
+    }
+}
+
+/// Stroke twin — a self-override entry that carries `strokePaints` without
+/// `styleIdForStrokeFill` keeps the stroke style link declared on the instance node itself.
+#[test]
+fn instance_self_stroke_override_with_paints_keeps_instance_style_link() {
+    let input = paint_style_fixture(json!([
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "SelfStrokeBySym",
+            json!({
+                "styleIdForStrokeFill": {"guid": g(8, 2)},
+                "strokePaints": [solid(0.32, 0.32, 0.32)],
+                "strokeWeight": 1.0,
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(5, 1)]},
+                    "strokePaints": [solid(0.90, 0.90, 0.10)]
+                }]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "SelfStrokeByGuid",
+            json!({
+                "styleIdForStrokeFill": {"guid": g(8, 2)},
+                "strokePaints": [solid(0.32, 0.32, 0.32)],
+                "strokeWeight": 1.0,
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [{
+                    "guidPath": {"guids": [g(1, 2)]},
+                    "strokePaints": [solid(0.90, 0.90, 0.10)]
+                }]}
+            })
+        )
+    ]));
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    for name in ["SelfStrokeBySym", "SelfStrokeByGuid"] {
+        let inst = find(&doc, name);
+        assert_eq!(doc.style_name(inst.style_refs.get("stroke").expect("self stroke style link preserved")), "Neutral/600");
+        assert!(inst.component.overrides.contains(&OverrideField::Stroke));
+        assert_eq!(stroke_solid_of(&resolve_node(&doc, inst)), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 });
+    }
+}
+
+/// An override whose `fillPaints` binds `colorVar` and also names a local style
+/// keeps its own bound paints and variable binding rather than replacing them with the style's paints.
+#[test]
+fn instance_override_with_color_var_and_named_style_keeps_bound_paints() {
+    let mut bound_paint = solid(0.05, 0.58, 0.53);
+    bound_paint["colorVar"] = json!({"dataType": "ALIAS", "resolvedDataType": "COLOR", "value": {"alias": {"guid": g(6, 4)}}});
+    let input = paint_style_fixture(json!([node(
+        (1, 1),
+        (0, 1),
+        "a",
+        "INSTANCE",
+        "BoundOverStyle",
+        json!({
+            "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [
+                {
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForFill": {"guid": g(8, 2)},
+                    "fillPaints": [bound_paint]
+                }
+            ]}
+        })
+    )]));
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    let inst = find(&doc, "BoundOverStyle");
+    let c = child(&doc, inst, "Color");
+    assert_eq!(doc.style_name(c.style_refs.get("fill").expect("relinked fill style")), "Neutral/600");
+    assert_eq!(c.variables.bindings.get("fills/0").map(String::as_str), Some("VariableID:6:4"));
+    assert_eq!(solid_of(c), Color { r: 0.05, g: 0.58, b: 0.53, a: 1.0 }, "colorVar-bound override keeps its own raw paints");
+}
+
+/// An override with a named local style and stale `opacityVar` / `stopsVar` on its own
+/// inline paints (without `colorVar`) skips those stale variable bindings and resolves
+/// to the named style's values.
+#[test]
+fn instance_override_with_named_style_skips_stale_stop_and_opacity_bindings() {
+    let mut stale_paint = solid(0.28, 0.33, 0.40);
+    stale_paint["opacityVar"] = json!({"dataType": "ALIAS", "resolvedDataType": "FLOAT", "value": {"alias": {"guid": g(6, 5)}}});
+    stale_paint["stopsVar"] = json!([{"colorVar": {"dataType": "ALIAS", "resolvedDataType": "COLOR", "value": {"alias": {"guid": g(6, 4)}}}}]);
+    let input = paint_style_fixture(json!([node(
+        (1, 1),
+        (0, 1),
+        "a",
+        "INSTANCE",
+        "StaleVarsOverride",
+        json!({
+            "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [
+                {
+                    "guidPath": {"guids": [g(9, 2)]},
+                    "styleIdForFill": {"guid": g(8, 2)},
+                    "fillPaints": [stale_paint]
+                }
+            ]}
+        })
+    )]));
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    let inst = find(&doc, "StaleVarsOverride");
+    let c = child(&doc, inst, "Color");
+    assert!(c.variables.bindings.is_empty(), "stale opacityVar and stopsVar must be skipped when local style wins");
+    let resolved = resolve_node(&doc, c);
+    assert_eq!(resolved.fills[0].opacity, 1.0);
+    assert_eq!(solid_of(&resolved), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 });
+}
+
+/// A text override entry that sets both `styleIdForText` and `styleIdForFill`
+/// merges into `styles` so the target text node keeps both `"text"` and `"fill"` style links.
+#[test]
+fn instance_text_override_with_text_and_fill_styles_keeps_both_links() {
+    let input = paint_style_fixture(json!([node(
+        (1, 1),
+        (0, 1),
+        "a",
+        "INSTANCE",
+        "TextBothStyles",
+        json!({
+            "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [
+                {
+                    "guidPath": {"guids": [g(9, 3)]},
+                    "styleIdForFill": {"guid": g(8, 2)},
+                    "fillPaints": [solid(0.32, 0.32, 0.32)],
+                    "styleIdForText": {"guid": g(8, 9)}
+                }
+            ]}
+        })
+    )]));
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    let inst = find(&doc, "TextBothStyles");
+    let label = child(&doc, inst, "Label");
+    assert_eq!(doc.style_name(label.style_refs.get("fill").expect("text fill style link")), "Neutral/600");
+    assert_eq!(doc.style_name(label.style_refs.get("text").expect("text typography style link")), "Heading");
+}
+
+/// A fill override on a `TEXT` node records `OverrideField::TextStyle` (not `OverrideField::Fills`).
+#[test]
+fn instance_text_fill_override_marks_text_style_override_field() {
+    let input = paint_style_fixture(json!([node(
+        (1, 1),
+        (0, 1),
+        "a",
+        "INSTANCE",
+        "TextFillOnly",
+        json!({
+            "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [
+                {
+                    "guidPath": {"guids": [g(9, 3)]},
+                    "fillPaints": [solid(0.10, 0.80, 0.20)]
+                }
+            ]}
+        })
+    )]));
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    let inst = find(&doc, "TextFillOnly");
+    let label = child(&doc, inst, "Label");
+    assert!(!label.style_refs.contains_key("fill"));
+    assert!(label.component.overrides.contains(&OverrideField::TextStyle));
+    assert!(!label.component.overrides.contains(&OverrideField::Fills), "text fill override must not insert OverrideField::Fills");
+}
+
+/// Multiple `symbolOverrides` entries targeting the same `guidPath` apply in list order:
+/// a later paints-only entry clears an earlier named style link, a later named style entry
+/// relinks over an earlier paints-only entry, and a later non-paint entry preserves the link.
+#[test]
+fn instance_same_path_multi_entry_overrides_apply_in_order() {
+    let named = json!({"guidPath": {"guids": [g(9, 2)]}, "styleIdForFill": {"guid": g(8, 2)}, "fillPaints": [solid(0.32, 0.32, 0.32)]});
+    let paints_only = json!({"guidPath": {"guids": [g(9, 2)]}, "fillPaints": [solid(0.10, 0.80, 0.20)]});
+    let opacity_only = json!({"guidPath": {"guids": [g(9, 2)]}, "opacity": 0.5});
+    let input = paint_style_fixture(json!([
+        node(
+            (1, 1),
+            (0, 1),
+            "a",
+            "INSTANCE",
+            "NamedThenPaints",
+            json!({
+                "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [named.clone(), paints_only.clone()]}
+            })
+        ),
+        node(
+            (1, 2),
+            (0, 1),
+            "b",
+            "INSTANCE",
+            "PaintsThenNamed",
+            json!({"symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [paints_only, named.clone()]}})
+        ),
+        node(
+            (1, 3),
+            (0, 1),
+            "c",
+            "INSTANCE",
+            "NamedThenOpacity",
+            json!({"symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": [named, opacity_only]}})
+        )
+    ]));
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    let ntp_inst = find(&doc, "NamedThenPaints");
+    let ntp = child(&doc, ntp_inst, "Color");
+    assert!(!ntp.style_refs.contains_key("fill"), "later paints-only entry clears earlier named style link");
+    assert_eq!(solid_of(&resolve_node(&doc, ntp)), Color { r: 0.10, g: 0.80, b: 0.20, a: 1.0 });
+
+    let ptn = child(&doc, find(&doc, "PaintsThenNamed"), "Color");
+    assert_eq!(doc.style_name(ptn.style_refs.get("fill").expect("relinked by later entry")), "Neutral/600");
+    assert_eq!(solid_of(&resolve_node(&doc, ptn)), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 });
+
+    let nto = child(&doc, find(&doc, "NamedThenOpacity"), "Color");
+    assert_eq!(doc.style_name(nto.style_refs.get("fill").expect("kept across opacity entry")), "Neutral/600");
+    assert_eq!(nto.opacity, 0.5);
+}
+
+/// A plain (non-instance) node that links a local fill style skips stale inline
+/// `opacityVar` and `stopsVar` bindings when `colorVar` is not bound.
+#[test]
+fn plain_node_with_local_fill_style_skips_stale_paint_variable_bindings() {
+    let mut stale_paint = solid(0.28, 0.33, 0.40);
+    stale_paint["opacityVar"] = json!({"dataType": "ALIAS", "resolvedDataType": "FLOAT", "value": {"alias": {"guid": g(6, 5)}}});
+    stale_paint["stopsVar"] = json!([{"colorVar": {"dataType": "ALIAS", "resolvedDataType": "COLOR", "value": {"alias": {"guid": g(6, 4)}}}}]);
+    let input = paint_style_fixture(json!([node(
+        (2, 1),
+        (0, 1),
+        "p",
+        "RECTANGLE",
+        "PlainStyled",
+        json!({
+            "styleIdForFill": {"guid": g(8, 2)},
+            "fillPaints": [stale_paint]
+        })
+    )]));
+    let doc = import_fig_node_changes(&input, "t").unwrap();
+    let plain = find(&doc, "PlainStyled");
+    assert!(plain.variables.bindings.is_empty(), "plain node with local fill style skips stale inline paint bindings");
+    let resolved = resolve_node(&doc, plain);
+    assert_eq!(resolved.fills[0].opacity, 1.0);
+    assert_eq!(solid_of(&resolved), Color { r: 0.32, g: 0.32, b: 0.32, a: 1.0 });
+}
+
+fn sname(doc: &Document, n: &Node, slot: &str) -> String {
+    n.style_refs.get(slot).map(|s| doc.style_name(s).to_string()).unwrap_or_else(|| "<none>".into())
+}
+
+/// Main "Card" names Brand for fill and stroke; instances name the same styles on their own nodeChange (as the kit's buttons do).
+fn self_entry_fixture(instances: Vec<Value>) -> Value {
+    let style = |id: u64, pos: &str, name: &str, r: f64, gr: f64, b: f64| {
+        node((8, id), (0, 2), pos, "RECTANGLE", name, json!({"styleType": "FILL", "fillPaints": [solid(r, gr, b)]}))
+    };
+    let mut arr = vec![
+        node((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        node((0, 1), (0, 0), "a", "CANVAS", "Page", json!({})),
+        node((0, 2), (0, 0), "b", "CANVAS", "Internal Only Canvas", json!({"internalOnly": true})),
+        style(1, "s", "Brand", 0.5, 0.3, 0.8),
+        style(2, "t", "Neutral", 0.3, 0.3, 0.3),
+        node(
+            (5, 1),
+            (0, 2),
+            "c",
+            "SYMBOL",
+            "Card",
+            json!({
+                "size": {"x": 80.0, "y": 40.0},
+                "styleIdForFill": {"guid": g(8, 1)}, "fillPaints": [solid(0.5, 0.3, 0.8)],
+                "styleIdForStrokeFill": {"guid": g(8, 1)}, "strokePaints": [solid(0.5, 0.3, 0.8)], "strokeWeight": 1.0
+            }),
+        ),
+        node((5, 2), (5, 1), "a", "RECTANGLE", "Body", json!({"overrideKey": g(9, 2), "size": {"x": 80.0, "y": 40.0}})),
+    ];
+    arr.extend(instances);
+    Value::Array(arr)
+}
+
+fn self_entry_inst(id: u64, pos: &str, name: &str, ovs: Value) -> Value {
+    node(
+        (1, id),
+        (0, 1),
+        pos,
+        "INSTANCE",
+        name,
+        json!({
+            "size": {"x": 80.0, "y": 40.0},
+            "styleIdForFill": {"guid": g(8, 1)}, "fillPaints": [solid(0.5, 0.3, 0.8)],
+            "styleIdForStrokeFill": {"guid": g(8, 1)}, "strokePaints": [solid(0.5, 0.3, 0.8)], "strokeWeight": 1.0,
+            "symbolData": {"symbolID": g(5, 1), "uniformScaleFactor": 1.0, "symbolOverrides": ovs}
+        }),
+    )
+}
+
+#[test]
+fn self_entry_without_paints_adds_no_paint_override_and_the_copy_follows_its_main() {
+    let mut doc = import_fig_node_changes(
+        &self_entry_fixture(vec![self_entry_inst(1, "a", "SelfOpacityOnly", json!([{"guidPath": {"guids": [g(5, 1)]}, "opacity": 0.5}]))]),
+        "t",
+    )
+    .unwrap();
+    let n = find(&doc, "SelfOpacityOnly");
+    assert!(!n.component.overrides.contains(&OverrideField::Fills), "an opacity-only self entry overrides no fill: {:?}", n.component.overrides);
+    assert!(!n.component.overrides.contains(&OverrideField::Stroke), "an opacity-only self entry overrides no stroke: {:?}", n.component.overrides);
+    let card = find(&doc, "Card").id;
+    let neutral = doc.style_meta.iter().find(|(_, m)| m.name == "Neutral").unwrap().0.clone();
+    {
+        let m = doc.get_mut(card).unwrap();
+        m.style_refs.insert("fill".into(), neutral.clone());
+        m.style_refs.insert("stroke".into(), neutral.clone());
+        m.fills = vec![Paint::solid(Color { r: 0.3, g: 0.3, b: 0.3, a: 1.0 })];
+        m.stroke.paints = vec![Paint::solid(Color { r: 0.3, g: 0.3, b: 0.3, a: 1.0 })];
+    }
+    sync_instances(&mut doc, card).apply(&mut doc).unwrap();
+    let n = find(&doc, "SelfOpacityOnly");
+    assert_eq!(sname(&doc, n, "fill"), "Neutral", "the copy follows its main's fill style");
+    assert_eq!(sname(&doc, n, "stroke"), "Neutral", "the copy follows its main's stroke style");
+}
+
+#[test]
+fn self_entry_with_paints_only_for_fill_adds_no_stroke_override() {
+    let doc = import_fig_node_changes(
+        &self_entry_fixture(vec![self_entry_inst(
+            4,
+            "d",
+            "SelfStalePaints",
+            json!([{"guidPath": {"guids": [g(5, 1)]}, "fillPaints": [solid(0.9, 0.9, 0.1)]}]),
+        )]),
+        "t",
+    )
+    .unwrap();
+    let n = find(&doc, "SelfStalePaints");
+    assert_eq!(sname(&doc, n, "fill"), "Brand");
+    assert!(n.component.overrides.contains(&OverrideField::Fills));
+    assert!(!n.component.overrides.contains(&OverrideField::Stroke), "{:?}", n.component.overrides);
+}
+
+#[test]
+fn self_entry_that_names_its_own_style_keeps_that_style() {
+    let sentinel = g(u32::MAX as u64, u32::MAX as u64);
+    let doc = import_fig_node_changes(
+        &self_entry_fixture(vec![
+            self_entry_inst(
+                3,
+                "c",
+                "SelfOwnKey",
+                json!([{"guidPath": {"guids": [g(5, 1)]}, "styleIdForFill": {"guid": g(8, 2)}, "fillPaints": [solid(0.3, 0.3, 0.3)]}]),
+            ),
+            self_entry_inst(
+                5,
+                "e",
+                "SelfSentinel",
+                json!([{"guidPath": {"guids": [g(5, 1)]}, "styleIdForFill": {"guid": sentinel}, "fillPaints": [solid(0.3, 0.3, 0.3)]}]),
+            ),
+        ]),
+        "t",
+    )
+    .unwrap();
+    let n = find(&doc, "SelfOwnKey");
+    assert_eq!(sname(&doc, n, "fill"), "Neutral", "the self entry's own key wins over the instance's");
+    let detached = find(&doc, "SelfSentinel");
+    assert_eq!(sname(&doc, detached, "fill"), "<none>", "the self entry's sentinel detach wins over the instance's");
+}

@@ -1,0 +1,40 @@
+=== Untitled UI v8.0 Kit Divergence Detector (kit_detect) Summary ===
+Total hydrated nodes inspected across 113 pages: 864,170
+
+Before fix (origin/main 7ce3a092 / v0.7.5):
+  (prop='fill',   override=true, via_style=true,  via_var=false, modes_here=false): 117
+  (prop='fill',   override=true, via_style=true,  via_var=true,  modes_here=false):   2
+  (prop='stroke', override=true, via_style=true,  via_var=*,     modes_here=*):       0
+  Total Fills/Stroke overrides diverging via inherited style link: 119
+    - Page 4 Frame 1137 (Gradients): 110 swatches
+    - Page 84 Frame 88899 (Mobile): 1 image fill
+    - Page 84 Frame 89183 (Mobile): 2 credit-card fills
+    - Page 84 Frame 89194 (Mobile): 2 credit-card fills
+    - Page 84 Frame 89205 (Desktop): 2 credit-card fills
+    - Page 84 Frame 89216 (Desktop): 2 credit-card/panel fills
+  Non-style variable/mode divergences (unchanged control):
+    (prop='fill',   override=true, via_style=false, via_var=true,  modes_here=false): 3500
+    (prop='fill',   override=true, via_style=false, via_var=true,  modes_here=true):   139
+    (prop='stroke', override=true, via_style=false, via_var=true,  modes_here=false): 8176
+    (prop='stroke', override=true, via_style=false, via_var=true,  modes_here=true):     2
+    (prop='effect', override=true, via_style=false, via_var=true,  modes_here=false):    7
+    (prop='effect', override=true, via_style=true,  via_var=false, modes_here=false):  331
+
+After fix (jangtrinh/agy-1464-fill-style-override):
+  (prop='fill',   override=true, via_style=true,  via_var=false, modes_here=false):   0
+  (prop='fill',   override=true, via_style=true,  via_var=true,  modes_here=false):   0
+  (prop='stroke', override=true, via_style=true,  via_var=*,     modes_here=*):       0
+  Total Fills/Stroke overrides diverging via inherited style link: 0
+  Non-style variable/mode divergences (unchanged control):
+    (prop='fill',   override=true, via_style=false, via_var=true,  modes_here=false): 3500
+    (prop='fill',   override=true, via_style=false, via_var=true,  modes_here=true):   139
+    (prop='stroke', override=true, via_style=false, via_var=true,  modes_here=false): 8176
+    (prop='stroke', override=true, via_style=false, via_var=true,  modes_here=true):     2
+    (prop='effect', override=true, via_style=false, via_var=true,  modes_here=false):    7
+    (prop='effect', override=true, via_style=true,  via_var=false, modes_here=false):  331
+
+Frame 1137 swatch 212423 (1525:273952 -> child 'Swatch' / 'Color'):
+  style_refs: {"fill": "1272:5915"} ("Gradient/Neutral/600 -> 500 (90deg)")
+  overrides:  {Fills}
+  raw fills:      LinearGradient stops [0.0: #525252 (r=0.32156864, g=0.32156864, b=0.32156864), 1.0: #737373 (r=0.4509804, g=0.4509804, b=0.4509804)]
+  resolved fills: LinearGradient stops [0.0: #525252 (r=0.32156864, g=0.32156864, b=0.32156864), 1.0: #737373 (r=0.4509804, g=0.4509804, b=0.4509804)]

@@ -1,0 +1,60 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1464-fill-style-override/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1464-fill-style-override/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1464-fill-style-override/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.80s
+     Running tests/fig_library.rs (out/cargo/debug/deps/fig_library-b759d4addd2f2fa3)
+
+running 28 tests
+test instance_override_with_color_var_and_named_style_keeps_bound_paints ... ok
+test instance_fill_override_with_no_style_clears_inherited_link ... ok
+test instance_self_fill_override_with_paints_keeps_instance_style_link ... ok
+test instance_same_path_multi_entry_overrides_apply_in_order ... ok
+test instance_stroke_override_with_no_style_clears_inherited_link ... ok
+test instance_self_stroke_override_with_paints_keeps_instance_style_link ... ok
+test instance_override_with_named_style_skips_stale_stop_and_opacity_bindings ... ok
+test files_without_content_on_the_internal_canvas_have_no_library_page ... ok
+test instance_text_fill_override_marks_text_style_override_field ... ok
+test instance_fill_override_with_named_style_relinks ... ok
+test instance_text_style_link_override_survives_main_edit ... ok
+test instance_fill_override_with_sentinel_clears_inherited_link ... ok
+test instance_text_override_with_text_and_fill_styles_keeps_both_links ... ok
+test instance_stroke_override_with_sentinel_clears_inherited_link ... ok
+test instance_copy_without_fill_override_keeps_main_style_link ... ok
+test instance_stroke_override_with_named_style_relinks ... ok
+test linked_text_styles_replace_stale_properties_before_character_overrides ... ok
+test nested_library_instances_expand_and_overrides_follow_override_keys ... ok
+test internal_canvas_becomes_the_library_page_with_external_assets ... ok
+test instance_text_style_override_replaces_or_clears_the_master_link ... ok
+test self_entry_that_names_its_own_style_keeps_that_style ... ok
+test unavailable_text_style_keeps_local_properties ... ok
+test self_entry_with_paints_only_for_fill_adds_no_stroke_override ... FAILED
+test self_entry_without_paints_adds_no_paint_override_and_the_copy_follows_its_main ... FAILED
+test overrides_that_name_a_library_style_take_its_paints ... ok
+test plain_node_with_local_fill_style_skips_stale_paint_variable_bindings ... ok
+test variable_sets_map_by_asset_key_with_modes_aliases_and_bindings ... ok
+test uniform_scale_scales_the_copied_contents ... ok
+
+failures:
+
+---- self_entry_with_paints_only_for_fill_adds_no_stroke_override stdout ----
+
+thread 'self_entry_with_paints_only_for_fill_adds_no_stroke_override' (61652108) panicked at crates/designos-fig/tests/fig_library.rs:1511:5:
+{Fills, Stroke}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- self_entry_without_paints_adds_no_paint_override_and_the_copy_follows_its_main stdout ----
+
+thread 'self_entry_without_paints_adds_no_paint_override_and_the_copy_follows_its_main' (61652109) panicked at crates/designos-fig/tests/fig_library.rs:1476:5:
+an opacity-only self entry overrides no fill: {Opacity, Fills, Stroke}
+
+
+failures:
+    self_entry_with_paints_only_for_fill_adds_no_stroke_override
+    self_entry_without_paints_adds_no_paint_override_and_the_copy_follows_its_main
+
+test result: FAILED. 26 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_library`
