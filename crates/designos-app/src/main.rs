@@ -574,7 +574,8 @@ fn run_agent_cli(opts: &cli::Options) -> Result<(), String> {
                 let mut seen_names = std::collections::BTreeSet::new();
                 let mut dup_names = Vec::new();
                 for (name, _) in &bundle.files {
-                    if !seen_names.insert(name.as_str()) && !dup_names.contains(&name.as_str()) {
+                    let folded_name = name.to_ascii_lowercase();
+                    if !seen_names.insert(folded_name) && !dup_names.contains(&name.as_str()) {
                         dup_names.push(name.as_str());
                     }
                 }
