@@ -2336,6 +2336,8 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             _ => {}
         }
     }
+    // Entries in `symbolOverrides` apply in list order, so a later paints-only entry on the same
+    // `guidPath` clears an earlier style link on that path while non-paint entries keep it.
     for (src, dst, style, slot, clear_key) in [
         ("fillPaints", "fills", "styleIdForFill", "fill", "_clearFillStyle"),
         ("strokePaints", "strokes", "styleIdForStrokeFill", "stroke", "_clearStrokeStyle"),
@@ -2619,6 +2621,20 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
             return None;
         }
         let path = guid_path(o);
+        if !derived && path.len() == 1 {
+            let own = [instance.get("symbolData").and_then(|sd| sd.get("symbolID")).and_then(guid_str), instance.get("guid").and_then(guid_str)];
+            if own.iter().flatten().any(|g| *g == path[0]) {
+                // A self entry that restates paints without a style key keeps the style the instance itself names.
+                if let Some(inst_obj) = instance.as_object() {
+                    for (style, slot, clear_key) in [("styleIdForFill", "fill", "_clearFillStyle"), ("styleIdForStrokeFill", "stroke", "_clearStrokeStyle")] {
+                        if o.get(style).is_none() && inst_obj.contains_key(style) {
+                            set.remove(clear_key);
+                            insert_style_override_link(&mut set, inst_obj, lk, style, slot, clear_key);
+                        }
+                    }
+                }
+            }
+        }
         if !derived {
             let parent = path.split_last().and_then(|(_, up)| restated.get(up));
             resolve_override_grid_anchor(&mut set, "gridColumnAnchorIndex", "_gridColumnAnchorGuid", parent.map(|p| p.0.as_slice()), &lk.grid_column_index);
