@@ -1,0 +1,50 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.92s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 20 tests
+test shell::tests::layout_unchanged::panel_presets::cli_accepts_panel_comments ... ok
+test shell::tests::layout_unchanged::cases_json_has_no_old_fixture ... ok
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... ok
+test shell::tests::layout_unchanged::new_named_widget_is_reported_not_failed ... ok
+test shell::tests::layout_unchanged::unblessed_cases_file_fails_the_gate ... ok
+test shell::tests::layout_unchanged::prep_helpers_populate_missing_starter_states ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_with_no_reaction_opens_the_prototype_tab_only ... ok
+test shell::tests::layout_unchanged::panel_presets::comments_panel_with_no_thread_opens_comment_mode_only ... ok
+test shell::tests::layout_unchanged::panel_presets::comments_panel_opens_the_first_unresolved_thread_in_paint_order ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_without_a_reacting_selection_picks_the_first_reaction_in_paint_order ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_opens_the_selected_nodes_first_reaction ... ok
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test shell::tests::layout_unchanged::sim_loads_starter_and_seed_library_at_seeds_starter_not_showcase ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 3963 filtered out; finished in 9.32s
+

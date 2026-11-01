@@ -1,0 +1,56 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling zmij v1.0.23
+   Compiling thiserror v2.0.21
+   Compiling serde_json v1.0.154
+   Compiling serde v1.0.229
+   Compiling regex-syntax v0.8.11
+   Compiling itoa v1.0.18
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling regex v1.13.1
+   Compiling syn v3.0.9
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling designos-doc v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-137-oklch-picker/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.91s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-fe0c5f880e799235)
+
+running 3 tests
+test color_space::tests::gamut_clamping_and_non_finite_inputs ... FAILED
+test color_space::tests::round_trip_17_step_srgb_grid_4913_colours ... FAILED
+test color_space::tests::known_values_srgb_to_oklab_and_oklch ... FAILED
+
+failures:
+
+---- color_space::tests::gamut_clamping_and_non_finite_inputs stdout ----
+
+thread 'color_space::tests::gamut_clamping_and_non_finite_inputs' (45622535) panicked at crates/designos-doc/src/color_space.rs:156:9:
+oklch(0.7 0.4 150) should clamp red to 0.0 and keep high green, got [0.0, 0.0, 0.0]
+
+---- color_space::tests::round_trip_17_step_srgb_grid_4913_colours stdout ----
+
+thread 'color_space::tests::round_trip_17_step_srgb_grid_4913_colours' (45622537) panicked at crates/designos-doc/src/color_space.rs:131:21:
+OKLab round-trip failed for (0, 0, 1): got (0, 0, 0) vs (0, 0, 0.05882353)
+
+---- color_space::tests::known_values_srgb_to_oklab_and_oklch stdout ----
+
+thread 'color_space::tests::known_values_srgb_to_oklab_and_oklch' (45622536) panicked at crates/designos-doc/src/color_space.rs:73:9:
+red OKLab L: expected 0.628 ± 0.001, got 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    color_space::tests::gamut_clamping_and_non_finite_inputs
+    color_space::tests::known_values_srgb_to_oklab_and_oklch
+    color_space::tests::round_trip_17_step_srgb_grid_4913_colours
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 674 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
