@@ -202,7 +202,8 @@ impl Library {
             None => self.library_index(id)?.latest_version(),
         };
         let s = read_or_not_found(&self.library_dir(id).join(format!("{version}.json")), || format!("library {id} version {version}"))?;
-        let (snapshot, replaced) = designos_doc::finite_json::from_str_repairing(&s)?;
+        let (mut snapshot, replaced) = designos_doc::finite_json::from_str_repairing(&s)?;
+        designos_doc::record_snapshot_text_style_fields(&mut snapshot, &s);
         if replaced > 0 {
             eprintln!("designos-library: library {id} version {version} held {replaced} null numbers, read as their neutral value");
         }
@@ -284,6 +285,10 @@ mod tests {
         d.insert(c, Node::text(tid, Rect::new(0.0, 0.0, 40.0, 20.0), "Label", TextStyle::default())).unwrap();
         d.styles.insert("Brand".into(), Style::Fill(vec![Paint::solid(Color::rgb(255, 0, 0))]));
         d
+    }
+
+    fn run(d: &mut Document, c: Command) {
+        c.apply(d).unwrap();
     }
 
     #[test]
@@ -400,6 +405,44 @@ mod tests {
         assert!(serde_json::from_str::<LibrarySnapshot>(&legacy).is_err(), "the strict parse must refuse the legacy text");
         std::fs::write(root.join("libraries/ds/1.json"), legacy).unwrap();
         assert!(lib.load_snapshot("ds", None).unwrap().assets.iter().any(|a| a.name == "Button"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_legacy_library_text_style_update_preserves_consumer_paragraph_values() {
+        let root = tmp("legacy-text-style");
+        let lib = Library::open(&root).unwrap();
+        let mut source = lib_doc();
+        source.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 14.0, ..Default::default() }));
+        source.style_meta.insert("Body".into(), StyleMeta { name: "Body".into(), property: StyleProperty::Text, ..Default::default() });
+        let info = publish(&lib, "ds", &source, "v1").unwrap();
+        let first = lib.load_snapshot("ds", Some(info.version)).unwrap();
+
+        let mut consumer = Document::new("Consumer");
+        let page = consumer.add_page("Main");
+        let import = import_asset(&mut consumer, &first, "style:Body", None);
+        run(&mut consumer, import);
+        let id = consumer.alloc_id();
+        let mut text = Node::text(id, Rect::new(0.0, 0.0, 120.0, 40.0), "hello", TextStyle::default());
+        text.style_refs.insert("text".into(), "ds/Body".into());
+        if let NodeKind::Text(props) = &mut text.kind {
+            props.paragraph.indent = 12.0;
+            props.paragraph.list_spacing = 7.0;
+            props.paragraph.leading_trim = LeadingTrim::CapHeight;
+        }
+        consumer.insert(page, text).unwrap();
+
+        source.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 18.0, ..Default::default() }));
+        source.library.published = Some(info);
+        publish(&lib, "ds", &source, "v2").unwrap();
+        let second = lib.load_snapshot("ds", None).unwrap();
+        let updates = pending_updates(&consumer, &second);
+        assert!(updates.iter().any(|u| u.key == "style:Body" && u.change == UpdateKind::Changed));
+        let keys: Vec<String> = updates.into_iter().map(|u| u.key).collect();
+        let update = apply_updates(&mut consumer, &second, &keys);
+        run(&mut consumer, update);
+        let NodeKind::Text(props) = &consumer.get(id).unwrap().kind else { panic!("text node") };
+        assert_eq!((props.paragraph.indent, props.paragraph.list_spacing, props.paragraph.leading_trim), (12.0, 7.0, LeadingTrim::CapHeight));
         let _ = std::fs::remove_dir_all(root);
     }
 }

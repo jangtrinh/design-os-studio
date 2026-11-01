@@ -72,12 +72,12 @@ pub fn unique_style_key(doc: &Document, base: &str) -> String {
 /// Links `n` to style `key` and copies the style's values onto it. Returns
 /// false (node untouched) when `n` cannot carry the style (a grid on a node
 /// that is not a frame).
-fn link(n: &mut Node, key: &str, style: &Style, prop: StyleProperty, ref_key: &str) -> bool {
+fn link(n: &mut Node, key: &str, style: &Style, prop: StyleProperty, ref_key: &str, paragraph_fields: Option<u8>) -> bool {
     if prop == StyleProperty::Grid && n.kind.frame_props().is_none() {
         return false;
     }
     n.style_refs.insert(ref_key.into(), key.into());
-    apply_style_values(n, style, key);
+    apply_style_values_with_fields(n, style, key, paragraph_fields);
     true
 }
 
@@ -135,11 +135,12 @@ pub fn apply_style(doc: &Document, nodes: &[NodeId], key: &str) -> Result<Comman
     let style = doc.styles.get(key).ok_or_else(|| StyleOpError::UnknownStyle(key.into()))?;
     let prop = style_property(doc, key);
     let ref_key = effect_or_grid_ref(prop)?;
+    let paragraph_fields = doc.style_meta.get(key).and_then(|m| m.text_paragraph_fields);
     let mut cmds = Vec::with_capacity(nodes.len());
     for id in nodes {
         let n = get_node(doc, *id)?;
         let mut copy = n.clone();
-        if link(&mut copy, key, style, prop, ref_key) {
+        if link(&mut copy, key, style, prop, ref_key, paragraph_fields) {
             cmds.push(Command::Update { node: Box::new(copy) });
         }
     }
@@ -183,11 +184,16 @@ pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, 
     }
     let mut styles = doc.styles.clone();
     styles.insert(key.to_string(), style.clone());
-    let mut cmds = vec![Command::SetStyles { styles, style_meta: doc.style_meta.clone() }];
+    let mut style_meta = doc.style_meta.clone();
+    let paragraph_fields = text_style_paragraph_fields_after_update(doc.styles.get(key), &style, doc.style_meta.get(key).and_then(|m| m.text_paragraph_fields));
+    if let Some(fields) = paragraph_fields {
+        style_meta.entry(key.to_string()).or_default().text_paragraph_fields = Some(fields);
+    }
+    let mut cmds = vec![Command::SetStyles { styles, style_meta }];
     for id in linked_style_nodes(doc, key) {
         if let Some(n) = doc.get(id) {
             let mut copy = n.clone();
-            if apply_style_values(&mut copy, &style, key) {
+            if crate::library_ops::apply_style_values_with_fields(&mut copy, &style, key, paragraph_fields) {
                 cmds.push(Command::Update { node: Box::new(copy) });
             }
         }
@@ -3299,6 +3305,7 @@ mod tests {
                 property: StyleProperty::Fill,
                 bindings: bindings.clone(),
                 sort_position: Some("!~~p~oL".into()),
+                ..Default::default()
             },
         );
 
@@ -3327,6 +3334,51 @@ mod tests {
         assert_eq!(meta.sort_position.as_deref(), Some("!~~p~oL"));
         assert_eq!(meta.bindings, bindings);
         assert!(!h.can_undo(), "must be a single undo step");
+    }
+
+    #[test]
+    fn legacy_text_style_update_preserves_consumer_paragraph_values() {
+        let mut d = Document::new("legacy");
+        let page = d.add_page("Page");
+        let tid = d.alloc_id();
+        let mut text = Node::text(tid, Rect::new(0.0, 0.0, 100.0, 40.0), "hello", TextStyle::default());
+        text.style_refs.insert("text".into(), "Body".into());
+        {
+            let t = text.kind.any_text_mut().unwrap();
+            t.paragraph.indent = 12.0;
+            t.paragraph.list_spacing = 7.0;
+            t.paragraph.leading_trim = LeadingTrim::CapHeight;
+        }
+        d.insert(page, text).unwrap();
+        d.styles.insert("Body".into(), Style::Text(TextStyle { font_size: 14.0, ..Default::default() }));
+        let serialized = d.to_json().unwrap();
+        let legacy = serialized.replace("\"paragraph_indent\":0,", "").replace("\"list_spacing\":0,", "").replace("\"leading_trim\":\"None\",", "");
+        let mut loaded = Document::from_json(&legacy).unwrap();
+        let c = update_style(&loaded, "Body", Style::Text(TextStyle { font_size: 18.0, ..Default::default() })).unwrap();
+        c.apply(&mut loaded).unwrap();
+        let t = loaded.get(tid).unwrap().kind.any_text().unwrap();
+        assert_eq!(t.paragraph.indent, 12.0);
+        assert_eq!(t.paragraph.list_spacing, 7.0);
+        assert_eq!(t.paragraph.leading_trim, LeadingTrim::CapHeight);
+
+        let explicit: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let mut explicit = explicit;
+        let style = explicit["styles"]["Body"]["Text"].as_object_mut().unwrap();
+        style.insert("paragraph_indent".into(), serde_json::json!(0.0));
+        style.insert("list_spacing".into(), serde_json::json!(0.0));
+        style.insert("leading_trim".into(), serde_json::json!("None"));
+        let mut modern = Document::from_json(&serde_json::to_string(&explicit).unwrap()).unwrap();
+        assert_eq!(modern.style_meta["Body"].text_paragraph_fields, Some(7));
+        let c = update_style(&modern, "Body", Style::Text(TextStyle { font_size: 20.0, ..Default::default() })).unwrap();
+        c.apply(&mut modern).unwrap();
+        let t = modern.get(tid).unwrap().kind.any_text().unwrap();
+        assert_eq!((t.paragraph.indent, t.paragraph.list_spacing, t.paragraph.leading_trim), (0.0, 0.0, LeadingTrim::None));
+
+        let promoted = update_style(&loaded, "Body", Style::Text(TextStyle { paragraph_indent: 3.0, ..Default::default() })).unwrap();
+        promoted.apply(&mut loaded).unwrap();
+        let t = loaded.get(tid).unwrap().kind.any_text().unwrap();
+        assert_eq!(t.paragraph.indent, 3.0);
+        assert_eq!(loaded.style_meta["Body"].text_paragraph_fields, Some(1));
     }
 
     #[test]

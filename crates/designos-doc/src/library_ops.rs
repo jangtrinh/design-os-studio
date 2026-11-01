@@ -65,6 +65,41 @@ impl LibrarySnapshot {
     }
 }
 
+/// Restores text-style field provenance when reading a snapshot written before
+/// paragraph fields were persisted on shared text styles.
+///
+/// `LibrarySnapshot` is loaded independently of [`Document::from_json`], so a
+/// caller must pass the original JSON alongside the decoded snapshot. The
+/// decoded style values alone cannot distinguish an omitted legacy field from
+/// an explicit modern default.
+pub fn record_snapshot_text_style_fields(snapshot: &mut LibrarySnapshot, raw: &str) {
+    let Some(styles) = serde_json::from_str::<serde_json::Value>(raw).ok().and_then(|v| v.get("styles").and_then(|v| v.as_object()).cloned()) else {
+        return;
+    };
+    for (key, value) in styles {
+        let Some(style) = value.get("Text").or_else(|| value.get("text")).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        let mut bits = 0;
+        if style.contains_key("paragraph_indent") {
+            bits |= 1;
+        }
+        if style.contains_key("list_spacing") {
+            bits |= 2;
+        }
+        if style.contains_key("leading_trim") {
+            bits |= 4;
+        }
+        if let Some(meta) = snapshot.style_meta.get_mut(&key) {
+            meta.text_paragraph_fields = Some(meta.text_paragraph_fields.unwrap_or(0) | bits);
+        } else {
+            snapshot
+                .style_meta
+                .insert(key.clone(), StyleMeta { name: key, property: StyleProperty::Text, text_paragraph_fields: Some(bits), ..Default::default() });
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UpdateKind {
     /// The library's version differs from the local copy.
@@ -971,12 +1006,13 @@ impl<'a> Trial<'a> {
     fn update_style(&mut self, raw: &str) {
         let Some(style) = self.snap.styles.get(raw).cloned() else { return };
         let local = self.ns(raw);
+        let paragraph_fields = self.snap.style_meta.get(raw).and_then(|m| m.text_paragraph_fields);
         self.set_style(&local, style.clone(), self.snap.style_meta.get(raw).cloned());
         let targets: Vec<NodeId> =
             self.doc.nodes.values().filter(|n| n.style_refs.values().any(|v| *v == local) && !is_library_node(self.doc, n.id)).map(|n| n.id).collect();
         for id in targets {
             let mut n = self.doc.nodes[&id].clone();
-            if apply_style_values(&mut n, &style, &local) {
+            if apply_style_values_with_fields(&mut n, &style, &local, paragraph_fields) {
                 self.push(Command::Update { node: Box::new(n) });
             }
         }
@@ -1024,6 +1060,11 @@ pub fn style_property(doc: &Document, key: &str) -> StyleProperty {
 /// A colour style may be linked as a fill, as a stroke, or as both; each side
 /// whose link names `key` takes the paints. Returns whether the node changed.
 pub fn apply_style_values(n: &mut Node, style: &Style, key: &str) -> bool {
+    apply_style_values_with_fields(n, style, key, None)
+}
+
+/// Applies a style, optionally preserving paragraph fields omitted by a legacy text style.
+pub fn apply_style_values_with_fields(n: &mut Node, style: &Style, key: &str, paragraph_fields: Option<u8>) -> bool {
     let before = n.clone();
     match style {
         Style::Fill(paints) => {
@@ -1047,10 +1088,23 @@ pub fn apply_style_values(n: &mut Node, style: &Style, key: &str) -> bool {
             if let NodeKind::Text(t) = &mut n.kind {
                 if n.style_refs.get("text").is_some_and(|k| k == key) {
                     let (align_h, align_v) = (t.style.align_h, t.style.align_v);
+                    let paragraph = t.paragraph.clone();
                     t.style = TextStyle { fills: t.style.fills.clone(), align_h, align_v, ..ts.clone() };
-                    t.paragraph.indent = ts.paragraph_indent;
-                    t.paragraph.list_spacing = ts.list_spacing;
-                    t.paragraph.leading_trim = ts.leading_trim;
+                    if paragraph_fields.is_none_or(|bits| bits & 1 != 0) {
+                        t.paragraph.indent = ts.paragraph_indent;
+                    } else {
+                        t.paragraph.indent = paragraph.indent;
+                    }
+                    if paragraph_fields.is_none_or(|bits| bits & 2 != 0) {
+                        t.paragraph.list_spacing = ts.list_spacing;
+                    } else {
+                        t.paragraph.list_spacing = paragraph.list_spacing;
+                    }
+                    if paragraph_fields.is_none_or(|bits| bits & 4 != 0) {
+                        t.paragraph.leading_trim = ts.leading_trim;
+                    } else {
+                        t.paragraph.leading_trim = paragraph.leading_trim;
+                    }
                     for r in &mut t.runs {
                         let (align_h, align_v) = (r.style.align_h, r.style.align_v);
                         r.style = TextStyle { fills: r.style.fills.clone(), align_h, align_v, ..ts.clone() };
