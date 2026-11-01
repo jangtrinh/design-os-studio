@@ -1328,9 +1328,12 @@ mod tests {
         assert_eq!(g.plan(key(1), 0.0, false, false), FramePlan::Interactive);
         g.compiled(key(1), false);
         g.note_frame_work(300.0);
-        assert_eq!(g.plan(key(1), 0.30, false, false), FramePlan::Wait(Duration::from_millis(16)), "the frame before was a 300 ms frame");
+        let after_busy = g.plan(key(1), 0.30, false, false);
         g.note_frame_work(3.0);
-        assert_eq!(g.plan(key(1), 0.32, false, false), FramePlan::Refine, "an idle frame came: the refine may start");
+        let after_idle = g.plan(key(1), 0.32, false, false);
+        eprintln!("frame after a 300 ms frame: {after_busy:?}; next frame after a 3 ms frame: {after_idle:?}");
+        assert_eq!(after_busy, FramePlan::Wait(Duration::from_millis(16)), "the frame before was a 300 ms frame");
+        assert_eq!(after_idle, FramePlan::Refine, "an idle frame came: the refine may start");
     }
 
     #[test]
