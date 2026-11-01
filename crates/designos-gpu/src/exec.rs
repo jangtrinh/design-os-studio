@@ -17,7 +17,9 @@ use std::sync::Arc;
 /// interactive frame stays on screen (see [`Renderer::render_chunk`]).
 struct ChunkTarget {
     output: Output,
-    ms: (wgpu::Texture, wgpu::TextureView),
+    /// The multisampled twin the chunks draw on: needed while chunks are coming, dropped with
+    /// the last one (the finished page is the resolved `output`, which is what the presenter samples).
+    ms: Option<(wgpu::Texture, wgpu::TextureView)>,
     /// Size of the multisampled twin (the frame's render size).
     render: (u32, u32),
     /// Index of the chunk the target expects next; `None` once a chunk went missing.
@@ -294,6 +296,9 @@ impl Renderer {
     }
 
     fn render_into(&mut self, frame: &Frame, enc: &mut wgpu::CommandEncoder, split: bool) -> Output {
+        // an interactive frame replaces whatever the refine showed: its page texture is not needed
+        // any more (a presenter that still samples it keeps it alive until it switches)
+        self.chunk_target = None;
         self.frame_no += 1;
         self.stats = ExecStats::default();
         self.ring.reset();
@@ -347,10 +352,10 @@ impl Renderer {
             return None;
         }
         if index == 0 {
-            let fits = self.chunk_target.as_ref().is_some_and(|t| t.output.size == frame.out_size && t.render == frame.size);
+            let fits = self.chunk_target.as_ref().is_some_and(|t| t.output.size == frame.out_size && t.render == frame.size && t.ms.is_some());
             if !fits {
                 let (output, ms) = self.make_page_target(frame.out_size, frame.size);
-                self.chunk_target = Some(ChunkTarget { output, ms, render: frame.size, next: Some(0) });
+                self.chunk_target = Some(ChunkTarget { output, ms: Some(ms), render: frame.size, next: Some(0) });
             }
         }
         let t = self.chunk_target.as_mut()?;
@@ -361,8 +366,9 @@ impl Renderer {
             t.next = None;
             return None;
         }
+        let ms = t.ms.clone()?;
         t.next = Some(index + 1);
-        let (output, ms) = (t.output.clone(), t.ms.clone());
+        let output = t.output.clone();
         self.frame_no += 1;
         self.stats = ExecStats::default();
         self.ring.reset();
@@ -378,14 +384,46 @@ impl Renderer {
         self.stats.submissions += 1;
         self.stats.meshes_uploaded = std::mem::take(&mut self.arena.uploaded);
         if last || slice_done {
-            // the pooled targets of this frame's programs are not needed any more
-            self.ms_pool.trim(self.frame_no, 0);
-            self.plain_pool.trim(self.frame_no, 0);
+            // every program of this frame has run and its results are consumed: all its pooled
+            // targets are free and nothing will use them again (`trim` keeps those used in
+            // the frame it is given, so ask for the one after)
+            self.ms_pool.trim(self.frame_no + 1, 0);
+            self.plain_pool.trim(self.frame_no + 1, 0);
             self.stats.pool_bytes = self.ms_pool.bytes() + self.plain_pool.bytes();
             let fno = self.frame_no;
             self.images.retain(|_, i| fno.saturating_sub(i.last_used) < 900);
         }
-        last.then_some(output)
+        if last {
+            // the twin is only needed while chunks load onto it; the page is the resolved output
+            if let Some(t) = self.chunk_target.as_mut() {
+                t.ms = None;
+            }
+            return Some(output);
+        }
+        None
+    }
+
+    /// Chunks the refine's page texture has taken so far: `Some(n)` after `n` chunks (the next
+    /// one is `render_chunk` index `n`), `None` when there is no refine page or a chunk went
+    /// missing and the rest of the page is void.
+    pub fn chunk_progress(&self) -> Option<usize> {
+        self.chunk_target.as_ref().and_then(|t| t.next)
+    }
+
+    /// Bytes of pooled offscreen targets (layers, masks, blur scratch) the renderer holds.
+    pub fn pooled_bytes(&self) -> u64 {
+        self.ms_pool.bytes() + self.plain_pool.bytes()
+    }
+
+    /// Bytes the refine's page texture holds: its resolved page and, while chunks are still
+    /// coming, its multisampled twin. The page texture of interactive frames is not counted
+    /// (it is there with or without a refine). After the last chunk this is `w * h * 4`;
+    /// the next interactive frame frees it.
+    pub fn retained_page_bytes(&self) -> u64 {
+        let Some(t) = &self.chunk_target else { return 0 };
+        let px = |s: (u32, u32)| s.0.max(1) as u64 * s.1.max(1) as u64;
+        let ms = t.ms.as_ref().map_or(0, |_| px(t.render) * 4 * MSAA as u64);
+        px(t.output.size) * 4 + ms
     }
 
     /// Renders `frame` and reads the result back as premultiplied RGBA8 rows.

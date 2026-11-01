@@ -269,3 +269,114 @@ fn rendered_slice_by_slice_the_page_is_pixel_identical_to_the_whole_compile() {
     let differing = pixels.iter().zip(whole.data()).filter(|(a, b)| a != b).count();
     assert_eq!(differing, 0, "{differing} bytes differ between {} slices in {index} chunks and the whole compile", slices.len());
 }
+
+/// The page texture of a finished refine is the resolved page alone; the multisampled twin the
+/// chunks drew on is gone with the last chunk, and an interactive frame frees the page too.
+#[test]
+fn a_finished_refine_retains_the_page_only_and_an_interactive_frame_frees_it() {
+    let Some(mut g) = common::gpu() else { return };
+    let (doc, page) = cards(40);
+    let view = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let size = (2400u32, 1600u32);
+    let frame = g.compile(&doc, page, 1, &view, size);
+    let ranges = frame.plan_chunks(1_000.0).expect("cuttable");
+    assert!(ranges.len() >= 3);
+    assert_eq!(g.renderer.retained_page_bytes(), 0, "nothing before a refine");
+    let (w, h) = (size.0 as u64, size.1 as u64);
+    for (i, r) in ranges.iter().enumerate() {
+        let last = i + 1 == ranges.len();
+        g.renderer.render_chunk(&frame, r.clone(), i, last, last);
+        let held = g.renderer.retained_page_bytes();
+        if last {
+            assert_eq!(held, w * h * 4, "after the last chunk only the resolved page is kept");
+        } else {
+            assert_eq!(held, w * h * 4 + w * h * 16, "while chunks are coming the 4x multisampled twin is held too");
+        }
+    }
+    eprintln!("retained after the last chunk at {w}x{h}: {} bytes (w*h*4 = {})", g.renderer.retained_page_bytes(), w * h * 4);
+    // the twin is gone but a later chunk of the same page is void, and a new refine starts over
+    assert!(g.renderer.render_chunk(&frame, ranges[0].clone(), 0, false, false).is_none());
+    assert_eq!(g.renderer.retained_page_bytes(), w * h * 4 + w * h * 16, "a new refine allocates its twin again");
+    g.renderer.render_submitted(&frame);
+    assert_eq!(g.renderer.retained_page_bytes(), 0, "an interactive frame frees the refine's page");
+}
+
+/// A slice's pooled layer, mask and blur targets are freed when its last chunk is in.
+#[test]
+fn the_pooled_targets_of_a_slice_are_freed_with_its_last_chunk() {
+    let Some(mut g) = common::gpu() else { return };
+    let (doc, page) = blurred_rects(100);
+    let frame = {
+        let mut c = refine_compiler(Some(Duration::from_millis(8)));
+        c.compile(&doc, page, 1, &vp(1.0), SIZE)
+    };
+    let ranges = frame.plan_chunks(1_000.0).expect("cuttable");
+    assert!(ranges.len() >= 3, "several chunks, got {}", ranges.len());
+    g.renderer.render_chunk(&frame, ranges[0].clone(), 0, false, false);
+    assert!(g.renderer.pooled_bytes() > 0, "the layers of a chunk are pooled until the slice is done");
+    g.renderer.render_chunk(&frame, ranges[1].clone(), 1, false, true);
+    assert_eq!(g.renderer.pooled_bytes(), 0, "a slice that is done keeps no pooled target");
+}
+
+/// Wall time bounds a warm-up frame: one node at least, then until the budget is spent.
+#[test]
+fn a_warm_frame_is_bounded_by_wall_time_and_always_builds_a_node() {
+    let (doc, page) = labels(200);
+    let deferred = |budget: Duration| {
+        let mut c = refine_compiler(Some(Duration::from_micros(1)));
+        let _ = c.compile(&doc, page, 1, &vp(0.2), SIZE);
+        c.geom.budget = Some(budget);
+        c
+    };
+    // no time at all: exactly one node a call; the slowest of these calls is the slowest single node
+    let mut one = deferred(Duration::ZERO);
+    let total = one.geom.deferred.len();
+    assert!(total >= 150, "almost every label deferred, got {total}");
+    let mut slowest_node = Duration::ZERO;
+    while !one.geom.deferred.is_empty() {
+        let before = one.geom.deferred.len();
+        let t = std::time::Instant::now();
+        let left = one.warm_deferred(&doc, 1);
+        slowest_node = slowest_node.max(t.elapsed());
+        assert_eq!(left, before - 1, "a zero budget still builds one node, and no more");
+    }
+    // 2 ms: several nodes a call, never the whole list, and a call ends within the budget plus one node
+    let mut c = deferred(Duration::from_millis(2));
+    let (mut calls, mut slowest) = (0, Duration::ZERO);
+    while !c.geom.deferred.is_empty() {
+        let before = c.geom.deferred.len();
+        let t = std::time::Instant::now();
+        let left = c.warm_deferred(&doc, 1);
+        slowest = slowest.max(t.elapsed());
+        assert!(left < before, "every call makes progress");
+        calls += 1;
+        assert!(calls < 400);
+    }
+    assert!(calls >= 2, "200 labels do not fit one 2 ms frame, took {calls} call(s)");
+    let allowed = Duration::from_millis(2) + slowest_node + Duration::from_millis(5);
+    assert!(slowest <= allowed, "a call took {slowest:?}: more than 2 ms plus the slowest node ({slowest_node:?}) plus slack");
+}
+
+/// Slicing counts nodes only until the first slice is full.
+#[test]
+fn the_first_slice_costs_the_nodes_of_that_slice_not_of_the_page() {
+    let (doc, page) = cards(60);
+    let mut c = SceneCompiler::new();
+    let top = c.visible_top_level(&doc, page, 1, &vp(0.5), (1200, 800)).expect("an indexed page");
+    assert_eq!(top.len(), 60);
+    let page_nodes: usize = top.iter().map(|id| doc.page_node_count(*id)).sum();
+    assert_eq!(page_nodes, 180, "three nodes a card");
+    let cut = designos_gpu::next_slice(&doc, &top, 0, 30);
+    assert_eq!(cut.range, 0..10, "ten cards of three nodes");
+    assert!(cut.counted <= 30 + 3, "the slice's nodes and the one that did not fit, counted {}", cut.counted);
+    assert!(cut.counted < page_nodes / 4, "not the whole page: {} of {page_nodes}", cut.counted);
+    // the next slice starts where this one ended and the repeated cut equals the one-shot cut
+    let second = designos_gpu::next_slice(&doc, &top, cut.range.end, 30);
+    assert_eq!(second.range, 10..20);
+    let all = designos_gpu::slice_top_level(&doc, &top, 30);
+    assert_eq!(all.len(), 6);
+    assert_eq!(&all[..2], &[cut.range, second.range]);
+    // a page that fits one slice is that slice
+    let whole = designos_gpu::next_slice(&doc, &top, 0, 10_000);
+    assert_eq!((whole.range, whole.counted), (0..60, page_nodes));
+}

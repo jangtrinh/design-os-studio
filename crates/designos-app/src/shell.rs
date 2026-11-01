@@ -1687,6 +1687,7 @@ impl Shell {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
+        let began = std::time::Instant::now();
         self.draw_window(ui);
         let ctx = ui.ctx().clone();
         // A paste that started during this frame (the key or the menu ran after the poll) waits for its clipboard
@@ -1697,6 +1698,9 @@ impl Shell {
         self.app.repaint_if_dot_moved(&ctx);
         self.request_screenshot(&ctx);
         widgets::finish_pass_records();
+        // the canvas starts its refine only after a frame that was light on work (a document
+        // that has just opened is not): tell it what this frame cost
+        self.app.canvas.gpu.note_frame_work(began.elapsed().as_secs_f32() * 1000.0);
     }
 
     fn draw_window(&mut self, ui: &mut egui::Ui) {

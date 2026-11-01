@@ -122,19 +122,27 @@ impl SceneCompiler {
 
     /// Builds the geometry the last compile left deferred (uncached text, vectors and
     /// boolean operations, and nodes still on the previous zoom's flattening), newest
-    /// first, until this frame's `geom.budget` is spent. Returns how many are left.
-    /// Walks no scene: the next compile finds what it needs in the cache.
+    /// first, until this frame's `geom.budget` of wall time is spent (at least one node a
+    /// call: the budget is counted from the call, so it covers resolving the node and
+    /// hashing its shape as well as the tessellation). Returns how many are left. Walks no
+    /// scene: the next compile finds what it needs in the cache.
     pub fn warm_deferred(&mut self, doc: &Document, rev: u64) -> usize {
+        let start = std::time::Instant::now();
+        // the wall clock below is the budget: the cache must not defer what it is asked to build
+        let budget = self.geom.budget.take();
+        let mut first = true;
         self.geom.begin_warm();
         while let Some(&(id, bucket)) = self.geom.deferred.last() {
-            if self.geom.is_over_budget() {
+            if !first && budget.is_some_and(|b| start.elapsed() >= b) {
                 break;
             }
+            first = false;
             self.geom.deferred.pop();
             let Some(node) = board::get(doc, id) else { continue };
             let node = resolve_node(doc, &node);
             let _ = self.geom.get(doc, &node, bucket, rev);
         }
+        self.geom.budget = budget;
         self.geom.deferred.len()
     }
 
@@ -270,24 +278,46 @@ fn top_level_in_view(index: &SceneIndex, n: &Node, root_ts: &sk::Transform, root
     Some(children)
 }
 
-/// Cuts `top` (from `SceneCompiler::visible_top_level`) into consecutive slices of at most
-/// `max_nodes` document nodes each; a node with more than that is a slice of its own.
-pub fn slice_top_level(doc: &Document, top: &[NodeId], max_nodes: usize) -> Vec<std::ops::Range<usize>> {
-    let mut slices = Vec::new();
-    let (mut start, mut acc) = (0usize, 0usize);
-    for (i, id) in top.iter().enumerate() {
+/// One slice of a page's top-level nodes (see [`next_slice`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SliceCut {
+    /// The slice: indices into the top-level nodes.
+    pub range: std::ops::Range<usize>,
+    /// Document nodes counted to find it: its own, plus those of the node that did not fit.
+    pub counted: usize,
+}
+
+/// The slice of `top` (from `SceneCompiler::visible_top_level`) that starts at `start`: as many
+/// consecutive nodes as fit `max_nodes` document nodes, at least one (a node with more than
+/// that is a slice of its own). Counts nodes only until the slice is full, so the first slice
+/// of a page costs the nodes of that slice, not of the page.
+pub fn next_slice(doc: &Document, top: &[NodeId], start: usize, max_nodes: usize) -> SliceCut {
+    let (mut acc, mut counted, mut end) = (0usize, 0usize, start);
+    for id in &top[start.min(top.len())..] {
         let w = doc.page_node_count(*id);
+        counted += w;
         if acc > 0 && acc + w > max_nodes {
-            slices.push(start..i);
-            start = i;
-            acc = 0;
+            break;
         }
         acc += w;
+        end += 1;
     }
-    if start < top.len() || slices.is_empty() {
-        slices.push(start..top.len());
+    SliceCut { range: start..end, counted }
+}
+
+/// Cuts all of `top` into consecutive slices of at most `max_nodes` document nodes each (the
+/// repeated [`next_slice`]).
+pub fn slice_top_level(doc: &Document, top: &[NodeId], max_nodes: usize) -> Vec<std::ops::Range<usize>> {
+    let mut slices = Vec::new();
+    let mut start = 0;
+    loop {
+        let cut = next_slice(doc, top, start, max_nodes);
+        start = cut.range.end;
+        slices.push(cut.range);
+        if start >= top.len() {
+            return slices;
+        }
     }
-    slices
 }
 
 // ---------------------------------------------------------------- VRAM accounting

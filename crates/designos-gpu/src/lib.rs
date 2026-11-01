@@ -26,7 +26,7 @@ mod submit;
 
 pub use canvas::Canvas;
 pub use chunk::{BACKDROP_COST_US, COMPOSITE_COST_US, DRAW_COST_US, MESH_BYTE_COST_US, PIXEL_BYTE_COST_US, POST_COST_US, PROGRAM_COST_US};
-pub use compile::{slice_top_level, CompileOptions, SceneCompiler, DEFAULT_REFINE_MAX_PROGRAMS, DEFAULT_REFINE_VRAM_BUDGET_BYTES};
+pub use compile::{next_slice, slice_top_level, CompileOptions, SceneCompiler, SliceCut, DEFAULT_REFINE_MAX_PROGRAMS, DEFAULT_REFINE_VRAM_BUDGET_BYTES};
 pub use context::{GpuContext, GpuError};
 pub use exec::{ExecStats, Output, Renderer};
 pub use frame::{Frame, FrameStats};

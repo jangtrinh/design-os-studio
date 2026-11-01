@@ -21,6 +21,8 @@ fn shot_sim(gpu: bool, tag: &str) -> (Sim, PathBuf) {
         let g = &mut s.shell.app.canvas.gpu;
         (g.available, g.pref) = (true, true);
         g.set_max_texture(16_384);
+        // debug builds draw a frame in tens of milliseconds: every frame is an idle one here
+        g.frame_work_override = Some(0.0);
     }
     (s, path)
 }

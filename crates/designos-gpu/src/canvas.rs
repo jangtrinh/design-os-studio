@@ -33,11 +33,13 @@ impl Canvas {
     /// Renders chunk `index` of a refine (ops `ops` of the root program of `frame`, see
     /// [`Renderer::render_chunk`]) into the refine's own page texture, in a submission of
     /// its own. The frame on screen does not change until the `last` chunk is in; then the
-    /// finished page replaces it.
-    pub fn prepare_chunk(&mut self, dev: &wgpu::Device, frame: &Frame, ops: std::ops::Range<usize>, index: usize, last: bool, slice_done: bool) {
+    /// finished page replaces it. Returns whether the renderer took the chunk (its page is
+    /// still whole): a chunk that was not taken voids the rest of the page.
+    pub fn prepare_chunk(&mut self, dev: &wgpu::Device, frame: &Frame, ops: std::ops::Range<usize>, index: usize, last: bool, slice_done: bool) -> bool {
         if let Some(out) = self.renderer.render_chunk(frame, ops, index, last, slice_done) {
             self.presenter.set_source(dev, &out.view);
         }
+        self.renderer.chunk_progress() == Some(index + 1)
     }
 
     /// Draws the prepared frame into the host pass' viewport.
