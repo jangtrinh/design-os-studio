@@ -1595,26 +1595,41 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
     let mut out = Vec::new();
     let Some(inst) = cx.doc.get(inst_id) else { return out };
     let mut stack: Vec<(NodeId, Vec<(u32, u32)>)> = inst.children.iter().rev().map(|&cid| (cid, Vec::new())).collect();
+    // What the instance itself overrides is an entry whose path is its main's guid (its `symbolID`), ahead of the
+    // entries of its descendants. Without it a reopened instance follows its main again: the importer reads every key
+    // of that entry as an override flag of the instance.
+    if let NodeKind::Instance { component: Some(main), .. } = inst.kind {
+        if let Some(main_guid) = cx.node_guids.get(&main).copied() {
+            stack.push((inst_id, vec![main_guid]));
+        }
+    }
 
     while let Some((cid, mut path)) = stack.pop() {
         let Some(n) = cx.doc.get(cid) else { continue };
-        let step_g = n.component.source.and_then(|s| cx.node_guids.get(&s).copied()).or_else(|| cx.node_guids.get(&cid).copied()).unwrap_or((1, cid.0 as u32));
-        path.push(step_g);
+        let own = cid == inst_id;
+        if !own {
+            let step_g =
+                n.component.source.and_then(|s| cx.node_guids.get(&s).copied()).or_else(|| cx.node_guids.get(&cid).copied()).unwrap_or((1, cid.0 as u32));
+            path.push(step_g);
+        }
 
+        // The instance's own bindings, override level and detached id are fields of its node change already, so
+        // only a flagged field makes an entry for it; they are left out of it below.
         if !n.component.overrides.is_empty()
-            || !n.variables.bindings.is_empty()
-            || !n.variables.modes.is_empty()
-            || n.component.override_level.is_some()
-            || n.component.detached_symbol_id.is_some()
+            || (!own
+                && (!n.variables.bindings.is_empty()
+                    || !n.variables.modes.is_empty()
+                    || n.component.override_level.is_some()
+                    || n.component.detached_symbol_id.is_some()))
         {
             let mut ov: Vec<(&'static str, V)> = Vec::new();
             let mut carried: carrier::Carried = Vec::new();
             let guids: Vec<V> = path.iter().map(|&(s, l)| guid(s, l)).collect();
             ov.push(("guidPath", msg(vec![("guids", V::Array(guids))])));
-            if let Some(lvl) = n.component.override_level {
+            if let Some(lvl) = n.component.override_level.filter(|_| !own) {
                 ov.push(("overrideLevel", V::Int(lvl)));
             }
-            if let Some(ds) = n.component.detached_symbol_id.as_deref().or(n.detached_symbol_id.as_deref()).filter(|s| !s.is_empty()) {
+            if let Some(ds) = n.component.detached_symbol_id.as_deref().or(n.detached_symbol_id.as_deref()).filter(|s| !own && !s.is_empty()) {
                 ov.push(("detachedSymbolId", encode_detached_symbol_id(ds)));
             }
 
@@ -1640,34 +1655,21 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::Transform) {
                 ov.push(("transform", encode_matrix(&n.transform)));
             }
-            let has_fill_var = n.variables.bindings.keys().any(|k| k.starts_with("fills/"));
+            // A bound paint of a nested node is written whether or not it is flagged; the instance's own is not, or
+            // the reader would flag a paint the instance only inherits.
+            let has_fill_var = !own && n.variables.bindings.keys().any(|k| k.starts_with("fills/"));
             if ovs.contains(&OverrideField::Fills) || has_fill_var {
                 let fills_slice = match &n.kind {
                     NodeKind::Text(t) => &t.style.fills,
                     _ => &n.fills,
                 };
-                let fps: Vec<V> = fills_slice
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let cv = n.variables.bindings.get(&format!("fills/{i}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
-                        encode_paint(p, cv, cx.opacity_var_data(&n.variables, &format!("fills/{i}/opacity")))
-                    })
-                    .collect();
+                let fps: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &n.variables.bindings)).collect();
                 ov.push(("fillPaints", V::Array(fps)));
             }
-            let has_stroke_var = n.variables.bindings.keys().any(|k| k.starts_with("strokes/"));
+            let has_stroke_var = !own && n.variables.bindings.keys().any(|k| k.starts_with("strokes/"));
             if ovs.contains(&OverrideField::Stroke) || has_stroke_var {
-                let sps: Vec<V> = n
-                    .stroke
-                    .paints
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let cv = n.variables.bindings.get(&format!("strokes/{i}")).and_then(|vid| cx.resolve_var_guid(vid)).map(alias_var_data);
-                        encode_paint(p, cv, cx.opacity_var_data(&n.variables, &format!("strokes/{i}/opacity")))
-                    })
-                    .collect();
+                let sps: Vec<V> =
+                    n.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &n.variables.bindings)).collect();
                 ov.push(("strokePaints", V::Array(sps)));
                 ov.push(("strokeWeight", fl(n.stroke.weight)));
                 if let Some([top, right, bottom, left]) = n.stroke.side_weights {
@@ -1763,6 +1765,10 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                         ov.push(("stackMode", en("NONE")));
                     }
                 }
+            }
+            // How a node sits in its parent. The instance's own is a field of its node change already, and the frame
+            // fields above keep its Layout flag.
+            if ovs.contains(&OverrideField::Layout) && !own {
                 let parent_dir =
                     n.parent.and_then(|p| cx.doc.get(p)).and_then(|p| p.kind.frame_props()).and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
                 let lc = &n.layout_child;
@@ -1812,7 +1818,8 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 ov.push(("stackChildMarginBottom", fl(lc.margin[2])));
                 ov.push(("stackChildMarginLeft", fl(lc.margin[3])));
             }
-            if ovs.contains(&OverrideField::MainComponent) {
+            // The instance's own main is its `symbolID`; naming it again would make the reader swap it for itself.
+            if ovs.contains(&OverrideField::MainComponent) && !own {
                 if let NodeKind::Instance { component: Some(comp_id), .. } = &n.kind {
                     if let Some(cg) = cx.node_guids.get(comp_id).copied() {
                         ov.push(("overriddenSymbolID", guid(cg.0, cg.1)));
@@ -1822,11 +1829,11 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::SlotContent) {
                 carried.push(("slotContent", serde_json::Value::Bool(true)));
             }
-            let ve = encode_node_var_entries(cx, &n.variables);
+            let ve = if own { Vec::new() } else { encode_node_var_entries(cx, &n.variables) };
             if !ve.is_empty() {
                 ov.push(("variableConsumptionMap", msg(vec![("entries", V::Array(ve))])));
             }
-            let me = encode_node_mode_entries(cx, &n.variables);
+            let me = if own { Vec::new() } else { encode_node_mode_entries(cx, &n.variables) };
             if !me.is_empty() {
                 ov.push(("variableModeBySetMap", msg(vec![("entries", V::Array(me))])));
             }
@@ -1838,8 +1845,10 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             }
         }
 
-        for &child in n.children.iter().rev() {
-            stack.push((child, path.clone()));
+        if !own {
+            for &child in n.children.iter().rev() {
+                stack.push((child, path.clone()));
+            }
         }
     }
     out
