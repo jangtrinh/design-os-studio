@@ -173,6 +173,9 @@ pub struct ComposerState {
     pub enter_written_at: Option<Instant>,
     /// Snapshot of `tab.last_output_at` at the moment the delayed `\r` was written, so post-Enter output can be distinguished.
     pub output_at_enter: Option<Instant>,
+    /// Label recorded on the composer when `submit_system_image_prompt` queues an image task, kept off `agent_status`
+    /// so readiness never mistakes the app's own label for a running turn or overwrites a real `Working` status.
+    pub premark: Option<String>,
     /// Optional explicit gate set when the caller marks the tab as still starting (`not-ready`).
     pub not_ready_gate: bool,
     /// Total number of prompts routed through `send_to_agent` on this composer.
@@ -346,6 +349,7 @@ impl ComposerState {
         self.turn_started_since_send = false;
         self.enter_written_at = None;
         self.output_at_enter = None;
+        self.premark = None;
         self.last_outcome = Some(SendOutcome::Refused(reason));
         self.notice = Some(notice.into());
     }
@@ -428,22 +432,17 @@ fn is_tab_ready_for_queued_send(tab: &mut TerminalTab) -> bool {
     if tab.composer.pending_enter_deadline.is_some() {
         return false;
     }
+    if tab.composer.flush_paused {
+        return false;
+    }
     let explicit_status = tab.agent_status.lock().ok().map(|g| g.clone()).unwrap_or_default();
-    let premarked_for_front = match (&explicit_status, tab.composer.pending_send.front()) {
-        (AgentTabStatus::Working(Some(detail)), Some(front)) => front.is_system && front.text.starts_with(detail.as_str()),
-        _ => false,
-    };
-    if matches!(explicit_status, AgentTabStatus::Working(_)) && !premarked_for_front {
-        tab.composer.flush_paused = false;
+    if matches!(explicit_status, AgentTabStatus::Working(_)) {
         if tab.composer.awaiting_turn_end {
             tab.composer.turn_started_since_send = true;
         }
         return false;
     }
     if matches!(explicit_status, AgentTabStatus::WaitingForInput(_)) || tab.gemini_dialog_open() {
-        return false;
-    }
-    if tab.composer.flush_paused {
         return false;
     }
     let current_out = tab.last_output_at.lock().ok().and_then(|g| *g);
@@ -502,7 +501,7 @@ fn write_delayed_enter(tab: &mut TerminalTab) {
     if holds_the_enter(tab) {
         tab.composer.awaiting_confirm_since = None;
         tab.composer.flush_paused = true;
-        tab.composer.awaiting_turn_end = true;
+        tab.composer.awaiting_turn_end = false;
         tab.composer.turn_started_since_send = false;
         tab.composer.enter_written_at = None;
         tab.composer.output_at_enter = None;
@@ -569,6 +568,9 @@ fn write_prompt_to_live_tab(tab: &mut TerminalTab, prompt: &str, skills_block: &
     tab.composer.log_len_at_send = tab.raw_log.lock().ok().map(|l| l.len()).unwrap_or(0);
     if !system && tab.spawned_at.elapsed() <= crate::agent_start_failure::START_FAILURE_WINDOW {
         tab.composer.sent_in_start_window.push(prompt.to_string());
+    }
+    if system && tab.composer.pending_send.iter().all(|e| !e.is_system) {
+        tab.composer.premark = None;
     }
     // The sent text is what `Retry` resends (`#686`).
     tab.last_user_prompt = Some(prompt.to_string());
@@ -868,6 +870,13 @@ impl TerminalState {
                 }
                 if tab.is_shell_process() {
                     let msg = RefuseReason::NoAgent.message().to_string();
+                    if !system {
+                        if tab.composer.draft.trim().is_empty() {
+                            tab.composer.draft = text.to_string();
+                        } else if !from_box {
+                            tab.composer.draft = format!("{}\n\n{text}", tab.composer.draft);
+                        }
+                    }
                     tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
                     tab.composer.notice = Some(msg.clone());
                     self.status_msg = Some(msg);
@@ -889,7 +898,10 @@ impl TerminalState {
                     return SendOutcome::Refused(RefuseReason::Permission);
                 }
                 if tab.is_alive() {
-                    let must_queue = !tab.composer.pending_send.is_empty() || (system && !is_tab_ready_for_queued_send(tab));
+                    if !from_box && tab.spawn_preset == AgentCliPreset::Gemini && !tab.gemini_dialog_open() && !status_waits(tab) {
+                        tab.composer.flush_paused = false;
+                    }
+                    let must_queue = !tab.composer.pending_send.is_empty() || tab.composer.flush_paused || (system && !is_tab_ready_for_queued_send(tab));
                     if must_queue {
                         if !system {
                             tab.composer.send_count += 1;
@@ -979,8 +991,10 @@ impl TerminalState {
         if !self.in_new_chat() && self.active_tab().is_some_and(|t| t.is_shell_process()) {
             let msg = RefuseReason::NoAgent.message().to_string();
             let comp = self.active_composer_mut();
-            if from_box && comp.draft.trim().is_empty() {
+            if comp.draft.trim().is_empty() {
                 comp.draft = text.to_string();
+            } else if !from_box {
+                comp.draft = format!("{}\n\n{text}", comp.draft);
             }
             comp.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
             comp.notice = Some(msg.clone());
@@ -3410,27 +3424,189 @@ mod tests {
         assert_eq!(st.send_to_agent("entry two", None), SendOutcome::Queued);
         make_tab_ready_for_test(&mut st, 0, true);
         st.tick_composer();
-        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::WaitingForInput(Some("Allow?".into()));
+
+        // Permission dialog opens before the delayed Enter fires -> Enter is held.
+        run_session_hook(&st, "PermissionRequest");
+        let _ = st.poll_live_agent_bridge();
         st.flush_pending_enter_now();
-        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        assert_eq!(st.tabs[0].composer.last_outcome, Some(SendOutcome::Refused(RefuseReason::Permission)));
+
+        // Tool finishes (`PostToolUse`) and an existing turn ends (`Stop`) while entry one is still unsubmitted:
+        // neither tool records nor `Stop` may end the held-Enter pause.
+        run_session_hook(&st, "PostToolUse");
+        let _ = st.poll_live_agent_bridge();
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        run_session_hook(&st, "Stop");
+        let _ = st.poll_live_agent_bridge();
         make_tab_ready_for_test(&mut st, 0, true);
         st.tick_composer();
         st.flush_pending_enter_now();
         let w = tab_written_string(&st, 0);
-        assert!(!w.contains("entry two"), "entry two must not be pasted behind an unsubmitted held entry: {w:?}");
+        assert!(!w.contains("entry two"), "entry two must not be pasted after PostToolUse + Stop while entry one is unsubmitted: {w:?}");
 
-        // Once the user submits the held line and that turn starts and ends, entry two flushes.
+        // Once the user submits the held line (`UserPromptSubmit`) and that turn ends (`Stop`), entry two flushes.
         let _ = st.tabs[0].try_write_bytes(b"\r");
-        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        run_session_hook(&st, "UserPromptSubmit");
+        let _ = st.poll_live_agent_bridge();
         st.tick_composer();
-        assert!(!tab_written_string(&st, 0).contains("entry two"), "entry two must wait while turn 1 is working");
-        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+        assert!(!tab_written_string(&st, 0).contains("entry two"), "entry two must wait while the submitted turn is working");
+        run_session_hook(&st, "Stop");
+        let _ = st.poll_live_agent_bridge();
+        make_tab_ready_for_test(&mut st, 0, true);
         st.tick_composer();
         st.flush_pending_enter_now();
         let w2 = tab_written_string(&st, 0);
         let p1 = w2.find("entry one").expect("entry one written");
         let p2 = w2.find("entry two").expect("entry two written after turn 1 ended");
         assert!(w2[p1..p2].contains('\r'), "entry one must be submitted with Enter before entry two is pasted: {w2:?}");
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn image_job_queued_behind_user_prompt_at_start_flushes_both_in_order() {
+        let dir = temp_composer_dir("img-behind-user-at-start");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-img-behind", "Img Behind User", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+
+        assert_eq!(st.send_to_agent("user prompt at start", None), SendOutcome::Queued);
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 7: Remove background.", None);
+        assert_eq!(st.tabs.len(), 1);
+        assert_eq!(st.tabs[0].composer.pending_send.len(), 2);
+
+        // First ready tick flushes the user prompt even when an image job was queued behind it.
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w1 = tab_written_string(&st, 0);
+        assert!(w1.contains("user prompt at start"), "user prompt at start must flush on first ready tick: {w1:?}");
+        assert!(!w1.contains("Image task 7"), "image job must wait for user prompt turn to finish: {w1:?}");
+
+        // Hook-less turn completion where output timestamp changed relative to `output_at_enter` (even if `< enter_written_at`):
+        // exercises the `output_at_enter != Some(out_at)` branch and flushes the queued image job second.
+        let enter_at = st.tabs[0].composer.enter_written_at.expect("enter_written_at recorded");
+        *st.tabs[0].last_output_at.lock().unwrap() = Some(enter_at - READY_QUIET_OUTPUT - Duration::from_millis(50));
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w2 = tab_written_string(&st, 0);
+        let p_user = w2.find("user prompt at start").expect("user prompt written");
+        let p_img = w2.find("Image task 7: Remove background.").expect("image job written second");
+        assert!(p_user < p_img, "user prompt must be written before the image job: {w2:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn image_job_submitted_during_running_turn_waits_for_turn_end() {
+        let dir = temp_composer_dir("img-during-running-turn");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-img-running", "Img Running Turn", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+        assert_eq!(st.send_to_agent("turn one", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(Some("Reading the file\u{2026}".into()));
+        st.tick_composer();
+
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 8: Upscale.", None);
+        assert_eq!(
+            *st.tabs[0].agent_status.lock().unwrap(),
+            AgentTabStatus::Working(Some("Reading the file\u{2026}".into())),
+            "submitting an image job must not overwrite a running turn's Working status"
+        );
+
+        for _ in 0..10 {
+            make_tab_ready_for_test(&mut st, 0, true);
+            st.tick_composer();
+            st.flush_pending_enter_now();
+        }
+        assert!(!tab_written_string(&st, 0).contains("Image task 8"), "image job must not be pasted while turn one is still Working");
+
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(tab_written_string(&st, 0).contains("Image task 8: Upscale."), "image job flushes once turn one ends");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn entry_point_refused_over_shell_tab_with_no_startable_agent_keeps_draft() {
+        let dir = temp_composer_dir("shell-no-agent-keeps-draft");
+        let mut st = TerminalState::new_for_session("doc-shell-keep-draft", "Shell Keep Draft", Some(&dir));
+        st.spawn_tab(AgentCliPreset::Shell, None).expect("shell tab");
+        st.active_runtime = AgentCliPreset::Shell;
+        st.picker_open = false;
+
+        st.dispatch_figma_ai_prompt("Make Design", "pricing table", None);
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Refused(RefuseReason::NoAgent)));
+        assert!(st.tabs[0].composer.pending_send.is_empty(), "shell tab queue must stay empty");
+        assert_eq!(st.composer_draft(), "pricing table", "refused entry-point prompt must remain in the composer draft");
+
+        // When New chat is open over the Shell tab with no startable agent, the refused text is also preserved alongside any existing draft.
+        st.picker_open = true;
+        st.dispatch_figma_ai_prompt("Make Design", "hero section", None);
+        assert_eq!(st.active_composer().last_outcome, Some(SendOutcome::Refused(RefuseReason::NoAgent)));
+        assert_eq!(
+            st.composer_draft(),
+            "pricing table\n\nhero section",
+            "refused entry-point prompt in New chat over Shell keeps existing draft and refused text"
+        );
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn composer_send_while_enter_is_held_queues_behind_held_line() {
+        let dir = temp_composer_dir("send-while-enter-held");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "sleep 30");
+        let mut st = TerminalState::new_for_session("doc-send-held", "Send While Held", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        assert_eq!(st.send_from_composer_box("entry one", None), SendOutcome::Written);
+        run_session_hook(&st, "PermissionRequest");
+        let _ = st.poll_live_agent_bridge();
+        st.flush_pending_enter_now();
+        assert_eq!(st.tabs[0].composer.last_outcome, Some(SendOutcome::Refused(RefuseReason::Permission)));
+
+        // Permission dialog closes (`Idle`), leaving entry one pasted on the PTY line without `\r`.
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        let out = st.send_from_composer_box("entry two", None);
+        assert_eq!(out, SendOutcome::Queued, "a composer Send while an Enter is held must queue behind the held line");
+        assert!(!tab_written_string(&st, 0).contains("entry two"), "entry two must not be written onto the unsubmitted entry one line");
+
+        // Once the held line is submitted (`UserPromptSubmit`) and its turn finishes (`Stop`), entry two flushes.
+        let _ = st.tabs[0].try_write_bytes(b"\r");
+        run_session_hook(&st, "UserPromptSubmit");
+        let _ = st.poll_live_agent_bridge();
+        run_session_hook(&st, "Stop");
+        let _ = st.poll_live_agent_bridge();
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w = tab_written_string(&st, 0);
+        let p1 = w.find("entry one").expect("entry one written");
+        let p2 = w.find("entry two").expect("entry two flushed after held turn completed");
+        assert!(w[p1..p2].contains('\r'), "entry one must be submitted with Enter before entry two is written: {w:?}");
+
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);
     }

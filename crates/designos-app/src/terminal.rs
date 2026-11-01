@@ -3366,13 +3366,11 @@ impl TerminalState {
                 }
             }
         }
-        if let Some(tab) = self.active_tab() {
+        if let Some(tab) = self.active_tab_mut() {
             if let Ok(mut last_out) = tab.last_output_at.lock() {
                 *last_out = Some(std::time::Instant::now());
             }
-            if let Ok(mut st) = tab.agent_status.lock() {
-                *st = AgentTabStatus::Working(Some(prompt.chars().take(64).collect()));
-            }
+            tab.composer.premark = Some(prompt.chars().take(64).collect());
         }
         let _ = self.send_system_prompt(prompt, file_path);
     }
@@ -3882,11 +3880,10 @@ impl TerminalState {
                     // A classified failure keeps its `Error` dot until the next turn starts (`#686`).
                     let keeps_failure = self.tabs[tab_idx].session_failure.is_some() && !is_turn_start && !matches!(new_status, AgentTabStatus::Error(_));
                     if !keeps_failure {
-                        if matches!(new_status, AgentTabStatus::Working(_)) && self.tabs[tab_idx].composer.pending_enter_deadline.is_none() {
+                        if is_turn_start && self.tabs[tab_idx].composer.pending_enter_deadline.is_none() {
                             self.tabs[tab_idx].composer.flush_paused = false;
-                            if self.tabs[tab_idx].composer.awaiting_turn_end {
-                                self.tabs[tab_idx].composer.turn_started_since_send = true;
-                            }
+                            self.tabs[tab_idx].composer.awaiting_turn_end = true;
+                            self.tabs[tab_idx].composer.turn_started_since_send = true;
                         }
                         if let Ok(mut st) = self.tabs[tab_idx].agent_status.lock() {
                             if matches!(*st, AgentTabStatus::WaitingForInput(_)) && matches!(new_status, AgentTabStatus::Working(_) | AgentTabStatus::Done) {
