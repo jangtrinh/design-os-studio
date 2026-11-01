@@ -1473,5 +1473,6 @@ mod tests {
         let actual_placed: Vec<designos_doc::layout_solver::Placed> = sg.children.iter().map(|(_, p)| *p).collect();
         assert_eq!(actual_ids, vec![hero, a, b, c]);
         assert_eq!(actual_placed, expected_placed);
+        assert_eq!(sg.cell_origin(&sg.children[0].1), (12.0, 12.0));
     }
 }

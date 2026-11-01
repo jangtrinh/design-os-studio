@@ -229,6 +229,239 @@ fn solver_kids(scene: &NativeGridScene) -> Vec<ChildIn> {
     n.children.iter().filter_map(|id| scene.doc.flow_child_input(*id, true)).collect()
 }
 
+fn solver_flow_ids(doc: &Document, grid: NodeId) -> Vec<NodeId> {
+    let n = doc.get(grid).unwrap();
+    n.children.iter().copied().filter(|id| doc.flow_child_input(*id, true).is_some()).collect()
+}
+
+struct TestCellSlot {
+    row: usize,
+    flat_item_idx: usize,
+    row_slot_idx: usize,
+    sub_idx: Option<usize>,
+}
+
+fn find_child_slot(doc: &Document, grid: NodeId, child_name: &str) -> TestCellSlot {
+    let n = doc.get(grid).unwrap();
+    let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+    let al_s = al.with_stroke(&n.stroke);
+    let own = SizeLimits::from(&n.layout_child);
+    let flow: Vec<(NodeId, ChildIn)> = n.children.iter().copied().filter_map(|id| doc.flow_child_input(id, true).map(|ci| (id, ci))).collect();
+    let kids: Vec<ChildIn> = flow.iter().map(|(_, ci)| *ci).collect();
+    let widths = grid_column_widths(&al_s, n.size, own, &kids);
+    let rows = grid_row_heights(&al_s, n.size, own, &kids);
+    let placed = place_children(&kids, widths.len());
+    let children: Vec<(NodeId, Placed)> = flow.into_iter().zip(placed).map(|((id, _), p)| (id, p)).collect();
+    let (target_id, _) = children.iter().find(|(id, _)| doc.get(*id).unwrap().name == child_name).unwrap_or_else(|| panic!("child {child_name:?} not found"));
+
+    struct Group {
+        host: (NodeId, Placed),
+        stacked: Vec<NodeId>,
+    }
+    let cols = widths.len();
+    let num_rows = rows.len();
+    let mut flat_item_idx = 0usize;
+    for r in 0..num_rows {
+        let mut groups: Vec<Group> = Vec::new();
+        for &(cid, p) in &children {
+            if p.row != r || p.col >= cols {
+                continue;
+            }
+            if let Some(g) = groups.iter_mut().find(|g| {
+                let cspan = g.host.1.col_span.max(1);
+                p.col >= g.host.1.col && p.col < g.host.1.col + cspan
+            }) {
+                g.stacked.push(cid);
+            } else {
+                groups.push(Group { host: (cid, p), stacked: Vec::new() });
+            }
+        }
+        let mut c = 0usize;
+        let mut row_slot_idx = 0usize;
+        while c < cols {
+            if let Some(g) = groups.iter().find(|g| g.host.1.col == c) {
+                if g.host.0 == *target_id {
+                    let sub_idx = if g.stacked.is_empty() { None } else { Some(0) };
+                    return TestCellSlot { row: r, flat_item_idx, row_slot_idx, sub_idx };
+                }
+                if let Some(pos) = g.stacked.iter().position(|id| *id == *target_id) {
+                    return TestCellSlot { row: r, flat_item_idx, row_slot_idx, sub_idx: Some(1 + pos) };
+                }
+                let span = g.host.1.col_span.max(1).min(cols - c);
+                c += span;
+            } else {
+                c += 1;
+            }
+            row_slot_idx += 1;
+            flat_item_idx += 1;
+        }
+    }
+    panic!("slot for child {child_name:?} not placed in grid");
+}
+
+fn split_swiftui_blocks(lines: &[&str], block_indent: usize) -> Vec<String> {
+    let mut blocks: Vec<Vec<&str>> = Vec::new();
+    let mut pending: Vec<&str> = Vec::new();
+    for &line in lines {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - trimmed.len();
+        if indent == block_indent && trimmed.starts_with("//") {
+            pending.push(line);
+        } else if indent == block_indent && !trimmed.starts_with('.') && !trimmed.starts_with('}') {
+            let mut cur = std::mem::take(&mut pending);
+            cur.push(line);
+            blocks.push(cur);
+        } else if let Some(last) = blocks.last_mut() {
+            last.extend(pending.drain(..));
+            last.push(line);
+        }
+    }
+    blocks.into_iter().map(|b| b.join("\n")).collect()
+}
+
+fn swiftui_cell_for(doc: &Document, grid: NodeId, swift: &str, child_name: &str) -> String {
+    let slot = find_child_slot(doc, grid, child_name);
+    let all_lines: Vec<&str> = swift.lines().collect();
+    let mut row_seen = 0usize;
+    let mut row_start = None;
+    let mut row_indent = 0usize;
+    for (i, &line) in all_lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed == "GridRow {" {
+            if row_seen == slot.row {
+                row_start = Some(i);
+                row_indent = line.len() - trimmed.len();
+                break;
+            }
+            row_seen += 1;
+        }
+    }
+    let start_i = row_start.unwrap_or_else(|| panic!("GridRow {} not found for {child_name:?}:\n{swift}", slot.row));
+    let mut end_i = all_lines.len();
+    for (i, &line) in all_lines.iter().enumerate().skip(start_i + 1) {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if indent == row_indent && trimmed == "}" {
+            end_i = i;
+            break;
+        }
+    }
+    let cell_indent = row_indent + 4;
+    let cell_blocks = split_swiftui_blocks(&all_lines[start_i + 1..end_i], cell_indent);
+    let cell_block = cell_blocks
+        .get(slot.row_slot_idx)
+        .unwrap_or_else(|| panic!("SwiftUI cell slot {} in row {} not found for {child_name:?}:\n{swift}", slot.row_slot_idx, slot.row));
+    let Some(sub_i) = slot.sub_idx else {
+        return cell_block.clone();
+    };
+    let cell_lines: Vec<&str> = cell_block.lines().collect();
+    let z_open = cell_lines
+        .iter()
+        .position(|l| l.trim_start().starts_with("ZStack("))
+        .unwrap_or_else(|| panic!("expected ZStack in stacked cell for {child_name:?}:\n{cell_block}"));
+    let z_close = cell_lines
+        .iter()
+        .enumerate()
+        .skip(z_open + 1)
+        .find(|(_, l)| {
+            let t = l.trim_start();
+            l.len() - t.len() == cell_indent && t == "}"
+        })
+        .map(|(i, _)| i)
+        .unwrap_or(cell_lines.len());
+    let sub_blocks = split_swiftui_blocks(&cell_lines[z_open + 1..z_close], cell_indent + 4);
+    let sub = sub_blocks.get(sub_i).unwrap_or_else(|| panic!("SwiftUI ZStack subview {sub_i} not found for {child_name:?}:\n{cell_block}"));
+    if sub_i == 0 {
+        let tail = cell_lines[z_close..].join("\n");
+        format!("{sub}\n{tail}")
+    } else {
+        sub.clone()
+    }
+}
+
+fn compose_cell_for(doc: &Document, grid: NodeId, compose: &str, child_name: &str) -> String {
+    let slot = find_child_slot(doc, grid, child_name);
+    let all_lines: Vec<&str> = compose.lines().collect();
+    let grid_line = all_lines.iter().position(|l| l.contains("LazyVerticalGrid(")).unwrap_or_else(|| panic!("LazyVerticalGrid not found:\n{compose}"));
+    let grid_indent = all_lines[grid_line].len() - all_lines[grid_line].trim_start().len();
+    let item_indent = grid_indent + 4;
+    let mut items: Vec<Vec<&str>> = Vec::new();
+    let mut cur_item: Option<Vec<&str>> = None;
+    for &line in all_lines.iter().skip(grid_line + 1) {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if indent == grid_indent && trimmed == "}" && cur_item.is_none() {
+            break;
+        }
+        if indent == item_indent && (trimmed.starts_with("item {") || trimmed.starts_with("item(")) {
+            if trimmed.ends_with('}') {
+                items.push(vec![line]);
+            } else {
+                cur_item = Some(vec![line]);
+            }
+        } else if let Some(ref mut buf) = cur_item {
+            buf.push(line);
+            if indent == item_indent && trimmed == "}" {
+                items.push(cur_item.take().unwrap());
+            }
+        }
+    }
+    let item_lines = items
+        .get(slot.flat_item_idx)
+        .unwrap_or_else(|| panic!("Compose item {} not found for {child_name:?} (found {}):\n{compose}", slot.flat_item_idx, items.len()));
+    let Some(sub_i) = slot.sub_idx else {
+        return item_lines.join("\n");
+    };
+    let box_indent = item_indent + 4;
+    let box_open = item_lines
+        .iter()
+        .position(|l| {
+            let t = l.trim_start();
+            l.len() - t.len() == box_indent && t.starts_with("Box(")
+        })
+        .unwrap_or_else(|| panic!("outer cell Box not found for {child_name:?}:\n{}", item_lines.join("\n")));
+    let box_close = item_lines
+        .iter()
+        .enumerate()
+        .skip(box_open + 1)
+        .find(|(_, l)| {
+            let t = l.trim_start();
+            l.len() - t.len() == box_indent && t == "}"
+        })
+        .map(|(i, _)| i)
+        .unwrap_or(item_lines.len());
+    let sub_indent = box_indent + 4;
+    let mut subs: Vec<Vec<&str>> = Vec::new();
+    let mut pending: Vec<&str> = Vec::new();
+    for &line in &item_lines[box_open + 1..box_close] {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let indent = line.len() - trimmed.len();
+        if indent == sub_indent && trimmed.starts_with("//") {
+            pending.push(line);
+        } else if indent == sub_indent && !trimmed.starts_with('.') && !trimmed.starts_with('}') && !trimmed.starts_with(')') {
+            let mut cur = std::mem::take(&mut pending);
+            cur.push(line);
+            subs.push(cur);
+        } else if let Some(last) = subs.last_mut() {
+            last.extend(pending.drain(..));
+            last.push(line);
+        }
+    }
+    let sub = subs.get(sub_i).unwrap_or_else(|| panic!("Compose stacked subview {sub_i} not found for {child_name:?}:\n{}", item_lines.join("\n")));
+    if sub_i == 0 {
+        let header = item_lines[..=box_open].join("\n");
+        format!("{header}\n{}", sub.join("\n"))
+    } else {
+        sub.join("\n")
+    }
+}
+
 fn effective_align(k: &ChildIn) -> (GridChildAlign, GridChildAlign) {
     let norm = |a: GridChildAlign| match a {
         GridChildAlign::Center => GridChildAlign::Center,
@@ -244,6 +477,7 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
     let name = scene.name;
     let (widths, rows, placed, col_gap, row_gap, _) = solver_expectations(scene);
     let kids = solver_kids(scene);
+    let flow_ids = solver_flow_ids(&scene.doc, scene.grid);
     let swift = swiftui_for(&scene.doc, scene.grid);
     assert!(swift.contains("Grid("), "{name} SwiftUI missing Grid(: {swift}");
     assert_eq!(swift.matches("GridRow {").count(), rows.len(), "{name} SwiftUI GridRow count != {}: {swift}", rows.len());
@@ -255,7 +489,9 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
         let hs = fmt_num(h);
         assert!(swift.contains(&format!("height: {hs}")), "{name} SwiftUI missing row height {hs}: {swift}");
     }
-    for (p, k) in placed.iter().zip(&kids) {
+    for (cid, (p, k)) in flow_ids.into_iter().zip(placed.iter().zip(&kids)) {
+        let child_name = &scene.doc.get(cid).unwrap().name;
+        let cell_code = swiftui_cell_for(&scene.doc, scene.grid, &swift, child_name);
         let cell_w: f32 = (0..p.col_span).map(|dc| widths[p.col + dc]).sum::<f32>() + col_gap * (p.col_span.saturating_sub(1) as f32);
         let cell_h_first = rows[p.row];
         let (ah, av) = effective_align(k);
@@ -271,20 +507,24 @@ fn assert_swiftui_scene(scene: &NativeGridScene) {
             _ => ".topLeading",
         };
         let needle = format!(".frame(width: {}, height: {}, alignment: {swift_align})", fmt_num(cell_w), fmt_num(cell_h_first));
-        assert!(swift.contains(&needle), "{name} SwiftUI missing cell frame {needle}: {swift}");
+        assert!(cell_code.contains(&needle), "{name} SwiftUI cell for {child_name:?} missing cell frame {needle}:\n{cell_code}");
         if p.row_span > 1 {
             let cell_h_span: f32 = (0..p.row_span).map(|dr| rows[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
             if (cell_h_span - cell_h_first).abs() > 1e-4 {
                 let bad_needle = format!(".frame(width: {}, height: {}, alignment: {swift_align})", fmt_num(cell_w), fmt_num(cell_h_span));
                 assert!(
-                    !swift.contains(&bad_needle),
-                    "{name} SwiftUI row-span cell must use first-row height {}, not span height {bad_needle}: {swift}",
+                    !cell_code.contains(&bad_needle),
+                    "{name} SwiftUI row-span cell for {child_name:?} must use first-row height {}, not span height {bad_needle}:\n{cell_code}",
                     fmt_num(cell_h_first)
                 );
             }
         }
         if p.col_span > 1 {
-            assert!(swift.contains(&format!(".gridCellColumns({})", p.col_span)), "{name} SwiftUI missing .gridCellColumns({}): {swift}", p.col_span);
+            assert!(
+                cell_code.contains(&format!(".gridCellColumns({})", p.col_span)),
+                "{name} SwiftUI cell for {child_name:?} missing .gridCellColumns({}):\n{cell_code}",
+                p.col_span
+            );
         }
     }
 }
@@ -293,6 +533,7 @@ fn assert_compose_scene(scene: &NativeGridScene) {
     let name = scene.name;
     let (widths, rows, placed, _, row_gap, padding) = solver_expectations(scene);
     let kids = solver_kids(scene);
+    let flow_ids = solver_flow_ids(&scene.doc, scene.grid);
     let compose = compose_for(&scene.doc, scene.grid);
     assert!(compose.contains("LazyVerticalGrid("), "{name} Compose missing LazyVerticalGrid(: {compose}");
     let widths_dp = widths.iter().map(|w| format!("{}.dp", fmt_num(*w))).collect::<Vec<_>>().join(", ");
@@ -301,7 +542,9 @@ fn assert_compose_scene(scene: &NativeGridScene) {
         let hs = fmt_num(h);
         assert!(compose.contains(&format!("Modifier.height({hs}.dp)")), "{name} Compose missing row height {hs}.dp: {compose}");
     }
-    for (p, k) in placed.iter().zip(&kids) {
+    for (cid, (p, k)) in flow_ids.into_iter().zip(placed.iter().zip(&kids)) {
+        let child_name = &scene.doc.get(cid).unwrap().name;
+        let cell_code = compose_cell_for(&scene.doc, scene.grid, &compose, child_name);
         let cell_h_first = rows[p.row];
         let (ah, av) = effective_align(k);
         let compose_align = match (ah, av) {
@@ -316,25 +559,29 @@ fn assert_compose_scene(scene: &NativeGridScene) {
             _ => "Alignment.TopStart",
         };
         let box_needle = format!("Box(Modifier.height({}.dp), contentAlignment = {compose_align})", fmt_num(cell_h_first));
-        assert!(compose.contains(&box_needle), "{name} Compose missing cell box {box_needle}: {compose}");
+        assert!(cell_code.contains(&box_needle), "{name} Compose cell for {child_name:?} missing cell box {box_needle}:\n{cell_code}");
         if p.row_span > 1 {
             let cell_h_span: f32 = (0..p.row_span).map(|dr| rows[p.row + dr]).sum::<f32>() + row_gap * (p.row_span.saturating_sub(1) as f32);
             if (cell_h_span - cell_h_first).abs() > 1e-4 {
                 let bad_box = format!("Box(Modifier.height({}.dp), contentAlignment = {compose_align})", fmt_num(cell_h_span));
                 assert!(
-                    !compose.contains(&bad_box),
-                    "{name} Compose row-span cell must use first-row height {}, not span height {bad_box}: {compose}",
+                    !cell_code.contains(&bad_box),
+                    "{name} Compose row-span cell for {child_name:?} must use first-row height {}, not span height {bad_box}:\n{cell_code}",
                     fmt_num(cell_h_first)
                 );
             }
         }
         if p.col_span > 1 {
-            assert!(compose.contains(&format!("GridItemSpan({})", p.col_span)), "{name} Compose missing GridItemSpan({}): {compose}", p.col_span);
+            assert!(
+                cell_code.contains(&format!("GridItemSpan({})", p.col_span)),
+                "{name} Compose cell for {child_name:?} missing GridItemSpan({}):\n{cell_code}",
+                p.col_span
+            );
         }
     }
     let n = scene.doc.get(scene.grid).unwrap();
     let al = n.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
-    let compose_h = if al.counter_sizing == Sizing::Fixed {
+    let compose_h = if al.counter_sizing == Sizing::Fixed || n.layout_child.vertical == Sizing::Fill {
         n.size.y
     } else {
         rows.iter().sum::<f32>() + row_gap * (rows.len().saturating_sub(1) as f32) + padding[0] + padding[2]
@@ -796,9 +1043,17 @@ fn b1_overlap_same_cell_keeps_all_children_and_solver_offsets() {
     let swift = swiftui_for(&doc, grid);
     assert!(swift.contains("// \"OverlapBadge\": overlapping grid cells stacked in the cell of \"PrimaryTile\""), "SwiftUI missing overlap comment:\n{swift}");
     assert!(swift.contains("ZStack(alignment: .topLeading)"), "SwiftUI missing ZStack for overlapping cell:\n{swift}");
+    let primary_swift = swiftui_cell_for(&doc, grid, &swift, "PrimaryTile");
     assert!(
-        swift.contains(".frame(width: 40, height: 20)") && swift.contains(".offset(x: 60, y: 20)"),
-        "SwiftUI missing OverlapBadge or solver offset (60, 20):\n{swift}"
+        primary_swift.contains(".frame(width: 100, height: 60)\n                .frame(width: 100, height: 60, alignment: .topLeading)")
+            && primary_swift.contains("}\n            .frame(width: 100, height: 60, alignment: .topLeading)"),
+        "SwiftUI PrimaryTile cell should frame primary and outer ZStack at 100x60 .topLeading:\n{primary_swift}"
+    );
+    let badge_swift = swiftui_cell_for(&doc, grid, &swift, "OverlapBadge");
+    assert!(
+        badge_swift.contains(".frame(width: 40, height: 20)\n                .frame(width: 100, height: 60, alignment: .trailing)")
+            && !badge_swift.contains(".offset("),
+        "SwiftUI OverlapBadge should have own 100x60 .trailing cell box and no offset in same cell:\n{badge_swift}"
     );
 
     let compose = compose_for(&doc, grid);
@@ -807,21 +1062,35 @@ fn b1_overlap_same_cell_keeps_all_children_and_solver_offsets() {
         "Compose missing overlap comment:\n{compose}"
     );
     assert_eq!(compose.matches("item {").count(), 2, "Compose should emit 2 grid items (shared cell + right cell):\n{compose}");
+    let primary_compose = compose_cell_for(&doc, grid, &compose, "PrimaryTile");
     assert!(
-        compose.contains(".size(width = 40.dp, height = 20.dp)") && compose.contains(".offset(x = 60.dp, y = 20.dp)"),
-        "Compose missing OverlapBadge or solver offset (60.dp, 20.dp):\n{compose}"
+        primary_compose.contains("Box(Modifier.height(60.dp), contentAlignment = Alignment.TopStart)")
+            && primary_compose.contains(".size(width = 100.dp, height = 60.dp)"),
+        "Compose PrimaryTile cell:\n{primary_compose}"
+    );
+    let badge_compose = compose_cell_for(&doc, grid, &compose, "OverlapBadge");
+    assert!(
+        badge_compose.contains(
+            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 60.dp), contentAlignment = Alignment.CenterEnd)"
+        ) && badge_compose.contains(".size(width = 40.dp, height = 20.dp)")
+            && !badge_compose.contains(".offset("),
+        "Compose OverlapBadge should have own 100x60 CenterEnd sub-cell Box and no offset in same cell:\n{badge_compose}"
     );
 
     let uikit = uikit_for(&doc, grid);
     assert!(uikit.contains("// \"OverlapBadge\": overlapping grid cells stacked in the cell of \"PrimaryTile\""), "UIKit missing overlap comment:\n{uikit}");
     assert!(
-        uikit.contains("cell.addSubview(primaryTile)") && uikit.contains("cell.addSubview(overlapBadge)"),
-        "UIKit should add both children to cell:\n{uikit}"
+        uikit.contains("cell.addSubview(primaryTile)") && uikit.contains("cell.addSubview(stackCell)") && uikit.contains("stackCell.addSubview(overlapBadge)"),
+        "UIKit should add primaryTile and stackCell to cell, and overlapBadge to stackCell:\n{uikit}"
     );
     assert!(
-        uikit.contains("overlapBadge.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 60)")
-            && uikit.contains("overlapBadge.topAnchor.constraint(equalTo: cell.topAnchor, constant: 20)"),
-        "UIKit missing solver offset constraints (60, 20) on cell:\n{uikit}"
+        uikit.contains("stackCell.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 0)")
+            && uikit.contains("stackCell.topAnchor.constraint(equalTo: cell.topAnchor, constant: 0)")
+            && uikit.contains("stackCell.widthAnchor.constraint(equalToConstant: 100)")
+            && uikit.contains("stackCell.heightAnchor.constraint(equalToConstant: 60)")
+            && uikit.contains("overlapBadge.trailingAnchor.constraint(equalTo: stackCell.trailingAnchor)")
+            && uikit.contains("overlapBadge.centerYAnchor.constraint(equalTo: stackCell.centerYAnchor)"),
+        "UIKit missing stackCell constraints or OverlapBadge trailing/centerY anchors on stackCell:\n{uikit}"
     );
 
     let xml = android_xml_for(&doc, grid);
@@ -869,9 +1138,18 @@ fn b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets() {
         swift.contains("// \"Col1Chip\": overlapping grid cells stacked in the cell of \"SpanBanner\""),
         "SwiftUI missing col_span overlap comment:\n{swift}"
     );
+    let banner_swift = swiftui_cell_for(&doc, grid, &swift, "SpanBanner");
     assert!(
-        swift.contains(".frame(width: 50, height: 24)") && swift.contains(".offset(x: 110, y: 18)"),
-        "SwiftUI missing Col1Chip or solver offset (110, 18) inside SpanBanner cell:\n{swift}"
+        banner_swift.contains(".frame(width: 210, height: 60)\n                .frame(width: 210, height: 60, alignment: .topLeading)")
+            && banner_swift.contains("}\n            .frame(width: 210, height: 60, alignment: .topLeading)\n            .gridCellColumns(2)"),
+        "SwiftUI SpanBanner cell:\n{banner_swift}"
+    );
+    let chip_swift = swiftui_cell_for(&doc, grid, &swift, "Col1Chip");
+    assert!(
+        chip_swift.contains(
+            ".frame(width: 50, height: 24)\n                .frame(width: 100, height: 60, alignment: .leading)\n                .offset(x: 110, y: 0)"
+        ),
+        "SwiftUI Col1Chip should have 100x60 .leading cell box and cell-origin offset (110, 0):\n{chip_swift}"
     );
 
     let compose = compose_for(&doc, grid);
@@ -879,9 +1157,12 @@ fn b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets() {
         compose.contains("// \"Col1Chip\": overlapping grid cells stacked in the cell of \"SpanBanner\""),
         "Compose missing col_span overlap comment:\n{compose}"
     );
+    let chip_compose = compose_cell_for(&doc, grid, &compose, "Col1Chip");
     assert!(
-        compose.contains(".size(width = 50.dp, height = 24.dp)") && compose.contains(".offset(x = 110.dp, y = 18.dp)"),
-        "Compose missing Col1Chip or solver offset (110.dp, 18.dp):\n{compose}"
+        chip_compose.contains(
+            "Box(Modifier.align(Alignment.TopStart).offset(x = 110.dp, y = 0.dp).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 60.dp), contentAlignment = Alignment.CenterStart)"
+        ) && chip_compose.contains(".size(width = 50.dp, height = 24.dp)"),
+        "Compose Col1Chip should have cell-origin offset (110.dp, 0.dp) and 100x60 CenterStart sub-cell Box:\n{chip_compose}"
     );
 
     let uikit = uikit_for(&doc, grid);
@@ -890,13 +1171,295 @@ fn b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets() {
         "UIKit missing col_span overlap comment:\n{uikit}"
     );
     assert!(
-        uikit.contains("col1Chip.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 110)")
-            && uikit.contains("col1Chip.topAnchor.constraint(equalTo: cell.topAnchor, constant: 18)"),
-        "UIKit missing Col1Chip solver offset (110, 18) on cell:\n{uikit}"
+        uikit.contains("stackCell.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 110)")
+            && uikit.contains("stackCell.topAnchor.constraint(equalTo: cell.topAnchor, constant: 0)")
+            && uikit.contains("stackCell.widthAnchor.constraint(equalToConstant: 100)")
+            && uikit.contains("stackCell.heightAnchor.constraint(equalToConstant: 60)")
+            && uikit.contains("col1Chip.leadingAnchor.constraint(equalTo: stackCell.leadingAnchor)")
+            && uikit.contains("col1Chip.centerYAnchor.constraint(equalTo: stackCell.centerYAnchor)"),
+        "UIKit missing Col1Chip stackCell (110, 0, 100x60) or leading/centerY anchors:\n{uikit}"
     );
 
     let xml = android_xml_for(&doc, grid);
     assert_eq!(xml.matches("<FrameLayout").count(), 3, "Android XML should keep all 3 flow children:\n{xml}");
+}
+
+#[test]
+fn n1_overlap_centered_icon_and_top_right_badge() {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 1,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 100.0));
+    let icon = add_named_item(&mut doc, grid, "Icon", 40.0, 40.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(icon).unwrap();
+        n.layout_child.grid_column = Some(0);
+        n.layout_child.grid_row = Some(0);
+        n.layout_child.grid_align_h = GridChildAlign::Center;
+        n.layout_child.grid_align_v = GridChildAlign::Center;
+    }
+    let badge = add_named_item(&mut doc, grid, "Badge", 20.0, 20.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(badge).unwrap();
+        n.layout_child.grid_column = Some(0);
+        n.layout_child.grid_row = Some(0);
+        n.layout_child.grid_align_h = GridChildAlign::End;
+        n.layout_child.grid_align_v = GridChildAlign::Start;
+    }
+    let other = add_named_item(&mut doc, grid, "Other", 100.0, 100.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(other).unwrap();
+        n.layout_child.grid_column = Some(1);
+        n.layout_child.grid_row = Some(0);
+    }
+    doc.relayout_subtree(grid);
+
+    let swift = swiftui_for(&doc, grid);
+    let icon_swift = swiftui_cell_for(&doc, grid, &swift, "Icon");
+    assert!(
+        icon_swift.contains(".frame(width: 40, height: 40)\n                .frame(width: 100, height: 100, alignment: .center)")
+            && icon_swift.contains("}\n            .frame(width: 100, height: 100, alignment: .topLeading)"),
+        "SwiftUI Icon should be centered in its own 100x100 frame inside a .topLeading ZStack:\n{icon_swift}"
+    );
+    let badge_swift = swiftui_cell_for(&doc, grid, &swift, "Badge");
+    assert!(
+        badge_swift.contains(".frame(width: 20, height: 20)\n                .frame(width: 100, height: 100, alignment: .topTrailing)")
+            && !badge_swift.contains(".offset("),
+        "SwiftUI Badge should be .topTrailing in its own 100x100 frame without double-counting offset:\n{badge_swift}"
+    );
+
+    let compose = compose_for(&doc, grid);
+    let icon_compose = compose_cell_for(&doc, grid, &compose, "Icon");
+    assert!(
+        icon_compose.contains("Box(Modifier.height(100.dp), contentAlignment = Alignment.Center)") && icon_compose.contains(".size(40.dp)"),
+        "Compose Icon cell:\n{icon_compose}"
+    );
+    let badge_compose = compose_cell_for(&doc, grid, &compose, "Badge");
+    assert!(
+        badge_compose.contains(
+            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 100.dp), contentAlignment = Alignment.TopEnd)"
+        ) && badge_compose.contains(".size(20.dp)")
+            && !badge_compose.contains(".offset("),
+        "Compose Badge sub-cell:\n{badge_compose}"
+    );
+
+    let uikit = uikit_for(&doc, grid);
+    assert!(
+        uikit.contains("icon.centerXAnchor.constraint(equalTo: cell.centerXAnchor)")
+            && uikit.contains("icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor)")
+            && uikit.contains("stackCell.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 0)")
+            && uikit.contains("stackCell.topAnchor.constraint(equalTo: cell.topAnchor, constant: 0)")
+            && uikit.contains("stackCell.widthAnchor.constraint(equalToConstant: 100)")
+            && uikit.contains("stackCell.heightAnchor.constraint(equalToConstant: 100)")
+            && uikit.contains("badge.trailingAnchor.constraint(equalTo: stackCell.trailingAnchor)")
+            && uikit.contains("badge.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
+        "UIKit Icon/Badge anchors:\n{uikit}"
+    );
+}
+
+#[test]
+fn n1_overlap_centered_photo_and_start_chip() {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 1,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 100.0));
+    let photo = add_named_item(&mut doc, grid, "Photo", 60.0, 60.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(photo).unwrap();
+        n.layout_child.grid_column = Some(0);
+        n.layout_child.grid_row = Some(0);
+        n.layout_child.grid_align_h = GridChildAlign::Center;
+        n.layout_child.grid_align_v = GridChildAlign::Center;
+    }
+    let chip = add_named_item(&mut doc, grid, "Chip", 24.0, 16.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(chip).unwrap();
+        n.layout_child.grid_column = Some(0);
+        n.layout_child.grid_row = Some(0);
+        n.layout_child.grid_align_h = GridChildAlign::Start;
+        n.layout_child.grid_align_v = GridChildAlign::Start;
+    }
+    let other = add_named_item(&mut doc, grid, "Other", 100.0, 100.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(other).unwrap();
+        n.layout_child.grid_column = Some(1);
+        n.layout_child.grid_row = Some(0);
+    }
+    doc.relayout_subtree(grid);
+
+    let swift = swiftui_for(&doc, grid);
+    let photo_swift = swiftui_cell_for(&doc, grid, &swift, "Photo");
+    assert!(
+        photo_swift.contains(".frame(width: 60, height: 60)\n                .frame(width: 100, height: 100, alignment: .center)")
+            && photo_swift.contains("}\n            .frame(width: 100, height: 100, alignment: .topLeading)"),
+        "SwiftUI Photo cell:\n{photo_swift}"
+    );
+    let chip_swift = swiftui_cell_for(&doc, grid, &swift, "Chip");
+    assert!(
+        chip_swift.contains(".frame(width: 24, height: 16)\n                .frame(width: 100, height: 100, alignment: .topLeading)")
+            && !chip_swift.contains(".offset("),
+        "SwiftUI Chip should land at (0, 0) via .topLeading in 100x100 without inheriting Photo's center alignment:\n{chip_swift}"
+    );
+
+    let compose = compose_for(&doc, grid);
+    let chip_compose = compose_cell_for(&doc, grid, &compose, "Chip");
+    assert!(
+        chip_compose.contains(
+            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 100.dp), contentAlignment = Alignment.TopStart)"
+        ) && chip_compose.contains(".size(width = 24.dp, height = 16.dp)"),
+        "Compose Chip sub-cell:\n{chip_compose}"
+    );
+
+    let uikit = uikit_for(&doc, grid);
+    assert!(
+        uikit.contains("photo.centerXAnchor.constraint(equalTo: cell.centerXAnchor)")
+            && uikit.contains("photo.centerYAnchor.constraint(equalTo: cell.centerYAnchor)")
+            && uikit.contains("chip.leadingAnchor.constraint(equalTo: stackCell.leadingAnchor)")
+            && uikit.contains("chip.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
+        "UIKit Photo/Chip anchors:\n{uikit}"
+    );
+}
+
+#[test]
+fn n1_overlap_centered_dot_with_bigger_card_stacked() {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 1,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 100.0));
+    let dot = add_named_item(&mut doc, grid, "SmallDot", 20.0, 20.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(dot).unwrap();
+        n.layout_child.grid_column = Some(0);
+        n.layout_child.grid_row = Some(0);
+        n.layout_child.grid_align_h = GridChildAlign::Center;
+        n.layout_child.grid_align_v = GridChildAlign::Center;
+    }
+    let card = add_named_item(&mut doc, grid, "BigCard", 80.0, 80.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(card).unwrap();
+        n.layout_child.grid_column = Some(0);
+        n.layout_child.grid_row = Some(0);
+        n.layout_child.grid_align_h = GridChildAlign::Start;
+        n.layout_child.grid_align_v = GridChildAlign::Start;
+    }
+    let other = add_named_item(&mut doc, grid, "Other", 100.0, 100.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(other).unwrap();
+        n.layout_child.grid_column = Some(1);
+        n.layout_child.grid_row = Some(0);
+    }
+    doc.relayout_subtree(grid);
+
+    let swift = swiftui_for(&doc, grid);
+    let dot_swift = swiftui_cell_for(&doc, grid, &swift, "SmallDot");
+    assert!(
+        dot_swift.contains(".frame(width: 20, height: 20)\n                .frame(width: 100, height: 100, alignment: .center)")
+            && dot_swift.contains("}\n            .frame(width: 100, height: 100, alignment: .topLeading)"),
+        "SwiftUI SmallDot must stay centered in its own 100x100 frame even when BigCard (80x80) is larger:\n{dot_swift}"
+    );
+    let card_swift = swiftui_cell_for(&doc, grid, &swift, "BigCard");
+    assert!(
+        card_swift.contains(".frame(width: 80, height: 80)\n                .frame(width: 100, height: 100, alignment: .topLeading)")
+            && !card_swift.contains(".offset("),
+        "SwiftUI BigCard cell:\n{card_swift}"
+    );
+
+    let compose = compose_for(&doc, grid);
+    let dot_compose = compose_cell_for(&doc, grid, &compose, "SmallDot");
+    assert!(
+        dot_compose.contains("Box(Modifier.height(100.dp), contentAlignment = Alignment.Center)") && dot_compose.contains(".size(20.dp)"),
+        "Compose SmallDot cell:\n{dot_compose}"
+    );
+    let card_compose = compose_cell_for(&doc, grid, &compose, "BigCard");
+    assert!(
+        card_compose.contains(
+            "Box(Modifier.align(Alignment.TopStart).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 100.dp), contentAlignment = Alignment.TopStart)"
+        ) && card_compose.contains(".size(80.dp)"),
+        "Compose BigCard sub-cell:\n{card_compose}"
+    );
+
+    let uikit = uikit_for(&doc, grid);
+    assert!(
+        uikit.contains("smallDot.centerXAnchor.constraint(equalTo: cell.centerXAnchor)")
+            && uikit.contains("smallDot.centerYAnchor.constraint(equalTo: cell.centerYAnchor)")
+            && uikit.contains("bigCard.leadingAnchor.constraint(equalTo: stackCell.leadingAnchor)")
+            && uikit.contains("bigCard.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
+        "UIKit SmallDot/BigCard anchors:\n{uikit}"
+    );
+}
+
+#[test]
+fn n1_overlap_fill_child_inside_two_col_span() {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 1,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(210.0, 60.0));
+    let banner = add_named_item(&mut doc, grid, "WideBanner", 210.0, 60.0, Sizing::Fixed, Sizing::Fixed);
+    {
+        let n = doc.get_mut(banner).unwrap();
+        n.layout_child.grid_column = Some(0);
+        n.layout_child.grid_row = Some(0);
+        n.layout_child.col_span = 2;
+    }
+    let fill_child = add_named_item(&mut doc, grid, "Col1Fill", 50.0, 24.0, Sizing::Fill, Sizing::Fill);
+    {
+        let n = doc.get_mut(fill_child).unwrap();
+        n.layout_child.grid_column = Some(1);
+        n.layout_child.grid_row = Some(0);
+    }
+    doc.relayout_subtree(grid);
+
+    let swift = swiftui_for(&doc, grid);
+    let fill_swift = swiftui_cell_for(&doc, grid, &swift, "Col1Fill");
+    assert!(
+        fill_swift.contains(".frame(maxWidth: .infinity, height: 60)\n                .frame(width: 100, height: 60, alignment: .topLeading)\n                .offset(x: 110, y: 0)"),
+        "SwiftUI Col1Fill should fill its own 100x60 column-1 cell at offset (110, 0), not the 210x60 span:\n{fill_swift}"
+    );
+
+    let compose = compose_for(&doc, grid);
+    let fill_compose = compose_cell_for(&doc, grid, &compose, "Col1Fill");
+    assert!(
+        fill_compose.contains(
+            "Box(Modifier.align(Alignment.TopStart).offset(x = 110.dp, y = 0.dp).wrapContentSize(Alignment.TopStart, unbounded = true).size(width = 100.dp, height = 60.dp), contentAlignment = Alignment.TopStart)"
+        ) && fill_compose.contains(".height(60.dp)\n                        .fillMaxWidth()"),
+        "Compose Col1Fill should fill its own 100x60 sub-cell Box at offset (110.dp, 0.dp):\n{fill_compose}"
+    );
+
+    let uikit = uikit_for(&doc, grid);
+    assert!(
+        uikit.contains("stackCell.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 110)")
+            && uikit.contains("stackCell.widthAnchor.constraint(equalToConstant: 100)")
+            && uikit.contains("stackCell.heightAnchor.constraint(equalToConstant: 60)")
+            && uikit.contains("col1Fill.widthAnchor.constraint(equalTo: stackCell.widthAnchor)")
+            && uikit.contains("col1Fill.heightAnchor.constraint(equalToConstant: 60)")
+            && uikit.contains("col1Fill.leadingAnchor.constraint(equalTo: stackCell.leadingAnchor)")
+            && uikit.contains("col1Fill.topAnchor.constraint(equalTo: stackCell.topAnchor)"),
+        "UIKit Col1Fill should stretch to stackCell (100x60 at x=110), not cell (210x60):\n{uikit}"
+    );
 }
 
 #[test]
@@ -1190,7 +1753,10 @@ fn m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout
 
     let xml = android_xml_for(&doc, grid);
     assert!(xml.contains("-->\n<FrameLayout\n"), "Android XML with out-of-flow/hidden children should start with outer <FrameLayout:\n{xml}");
-    assert!(xml.contains("    <GridLayout\n"), "Android XML should nest <GridLayout> inside outer <FrameLayout>:\n{xml}");
+    assert!(
+        xml.contains("    <GridLayout\n        android:layout_width=\"match_parent\"\n        android:layout_height=\"wrap_content\""),
+        "Android XML should nest <GridLayout> with wrap_content height inside outer <FrameLayout>:\n{xml}"
+    );
     let grid_close = xml.find("    </GridLayout>").expect("missing </GridLayout>");
     let abs_pos = xml.find("android:layout_marginStart=\"12dp\"").expect("missing AbsBadge marginStart");
     let vis_pos = xml.find("android:layout_width=\"90dp\"\n        android:layout_height=\"24dp\"").expect("missing variable-hidden ConditionalBanner view");
@@ -1228,6 +1794,15 @@ fn m4_compose_grid_height_fixed_vs_hug_and_fill() {
     let kt_hug = compose_for(&doc, grid);
     assert!(kt_hug.contains(".size(width = 220.dp, height = 106.dp)"), "Hug-height grid in Compose should use content height 106.dp:\n{kt_hug}");
     assert!(!kt_hug.contains("fillMaxHeight"), "Compose LazyVerticalGrid must never emit fillMaxHeight:\n{kt_hug}");
+
+    // 3. layout_child.vertical == Fill -> exports the frame's solved height (N2 ruling: rows + gaps + padding applies to Hug only).
+    doc.get_mut(grid).unwrap().layout_child.vertical = Sizing::Fill;
+    let kt_fill = compose_for(&doc, grid);
+    assert!(
+        kt_fill.contains(".size(width = 220.dp, height = 200.dp)"),
+        "Fill-height grid in Compose should export the frame's solved height 200.dp, not content height 106.dp:\n{kt_fill}"
+    );
+    assert!(!kt_fill.contains("fillMaxHeight"), "Compose LazyVerticalGrid must never emit fillMaxHeight:\n{kt_fill}");
 }
 
 #[test]
@@ -1283,7 +1858,7 @@ fn m5_bound_counter_axis_spacing_and_non_start_cell_alignments() {
         n.layout_child.grid_align_h = GridChildAlign::Center;
         n.layout_child.grid_align_v = GridChildAlign::End;
     }
-    let c1 = add_named_item(&mut doc, grid, "EndCenterItem", 60.0, 24.0, Sizing::Fixed, Sizing::Fixed);
+    let c1 = add_named_item(&mut doc, grid, "EndCenterItem", 64.0, 24.0, Sizing::Fixed, Sizing::Fixed);
     {
         let n = doc.get_mut(c1).unwrap();
         n.layout_child.grid_align_h = GridChildAlign::End;
@@ -1296,13 +1871,30 @@ fn m5_bound_counter_axis_spacing_and_non_start_cell_alignments() {
     let scene = NativeGridScene { name: "m5_counter_gap_and_align", doc, grid, items: vec![c0, c1] };
     let swift = swiftui_for(&scene.doc, scene.grid);
     assert!(swift.contains("verticalSpacing: Tokens.spacingRowGap"), "SwiftUI missing bound counterAxisSpacing token:\n{swift}");
-    assert!(swift.contains("alignment: .bottom)") && swift.contains("alignment: .trailing)"), "SwiftUI missing cell alignments:\n{swift}");
+    let cb_swift = swiftui_cell_for(&scene.doc, scene.grid, &swift, "CenterBottomItem");
+    assert!(
+        cb_swift.contains(".frame(width: 60, height: 24)\n            .frame(width: 100, height: 24, alignment: .bottom)"),
+        "SwiftUI CenterBottomItem cell must have 60x24 view in 100x24 .bottom cell:\n{cb_swift}"
+    );
+    let ec_swift = swiftui_cell_for(&scene.doc, scene.grid, &swift, "EndCenterItem");
+    assert!(
+        ec_swift.contains(".frame(width: 64, height: 24)\n            .frame(width: 100, height: 24, alignment: .trailing)"),
+        "SwiftUI EndCenterItem cell must have 64x24 view in 100x24 .trailing cell:\n{ec_swift}"
+    );
 
     let compose = compose_for(&scene.doc, scene.grid);
     assert!(compose.contains("verticalArrangement = Arrangement.spacedBy(Tokens.spacingRowGap)"), "Compose missing bound counterAxisSpacing token:\n{compose}");
+    let cb_compose = compose_cell_for(&scene.doc, scene.grid, &compose, "CenterBottomItem");
     assert!(
-        compose.contains("contentAlignment = Alignment.BottomCenter") && compose.contains("contentAlignment = Alignment.CenterEnd"),
-        "Compose missing cell alignments:\n{compose}"
+        cb_compose.contains("Box(Modifier.height(24.dp), contentAlignment = Alignment.BottomCenter)")
+            && cb_compose.contains(".size(width = 60.dp, height = 24.dp)"),
+        "Compose CenterBottomItem cell must have 60x24 view in 24.dp BottomCenter cell:\n{cb_compose}"
+    );
+    let ec_compose = compose_cell_for(&scene.doc, scene.grid, &compose, "EndCenterItem");
+    assert!(
+        ec_compose.contains("Box(Modifier.height(24.dp), contentAlignment = Alignment.CenterEnd)")
+            && ec_compose.contains(".size(width = 64.dp, height = 24.dp)"),
+        "Compose EndCenterItem cell must have 64x24 view in 24.dp CenterEnd cell:\n{ec_compose}"
     );
 
     let uikit = uikit_for(&scene.doc, scene.grid);
