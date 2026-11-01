@@ -619,6 +619,9 @@ fn hash_node_props(node: &Node) -> u64 {
     }
     node.corner_smoothing.to_bits().hash(&mut h);
     node.is_mask.hash(&mut h);
+    if node.mask_type != crate::MaskType::Alpha {
+        node.mask_type.hash(&mut h);
+    }
     node.lock_aspect.hash(&mut h);
     let _ = node.kind.serialize(HashSerializer(&mut h));
     if !node.fills.is_empty() {
@@ -855,7 +858,7 @@ pub fn node_group_eq(a: &Node, b: &Node, group: Group) -> bool {
         Group::CornerRadii => a.corner_radii == b.corner_radii && approx_eq_f32(a.corner_smoothing, b.corner_smoothing),
         Group::Constraints => a.constraints == b.constraints,
         Group::LayoutChild => a.layout_child == b.layout_child,
-        Group::Mask => a.is_mask == b.is_mask,
+        Group::Mask => a.is_mask == b.is_mask && a.mask_type == b.mask_type,
         Group::StyleRefs => a.style_refs == b.style_refs,
         Group::Variables => a.variables == b.variables,
         Group::Component => eq_component_group(a, b),

@@ -175,3 +175,105 @@ fn reverse_z_auto_layout_draws_masked_background_pattern_behind_earlier_siblings
     let bg = px(&pm, 10, 10);
     assert!(bg[0] == 255 && (bg[1] as i32 - 128).abs() <= 2 && (bg[2] as i32 - 128).abs() <= 2, "faded pattern remains visible behind heading: {bg:?}");
 }
+
+#[test]
+fn vector_mask_with_zero_opacity_fill_still_clips_to_geometry_coverage() {
+    let build = |mask_type: MaskType| {
+        let mut t = T::new();
+        let m = t.add(None, |id| {
+            let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 40.0, 40.0));
+            n.is_mask = true;
+            n.mask_type = mask_type;
+            n.opacity = 0.25;
+            let mut transparent_fill = Paint::solid(Color::TRANSPARENT);
+            transparent_fill.opacity = 0.0;
+            n.fills = vec![transparent_fill];
+            n.effects = vec![Effect::DropShadow {
+                color: Color::BLACK,
+                offset: Vec2::new(10.0, 10.0),
+                radius: 8.0,
+                spread: 4.0,
+                visible: true,
+                blend: BlendMode::Normal,
+                show_behind: true,
+            }];
+            n
+        });
+        let _ = m;
+        t.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        t.render(80)
+    };
+
+    // Alpha mask with 0%-opacity fill clips away everything (white background everywhere)
+    let alpha_pm = build(MaskType::Alpha);
+    assert_eq!(px(&alpha_pm, 30, 30), WHITE, "Alpha mask with 0%-opacity fill hides content");
+
+    // Vector mask with 0%-opacity fill and effects ignores both and clips strictly to geometry coverage
+    let vec_pm = build(MaskType::Vector);
+    assert_eq!(px(&vec_pm, 30, 30), [255, 0, 0, 255], "Vector mask with 0%-opacity fill keeps full content inside geometry");
+    assert_eq!(px(&vec_pm, 5, 5), WHITE, "outside geometry top-left");
+    assert_eq!(px(&vec_pm, 55, 55), WHITE, "outside geometry where drop shadow would land if not ignored");
+}
+
+#[test]
+fn luminance_mask_over_white_to_black_ramp_keeps_white_hides_black_and_halves_mid_grey() {
+    let mut doc = Document::new("luminance-mask");
+    let page = doc.add_page("p");
+    // Transparent page background so pixel alpha directly measures the masked coverage
+    doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::TRANSPARENT };
+
+    let mask_id = doc.alloc_id();
+    let mut mask = Node::frame(mask_id, Rect::new(0.0, 0.0, 100.0, 60.0));
+    mask.fills.clear();
+    mask.is_mask = true;
+    mask.mask_type = MaskType::Luminance;
+    doc.insert(page, mask).unwrap();
+
+    // Row 0 (y = 0..30): white-to-black linear gradient ramp across x = 0..100
+    let ramp_id = doc.alloc_id();
+    let mut ramp = Node::rectangle(ramp_id, Rect::new(0.0, 0.0, 100.0, 30.0));
+    ramp.fills = vec![Paint {
+        visible: true,
+        opacity: 1.0,
+        blend: BlendMode::Normal,
+        kind: PaintKind::LinearGradient {
+            handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: Color::BLACK }],
+        },
+    }];
+    doc.insert(mask_id, ramp).unwrap();
+
+    // Row 1 (y = 30..60): explicit swatches for White (x=0..25), 50% Grey (x=25..50), Black (x=50..75), Pure Green (x=75..100)
+    for (x, col) in [(0.0, Color::WHITE), (25.0, Color::rgb(128, 128, 128)), (50.0, Color::BLACK), (75.0, Color { r: 0.0, g: 1.0, b: 0.0, a: 1.0 })] {
+        let sid = doc.alloc_id();
+        let mut sw = Node::rectangle(sid, Rect::new(x, 30.0, 25.0, 30.0));
+        sw.fills = vec![Paint::solid(col)];
+        doc.insert(mask_id, sw).unwrap();
+    }
+
+    // Masked sibling: solid RED covering the entire 100x60 region
+    let target_id = doc.alloc_id();
+    let mut target = Node::rectangle(target_id, Rect::new(0.0, 0.0, 100.0, 60.0));
+    target.fills = vec![Paint::solid(RED)];
+    doc.insert(page, target).unwrap();
+
+    let mut pm = Pixmap::new(100, 60).unwrap();
+    render_page(&doc, page, &Viewport::default(), &mut pm);
+
+    // 1. Ramp probes (y = 15): near x = 0 (white) keeps content, x = 50 (~50% grey) keeps ~half, near x = 99 (black) hides
+    let ramp_white = px(&pm, 0, 15);
+    let ramp_mid = px(&pm, 50, 15);
+    let ramp_black = px(&pm, 99, 15);
+    assert!(ramp_white[3] >= 250, "ramp white end keeps content: {ramp_white:?}");
+    assert!((ramp_mid[3] as i32 - 128).abs() <= 6, "ramp midpoint keeps ~half content: {ramp_mid:?}");
+    assert!(ramp_black[3] <= 5, "ramp black end hides content: {ramp_black:?}");
+
+    // 2. Exact swatch probes (y = 45):
+    assert_eq!(px(&pm, 12, 45), [255, 0, 0, 255], "white swatch keeps 100% content");
+    let mid_grey = px(&pm, 37, 45);
+    assert!((mid_grey[3] as i32 - 128).abs() <= 1, "50% grey swatch keeps ~half (128/255): {mid_grey:?}");
+    assert_eq!(px(&pm, 62, 45), [0, 0, 0, 0], "black swatch hides content completely");
+    let green = px(&pm, 87, 45);
+    let expected_green_alpha = (designos_render::LUMINANCE_MASK_COEFFS[1] * 255.0).round() as i32;
+    assert!((green[3] as i32 - expected_green_alpha).abs() <= 1, "pure green uses Rec. 709 G weight (0.7152): {green:?}");
+}

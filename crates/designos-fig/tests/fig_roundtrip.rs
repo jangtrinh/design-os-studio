@@ -4077,3 +4077,71 @@ fn bold_text_with_a_wght_axis_keeps_weight_and_axis_through_fig_export_and_impor
     assert_eq!((tp.runs[0].start, tp.runs[0].end), (0, 4));
     assert_eq!((tp.runs[0].style.font_weight, tp.runs[0].style.get_axis("wght")), (700, Some(700.0)), "bold run");
 }
+
+#[test]
+fn mask_types_round_trip_through_fig_and_rest_import() {
+    let rest_payload = json!({
+        "name": "MaskTypesRest",
+        "document": {
+            "id": "0:0",
+            "name": "Document",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "name": "Page 1",
+                "type": "CANVAS",
+                "children": [
+                    {
+                        "id": "1:1",
+                        "name": "MaskAlpha",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "maskType": "ALPHA",
+                        "size": {"x": 40.0, "y": 40.0}
+                    },
+                    {
+                        "id": "1:2",
+                        "name": "MaskVector",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "maskType": "VECTOR",
+                        "size": {"x": 40.0, "y": 40.0}
+                    },
+                    {
+                        "id": "1:3",
+                        "name": "MaskOutline",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "maskType": "OUTLINE",
+                        "size": {"x": 40.0, "y": 40.0}
+                    },
+                    {
+                        "id": "1:4",
+                        "name": "MaskLuminance",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "maskType": "LUMINANCE",
+                        "size": {"x": 40.0, "y": 40.0}
+                    }
+                ]
+            }]
+        }
+    });
+    let doc = designos_fig::import_rest_json(&rest_payload.to_string()).expect("import_rest_json");
+    assert_eq!(find(&doc, "MaskAlpha").mask_type, MaskType::Alpha);
+    assert_eq!(find(&doc, "MaskVector").mask_type, MaskType::Vector);
+    assert_eq!(find(&doc, "MaskOutline").mask_type, MaskType::Vector);
+    assert_eq!(find(&doc, "MaskLuminance").mask_type, MaskType::Luminance);
+    assert!(!find(&doc, "MaskVector").fig_metadata.contains_key("maskType"));
+
+    // Round-trip all three types through .fig export and import
+    let fig_bytes = export_fig(&doc).expect("export_fig");
+    let rt = import_fig(&fig_bytes).expect("import_fig");
+    for (name, expected) in
+        [("MaskAlpha", MaskType::Alpha), ("MaskVector", MaskType::Vector), ("MaskOutline", MaskType::Vector), ("MaskLuminance", MaskType::Luminance)]
+    {
+        let n = find(&rt, name);
+        assert!(n.is_mask, "{name} should stay a mask");
+        assert_eq!(n.mask_type, expected, "{name} mask_type after .fig round-trip");
+    }
+}

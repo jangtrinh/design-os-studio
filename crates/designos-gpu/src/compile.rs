@@ -688,12 +688,13 @@ impl Ctx<'_> {
         });
         (self.stencil_root, self.stencil_children_skipped) = enclosing;
         let pclip = self.full_clip(rect);
+        let aux_mode = if mask.mask_type == d::MaskType::Luminance { AuxMode::MulLum } else { AuxMode::Mul };
         self.push_op(Op::Composite(Box::new(CompositeOp {
             src: layer,
             rect,
             opacity: 1.0,
             tint: None,
-            aux: Some((mprog, AuxMode::Mul)),
+            aux: Some((mprog, aux_mode)),
             mode: CompMode::Over,
             clip: pclip,
         })));

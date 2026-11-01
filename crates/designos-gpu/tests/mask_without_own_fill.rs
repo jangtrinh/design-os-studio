@@ -371,3 +371,67 @@ fn fill_less_mask_frames_stay_within_the_vram_budget() {
         assert!(c.last_vram_bytes <= budget, "budget {budget}: frame holds {} bytes in {} programs", c.last_vram_bytes, frame.programs.len());
     }
 }
+
+#[test]
+fn headless_gpu_matches_cpu_for_alpha_vector_and_luminance_mask_types() {
+    let Some(mut g) = common::gpu() else { return };
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    // 1. Vector mask with a 0%-opacity fill still clips identically on CPU and GPU
+    {
+        let mut b = common::T::new();
+        b.add(None, |id| {
+            let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 50.0, 50.0));
+            n.is_mask = true;
+            n.mask_type = MaskType::Vector;
+            n.opacity = 0.25;
+            let mut p = Paint::solid(Color::TRANSPARENT);
+            p.opacity = 0.0;
+            n.fills = vec![p];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let c = common::compare(&mut g, "mask-type-vector-zero-fill", &b.doc, b.page, vp, SIZE, 4);
+        assert_eq!(px(&c.cpu, 30, 30), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 30, 30), [255, 0, 0, 255]);
+        assert_eq!(px(&c.gpu, 70, 70), [255, 255, 255, 255]);
+        assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Vector mask");
+    }
+
+    // 2. Luminance mask over white, 50% grey, black, and a linear white-to-black gradient ramp
+    {
+        g.compiler = SceneCompiler::new();
+        g.compiler.opts.max_texture = g.renderer.max_texture_dimension();
+        let mut b = common::T::new();
+        let mask = b.add(None, |id| {
+            let mut n = Node::frame(id, Rect::new(0.0, 0.0, 80.0, 80.0));
+            n.fills.clear();
+            n.is_mask = true;
+            n.mask_type = MaskType::Luminance;
+            n
+        });
+        b.rect(Some(mask), Rect::new(0.0, 0.0, 25.0, 40.0), Color::WHITE);
+        b.rect(Some(mask), Rect::new(25.0, 0.0, 25.0, 40.0), Color::rgb(128, 128, 128));
+        b.rect(Some(mask), Rect::new(50.0, 0.0, 30.0, 40.0), Color::BLACK);
+        b.add(Some(mask), |id| {
+            let mut n = Node::rectangle(id, Rect::new(0.0, 40.0, 80.0, 40.0));
+            n.fills = vec![Paint {
+                visible: true,
+                opacity: 1.0,
+                blend: BlendMode::Normal,
+                kind: PaintKind::LinearGradient {
+                    handles: [Vec2::new(0.0, 0.5), Vec2::new(1.0, 0.5), Vec2::new(0.0, 1.0)],
+                    stops: vec![GradientStop { pos: 0.0, color: Color::WHITE }, GradientStop { pos: 1.0, color: Color::BLACK }],
+                },
+            }];
+            n
+        });
+        b.rect(None, Rect::new(0.0, 0.0, 80.0, 80.0), RED);
+        let c = common::compare(&mut g, "mask-type-luminance-ramp", &b.doc, b.page, vp, SIZE, 4);
+        assert_eq!(px(&c.gpu, 10, 20), [255, 0, 0, 255], "gpu luminance white keeps red");
+        assert_eq!(px(&c.gpu, 65, 20), [255, 255, 255, 255], "gpu luminance black hides red over white page");
+        let mid = px(&c.gpu, 35, 20);
+        assert!(mid[0] == 255 && (mid[1] as i32 - 127).abs() <= 2 && (mid[2] as i32 - 127).abs() <= 2, "gpu luminance 50% grey: {mid:?}");
+        assert_eq!(c.report.mismatched, 0, "gpu and cpu agree for Luminance mask");
+    }
+}

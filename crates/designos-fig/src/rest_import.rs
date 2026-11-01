@@ -45,6 +45,17 @@ fn effect_blend(v: &Value) -> BlendMode {
     fstr(v, "blendMode").map(blend).unwrap_or(BlendMode::Normal)
 }
 
+/// Maps Figma's REST (`ALPHA` / `VECTOR` / `LUMINANCE`) and `.fig` Kiwi (`ALPHA` / `OUTLINE` / `LUMINANCE`)
+/// mask type names to [`MaskType`].
+fn parse_mask_type(s: &str) -> Option<MaskType> {
+    match s {
+        "ALPHA" => Some(MaskType::Alpha),
+        "VECTOR" | "OUTLINE" => Some(MaskType::Vector),
+        "LUMINANCE" => Some(MaskType::Luminance),
+        _ => None,
+    }
+}
+
 pub(crate) fn blend(s: &str) -> BlendMode {
     match s {
         "PASS_THROUGH" => BlendMode::PassThrough,
@@ -1162,6 +1173,9 @@ impl<'a> Ctx<'a> {
         n.variables = crate::variables::parse_node_variables(v);
         n.blend = fstr(v, "blendMode").map(blend).unwrap_or(default_blend);
         n.is_mask = fbool(v, "isMask").unwrap_or(false);
+        if let Some(mt) = fstr(v, "maskType").and_then(parse_mask_type) {
+            n.mask_type = mt;
+        }
         if let Some(hl) = fstr(v, "hyperlink").filter(|s| !s.is_empty()) {
             n.hyperlink = Some(hl.to_string());
         }
@@ -2181,6 +2195,7 @@ impl<'a> Ctx<'a> {
             dn.opacity = target_node.opacity;
             dn.blend = target_node.blend;
             dn.is_mask = target_node.is_mask;
+            dn.mask_type = target_node.mask_type;
             dn.corner_radii = target_node.corner_radii;
             dn.corner_smoothing = target_node.corner_smoothing;
             dn.fill_geometry = target_node.fill_geometry;
@@ -2818,6 +2833,9 @@ impl<'a> Ctx<'a> {
         }
         if let Some(b) = fbool(set, "isMask") {
             n.is_mask = b;
+        }
+        if let Some(mt) = fstr(set, "maskType").and_then(parse_mask_type) {
+            n.mask_type = mt;
         }
         if set.get("fills").is_some() {
             n.variables.bindings.retain(|k, _| !k.starts_with("fills/"));

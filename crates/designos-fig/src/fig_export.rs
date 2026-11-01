@@ -791,6 +791,14 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     if node.is_mask {
         fields.push(("mask", V::Bool(true)));
     }
+    if node.is_mask || node.mask_type != MaskType::Alpha {
+        let mt = match node.mask_type {
+            MaskType::Alpha => "ALPHA",
+            MaskType::Vector => "OUTLINE",
+            MaskType::Luminance => "LUMINANCE",
+        };
+        fields.push(("maskType", en(mt)));
+    }
     if node.lock_aspect {
         fields.push(("proportionsConstrained", V::Bool(true)));
     }
@@ -2298,7 +2306,7 @@ fn append_fig_metadata(schema: &crate::kiwi::Schema, nc_def: usize, fields: &mut
         return;
     }
     for (k, v) in meta {
-        if v.is_empty() || fields.iter().any(|(existing, _)| &**existing == k.as_str()) {
+        if k == "maskType" || v.is_empty() || fields.iter().any(|(existing, _)| &**existing == k.as_str()) {
             continue;
         }
         if let Some(pair) = schema.def_field_from_metadata(nc_def, k, v) {

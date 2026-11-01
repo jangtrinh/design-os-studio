@@ -97,7 +97,7 @@ pub(crate) fn for_each_changed_field(before: &Node, after: &Node, mut report: im
     }
     let candidates = differing_fields!(before, after;
         source_id, name, kind, visible, locked, opacity, blend, transform, size, fills, stroke, effects, corner_radii,
-        corner_smoothing, constraints, layout_child, is_mask, style_refs, fill_geometry, stroke_geometry, component,
+        corner_smoothing, constraints, layout_child, is_mask, mask_type, style_refs, fill_geometry, stroke_geometry, component,
         prototype, variables, export_settings, dev, slide, lock_aspect, hyperlink, plugin_data, detached_symbol_id,
         fig_metadata);
     if candidates.len == 0 {

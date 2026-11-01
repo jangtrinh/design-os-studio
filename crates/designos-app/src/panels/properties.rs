@@ -1038,6 +1038,24 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
     pane.y += 4.0;
 
+    // ---- Mask
+    let any_mask = sel.iter().take(128).any(|id| app.doc.get(*id).is_some_and(|n| n.is_mask));
+    if any_mask {
+        section_sep(ui, pane, false);
+        title(ui, pane, "Mask", None, false);
+        let mt = common(app, sel, |n| n.mask_type);
+        let cur = mt.map_or("Mixed", MaskType::label);
+        let opts = MaskType::ALL.map(|m| String::from(m.label()));
+        let r = pane.full(0.0);
+        widgets::record(ui, "mask-type", r);
+        if let Some(i) = dropdown(ui, r, "mask-type", cur, &opts) {
+            let chosen = MaskType::ALL[i];
+            app.edit_nodes(sel, |n| n.mask_type = chosen);
+        }
+        row_end(pane);
+        pane.y += theme::SPACE_ROW;
+    }
+
     // ---- Fill
     if matches!(n0.kind, NodeKind::Text(_)) {
         // Text colour lives in the text style, not in `Node::fills`.
@@ -2930,5 +2948,61 @@ mod tests {
         let n2 = app2.doc.get(cid2).unwrap();
         assert_eq!(n2.size, v2(30.0, 100.0));
         assert_eq!(n2.layout_child.align_self, AlignSelf::Auto);
+    }
+
+    #[test]
+    fn mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step() {
+        let mut doc = designos_doc::Document::new("mask-ui");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let m1 = app.doc.alloc_id();
+        let mut n1 = Node::rectangle(m1, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+        n1.is_mask = true;
+        n1.mask_type = MaskType::Alpha;
+        let m1 = app.doc.insert(page, n1).unwrap();
+
+        let m2 = app.doc.alloc_id();
+        let mut n2 = Node::rectangle(m2, designos_doc::Rect::new(50.0, 0.0, 40.0, 40.0));
+        n2.is_mask = true;
+        n2.mask_type = MaskType::Luminance;
+        let m2 = app.doc.insert(page, n2).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let step = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| show(app, ui, region));
+        };
+        let click = |app: &mut App, pos: Pos2| {
+            step(app, vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+        };
+
+        // Select mixed masks: Mask section dropdown renders and reports Mixed (`common` is None)
+        app.selection = vec![m1, m2];
+        assert_eq!(common(&app, &app.selection, |n| n.mask_type), None);
+        step(&mut app, vec![]);
+        let dd_rect = test_rect(&ctx, "mask-type").expect("mask-type dropdown rendered for mask selection");
+
+        // Open the dropdown (release sets open=true; next pass renders popup_menu) and pick "Vector" (row 1)
+        click(&mut app, dd_rect.center());
+        step(&mut app, vec![]);
+        let vector_row = test_rect(&ctx, "menu-row-0-1").expect("Vector row rendered in mask-type menu");
+        click(&mut app, vector_row.center());
+
+        assert_eq!(app.doc.get(m1).unwrap().mask_type, MaskType::Vector);
+        assert_eq!(app.doc.get(m2).unwrap().mask_type, MaskType::Vector);
+
+        // One undo step restores both nodes' original mask types
+        app.undo();
+        assert_eq!(app.doc.get(m1).unwrap().mask_type, MaskType::Alpha);
+        assert_eq!(app.doc.get(m2).unwrap().mask_type, MaskType::Luminance);
     }
 }

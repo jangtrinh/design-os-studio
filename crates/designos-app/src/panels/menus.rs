@@ -56,6 +56,8 @@ pub enum Action {
     SendBackward,
     BringToFront,
     SendToBack,
+    /// Toggle `is_mask` on the selected layers (`⌃⌘M` on macOS, `Ctrl+Alt+M` elsewhere).
+    ToggleMask,
     ToggleSidebar,
     CreateComponent,
     ConvertToSlot,
@@ -178,6 +180,11 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SendBackward => app.reorder(false, false),
         Action::BringToFront => app.reorder(true, true),
         Action::SendToBack => app.reorder(false, true),
+        Action::ToggleMask => {
+            let sel = app.selection.clone();
+            let any_unmasked = sel.iter().any(|id| app.doc.get(*id).is_some_and(|n| !n.is_mask));
+            app.edit_nodes(&sel, |n| n.is_mask = any_unmasked);
+        }
         Action::ToggleSidebar => app.ui.left_collapsed = !app.ui.left_collapsed,
         Action::CreateComponent => app.create_component(),
         Action::ConvertToSlot => app.convert_selection_to_slot(),
@@ -482,12 +489,15 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Rulers", "Shift+R", Action::ToggleRulers).on(app.ui.rulers),
         leaf("Show/Hide UI", "Ctrl+\\", Action::ToggleSidebar).on(!app.ui.left_collapsed),
     ];
+    let all_mask = has_sel && app.selection.iter().all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask));
+    let mask_shortcut = if cfg!(target_os = "macos") { "⌃⌘M" } else { "Ctrl+Alt+M" };
     let object = vec![
         leaf("Group selection", "Ctrl+G", Action::Group).off(!has_sel),
         leaf("Ungroup", "Ctrl+Shift+G", Action::Ungroup).off(!has_sel),
         leaf("Frame selection", "Ctrl+Alt+G", Action::FrameSelection).off(!has_sel),
         leaf("Add auto layout", "Shift+A", Action::AutoLayout).off(!has_sel),
         leaf("Update auto layout", "", Action::UpdateAutoLayout).off(!app.has_upgradable_auto_layout()).sep(),
+        leaf("Use as mask", mask_shortcut, Action::ToggleMask).off(!has_sel).on(all_mask).sep(),
         leaf("Create component", "Ctrl+Alt+K", Action::CreateComponent).off(!has_sel),
         leaf("Detach instance", "Ctrl+Alt+B", Action::Detach).off(!has_inst).sep(),
         leaf("Bring to front", "Ctrl+Shift+]", Action::BringToFront).off(!has_sel),
@@ -1231,5 +1241,42 @@ mod tests {
         }
         // Several surface roles share one fill, so only the size says this is the palette frame.
         assert!(found.iter().any(|(w, h)| (w - 520.0).abs() < 0.5 && (h - 394.0).abs() < 0.5), "palette frame is 520 by 394, got {found:?}");
+    }
+
+    #[test]
+    fn object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-menu");
+        let page = doc.add_page("Page 1");
+        let (a, b) = (doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, DocNode::rectangle(a, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        doc.insert(page, DocNode::rectangle(b, Rect::new(60.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        let expected_sc = if cfg!(target_os = "macos") { "⌃⌘M" } else { "Ctrl+Alt+M" };
+        let row_empty = mask_row(&app);
+        assert!(row_empty.disabled, "disabled when nothing is selected");
+        assert!(!row_empty.checked);
+        assert_eq!(row_empty.shortcut, expected_sc);
+
+        app.selection = vec![a, b];
+        let row_sel = mask_row(&app);
+        assert!(!row_sel.disabled, "enabled when layers are selected");
+        assert!(!row_sel.checked);
+
+        let ctx = egui::Context::default();
+        run(&mut app, &ctx, Action::ToggleMask);
+        assert!(app.doc.get(a).unwrap().is_mask && app.doc.get(b).unwrap().is_mask);
+        assert!(mask_row(&app).checked, "checked when all selected layers are masks");
+
+        app.undo();
+        assert!(!app.doc.get(a).unwrap().is_mask && !app.doc.get(b).unwrap().is_mask);
     }
 }

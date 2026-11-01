@@ -937,6 +937,7 @@ impl Shell {
                 (Key::G, false, false) => Some(Action::Group),
                 (Key::G, true, _) => Some(Action::Ungroup),
                 (Key::G, false, true) => Some(Action::FrameSelection),
+                (Key::M, false, alt) if alt || (cfg!(target_os = "macos") && m.ctrl) => Some(Action::ToggleMask),
                 (Key::K, false, true) => Some(Action::CreateComponent),
                 (Key::B, false, true) => Some(Action::Detach),
                 (Key::K, true, false) => Some(Action::CombineVariants),

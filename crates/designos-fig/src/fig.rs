@@ -877,6 +877,7 @@ const MAPPED_NODE_CHANGE_FIELDS: &[&str] = &[
     "blendMode",
     "mask",
     "isMask",
+    "maskType",
     "internalOnly",
     "isStateGroup",
     "backgroundColor",
@@ -1131,7 +1132,6 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
             | "sharedSymbolVersion"
             | "publishedVersion"
             | "version"
-            | "maskType"
             | "scrollDirection"
             | "lockMode"
             | "codeExportName"
@@ -1457,6 +1457,7 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
     copy(&mut m, nc, "opacity", "opacity");
     copy(&mut m, nc, "blendMode", "blendMode");
     copy(&mut m, nc, "mask", "isMask");
+    copy(&mut m, nc, "maskType", "maskType");
     if nc.get("proportionsConstrained").and_then(Value::as_bool) == Some(true)
         || nc.get("targetAspectRatio").and_then(|v| v.get("value")).is_some()
         || nc.get("targetAspectRatio").and_then(Value::as_object).is_some_and(|o| !o.is_empty())
@@ -2190,6 +2191,9 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             }
             "mask" => {
                 m.insert("isMask".into(), val.clone());
+            }
+            "maskType" => {
+                m.insert("maskType".into(), val.clone());
             }
             "overrideLevel" => {
                 if let Some(lvl) = val.as_i64() {

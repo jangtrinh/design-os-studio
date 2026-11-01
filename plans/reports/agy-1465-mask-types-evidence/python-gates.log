@@ -1,0 +1,82 @@
+============================================================================================================
+ design:os studio — Zero Fake UI Enforcement Gate (DIR-28 · BR-31 · REQ-25 · D25)
+============================================================================================================
+ID    | STATUS | MODULE                           | INVARIANT & EVIDENCE
+------------------------------------------------------------------------------------------------------------
+Z01   | PASS   | terminal.rs + agent_composer.rs  | Live PTY send_to_agent in submit_chat_prompt; zero one-shot (-p / exec) calls — `runtime_binary_available` + `submit_chat_prompt` -> `send_to_agent` writes bracketed paste into the live PTY; zero one-shot (`-p` / `exec`) invocations in shipped code
+Z02   | PASS   | terminal.rs                      | set_active_runtime mutates tab.preset; DESIGNOS_AGENT_RUNTIME set at spawn; one-shot chat symbols removed — `set_active_runtime` mutates `tab.preset = runtime` without PTY writes; `DESIGNOS_AGENT_RUNTIME` set at spawn; retired one-shot chat symbols absent from shipped code
+Z03   | PASS   | terminal.rs                      | dispatch_figma_ai_prompt sends executable command without # comment prefix — `dispatch_figma_ai_prompt` dispatches through `send_to_agent` without `#` comment prefix
+Z04   | PASS   | terminal.rs + agent_header.rs + agent_composer_toolbar.rs | Agents header and composer buttons have Sense::click() handlers; fake mic removed — All 6 header/composer controls (agents-header-ai, agents-new-chat-btn, agents-more-btn, agents-composer-add-btn, agents-composer-agent-pill, agents-composer-mode-btn) have interactive Sense::click() handlers; fake mic removed
+Z05   | PASS   | specs.rs                         | specs-ask-agent-bar hosts editable TextEdit::singleline(ask_input) — `specs-ask-agent-bar` hosts editable `TextEdit::singleline(&mut ...ask_input)`
+Z06   | PASS   | specs.rs                         | Right Inspector dynamic active_section_toc & interactive SpecComment — Right Spec Inspector has dynamic `active_section_toc` + interactive `SpecComment` (`comment_draft` + `TextEdit::singleline`)
+Z07   | PASS   | specs.rs                         | Unwrapped draw_wrapped_prose & render_tab_blueprints renders pkg.ui_contract — `draw_wrapped_prose` does not truncate at `lines.len() >= 3` and `render_tab_blueprints` renders `pkg.ui_contract`
+Z08   | PASS   | panels/toolbar.rs + cmdk.rs      | Contextual sub-toolbar buttons mutate app.doc / app.tool; ctx-crop / ctx-remove-bg / cmdk Remove background stay removed — `panels/toolbar.rs` contextual buttons (`ctx-select-area`, `ctx-edit-prompt`) mutate `app.doc` / `app.tool`; no ctx-crop / ctx-remove-bg / Remove background in any shipped source
+Z09   | PASS   | home/mod.rs                      | Act::ExportFig writes .fig to disk & Nav::AllFolders/Templates/Libraries filter distinctly — `home/mod.rs` `Act::ExportFig` writes `.fig` bytes through `fig_export::export_new` and `io::write_new_in` (`create_new` + `write_all`) and `AllFolders`/`Templates`/`Libraries` filter distinctly
+Z10   | PASS   | panels/right.rs                  | Share copies to clipboard & Dev Mode 2nd tab renders Dev Plugins inspector — `panels/right.rs` `Share` copies to OS clipboard (`copy_text`) and Dev Mode 2nd tab renders Dev Plugins inspector
+Z11   | PASS   | panels/inspect.rs + properties.rs | Dev Mode Code Connect/MCP/Redlines/Keyframes & Copy to Slides mutate state/clipboard — `panels/inspect.rs` (`dev-code-connect`, `dev-mcp-btn`, `dev-add-redlines`, `inspect_keyframes_section`) and `panels/properties.rs` (`copy-to-slides`) execute real clipboard/document mutations
+Z12   | PASS   | widgets/picker.rs + panels/mod.rs + variables/view.rs | Mode::Image creates Paint::Image/doc.images & scrollbars support Sense::click_and_drag() — `widgets/picker.rs` `Mode::Image` creates real `Paint::Image` / `doc.images` entries and `panels::scrollbar` + `variables::view::hscrollbar` support `Sense::click_and_drag()`
+Z13   | PASS   | panels/menus.rs                  | Zoom menu rows are the allow-listed set on real Actions; no hard-coded checked state — Zoom menu = the 11 allow-listed rows, each on its real `Action`; every `checked:` is `false` or read from `app.` state
+Z14   | PASS   | updater.rs + tabs.rs             | Sample-manifest updater UI stays hidden (guard is code in tabs, sidebar card, modal) until a real manifest fetch exists — updater UI hidden=True, sample manifest used=True; guard is code in tabs.rs button, sidebar card and update modal
+Z15   | PASS   | terminal.rs + cmdk.rs            | No fake template synthesis or canned Executed via transcript in Agents panel; synthesize_spec_from_prompt stays private to cmdk.rs — `terminal.rs` never calls `synthesize_spec_from_prompt` or prints `Executed via` / `PRD Context:`; `synthesize_spec_from_prompt` is private to `cmdk.rs`
+Z16   | PASS   | registered label helpers in designos-app/src | UX writing: action labels at registered button/menu helpers and label fns <=3 words, no count in them (ratchet vs ux_writing_baseline.json) — 18 labelled violation(s) all in scripts/ux_writing_baseline.json; none new (design/ux-writing.md rules 1 and 3)
+Z17   | PASS   | terminal.rs + mcp/server.rs      | No global /tmp/designos-live-* or designos-live-selection.spec.json fallback in shipped code — no shipped (non-test) Rust source under designos-app or designos-mcp contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json`
+------------------------------------------------------------------------------------------------------------
+ Gate Verdict: PASS (17/17 invariants satisfied)
+============================================================================================================
+literal geometry outside theme.rs: offset_literals=1525, inset_literals=41, radius_literals=171, font_literals=23, nonconcentric_pairs=2, legacy_control_refs=6
+note: 1 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+P1 registry <-> Rust symbols: PASS  78 records, 66 distinct symbols resolve, 3 records report-only (new-in-*, not blocking until the owning spec)
+    report: 2 record(s) with rust_status=new-in-D: Bar/Contextual, Navigation/TitleBar
+    report: 1 record(s) with rust_status=new-in-K: Card/Library
+P2 painted code (colour and spacing ratchets): PASS  2 ratchet scripts run
+P3 theme names <-> store <-> records (colours): PASS  188 theme.rs colour names (32 mapped, 21 shared-key, 68 pending, 67 exempt); 54 records with colours checked
+P4 tiers and composition: PASS  78 records, 232 composition edges
+P5 states: PASS  39 records compared with kit-states.json
+P6 flow screens <-> records: PASS  16 flow screens, 16 flow ids in records
+P7 absences (pinned sites): PASS  ns1 5 sites, ns2 0 sites, ns4 9 sites, ns5 62 sites
+P9 shipped names (the design store holds no kit role name): PASS  10 store-set files, 0 kit roles, 0 UTILITY_* hits
+    kit role scan NOT RUN (no token contract: pass --contract or set DESIGN_OS_TOKEN_CONTRACT)
+RESULT: PASS (P1, P2, P3, P4, P5, P6, P7, P9)
+purple-band hits: 0
+====================================================================================================================
+ design:os studio — Self-Evolution Engine & Live Token Parity Audit (mode=CHECK)
+====================================================================================================================
+ID   | STATUS | GATE                     | EVIDENCE & VERDICT
+--------------------------------------------------------------------------------------------------------------------
+G01  | PASS   | check_rust_token_parity  | 35/35 Rust theme.rs constants match design.tokens.json; 0 Purple Ban violations; purple-band hits: 0; 30 non-colour constants match; colour classes cover 188 theme.rs names (32 mapped, 21 shared-key, 68 pending, 67 exempt; pending max 68)
+G02  | PASS   | zero_fake_ui_gate        | 17/17 Zero-Fake-UI invariants PASS (DIR-28 / BR-31 / REQ-25)
+G03  | PASS   | ui_ds_status             | DS manifest active (78 registered components, hash=sha256-SkbvSo4GPRiD…)
+G04  | PASS   | ui_ds_a11y               | supplementary: 15 foreground/surface pairs + 8 state pairs + 50 explicit chrome pairs (design/a11y-chrome-pairs.txt; failures=0, unresolved=0)
+G05  | PASS   | ui_ds_soul_check         | 0 soul findings; design/soul.md status=ratified
+G06  | PASS   | ui_agents_check          | 4 stamped .claude/agents + 4 cross-runtime .agents/agents fresh (0 errors)
+G07  | PASS   | design_os_evolution      | verdict=ALIVE, proof.level=IMPROVING, findings=0, ledger_events=402, recurrent_insights=2 (check-only)
+G08  | PASS   | ui_gate_specimen         | 6/6 families PASS (errors=0, warnings=0); ds-usage-lint errors=0
+G09  | PASS   | design_os_project_audit  | design-os audit . minus skills/vendor/** and fixtures/stacking.html (16 html targets + repo-level, 83 tools, errors=0, warnings=198, excluded=2); nodes violations=0; flow errors=0
+--------------------------------------------------------------------------------------------------------------------
+ G09 detail:
+   audit scope: design-os audit . minus skills/vendor/** and fixtures/stacking.html (owner rulings 2026-10-22)
+   audited html targets (16), plus 1 repo-level DS/flow run:
+     ok   crates/designos-webcapture/tests/playwright/fixtures/card.html (tools=5, errors=0, warnings=1, exit=0)
+     ok   crates/designos-webcapture/tests/playwright/fixtures/cascade.html (tools=5, errors=0, warnings=1, exit=0)
+     ok   crates/designos-webcapture/tests/playwright/fixtures/pseudo.html (tools=5, errors=0, warnings=0, exit=0)
+     ok   crates/designos-webcapture/tests/playwright/fixtures/scrolled.html (tools=5, errors=0, warnings=0, exit=0)
+     ok   design/marketing/svg-animation/micro-01-autolayout-5.html (tools=5, errors=0, warnings=22, exit=0)
+     ok   design/marketing/svg-animation/micro-02-css-grid.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-03-smart-selection.html (tools=5, errors=0, warnings=22, exit=0)
+     ok   design/marketing/svg-animation/micro-04-shape-controls.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-05-vector-network.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-06-layer-eyedropper.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-07-devmode-boxmodel.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-08-scale-navigation.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/specimen.html (tools=5, errors=0, warnings=0, exit=0)
+     ok   docs/_layouts/default.html (tools=5, errors=0, warnings=0, exit=0)
+     ok   docs/index.html (tools=5, errors=0, warnings=11, exit=0)
+     ok   scripts/tests/fixtures/release-sync/index.html (tools=5, errors=0, warnings=2, exit=0)
+   repo-level DS/flow: tools=3, errors=0, exit=0
+   excluded (2):
+     crates/designos-webcapture/tests/playwright/fixtures/stacking.html (tests capture of z-index 2147483647, its test asserts that value)
+     skills/vendor/jakubkrehel-skills/upstream/skills/technical-drawing/assets/viewer.html (SHA-pinned upstream, byte-identical)
+--------------------------------------------------------------------------------------------------------------------
+ Overall Self-Evolution Verdict: PASS (9/9 gates passed)
+====================================================================================================================
