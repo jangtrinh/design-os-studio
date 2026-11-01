@@ -6,7 +6,8 @@ use crate::edit::Tx;
 use crate::util::*;
 use designos_doc::VectorNetwork;
 use designos_doc::*;
-use designos_render::vectorops::{count_subpaths, flatten_nodes, node_paths, offset_paths, outline_stroke};
+use designos_render::vectorops::{count_subpaths, flatten_nodes, node_paths, offset_paths, outline_stroke, text_flatten_runs, text_glyph_runs, TextVectorRun};
+use std::collections::BTreeSet;
 
 /// A new Vector node holding `paths` (in the coordinates of the parent it will live in) with the
 /// appearance of `template`. The node box is fitted to the geometry.
@@ -31,9 +32,74 @@ pub fn vector_node(id: NodeId, paths: &[Path], template: &Node) -> Node {
 /// Tolerance (in node units) of Simplify path.
 pub const SIMPLIFY_TOLERANCE: f32 = 1.0;
 
-/// Whether a node can be merged or outlined: it has geometry of its own.
+/// Whether a node can be merged into a boolean group: it has shape geometry of its own.
 fn has_geometry(app: &App, id: NodeId) -> bool {
     app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Text(_) | NodeKind::Page { .. } | NodeKind::Unknown { .. }))
+}
+
+/// Whether a node can be flattened into vector paths.
+fn can_flatten(app: &App, id: NodeId) -> bool {
+    app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Page { .. } | NodeKind::Unknown { .. }))
+}
+
+fn remap_paint_gradients(paints: &mut [Paint], from_size: Vec2, sub_origin: Vec2, sub_size: Vec2) {
+    let sx = sub_size.x.max(1e-6);
+    let sy = sub_size.y.max(1e-6);
+    for p in paints {
+        match &mut p.kind {
+            PaintKind::LinearGradient { handles, .. }
+            | PaintKind::RadialGradient { handles, .. }
+            | PaintKind::AngularGradient { handles, .. }
+            | PaintKind::DiamondGradient { handles, .. } => {
+                for h in handles {
+                    h.x = (h.x * from_size.x - sub_origin.x) / sx;
+                    h.y = (h.y * from_size.y - sub_origin.y) / sy;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn carry_paint_bindings(src: &Node, resolved_base_fills: &[Paint], dst: &mut Node, carry_fills: bool, carry_strokes: bool) {
+    dst.variables.modes = src.variables.modes.clone();
+    let fill_matches = resolved_base_fills.is_empty() || dst.fills == resolved_base_fills;
+    for (k, v) in &src.variables.bindings {
+        let keep_fill = carry_fills && fill_matches && k.starts_with("fills/");
+        let keep_stroke = carry_strokes && k.starts_with("stroke");
+        if keep_fill || keep_stroke {
+            dst.variables.bindings.insert(k.clone(), v.clone());
+        }
+    }
+    if carry_fills && fill_matches {
+        if let Some(fill_ref) = src.style_refs.get("fill") {
+            dst.style_refs.insert("fill".into(), fill_ref.clone());
+        }
+    }
+    if carry_strokes {
+        if let Some(stroke_ref) = src.style_refs.get("stroke") {
+            dst.style_refs.insert("stroke".into(), stroke_ref.clone());
+        }
+    }
+}
+
+fn collect_text_font_requests(doc: &Document, ids: &[NodeId]) -> BTreeSet<designos_fonts::FontRequest> {
+    let mut out = BTreeSet::new();
+    for id in ids {
+        doc.walk(*id, |raw, _| {
+            let resolved = resolve_node(doc, raw);
+            let NodeKind::Text(tp) = &resolved.kind else { return };
+            out.extend(designos_fonts::text_faces(tp));
+            for script in designos_fonts::scripts_in(&tp.content) {
+                let mut weights = BTreeSet::from([tp.style.font_weight]);
+                weights.extend(tp.runs.iter().map(|r| r.style.font_weight));
+                for w in weights {
+                    out.insert(designos_fonts::FontRequest::new(script.family(), w, false));
+                }
+            }
+        });
+    }
+    out
 }
 
 /// Whether Offset path may change `id`: a basic shape or vector with no layers inside. Frames,
@@ -66,12 +132,94 @@ fn linked(app: &App, id: NodeId) -> bool {
 }
 
 impl App {
+    fn ensure_text_fonts(&mut self, ids: &[NodeId]) -> bool {
+        let requests = collect_text_font_requests(&self.doc, ids);
+        if requests.is_empty() {
+            return true;
+        }
+        match self.fonts.ensure_loaded(requests) {
+            Ok(()) => true,
+            Err(failed) => {
+                if let Some(first) = failed.first() {
+                    let more = failed.len() - 1;
+                    let suffix = if more > 0 { format!(" (+{more} more)") } else { String::new() };
+                    self.show_toast(format!("Font unavailable: {first}{suffix}"), true);
+                }
+                false
+            }
+        }
+    }
+
+    fn text_run_to_single_vector(&mut self, raw: &Node, resolved: &Node, run: &TextVectorRun) -> Node {
+        let vid = self.doc.alloc_id();
+        let mut template = resolved.clone();
+        template.name = raw.name.clone();
+        template.fills = run.fills.clone();
+        template.stroke = resolved.stroke.clone();
+        let paths = std::slice::from_ref(&run.path);
+        let bb = VectorNetwork::from_paths(paths).bounds();
+        let mut node = vector_node(vid, paths, &template);
+        remap_paint_gradients(&mut node.fills, resolved.size, v2(bb.x, bb.y), node.size);
+        remap_paint_gradients(&mut node.stroke.paints, resolved.size, v2(bb.x, bb.y), node.size);
+        node.component = ComponentLink::default();
+        let base_fills = match &resolved.kind {
+            NodeKind::Text(tp) => tp.style.fills.as_slice(),
+            _ => &[],
+        };
+        carry_paint_bindings(raw, base_fills, &mut node, run.uses_base_fill, true);
+        node
+    }
+
+    fn text_runs_to_group(&mut self, raw: &Node, resolved: &Node, runs: &[TextVectorRun]) -> Vec<Node> {
+        let gid = self.doc.alloc_id();
+        let mut group = Node::new(gid, NodeKind::Group);
+        group.name = raw.name.clone();
+        group.transform = raw.transform;
+        group.size = resolved.size;
+        group.opacity = resolved.opacity;
+        group.blend = raw.blend;
+        group.constraints = raw.constraints;
+        group.layout_child = raw.layout_child;
+        group.effects = resolved.effects.clone();
+        group.variables.modes = raw.variables.modes.clone();
+        let base_fills = match &resolved.kind {
+            NodeKind::Text(tp) => tp.style.fills.as_slice(),
+            _ => &[],
+        };
+        let mut children_nodes = Vec::with_capacity(runs.len());
+        for (idx, run) in runs.iter().enumerate() {
+            let cid = self.doc.alloc_id();
+            let mut child_template = resolved.clone();
+            child_template.transform = Affine::IDENTITY;
+            child_template.fills = run.fills.clone();
+            child_template.stroke = resolved.stroke.clone();
+            child_template.effects.clear();
+            child_template.opacity = 1.0;
+            child_template.blend = BlendMode::Normal;
+            let paths = std::slice::from_ref(&run.path);
+            let bb = VectorNetwork::from_paths(paths).bounds();
+            let mut child = vector_node(cid, paths, &child_template);
+            remap_paint_gradients(&mut child.fills, resolved.size, v2(bb.x, bb.y), child.size);
+            remap_paint_gradients(&mut child.stroke.paints, resolved.size, v2(bb.x, bb.y), child.size);
+            child.parent = Some(gid);
+            child.name = if run.name.trim().is_empty() { format!("Vector {}", idx + 1) } else { run.name.clone() };
+            child.component = ComponentLink::default();
+            carry_paint_bindings(raw, base_fills, &mut child, run.uses_base_fill, true);
+            group.children.push(cid);
+            children_nodes.push(child);
+        }
+        let mut out = Vec::with_capacity(1 + children_nodes.len());
+        out.push(group);
+        out.extend(children_nodes);
+        out
+    }
+
     /// Ctrl+E: merges the selection (or a boolean group) into one vector with the computed geometry.
     pub fn flatten_selection(&mut self) {
         if self.canvas.vedit.is_some() {
             crate::canvas::vector::exit(self);
         }
-        let ids: Vec<NodeId> = self.same_parent_tops().into_iter().filter(|i| has_geometry(self, *i)).collect();
+        let ids: Vec<NodeId> = self.same_parent_tops().into_iter().filter(|i| can_flatten(self, *i)).collect();
         if ids.is_empty() {
             self.show_toast("Select a layer with a shape to flatten", false);
             return;
@@ -80,21 +228,56 @@ impl App {
             self.show_toast("Detach the instance or component before flattening", true);
             return;
         }
+        if !self.ensure_text_fonts(&ids) {
+            return;
+        }
+        if ids.len() == 1 && self.doc.get(ids[0]).is_some_and(|n| matches!(n.kind, NodeKind::Text(_))) {
+            let id = ids[0];
+            let Some(n) = self.doc.get(id).cloned() else { return };
+            let Some(parent) = n.parent else { return };
+            let Some(index) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)) else { return };
+            let runs = text_flatten_runs(&self.doc, &n);
+            if runs.is_empty() {
+                self.show_toast("Nothing to flatten", false);
+                return;
+            }
+            let resolved = resolve_node(&self.doc, &n).into_owned();
+            let nodes =
+                if runs.len() == 1 { vec![self.text_run_to_single_vector(&n, &resolved, &runs[0])] } else { self.text_runs_to_group(&n, &resolved, &runs) };
+            let out_id = nodes[0].id;
+            let mut tx = Tx::new();
+            if tx.cmds_all_or_none(&mut self.doc, vec![Command::Remove { id }, Command::Insert { parent, index, nodes }]).is_err() {
+                tx.cancel(&mut self.doc);
+                return;
+            }
+            self.run_tx(tx);
+            self.selection = vec![out_id];
+            return;
+        }
         let Some(parent) = self.doc.get(ids[0]).and_then(|n| n.parent) else { return };
         let Some(flat) = flatten_nodes(&self.doc, &ids, &self.doc.world_transform(parent)) else {
             self.show_toast("Nothing to flatten", false);
             return;
         };
         let Some(template) = self.doc.get(ids[flat.style_from]).cloned() else { return };
+        let resolved_template = resolve_node(&self.doc, &template).into_owned();
         let siblings = self.doc.get(parent).map(|p| p.children.clone()).unwrap_or_default();
         let index = ids.iter().filter_map(|i| siblings.iter().position(|c| c == i)).max().map(|i| i + 1).unwrap_or(siblings.len());
         let id = self.doc.alloc_id();
         // paths are in the parent's space already, so the template contributes no transform
-        let mut base = template.clone();
+        let mut base = resolved_template.clone();
         base.transform = Affine::IDENTITY;
+        let base_fills = match &resolved_template.kind {
+            NodeKind::Text(tp) => {
+                base.fills = tp.runs.first().map(|r| r.style.fills.clone()).unwrap_or_else(|| tp.style.fills.clone());
+                tp.style.fills.as_slice()
+            }
+            _ => resolved_template.fills.as_slice(),
+        };
         let mut node = vector_node(id, &flat.paths, &base);
         node.name = if ids.len() == 1 { template.name.clone() } else { self.unique_name("Vector") };
         node.component = ComponentLink::default();
+        carry_paint_bindings(&template, base_fills, &mut node, true, true);
         let mut tx = Tx::new();
         if tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes: vec![node] }).is_err() {
             return;
@@ -107,16 +290,38 @@ impl App {
         self.selection = vec![id];
     }
 
-    /// Ctrl+Alt+O: turns each selected layer's stroke into filled geometry.
+    /// Ctrl+Alt+O: turns each selected layer's stroke into filled geometry, or converts selected text layers into per-glyph vector outlines.
     pub fn outline_stroke_selection(&mut self) {
         if self.canvas.vedit.is_some() {
             crate::canvas::vector::exit(self);
         }
         let tops = self.top_selection();
+        if !self.ensure_text_fonts(&tops) {
+            return;
+        }
         let mut tx = Tx::new();
         let mut made = vec![];
         for id in tops {
             let Some(n) = self.doc.get(id).cloned() else { continue };
+            if matches!(n.kind, NodeKind::Text(_)) {
+                if linked(self, id) {
+                    continue;
+                }
+                let runs = text_glyph_runs(&self.doc, &n);
+                if runs.is_empty() {
+                    continue;
+                }
+                let Some(parent) = n.parent else { continue };
+                let Some(index) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)) else { continue };
+                let resolved = resolve_node(&self.doc, &n).into_owned();
+                let nodes = self.text_runs_to_group(&n, &resolved, &runs);
+                let gid = nodes[0].id;
+                if tx.cmds_all_or_none(&mut self.doc, vec![Command::Remove { id }, Command::Insert { parent, index, nodes }]).is_err() {
+                    continue;
+                }
+                made.push(gid);
+                continue;
+            }
             let visible_paints = n.stroke.paints.iter().any(|p| p.visible);
             if !visible_paints || n.stroke.weight <= 0.0 {
                 continue;
@@ -691,5 +896,385 @@ mod tests {
 
         let group = app.doc.get(gid).unwrap();
         assert!((group.size.x - 260.0).abs() < 1e-3 && (group.size.y - 120.0).abs() < 1e-3, "the group follows the grown child, got {:?}", group.size);
+    }
+
+    fn two_run_text_node(id: NodeId, red: Color, green: Color) -> Node {
+        let base_style = TextStyle { font_family: "Inter".into(), font_weight: 400, font_size: 24.0, fills: vec![Paint::solid(red)], ..Default::default() };
+        let green_style = TextStyle { fills: vec![Paint::solid(green)], ..base_style.clone() };
+        let mut t = Node::text(id, Rect::new(24.0, 36.0, 160.0, 40.0), "AB cd", base_style.clone());
+        t.name = "Headline".into();
+        if let NodeKind::Text(tp) = &mut t.kind {
+            tp.runs = vec![TextRun { start: 0, end: 3, style: base_style }, TextRun { start: 3, end: 5, style: green_style }];
+        }
+        t
+    }
+
+    #[test]
+    fn outline_stroke_of_two_run_text_gives_one_vector_per_glyph_with_each_runs_fill() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (before_id, tid, after_id) = (doc.alloc_id(), doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, Node::rectangle(before_id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        let red = Color::rgb(220, 40, 40);
+        let green = Color::rgb(30, 180, 70);
+        let mut t = two_run_text_node(tid, red, green);
+        t.transform = Affine::translate(24.0, 36.0) * Affine::rotate(0.15);
+        let expected_tf = t.transform;
+        doc.insert(page, t).unwrap();
+        doc.insert(page, Node::rectangle(after_id, Rect::new(200.0, 0.0, 10.0, 10.0))).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![tid];
+        app.outline_stroke_selection();
+
+        assert_eq!(app.selection.len(), 1);
+        let gid = app.selection[0];
+        assert_eq!(app.doc.get(page).unwrap().children, vec![before_id, gid, after_id], "inserted at the text layer's index");
+        let group = app.doc.get(gid).unwrap();
+        assert!(matches!(group.kind, NodeKind::Group));
+        assert_eq!(group.name, "Headline");
+        assert_eq!(group.transform, expected_tf, "group preserves the text layer's transform");
+        assert_eq!(group.children.len(), 4, "one vector per visible glyph in 'AB cd' (space has no outline)");
+
+        for (idx, &cid) in group.children.iter().enumerate() {
+            let child = app.doc.get(cid).unwrap();
+            assert!(matches!(child.kind, NodeKind::Vector { .. }));
+            let expected_color = if idx < 2 { red } else { green };
+            assert_eq!(child.fills, vec![Paint::solid(expected_color)], "glyph {idx} carries its run's fill");
+        }
+    }
+
+    #[test]
+    fn flatten_of_single_paint_text_gives_one_vector() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (before_id, tid, after_id) = (doc.alloc_id(), doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, Node::rectangle(before_id, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        let blue = Color::rgb(20, 80, 220);
+        let style = TextStyle { font_family: "Inter".into(), font_size: 20.0, fills: vec![Paint::solid(blue)], ..Default::default() };
+        let mut t = Node::text(tid, Rect::new(15.0, 25.0, 120.0, 32.0), "Hello", style);
+        t.name = "Greeting".into();
+        doc.insert(page, t).unwrap();
+        doc.insert(page, Node::rectangle(after_id, Rect::new(200.0, 0.0, 10.0, 10.0))).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![tid];
+        app.flatten_selection();
+
+        assert_eq!(app.selection.len(), 1);
+        let vid = app.selection[0];
+        assert_eq!(app.doc.get(page).unwrap().children, vec![before_id, vid, after_id]);
+        let v = app.doc.get(vid).unwrap();
+        assert_eq!(v.name, "Greeting");
+        assert_eq!(v.fills, vec![Paint::solid(blue)]);
+        let NodeKind::Vector { paths, network: Some(net) } = &v.kind else {
+            panic!("expected a single Vector node, got {:?}", v.kind);
+        };
+        assert!(!paths.is_empty());
+        assert!(!net.vertices.is_empty());
+    }
+
+    #[test]
+    fn flatten_of_two_paint_text_gives_two_vectors_in_a_group() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let tid = doc.alloc_id();
+        let red = Color::rgb(220, 40, 40);
+        let green = Color::rgb(30, 180, 70);
+        let t = two_run_text_node(tid, red, green);
+        let expected_tf = t.transform;
+        doc.insert(page, t).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![tid];
+        app.flatten_selection();
+
+        assert_eq!(app.selection.len(), 1);
+        let gid = app.selection[0];
+        let group = app.doc.get(gid).unwrap();
+        assert!(matches!(group.kind, NodeKind::Group));
+        assert_eq!(group.name, "Headline");
+        assert_eq!(group.transform, expected_tf);
+        assert_eq!(group.children.len(), 2, "two distinct paint sets produce two vectors in a group");
+        let v0 = app.doc.get(group.children[0]).unwrap();
+        let v1 = app.doc.get(group.children[1]).unwrap();
+        assert!(matches!(v0.kind, NodeKind::Vector { .. }));
+        assert!(matches!(v1.kind, NodeKind::Vector { .. }));
+        assert_eq!(v0.fills, vec![Paint::solid(red)]);
+        assert_eq!(v1.fills, vec![Paint::solid(green)]);
+    }
+
+    #[test]
+    fn text_to_vector_carries_over_fill_and_stroke_bindings() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        doc.variable_collections.insert(
+            "coll_1".into(),
+            VariableCollection {
+                id: "coll_1".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "m1".into(), name: "Default".into() }],
+                default_mode: "m1".into(),
+                variables: vec!["var_fill".into(), "var_stroke".into(), "var_weight".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        let fill_color = Color::rgb(12, 140, 230);
+        let stroke_color = Color::rgb(240, 90, 20);
+        for (id, name, kind, val) in [
+            ("var_fill", "Color/Fill", VariableKind::Color, VariableValue::Color(fill_color)),
+            ("var_stroke", "Color/Stroke", VariableKind::Color, VariableValue::Color(stroke_color)),
+            ("var_weight", "Stroke/Weight", VariableKind::Number, VariableValue::Number(2.0)),
+        ] {
+            doc.variables.insert(
+                id.into(),
+                Variable {
+                    id: id.into(),
+                    name: name.into(),
+                    collection: "coll_1".into(),
+                    kind,
+                    values: std::collections::BTreeMap::from([("m1".into(), val)]),
+                    description: String::new(),
+                    scopes: Vec::new(),
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+
+        let tid = doc.alloc_id();
+        let style = TextStyle { font_family: "Inter".into(), font_size: 20.0, fills: vec![Paint::solid(Color::BLACK)], ..Default::default() };
+        let mut t = Node::text(tid, Rect::new(10.0, 10.0, 80.0, 30.0), "Hi", style);
+        t.stroke.paints = vec![Paint::solid(Color::WHITE)];
+        t.stroke.weight = 1.0;
+        t.variables.bindings.insert("fills/0".into(), "var_fill".into());
+        t.variables.bindings.insert("strokes/0".into(), "var_stroke".into());
+        t.variables.bindings.insert("strokeWeight".into(), "var_weight".into());
+        t.variables.modes.insert("coll_1".into(), "m1".into());
+        doc.insert(page, t).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![tid];
+        app.flatten_selection();
+
+        let flat_v = app.doc.get(app.selection[0]).unwrap();
+        assert_eq!(flat_v.variables.bindings.get("fills/0").map(String::as_str), Some("var_fill"));
+        assert_eq!(flat_v.variables.bindings.get("strokes/0").map(String::as_str), Some("var_stroke"));
+        assert_eq!(flat_v.variables.bindings.get("strokeWeight").map(String::as_str), Some("var_weight"));
+        assert_eq!(flat_v.variables.modes.get("coll_1").map(String::as_str), Some("m1"));
+        assert_eq!(flat_v.fills, vec![Paint::solid(fill_color)]);
+        assert_eq!(flat_v.stroke.paints, vec![Paint::solid(stroke_color)]);
+
+        app.undo();
+        app.selection = vec![tid];
+        app.outline_stroke_selection();
+        let group = app.doc.get(app.selection[0]).unwrap();
+        assert!(!group.children.is_empty());
+        for &cid in &group.children {
+            let gv = app.doc.get(cid).unwrap();
+            assert_eq!(gv.variables.bindings.get("fills/0").map(String::as_str), Some("var_fill"));
+            assert_eq!(gv.variables.bindings.get("strokes/0").map(String::as_str), Some("var_stroke"));
+            assert_eq!(gv.variables.bindings.get("strokeWeight").map(String::as_str), Some("var_weight"));
+        }
+    }
+
+    #[test]
+    fn one_undo_restores_text_node_exactly_in_json() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let tid = doc.alloc_id();
+        let mut t = two_run_text_node(tid, Color::rgb(200, 30, 30), Color::rgb(30, 120, 220));
+        t.variables.bindings.insert("fills/0".into(), "var_brand".into());
+        doc.insert(page, t).unwrap();
+        let before_node_json = serde_json::to_string(doc.get(tid).unwrap()).unwrap();
+        let before_page_json = serde_json::to_string(doc.get(page).unwrap()).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![tid];
+        app.flatten_selection();
+        assert!(app.doc.get(tid).is_none());
+        assert_eq!(app.hist.undo_depth(), 1);
+
+        app.undo();
+        assert_eq!(serde_json::to_string(app.doc.get(tid).unwrap()).unwrap(), before_node_json);
+        assert_eq!(serde_json::to_string(app.doc.get(page).unwrap()).unwrap(), before_page_json);
+
+        app.selection = vec![tid];
+        app.outline_stroke_selection();
+        assert!(app.doc.get(tid).is_none());
+        assert_eq!(app.hist.undo_depth(), 1);
+
+        app.undo();
+        assert_eq!(serde_json::to_string(app.doc.get(tid).unwrap()).unwrap(), before_node_json);
+        assert_eq!(serde_json::to_string(app.doc.get(page).unwrap()).unwrap(), before_page_json);
+    }
+
+    #[test]
+    fn text_to_vector_loads_unloaded_font_and_refuses_unavailable_font() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let missing_id = doc.alloc_id();
+        let missing_style = TextStyle { font_family: "MissingFont".into(), font_size: 18.0, ..Default::default() };
+        doc.insert(page, Node::text(missing_id, Rect::new(0.0, 0.0, 100.0, 30.0), "No fallback", missing_style)).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.fonts = crate::fonts::testkit::serving(&["Vecops Font"]);
+        app.selection = vec![missing_id];
+
+        app.flatten_selection();
+        assert!(app.doc.get(missing_id).is_some(), "text node must stay untouched when font cannot load");
+        assert_eq!(app.hist.undo_depth(), 0);
+        let toast = app.toast.as_ref().expect("error toast shown");
+        assert!(toast.error && toast.text.starts_with("Font unavailable: MissingFont 400:"), "got toast: {:?}", toast.text);
+
+        app.toast = None;
+        app.outline_stroke_selection();
+        assert!(app.doc.get(missing_id).is_some());
+        assert_eq!(app.hist.undo_depth(), 0);
+        let toast = app.toast.as_ref().expect("error toast shown");
+        assert!(toast.error && toast.text.starts_with("Font unavailable: MissingFont 400:"));
+
+        // Now test a font that is not yet loaded in `app.fonts` but is available in the font cache/fetcher.
+        let loadable_id = app.doc.alloc_id();
+        let loadable_style = TextStyle { font_family: "Vecops Font".into(), font_size: 18.0, ..Default::default() };
+        app.doc.insert(page, Node::text(loadable_id, Rect::new(0.0, 40.0, 100.0, 30.0), "Loaded!", loadable_style)).unwrap();
+        assert!(app.fonts.registered().is_empty(), "font is not loaded before the command runs");
+
+        app.selection = vec![loadable_id];
+        app.flatten_selection();
+        assert!(!app.fonts.registered().is_empty(), "command loaded the font before outlining");
+        assert!(app.doc.get(loadable_id).is_none());
+        assert!(matches!(app.doc.get(app.selection[0]).unwrap().kind, NodeKind::Vector { .. }));
+    }
+
+    #[test]
+    fn mixed_selection_converts_text_and_shapes_together() {
+        let mut doc = Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let (tid, rid) = (doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, Node::text(tid, Rect::new(10.0, 10.0, 60.0, 24.0), "Hi", TextStyle::default())).unwrap();
+        let mut rect = Node::rectangle(rid, Rect::new(80.0, 10.0, 40.0, 24.0));
+        rect.fills.clear();
+        rect.stroke.paints = vec![Paint::solid(Color::rgb(10, 20, 30))];
+        rect.stroke.weight = 4.0;
+        doc.insert(page, rect).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![tid, rid];
+        app.outline_stroke_selection();
+        assert_eq!(app.selection.len(), 2, "both the text and the stroked shape were outlined");
+        assert!(matches!(app.doc.get(app.selection[0]).unwrap().kind, NodeKind::Group));
+        assert!(matches!(app.doc.get(app.selection[1]).unwrap().kind, NodeKind::Vector { .. }));
+        assert_eq!(app.hist.undo_depth(), 1);
+
+        app.undo();
+        assert!(app.doc.get(tid).is_some() && app.doc.get(rid).is_some());
+
+        app.selection = vec![tid, rid];
+        app.flatten_selection();
+        assert_eq!(app.selection.len(), 1, "flatten merges mixed selection into one vector");
+        assert!(matches!(app.doc.get(app.selection[0]).unwrap().kind, NodeKind::Vector { .. }));
+        assert_eq!(app.hist.undo_depth(), 1);
+    }
+
+    /// Computes `(max_channel_diff, mean_channel_diff, max_non_edge_diff)` between two RGBA pixmaps.
+    fn pixmap_diff_stats(before: &designos_render::tiny_skia::Pixmap, after: &designos_render::tiny_skia::Pixmap) -> (u8, f64, u8) {
+        assert_eq!((before.width(), before.height()), (after.width(), after.height()));
+        let (w, h) = (before.width() as i32, before.height() as i32);
+        let b_data = before.data();
+        let a_data = after.data();
+        let mut max_diff = 0u8;
+        let mut sum_diff = 0u64;
+        let mut max_non_edge_diff = 0u8;
+        for y in 0..h {
+            for x in 0..w {
+                let idx = ((y * w + x) * 4) as usize;
+                let mut px_max = 0u8;
+                for c in 0..4 {
+                    let d = b_data[idx + c].abs_diff(a_data[idx + c]);
+                    px_max = px_max.max(d);
+                    max_diff = max_diff.max(d);
+                    sum_diff += u64::from(d);
+                }
+                if px_max > 0 {
+                    // Check whether this pixel is on a 1px anti-aliased edge (i.e. 3x3 neighborhood is not uniform in `before`).
+                    let center = &b_data[idx..idx + 4];
+                    let mut on_edge = false;
+                    for dy in -1i32..=1 {
+                        for dx in -1i32..=1 {
+                            let nx = (x + dx).clamp(0, w - 1);
+                            let ny = (y + dy).clamp(0, h - 1);
+                            let nidx = ((ny * w + nx) * 4) as usize;
+                            if &b_data[nidx..nidx + 4] != center {
+                                on_edge = true;
+                            }
+                        }
+                    }
+                    if !on_edge {
+                        max_non_edge_diff = max_non_edge_diff.max(px_max);
+                    }
+                }
+            }
+        }
+        let mean_diff = sum_diff as f64 / b_data.len() as f64;
+        (max_diff, mean_diff, max_non_edge_diff)
+    }
+
+    #[test]
+    fn pixel_test_converted_text_vectors_match_original_text_render() {
+        let mut doc = Document::new("PixelTest");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 320.0, 140.0));
+        frame.fills = vec![Paint::solid(Color::WHITE)];
+        doc.insert(page, frame).unwrap();
+
+        let t1 = doc.alloc_id();
+        let mut s1 = TextStyle {
+            font_family: "Inter".into(),
+            font_weight: 700,
+            font_size: 28.0,
+            decoration: TextDecoration::Underline,
+            fills: vec![Paint::solid(Color::rgb(20, 30, 45))],
+            ..Default::default()
+        };
+        s1.align_h = TextAlignH::Center;
+        let mut n1 = Node::text(t1, Rect::new(20.0, 16.0, 280.0, 44.0), "Vector Text 1469", s1);
+        if let NodeKind::Text(tp) = &mut n1.kind {
+            tp.auto_resize = TextAutoResize::None;
+        }
+        doc.insert(fid, n1).unwrap();
+
+        let t2 = doc.alloc_id();
+        let n2 = two_run_text_node(t2, Color::rgb(210, 45, 45), Color::rgb(25, 135, 84));
+        doc.insert(fid, n2).unwrap();
+
+        let before_pm = designos_render::render_node(&doc, fid, 1.0).expect("render before");
+
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![t1];
+        app.flatten_selection();
+        app.selection = vec![t2];
+        app.flatten_selection();
+        let after_flatten_pm = designos_render::render_node(&app.doc, fid, 1.0).expect("render after flatten");
+        let (flat_max, flat_mean, flat_non_edge) = pixmap_diff_stats(&before_pm, &after_flatten_pm);
+        println!("PIXEL_DIFF_FLATTEN: max={flat_max} mean={flat_mean:.6} non_edge_max={flat_non_edge}");
+        assert!(flat_mean < 0.5, "flatten mean diff {flat_mean} >= 0.5");
+        assert_eq!(flat_non_edge, 0, "flatten diff beyond 1px anti-aliased edge: {flat_non_edge}");
+
+        app.undo();
+        app.undo();
+        app.selection = vec![t1, t2];
+        app.outline_stroke_selection();
+        let after_outline_pm = designos_render::render_node(&app.doc, fid, 1.0).expect("render after outline stroke");
+        let (out_max, out_mean, out_non_edge) = pixmap_diff_stats(&before_pm, &after_outline_pm);
+        println!("PIXEL_DIFF_OUTLINE_STROKE: max={out_max} mean={out_mean:.6} non_edge_max={out_non_edge}");
+        assert!(out_mean < 0.5, "outline stroke mean diff {out_mean} >= 0.5");
+        assert_eq!(out_non_edge, 0, "outline stroke diff beyond 1px anti-aliased edge: {out_non_edge}");
     }
 }

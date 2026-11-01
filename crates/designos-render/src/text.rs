@@ -607,6 +607,93 @@ fn compute_layout(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> TextLayou
     TextLayout { styles, paths: builders.into_iter().map(|b| b.finish()).collect() }
 }
 
+/// One shaped glyph (or list marker / underline / strikethrough bar) as an outline in node-local space.
+#[derive(Clone, Debug)]
+pub struct ShapedGlyphOutline {
+    /// Index into [`TextGlyphOutlines::styles`] (`0` = base style, `i + 1` = `runs[i].style`).
+    pub style: usize,
+    /// The character(s) of this glyph cluster (or decoration/marker label).
+    pub text: String,
+    /// Outline path in node-local coordinates (`sk::FillRule::Winding`).
+    pub path: sk::Path,
+}
+
+/// All per-glyph outlines of a laid-out text node in drawing order.
+#[derive(Clone, Debug)]
+pub struct TextGlyphOutlines {
+    /// 0 = base style, i + 1 = `runs[i].style`.
+    pub styles: Vec<d::TextStyle>,
+    pub glyphs: Vec<ShapedGlyphOutline>,
+}
+
+/// Lays out `props` in a box of `size` using the renderer's own shaping and returns one outline
+/// per shaped glyph (plus any list markers and underline / strikethrough bars).
+pub fn glyph_outlines(props: &TextProps, size: Vec2) -> TextGlyphOutlines {
+    with_fonts(|f| compute_glyph_outlines(f, props, size))
+}
+
+fn compute_glyph_outlines(fonts: &mut Fonts, props: &TextProps, size: Vec2) -> TextGlyphOutlines {
+    let (shaper, paras, fl) = laid_out(fonts, props, size);
+    let styles = shaper.styles.clone();
+    let mut glyphs = Vec::new();
+    for (li, line) in fl.lines.iter().enumerate() {
+        let para = paras.get(line.para);
+        for m in fl.markers.iter().filter(|m| m.line == li) {
+            if m.shape.is_some() {
+                let mut pb = sk::PathBuilder::new();
+                marker_outline(fonts, &mut pb, m, line.baseline);
+                if let Some(path) = pb.finish() {
+                    let text = match m.shape {
+                        Some(d::BulletShape::Disc) => "\u{2022}".to_string(),
+                        Some(d::BulletShape::Ring) => "\u{25E6}".to_string(),
+                        Some(d::BulletShape::Square) => "\u{25AA}".to_string(),
+                        None => String::new(),
+                    };
+                    glyphs.push(ShapedGlyphOutline { style: m.style, text, path });
+                }
+            } else {
+                let label = para.and_then(|p| p.marker).and_then(|mk| mk.label()).unwrap_or_default();
+                for g in &m.glyphs {
+                    let mut pb = sk::PathBuilder::new();
+                    glyph_outline(fonts, &mut pb, g, m.x + g.x, line.baseline);
+                    if let Some(path) = pb.finish() {
+                        let text = label.get(g.start..g.end).unwrap_or(&label).to_string();
+                        glyphs.push(ShapedGlyphOutline { style: m.style, text, path });
+                    }
+                }
+            }
+        }
+        for g in &line.glyphs {
+            let mut pb = sk::PathBuilder::new();
+            glyph_outline(fonts, &mut pb, g, g.x, line.baseline);
+            if let Some(path) = pb.finish() {
+                let text = para.and_then(|p| p.text.get(g.start..g.end)).unwrap_or("").to_string();
+                glyphs.push(ShapedGlyphOutline { style: g.style, text, path });
+            }
+        }
+        for dc in &line.decos {
+            let mut push_deco = |offset: f32, thickness: f32, label: &str| {
+                let t = (thickness * dc.fs).max(1.0);
+                let y = line.baseline - offset * dc.fs;
+                if let Some(r) = sk::Rect::from_xywh(dc.x0, y, dc.x1 - dc.x0, t) {
+                    let mut pb = sk::PathBuilder::new();
+                    pb.push_rect(r);
+                    if let Some(path) = pb.finish() {
+                        glyphs.push(ShapedGlyphOutline { style: dc.style, text: label.to_string(), path });
+                    }
+                }
+            };
+            if let Some((o, t)) = dc.underline {
+                push_deco(o, t, "Underline");
+            }
+            if let Some((o, t)) = dc.strike {
+                push_deco(o, t, "Strikethrough");
+            }
+        }
+    }
+    TextGlyphOutlines { styles, glyphs }
+}
+
 // ------------------------------------------------------------------ outlines (SVG export)
 /// A run of glyphs of one style on one line, as outlines (and the text they show).
 #[derive(Clone, Debug)]

@@ -153,6 +153,37 @@ impl FontLoader {
         self.available(&faces).len() < faces.len()
     }
 
+    /// Ensures every face in `requests` is available in the renderer now, loading any missing
+    /// faces synchronously through this loader's cache. Returns `Err` with the formatted failure
+    /// strings (`"{family} {weight}: {err}"`) when one or more faces cannot be loaded.
+    pub fn ensure_loaded(&mut self, requests: BTreeSet<FontRequest>) -> Result<(), Vec<String>> {
+        if requests.is_empty() {
+            return Ok(());
+        }
+        let covered = self.available(&requests);
+        let missing: BTreeSet<FontRequest> = requests.into_iter().filter(|r| !covered.contains(r)).collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let report = ensure_font_requests_with(missing, &(self.open_cache)(), |_| false);
+        for f in report.loaded {
+            self.failed.remove(&f.request);
+            self.register(f);
+        }
+        if !report.failed.is_empty() {
+            let failed = report
+                .failed
+                .into_iter()
+                .map(|(req, err)| {
+                    self.failed.insert(req.clone());
+                    format!("{} {}: {err}", req.family, req.weight)
+                })
+                .collect();
+            return Err(failed);
+        }
+        Ok(())
+    }
+
     /// Registers finished fonts with the renderer. Returns `Some` once per load.
     pub fn poll(&mut self) -> Option<FontsLoaded> {
         let report = self.pending.as_ref()?.try_recv().ok()?;

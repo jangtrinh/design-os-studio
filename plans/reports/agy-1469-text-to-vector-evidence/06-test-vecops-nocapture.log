@@ -1,0 +1,37 @@
+warning: crates/designos-app/Cargo.toml: file `crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (crates/designos-mcp)
+   Compiling designos-app v0.7.6 (crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.98s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 23 tests
+test vecops::tests::offset_path_keeps_a_sticky_note_and_its_text ... ok
+test vecops::tests::offset_path_keeps_a_group_and_its_layers ... ok
+test vecops::tests::offset_path_leaves_an_open_line_as_it_was ... ok
+test vecops::tests::offset_path_never_replaces_a_frame_that_holds_layers ... ok
+test vecops::tests::offset_path_never_replaces_a_section_that_holds_layers ... ok
+test vecops::tests::offset_path_fits_the_shape_to_a_layout_slot_that_clamps_its_size ... ok
+test vecops::tests::offset_path_refits_the_group_that_holds_the_shape ... ok
+test vecops::tests::offset_path_refits_a_hugging_auto_layout_parent ... ok
+test vecops::tests::offset_path_fits_every_shape_to_its_final_slot_when_siblings_reflow_each_other ... ok
+test vecops::tests::offset_path_reflows_the_auto_layout_siblings_in_the_same_undo_step ... ok
+test vecops::tests::offset_path_inset_keeps_the_open_tail_of_a_vector ... ok
+test vecops::tests::offset_path_selection_expands_and_shrinks_square_with_undo ... ok
+test vecops::tests::offset_path_that_collapses_the_shape_leaves_the_node_as_it_was ... ok
+test vecops::tests::offset_path_in_a_main_component_keeps_instances_linked_to_the_same_layer ... ok
+test vecops::tests::offset_path_keeps_the_node_and_everything_but_its_geometry ... ok
+test vecops::tests::text_to_vector_carries_over_fill_and_stroke_bindings ... ok
+test vecops::tests::flatten_of_single_paint_text_gives_one_vector ... ok
+test vecops::tests::flatten_of_two_paint_text_gives_two_vectors_in_a_group ... ok
+test vecops::tests::mixed_selection_converts_text_and_shapes_together ... ok
+test vecops::tests::outline_stroke_of_two_run_text_gives_one_vector_per_glyph_with_each_runs_fill ... ok
+test vecops::tests::one_undo_restores_text_node_exactly_in_json ... ok
+PIXEL_DIFF_FLATTEN: max=29 mean=0.005257 non_edge_max=0
+test vecops::tests::text_to_vector_loads_unloaded_font_and_refuses_unavailable_font ... ok
+PIXEL_DIFF_OUTLINE_STROKE: max=29 mean=0.005257 non_edge_max=0
+test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 3984 filtered out; finished in 0.10s
+
