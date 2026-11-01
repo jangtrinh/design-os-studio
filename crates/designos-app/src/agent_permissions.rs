@@ -1034,6 +1034,12 @@ pub fn ask_risky_unsupported_reason(preset: AgentCliPreset) -> Option<&'static s
     }
 }
 
+/// Whether a CLI can be offered under the selected permission mode.
+/// Ask for risky only requires the shared approval hook used by Claude.
+pub fn preset_available_in_mode(preset: AgentCliPreset, mode: PermissionMode) -> bool {
+    mode != PermissionMode::AskRisky || ask_risky_unsupported_reason(preset).is_none()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SessionGrant {
     pub session_id: String,
