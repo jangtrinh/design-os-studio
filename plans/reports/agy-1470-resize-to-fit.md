@@ -118,6 +118,10 @@ test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 3999 filtered out; f
 ## 7. Git Log & Pull Request
 
 - **Branch**: `jangtrinh/agy-1470-resize-to-fit`
-- **Draft PR**: (pending creation)
+- **Draft PR**: https://github.com/jangtrinh/design-os-studio/pull/1488
+- **`git log --oneline origin/main..HEAD`**:
+  ```text
+  1ab431b1 feat(object): Resize to fit, and Paste to replace keeps only its own shortcut (#1470)
+  ```
 
 Status: DONE
