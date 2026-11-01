@@ -76,92 +76,46 @@ struct CachedLibVars {
     vars: std::sync::Arc<[(VariableKind, Vec<String>)]>,
 }
 
+/// Figma scope names `scope_allows` knows; any other scope string never matches a key.
+const SCOPE_NAMES: [&str; 22] = [
+    "ALL_FILLS",
+    "FRAME_FILL",
+    "SHAPE_FILL",
+    "TEXT_FILL",
+    "STROKE_COLOR",
+    "EFFECT_COLOR",
+    "EFFECT_FLOAT",
+    "WIDTH_HEIGHT",
+    "CORNER_RADIUS",
+    "GAP",
+    "OPACITY",
+    "COLOR_OPACITY",
+    "STROKE_FLOAT",
+    "FONT_SIZE",
+    "FONT_WEIGHT",
+    "LINE_HEIGHT",
+    "LETTER_SPACING",
+    "PARAGRAPH_SPACING",
+    "PARAGRAPH_INDENT",
+    "FONT_FAMILY",
+    "FONT_STYLE",
+    "TEXT_CONTENT",
+];
+
+fn scope_name_strings() -> &'static [String] {
+    static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| SCOPE_NAMES.iter().map(|s| s.to_string()).chain(std::iter::once("__unknown__".to_string())).collect())
+}
+
+/// Per variable kind: is there any variable with no scope limit, any scoped variable at all, and which known scopes occur.
 #[derive(Clone, Copy, Default)]
-struct AvailabilityTable {
+struct ScopeCensus {
     pass_nr: u64,
     local_vars_len: usize,
     enabled_len: usize,
+    unscoped: [bool; 4],
+    scoped: [bool; 4],
     bits: [u32; 4],
-}
-
-const SCOPE_SLOTS: [(&str, bool); 22] = [
-    ("visible", false),
-    ("opacity", false),
-    ("width", false),
-    ("topLeftRadius", false),
-    ("itemSpacing", false),
-    ("strokeWeight", false),
-    ("effects/0/radius", false),
-    ("fontSize", false),
-    ("lineHeight", false),
-    ("letterSpacing", false),
-    ("paragraphSpacing", false),
-    ("paragraphIndent", false),
-    ("fills/0", false),
-    ("fills/0", true),
-    ("strokes/0", false),
-    ("effects/0/color", false),
-    ("characters", false),
-    ("fontFamily", false),
-    ("fontStyle", false),
-    ("fontWeight", false),
-    ("__other__", false),
-    ("__other__", true),
-];
-
-fn scope_slot_index(key0: &str, target_kind: &NodeKind) -> usize {
-    let is_text = matches!(target_kind, NodeKind::Text(_));
-    if key0 == "visible" {
-        0
-    } else if key0 == "opacity" || (key0.ends_with("/opacity") && (key0.starts_with("fills/") || key0.starts_with("strokes/"))) {
-        1
-    } else if matches!(key0, "width" | "height" | "minWidth" | "maxWidth" | "minHeight" | "maxHeight") {
-        2
-    } else if matches!(key0, "cornerRadius" | "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius") {
-        3
-    } else if matches!(key0, "itemSpacing" | "counterAxisSpacing" | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom")
-        || (key0.starts_with("layoutGrids/") && (key0.ends_with("/sectionSize") || key0.ends_with("/offset") || key0.ends_with("/gutterSize")))
-    {
-        4
-    } else if matches!(key0, "strokeWeight" | "strokeTopWeight" | "strokeRightWeight" | "strokeBottomWeight" | "strokeLeftWeight") {
-        5
-    } else if key0.starts_with("effects/")
-        && (key0.ends_with("/radius") || key0.ends_with("/spread") || key0.ends_with("/offsetX") || key0.ends_with("/offsetY"))
-    {
-        6
-    } else if key0 == "fontSize" {
-        7
-    } else if key0 == "lineHeight" {
-        8
-    } else if key0 == "letterSpacing" {
-        9
-    } else if key0 == "paragraphSpacing" {
-        10
-    } else if key0 == "paragraphIndent" {
-        11
-    } else if key0.starts_with("fills/") && !key0.ends_with("/opacity") {
-        if is_text {
-            13
-        } else {
-            12
-        }
-    } else if key0.starts_with("strokes/") && !key0.ends_with("/opacity") {
-        14
-    } else if key0.starts_with("effects/") && key0.ends_with("/color") {
-        15
-    } else if key0 == "characters" {
-        16
-    } else if key0 == "fontFamily" {
-        17
-    } else if key0 == "fontStyle" {
-        18
-    } else if key0 == "fontWeight" {
-        19
-    } else if is_text {
-        21
-    } else {
-        20
-    }
 }
 
 fn kind_index(kind: VariableKind) -> usize {
@@ -204,69 +158,104 @@ fn shared_lib_vars(app: &mut App, ctx: &Context, stamp: u64) -> std::sync::Arc<[
     v
 }
 
-fn slot_matches_any_var(app: &App, vars: &[(VariableKind, Vec<String>)], key0: &str, kind: VariableKind, target_kind: &NodeKind) -> bool {
-    let local_match = app
-        .doc
-        .variable_collections
-        .values()
-        .any(|c| c.variables.iter().filter_map(|id| app.doc.variables.get(id)).any(|v| v.kind == kind && scope_allows(&v.scopes, key0, target_kind)));
-    if local_match {
-        return true;
+fn census_add(c: &mut ScopeCensus, kind: VariableKind, scopes: &[String]) {
+    let ki = kind_index(kind);
+    if c.unscoped[ki] {
+        return;
     }
-    if app.doc.library.enabled.is_empty() {
-        return false;
+    if scopes.is_empty() || scopes.iter().any(|s| s == "ALL_SCOPES") {
+        c.unscoped[ki] = true;
+        return;
     }
-    vars.iter().any(|(v_kind, scopes)| *v_kind == kind && scope_allows(scopes, key0, target_kind))
+    c.scoped[ki] = true;
+    for s in scopes {
+        if let Some(i) = SCOPE_NAMES.iter().position(|n| n == s) {
+            c.bits[ki] |= 1 << i;
+        }
+    }
 }
 
-fn pass_availability_table(app: &mut App, ctx: &Context) -> AvailabilityTable {
+fn pass_scope_census(app: &mut App, ctx: &Context) -> ScopeCensus {
     let pass_nr = ctx.cumulative_pass_nr();
     let local_vars_len = app.doc.variables.len();
     let enabled_len = app.doc.library.enabled.len();
-    let table_id = Id::new("var-bind-avail-table");
-    if let Some(t) = ctx
-        .data(|d| d.get_temp::<AvailabilityTable>(table_id))
-        .filter(|t| t.pass_nr == pass_nr && t.local_vars_len == local_vars_len && t.enabled_len == enabled_len)
+    let id = Id::new("var-bind-scope-census");
+    if let Some(t) =
+        ctx.data(|d| d.get_temp::<ScopeCensus>(id)).filter(|t| t.pass_nr == pass_nr && t.local_vars_len == local_vars_len && t.enabled_len == enabled_len)
     {
         return t;
     }
-    let stamp = if enabled_len == 0 { 0 } else { lib_meta_stamp(app) };
-    let vars = shared_lib_vars(app, ctx, stamp);
-    let rect_node = NodeKind::Rectangle;
-    let text_node = NodeKind::Text(TextProps::default());
-    let mut bits = [0u32; 4];
-    for (ki, kind) in [VariableKind::Color, VariableKind::Number, VariableKind::String, VariableKind::Boolean].into_iter().enumerate() {
-        let mut mask = 0u32;
-        for (si, (sample_key, is_text)) in SCOPE_SLOTS.into_iter().enumerate() {
-            let tk = if is_text { &text_node } else { &rect_node };
-            if slot_matches_any_var(app, &vars, sample_key, kind, tk) {
-                mask |= 1u32 << si;
+    let mut c = ScopeCensus { pass_nr, local_vars_len, enabled_len, ..Default::default() };
+    #[cfg(test)]
+    let mut visits = 0usize;
+    for coll in app.doc.variable_collections.values() {
+        for v in coll.variables.iter().filter_map(|id| app.doc.variables.get(id)) {
+            #[cfg(test)]
+            {
+                visits += 1;
             }
+            census_add(&mut c, v.kind, &v.scopes);
         }
-        bits[ki] = mask;
     }
-    let table = AvailabilityTable { pass_nr, local_vars_len, enabled_len, bits };
-    ctx.data_mut(|d| d.insert_temp(table_id, table));
-    table
+    if enabled_len > 0 {
+        let stamp = lib_meta_stamp(app);
+        let vars = shared_lib_vars(app, ctx, stamp);
+        for (k, scopes) in vars.iter() {
+            #[cfg(test)]
+            {
+                visits += 1;
+            }
+            census_add(&mut c, *k, scopes);
+        }
+    }
+    ctx.data_mut(|d| {
+        d.insert_temp(id, c);
+        #[cfg(test)]
+        {
+            let visit_id = Id::new("var-bind-pass-visits");
+            let prev = d.get_temp::<(u64, usize)>(visit_id).filter(|(p, _)| *p == pass_nr).map(|(_, n)| n).unwrap_or(0);
+            d.insert_temp(visit_id, (pass_nr, prev + visits));
+        }
+    });
+    c
 }
 
 /// Whether at least one variable in `app.doc.variable_collections` or an enabled library
 /// matches `kind` and `scope_allows(&v.scopes, key0, target_kind)`.
 pub(super) fn has_matching_var(app: &mut App, ctx: &Context, key0: &str, kind: VariableKind, target_kind: &NodeKind) -> bool {
-    let table = pass_availability_table(app, ctx);
+    let c = pass_scope_census(app, ctx);
     let ki = kind_index(kind);
-    let si = scope_slot_index(key0, target_kind);
-    (table.bits[ki] & (1u32 << si)) != 0
+    if c.unscoped[ki] {
+        return true;
+    }
+    if !c.scoped[ki] {
+        return false;
+    }
+    let names = scope_name_strings();
+    // a key that `scope_allows` accepts whatever the scopes are (e.g. `visible`)
+    if scope_allows(std::slice::from_ref(&names[SCOPE_NAMES.len()]), key0, target_kind) {
+        return true;
+    }
+    (0..SCOPE_NAMES.len()).any(|i| c.bits[ki] & (1 << i) != 0 && scope_allows(std::slice::from_ref(&names[i]), key0, target_kind))
 }
 
-fn node_target_kind(app: &App, sel: &[NodeId]) -> NodeKind {
-    sel.first().and_then(|id| app.doc.get(*id)).map(|n| n.kind.clone()).unwrap_or(NodeKind::Rectangle)
+fn text_target_kind() -> &'static NodeKind {
+    static KIND: std::sync::OnceLock<NodeKind> = std::sync::OnceLock::new();
+    KIND.get_or_init(|| NodeKind::Text(TextProps::default()))
 }
 
-fn style_target_kind(app: &App, style_key: &str) -> NodeKind {
+fn node_target_kind(app: &App, sel: &[NodeId]) -> &'static NodeKind {
+    match sel.first().and_then(|id| app.doc.get(*id)).map(|n| &n.kind) {
+        Some(NodeKind::Text(_)) => text_target_kind(),
+        Some(NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. } | NodeKind::Section) => &NodeKind::Section,
+        _ => &NodeKind::Rectangle,
+    }
+}
+
+fn style_target_kind(app: &App, style_key: &str) -> &'static NodeKind {
     match app.doc.styles.get(style_key) {
-        Some(Style::Text(_)) => NodeKind::Text(TextProps::default()),
-        _ => NodeKind::Rectangle,
+        Some(Style::Text(_)) => text_target_kind(),
+        _ => &NodeKind::Rectangle,
     }
 }
 
@@ -283,7 +272,7 @@ fn narrow_for_bind(rect: Rect, reserve: bool) -> Rect {
 /// reserving the right-hand `TARGET_MIN + BORDER_WIDTH` strip whenever a matching variable exists.
 pub fn value_rect(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) -> Rect {
     let target_kind = node_target_kind(app, sel);
-    let has_vars = has_matching_var(app, ui.ctx(), keys[0], kind, &target_kind);
+    let has_vars = has_matching_var(app, ui.ctx(), keys[0], kind, target_kind);
     narrow_for_bind(rect, has_vars)
 }
 
@@ -291,7 +280,7 @@ pub fn value_rect(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
 /// reserving the right-hand `TARGET_MIN + BORDER_WIDTH` strip whenever a matching variable exists.
 pub fn style_value_rect(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) -> Rect {
     let target_kind = style_target_kind(app, style_key);
-    let has_vars = has_matching_var(app, ui.ctx(), prop, kind, &target_kind);
+    let has_vars = has_matching_var(app, ui.ctx(), prop, kind, target_kind);
     narrow_for_bind(rect, has_vars)
 }
 
@@ -311,7 +300,7 @@ pub(super) fn sync_picker_context(app: &mut App, ctx: &Context) {
         let nodes: Vec<NodeId> = pk_ids.iter().copied().filter(|&id| app.doc.get(id).is_some()).collect();
         let target_kind = node_target_kind(app, &nodes);
         let sample_key = format!("{pfx}/{pi}/stops/0");
-        state.has_vars = has_matching_var(app, ctx, &sample_key, VariableKind::Color, &target_kind);
+        state.has_vars = has_matching_var(app, ctx, &sample_key, VariableKind::Color, target_kind);
         state.open_key = app.vars.bind_picker.as_ref().and_then(|b| b.keys.first().cloned());
         let stop_prefix = format!("{pfx}/{pi}/stops/");
         let mut keys = std::collections::BTreeSet::new();
@@ -543,7 +532,7 @@ pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
 pub fn hover_button(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) {
     let target_kind = node_target_kind(app, sel);
     let k0 = keys[0];
-    let has_vars = has_matching_var(app, ui.ctx(), k0, kind, &target_kind);
+    let has_vars = has_matching_var(app, ui.ctx(), k0, kind, target_kind);
     let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.style_key.is_none() && b.keys.first().map(String::as_str) == Some(k0));
     if draw_hover_button(ui, rect, || format!("bind:{k0}"), ("bind-btn", k0), has_vars, is_open, true) {
         open_picker(app, sel, keys, kind, rect);
@@ -587,7 +576,7 @@ pub fn style_pill_field(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
 /// Small hexagon button in the style editor that opens the variable picker for `prop`.
 pub fn style_hover_button(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) {
     let target_kind = style_target_kind(app, style_key);
-    let has_vars = has_matching_var(app, ui.ctx(), prop, kind, &target_kind);
+    let has_vars = has_matching_var(app, ui.ctx(), prop, kind, target_kind);
     let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.style_key.as_deref() == Some(style_key) && b.keys.first().map(String::as_str) == Some(prop));
     if draw_hover_button(ui, rect, || format!("style-bind:{style_key}:{prop}"), ("style-bind-btn", style_key, prop), has_vars, is_open, true) {
         open_style_picker(app, style_key, prop, kind, rect);

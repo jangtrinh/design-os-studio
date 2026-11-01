@@ -607,17 +607,6 @@ fn vertical_order_violation(rows: &[Vec<OrderItem<'_>>]) -> Option<String> {
     None
 }
 
-fn entry_has_drift_bounds(e: &AllowEntry) -> bool {
-    e.min_dw.is_some()
-        || e.max_dw.is_some()
-        || e.min_dh.is_some()
-        || e.max_dh.is_some()
-        || e.dx.is_some()
-        || e.dy.is_some()
-        || e.gap_dy.is_some()
-        || e.inventory_max_delta.is_some()
-}
-
 /// Compare `cur` against `base` enforcing Rules G1–G5.
 pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, virtualized_regions: &[String]) -> Result<CompareReport, String> {
     let case_id = if !cur.case.is_empty() { cur.case.as_str() } else { base.case.as_str() };
@@ -635,10 +624,8 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
     let mut check_region_pair = |key: &str, b_reg: Option<[f32; 4]>, c_reg: Option<[f32; 4]>| -> Result<(), String> {
         if let (Some(b), Some(c)) = (b_reg, c_reg) {
             let matched = best_matching_entry(allow, case_id, key, None, b);
-            if let Some((idx, entry)) = matched {
-                if !entry_has_drift_bounds(entry) {
-                    report.matched_allow_indices.insert(idx);
-                }
+            if let Some((idx, _)) = matched {
+                report.matched_allow_indices.insert(idx);
             }
             if b == c {
                 return Ok(());
@@ -648,11 +635,8 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                     return Err(format!("G1 region mismatch in case {case_id} on {key}.{field}: baseline={}, current={}", b[idx], c[idx]));
                 }
             }
-            if b[1] != c[1] || b[3] != c[3] {
-                if let Some((idx, _)) = matched.filter(|(_, entry)| widget_satisfies_allow_bounds(entry, b, c, DerivedShifts::default())) {
-                    report.matched_allow_indices.insert(idx);
-                    return Ok(());
-                }
+            if (b[1] != c[1] || b[3] != c[3]) && matched.is_some_and(|(_, entry)| widget_satisfies_allow_bounds(entry, b, c, DerivedShifts::default())) {
+                return Ok(());
             }
             for (idx, field) in [(1, "y"), (3, "h")] {
                 if b[idx] != c[idx] {
@@ -688,18 +672,11 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         }
         let ov_region = if b_ov.name.starts_with("overlay:") { b_ov.name.clone() } else { format!("overlay:{}", b_ov.name) };
         let covering = best_matching_entry(allow, case_id, &ov_region, Some(&b_ov.name), b_ov.rect);
-        if let Some((idx, e)) = covering {
-            if !entry_has_drift_bounds(e) {
-                report.matched_allow_indices.insert(idx);
-            }
+        if let Some((idx, _)) = covering {
+            report.matched_allow_indices.insert(idx);
         }
         if rects_differ_beyond_half_pt(b_ov.rect, c_ov.rect) {
-            let allowed = if let Some((idx, _)) = covering.filter(|(_, e)| widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect, DerivedShifts::default())) {
-                report.matched_allow_indices.insert(idx);
-                true
-            } else {
-                false
-            };
+            let allowed = covering.is_some_and(|(_, e)| widget_satisfies_allow_bounds(e, b_ov.rect, c_ov.rect, DerivedShifts::default()));
             if !allowed {
                 return Err(format!("G2 overlay rect drift in case {case_id} overlay '{}': baseline={:?}, current={:?}", b_ov.name, b_ov.rect, c_ov.rect));
             }
@@ -731,10 +708,8 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
         if b_w.count != c_w.count {
             return Err(format!("G3 named widget '{name}' count changed in case {case_id}: baseline={}, current={}", b_w.count, c_w.count));
         }
-        if let Some((idx, e)) = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect) {
-            if !entry_has_drift_bounds(e) {
-                report.matched_allow_indices.insert(idx);
-            }
+        if let Some((idx, _)) = best_matching_entry(allow, case_id, &b_w.region, Some(name.as_str()), b_w.rect) {
+            report.matched_allow_indices.insert(idx);
         }
     }
 
@@ -743,6 +718,12 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
     for reg in &all_unnamed_regs {
         let b_list = base_unnamed_by_reg.get(reg).cloned().unwrap_or_default();
         let c_list = cur_unnamed_by_reg.get(reg).cloned().unwrap_or_default();
+
+        for (idx, e) in allow.entries.iter().enumerate() {
+            if (e.case == case_id || e.case == "*") && &e.region == reg && e.inventory_max_delta.is_some() && (!b_list.is_empty() || !c_list.is_empty()) {
+                report.matched_allow_indices.insert(idx);
+            }
+        }
 
         if b_list.len() != c_list.len() {
             let count_diff = (c_list.len() as isize - b_list.len() as isize).abs();
@@ -776,10 +757,8 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                     b_u.sense, c_u.sense
                 ));
             }
-            if let Some((idx, e)) = best_matching_entry(allow, case_id, reg, None, b_u.rect) {
-                if !entry_has_drift_bounds(e) {
-                    report.matched_allow_indices.insert(idx);
-                }
+            if let Some((idx, _)) = best_matching_entry(allow, case_id, reg, None, b_u.rect) {
+                report.matched_allow_indices.insert(idx);
             }
         }
     }
@@ -856,9 +835,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             let mut max_dh = f32::INFINITY;
             for w in row.iter() {
                 if let Some((idx, e)) = best_matching_entry(allow, case_id, &reg, w.name, w.b_rect) {
-                    if row_dh.abs() > 0.5 || !entry_has_drift_bounds(e) {
-                        report.matched_allow_indices.insert(idx);
-                    }
+                    report.matched_allow_indices.insert(idx);
                     has_covering = true;
                     min_dh = min_dh.max(e.min_dh.unwrap_or(0.0));
                     max_dh = max_dh.min(e.max_dh.unwrap_or(0.0));
@@ -904,13 +881,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
             let shifts = shifts_by_widget.get(&(b_w.region.clone(), name.clone())).copied().unwrap_or_default();
             let size_changed = (c_w.rect[2] - b_w.rect[2]).abs() > 0.5 || (c_w.rect[3] - b_w.rect[3]).abs() > 0.5;
             let allowed = match covering {
-                Some((idx, e)) => {
-                    let ok = widget_satisfies_allow_bounds(e, b_w.rect, c_w.rect, shifts);
-                    if ok {
-                        report.matched_allow_indices.insert(idx);
-                    }
-                    ok
-                }
+                Some((_, e)) => widget_satisfies_allow_bounds(e, b_w.rect, c_w.rect, shifts),
                 None if !size_changed => widget_satisfies_allow_bounds(&default_entry, b_w.rect, c_w.rect, shifts),
                 None => false,
             };
@@ -933,13 +904,7 @@ pub fn compare(base: &LayoutSnapshot, cur: &LayoutSnapshot, allow: &AllowList, v
                 let shifts = shifts_by_widget.get(&(reg.clone(), format!("unnamed#{i}"))).copied().unwrap_or_default();
                 let size_changed = (c_u.rect[2] - b_u.rect[2]).abs() > 0.5 || (c_u.rect[3] - b_u.rect[3]).abs() > 0.5;
                 let allowed = match covering {
-                    Some((idx, e)) => {
-                        let ok = widget_satisfies_allow_bounds(e, b_u.rect, c_u.rect, shifts);
-                        if ok {
-                            report.matched_allow_indices.insert(idx);
-                        }
-                        ok
-                    }
+                    Some((_, e)) => widget_satisfies_allow_bounds(e, b_u.rect, c_u.rect, shifts),
                     None if !size_changed => widget_satisfies_allow_bounds(&default_entry, b_u.rect, c_u.rect, shifts),
                     None => false,
                 };
@@ -1012,7 +977,10 @@ pub fn check_stale_allow_entries_for_run(
             }
         }
         if !matched_indices.contains(&idx) {
-            return Err(format!("stale allow.json[{idx}] entry (case='{}', region='{}', spec='{}'): matched 0 widgets", e.case, e.region, e.spec));
+            return Err(format!(
+                "stale allow.json[{idx}] entry (case='{}', region='{}', spec='{}', name_prefix={:?}, h_base={:?}, reason='{}'): matched 0 widgets",
+                e.case, e.region, e.spec, e.name_prefix, e.h_base, e.reason
+            ));
         }
     }
     Ok(())
@@ -1640,13 +1608,12 @@ mod tests {
         assert!(err_count.contains("G4 unnamed widget count mismatch"), "expected G4 count mismatch error, got: {err_count}");
     }
 
-    /// Round 4 Major 4 + PR #1452 R2 MINOR-6: A drift-bound allow entry is only counted as matched
-    /// when it excuses an actual drift (so re-saving a baseline makes its obsolete drift exception
-    /// fail the stale check), while a zero-delta stationary pin entry counts when it covers its widget,
-    /// and staleness is checked once over the union of a run.
+    /// An allow entry is counted as matched when it is the covering entry for a
+    /// widget that exists (even with 0 drift), staleness is checked once over the union of a run
+    /// (`"*"` is stale only when no case in the run used it), and a stale error names which rule failed.
     #[test]
     fn stale_check_counts_covering_entries_and_runs_over_union_of_run() {
-        // 1a. Drift-bound entry (`max_dh: Some(8.0)` or `min_dw: -3, max_dw: 0`) whose covered widgets have 0 drift must fail as stale.
+        // 1. Case-specific entry whose covered widgets stay within 0.5pt (0 drift) must count as matched.
         let base_ed = sample_snapshot("d-editor-default");
         let cur_ed = base_ed.clone();
         let allow_case = validate_allow_entries(vec![AllowEntry {
@@ -1655,43 +1622,13 @@ mod tests {
             name_prefix: Some("prop-row-".into()),
             max_dh: Some(8.0),
             spec: "F".into(),
-            reason: "R5: row height 24->32".into(),
+            reason: "row height 24->32".into(),
             ..Default::default()
         }])
         .expect("valid allow list");
-        let stale_err = compare_with_stale_check(&base_ed, &cur_ed, &allow_case, &[])
-            .expect_err("drift-bound allow entry that excuses 0 drift after baseline re-save must fail as stale");
-        assert!(stale_err.contains("stale allow.json[0]"), "unexpected error: {stale_err}");
-
-        let allow_dw = validate_allow_entries(vec![AllowEntry {
-            case: "d-editor-default".into(),
-            region: "right_panel".into(),
-            name_prefix: Some("prop-row-".into()),
-            min_dw: Some(-3.0),
-            max_dw: Some(0.0),
-            spec: "D".into(),
-            reason: "R5: tab body stops 3px short".into(),
-            ..Default::default()
-        }])
-        .expect("valid min_dw/max_dw allow list");
-        let stale_dw_err = compare_with_stale_check(&base_ed, &cur_ed, &allow_dw, &[])
-            .expect_err("entry with min_dw: -3, max_dw: 0 against dw == 0 baseline must fail as stale");
-        assert!(stale_dw_err.contains("stale allow.json[0]"), "unexpected error: {stale_dw_err}");
-
-        // 1b. Zero-delta stationary pin entry covering an unchanged widget must still count as matched.
-        let allow_pin = validate_allow_entries(vec![AllowEntry {
-            case: "d-editor-default".into(),
-            region: "right_panel".into(),
-            name_prefix: Some("prop-row-".into()),
-            anchor_x: Some(AnchorX::Centre),
-            anchor_y: Some(AnchorY::Centre),
-            spec: "F".into(),
-            reason: "pin stationary widget against broader region rule".into(),
-            ..Default::default()
-        }])
-        .expect("valid pin allow list");
-        let rep_pin = compare_with_stale_check(&base_ed, &cur_ed, &allow_pin, &[]).expect("zero-delta stationary pin entry must not be flagged as stale");
-        assert!(rep_pin.matched_allow_indices.contains(&0));
+        let rep_ed = compare_with_stale_check(&base_ed, &cur_ed, &allow_case, &[])
+            .expect("covering entry for existing widgets with 0 drift must not be flagged as stale");
+        assert!(rep_ed.matched_allow_indices.contains(&0));
 
         // 2. Wildcard entry across a multi-case run (`f-inspector` with drift, `d-editor-default` with 0 drift,
         //    and `h-home` with no right_panel widgets): stale check over the union of the run passes.
@@ -1711,7 +1648,7 @@ mod tests {
             name_prefix: Some("prop-row-".into()),
             max_dh: Some(8.0),
             spec: "F".into(),
-            reason: "R5: row height 24->32".into(),
+            reason: "row height 24->32".into(),
             ..Default::default()
         }])
         .expect("valid wildcard allow list");
@@ -1726,7 +1663,8 @@ mod tests {
         check_stale_allow_entries_for_run(&allow_wild, &union_matched, Some(&scope_cases), Some("F"))
             .expect("wildcard entry matched in at least one case of the run must not be stale");
 
-        // If no case in the run has any widget covered by the wildcard entry, the run-level stale check fails.
+        // If no case in the run has any widget covered by the wildcard entry, the run-level stale check fails
+        // and the error message names which rule failed.
         let mut empty_matched = BTreeSet::new();
         let mut home_only_scope = BTreeSet::new();
         let r_home = compare(&base_home, &cur_home, &allow_wild, &[]).expect("home compare");
@@ -1734,9 +1672,12 @@ mod tests {
         home_only_scope.insert("h-home".into());
         let err = check_stale_allow_entries_for_run(&allow_wild, &empty_matched, Some(&home_only_scope), Some("F"))
             .expect_err("wildcard entry unused by every case in the run must fail as stale");
-        assert!(err.contains("stale allow.json[0]"), "unexpected error: {err}");
+        assert!(
+            err.contains("stale allow.json[0]") && err.contains("prop-row-") && err.contains("row height 24->32") && err.contains("matched 0 widgets"),
+            "stale error must identify which rule failed, got: {err}"
+        );
 
-        // 3. Round 5 Major C (Grok's scenario): `{case:"*", spec:"D", region:"right_panel", name_prefix:"prop-row-", max_dh:8}`
+        // 3. `{case:"*", spec:"D", region:"right_panel", name_prefix:"prop-row-", max_dh:8}`
         //    whose only match is an F case, checked under `check_stale_allow_entries_for_run(..., Some("F"))`.
         let allow_d_wild = validate_allow_entries(vec![AllowEntry {
             case: "*".into(),
@@ -1744,7 +1685,7 @@ mod tests {
             name_prefix: Some("prop-row-".into()),
             max_dh: Some(8.0),
             spec: "D".into(),
-            reason: "R5: row height 24->32".into(),
+            reason: "row height 24->32".into(),
             ..Default::default()
         }])
         .expect("valid wildcard allow list with spec D");
@@ -1762,7 +1703,7 @@ mod tests {
         let rep_f_empty = compare(&base_f_no_match, &cur_f_no_match, &allow_d_wild, &[]).expect("compare with no matching widgets");
         let err_d_in_f = check_stale_allow_entries_for_run(&allow_d_wild, &rep_f_empty.matched_allow_indices, Some(&f_scope), Some("F"))
             .expect_err("spec D wildcard entry that compare can apply in Some(\"F\") run must fail as stale when unmatched");
-        assert!(err_d_in_f.contains("stale allow.json[0]"), "unexpected error: {err_d_in_f}");
+        assert!(err_d_in_f.contains("stale allow.json[0]") && err_d_in_f.contains("prop-row-"), "unexpected error: {err_d_in_f}");
     }
 
     /// Round 4 Minor 5: Overlay names are `overlay:{order}/{index}` in `areas().order()`,

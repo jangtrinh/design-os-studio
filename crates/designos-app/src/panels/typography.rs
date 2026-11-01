@@ -220,7 +220,7 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
     let cur = sum.weight.map(weight_name).unwrap_or("Mixed");
     let wt_r = pane.col(0, 0.0);
     if !var_bind::pill_field(app, ui, wt_r, sel, &["fontStyle"]) && !var_bind::pill_field(app, ui, wt_r, sel, &["fontWeight"]) {
-        let mut items: Vec<MenuItem> = WEIGHTS.iter().map(|w| MenuItem::new(w.0)).collect();
+        let mut items: Vec<MenuItem> = WEIGHTS.iter().map(|w| MenuItem::new(w.0).checked(w.0 == cur)).collect();
         if !in_session && var_bind::has_matching_var(app, ui.ctx(), "fontStyle", VariableKind::String, &NodeKind::Text(t.clone())) {
             if let Some(last) = items.last_mut() {
                 last.separator_after = true;
