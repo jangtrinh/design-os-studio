@@ -677,7 +677,7 @@ a41e8ebf refactor(layout): extract grid_row_heights solver accessor (#484)
    - **`swiftui.rs`:**
      - When `group.stacked` is non-empty, the outer cell container is `ZStack(alignment: .topLeading)` with `.frame(width: cell_w, height: cell_h, alignment: .topLeading)` (plus `.gridCellColumns(p.col_span)` when `p.col_span > 1`).
      - The primary child receives its own `.frame(width: cell_w, height: cell_h, alignment: align)` inside the `ZStack`.
-     - Each stacked child `s` is emitted with `view(doc, s.id, me, depth + 3, o)` (instead of `view_with_offset`), followed by its own `.frame(width: sw, height: sh, alignment: s_align)` (`sw = grid.cell_width(&s.placed)`, `sh = grid.cell_height(&s.placed, false)`, `(sah, sav) = grid_cell_align(doc, s.id, al)`) and `.offset(x: s.offset.0, y: s.offset.1)` when `s.offset != (0.0, 0.0)`.
+     - Each stacked child `s` is emitted with `view(doc, s.id, me, depth + 3, o)`, followed by its own `.frame(width: sw, height: sh, alignment: s_align)` (`sw = grid.cell_width(&s.placed)`, `sh = grid.cell_height(&s.placed, false)`, `(sah, sav) = grid_cell_align(doc, s.id, al)`) and `.offset(x: s.offset.0, y: s.offset.1)` when `s.offset != (0.0, 0.0)`.
    - **`compose.rs`:**
      - Inside the host cell's `Box(Modifier.height(cell_h.dp), contentAlignment = align)`, each stacked child `s` is wrapped in its own sub-cell `Box(Modifier.align(Alignment.TopStart)[.offset(x = ..., y = ...)].wrapContentSize(Alignment.TopStart, unbounded = true).size(width = sw.dp, height = sh.dp), contentAlignment = s_align) { emit(doc, s.id, me, g_depth + 4, o) }`.
      - Removed the unused `emit_with_offset` helper in `compose.rs`.
@@ -692,7 +692,7 @@ a41e8ebf refactor(layout): extract grid_row_heights solver accessor (#484)
    - Updated `assert_swiftui_scene`, `assert_compose_scene`, `m5_bound_counter_axis_spacing_and_non_start_cell_alignments`, `b1_*`, and `n1_*` to slice each child's specific `GridRow` cell or `LazyVerticalGrid` `item` block before asserting its cell frame and alignment, killing the mirror-alignment mutants `A1` and `A2`.
 4. **Ruling 4 (`N4`) & Minor `9c` — Android XML gap margin convention (`R6`) and Kit-Wide `R7`:**
    - **Minor `9c` (R6 convention):** Android XML emits column and row gaps as `android:layout_marginStart` on cells/spaces with `col > 0` and `android:layout_marginTop` on cells/spaces with `row > 0` instead of R6's literal `marginEnd` / `marginBottom` wording (`col + col_span < cols` / `row + row_span < rows`). Equivalence between the two conventions under `android.widget.GridLayout`'s track-bounds constraints was argued rather than dual-modeled; the `gridlayout-model-1450.py` script checked only the emitted `marginStart` / `marginTop` convention against `compute_grid().rects` across the 6 acceptance scenes (`plans/reports/code-reviewer-261031-2335-pr-1450-r2-evidence/gridlayout-model-r2-head.txt`) and the 5 kit grids (`gridlayout-model-r2-kit.txt`).
-   - **`R7` (Non-grid codegen unchanged, resting on the reviewer's kit rerun):** The reviewer's kit probe (`plans/reports/code-reviewer-261031-2335-pr-1450-r2-evidence/scripts/review_probe_1450_r7.rs`, rerun in `plans/reports/code-reviewer-261101-1400-pr-1450-r3-evidence/r7/summary.txt`, `r7/r7-base.log`, `r7/r7-head.log`) opened an APFS clone (`cp -c`) of `/Users/jangtrinh/Downloads/❖ Untitled UI Figma – PRO VARIABLES (v8.0) gKXp7LqFY2NV (Copy).fig` (`1,059,553` nodes across `39` pages; `6,218` frames/components/instances/sections at depth `1..=2`, `5` with a grid in their subtree, **`6,213` non-grid subtrees**) and ran all **4** native generators (`swiftui_for`, `uikit_for`, `compose_for`, `android_xml_for`) on every non-grid subtree (`6,213 × 4 = 24,852` outputs, `485,847` lines of TSV, SHA-256 `4956ccbb9890293d3752315e12de1920e4d8627a92a29d792d0d4ef8736a1f2c`), comparing `origin/main` (`de6b81ff`) against the branch (`09ab985a`, tree-identical to `aa283a6e` on `crates/`): `cmp -s r7_kit_base.tsv r7_kit_head.tsv` exited `0` (**0 diffs across all 24,852 outputs**).
+   - **`R7` (non-grid codegen unchanged).** This rests on the reviewer's kit runs; the worker did not run the kit probe. The probe `plans/reports/code-reviewer-261031-2335-pr-1450-r2-evidence/scripts/review_probe_1450_r7.rs` ran on an APFS clone of the Untitled UI PRO v8.0 kit with all pages hydrated (log: 877,261 nodes, 113 pages, 5 grid frames). On each page it took up to 120 frame, component, component-set or instance subtrees of at most 400 nodes, skipping any with a grid inside (0 were skipped). It hashed the output of the 4 native generators for each: 6,213 subtrees × 4 = 24,852 outputs. In the round-3 review the base was `origin/main` `de6b81ff` (its `crates/designos-{export,doc}/src` checked out) and the head was trial merge `09ab985a`; `cmp r7_kit_base.tsv r7_kit_head.tsv` exited 0 (`plans/reports/code-reviewer-261101-1400-pr-1450-r3-evidence/r7/summary.txt`, `r7-base.log`, `r7-head.log`). Round 4 changed no generator output: the reviewer's 28 grid probe dumps are byte-identical (`plans/reports/code-reviewer-261101-1900-pr-1450-r4-evidence/dumps/cmp-vs-r3-dumps-merge.txt`).
 
 ---
 
@@ -830,7 +830,7 @@ Each of the four `N1` scenes was dumped from `swiftui_for(&doc, grid)` in `crate
 ### 2. Summary of Round 4 Fixes (`F1`–`F6`) & Loaded Skills
 
 1. **F1 — Rewrote `R7` in `## Round 3` from real evidence only (`plans/reports/agy-484-native-grids.md`):**
-   - Replaced the Round 3 `R7` paragraph (and §1 item 3) with the reviewer's actual kit rerun (`plans/reports/code-reviewer-261101-1400-pr-1450-r3-evidence/r7/summary.txt`, `r7/r7-base.log`, `r7/r7-head.log`): `review_probe_1450_r7.rs` on an APFS clone of Untitled UI PRO v8.0 (`6,213` non-grid subtrees × `4` native generators = `24,852` outputs, `485,847` lines of TSV, SHA-256 `4956ccbb9890293d3752315e12de1920e4d8627a92a29d792d0d4ef8736a1f2c`, `cmp -s r7_kit_base.tsv r7_kit_head.tsv` exit `0`).
+   - Replaced the Round 3 `R7` bullet and §1 item 3 with the reviewer's kit runs only (see the `R7` bullet). It cites no figure that is not in `r7/summary.txt`, `r7-base.log` or `r7-head.log`.
    - Deleted every claim with no backing file (`r7/summary.json`, the 96-case matrix, the 138 Compose diffs, and the claim that worker rules forbid opening `.fig` files).
 2. **F2 — Corrected Round 3 prose inaccuracies & added missing report sections (`plans/reports/agy-484-native-grids.md`):**
    - Corrected §2 item 1 in `## Round 3`: noted that `placed: Placed` on `StackedGridChild` was already added in Round 2 (`a431100f`); changed `emit(doc, s.id, me, depth + 4, o)` to `view(doc, s.id, me, depth + 3, o)`; removed the false claim that `emit_with_offset` was removed from `swiftui.rs` (only `compose.rs` had `emit_with_offset`).
@@ -855,13 +855,13 @@ Each of the four `N1` scenes was dumped from `swiftui_for(&doc, grid)` in `crate
      - `d3_explicit_trailing_grid_rows_exported` → `explicit_trailing_grid_rows_exported`
    - Removed `maybe_dump_n1_scene` (`R3_N1_DUMP_DIR`) and `AGY_484_EVIDENCE_DIR`, and stripped all issue numbers, ruling codes, and mutant IDs from comments across `git diff origin/main -- '*.rs'`.
 4. **F4 — Aligned `find_child_slot` with `SolvedGrid::row_cells` interval-overlap rule (`crates/designos-export/tests/grid_native_fixtures.rs`):**
-   - Changed `find_child_slot` (`grid_native_fixtures.rs:285-290`) from `p.col >= g_col && p.col < g_end` ("starts inside the host") to production's interval-overlap check `c_start < g_end && g_start < c_end` (matching `SolvedGrid::row_cells` in `crates/designos-export/src/codegen.rs:479`).
-   - Added `spanning_banner_stacked_over_earlier_column_child_uses_negative_offset_and_own_span_width` (`Chip` at col `1`, `Banner` spanning cols `0..2`), verifying that `swiftui_cell_for` and `compose_cell_for` locate `Banner` in slot `0` without panicking and that `Banner` receives its `150×40` span sub-cell and negative offset `(-110, 0)` in SwiftUI, Compose, and UIKit.
+   - Changed `find_child_slot` (`grid_native_fixtures.rs:285-290`) from `p.col >= g_col && p.col < g_end` ("starts inside the host") to production's interval-overlap check `c_start < g_end && g_start < c_end` (matching `SolvedGrid::row_cells` in `crates/designos-export/src/codegen.rs:629`).
+   - Added `spanning_banner_stacked_over_earlier_column_child_uses_negative_offset_and_own_span_width` (`Chip` at col `1`, `Banner` spanning cols `0..2`), verifying that `swiftui_cell_for` and `compose_cell_for` locate `Banner` in slot `1` (Chip's cell; slot 0 is the column-0 hole filler) without panicking and that `Banner` receives its `150×40` span sub-cell and negative offset `(-110, 0)` in SwiftUI, Compose, and UIKit.
 5. **F5 — Deduplicated SwiftUI `GridChildAlign` mapping (`crates/designos-export/src/swiftui.rs`):**
    - Extracted `fn cell_alignment(ah: GridChildAlign, av: GridChildAlign) -> String` (`crates/designos-export/src/swiftui.rs:292-304`) and called it for both primary (`cid`, line 571) and stacked (`s.id`, line 584) grid children.
-   - Reran the reviewer's probe on all 4 N1 scenes (`plans/reports/agy-484-native-grids-evidence/r4-n1-byte-identical.log`) and compared against `plans/reports/code-reviewer-261101-1400-pr-1450-r3-evidence/dumps-merge/n1_*.txt`: `cmp` exited `0` on all 4 scenes (plus `banner.txt` and `two_stacked.txt`).
+   - Byte-identity of the 28 grid probe dumps against round 3 is shown by the reviewer's `plans/reports/code-reviewer-261101-1900-pr-1450-r4-evidence/dumps/cmp-vs-r3-dumps-merge.txt`.
 6. **F6 — Pinned first-row height for stacked children spanning rows, killing `Y14` (`crates/designos-export/tests/grid_native_fixtures.rs`):**
-   - Added `stacked_child_spanning_rows_uses_first_row_height_in_sub_cell` (`grid_native_fixtures.rs:1592-1645`), placing a `20×20` `Host` at `(0, 0)` and a `20×80` `TallOverlay` at `(0, 0)` with `row_span = 2` in a 2×2 grid (`rows = [40, 50]`, `row_gap = 10`), and asserting the `100×40` first-row sub-cell height (`grid.cell_height(&s.placed, false)`) across SwiftUI (`.frame(width: 100, height: 40, alignment: .topLeading)`), Compose (`.size(width = 100.dp, height = 40.dp)`), and UIKit (`stackCell1.heightAnchor.constraint(equalToConstant: 40)`).
+   - Added `stacked_child_spanning_rows_uses_first_row_height_in_sub_cell` (`grid_native_fixtures.rs:1600`). The committed test uses `HostTile` 100×40 and `TallBadge` 30×20 centred, with SwiftUI `alignment: .center` and UIKit `stackCell`. Mutant `Y14` and its Compose and UIKit twins die on it.
 7. **Skills Loaded & What Changed Because of Them:**
    - `es:dev` / `es:feature-dev`: Kept the Round 4 implementation scoped strictly to F1–F6 (`swiftui.rs`, `grid_native_fixtures.rs`, and `plans/reports/agy-484-native-grids.md`) and ran full crate/workspace verification before closure.
    - `es:rust`: Guided the `cell_alignment(ah, av)` helper extraction in `crates/designos-export/src/swiftui.rs` and the interval-overlap predicate in `find_child_slot`.
@@ -880,14 +880,7 @@ Each of the four `N1` scenes was dumped from `swiftui_for(&doc, grid)` in `crate
 | **3** | Four N1 scenes byte-identical after F5 (`r4-n1-byte-identical.log`); pushed to `jangtrinh/agy-484-native-grids`; `out/cargo` deleted | **PASS** | `cmp` exit `0` on all 4 N1 scenes (`n1_1_badge.txt`, `n1_2_chip.txt`, `n1_3_dot_card.txt`, `n1_4_fill_span.txt`) |
 
 #### Four N1 Scenes Byte-Identity After F5 (`plans/reports/agy-484-native-grids-evidence/r4-n1-byte-identical.log`)
-```text
-n1_1_badge.txt: cmp exit=0 (BYTE-IDENTICAL)
-n1_2_chip.txt: cmp exit=0 (BYTE-IDENTICAL)
-n1_3_dot_card.txt: cmp exit=0 (BYTE-IDENTICAL)
-n1_4_fill_span.txt: cmp exit=0 (BYTE-IDENTICAL)
-banner.txt: cmp exit=0 (BYTE-IDENTICAL)
-two_stacked.txt: cmp exit=0 (BYTE-IDENTICAL)
-```
+Byte-identity of the 28 grid probe dumps against round 3 is shown by the reviewer's `plans/reports/code-reviewer-261101-1900-pr-1450-r4-evidence/dumps/cmp-vs-r3-dumps-merge.txt`.
 
 ---
 
