@@ -1157,10 +1157,21 @@ fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32
     app.run_tx(tx);
 }
 
+/// Height the inspector H field reads.
+pub(crate) fn inspector_height(n: &Node) -> f32 {
+    n.size.y
+}
+
+/// H field text for one node. Same path as `dimensions_ui` -> `num_field`.
+#[cfg(test)]
+pub(crate) fn inspector_height_field(n: &Node) -> String {
+    crate::widgets::numeric_field_value(inspector_height(n))
+}
+
 fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is_line: bool) {
     sublabel(ui, pane, "Dimensions");
     let ws = common(app, sel, |n| n.size.x);
-    let hs = common(app, sel, |n| n.size.y);
+    let hs = common(app, sel, inspector_height);
     let (wr, hr) = (pane.col(0, 0.0), pane.col(1, 0.0));
     let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui| field::num_field(ui, wr, "w", Prefix::Text("W"), ws, ""));
     let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui| field::num_field(ui, hr, "h", Prefix::Text("H"), hs, "")) };
