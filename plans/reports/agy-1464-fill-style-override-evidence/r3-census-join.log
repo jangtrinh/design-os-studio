@@ -1,0 +1,93 @@
+== r1 d4302880 -> r3 HEAD: 864057 vs 864057 nodes; ids equal: True
+name/kind/src mismatches: 0
+rows with any change: 28
+per column: {'sS': 28}
+resolved paint/effect changed: 0 nodes in 0 top frames
+  inside C1: 0 in 0 frames; outside: 0 in 0 frames
+raw paints changed: 0 nodes in 0 frames
+override flag changed: 0
+style link changed: 28
+    link 28 ('sS:-->7391:365097', 'Instance')
+== base 64f2dd07 -> r3 HEAD: 864057 vs 864057 nodes; ids equal: True
+name/kind/src mismatches: 0
+rows with any change: 8396
+per column: {'sF': 8073, 'rawTF': 102, 'resTF': 103, 'rawF': 100, 'resF': 205, 'binds': 2, 'sS': 111, 'ovS': 204, 'ovF': 8}
+resolved paint/effect changed: 308 nodes in 99 top frames
+  inside C1: 122 in 6 frames; outside: 186 in 93 frames
+    out 95 ('Text', 'Label', '1:676')
+    out 6 ('Frame', 'Avatar', '1794:446969')
+    out 3 ('Text', 'WCAG contrast', '2685:402982')
+    out 2 ('Frame', 'Avatar', '4835:409903')
+    out 1 ('Text', 'WCAG contrast', '800:25014')
+    out 1 ('Frame', 'Swatch', '2685:402979')
+    out 1 ('Frame', 'Swatch', '2685:402980')
+    out 1 ('Frame', 'Swatch', '2685:402981')
+    out 1 ('Frame', 'Swatch', '2685:402982')
+    out 1 ('Frame', 'Swatch', '2685:402983')
+    out 1 ('Frame', 'Swatch', '2685:402984')
+    out 1 ('Frame', 'Swatch', '2685:402985')
+    out 1 ('Frame', 'Swatch', '5016:372050')
+    out 1 ('Rect', 'Image', '1794:446949')
+    out 1 ('Rect', 'Image', '1794:446950')
+    out 1 ('Rect', 'Image', '1794:446951')
+    out 1 ('Rect', 'Image', '1794:446952')
+    out 1 ('Rect', 'Image', '1794:446953')
+    out 1 ('Rect', 'Image', '1794:446954')
+    out 1 ('Rect', 'Image', '1794:446955')
+    out 1 ('Rect', 'Image', '1794:446956')
+    out 1 ('Rect', 'Image', '1794:446957')
+    out 1 ('Rect', 'Image', '1794:446958')
+    out 1 ('Rect', 'Image', '1794:446959')
+    out 1 ('Rect', 'Image', '1794:446960')
+    out 1 ('Rect', 'Image', '1794:446961')
+    out 1 ('Rect', 'Image', '4833:413759')
+    out 1 ('Rect', 'Image', '4835:409883')
+    out 1 ('Rect', 'Image', '4835:409884')
+    out 1 ('Rect', 'Image', '4835:409885')
+    out 1 ('Rect', 'Image', '4835:409886')
+    out 1 ('Rect', 'Image', '4835:409887')
+    out 1 ('Rect', 'Image', '4835:409888')
+    out 1 ('Rect', 'Image', '4835:409889')
+    out 1 ('Rect', 'Image', '4835:409890')
+    out 1 ('Rect', 'Image', '4835:409891')
+    out 1 ('Rect', 'Image', '4835:409892')
+    out 1 ('Rect', 'Image', '4835:409893')
+    out 1 ('Rect', 'Image', '4835:409894')
+    out 1 ('Rect', 'Image', '4835:409895')
+raw paints changed: 202 nodes in 96 frames
+    raw 95 (False, 'Text', 'Label')
+    raw 70 (False, 'Rect', 'Image')
+    raw 14 (True, 'Vector', 'Swatch')
+    raw 8 (False, 'Frame', 'Swatch')
+    raw 8 (False, 'Frame', 'Avatar')
+    raw 4 (False, 'Text', 'WCAG contrast')
+    raw 3 (True, 'Text', 'Label')
+override flag changed: 212
+    ov 204 ('ovS:0->1',)
+    ov 8 ('ovF:0->1',)
+style link changed: 8184
+    link 363 ('sF:18:1953->4880:419106', 'Frame')
+    link 329 ('sF:18:1953->4880:419118', 'Frame')
+    link 312 ('sF:18:1953->4880:419121', 'Frame')
+    link 296 ('sF:18:1953->1794:446948', 'Frame')
+    link 278 ('sF:18:1953->1794:446949', 'Frame')
+    link 266 ('sF:18:1953->4880:419109', 'Frame')
+    link 252 ('sF:18:1953->4880:419115', 'Frame')
+    link 234 ('sF:18:1953->4880:419112', 'Frame')
+    link 208 ('sF:-->1794:446949', 'Instance')
+    link 208 ('sF:-->1794:446950', 'Instance')
+    link 208 ('sF:-->1794:446951', 'Instance')
+    link 208 ('sF:-->1794:446952', 'Instance')
+    link 204 ('sF:-->1:676', 'Text')
+    link 202 ('sF:-->1794:446948', 'Instance')
+    link 200 ('sF:-->1794:446953', 'Instance')
+    link 191 ('sF:18:1953->1794:446950', 'Frame')
+    link 181 ('sF:18:1953->-', 'Frame')
+    link 155 ('sF:18:1953->7537:614', 'Frame')
+    link 152 ('sF:18:1953->1794:446952', 'Frame')
+    link 145 ('sF:18:1953->1794:446951', 'Frame')
+    link 130 ('sF:18:1953->1794:446954', 'Frame')
+    link 109 ('sF:18:1953->4880:419130', 'Frame')
+    link 108 ('sF:18:1953->4879:419103', 'Frame')
+    link 97 ('sF:18:1953->1212:103185', 'Frame')
+    link 96 ('sF:18:1953->1794:446953', 'Frame')
