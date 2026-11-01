@@ -1213,6 +1213,7 @@ mod live_patch_agent_switch;
 mod live_patch_agent_switch_edges;
 mod live_patch_agent_switch_guards;
 mod menus;
+mod narrow_window_layout;
 mod overlays_chrome;
 mod overlays_chrome_layout;
 mod pages_layers_separator;

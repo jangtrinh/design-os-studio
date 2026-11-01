@@ -202,6 +202,19 @@ pub fn paint_approval_card_for_tab(
 /// The auto-save row of the permissions modal: a text-sm title, two text-xs note lines and the switch.
 const AUTOSAVE_ROW_H: f32 = theme::INSET_PANEL * 2.0 + theme::LINE_TEXT_SM + theme::SPACE_FACT + theme::LINE_TEXT_XS * 2.0;
 
+fn autosave_caption_job(caption: &str, width: f32) -> LayoutJob {
+    let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Regular);
+    let mut job = LayoutJob::simple(caption.to_string(), font.clone(), theme::TEXT_SECONDARY, width);
+    job.wrap.max_width = width;
+    job.wrap.max_rows = 2;
+    job.wrap.break_anywhere = false;
+    job.wrap.overflow_character = Some('…');
+    if let Some(sec) = job.sections.first_mut() {
+        sec.format = TextFormat { font_id: font, color: theme::TEXT_SECONDARY, line_height: Some(theme::LINE_TEXT_XS), ..Default::default() };
+    }
+    job
+}
+
 /// Height of one remembered-grant row: a `Button/Secondary` xs with `SPACE_ROW` above and below.
 const GRANT_ROW_H: f32 = theme::CONTROL_XS + theme::SPACE_ROW * 2.0;
 
@@ -394,22 +407,14 @@ pub fn paint_permissions_modal(ctx: &Context, open: &mut bool, mode: &mut AgentP
         } else {
             "Off. Edits stay unsaved until the agent or you save. This session too."
         };
-        let auto_caption_font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Regular);
-        let mut job = LayoutJob::simple(caption.to_string(), auto_caption_font.clone(), theme::TEXT_SECONDARY, caption_w);
-        job.wrap.max_width = caption_w;
-        job.wrap.max_rows = 2;
-        job.wrap.break_anywhere = false;
-        job.wrap.overflow_character = Some('…');
-        if let Some(sec) = job.sections.first_mut() {
-            sec.format = TextFormat { font_id: auto_caption_font, color: theme::TEXT_SECONDARY, line_height: Some(theme::LINE_TEXT_XS), ..Default::default() };
-        }
-        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        let galley = ui.fonts_mut(|f| f.layout_job(autosave_caption_job(caption, caption_w)));
         p.galley(Pos2::new(text_x, title_y + theme::LINE_TEXT_SM + theme::SPACE_FACT), galley, theme::TEXT_SECONDARY);
         let sw = switch_rect;
         let fill = if autosave_on { theme::BG_BRAND } else { theme::BG_PRESSED };
         p.rect_filled(sw, theme::cr_pill(sw.height()), fill);
         if !autosave_on {
-            p.rect_stroke(sw, theme::cr_pill(sw.height()), Stroke::new(theme::BORDER_WIDTH, theme::BORDER_STRONG), StrokeKind::Inside);
+            // The edge must differ from the fill so the OFF track remains visible.
+            p.rect_stroke(sw, theme::cr_pill(sw.height()), Stroke::new(theme::BORDER_WIDTH, theme::ICON_QUATERNARY), StrokeKind::Inside);
         }
         let knob_r = theme::LAYER_ICON_SIZE * 0.5 - theme::INSET_SEGMENT;
         let kx = if autosave_on { sw.right() - theme::INSET_SEGMENT - knob_r } else { sw.left() + theme::INSET_SEGMENT + knob_r };
@@ -654,17 +659,20 @@ mod tests {
         assert_eq!(switch_off.1, theme::BG_PRESSED, "off autosave switch does not use the exact opaque pressed fill");
         assert_ne!(switch_off.1, theme::BG_TERTIARY, "off autosave switch matches the tertiary background");
         assert_ne!(switch_off.1, theme::BG_SECONDARY, "off autosave switch matches the secondary background");
-        let luma = |c: egui::Color32| (u16::from(c.r()) * 299 + u16::from(c.g()) * 587 + u16::from(c.b()) * 114) / 1000;
+        let luma = |c: egui::Color32| (u32::from(c.r()) * 299 + u32::from(c.g()) * 587 + u32::from(c.b()) * 114) / 1000;
         assert!(luma(switch_off.1).abs_diff(luma(theme::BG_TERTIARY)) >= 0x10, "off autosave switch lacks contrast against the row");
-        assert!(
-            off_rects.iter().any(|(r, _, stroke)| {
-                stroke.color == theme::BORDER_STRONG
+        let edge = off_rects
+            .iter()
+            .find(|(r, _, stroke)| {
+                stroke.color == theme::ICON_QUATERNARY
                     && stroke.width > 0.0
                     && switch_off.0.expand(theme::BORDER_WIDTH).contains_rect(*r)
                     && r.contains_rect(switch_off.0.shrink(theme::BORDER_WIDTH))
-            }),
-            "off autosave switch has no visible strong border"
-        );
+            })
+            .expect("off autosave switch has no visible quaternary edge");
+        assert_ne!(edge.2.color, switch_off.1, "off autosave switch edge matches its fill");
+        assert!(luma(edge.2.color).abs_diff(luma(switch_off.1)) >= 0x20, "off autosave switch edge lacks contrast against its fill");
+        assert!(luma(edge.2.color).abs_diff(luma(theme::BG_TERTIARY)) >= 0x20, "off autosave switch edge lacks contrast against the row");
         std::fs::remove_dir_all(off_root).expect("could not remove off autosave test directory");
 
         let (_, on_rects, on_root) = autosave_frame(true);
@@ -674,5 +682,50 @@ mod tests {
             .expect("on autosave switch was not painted");
         assert_eq!(switch_on.1, theme::BG_BRAND, "on autosave switch does not use the brand fill");
         std::fs::remove_dir_all(on_root).expect("could not remove on autosave test directory");
+    }
+
+    #[test]
+    fn autosave_off_edge_token_differs_from_the_fill_token() {
+        assert_ne!(theme::ICON_QUATERNARY, theme::BG_PRESSED, "autosave OFF edge token must differ from its fill token");
+    }
+
+    #[test]
+    fn autosave_caption_job_wraps_and_elides_at_two_rows() {
+        let (texts, rects, root) = autosave_frame(false);
+        let caption_run = texts.iter().find(|text| text.text.starts_with("Off.")).expect("off autosave caption was not painted");
+        let switch = rects
+            .iter()
+            .find(|(r, _, _)| (r.width() - theme::BADGE_LG).abs() < 0.5 && (r.height() - theme::LAYER_ICON_SIZE).abs() < 0.5)
+            .expect("autosave switch was not painted")
+            .0;
+        let width = switch.left() - theme::SPACE_INLINE - caption_run.rect.left();
+
+        let ctx = Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx);
+        let _ = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1600.0, 900.0))), ..Default::default() }, |_ui| {});
+        let on = "On. Save after each agent tool batch, outside the library. This session too.";
+        let off = "Off. Edits stay unsaved until the agent or you save. This session too.";
+        let layout = |text: &str| ctx.fonts_mut(|fonts| fonts.layout_job(autosave_caption_job(text, width)));
+        for real_caption in [on, off] {
+            let galley = layout(real_caption);
+            assert_eq!(galley.rows.len(), 2, "real autosave caption must wrap to exactly two rows: {real_caption:?}");
+            assert!(!galley.elided, "real autosave caption must not be elided: {real_caption:?}");
+            let row_text: String = galley.rows.iter().flat_map(|row| row.glyphs.iter().map(|glyph| glyph.chr)).collect();
+            assert!(!row_text.contains('…'), "real autosave caption rows must not contain an ellipsis: {row_text:?}");
+            assert!(galley.text().ends_with("This session too."), "real autosave caption lost its session note: {:?}", galley.text());
+        }
+        let long = format!("{off} {off} {off}");
+        let long_galley = layout(&long);
+        assert_eq!(long_galley.rows.len(), 2, "long autosave caption must stop at two rows");
+        assert!(long_galley.elided, "long autosave caption must be elided");
+        let last_row_text: String = long_galley.rows.last().expect("long autosave caption has no last row").glyphs.iter().map(|glyph| glyph.chr).collect();
+        assert!(last_row_text.ends_with('…'), "long autosave caption's last painted row must end with an ellipsis: {last_row_text:?}");
+        let short_galley = layout("Off.");
+        assert_eq!(short_galley.rows.len(), 1, "short autosave caption must fit on one row");
+        assert!(!short_galley.elided, "short autosave caption must not be elided");
+        let short_row_text: String = short_galley.rows.iter().flat_map(|row| row.glyphs.iter().map(|glyph| glyph.chr)).collect();
+        assert!(!short_row_text.contains('…'), "short autosave caption row must not contain an ellipsis: {short_row_text:?}");
+        std::fs::remove_dir_all(root).expect("could not remove autosave test directory");
     }
 }

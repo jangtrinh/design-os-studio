@@ -1,4 +1,6 @@
-use crate::{TextProps, Vec2};
+use crate::{Node, NodeKind, TextAutoResize, TextProps, Vec2};
+use std::cell::RefCell;
+use std::sync::{Arc, OnceLock, RwLock};
 
 pub trait TextMeasure: Send + Sync {
     /// Shaped `(width, height)` of `tp`. `wrap_width` limits the line width when `Some`.
@@ -10,6 +12,59 @@ pub trait TextMeasure: Send + Sync {
     fn uses_fallback_font(&self, _tp: &TextProps) -> bool {
         false
     }
+}
+
+static LAYOUT_MEASURER: OnceLock<RwLock<Option<Arc<dyn TextMeasure>>>> = OnceLock::new();
+
+thread_local! {
+    static THREAD_LAYOUT_MEASURER: RefCell<Option<Arc<dyn TextMeasure>>> = const { RefCell::new(None) };
+}
+
+fn global_slot() -> &'static RwLock<Option<Arc<dyn TextMeasure>>> {
+    LAYOUT_MEASURER.get_or_init(|| RwLock::new(None))
+}
+
+/// Process-wide measurer used by [`crate::Document::relayout_subtree`]. `None` keeps stored heights.
+/// MCP and the app install the renderer measurer here.
+pub fn set_layout_measurer(m: Option<Arc<dyn TextMeasure>>) {
+    *global_slot().write().unwrap_or_else(|p| p.into_inner()) = m;
+}
+
+/// Restores the previous per-thread measurer when dropped.
+pub struct ThreadLayoutMeasurerGuard {
+    prev: Option<Arc<dyn TextMeasure>>,
+}
+
+impl ThreadLayoutMeasurerGuard {
+    pub fn install(m: Arc<dyn TextMeasure>) -> Self {
+        let prev = THREAD_LAYOUT_MEASURER.with(|c| c.replace(Some(m)));
+        Self { prev }
+    }
+}
+
+impl Drop for ThreadLayoutMeasurerGuard {
+    fn drop(&mut self) {
+        THREAD_LAYOUT_MEASURER.with(|c| c.replace(self.prev.take()));
+    }
+}
+
+/// Measurer [`crate::Document::relayout_subtree`] uses: the thread override, else the process hook.
+pub fn layout_measurer() -> Option<Arc<dyn TextMeasure>> {
+    let thread = THREAD_LAYOUT_MEASURER.with(|c| c.borrow().clone());
+    if thread.is_some() {
+        thread
+    } else {
+        global_slot().read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+}
+
+/// Height of wrapping `TextAutoResize::Height` text at `width`, or `None` when `n` is not that text.
+pub fn height_resize_text_height(n: &Node, width: f32, measure: &dyn TextMeasure) -> Option<f32> {
+    let NodeKind::Text(t) = &n.kind else { return None };
+    if t.auto_resize != TextAutoResize::Height {
+        return None;
+    }
+    Some(measure.measure(t, Some(width.max(1.0))).y)
 }
 
 /// Measure `tp` with `measure` when the caller has a renderer, otherwise the
