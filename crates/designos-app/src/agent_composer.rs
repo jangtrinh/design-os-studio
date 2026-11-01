@@ -742,6 +742,15 @@ impl TerminalState {
         let active_idx = self.active_tab.min(self.tabs.len().saturating_sub(1));
         if !self.in_new_chat() {
             if let Some(tab) = self.tabs.get_mut(active_idx) {
+                if tab.permission_mode == crate::terminal::PermissionMode::AskRisky
+                    && (tab.is_custom_cli() || !crate::agent_permissions::preset_available_in_mode(tab.spawn_preset, tab.permission_mode))
+                {
+                    let msg = RefuseReason::NoAgent.message().to_string();
+                    tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::NoAgent));
+                    tab.composer.notice = Some(msg.clone());
+                    self.status_msg = Some(msg);
+                    return SendOutcome::Refused(RefuseReason::NoAgent);
+                }
                 if let Some(failure) = &tab.start_failure {
                     let headline = failure.headline();
                     tab.composer.last_outcome = Some(SendOutcome::Refused(RefuseReason::StartFailed));
@@ -1157,10 +1166,18 @@ pub fn show_composer(
     }
 
     let choose_agent = new_chat && pill_preset.is_none();
+    let mode_available = if new_chat {
+        pill_preset.is_some()
+    } else {
+        state.active_tab().is_some_and(|tab| {
+            tab.permission_mode != crate::terminal::PermissionMode::AskRisky
+                || (!tab.is_custom_cli() && crate::agent_permissions::preset_available_in_mode(tab.spawn_preset, tab.permission_mode))
+        })
+    };
     let skills_violation = state.skills.limit_violation();
     // The selection chip is a suggestion, not a message. An attached PRD is: Send then sends its reference alone.
     let has_payload = !state.composer_draft().trim().is_empty() || !state.active_composer().chips.is_empty() || state.active_composer().attach_prd;
-    let send_on = composer_live && !choose_agent && skills_violation.is_none() && has_payload;
+    let send_on = composer_live && !choose_agent && mode_available && skills_violation.is_none() && has_payload;
     let bar = crate::agent_composer_toolbar::toolbar(ui, state, composer_rect, pill_label, send_on, skills_violation.as_deref());
     if let Some(pick) = bar.attach {
         match pick {
@@ -1826,6 +1843,46 @@ mod tests {
         }
         let rec = attach_recording_writer(st.active_tab_mut().unwrap());
         (st, rec)
+    }
+
+    #[test]
+    fn ask_risky_refuses_a_cli_without_the_shared_approval_hook_and_keeps_the_draft() {
+        let (mut st, rec) = claude_tab_with_recorder();
+        {
+            let tab = st.active_tab_mut().expect("active tab");
+            tab.spawn_preset = AgentCliPreset::Codex;
+            tab.preset = AgentCliPreset::Codex;
+            tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        }
+        st.set_composer_draft("delete the node");
+
+        assert_eq!(st.send_from_composer_box("delete the node", None), SendOutcome::Refused(RefuseReason::NoAgent));
+        assert_eq!(st.composer_draft(), "delete the node", "a mode-unavailable send must preserve the draft");
+        assert!(rec.lock().expect("recorder lock").is_empty(), "unsupported CLI must not receive a prompt");
+
+        st.shutdown();
+    }
+
+    #[test]
+    #[cfg_attr(windows, ignore = "spawns a POSIX shell stub for the custom CLI")]
+    fn ask_risky_refuses_an_other_cli_without_the_shared_approval_hook() {
+        let dir = temp_composer_dir("ask-risky-custom-cli");
+        let bin_dir = dir.join("bin");
+        let recv = dir.join("custom-recv.txt");
+        let stub = write_executable_stub(&bin_dir, "custom-cli-stub", &recording_agent_script(&recv));
+        let mut st = TerminalState::new_for_session("doc-ask-risky-custom", "Ask risky", Some(&dir));
+        st.spawn_custom_cli_tab("Custom stub", &stub.display().to_string(), None).expect("spawn custom tab");
+        {
+            let tab = st.active_tab_mut().expect("custom tab");
+            tab.permission_mode = crate::terminal::PermissionMode::AskRisky;
+        }
+        st.set_composer_draft("change the file");
+        assert_eq!(st.send_from_composer_box("change the file", None), SendOutcome::Refused(RefuseReason::NoAgent));
+        assert_eq!(st.composer_draft(), "change the file");
+        assert!(st.active_tab().is_some_and(|tab| tab.is_custom_cli()));
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // `attached_prd_chip_sends_the_prd_tag_first`

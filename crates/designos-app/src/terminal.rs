@@ -6381,11 +6381,11 @@ fn render_vt100_viewport(state: &mut TerminalState, ui: &mut Ui, viewport_rect: 
                 ui.ctx().memory_mut(|m| m.surrender_focus(fid));
             }
         }
-        let card_h = crate::agent_approval_card::approval_card_outer_height(if in_active_terminal && banner_preset == AgentCliPreset::Claude {
-            banner_preset
-        } else {
-            AgentCliPreset::Codex
-        });
+        let card_preset = if in_active_terminal && banner_preset == AgentCliPreset::Claude { banner_preset } else { AgentCliPreset::Codex };
+        let has_session_grant = in_active_terminal
+            && banner_preset == AgentCliPreset::Claude
+            && reqs.first().is_some_and(|req| crate::agent_permissions::offer_session_grant(card_mode, req));
+        let card_h = crate::agent_approval_card::approval_card_outer_height_for_width(card_preset, viewport_rect.width(), has_session_grant);
         Rect::from_min_max(Pos2::new(viewport_rect.left(), (viewport_rect.top() + card_h).min(viewport_rect.bottom())), viewport_rect.max)
     } else {
         viewport_rect
