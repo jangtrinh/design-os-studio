@@ -1,0 +1,48 @@
+=== Round 3 N1 SwiftUI ImageRenderer Verification (macOS arm64-apple-macos14, scale=1.0) ===
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpkohol5za/n1_overlap_centered_icon_and_top_right_badge-before.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpkohol5za/n1_overlap_centered_icon_and_top_right_badge-before.bin
+  -> WROTE 210x60
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpe7clavxx/n1_overlap_centered_icon_and_top_right_badge-after.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpe7clavxx/n1_overlap_centered_icon_and_top_right_badge-after.bin
+  -> WROTE 210x60
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpqyg1qup7/n1_overlap_centered_icon_and_top_right_badge-before-nocap.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpqyg1qup7/n1_overlap_centered_icon_and_top_right_badge-before-nocap.bin
+  -> WROTE 210x60
+
+[n1_overlap_centered_icon_and_top_right_badge] 1. Centered Icon (20x20, Center/Center) + Top-Right Badge (20x20, End/Start) in 100x60 cell
+  Grid frame: solver=(210, 60) before_img=(210, 60) after_img=(210, 60)
+  child Icon       (blue ): solver=(40, 20, 20, 20)  d2c6997e_before=(40, 20, 20, 20)  r3_after=(40, 20, 20, 20)  delta=(0, 0, 0, 0)
+  child Badge      (red  ): solver=(80, 0, 20, 20)  d2c6997e_before=(120, 20, 20, 20)  r3_after=(80, 0, 20, 20)  delta=(0, 0, 0, 0)
+  child Caption    (green): solver=(110, 0, 100, 60)  d2c6997e_before=(110, 0, 100, 60)  r3_after=(110, 0, 100, 60)  delta=(0, 0, 0, 0)
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp07pkf6h8/n1_overlap_centered_photo_and_start_chip-before.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp07pkf6h8/n1_overlap_centered_photo_and_start_chip-before.bin
+  -> WROTE 210x60
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmptcsmacjb/n1_overlap_centered_photo_and_start_chip-after.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmptcsmacjb/n1_overlap_centered_photo_and_start_chip-after.bin
+  -> WROTE 210x60
+
+[n1_overlap_centered_photo_and_start_chip] 2. Centered Photo (60x30, Center/Center) + Start Chip (30x12, Start/Start) in 100x60 cell
+  Grid frame: solver=(210, 60) before_img=(210, 60) after_img=(210, 60)
+  child Photo      (blue ): solver=(20, 15, 60, 30)  d2c6997e_before=(20, 15, 60, 30)  r3_after=(20, 15, 60, 30)  delta=(0, 0, 0, 0)
+  child Chip       (red  ): solver=(0, 0, 30, 12)  d2c6997e_before=(20, 15, 30, 12)  r3_after=(0, 0, 30, 12)  delta=(0, 0, 0, 0)
+  child Caption    (green): solver=(110, 0, 100, 60)  d2c6997e_before=(110, 0, 100, 60)  r3_after=(110, 0, 100, 60)  delta=(0, 0, 0, 0)
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp0s5u6y41/n1_overlap_centered_dot_with_bigger_card_stacked-before.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp0s5u6y41/n1_overlap_centered_dot_with_bigger_card_stacked-before.bin
+  -> WROTE 210x60
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpaghai27s/n1_overlap_centered_dot_with_bigger_card_stacked-after.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpaghai27s/n1_overlap_centered_dot_with_bigger_card_stacked-after.bin
+  -> WROTE 210x60
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpzdjlvjcu/n1_overlap_centered_dot_with_bigger_card_stacked-before-cardclear.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpzdjlvjcu/n1_overlap_centered_dot_with_bigger_card_stacked-before-cardclear.bin
+  -> WROTE 210x60
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpe_y19czr/n1_overlap_centered_dot_with_bigger_card_stacked-after-cardclear.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmpe_y19czr/n1_overlap_centered_dot_with_bigger_card_stacked-after-cardclear.bin
+  -> WROTE 210x60
+
+[n1_overlap_centered_dot_with_bigger_card_stacked] 3. Centered Dot (20x20, Center/Center) + Bigger Card (100x60, Start/Start) stacked on top
+  Grid frame: solver=(210, 60) before_img=(210, 60) after_img=(210, 60)
+  child Dot        (red  ): solver=(40, 20, 20, 20)  d2c6997e_before=(0, 0, 20, 20)  r3_after=(40, 20, 20, 20)  delta=(0, 0, 0, 0)
+  child Card       (blue ): solver=(0, 0, 100, 60)  d2c6997e_before=(0, 0, 100, 60)  r3_after=(0, 0, 100, 60)  delta=(0, 0, 0, 0)
+  child Other      (green): solver=(110, 0, 100, 60)  d2c6997e_before=(110, 0, 100, 60)  r3_after=(110, 0, 100, 60)  delta=(0, 0, 0, 0)
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmprholw1al/n1_overlap_fill_child_inside_two_col_span-before.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmprholw1al/n1_overlap_fill_child_inside_two_col_span-before.bin
+  -> WROTE 220x40
+$ xcrun swiftc -parse-as-library -target arm64-apple-macos14 /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp8l63u329/n1_overlap_fill_child_inside_two_col_span-after.swift -o /var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/tmp8l63u329/n1_overlap_fill_child_inside_two_col_span-after.bin
+  -> WROTE 220x40
+
+[n1_overlap_fill_child_inside_two_col_span] 4. Fill-width child (InnerFill, col 1 = 40pt) stacked inside 2-col span (Wide = 150pt)
+  Grid frame: solver=(220, 40) before_img=(220, 40) after_img=(220, 40)
+  child Wide       (blue ): solver=(0, 0, 150, 40)  d2c6997e_before=(0, 0, 150, 40)  r3_after=(0, 0, 150, 40)  delta=(0, 0, 0, 0)
+  child InnerFill  (red  ): solver=(110, 0, 40, 20)  d2c6997e_before=(110, 0, 110, 20)  r3_after=(110, 0, 40, 20)  delta=(0, 0, 0, 0)
+
+ALL 4 N1 SCENES MATCH SOLVER RECTS TO THE PIXEL (0px DELTA).

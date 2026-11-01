@@ -718,6 +718,34 @@ fn instance_swap_pointing_at_variant_uses_component_set_view_name_and_uikit_keep
     assert!(uk_call.contains(".label2 = \"b2\""), "UIKit must emit renamed colliding prop label2: {uk_call}");
 }
 
+#[test]
+fn grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose() {
+    let (mut d, comp, inst) = dialog(&[("Tiles", Some("Default tile"))]);
+    let slot_id = d.get(comp).unwrap().children[0];
+    if let NodeKind::Frame(f) = &mut d.get_mut(slot_id).unwrap().kind {
+        f.auto_layout = Some(AutoLayout {
+            direction: LayoutDirection::Grid,
+            grid_columns: 2,
+            item_spacing: 8.0,
+            counter_spacing: 8.0,
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Hug,
+            ..Default::default()
+        });
+    }
+    fill(&mut d, inst, 0, "Tiles#1:0", &["Custom tile"]);
+
+    let sw_def = swiftui_for(&d, comp);
+    in_order(&sw_def, &["struct Dialog<TilesContent: View>: View {", "if let tiles {", "tiles", "} else {", "Text(\"Default tile\")"]);
+    let sw_inst = swiftui_for(&d, inst);
+    in_order(&sw_inst, &["Dialog {", "Text(\"Custom tile\")", "}"]);
+
+    let kt_def = compose_for(&d, comp);
+    in_order(&kt_def, &["fun Dialog(", "tiles: @Composable () -> Unit = {", "\"Default tile\"", "tiles()"]);
+    let kt_inst = compose_for(&d, inst);
+    in_order(&kt_inst, &["Dialog(", ") {", "\"Custom tile\""]);
+}
+
 /// Type-checks the generated React (TSX) with `tsc --noEmit --jsx preserve --strict`.
 /// Needs `npx` and network on first use, so it is opt-in: `cargo test -p designos-export -- --ignored`.
 #[test]

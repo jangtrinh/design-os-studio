@@ -1,0 +1,26 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-1e3dc0963dd7a310)
+
+running 15 tests
+test fixed_height_auto_rows_native_generators ... ok
+test item3_compose_all_six_scenes ... ok
+test item3_swiftui_all_six_scenes ... ok
+test item3_android_xml_all_six_scenes ... ok
+test solver_row_heights_match_compute_grid_across_all_six_scenes ... ok
+test row_and_column_spans_native_generators ... ok
+test item3_uikit_all_six_scenes ... ok
+test unequal_tracks_native_generators ... ok
+test absolute_child_in_grid_keeps_generator_handling_in_all_four_generators ... ok
+test explicit_hole_emits_filler_and_keeps_column_width ... ok
+test fixed_first_column_native_generators ... ok
+test hugging_grid_native_generators ... ok
+test equal_tracks_native_generators ... ok
+test bound_item_spacing_prints_token_in_all_four_generators ... ok
+test syntax_smoke_android_xml_and_swiftui_span_scene ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

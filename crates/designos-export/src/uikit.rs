@@ -24,6 +24,7 @@ pub fn uikit_for(doc: &Document, node: NodeId) -> String {
 enum Host<'a> {
     Stack(&'a str),
     Plain(&'a str),
+    Cell { parent: &'a str, align_h: GridChildAlign, align_v: GridChildAlign },
 }
 
 struct Cx<'a> {
@@ -126,6 +127,22 @@ impl Cx<'_> {
         id
     }
 
+    fn stack_padding(&mut self, v: &str, n: &Node, al: &AutoLayout) {
+        let doc = self.doc;
+        let p = al.padding;
+        if p.iter().any(|x| *x > 0.0) || ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].iter().any(|k| bound(doc, n, k).is_some()) {
+            let side = |i: usize, key: &str| dimension(doc, n, key, p[i]);
+            self.line(format!("{v}.isLayoutMarginsRelativeArrangement = true"));
+            self.line(format!(
+                "{v}.layoutMargins = UIEdgeInsets(top: {}, left: {}, bottom: {}, right: {})",
+                side(0, "paddingTop"),
+                side(3, "paddingLeft"),
+                side(2, "paddingBottom"),
+                side(1, "paddingRight")
+            ));
+        }
+    }
+
     fn emit(&mut self, id: NodeId, parent: Parent<'_>, host: Option<Host>) {
         let doc = self.doc;
         let Some(n) = doc.get(id) else { return };
@@ -139,6 +156,7 @@ impl Cx<'_> {
         let mut spacers = (false, false, false);
         let mut children: Vec<NodeId> = Vec::new();
         let mut stack_al = None;
+        let mut grid_body: Option<(&AutoLayout, SolvedGrid)> = None;
 
         if let NodeKind::Instance { .. } = n.kind {
             self.line(format!("let {v} = {}()", view_name(doc, n)));
@@ -156,6 +174,14 @@ impl Cx<'_> {
         } else if let Some(t) = text_of(n) {
             self.line(format!("let {v} = UILabel()"));
             self.label(&v, n, t);
+        } else if let Some((al, grid)) = own_al.and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
+            self.line(format!("let {v} = UIStackView()"));
+            self.line(format!("{v}.axis = .vertical"));
+            let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
+            self.line(format!("{v}.spacing = {row_gap_s}"));
+            self.line(format!("{v}.alignment = .leading"));
+            self.stack_padding(&v, n, al);
+            grid_body = Some((al, grid));
         } else if let Some(al) = own_al.filter(|_| !kids.is_empty()) {
             let horizontal = al.direction == LayoutDirection::Horizontal;
             self.line(format!("let {v} = UIStackView()"));
@@ -171,18 +197,7 @@ impl Cx<'_> {
                 (_, false) => ".leading",
             };
             self.line(format!("{v}.alignment = {counter}"));
-            let p = al.padding;
-            if p.iter().any(|x| *x > 0.0) || ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].iter().any(|k| bound(doc, n, k).is_some()) {
-                let side = |i: usize, key: &str| dimension(doc, n, key, p[i]);
-                self.line(format!("{v}.isLayoutMarginsRelativeArrangement = true"));
-                self.line(format!(
-                    "{v}.layoutMargins = UIEdgeInsets(top: {}, left: {}, bottom: {}, right: {})",
-                    side(0, "paddingTop"),
-                    side(3, "paddingLeft"),
-                    side(2, "paddingBottom"),
-                    side(1, "paddingRight")
-                ));
-            }
+            self.stack_padding(&v, n, al);
             if al.wrap {
                 self.line("// auto layout wraps: use a UICollectionView with a flow layout");
             }
@@ -213,9 +228,93 @@ impl Cx<'_> {
             match host {
                 Host::Stack(p) => self.line(format!("{p}.addArrangedSubview({v})")),
                 Host::Plain(p) => self.line(format!("{p}.addSubview({v})")),
+                Host::Cell { .. } => {}
             }
         }
         let me = Parent::of(n);
+        if let Some((al, grid)) = grid_body {
+            let cols = grid.widths.len();
+            let col_gap_s = dimension(doc, n, "itemSpacing", grid.col_gap);
+            for r in 0..grid.rows.len() {
+                let row_v = self.ident("row");
+                self.line(format!("let {row_v} = UIStackView()"));
+                self.line(format!("{row_v}.axis = .horizontal"));
+                self.line(format!("{row_v}.spacing = {col_gap_s}"));
+                self.line(format!("{row_v}.alignment = .top"));
+                self.line(format!("{v}.addArrangedSubview({row_v})"));
+                let groups = grid.row_cells(r);
+                let mut c = 0usize;
+                while c < cols {
+                    if let Some(group) = groups.iter().find(|g| g.placed.col == c) {
+                        let cid = group.id;
+                        let p = &group.placed;
+                        if p.row_span > 1 {
+                            let cname = doc.get(cid).map(|cn| cn.name.as_str()).unwrap_or("");
+                            self.line(format!("// \"{}\": row span {} is not supported by UIKit stack grid; placed in row {}", cname, p.row_span, p.row + 1));
+                        }
+                        for s in &group.stacked {
+                            if s.placed.row_span > 1 {
+                                let sname = doc.get(s.id).map(|cn| cn.name.as_str()).unwrap_or("");
+                                self.line(format!(
+                                    "// \"{}\": row span {} is not supported by UIKit stack grid; placed in row {}",
+                                    sname,
+                                    s.placed.row_span,
+                                    s.placed.row + 1
+                                ));
+                            }
+                        }
+                        if let Some(comment) = SolvedGrid::overlap_comment(doc, group) {
+                            self.line(comment);
+                        }
+                        let cell_v = self.ident("cell");
+                        let cell_w = grid.cell_width(p);
+                        let cell_h = grid.cell_height(p, false);
+                        self.line(format!("let {cell_v} = UIView()"));
+                        self.line(format!("{cell_v}.translatesAutoresizingMaskIntoConstraints = false"));
+                        self.line("NSLayoutConstraint.activate([");
+                        self.out.line(1, format!("{cell_v}.widthAnchor.constraint(equalToConstant: {}),", num(cell_w)));
+                        self.out.line(1, format!("{cell_v}.heightAnchor.constraint(equalToConstant: {}),", num(cell_h)));
+                        self.line("])");
+                        self.line(format!("{row_v}.addArrangedSubview({cell_v})"));
+                        let (align_h, align_v) = grid_cell_align(doc, cid, al);
+                        self.emit(cid, me, Some(Host::Cell { parent: &cell_v, align_h, align_v }));
+                        for s in &group.stacked {
+                            let sub_v = self.ident("stackCell");
+                            let sw = grid.cell_width(&s.placed);
+                            let sh = grid.cell_height(&s.placed, false);
+                            self.line(format!("let {sub_v} = UIView()"));
+                            self.line(format!("{sub_v}.translatesAutoresizingMaskIntoConstraints = false"));
+                            self.line(format!("{cell_v}.addSubview({sub_v})"));
+                            self.line("NSLayoutConstraint.activate([");
+                            self.out.line(1, format!("{sub_v}.leadingAnchor.constraint(equalTo: {cell_v}.leadingAnchor, constant: {}),", num(s.offset.0)));
+                            self.out.line(1, format!("{sub_v}.topAnchor.constraint(equalTo: {cell_v}.topAnchor, constant: {}),", num(s.offset.1)));
+                            self.out.line(1, format!("{sub_v}.widthAnchor.constraint(equalToConstant: {}),", num(sw)));
+                            self.out.line(1, format!("{sub_v}.heightAnchor.constraint(equalToConstant: {}),", num(sh)));
+                            self.line("])");
+                            let (sh_al, sv_al) = grid_cell_align(doc, s.id, al);
+                            self.emit(s.id, me, Some(Host::Cell { parent: &sub_v, align_h: sh_al, align_v: sv_al }));
+                        }
+                        c += p.col_span;
+                    } else {
+                        let hole_v = self.ident("hole");
+                        self.line(format!("let {hole_v} = UIView()"));
+                        self.line(format!("{hole_v}.translatesAutoresizingMaskIntoConstraints = false"));
+                        self.line("NSLayoutConstraint.activate([");
+                        self.out.line(1, format!("{hole_v}.widthAnchor.constraint(equalToConstant: {}),", num(grid.widths[c])));
+                        self.out.line(1, format!("{hole_v}.heightAnchor.constraint(equalToConstant: {}),", num(grid.rows[r])));
+                        self.line("])");
+                        self.line(format!("{row_v}.addArrangedSubview({hole_v})"));
+                        c += 1;
+                    }
+                }
+            }
+            for k in &kids {
+                if !grid.children.iter().any(|(cid, _)| *cid == k.id) {
+                    self.emit(k.id, me, Some(Host::Plain(&v)));
+                }
+            }
+            return;
+        }
         let child_host = if stack_al.is_some() { Host::Stack(&v) } else { Host::Plain(&v) };
         let horizontal = stack_al.is_some_and(|a| a.direction == LayoutDirection::Horizontal);
         let spacer = |this: &mut Self| {
@@ -397,6 +496,37 @@ impl Cx<'_> {
     /// Size and position: constraints inside stacks, `frame` elsewhere.
     fn layout(&mut self, v: &str, n: &Node, sz: &Sizes, host: Option<Host>, parent: Parent) {
         let doc = self.doc;
+        if let Some(Host::Cell { parent: cell_v, align_h, align_v }) = host {
+            self.line(format!("{v}.translatesAutoresizingMaskIntoConstraints = false"));
+            self.line(format!("{cell_v}.addSubview({v})"));
+            let mut cons: Vec<String> = Vec::new();
+            match sz.w {
+                Dim::Fixed(px) => cons.push(format!("{v}.widthAnchor.constraint(equalToConstant: {})", dimension(doc, n, "width", px))),
+                Dim::Fill => cons.push(format!("{v}.widthAnchor.constraint(equalTo: {cell_v}.widthAnchor)")),
+                Dim::Hug => {}
+            }
+            match sz.h {
+                Dim::Fixed(px) => cons.push(format!("{v}.heightAnchor.constraint(equalToConstant: {})", dimension(doc, n, "height", px))),
+                Dim::Fill => cons.push(format!("{v}.heightAnchor.constraint(equalTo: {cell_v}.heightAnchor)")),
+                Dim::Hug => {}
+            }
+            match align_h {
+                GridChildAlign::Center => cons.push(format!("{v}.centerXAnchor.constraint(equalTo: {cell_v}.centerXAnchor)")),
+                GridChildAlign::End => cons.push(format!("{v}.trailingAnchor.constraint(equalTo: {cell_v}.trailingAnchor)")),
+                _ => cons.push(format!("{v}.leadingAnchor.constraint(equalTo: {cell_v}.leadingAnchor)")),
+            }
+            match align_v {
+                GridChildAlign::Center => cons.push(format!("{v}.centerYAnchor.constraint(equalTo: {cell_v}.centerYAnchor)")),
+                GridChildAlign::End => cons.push(format!("{v}.bottomAnchor.constraint(equalTo: {cell_v}.bottomAnchor)")),
+                _ => cons.push(format!("{v}.topAnchor.constraint(equalTo: {cell_v}.topAnchor)")),
+            }
+            self.line("NSLayoutConstraint.activate([");
+            for c in cons {
+                self.out.line(1, format!("{c},"));
+            }
+            self.line("])");
+            return;
+        }
         let in_stack = matches!(host, Some(Host::Stack(_))) || host.is_none();
         if !in_stack {
             let (x, y) = offset(n, parent, sz).unwrap_or((n.transform.tx, n.transform.ty));
@@ -580,5 +710,33 @@ card.addArrangedSubview(chip)"####;
             let out = uikit_for(&d, grid);
             assert!(out.contains(&format!("heightAnchor.constraint(equalToConstant: {height})")), "{track:?}: {out}");
         }
+    }
+
+    #[test]
+    fn uikit_grid_emits_row_stacks_cell_views_and_holes() {
+        let al = AutoLayout {
+            grid_columns: 2,
+            item_spacing: 10.0,
+            counter_spacing: 8.0,
+            grid_col_tracks: vec![GridTrack::Fixed(100.0), GridTrack::Fixed(120.0)].into(),
+            grid_row_tracks: vec![GridTrack::Fixed(40.0), GridTrack::Fixed(50.0)].into(),
+            primary_sizing: Sizing::Fixed,
+            counter_sizing: Sizing::Fixed,
+            ..Default::default()
+        };
+        let (mut d, grid) = fixture::grid_frame(al, Vec2::new(230.0, 98.0));
+        let a = fixture::add_rect(&mut d, grid, Vec2::new(100.0, 40.0));
+        d.get_mut(a).unwrap().name = "Hero".into();
+        d.get_mut(a).unwrap().layout_child.row_span = 2;
+        let b = fixture::add_rect(&mut d, grid, Vec2::new(120.0, 40.0));
+        d.get_mut(b).unwrap().name = "Side".into();
+        d.relayout_subtree(grid);
+
+        let out = uikit_for(&d, grid);
+        assert!(out.contains("row.axis = .horizontal"), "{out}");
+        assert!(out.contains("row2.axis = .horizontal"), "{out}");
+        assert!(out.contains("// \"Hero\": row span 2 is not supported by UIKit stack grid; placed in row 1"), "{out}");
+        assert!(out.contains("hole.widthAnchor.constraint(equalToConstant: 100)"), "{out}");
+        assert!(out.contains("hole.heightAnchor.constraint(equalToConstant: 50)"), "{out}");
     }
 }

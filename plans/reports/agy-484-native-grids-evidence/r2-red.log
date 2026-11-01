@@ -1,0 +1,961 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.67s
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-1e3dc0963dd7a310)
+
+running 25 tests
+test b1_overlap_same_cell_keeps_all_children_and_solver_offsets ... FAILED
+test b3_grid_slot_keeps_slot_parameter ... FAILED
+test bound_item_spacing_prints_token_in_all_four_generators ... ok
+test item3_compose_all_six_scenes ... FAILED
+test absolute_child_in_grid_keeps_generator_handling_in_all_four_generators ... FAILED
+test explicit_hole_emits_filler_and_keeps_column_width ... ok
+test d3_explicit_trailing_grid_rows_exported ... ok
+test equal_tracks_native_generators ... FAILED
+test b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets ... FAILED
+test fixed_first_column_native_generators ... FAILED
+test fixed_height_auto_rows_native_generators ... FAILED
+test b2_compose_out_of_flow_children_wrap_grid_in_outer_box ... FAILED
+test hugging_grid_native_generators ... ok
+test item3_swiftui_all_six_scenes ... ok
+test m1_compose_grid_component_instance_keeps_frame_height ... FAILED
+test item3_android_xml_all_six_scenes ... FAILED
+test m2_android_span_only_column_and_row_emit_space ... FAILED
+test m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout ... FAILED
+test m4_compose_grid_height_fixed_vs_hug_and_fill ... FAILED
+test row_and_column_spans_native_generators ... FAILED
+test m5_bound_counter_axis_spacing_and_non_start_cell_alignments ... ok
+test solver_row_heights_match_compute_grid_across_all_six_scenes ... ok
+test unequal_tracks_native_generators ... FAILED
+test item3_uikit_all_six_scenes ... ok
+test syntax_smoke_android_xml_and_swiftui_span_scene ... ok
+
+failures:
+
+---- b1_overlap_same_cell_keeps_all_children_and_solver_offsets stdout ----
+
+thread 'b1_overlap_same_cell_keeps_all_children_and_solver_offsets' (48010783) panicked at crates/designos-export/tests/grid_native_fixtures.rs:775:5:
+SwiftUI missing overlap comment:
+Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {
+    GridRow {
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 100, height: 60)
+            .frame(width: 100, height: 60, alignment: .topLeading)
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 100, height: 60)
+            .frame(width: 100, height: 60, alignment: .topLeading)
+    }
+}
+    .padding(8)
+    .frame(width: 226, height: 76, alignment: .topLeading)
+
+---- b3_grid_slot_keeps_slot_parameter stdout ----
+
+thread 'b3_grid_slot_keeps_slot_parameter' (48010785) panicked at crates/designos-export/tests/grid_native_fixtures.rs:978:5:
+SwiftUI component definition lost grid slot parameter:
+struct CardWithGridSlot<TilesContent: View>: View {
+    private let tiles: TilesContent?
+
+    init(@ViewBuilder tiles: () -> TilesContent) {
+        self.tiles = tiles()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Grid(alignment: .topLeading, horizontalSpacing: 8, verticalSpacing: 8) {
+                GridRow {
+                    Text("DefaultTile")
+                        .font(.custom("Inter", size: 12))
+                        .foregroundColor(Color.black)
+                        .frame(width: 104, height: 20, alignment: .topLeading)
+                    Color.clear.frame(width: 104, height: 20)
+                }
+            }
+                .frame(width: 216, alignment: .topLeading)
+                .background(Color.white)
+        }
+            .padding(12)
+            .frame(width: 240, height: 120, alignment: .topLeading)
+    }
+}
+
+extension CardWithGridSlot where TilesContent == EmptyView {
+    init() {
+        self.tiles = nil
+    }
+}
+
+---- item3_compose_all_six_scenes stdout ----
+
+thread 'item3_compose_all_six_scenes' (48010794) panicked at crates/designos-export/tests/grid_native_fixtures.rs:321:5:
+equal_tracks Compose missing explicit container height 180.dp: LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(92.dp, 92.dp, 92.dp).map { it.roundToPx() } },
+    modifier = Modifier
+        .size(width = 324.dp, height = 108.dp)
+        .padding(12.dp),
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+}
+
+---- absolute_child_in_grid_keeps_generator_handling_in_all_four_generators stdout ----
+
+thread 'absolute_child_in_grid_keeps_generator_handling_in_all_four_generators' (48010781) panicked at crates/designos-export/tests/grid_native_fixtures.rs:659:5:
+Compose should wrap LazyVerticalGrid in an outer Box and emit absolute child after LazyVerticalGrid closes: LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(100.dp, 100.dp).map { it.roundToPx() } },
+    modifier = Modifier.size(width = 210.dp, height = 36.dp),
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    Box(
+        modifier = Modifier
+            .offset(x = 15.dp, y = 25.dp)
+            .size(width = 24.dp, height = 18.dp)
+            .background(Color(0xFF3582FF))
+    )
+}
+
+---- equal_tracks_native_generators stdout ----
+
+thread 'equal_tracks_native_generators' (48010788) panicked at crates/designos-export/tests/grid_native_fixtures.rs:321:5:
+equal_tracks Compose missing explicit container height 180.dp: LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(92.dp, 92.dp, 92.dp).map { it.roundToPx() } },
+    modifier = Modifier
+        .size(width = 324.dp, height = 108.dp)
+        .padding(12.dp),
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+}
+
+---- b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets stdout ----
+
+thread 'b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets' (48010782) panicked at crates/designos-export/tests/grid_native_fixtures.rs:846:5:
+SwiftUI missing col_span overlap comment:
+Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {
+    GridRow {
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 210, height: 60)
+            .frame(width: 210, height: 60, alignment: .topLeading)
+            .gridCellColumns(2)
+        Rectangle()
+            .fill(Color(red: 0.208, green: 0.51, blue: 1))
+            .frame(width: 100, height: 60)
+            .frame(width: 100, height: 60, alignment: .topLeading)
+    }
+}
+    .padding(10)
+    .frame(width: 340, height: 80, alignment: .topLeading)
+
+---- fixed_first_column_native_generators stdout ----
+
+thread 'fixed_first_column_native_generators' (48010790) panicked at crates/designos-export/tests/grid_native_fixtures.rs:321:5:
+fixed_first_column Compose missing explicit container height 180.dp: LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(200.dp, 110.dp, 110.dp).map { it.roundToPx() } },
+    modifier = Modifier.size(width = 440.dp, height = 90.dp),
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+}
+
+---- fixed_height_auto_rows_native_generators stdout ----
+
+thread 'fixed_height_auto_rows_native_generators' (48010791) panicked at crates/designos-export/tests/grid_native_fixtures.rs:321:5:
+fixed_height_auto_rows Compose missing explicit container height 240.dp: LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(108.dp, 108.dp).map { it.roundToPx() } },
+    modifier = Modifier
+        .size(width = 260.dp, height = 152.dp)
+        .padding(16.dp),
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+    verticalArrangement = Arrangement.spacedBy(16.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(24.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(24.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(24.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(24.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(36.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(28.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(28.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(28.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(28.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+}
+
+---- b2_compose_out_of_flow_children_wrap_grid_in_outer_box stdout ----
+
+thread 'b2_compose_out_of_flow_children_wrap_grid_in_outer_box' (48010784) panicked at crates/designos-export/tests/grid_native_fixtures.rs:905:5:
+Compose should wrap LazyVerticalGrid in an outer Box with frame size:
+LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(84.dp, 84.dp).map { it.roundToPx() } },
+    modifier = Modifier
+        .size(width = 200.dp, height = 100.dp)
+        .padding(12.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(76.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 84.dp, height = 76.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(76.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 84.dp, height = 76.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    Box(
+        modifier = Modifier
+            .offset(x = 160.dp, y = 4.dp)
+            .size(width = 30.dp, height = 16.dp)
+            .background(Color(0xFF3582FF))
+    )
+}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- m1_compose_grid_component_instance_keeps_frame_height stdout ----
+
+thread 'm1_compose_grid_component_instance_keeps_frame_height' (48010797) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1024:5:
+Compose grid component instance should keep its 210x50 frame height 50.dp, not recomputed grid height 30.dp:
+TileGrid(modifier = Modifier.size(width = 210.dp, height = 30.dp))
+
+---- item3_android_xml_all_six_scenes stdout ----
+
+thread 'item3_android_xml_all_six_scenes' (48010793) panicked at crates/designos-export/tests/grid_native_fixtures.rs:388:13:
+row_and_column_spans Android missing column <Space> for col 0: <!-- res/layout/grid_frame.xml -->
+<GridLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="428dp"
+    android:layout_height="220dp"
+    android:columnCount="4"
+    android:rowCount="3"
+    android:padding="12dp">
+    <FrameLayout
+        android:layout_width="196dp"
+        android:layout_height="92dp"
+        android:layout_row="0"
+        android:layout_column="0"
+        android:layout_rowSpan="2"
+        android:layout_columnSpan="2">
+        <View
+            android:layout_width="196dp"
+            android:layout_height="92dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="196dp"
+        android:layout_height="40dp"
+        android:layout_row="0"
+        android:layout_column="2"
+        android:layout_columnSpan="2"
+        android:layout_marginStart="12dp">
+        <View
+            android:layout_width="196dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="92dp"
+        android:layout_height="40dp"
+        android:layout_row="1"
+        android:layout_column="2"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp">
+        <View
+            android:layout_width="92dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="92dp"
+        android:layout_height="40dp"
+        android:layout_row="1"
+        android:layout_column="3"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp">
+        <View
+            android:layout_width="92dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="404dp"
+        android:layout_height="36dp"
+        android:layout_row="2"
+        android:layout_column="0"
+        android:layout_columnSpan="4"
+        android:layout_marginTop="12dp">
+        <View
+            android:layout_width="404dp"
+            android:layout_height="36dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+</GridLayout>
+
+---- m2_android_span_only_column_and_row_emit_space stdout ----
+
+thread 'm2_android_span_only_column_and_row_emit_space' (48010798) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1070:5:
+Android XML missing <Space> for span-only column 1:
+<!-- res/layout/grid_frame.xml -->
+<GridLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="320dp"
+    android:layout_height="90dp"
+    android:columnCount="3"
+    android:rowCount="2">
+    <FrameLayout
+        android:layout_width="210dp"
+        android:layout_height="40dp"
+        android:layout_row="0"
+        android:layout_column="0"
+        android:layout_columnSpan="2">
+        <View
+            android:layout_width="210dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="100dp"
+        android:layout_height="40dp"
+        android:layout_row="0"
+        android:layout_column="2"
+        android:layout_marginStart="10dp">
+        <View
+            android:layout_width="100dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="100dp"
+        android:layout_height="40dp"
+        android:layout_row="1"
+        android:layout_column="0"
+        android:layout_marginTop="10dp">
+        <View
+            android:layout_width="100dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="100dp"
+        android:layout_height="40dp"
+        android:layout_row="1"
+        android:layout_column="2"
+        android:layout_marginStart="10dp"
+        android:layout_marginTop="10dp">
+        <View
+            android:layout_width="100dp"
+            android:layout_height="40dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+</GridLayout>
+
+---- m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout stdout ----
+
+thread 'm3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout' (48010799) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1170:5:
+Android XML with out-of-flow/hidden children should start with outer <FrameLayout:
+<!-- res/layout/grid_frame.xml -->
+<GridLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="226dp"
+    android:layout_height="wrap_content"
+    android:columnCount="2"
+    android:rowCount="1"
+    android:padding="8dp">
+    <FrameLayout
+        android:layout_width="100dp"
+        android:layout_height="60dp"
+        android:layout_row="0"
+        android:layout_column="0">
+        <View
+            android:layout_width="100dp"
+            android:layout_height="60dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <FrameLayout
+        android:layout_width="100dp"
+        android:layout_height="60dp"
+        android:layout_row="0"
+        android:layout_column="1"
+        android:layout_marginStart="10dp">
+        <View
+            android:layout_width="100dp"
+            android:layout_height="60dp"
+            android:layout_gravity="top|start"
+            android:background="#FF3582FF" />
+    </FrameLayout>
+    <View
+        android:layout_width="28dp"
+        android:layout_height="16dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="18dp"
+        android:background="#FF3582FF" />
+</GridLayout>
+
+---- m4_compose_grid_height_fixed_vs_hug_and_fill stdout ----
+
+thread 'm4_compose_grid_height_fixed_vs_hug_and_fill' (48010800) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1200:5:
+Fixed-height grid in Compose should use frame height 200.dp:
+LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(97.dp, 97.dp).map { it.roundToPx() } },
+    modifier = Modifier
+        .size(width = 220.dp, height = 106.dp)
+        .padding(8.dp),
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 90.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 90.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 90.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 90.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+}
+
+---- row_and_column_spans_native_generators stdout ----
+
+thread 'row_and_column_spans_native_generators' (48010802) panicked at crates/designos-export/tests/grid_native_fixtures.rs:321:5:
+row_and_column_spans Compose missing explicit container height 220.dp: LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(92.dp, 92.dp, 92.dp, 92.dp).map { it.roundToPx() } },
+    modifier = Modifier
+        .size(width = 428.dp, height = 164.dp)
+        .padding(12.dp),
+    horizontalArrangement = Arrangement.spacedBy(12.dp),
+    verticalArrangement = Arrangement.spacedBy(12.dp),
+    userScrollEnabled = false
+) {
+    // "HeroTile": row span 2 is not supported by Compose LazyVerticalGrid; placed in row 1
+    item(span = { GridItemSpan(2) }) {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 196.dp, height = 92.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item(span = { GridItemSpan(2) }) {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 196.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item { Spacer(Modifier.height(40.dp)) }
+    item { Spacer(Modifier.height(40.dp)) }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 92.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 92.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item(span = { GridItemSpan(4) }) {
+        Box(Modifier.height(36.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 404.dp, height = 36.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+}
+
+---- unequal_tracks_native_generators stdout ----
+
+thread 'unequal_tracks_native_generators' (48010805) panicked at crates/designos-export/tests/grid_native_fixtures.rs:321:5:
+unequal_tracks Compose missing explicit container height 140.dp: LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(100.dp, 40.dp, 60.dp).map { it.roundToPx() } },
+    modifier = Modifier.height(70.dp),
+    horizontalArrangement = Arrangement.spacedBy(0.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 100.dp, height = 30.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 40.dp, height = 30.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 60.dp, height = 30.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(30.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(30.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .height(30.dp)
+                    .fillMaxWidth()
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+}
+
+
+failures:
+    absolute_child_in_grid_keeps_generator_handling_in_all_four_generators
+    b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets
+    b1_overlap_same_cell_keeps_all_children_and_solver_offsets
+    b2_compose_out_of_flow_children_wrap_grid_in_outer_box
+    b3_grid_slot_keeps_slot_parameter
+    equal_tracks_native_generators
+    fixed_first_column_native_generators
+    fixed_height_auto_rows_native_generators
+    item3_android_xml_all_six_scenes
+    item3_compose_all_six_scenes
+    m1_compose_grid_component_instance_keeps_frame_height
+    m2_android_span_only_column_and_row_emit_space
+    m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout
+    m4_compose_grid_height_fixed_vs_hug_and_fill
+    row_and_column_spans_native_generators
+    unequal_tracks_native_generators
+
+test result: FAILED. 9 passed; 16 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-export --test grid_native_fixtures`
+     Running tests/slot_codegen.rs (out/cargo/debug/deps/slot_codegen-4403410596b6ad7e)
+
+running 32 tests
+test generated_react_parses ... ignored, needs npx and esbuild
+test generated_react_type_checks ... ignored, needs npx and typescript
+test generated_swiftui_type_checks ... ignored, needs swiftc and the macOS SDK
+test compose_function_without_root_styling_still_applies_the_modifier ... ok
+test react_definition_has_one_prop_per_slot_and_defaults_only_as_fallback ... ok
+test react_instance_with_emptied_slot_suppresses_the_default ... ok
+test react_reserved_and_colliding_prop_names_are_renamed ... ok
+test react_component_with_props_and_no_slots_declares_them ... ok
+test compose_definition_has_a_lambda_per_slot_with_the_default_content ... ok
+test plain_frame_has_empty_parameter_list ... ok
+test compose_function_declares_every_argument_its_instance_passes ... ok
+test compose_prop_named_modifier_is_renamed ... ok
+test react_instance_routes_content_per_slot ... ok
+test react_set_root_declares_variant_level_props ... ok
+test react_function_declares_every_argument_its_instance_passes ... ok
+test compose_instance_with_emptied_slot_suppresses_the_default ... ok
+test instance_swap_pointing_at_variant_uses_component_set_view_name_and_uikit_keeps_colliding_props ... ok
+test grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose ... FAILED
+test compose_instance_passes_a_named_lambda_per_slot ... ok
+test react_variant_prop_is_a_literal_union ... ok
+test single_slot_uses_the_trailing_lambda_in_compose ... ok
+test single_slot_uses_a_trailing_closure_in_swiftui ... ok
+test react_slot_props_are_single_brace_jsx_expressions ... ok
+test swiftui_instance_leaves_an_omitted_slot_empty ... ok
+test swiftui_instance_passes_a_closure_per_slot ... ok
+test swiftui_definition_is_a_generic_view_with_a_parameter_per_slot ... ok
+test single_slot_uses_children_in_react ... ok
+test swiftui_prop_keyword_is_renamed ... ok
+test swiftui_init_declares_every_argument_its_instance_passes ... ok
+test react_tailwind_uses_the_same_signature ... ok
+test tailwind_html_keeps_default_content_once_and_routes_named_slots ... ok
+test reserved_slot_names_are_renamed_in_every_language ... ok
+
+failures:
+
+---- grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose stdout ----
+
+thread 'grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose' (48010836) panicked at crates/designos-export/tests/slot_codegen.rs:90:21:
+`if let tiles {` missing or out of order after byte 41 in:
+struct Dialog<TilesContent: View>: View {
+    private let tiles: TilesContent?
+
+    init(@ViewBuilder tiles: () -> TilesContent) {
+        self.tiles = tiles()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Grid(alignment: .topLeading, horizontalSpacing: 8, verticalSpacing: 8) {
+                GridRow {
+                    Text("Default tile")
+                        .font(.custom("Inter", size: 14))
+                        .foregroundColor(Color(red: 0.067, green: 0.067, blue: 0.067))
+                        .frame(width: 104, height: 20, alignment: .topLeading)
+                    Color.clear.frame(width: 104, height: 20)
+                }
+            }
+                .frame(width: 216, alignment: .topLeading)
+                .background(Color.white)
+        }
+            .padding(12)
+            .frame(width: 240, height: 160, alignment: .topLeading)
+    }
+}
+
+extension Dialog where TilesContent == EmptyView {
+    init() {
+        self.tiles = nil
+    }
+}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    grid_slot_frame_keeps_slot_parameter_in_swiftui_and_compose
+
+test result: FAILED. 28 passed; 1 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-export --test slot_codegen`
+error: 2 targets failed:
+    `-p designos-export --test grid_native_fixtures`
+    `-p designos-export --test slot_codegen`
