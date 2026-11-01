@@ -1265,6 +1265,12 @@ pub fn detach_fill_paints(node: &mut Node) {
     node.style_refs.remove("fill");
 }
 
+/// Cuts the links between a node's effects and values supplied by variables or a shared style.
+pub fn detach_effect_bindings(node: &mut Node) {
+    node.variables.bindings.retain(|key, _| !key.starts_with("effects/"));
+    node.style_refs.remove("effect");
+}
+
 /// Binds a variable ID to `prop_keys` on `node_id` in `doc` and writes the resolved value via [`set_bound_property`].
 pub fn apply_variable_binding(
     doc: &mut Document,
@@ -2380,5 +2386,21 @@ mod tests {
         let left: Vec<&str> = node.variables.bindings.keys().map(String::as_str).collect();
         assert_eq!(left, ["strokes/0", "width"]);
         assert_eq!(node.style_refs.keys().map(String::as_str).collect::<Vec<_>>(), ["stroke"]);
+    }
+
+    #[test]
+    fn detach_effect_bindings_drops_effect_bindings_and_the_effect_style_link_only() {
+        let mut node = Node::rectangle(NodeId(1), Rect::new(0.0, 0.0, 10.0, 10.0));
+        for (key, var) in [("effects/0/radius", "a"), ("effects/1/color", "b"), ("fills/0", "c"), ("width", "d")] {
+            node.variables.bindings.insert(key.to_string(), var.to_string());
+        }
+        node.style_refs.insert("effect".to_string(), "s_effect".to_string());
+        node.style_refs.insert("fill".to_string(), "s_fill".to_string());
+
+        detach_effect_bindings(&mut node);
+
+        let left: Vec<&str> = node.variables.bindings.keys().map(String::as_str).collect();
+        assert_eq!(left, ["fills/0", "width"]);
+        assert_eq!(node.style_refs.keys().map(String::as_str).collect::<Vec<_>>(), ["fill"]);
     }
 }

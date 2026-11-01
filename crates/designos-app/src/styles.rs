@@ -142,6 +142,9 @@ impl App {
                 }
             }
             Style::Effect(fx) => {
+                // A style's effect values replace the layer's effects. Drop direct variable
+                // bindings first so they cannot override the newly linked style.
+                detach_effect_bindings(n);
                 n.effects = fx.clone();
                 n.style_refs.insert("effect".into(), key.into());
             }
@@ -709,6 +712,43 @@ mod tests {
         ed.apply_style(&[r, f], "g");
         assert!(!ed.doc.get(r).unwrap().style_refs.contains_key("grid"), "a rectangle has no layout guides");
         assert_eq!(ed.doc.get(f).unwrap().style_refs.get("grid").map(String::as_str), Some("g"));
+    }
+
+    #[test]
+    fn applying_an_effect_style_drops_direct_effect_bindings_and_undoes_together() {
+        let mut d = Document::new("effect-style-bindings");
+        let page = d.add_page("p");
+        let id = d.alloc_id();
+        let mut node = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        node.effects = vec![Effect::LayerBlur { radius: 4.0, visible: true }];
+        let node = d.insert(page, node).unwrap();
+
+        let mut store = VariableStore::from_doc(&d);
+        let collection = store.add_collection("Theme");
+        let variable = store.add_variable(&collection, "Effect/Radius", VariableKind::Number).unwrap();
+        let mode = store.collections[&collection].default_mode.clone();
+        assert!(store.set_value(&variable, &mode, VariableValue::Number(18.0)));
+        d.variables = store.variables;
+        d.variable_collections = store.collections;
+        d.get_mut(node).unwrap().variables.bindings.insert("effects/0/radius".into(), variable.clone());
+
+        let style_key = "Shadow/Card";
+        d.styles.insert(style_key.into(), Style::Effect(vec![Effect::LayerBlur { radius: 8.0, visible: true }]));
+        d.style_meta.insert(style_key.into(), StyleMeta { name: style_key.into(), property: StyleProperty::Effect, ..Default::default() });
+        let mut app = App::new(d);
+        let before = app.doc.get(node).unwrap().clone();
+        assert_eq!(resolved_node(&app.doc, node).unwrap().effects[0], Effect::LayerBlur { radius: 18.0, visible: true });
+
+        app.apply_style(&[node], style_key);
+
+        let after = app.doc.get(node).unwrap();
+        assert!(!after.variables.bindings.keys().any(|key| key.starts_with("effects/")), "stale effect bindings: {:?}", after.variables.bindings);
+        assert_eq!(after.style_refs.get("effect").map(String::as_str), Some(style_key));
+        assert_eq!(resolved_node(&app.doc, node).unwrap().effects[0], Effect::LayerBlur { radius: 8.0, visible: true });
+
+        app.undo();
+        assert_eq!(app.doc.get(node).unwrap(), &before, "one undo restores effects, binding and style link");
+        assert_eq!(resolved_node(&app.doc, node).unwrap().effects[0], Effect::LayerBlur { radius: 18.0, visible: true });
     }
 
     #[test]
