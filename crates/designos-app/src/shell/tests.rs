@@ -1923,4 +1923,47 @@ mod agent_a11y {
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace() {
+        let mut s = Sim::new();
+        let page = s.app().page;
+        let frame = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::frame(frame, designos_doc::Rect::new(100.0, 120.0, 320.0, 240.0))).unwrap();
+        let child = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(frame, designos_doc::Node::rectangle(child, designos_doc::Rect::new(30.0, 40.0, 90.0, 60.0))).unwrap();
+        let src = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::rectangle(src, designos_doc::Rect::new(500.0, 120.0, 50.0, 50.0))).unwrap();
+        let target = s.shell.app.doc.alloc_id();
+        s.shell.app.doc.insert(page, designos_doc::Node::rectangle(target, designos_doc::Rect::new(600.0, 120.0, 110.0, 80.0))).unwrap();
+
+        // Copy `src` into Studio's internal clip so PasteToReplace has a clip payload ready.
+        s.shell.app.selection = vec![src];
+        s.shell.app.copy_selection();
+
+        // Select `frame` and press Cmd+Alt+Shift+R (⌥⇧⌘R / Ctrl+Alt+Shift+R): must Resize to fit `frame`, NOT Paste to replace it!
+        s.shell.app.selection = vec![frame];
+        let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+        s.mods = Modifiers { alt: true, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        s.key(Key::R);
+        s.mods = Modifiers::NONE;
+
+        let f_after = s.app().doc.get(frame).expect("frame still exists and was not replaced by clipboard");
+        assert_eq!((f_after.transform.tx, f_after.transform.ty), (130.0, 160.0));
+        assert_eq!(f_after.size, DV::new(90.0, 60.0));
+        let c_after = s.app().doc.get(child).expect("child still exists");
+        assert_eq!((c_after.transform.tx, c_after.transform.ty), (0.0, 0.0));
+
+        // Now select `target` and press Cmd+Shift+R (⇧⌘R / Ctrl+Shift+R): must Paste to replace `target` with a 50x50 copy of `src`.
+        s.shell.app.selection = vec![target];
+        s.mods = Modifiers { alt: false, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+        s.key(Key::R);
+        s.mods = Modifiers::NONE;
+
+        assert!(s.app().doc.get(target).is_none(), "target was replaced by PasteToReplace");
+        assert_eq!(s.app().selection.len(), 1);
+        let replaced = s.app().doc.get(s.app().selection[0]).unwrap();
+        assert_eq!(replaced.size, DV::new(50.0, 50.0));
+        assert_eq!((replaced.transform.tx, replaced.transform.ty), (600.0, 120.0));
+    }
 }

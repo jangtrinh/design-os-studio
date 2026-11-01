@@ -843,7 +843,7 @@ impl App {
         self.show_toast("Pasted over selection", false);
     }
 
-    /// `Cmd+Shift+R` / `Cmd+Alt+Shift+R` (`PasteToReplace`): replaces each selected node in-place with the
+    /// `Cmd+Shift+R` (`PasteToReplace`): replaces each selected node in-place with the
     /// clipboard contents, preserving the target's parent, child index, and `(tx, ty)` position.
     pub fn paste_to_replace(&mut self) {
         let Some(clip) = self.clip.clone() else { return };
@@ -1156,6 +1156,33 @@ impl App {
         if let Some(g) = g {
             self.selection = vec![g];
         }
+    }
+
+    /// Whether the current selection contains at least one container (`Frame`, `Group`, `Component`,
+    /// `ComponentSet`) with at least one visible child that can be resized to fit.
+    pub fn can_resize_to_fit(&self) -> bool {
+        designos_doc::can_resize_to_fit(&self.doc, &self.selection)
+    }
+
+    /// `Cmd+Alt+Shift+R` (`Resize to fit`): fits each selected `Frame`, `Group`, `Component`, or
+    /// `ComponentSet` to its visible children as one undo step.
+    pub fn resize_to_fit(&mut self) -> bool {
+        let targets = designos_doc::ordered_resize_to_fit_targets(&self.doc, &self.selection);
+        if targets.is_empty() {
+            return false;
+        }
+        let mut tx = Tx::new();
+        for id in targets {
+            match designos_doc::apply_resize_to_fit_one(&mut self.doc, id, |doc, nid| {
+                tx.ed.touch(doc, nid);
+            }) {
+                Some(true) => layout::relayout_around(&mut self.doc, &mut tx.ed, id),
+                Some(false) => layout::relayout_up(&mut self.doc, &mut tx.ed, id),
+                None => {}
+            }
+        }
+        self.run_tx(tx);
+        true
     }
 
     pub fn ungroup_selection(&mut self) {
@@ -2965,5 +2992,132 @@ mod tests {
         let toast = app.toast.as_ref().expect("a failure toast must be shown");
         assert_eq!(toast.text, "Web capture import stopped unexpectedly. Try again.");
         assert!(toast.error);
+    }
+
+    #[test]
+    fn app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+
+        let frame = doc.alloc_id();
+        doc.insert(page, Node::frame(frame, Rect::new(10.0, 20.0, 300.0, 240.0))).unwrap();
+        let f_child = doc.alloc_id();
+        let mut fc = Node::rectangle(f_child, Rect::new(25.0, 35.0, 80.0, 50.0));
+        fc.constraints = designos_doc::Constraints { horizontal: Constraint::Stretch, vertical: Constraint::Stretch };
+        doc.insert(frame, fc).unwrap();
+
+        let al_frame = doc.alloc_id();
+        let mut alf = Node::frame(al_frame, Rect::new(350.0, 20.0, 260.0, 200.0));
+        alf.kind = NodeKind::Frame(FrameProps {
+            auto_layout: Some(AutoLayout {
+                direction: LayoutDirection::Horizontal,
+                primary_sizing: Sizing::Fixed,
+                counter_sizing: Sizing::Fixed,
+                padding: [12.0; 4],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        doc.insert(page, alf).unwrap();
+        let al_child = doc.alloc_id();
+        doc.insert(al_frame, Node::rectangle(al_child, Rect::new(0.0, 0.0, 76.0, 36.0))).unwrap();
+
+        let leaf_shape = doc.alloc_id();
+        doc.insert(page, Node::rectangle(leaf_shape, Rect::new(700.0, 20.0, 40.0, 30.0))).unwrap();
+        let leaf_text = doc.alloc_id();
+        doc.insert(page, Node::text(leaf_text, Rect::new(760.0, 20.0, 60.0, 20.0), "Caption", TextStyle::default())).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+
+        app.selection = vec![leaf_shape, leaf_text];
+        assert!(!app.can_resize_to_fit());
+        assert!(!app.resize_to_fit());
+
+        app.selection = vec![frame, al_frame, leaf_shape, leaf_text];
+        assert!(app.can_resize_to_fit());
+        assert!(app.resize_to_fit());
+
+        let f_after = app.doc.get(frame).unwrap();
+        assert_eq!((f_after.transform.tx, f_after.transform.ty), (35.0, 55.0));
+        assert_eq!(f_after.size, v2(80.0, 50.0));
+        let fc_after = app.doc.get(f_child).unwrap();
+        assert_eq!((fc_after.transform.tx, fc_after.transform.ty), (0.0, 0.0));
+        assert_eq!(fc_after.size, v2(80.0, 50.0));
+
+        let alf_after = app.doc.get(al_frame).unwrap();
+        let al_props = alf_after.kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!((al_props.primary_sizing, al_props.counter_sizing), (Sizing::Hug, Sizing::Hug));
+        assert_eq!(alf_after.size, v2(100.0, 60.0));
+
+        // One undo restores both frames and child local positions.
+        app.undo();
+        assert_eq!(app.doc.get(frame).unwrap().size, v2(300.0, 240.0));
+        assert_eq!((app.doc.get(frame).unwrap().transform.tx, app.doc.get(frame).unwrap().transform.ty), (10.0, 20.0));
+        assert_eq!((app.doc.get(f_child).unwrap().transform.tx, app.doc.get(f_child).unwrap().transform.ty), (25.0, 35.0));
+        assert_eq!(app.doc.get(al_frame).unwrap().size, v2(260.0, 200.0));
+    }
+
+    #[test]
+    fn resize_to_fit_cpu_render_preserves_child_pixels_and_trims_excess_frame_bounds() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("Page 1");
+        if let Some(p) = doc.get_mut(page) {
+            p.kind = NodeKind::Page { background: Color::rgb(0x18, 0x18, 0x1B) };
+        }
+
+        let frame = doc.alloc_id();
+        let mut frame_node = Node::frame(frame, Rect::new(40.0, 40.0, 320.0, 220.0));
+        frame_node.fills = vec![Paint::solid(Color::rgb(0x27, 0x27, 0x2A))];
+        frame_node.stroke = designos_doc::Stroke { paints: vec![Paint::solid(Color::rgb(0x38, 0xBD, 0xF8))], weight: 2.0, ..Default::default() };
+        doc.insert(page, frame_node).unwrap();
+
+        let c1 = doc.alloc_id();
+        let mut c1_node = Node::rectangle(c1, Rect::new(60.0, 50.0, 90.0, 70.0));
+        c1_node.fills = vec![Paint::solid(Color::rgb(0xF9, 0x73, 0x16))];
+        doc.insert(frame, c1_node).unwrap();
+
+        let c2 = doc.alloc_id();
+        let mut c2_node = Node::rectangle(c2, Rect::new(170.0, 80.0, 80.0, 60.0));
+        c2_node.fills = vec![Paint::solid(Color::rgb(0x22, 0xC5, 0x5E))];
+        doc.insert(frame, c2_node).unwrap();
+
+        let hidden = doc.alloc_id();
+        let mut hidden_node = Node::rectangle(hidden, Rect::new(260.0, 160.0, 40.0, 40.0));
+        hidden_node.visible = false;
+        doc.insert(frame, hidden_node).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![frame];
+
+        let vp = designos_render::Viewport::default();
+        let mut before_pm = designos_render::tiny_skia::Pixmap::new(400, 300).unwrap();
+        designos_render::render_page(&app.doc, page, &vp, &mut before_pm);
+
+        assert!(app.resize_to_fit());
+
+        let mut after_pm = designos_render::tiny_skia::Pixmap::new(400, 300).unwrap();
+        designos_render::render_page(&app.doc, page, &vp, &mut after_pm);
+
+        if let Some(out_dir) = std::env::var_os("DESIGNOS_1470_EVIDENCE_OUT") {
+            let out_path = std::path::Path::new(&out_dir);
+            std::fs::create_dir_all(out_path).unwrap();
+            before_pm.save_png(out_path.join("1470-before.png")).unwrap();
+            after_pm.save_png(out_path.join("1470-after.png")).unwrap();
+        }
+
+        let px = |pm: &designos_render::tiny_skia::Pixmap, x: u32, y: u32| {
+            let p = pm.pixel(x, y).unwrap();
+            (p.red(), p.green(), p.blue(), p.alpha())
+        };
+        // (60, 60) was inside the oversized frame before, and is outside the fitted (100, 90, 190, 90) frame after.
+        assert_eq!(px(&before_pm, 60, 60), (0x27, 0x27, 0x2A, 0xFF));
+        assert_eq!(px(&after_pm, 60, 60), (0x18, 0x18, 0x1B, 0xFF));
+        // Both visible children stay at the exact same page coordinates.
+        assert_eq!(px(&before_pm, 120, 110), (0xF9, 0x73, 0x16, 0xFF));
+        assert_eq!(px(&after_pm, 120, 110), (0xF9, 0x73, 0x16, 0xFF));
+        assert_eq!(px(&before_pm, 230, 140), (0x22, 0xC5, 0x5E, 0xFF));
+        assert_eq!(px(&after_pm, 230, 140), (0x22, 0xC5, 0x5E, 0xFF));
     }
 }
