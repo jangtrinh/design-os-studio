@@ -102,6 +102,7 @@ impl App {
         let prop = style_property(&self.doc, key);
         let f = |n: &mut Node| match &style {
             Style::Fill(paints) if prop == StyleProperty::Stroke => {
+                detach_stroke_paints(n);
                 n.stroke.paints = paints.clone();
                 n.style_refs.insert("stroke".into(), key.into());
             }

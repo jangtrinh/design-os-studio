@@ -124,12 +124,14 @@ fn one_undo_restores_the_previous_fill_and_its_binding() {
 #[test]
 fn applying_a_stroke_style_leaves_the_fill_bindings_alone() {
     let Fixture { mut app, bound, plain, .. } = fixture();
+    let before = app.doc.get(bound).unwrap().clone();
     let fill_before = app.doc.get(bound).unwrap().fills.clone();
 
     app.apply_style(&[bound, plain], "Outline/Ink");
 
     let node = app.doc.get(bound).unwrap();
     assert_eq!(node.style_refs.get("stroke").map(String::as_str), Some("Outline/Ink"));
+    assert!(node.variables.bindings.keys().all(|key| !key.starts_with("strokes/")), "stale stroke bindings: {:?}", node.variables.bindings);
     assert!(!node.style_refs.contains_key("fill"), "a stroke style does not link the fill");
     assert_eq!(node.stroke.paints, vec![Paint::solid(Color::rgb(200, 100, 50))]);
     assert_eq!(fill_bindings(&app.doc, bound), ["fills/0", "fills/0/opacity"], "the fill bindings stay");
@@ -137,6 +139,11 @@ fn applying_a_stroke_style_leaves_the_fill_bindings_alone() {
     assert_eq!(drawn_fills(&app.doc, bound), vec![Paint::solid(VARIABLE_COLOUR)], "the canvas keeps drawing the variable's colour");
     assert_eq!(centre_pixel(&app.doc, bound), [0, 0, 255, 255]);
     assert_eq!(centre_pixel(&app.doc, plain), [255, 0, 0, 255], "the plain layer's fill is not touched either");
+
+    app.undo();
+    assert_eq!(app.doc.get(bound).unwrap(), &before, "one undo restores the stroke and its binding");
+    app.redo();
+    assert!(app.doc.get(bound).unwrap().variables.bindings.keys().all(|key| !key.starts_with("strokes/")));
 }
 
 #[test]
