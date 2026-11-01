@@ -1057,6 +1057,7 @@ impl Shell {
             return;
         }
         match key {
+            Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
             // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
             // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
