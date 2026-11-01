@@ -1576,6 +1576,47 @@ fn edit_paint_list(app: &mut App, sel: &[NodeId], stroke: bool, f: impl Fn(&mut 
     });
 }
 
+fn edit_paint_node_with_binding_remap(n: &mut Node, stroke: bool, origins_for_len: impl Fn(usize) -> Vec<Option<usize>>, f: impl Fn(&mut Vec<Paint>)) {
+    // A direct paint-list edit must detach the shared style that owns the old list.
+    n.style_refs.remove(if stroke { "stroke" } else { "fill" });
+    let paints = if stroke { &mut n.stroke.paints } else { &mut n.fills };
+    let origins = origins_for_len(paints.len());
+    f(paints);
+    let prefix = if stroke { "strokes/" } else { "fills/" };
+    var_bind::remap_indexed_bindings(&mut n.variables.bindings, prefix, &origins);
+}
+
+fn edit_paint_list_with_binding_remap(
+    app: &mut App,
+    sel: &[NodeId],
+    stroke: bool,
+    origins_for_len: impl Fn(usize) -> Vec<Option<usize>>,
+    f: impl Fn(&mut Vec<Paint>),
+) {
+    app.edit_nodes(sel, |n| {
+        edit_paint_node_with_binding_remap(n, stroke, &origins_for_len, &f);
+    });
+}
+
+fn remove_paint_node_with_binding_remap(n: &mut Node, stroke: bool, index: usize) {
+    edit_paint_node_with_binding_remap(
+        n,
+        stroke,
+        move |len| {
+            if index < len {
+                (0..len).filter(|old_i| *old_i != index).map(Some).collect()
+            } else {
+                (0..len).map(Some).collect()
+            }
+        },
+        move |ps| {
+            if index < ps.len() {
+                ps.remove(index);
+            }
+        },
+    );
+}
+
 /// Width of the swatch + hex + opacity field group of a paint row (the eye and minus follow it).
 const PAINT_GROUP_W: f32 = 159.0;
 /// x of the divider between the hex and opacity cells, from the group's left edge.
@@ -1715,22 +1756,48 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             });
         }
         if widgets::icon_button(ui, minus_r, ("pminus", key), Icon::Minus, false, "").clicked() {
-            edit_paint_list(app, sel, stroke, |ps| {
-                if i < ps.len() {
-                    ps.remove(i);
-                }
-            });
+            edit_paint_list_with_binding_remap(
+                app,
+                sel,
+                stroke,
+                move |len| {
+                    if i < len {
+                        (0..len).filter(|old_i| *old_i != i).map(Some).collect()
+                    } else {
+                        (0..len).map(Some).collect()
+                    }
+                },
+                move |ps| {
+                    if i < ps.len() {
+                        ps.remove(i);
+                    }
+                },
+            );
         }
         pane.y += theme::FIELD_HEIGHT + 8.0;
     }
     if let Some((src_i, dst_i)) = reorder_pair {
-        edit_paint_list(app, sel, stroke, |ps| {
-            if src_i < ps.len() {
-                let item = ps.remove(src_i);
-                let target_idx = dst_i.min(ps.len());
-                ps.insert(target_idx, item);
-            }
-        });
+        edit_paint_list_with_binding_remap(
+            app,
+            sel,
+            stroke,
+            move |len| {
+                let mut origins: Vec<usize> = (0..len).collect();
+                if src_i < origins.len() {
+                    let item = origins.remove(src_i);
+                    let target_idx = dst_i.min(origins.len());
+                    origins.insert(target_idx, item);
+                }
+                origins.into_iter().map(Some).collect()
+            },
+            move |ps| {
+                if src_i < ps.len() {
+                    let item = ps.remove(src_i);
+                    let target_idx = dst_i.min(ps.len());
+                    ps.insert(target_idx, item);
+                }
+            },
+        );
         app.props.selected_property = Some(if stroke { SelectedProperty::Stroke(dst_i) } else { SelectedProperty::Fill(dst_i) });
         app.props.drag_property = None;
     } else if ui.ctx().input(|inp| inp.pointer.any_released())
@@ -2187,10 +2254,10 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
                 if let Some(n) = tx.ed.node(&mut app.doc, *id) {
                     match target {
                         PickTarget::Fill(i) if i < n.fills.len() => {
-                            n.fills.remove(i);
+                            remove_paint_node_with_binding_remap(n, false, i);
                         }
                         PickTarget::Stroke(i) if i < n.stroke.paints.len() => {
-                            n.stroke.paints.remove(i);
+                            remove_paint_node_with_binding_remap(n, true, i);
                         }
                         _ => {}
                     }
@@ -2749,6 +2816,113 @@ mod tests {
         assert_eq!(back.to_hex(), c.to_hex());
         let half = to_c32(c, 0.5);
         assert!((half.a() as i32 - 128).abs() <= 1);
+    }
+
+    fn app_with_bound_paints() -> (App, NodeId) {
+        let mut doc = Document::new("paint bindings");
+        let page = doc.add_page("Page 1");
+        let id = doc.alloc_id();
+        let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 80.0, 80.0));
+        node.fills = vec![Paint::solid(Color::rgb(255, 0, 0)), Paint::solid(Color::rgb(0, 0, 255))];
+        node.variables.bindings.insert("fills/0".into(), "var-red".into());
+        node.variables.bindings.insert("fills/1".into(), "var-blue".into());
+        node.variables.bindings.insert("fills/1/opacity".into(), "var-blue-opacity".into());
+        node.variables.bindings.insert("fills/1/stops/0".into(), "var-blue-stop".into());
+        let id = doc.insert(page, node).unwrap();
+        (App::new(doc), id)
+    }
+
+    #[test]
+    fn deleting_a_fill_remaps_surviving_indexed_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        edit_paint_list_with_binding_remap(
+            &mut app,
+            &[id],
+            false,
+            |len| (0..len).filter(|old_i| *old_i != 0).map(Some).collect(),
+            |paints| {
+                paints.remove(0);
+            },
+        );
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.fills.len(), 1);
+        assert_eq!(node.variables.bindings.get("fills/0").map(String::as_str), Some("var-blue"));
+        assert_eq!(node.variables.bindings.get("fills/0/opacity").map(String::as_str), Some("var-blue-opacity"));
+        assert_eq!(node.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        assert!(!node.variables.bindings.contains_key("fills/1"));
+    }
+
+    #[test]
+    fn reordering_fills_moves_their_indexed_bindings_and_suffixes() {
+        let (mut app, id) = app_with_bound_paints();
+        edit_paint_list_with_binding_remap(
+            &mut app,
+            &[id],
+            false,
+            |len| {
+                let mut origins: Vec<usize> = (0..len).collect();
+                let first = origins.remove(0);
+                origins.push(first);
+                origins.into_iter().map(Some).collect()
+            },
+            |paints| {
+                let first = paints.remove(0);
+                paints.push(first);
+            },
+        );
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.variables.bindings.get("fills/0").map(String::as_str), Some("var-blue"));
+        assert_eq!(node.variables.bindings.get("fills/0/opacity").map(String::as_str), Some("var-blue-opacity"));
+        assert_eq!(node.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        assert_eq!(node.variables.bindings.get("fills/1").map(String::as_str), Some("var-red"));
+    }
+
+    #[test]
+    fn picker_removal_remaps_surviving_stroke_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        let node = app.doc.get_mut(id).unwrap();
+        node.stroke.paints = vec![Paint::solid(Color::rgb(255, 0, 0)), Paint::solid(Color::rgb(0, 0, 255))];
+        node.variables.bindings.insert("strokes/0".into(), "stroke-red".into());
+        node.variables.bindings.insert("strokes/1/opacity".into(), "stroke-blue-opacity".into());
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), true, 0);
+        assert!(app.run_tx(tx));
+        let node = app.doc.get(id).unwrap();
+        assert_eq!(node.stroke.paints.len(), 1);
+        assert_eq!(node.variables.bindings.get("strokes/0/opacity").map(String::as_str), Some("stroke-blue-opacity"));
+        assert!(!node.variables.bindings.contains_key("strokes/1"));
+    }
+
+    #[test]
+    fn picker_removal_detaches_shared_fill_style() {
+        let (mut app, id) = app_with_bound_paints();
+        app.doc.get_mut(id).unwrap().style_refs.insert("fill".into(), "style/fill".into());
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), false, 0);
+        assert!(app.run_tx(tx));
+        let node = app.doc.get(id).unwrap();
+        assert!(!node.style_refs.contains_key("fill"));
+        assert_eq!(node.fills.len(), 1);
+    }
+
+    #[test]
+    fn picker_removal_is_one_undo_step_and_redo_restores_bindings() {
+        let (mut app, id) = app_with_bound_paints();
+        let before = app.doc.get(id).unwrap().clone();
+        let depth = app.hist.undo_depth();
+        let mut tx = Tx::new();
+        remove_paint_node_with_binding_remap(tx.ed.node(&mut app.doc, id).unwrap(), false, 0);
+        assert!(app.run_tx(tx));
+        assert_eq!(app.hist.undo_depth(), depth + 1);
+        let after = app.doc.get(id).unwrap();
+        assert_eq!(after.fills.len(), 1);
+        assert_eq!(after.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
+        app.undo();
+        assert_eq!(app.doc.get(id).unwrap().fills, before.fills);
+        assert_eq!(app.doc.get(id).unwrap().variables.bindings, before.variables.bindings);
+        app.redo();
+        assert_eq!(app.doc.get(id).unwrap().fills.len(), 1);
+        assert_eq!(app.doc.get(id).unwrap().variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("var-blue-stop"));
     }
 
     #[test]
