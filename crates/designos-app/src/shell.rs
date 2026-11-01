@@ -761,8 +761,8 @@ impl Shell {
             self.handle_terminal_undo_keys(ctx);
             return;
         }
-        // A click on a text field gives it the focus only while the panel draws, after this runs: the keys
-        // that arrive in the same frame are the field's.
+        // A click on a text field or dropdown gives it the focus only while the panel draws, after this
+        // runs: the keys that arrive in the same frame are the widget's.
         let typing = crate::agent_a11y::non_canvas_has_focus(ctx) || crate::widgets::field_tab::press_lands_on_field(ctx);
         if self.app.vars.open {
             // The Variables view handles its own keys (and undo / redo).
@@ -1057,9 +1057,10 @@ impl Shell {
         }
         match key {
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
-            // an open comment draft or thread takes the Escape itself (egui drops text focus on Escape,
-            // so the shortcut handler cannot tell that the key was meant for the text box)
-            Key::Escape if app.comments.captures_escape() => {}
+            // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
+            // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
+            // from focus that the key was meant for them)
+            Key::Escape if app.comments.captures_escape() || crate::widgets::menu::dropdown_menu_was_open(ctx) => {}
             Key::Escape => {
                 if !matches!(app.canvas.inter, canvas::Interaction::None) {
                     app.cancel_interaction();

@@ -1183,6 +1183,7 @@ mod deferred_page_instances;
 mod dev;
 mod dev_code_panel;
 mod dev_mode_shortcut;
+mod dropdown_keys;
 mod duplicate_order;
 mod effect_caps;
 mod effect_grid_styles;

@@ -6,7 +6,7 @@
 //! 16px from the edge, 24px chevrons 8px from the edge, 1px separators with 8px margins.
 
 use super::*;
-use egui::{Area, Key, Modifiers, Order};
+use egui::{Area, Context, Key, Modifiers, Order};
 
 #[derive(Clone, Default)]
 pub struct MenuItem {
@@ -593,15 +593,56 @@ pub fn dropdown_checked(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, 
     dropdown_items(ui, rect, key, label, &items, rect.width())
 }
 
+fn dropdown_open_key() -> Id {
+    Id::new("dropdown-menu-open-pass")
+}
+
+fn stamp_dropdown_menu_open(ctx: &Context) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(dropdown_open_key(), pass));
+}
+
+/// True when a dropdown menu was drawn open in this pass or the previous one.
+///
+/// The shortcut handler runs before the panels draw, so "open" means open in the frame that just
+/// ended. A dropdown whose host stopped drawing is not stamped again, and the next pass after that
+/// no longer counts.
+pub fn dropdown_menu_was_open(ctx: &Context) -> bool {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<u64>(dropdown_open_key())).is_some_and(|seen| seen == now || seen + 1 == now)
+}
+
 /// Like `dropdown_checked`, but with ready-made `items` (check marks, dividers) and a menu at
 /// least `min_width` wide.
 pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, label: &str, items: &[MenuItem], min_width: f32) -> Option<usize> {
     let id = ui.id().with(("dd", key));
+    super::field_tab::register(ui, rect, id);
+    #[cfg(test)]
+    {
+        let pass = ui.ctx().cumulative_pass_nr();
+        ui.ctx().data_mut(|d| {
+            let last = d.get_temp::<u64>(Id::new("test-dd-pass")).unwrap_or(u64::MAX);
+            if last != pass {
+                d.insert_temp(Id::new("test-dd-list"), Vec::<(Id, Rect)>::new());
+                d.insert_temp(Id::new("test-dd-pass"), pass);
+            }
+            let list = d.get_temp_mut_or_default::<Vec<(Id, Rect)>>(Id::new("test-dd-list"));
+            if !list.iter().any(|(i, _)| *i == id) {
+                list.push((id, rect));
+            }
+        });
+    }
     let r = ui.interact(rect, id, Sense::click());
     let open = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
     let p = ui.painter();
-    let focused = open || ui.memory(|mem| mem.has_focus(id));
-    let paint = kit::select_look(if focused { kit::State::Focused } else { kit::State::Default });
+    let state = if open || ui.memory(|mem| mem.has_focus(id)) {
+        kit::State::Focused
+    } else if r.hovered() {
+        kit::State::Hover
+    } else {
+        kit::State::Default
+    };
+    let paint = kit::dropdown_look(state);
     kit::paint_frame(p, rect, theme::RADIUS_CONTROL, &paint);
     let font = theme::font_menu();
     let shown = elide(p, label, &font, rect.width() - 28.0);
@@ -612,6 +653,8 @@ pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
     }
     let mut picked = None;
     if open {
+        // egui clears keyboard focus on Escape in Focus::begin_pass, before this widget runs.
+        let closed_by_escape = ui.input(|i| i.key_pressed(Key::Escape));
         match popup_menu(ui.ctx(), id.with("menu"), rect.left_bottom() + Vec2::new(0.0, 2.0), rect.width().max(min_width), items, Some(rect)) {
             MenuResult::Picked(i) => {
                 picked = Some(i);
@@ -619,8 +662,11 @@ pub fn dropdown_items(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, la
             }
             MenuResult::Closed => {
                 ui.data_mut(|d| d.insert_temp(id, false));
+                if closed_by_escape {
+                    ui.memory_mut(|m| m.request_focus(id));
+                }
             }
-            MenuResult::Open => {}
+            MenuResult::Open => stamp_dropdown_menu_open(ui.ctx()),
         }
     }
     picked
@@ -1031,5 +1077,397 @@ mod tests {
         m.frame(vec![egui::Event::PointerMoved(Pos2::new(x, border + 2.0)), Popup::button(Pos2::new(x, border + 2.0), true)]);
         m.frame(vec![egui::Event::PointerMoved(Pos2::new(x, border - 2.0)), Popup::button(Pos2::new(x, border - 2.0), false)]);
         assert_eq!(m.picked, Some(0));
+    }
+
+    // ---- closed-dropdown focus ring (issue #1273)
+
+    const DD_SCREEN: Vec2 = Vec2::new(400.0, 300.0);
+    const DD_KEY: &str = "weight";
+    const DD2_KEY: &str = "style";
+
+    fn dd_rect() -> Rect {
+        Rect::from_min_size(Pos2::new(40.0, 40.0), Vec2::new(160.0, theme::FIELD_HEIGHT))
+    }
+
+    fn dd2_rect() -> Rect {
+        Rect::from_min_size(Pos2::new(220.0, 40.0), Vec2::new(160.0, theme::FIELD_HEIGHT))
+    }
+
+    fn dd_options() -> Vec<String> {
+        vec!["Regular".into(), "Bold".into()]
+    }
+
+    fn dd_items() -> Vec<MenuItem> {
+        vec![MenuItem::new("Regular").checked(true), MenuItem::new("Bold")]
+    }
+
+    fn key_press(key: Key) -> egui::Event {
+        egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers: Modifiers::NONE }
+    }
+
+    fn rect_stroke_on(shapes: &[egui::epaint::ClippedShape], target: Rect, color: Color32, width: f32) -> bool {
+        fn walk(shape: &egui::epaint::Shape, target: Rect, color: Color32, width: f32) -> bool {
+            match shape {
+                egui::epaint::Shape::Rect(r) => {
+                    let same = (r.rect.min.x - target.min.x).abs() <= 0.5
+                        && (r.rect.min.y - target.min.y).abs() <= 0.5
+                        && (r.rect.max.x - target.max.x).abs() <= 0.5
+                        && (r.rect.max.y - target.max.y).abs() <= 0.5;
+                    same && r.stroke.color == color && (r.stroke.width - width).abs() <= 0.01 && r.stroke_kind == StrokeKind::Inside
+                }
+                egui::epaint::Shape::Vec(children) => children.iter().any(|c| walk(c, target, color, width)),
+                _ => false,
+            }
+        }
+        shapes.iter().any(|cs| walk(&cs.shape, target, color, width))
+    }
+
+    fn shape_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        fn walk(shape: &egui::epaint::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::epaint::Shape::Text(t) => out.push(t.galley.text().to_string()),
+                egui::epaint::Shape::Vec(children) => children.iter().for_each(|c| walk(c, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for cs in shapes {
+            walk(&cs.shape, &mut out);
+        }
+        out
+    }
+
+    fn shapes_contain_text(shapes: &[egui::epaint::ClippedShape], needle: &str) -> bool {
+        shape_texts(shapes).iter().any(|t| t.contains(needle))
+    }
+
+    /// The dropdown focus look: a 1px `BORDER_SELECTED` inside stroke.
+    fn focus_ring_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
+        rect_stroke_on(shapes, target, theme::BORDER_SELECTED, theme::BORDER_WIDTH)
+    }
+
+    /// The hovered dropdown look: a 1px `BORDER` inside hairline.
+    fn hover_hairline_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
+        rect_stroke_on(shapes, target, theme::BORDER, theme::BORDER_WIDTH)
+    }
+
+    fn no_stroke_on(shapes: &[egui::epaint::ClippedShape], target: Rect) -> bool {
+        fn walk(shape: &egui::epaint::Shape, target: Rect) -> bool {
+            match shape {
+                egui::epaint::Shape::Rect(r) => {
+                    let same = (r.rect.min.x - target.min.x).abs() <= 0.5
+                        && (r.rect.min.y - target.min.y).abs() <= 0.5
+                        && (r.rect.max.x - target.max.x).abs() <= 0.5
+                        && (r.rect.max.y - target.max.y).abs() <= 0.5;
+                    !(same && r.stroke.width > 0.0 && r.stroke.color != Color32::TRANSPARENT)
+                }
+                egui::epaint::Shape::Vec(children) => children.iter().all(|c| walk(c, target)),
+                _ => true,
+            }
+        }
+        shapes.iter().all(|cs| walk(&cs.shape, target))
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum DropKind {
+        Dropdown,
+        Checked,
+        Items,
+    }
+
+    struct DropSim {
+        ctx: egui::Context,
+        t: f64,
+        shapes: Vec<egui::epaint::ClippedShape>,
+        kind: DropKind,
+        two: bool,
+        enabled: bool,
+        with_tab_neighbors: bool,
+        dd_id: Id,
+        dd2_id: Id,
+        before_id: Id,
+        after_id: Id,
+        neighbor: Rect,
+        focused: Option<Id>,
+        open: bool,
+        picked: Option<usize>,
+    }
+
+    impl DropSim {
+        fn new(kind: DropKind) -> Self {
+            let ctx = egui::Context::default();
+            crate::theme::apply(&ctx);
+            crate::theme::install_fonts(&ctx);
+            let mut s = Self {
+                ctx,
+                t: 0.0,
+                shapes: Vec::new(),
+                kind,
+                two: false,
+                enabled: true,
+                with_tab_neighbors: false,
+                dd_id: Id::NULL,
+                dd2_id: Id::NULL,
+                before_id: Id::NULL,
+                after_id: Id::NULL,
+                neighbor: Rect::NOTHING,
+                focused: None,
+                open: false,
+                picked: None,
+            };
+            s.frame(vec![], None);
+            s
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>, focus: Option<Id>) {
+            self.t += 0.05;
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, DD_SCREEN)), time: Some(self.t), events, ..Default::default() };
+            let kind = self.kind;
+            let two = self.two;
+            let enabled = self.enabled;
+            let with_tab_neighbors = self.with_tab_neighbors;
+            let options = dd_options();
+            let items = dd_items();
+            let checked = [true, false];
+            let mut dd_id = Id::NULL;
+            let mut dd2_id = Id::NULL;
+            let mut before_id = Id::NULL;
+            let mut after_id = Id::NULL;
+            let mut neighbor = Rect::NOTHING;
+            let mut picked = None;
+            let mut open = false;
+            let out = self.ctx.run_ui(raw, |ui| {
+                dd_id = ui.id().with(("dd", DD_KEY));
+                dd2_id = ui.id().with(("dd", DD2_KEY));
+                before_id = ui.id().with("dd-before");
+                after_id = ui.id().with("dd-after");
+                if let Some(id) = focus {
+                    ui.memory_mut(|m| m.request_focus(id));
+                }
+                if with_tab_neighbors {
+                    let before = Rect::from_min_size(Pos2::new(40.0, 8.0), Vec2::new(80.0, 24.0));
+                    ui.interact(before, before_id, Sense::click());
+                }
+                let paint = |ui: &mut Ui| match kind {
+                    DropKind::Dropdown => dropdown(ui, dd_rect(), DD_KEY, "Regular", &options),
+                    DropKind::Checked => dropdown_checked(ui, dd_rect(), DD_KEY, "Regular", &options, &checked),
+                    DropKind::Items => dropdown_items(ui, dd_rect(), DD_KEY, "Regular", &items, dd_rect().width()),
+                };
+                picked = if enabled { paint(ui) } else { ui.add_enabled_ui(false, paint).inner };
+                open = ui.data(|d| d.get_temp::<bool>(dd_id)).unwrap_or(false);
+                if two {
+                    let _ = dropdown(ui, dd2_rect(), DD2_KEY, "Solid", &options);
+                }
+                let neighbor_r = Rect::from_min_size(Pos2::new(dd_rect().right() + 8.0, dd_rect().top()), Vec2::new(48.0, theme::FIELD_HEIGHT));
+                ui.interact(neighbor_r, ui.id().with("dd-neighbor"), Sense::hover());
+                crate::widgets::record(ui, "dd-neighbor", neighbor_r);
+                neighbor = neighbor_r;
+                if with_tab_neighbors {
+                    let after = Rect::from_min_size(Pos2::new(280.0, 8.0), Vec2::new(80.0, 24.0));
+                    ui.interact(after, after_id, Sense::click());
+                }
+            });
+            self.shapes = out.shapes;
+            self.dd_id = dd_id;
+            self.dd2_id = dd2_id;
+            self.before_id = before_id;
+            self.after_id = after_id;
+            self.neighbor = neighbor;
+            self.picked = picked;
+            self.open = open;
+            self.focused = self.ctx.memory(|m| m.focused());
+        }
+
+        fn idle(&mut self) {
+            self.frame(vec![], None);
+        }
+
+        fn focus_dd(&mut self) {
+            let id = self.dd_id;
+            self.frame(vec![], Some(id));
+        }
+
+        fn hover(&mut self, at: Pos2) {
+            self.frame(vec![egui::Event::PointerMoved(at)], None);
+        }
+
+        fn focus_and_hover(&mut self, at: Pos2) {
+            let id = self.dd_id;
+            self.frame(vec![egui::Event::PointerMoved(at)], Some(id));
+        }
+
+        fn press_key(&mut self, key: Key) {
+            self.frame(vec![key_press(key)], None);
+        }
+
+        fn settle(&mut self) {
+            self.idle();
+            self.idle();
+        }
+    }
+
+    #[test]
+    fn closed_focused_dropdown_paints_selected_inside_stroke() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.focus_dd();
+        assert_eq!(s.focused, Some(s.dd_id), "the closed dropdown must hold keyboard focus");
+        assert!(!s.open);
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "focused closed dropdown must paint the 1px BORDER_SELECTED inside stroke on its rect");
+        assert!(!hover_hairline_on(&s.shapes, dd_rect()), "focus replaces the hover hairline");
+    }
+
+    #[test]
+    fn closed_idle_dropdown_paints_no_stroke_or_ring() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.idle();
+        assert!(s.focused.is_none(), "an idle dropdown must not hold focus");
+        assert!(!s.open, "an idle dropdown must be closed");
+        assert!(no_stroke_on(&s.shapes, dd_rect()), "an idle dropdown trigger must paint no visible stroke");
+        assert!(!focus_ring_on(&s.shapes, dd_rect()), "an idle closed dropdown must not paint the focus ring");
+    }
+
+    #[test]
+    fn hovered_unfocused_dropdown_paints_hairline() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.idle();
+        let idle_shapes = s.shapes.clone();
+        s.hover(dd_rect().center());
+        assert!(s.focused.is_none() || s.focused != Some(s.dd_id), "hover alone must not focus the dropdown");
+        assert!(!s.open, "hover must leave the dropdown closed");
+        assert!(hover_hairline_on(&s.shapes, dd_rect()), "hover paints a 1px BORDER hairline");
+        assert!(!focus_ring_on(&s.shapes, dd_rect()), "hover without focus must not paint BORDER_SELECTED");
+        assert_ne!(s.shapes, idle_shapes, "hovered trigger shapes must differ from idle trigger shapes");
+    }
+
+    #[test]
+    fn open_dropdown_paints_selected_stroke_and_menu_and_escape_keeps_the_focused_ring() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.focus_dd();
+        s.press_key(Key::Enter);
+        s.settle();
+        assert!(s.open, "Enter on a focused closed dropdown must open the menu on the next frame");
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "an open dropdown must keep the BORDER_SELECTED stroke");
+        assert!(shapes_contain_text(&s.shapes, "Bold"), "the open menu must paint its options, texts={:?}", shape_texts(&s.shapes));
+        s.press_key(Key::Escape);
+        s.settle();
+        assert!(!s.open, "Escape must close the menu");
+        assert!(!shapes_contain_text(&s.shapes, "Bold"), "the closed dropdown must not keep the menu rows");
+        assert_eq!(s.focused, Some(s.dd_id), "Escape must leave keyboard focus on the dropdown");
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "closing with Escape must keep the focused-closed ring, not drop to no ring");
+    }
+
+    #[test]
+    fn tab_moves_focus_onto_and_off_the_dropdown_and_enter_or_space_opens_it() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.with_tab_neighbors = true;
+        s.idle();
+        let before = s.before_id;
+        let after = s.after_id;
+        s.frame(vec![], Some(before));
+        assert_eq!(s.focused, Some(s.before_id));
+        assert!(!focus_ring_on(&s.shapes, dd_rect()), "the dropdown must not show a ring while the previous widget has focus");
+        s.press_key(Key::Tab);
+        s.idle();
+        assert_eq!(s.focused, Some(s.dd_id), "Tab from the previous widget must land on the dropdown");
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "Tab onto the dropdown must paint the focus ring");
+        s.press_key(Key::Tab);
+        s.idle();
+        assert_eq!(s.focused, Some(after), "Tab from the dropdown must move to the next widget");
+        assert!(!focus_ring_on(&s.shapes, dd_rect()), "Tabbing off the dropdown must remove the ring");
+
+        s.frame(vec![], Some(s.dd_id));
+        s.press_key(Key::Enter);
+        s.settle();
+        assert!(s.open, "Enter on a focused dropdown must open the menu");
+        s.press_key(Key::Escape);
+        s.settle();
+        assert!(!s.open);
+
+        s.frame(vec![], Some(s.dd_id));
+        s.press_key(Key::Space);
+        s.settle();
+        assert!(s.open, "Space on a focused dropdown must open the menu");
+    }
+
+    #[test]
+    fn focus_ring_is_inside_the_rect_and_does_not_shift_layout() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.idle();
+        let neighbor_idle = s.neighbor;
+        s.focus_dd();
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "focused dropdown must paint the inside ring on its own rect");
+        assert_eq!(s.neighbor, neighbor_idle, "the inside stroke must not move a neighbor laid out against the dropdown");
+        let on_screen = Rect::from_min_size(Pos2::ZERO, DD_SCREEN);
+        assert!(on_screen.contains_rect(dd_rect()), "the dropdown sits inside the panel, so the inside stroke cannot be clipped by the panel edge");
+        let clip_covers = s.shapes.iter().any(|cs| {
+            if let egui::epaint::Shape::Rect(r) = &cs.shape {
+                r.stroke.color == theme::BORDER_SELECTED && r.stroke.width > 0.0 && cs.clip_rect.contains_rect(dd_rect())
+            } else {
+                false
+            }
+        });
+        assert!(clip_covers, "the focus ring's clip rect must contain the dropdown, so the ring is not clipped");
+    }
+
+    #[test]
+    fn dropdown_dropdown_checked_and_dropdown_items_all_paint_the_focused_ring() {
+        for kind in [DropKind::Dropdown, DropKind::Checked, DropKind::Items] {
+            let mut s = DropSim::new(kind);
+            s.focus_dd();
+            assert!(focus_ring_on(&s.shapes, dd_rect()), "focused closed {kind:?} must paint the BORDER_SELECTED inside stroke through dropdown_items");
+        }
+    }
+
+    #[test]
+    fn only_the_focused_dropdown_in_a_row_paints_the_ring() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.two = true;
+        s.idle();
+        s.focus_dd();
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "the focused dropdown must show the ring");
+        assert!(!focus_ring_on(&s.shapes, dd2_rect()), "the unfocused sibling in the same row must show no ring");
+        assert!(no_stroke_on(&s.shapes, dd2_rect()), "the unfocused idle sibling paints no visible stroke");
+    }
+
+    #[test]
+    fn focus_wins_over_hover_on_a_closed_dropdown() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.focus_and_hover(dd_rect().center());
+        assert_eq!(s.focused, Some(s.dd_id));
+        assert!(!s.open);
+        assert!(focus_ring_on(&s.shapes, dd_rect()), "focus must paint BORDER_SELECTED even while hovered");
+        assert!(!hover_hairline_on(&s.shapes, dd_rect()), "focus takes precedence over the hover hairline");
+    }
+
+    #[test]
+    fn disabled_dropdown_paints_no_focus_ring() {
+        let mut s = DropSim::new(DropKind::Dropdown);
+        s.enabled = false;
+        s.idle();
+        let id = s.dd_id;
+        s.frame(vec![], Some(id));
+        assert!(!s.open);
+        assert!(!focus_ring_on(&s.shapes, dd_rect()), "a disabled dropdown must not paint a focus ring");
+    }
+
+    #[test]
+    fn a_dropdown_open_stamp_counts_this_pass_and_the_previous_then_expires() {
+        let ctx = egui::Context::default();
+        let pass = |ctx: &egui::Context, stamp: bool| {
+            let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+                if stamp {
+                    stamp_dropdown_menu_open(ui.ctx());
+                }
+            });
+        };
+        pass(&ctx, false);
+        assert!(!dropdown_menu_was_open(&ctx), "nothing is open before a menu is stamped");
+        pass(&ctx, true);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!(dropdown_menu_was_open(ui.ctx()), "stamped in the previous pass");
+        });
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!(!dropdown_menu_was_open(ui.ctx()), "not stamped in the previous pass");
+        });
     }
 }
