@@ -493,7 +493,7 @@ pub fn press(app: &mut App, rect: ERect, pos: Pos2, mods: Modifiers) -> bool {
         }
         None => {
             // Another object under the pointer leaves edit mode; empty canvas starts a marquee.
-            if let Some(h) = super::interact::hit_under(app, page, false) {
+            if let Some(h) = super::interact::hit_under_any_depth(app, page, false) {
                 if h != id {
                     exit(app);
                     return false;

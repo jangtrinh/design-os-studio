@@ -115,8 +115,12 @@ pub enum Action {
     YourName,
     /// Preferences -> Use GPU rendering.
     ToggleGpu,
+    /// Preferences -> Highlight layers on hover.
+    ToggleHoverHighlight,
     /// Preferences -> Agent permissions.
     AgentPermissions,
+    /// Right-click -> Select layer -> pick a specific layer.
+    SelectLayer(designos_doc::NodeId),
     Shortcuts,
     OpenStarterSample,
     AboutDesignOS,
@@ -156,7 +160,9 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SelectInverse => app.select_inverse(),
         Action::SelectChildren => app.select_children(),
         Action::SelectParent => app.select_parent(),
-        Action::SelectMatching => app.select_matching(MatchCriteria::Properties),
+        Action::SelectMatching => {
+            app.select_matching_layers();
+        }
         Action::SelectSame(c) => app.select_matching(c),
         Action::Find => app.open_find(),
         Action::Delete => app.delete_selection(),
@@ -258,7 +264,17 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SaveVersion => app.begin_save_version(),
         Action::YourName => app.ask_author_name(),
         Action::ToggleGpu => app.toggle_gpu(),
+        Action::ToggleHoverHighlight => {
+            app.ui.hide_hover_highlight = !app.ui.hide_hover_highlight;
+            let on = !app.ui.hide_hover_highlight;
+            if let Some(lib) = &app.lib {
+                if let Err(e) = crate::comments::settings::save_flag(lib.root(), "highlight_layers_on_hover", on) {
+                    app.show_toast(e, true);
+                }
+            }
+        }
         Action::AgentPermissions => app.open_agent_permissions(),
+        Action::SelectLayer(id) => app.select_only(id),
         Action::Shortcuts => app.show_shortcuts(),
         Action::OpenStarterSample => app.open_starter_sample(),
         Action::AboutDesignOS => app.show_about(),
@@ -413,17 +429,34 @@ fn stub_sub(label: &str) -> Node {
 }
 
 /// "Select all with same ..." entries (the Edit menu's submenu; the palette lists them flat).
-fn same_nodes(enabled: bool) -> Vec<Node> {
+fn same_nodes(app: &App) -> Vec<Node> {
+    let has_sel = !app.selection.is_empty();
+    let can_inst = designos_doc::find::can_select_same_instance(&app.doc, &app.selection);
+    let can_var = designos_doc::find::can_select_same_variant(&app.doc, &app.selection);
     [
-        ("Select all with same fill", MatchCriteria::Fill),
-        ("Select all with same stroke", MatchCriteria::Stroke),
-        ("Select all with same effect", MatchCriteria::Effect),
-        ("Select all with same font", MatchCriteria::Font),
-        ("Select all with same instance", MatchCriteria::Instance),
+        ("Select all with same properties", MatchCriteria::Properties, has_sel),
+        ("Select all with same fill", MatchCriteria::Fill, has_sel),
+        ("Select all with same stroke", MatchCriteria::Stroke, has_sel),
+        ("Select all with same effect", MatchCriteria::Effect, has_sel),
+        ("Select all with same text properties", MatchCriteria::TextProperties, has_sel),
+        ("Select all with same font", MatchCriteria::Font, has_sel),
+        ("Select all with same instance", MatchCriteria::Instance, can_inst),
+        ("Select all with same variant", MatchCriteria::Variant, can_var),
     ]
     .into_iter()
-    .map(|(label, c)| leaf(label, "", Action::SelectSame(c)).off(!enabled))
+    .map(|(label, c, en)| leaf(label, "", Action::SelectSame(c)).off(!en))
     .collect()
+}
+
+const PREF_HOVER_HIGHLIGHT_LABEL: &str = "Highlight layers on hover";
+
+fn pref_nodes(app: &App) -> Vec<Node> {
+    vec![
+        leaf("Your name…", "", Action::YourName),
+        leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available).tip(gpu_off_reason(app)),
+        leaf(PREF_HOVER_HIGHLIGHT_LABEL, "", Action::ToggleHoverHighlight).on(!app.ui.hide_hover_highlight),
+        leaf("Agent permissions…", "", Action::AgentPermissions),
+    ]
 }
 
 /// The logo menu: sections separated by lines, every submenu wired to real commands.
@@ -463,7 +496,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Select children", "Enter", Action::SelectChildren).off(!has_sel),
         leaf("Select parent", "Shift+Enter", Action::SelectParent).off(!has_sel),
         leaf("Select matching layers", "Ctrl+Alt+A", Action::SelectMatching).off(!has_sel),
-        submenu("Select all with same", same_nodes(has_sel)).off(!has_sel).sep(),
+        submenu("Select all with same", same_nodes(app)).off(!has_sel).sep(),
         leaf("Find and replace…", "Ctrl+F", Action::Find).sep(),
         leaf("Copy properties", "Ctrl+Alt+C", Action::CopyProperties).off(!has_sel),
         leaf("Paste properties", "Ctrl+Alt+V", Action::PasteProperties).off(!has_sel),
@@ -558,14 +591,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         submenu("Vector", vector).sep(),
         leaf("Plugins", "", Action::Plugins),
         stub_sub("Widgets"),
-        submenu(
-            "Preferences",
-            vec![
-                leaf("Your name…", "", Action::YourName),
-                leaf("Use GPU rendering", "", Action::ToggleGpu).on(app.canvas.gpu.active()).off(!app.canvas.gpu.available).tip(gpu_off_reason(app)),
-                leaf("Agent permissions…", "", Action::AgentPermissions),
-            ],
-        ),
+        submenu("Preferences", pref_nodes(app)),
         leaf("Libraries", "", Action::OpenLibraries).sep(),
         leaf("AI balance", "", Action::OpenAgents).sep(),
         submenu("Help and account", help),

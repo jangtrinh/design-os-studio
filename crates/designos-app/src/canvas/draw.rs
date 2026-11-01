@@ -1031,7 +1031,7 @@ pub fn overlays(app: &App, ui: &Ui, rect: ERect) {
     }
 
     // Hover outline.
-    for h in [app.hover, app.hover_layer].into_iter().flatten() {
+    for h in [app.hover.filter(|_| !app.ui.hide_hover_highlight), app.hover_layer].into_iter().flatten() {
         if !is_sel(h) && app.doc.get(h).is_some() {
             outline(app, &p, rect, h, sel_color(app, h), theme::CANVAS_HOVER_WIDTH);
         }

@@ -232,19 +232,46 @@ fn select_same_font_stroke_and_instance_actions() {
 #[test]
 fn ctrl_alt_a_selects_matching_layers() {
     let mut s = Sim::with(Options { select: Some("Tile A".into()), ..Default::default() });
+    let ctx = s.ctx.clone();
     let tile_a = s.by_name("Tile A");
     s.shell.app.duplicate_selection();
-    let copy = s.app().selection[0];
-    assert_ne!(copy, tile_a);
+    let copy_in_same_frame = s.app().selection[0];
+    assert_ne!(copy_in_same_frame, tile_a);
+    s.shell.app.select_only(tile_a);
+    crate::panels::menus::run(&mut s.shell.app, &ctx, crate::panels::menus::Action::SelectSame(designos_doc::find::MatchCriteria::Properties));
+    let mut same_props = s.app().selection.clone();
+    same_props.sort();
+    let mut want_props = vec![tile_a, copy_in_same_frame];
+    want_props.sort();
+    assert_eq!(same_props, want_props, "the duplicate has the same type and properties; Tile B and C differ");
+
+    // Remove the in-frame duplicate, duplicate the enclosing top-level Dashboard frame,
+    // and verify Ctrl+Alt+A selects the matching Tile A across top-level frames.
+    s.shell.app.select_only(copy_in_same_frame);
+    s.shell.app.delete_selection();
+    let dashboard = s.by_name("Dashboard");
+    s.shell.app.select_only(dashboard);
+    s.shell.app.duplicate_selection();
+    let dup_dashboard = s.app().selection[0];
+    let matching_tile_a = s
+        .app()
+        .doc
+        .get(dup_dashboard)
+        .unwrap()
+        .children
+        .iter()
+        .copied()
+        .find(|&id| s.app().doc.get(id).unwrap().name == "Tile A")
+        .expect("duplicated Dashboard has Tile A");
     s.shell.app.select_only(tile_a);
     s.mods = Modifiers { ctrl: true, alt: true, command: true, ..Default::default() };
     s.key(Key::A);
     s.mods = Modifiers::NONE;
     let mut sel = s.app().selection.clone();
     sel.sort();
-    let mut want = vec![tile_a, copy];
+    let mut want = vec![tile_a, matching_tile_a];
     want.sort();
-    assert_eq!(sel, want, "the duplicate has the same type and properties; Tile B and C differ");
+    assert_eq!(sel, want, "Ctrl+Alt+A selects matching layers across top-level frames");
 }
 
 #[test]

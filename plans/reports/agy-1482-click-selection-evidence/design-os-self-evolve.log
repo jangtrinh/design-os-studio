@@ -1,0 +1,41 @@
+====================================================================================================================
+ design:os studio — Self-Evolution Engine & Live Token Parity Audit (mode=EVOLVE)
+====================================================================================================================
+ID   | STATUS | GATE                     | EVIDENCE & VERDICT
+--------------------------------------------------------------------------------------------------------------------
+G01  | PASS   | check_rust_token_parity  | 35/35 Rust theme.rs constants match design.tokens.json; 0 Purple Ban violations; purple-band hits: 0; 30 non-colour constants match; colour classes cover 188 theme.rs names (32 mapped, 21 shared-key, 68 pending, 67 exempt; pending max 68)
+G02  | PASS   | zero_fake_ui_gate        | 17/17 Zero-Fake-UI invariants PASS (DIR-28 / BR-31 / REQ-25)
+G03  | PASS   | ui_ds_status             | DS manifest active (78 registered components, hash=sha256-SkbvSo4GPRiD…)
+G04  | PASS   | ui_ds_a11y               | supplementary: 15 foreground/surface pairs + 8 state pairs + 50 explicit chrome pairs (design/a11y-chrome-pairs.txt; failures=0, unresolved=0)
+G05  | PASS   | ui_ds_soul_check         | 0 soul findings; design/soul.md status=ratified
+G06  | PASS   | ui_agents_check          | 4 stamped .claude/agents + 4 cross-runtime .agents/agents fresh (0 errors)
+G07  | PASS   | design_os_evolution      | verdict=ALIVE, proof.level=IMPROVING, findings=0, ledger_events=402, recurrent_insights=2 (harvest+heartbeat+compile)
+G08  | PASS   | ui_gate_specimen         | 6/6 families PASS (errors=0, warnings=0); ds-usage-lint errors=0
+G09  | PASS   | design_os_project_audit  | design-os audit . minus skills/vendor/** and fixtures/stacking.html (16 html targets + repo-level, 83 tools, errors=0, warnings=198, excluded=2); nodes violations=0; flow errors=0
+--------------------------------------------------------------------------------------------------------------------
+ G09 detail:
+   audit scope: design-os audit . minus skills/vendor/** and fixtures/stacking.html (owner rulings 2026-10-22)
+   audited html targets (16), plus 1 repo-level DS/flow run:
+     ok   crates/designos-webcapture/tests/playwright/fixtures/card.html (tools=5, errors=0, warnings=1, exit=0)
+     ok   crates/designos-webcapture/tests/playwright/fixtures/cascade.html (tools=5, errors=0, warnings=1, exit=0)
+     ok   crates/designos-webcapture/tests/playwright/fixtures/pseudo.html (tools=5, errors=0, warnings=0, exit=0)
+     ok   crates/designos-webcapture/tests/playwright/fixtures/scrolled.html (tools=5, errors=0, warnings=0, exit=0)
+     ok   design/marketing/svg-animation/micro-01-autolayout-5.html (tools=5, errors=0, warnings=22, exit=0)
+     ok   design/marketing/svg-animation/micro-02-css-grid.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-03-smart-selection.html (tools=5, errors=0, warnings=22, exit=0)
+     ok   design/marketing/svg-animation/micro-04-shape-controls.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-05-vector-network.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-06-layer-eyedropper.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-07-devmode-boxmodel.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/marketing/svg-animation/micro-08-scale-navigation.html (tools=5, errors=0, warnings=23, exit=0)
+     ok   design/specimen.html (tools=5, errors=0, warnings=0, exit=0)
+     ok   docs/_layouts/default.html (tools=5, errors=0, warnings=0, exit=0)
+     ok   docs/index.html (tools=5, errors=0, warnings=11, exit=0)
+     ok   scripts/tests/fixtures/release-sync/index.html (tools=5, errors=0, warnings=2, exit=0)
+   repo-level DS/flow: tools=3, errors=0, exit=0
+   excluded (2):
+     crates/designos-webcapture/tests/playwright/fixtures/stacking.html (tests capture of z-index 2147483647, its test asserts that value)
+     skills/vendor/jakubkrehel-skills/upstream/skills/technical-drawing/assets/viewer.html (SHA-pinned upstream, byte-identical)
+--------------------------------------------------------------------------------------------------------------------
+ Overall Self-Evolution Verdict: PASS (9/9 gates passed)
+====================================================================================================================

@@ -121,6 +121,8 @@ pub struct UiState {
     pub dev_mode: bool,
     /// Selection context menu position (canvas or layers right-click).
     pub ctx_menu: Option<egui::Pos2>,
+    /// Page-space position where a canvas right-click opened `ctx_menu`.
+    pub ctx_menu_page: Option<Vec2>,
     /// Overlapping layer picker menu position and hit list (`Cmd/Ctrl + Right-Click` on canvas).
     pub layer_picker: Option<(egui::Pos2, Vec<NodeId>)>,
     /// Anchor of the instance "more" menu and of the add-property menu in the inspector.
@@ -138,6 +140,8 @@ pub struct UiState {
     pub hide_layout_grids: bool,
     /// Snap to pixel grid is off (it is on by default, as in Figma).
     pub no_pixel_snap: bool,
+    /// Highlight layers on hover is off (it is on by default, as in Figma).
+    pub hide_hover_highlight: bool,
     /// Whether the Preferences -> Agent permissions modal is open (`#656`).
     pub permissions_modal_open: bool,
     /// Region rects copied every frame by `Shell::draw` (`#1126`).
@@ -488,10 +492,12 @@ impl App {
 
     pub fn select_only(&mut self, id: NodeId) {
         self.selection = vec![id];
+        self.canvas.last_hover_query = None;
     }
 
     pub fn clear_selection(&mut self) {
         self.selection.clear();
+        self.canvas.last_hover_query = None;
     }
 
     /// Refreshes the `#693` busy-frame banner state from the current selection and any active canvas edit gesture.

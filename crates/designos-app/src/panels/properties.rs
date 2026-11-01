@@ -1948,7 +1948,8 @@ fn create_style(app: &mut App, pk: &mut Picker) {
 }
 
 fn try_sample_color_token(app: &mut App, p: Pos2, target: PickTarget, ids: &[NodeId]) -> bool {
-    let hit = app.hover.or_else(|| crate::canvas::interact::hit_under(app, app.view.to_page(app.canvas_rect.min, p), true));
+    let page_pt = app.view.to_page(app.canvas_rect.min, p);
+    let hit = crate::canvas::interact::hit_under_any_depth(app, page_pt, false).or_else(|| crate::canvas::interact::hit_under(app, page_pt, true));
     let Some(hid) = hit else { return false };
     let (style_key, var_id) = match app.doc.get(hid) {
         Some(n) => (n.style_refs.get("fill").cloned(), n.variables.bindings.get("fills/0").cloned()),

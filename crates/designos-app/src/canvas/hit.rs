@@ -46,28 +46,69 @@ pub fn is_one_shape_component(doc: &Document, node: &Node) -> bool {
     )
 }
 
+/// A frame, component, or component set is treated as top-level when its parent is the page or a section; to be confirmed against Figma.
+pub(crate) fn is_top_level_parent(doc: &Document, parent: Option<NodeId>) -> bool {
+    parent.and_then(|p| doc.get(p)).is_some_and(|pn| matches!(pn.kind, NodeKind::Page { .. } | NodeKind::Section))
+}
+
+/// Clicking empty space inside a transparent container selects the container itself when no child is hit; to be confirmed against Figma.
+pub(crate) fn transparent_container_selects_self_on_empty_area() -> bool {
+    true
+}
+
+/// Holding the command modifier while dragging a marquee selects nested leaf layers without selecting their ancestor containers; to be confirmed against Figma.
+pub(crate) fn deep_marquee_selects_leaf_layers() -> bool {
+    true
+}
+
 /// True if the container is "transparent" to clicks: clicking a child
-/// selects the child directly (frames, sections, pages, component sets,
-/// and multi-child or container-child components). A component made from
-/// one leaf shape ([`is_one_shape_component`]) is selected as a whole on
-/// single click and entered on double-click.
-fn selects_through(doc: &Document, node: &Node) -> bool {
-    matches!(node.kind, NodeKind::Page { .. } | NodeKind::Frame(_) | NodeKind::Section | NodeKind::Component(_) | NodeKind::ComponentSet(_))
-        && !is_one_shape_component(doc, node)
+/// selects the child directly (pages, sections, and top-level frames,
+/// component sets, and multi-child or container-child components). When
+/// `through_nested_frames` is true, nested frames and components are also
+/// transparent (used by non-selection callers such as comments and vector
+/// hover). A component made from one leaf shape ([`is_one_shape_component`])
+/// is selected as a whole on single click and entered on double-click.
+fn selects_through(doc: &Document, node: &Node, through_nested_frames: bool) -> bool {
+    match node.kind {
+        NodeKind::Page { .. } | NodeKind::Section => true,
+        NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) => {
+            (through_nested_frames || is_top_level_parent(doc, node.parent)) && !is_one_shape_component(doc, node)
+        }
+        _ => false,
+    }
 }
 
 /// True if a marquee that only partly covers a container of this kind selects the layers inside it
 /// instead of the container. Main components and component sets are selected whole by a marquee,
 /// like instances; their layers stay reachable by click, Cmd+click and double-click.
 fn marquee_enters(doc: &Document, node: &Node) -> bool {
-    selects_through(doc, node) && !matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))
+    selects_through(doc, node, false) && !matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_))
+}
+
+/// True when `id` sits deeper than plain-click depth (an ancestor container between `id`
+/// and the page is opaque to a plain click with nothing selected, so a plain click at `id`'s
+/// position would select that ancestor instead of `id`). A direct child of a top-level frame
+/// is at click depth and is not nested.
+pub fn is_nested_selection_layer(doc: &Document, id: NodeId) -> bool {
+    let mut cur = doc.get(id).and_then(|n| n.parent);
+    while let Some(pid) = cur {
+        let Some(pn) = doc.get(pid) else { return false };
+        if matches!(pn.kind, NodeKind::Page { .. }) {
+            break;
+        }
+        if !selects_through(doc, pn, false) {
+            return true;
+        }
+        cur = pn.parent;
+    }
+    false
 }
 
 /// Finds the node under `p` (page space).
 ///
 /// * `deep` selects the deepest node (ctrl/cmd-click).
 /// * `entered` lists containers (usually ancestors of the current selection)
-///   that groups/instances may be descended into.
+///   that groups/instances/nested frames may be descended into.
 #[allow(dead_code)]
 pub fn hit_test(doc: &Document, root: NodeId, p: Vec2, tol: f32, deep: bool, entered: &[NodeId]) -> Option<NodeId> {
     hit_test_with_index(doc, root, p, tol, deep, entered, None)
@@ -84,6 +125,20 @@ pub fn hit_test_with_index(
     index: Option<&designos_render::SceneIndex>,
 ) -> Option<NodeId> {
     hit_test_excluding_with_index(doc, root, p, tol, deep, entered, &[], index)
+}
+
+/// Like [`hit_test_with_index`], descending through nested frames at any depth
+/// (used by non-selection callers such as comment pins and vector path hover).
+pub fn hit_test_any_depth_with_index(
+    doc: &Document,
+    root: NodeId,
+    p: Vec2,
+    tol: f32,
+    deep: bool,
+    entered: &[NodeId],
+    index: Option<&designos_render::SceneIndex>,
+) -> Option<NodeId> {
+    hit_in(doc, root, Affine::IDENTITY, p, tol, deep, true, entered, &[], index)
 }
 
 /// [`hit_test`] that ignores the `exclude`d nodes (and everything inside them).
@@ -103,7 +158,7 @@ pub fn hit_test_excluding_with_index(
     exclude: &[NodeId],
     index: Option<&designos_render::SceneIndex>,
 ) -> Option<NodeId> {
-    hit_in(doc, root, Affine::IDENTITY, p, tol, deep, entered, exclude, index)
+    hit_in(doc, root, Affine::IDENTITY, p, tol, deep, false, entered, exclude, index)
 }
 
 fn indexed_bounds(index: Option<&designos_render::SceneIndex>, id: NodeId) -> Option<Rect> {
@@ -126,6 +181,7 @@ fn hit_in(
     p: Vec2,
     tol: f32,
     deep: bool,
+    through_nested_frames: bool,
     entered: &[NodeId],
     exclude: &[NodeId],
     index: Option<&designos_render::SceneIndex>,
@@ -166,7 +222,8 @@ fn hit_in(
             k => local_hit(k, n.size, local, tol),
         };
         if n.kind.is_container() {
-            let descend = deep || selects_through(doc, n) || entered.contains(&cid);
+            let transparent = selects_through(doc, n, through_nested_frames);
+            let descend = deep || transparent || entered.contains(&cid);
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
             let near_unindexed =
                 index.is_some() || inside || n.size.x <= 0.0 || n.size.y <= 0.0 || matches!(n.kind, NodeKind::Group | NodeKind::BooleanOp(_)) || {
@@ -174,11 +231,11 @@ fn hit_in(
                     local.x >= -pad && local.y >= -pad && local.x <= n.size.x + pad && local.y <= n.size.y + pad
                 };
             if descend && (!clips || inside) && near_unindexed {
-                if let Some(h) = hit_in(doc, cid, world, p, tol, deep, entered, exclude, index) {
+                if let Some(h) = hit_in(doc, cid, world, p, tol, deep, through_nested_frames, entered, exclude, index) {
                     return Some(h);
                 }
             }
-            if inside {
+            if inside && (!transparent || transparent_container_selects_self_on_empty_area()) {
                 return Some(cid);
             }
         } else if inside {
@@ -192,11 +249,89 @@ fn hit_in(
 /// ordered from top-most leaf down to container/frame (capped at 32 items).
 pub fn hit_all_under(doc: &Document, page: NodeId, p: Vec2, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
     let mut out = Vec::new();
-    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, index, &mut out);
+    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, false, index, &mut out);
     out
 }
 
-fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol: f32, index: Option<&designos_render::SceneIndex>, out: &mut Vec<NodeId>) {
+/// Collects all visible nodes (including locked layers) on `page` under `p` (page space),
+/// capped at 32 items. When `parents_first` is true, containers are listed before their
+/// children in front-to-back sibling order and the 32-item cap keeps parents before deeper
+/// layers across all branches (breadth-first by depth).
+pub fn hit_all_under_including_locked(doc: &Document, page: NodeId, p: Vec2, parents_first: bool, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
+    if parents_first {
+        let mut by_depth = Vec::new();
+        hit_all_parents_first_in(doc, page, Affine::IDENTITY, p, 2.0, true, 0, index, &mut by_depth);
+        by_depth.sort_by_key(|&(_, depth)| depth);
+        by_depth.truncate(32);
+        return by_depth.into_iter().map(|(id, _)| id).collect();
+    }
+    let mut out = Vec::new();
+    hit_all_in(doc, page, Affine::IDENTITY, p, 2.0, true, index, &mut out);
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hit_all_parents_first_in(
+    doc: &Document,
+    parent: NodeId,
+    parent_world: Affine,
+    p: Vec2,
+    tol: f32,
+    include_locked: bool,
+    depth: usize,
+    index: Option<&designos_render::SceneIndex>,
+    out: &mut Vec<(NodeId, usize)>,
+) {
+    if depth >= 32 {
+        return;
+    }
+    let Some(pn) = doc.get(parent) else { return };
+    for &cid in pn.children_front_to_back() {
+        let Some(n) = doc.get(cid) else { continue };
+        if !n.visible || (!include_locked && n.locked) {
+            continue;
+        }
+        if !matches!(n.kind, NodeKind::Connector(_)) {
+            if let Some(bb) = indexed_bounds(index, cid) {
+                let m = tol + 2.0;
+                if !Rect::new(bb.x - m, bb.y - m, bb.w + 2.0 * m, bb.h + 2.0 * m).contains(p) {
+                    continue;
+                }
+            }
+        }
+        let world = parent_world * n.transform;
+        let Some(inv) = world.invert() else { continue };
+        let local = inv.apply(p);
+        let inside = match &n.kind {
+            NodeKind::Connector(_) => parent_world.invert().is_some_and(|pi| connector_hit(doc, cid, pi.apply(p), tol)),
+            k => local_hit(k, n.size, local, tol),
+        };
+        if n.kind.is_container() {
+            if inside {
+                out.push((cid, depth));
+            }
+            let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
+            if !clips || inside {
+                let next_depth = if inside { depth + 1 } else { depth };
+                hit_all_parents_first_in(doc, cid, world, p, tol, include_locked, next_depth, index, out);
+            }
+        } else if inside {
+            out.push((cid, depth));
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hit_all_in(
+    doc: &Document,
+    parent: NodeId,
+    parent_world: Affine,
+    p: Vec2,
+    tol: f32,
+    include_locked: bool,
+    index: Option<&designos_render::SceneIndex>,
+    out: &mut Vec<NodeId>,
+) {
     if out.len() >= 32 {
         return;
     }
@@ -206,7 +341,7 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
             return;
         }
         let Some(n) = doc.get(cid) else { continue };
-        if !n.visible || n.locked {
+        if !n.visible || (!include_locked && n.locked) {
             continue;
         }
         if !matches!(n.kind, NodeKind::Connector(_)) {
@@ -227,7 +362,7 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
         if n.kind.is_container() {
             let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
             if !clips || inside {
-                hit_all_in(doc, cid, world, p, tol, index, out);
+                hit_all_in(doc, cid, world, p, tol, include_locked, index, out);
             }
             if inside && out.len() < 32 {
                 out.push(cid);
@@ -239,11 +374,19 @@ fn hit_all_in(doc: &Document, parent: NodeId, parent_world: Affine, p: Vec2, tol
 }
 
 /// Nodes selected by a marquee (page space). Fully-enclosed top-level objects
-/// are selected as a whole; frames only partly covered are entered. Main
-/// components and component sets are always selected as a whole.
+/// are selected as a whole; top-level frames and sections only partly covered
+/// are entered, while nested frames, groups, instances, main components, and
+/// component sets are selected as a whole (matching plain-click depth).
 #[allow(dead_code)]
 pub fn marquee_select(doc: &Document, root: NodeId, r: &Rect) -> Vec<NodeId> {
     marquee_select_with_index(doc, root, r, None)
+}
+
+/// Deep marquee selection (`Cmd/Ctrl + drag`): descends into every container
+/// and selects leaf layers intersecting `r` without selecting their ancestor containers.
+#[allow(dead_code)]
+pub fn marquee_select_deep(doc: &Document, root: NodeId, r: &Rect) -> Vec<NodeId> {
+    marquee_select_deep_with_index(doc, root, r, None)
 }
 
 const MAX_MARQUEE_NODES: usize = 512;
@@ -284,6 +427,38 @@ pub fn marquee_select_with_index(doc: &Document, root: NodeId, r: &Rect, index: 
     }
     marquee_in(doc, root, r, index, 0, large_doc, &mut out);
     out
+}
+
+/// Like [`marquee_select_deep`], using `index` bounds when available.
+pub fn marquee_select_deep_with_index(doc: &Document, root: NodeId, r: &Rect, index: Option<&designos_render::SceneIndex>) -> Vec<NodeId> {
+    if !deep_marquee_selects_leaf_layers() {
+        return marquee_select_with_index(doc, root, r, index);
+    }
+    let mut out = Vec::new();
+    marquee_deep_in(doc, root, r, index, &mut out);
+    out
+}
+
+fn marquee_deep_in(doc: &Document, parent: NodeId, r: &Rect, index: Option<&designos_render::SceneIndex>, out: &mut Vec<NodeId>) {
+    let Some(pn) = doc.get(parent) else { return };
+    for &cid in &pn.children {
+        if out.len() >= MAX_MARQUEE_NODES {
+            break;
+        }
+        let Some(n) = doc.get(cid) else { continue };
+        if !n.visible || n.locked {
+            continue;
+        }
+        let bb = if let Some(ibb) = indexed_bounds(index, cid) { ibb } else { super::fast_world_aabb(doc, None, cid) };
+        if n.kind.is_container() && !n.children.is_empty() {
+            let clips = n.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
+            if (!clips && index.is_none()) || r.intersects(&bb) {
+                marquee_deep_in(doc, cid, r, index, out);
+            }
+        } else if r.intersects(&bb) {
+            out.push(cid);
+        }
+    }
 }
 
 fn marquee_in(doc: &Document, parent: NodeId, r: &Rect, index: Option<&designos_render::SceneIndex>, depth: usize, large_doc: bool, out: &mut Vec<NodeId>) {

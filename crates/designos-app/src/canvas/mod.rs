@@ -148,6 +148,7 @@ pub enum Interaction {
         start: DV,
         cur: DV,
         base: Vec<NodeId>,
+        matching: Option<Vec<(NodeId, Rect)>>,
     },
     ZoomMarquee {
         start: DV,
@@ -202,8 +203,8 @@ pub struct CanvasState {
     pub pointer_page: Option<DV>,
     pub cursor: Option<egui::CursorIcon>,
     pub last_render_ms: f32,
-    /// Cached `(pointer_screen_pos, tile_rev, deep_mod, zoom)` for hover hit-test deduplication.
-    pub last_hover_query: Option<(egui::Pos2, u64, bool, f32)>,
+    /// Cached `(pointer_screen_pos, tile_rev, deep_mod, shift_mod, zoom, selection_hash)` for hover hit-test deduplication.
+    pub last_hover_query: Option<(egui::Pos2, u64, bool, bool, f32, u64)>,
 }
 
 /// Fast axis-aligned bounding box of `(0, 0, size.x, size.y)` transformed by `t` with zero heap allocations.

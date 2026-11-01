@@ -703,6 +703,7 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
                     app.select_only(row.id);
                 }
                 app.ui.ctx_menu = ui.input(|i| i.pointer.interact_pos());
+                app.ui.ctx_menu_page = None;
             }
 
             // Selection clicks.

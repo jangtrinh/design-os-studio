@@ -968,44 +968,45 @@ impl App {
     }
 
     /// `Q` or `Cmd/Ctrl + Alt + A`: Multi-Edit / Select Matching Layers across top-level frames
-    /// and component variants on the active page (matching `name` and `NodeKind` variant).
+    /// and component variants on the active page.
     pub fn select_matching_layers(&mut self) -> usize {
         if self.selection.is_empty() {
             return 0;
         }
-        let targets: Vec<(String, std::mem::Discriminant<NodeKind>)> =
-            self.selection.iter().filter_map(|&id| self.doc.get(id).map(|n| (n.name.clone(), std::mem::discriminant(&n.kind)))).collect();
-        if targets.is_empty() {
-            return 0;
-        }
-        let mut matched: Vec<NodeId> = Vec::new();
-        let doc = &self.doc;
-        doc.walk(self.page, |n, depth| {
-            if depth == 0 || !n.visible {
-                return;
-            }
-            let disc = std::mem::discriminant(&n.kind);
-            if targets.iter().any(|(name, d)| *name == n.name && *d == disc) {
-                let mut cur = n.parent;
-                let mut all_vis = true;
-                while let Some(p) = cur {
-                    if p == self.page {
-                        break;
-                    }
-                    if !doc.get(p).is_some_and(|pn| pn.visible) {
-                        all_vis = false;
-                        break;
-                    }
-                    cur = doc.get(p).and_then(|pn| pn.parent);
-                }
-                if all_vis && !matched.contains(&n.id) {
-                    matched.push(n.id);
+        let new_matches = designos_doc::find::find_matching_layers(&self.doc, &self.selection);
+        if !new_matches.is_empty() {
+            let n = new_matches.len();
+            for id in new_matches {
+                if !self.selection.contains(&id) {
+                    self.selection.push(id);
                 }
             }
-        });
-        if !matched.is_empty() {
-            self.selection = matched;
-            self.show_toast(format!("Selected {} matching layers", self.selection.len()), false);
+            let total = self.selection.len();
+            self.canvas.last_hover_query = None;
+            self.show_toast(format!("{n} matching layers found, {total} items selected"), false);
+        } else {
+            let msg = match self.selection.first().and_then(|&s| designos_doc::find::matching_scope_of(&self.doc, s)).map(|(sc, _)| sc) {
+                Some(designos_doc::find::MatchScope::ComponentSet(_)) => "No matching layers to select in this component set",
+                Some(designos_doc::find::MatchScope::Section(_)) => "No matching layers to select in this section",
+                _ => {
+                    let mut cur = self.selection.first().and_then(|&s| self.doc.get(s)).and_then(|n| n.parent);
+                    let mut fallback = "No matching layers to select on page";
+                    while let Some(pid) = cur {
+                        let Some(pn) = self.doc.get(pid) else { break };
+                        if matches!(pn.kind, NodeKind::ComponentSet(_)) {
+                            fallback = "No matching layers to select in this component set";
+                            break;
+                        }
+                        if matches!(pn.kind, NodeKind::Section) {
+                            fallback = "No matching layers to select in this section";
+                            break;
+                        }
+                        cur = pn.parent;
+                    }
+                    fallback
+                }
+            };
+            self.show_toast(msg, false);
         }
         self.selection.len()
     }
