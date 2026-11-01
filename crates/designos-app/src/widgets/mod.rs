@@ -4,6 +4,7 @@
 pub trait Key: std::hash::Hash + std::fmt::Debug {}
 impl<T: std::hash::Hash + std::fmt::Debug> Key for T {}
 
+pub mod clamp;
 pub mod field;
 pub mod field_tab;
 pub mod kit;
