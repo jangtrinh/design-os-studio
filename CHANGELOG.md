@@ -2,6 +2,42 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.6] - 2026-11-01
+
+A fix release from `main`: Untitled UI-style kits import with the right text sizes, instance swaps keep your overrides, and the inspector and the agent tools gain the work merged since 0.7.5.
+
+### Added
+- **Inspector.**
+  - Bind variables on a layer's effect rows and on gradient stops (#132, PR #1425).
+  - Instance properties are listed in the order the designer set in Figma, with the source component, its description, and an ellipsis for long values (PR #1403).
+- **Agents.**
+  - The Agents panel is simpler and uses the dark kit (#1144, PR #1438).
+  - Approvals: an "Ask for risky only" mode, and a grant that lasts for the session for edits you have already allowed (PR #1312).
+- **`designos-mcp`.**
+  - Each tool publishes its risk tier and accurate tool annotations (PR #1310).
+  - `designos_close_document` closes a document with an explicit policy for unsaved changes and an optional save path, so an agent is no longer stuck on a "Save changes?" dialog (#1282, PR #1353).
+  - A `LOOP_SUSPECTED` hint when an agent repeats the same call, alternates between two, or keeps calling a failing tool (#1290, PR #1354).
+  - Errors carry an `error_kind` (retryable, fatal or needs a person) (#1291, PR #1359).
+
+### Fixed
+- **`.fig` import.**
+  - An instance text override that names a text style now links that style, so text in kits such as Untitled UI no longer comes out one size too big and clipped ("Overviev", "Faceboo") (#1327, PR #1348).
+  - Design-token aliases resolve by their manifest group (PR #1323).
+- **Components.** Swapping an instance keeps the overrides set on its layers, the way Figma does (#1427, PR #1449).
+- **Typography.** Editing a Typography field that a text style owns detaches the style, so the panel never shows a style the text no longer matches (#1026, PR #1424).
+- **Export.** CSS and Tailwind grids use the layout solver's track sizes and row heights (#484, PR #1426).
+- **Controls.** The radio card's focus ring follows the card's corners (#1436, PR #1444), and a closed dropdown paints its keyboard focus ring (#1273, PR #1351).
+- **CLI.** `--select` refuses a value that matches both a layer name and an id, and refuses ids that exist only in a session (#1319, PR #1334). Hug text sizes from a spec are whole pixels (#1321, PR #1332).
+- **Windows.** The app binaries get an 8 MiB main-thread stack (PR #1413).
+
+### Removed
+- The plugin manifest import that nothing used, and the plugin claims that went with it (PR #1410).
+
+### Known issues
+- On the GPU canvas, a page viewed zoomed far out can show frames with most of their text and small content missing, even after the view is still. A fix that draws full detail once the view settles is in progress.
+- In some `.fig` kits, an instance whose fill override names its own colour style draws the main component's colour instead, for example gradient swatches drawn purple in the Untitled UI kit (#1464).
+- The known issues listed for 0.7.5 still apply. The Windows test suite stays advisory; releases are verified on macOS (#1158).
+
 ## [0.7.5] - 2026-10-30
 
 **UI revamp, slice 1** ([milestone v0.7.5](https://github.com/jangtrinh/design-os-studio/milestone/57)): Studio gets a new dark look, painted from one shared set of controls. Colours, type, spacing, corner radii and control sizes follow one scale across Home, the window chrome, the left panel, popovers, dialogs, the command bar, `Assets`, `Variables`, `Libraries` and `Check designs`. Regions, panel widths and the order of controls stay where they were, and rows, buttons and text grow only where the new scale says so.

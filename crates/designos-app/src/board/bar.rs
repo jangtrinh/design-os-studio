@@ -443,7 +443,10 @@ fn popup(app: &mut App, ui: &mut Ui, ids: &[NodeId]) {
     let screen = ctx.content_rect();
     let above = anchor.top() - 8.0 - size.y;
     let y = if above >= screen.top() + 8.0 { above } else { anchor.bottom() + 8.0 };
-    let rect = ERect::from_min_size(Pos2::new((anchor.center().x - size.x / 2.0).clamp(screen.left() + 8.0, screen.right() - size.x - 8.0), y), size);
+    let rect = ERect::from_min_size(
+        Pos2::new(crate::widgets::clamp::clamp_within(anchor.center().x - size.x / 2.0, screen.left() + 8.0, screen.right() - size.x - 8.0), y),
+        size,
+    );
     let mut picked: Option<Pick> = None;
     let area = egui::Area::new(egui::Id::new("board-bar-menu")).order(egui::Order::Foreground).fixed_pos(rect.min).show(&ctx, |ui| {
         ui.allocate_rect(rect, Sense::hover());
