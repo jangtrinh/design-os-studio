@@ -2627,8 +2627,7 @@ fn override_entries(instance: &Value, list: Option<&Value>, lk: &Lk, derived: bo
                 // A self entry that restates paints without a style key keeps the style the instance itself names.
                 if let Some(inst_obj) = instance.as_object() {
                     for (style, slot, clear_key) in [("styleIdForFill", "fill", "_clearFillStyle"), ("styleIdForStrokeFill", "stroke", "_clearStrokeStyle")] {
-                        if o.get(style).is_none() && inst_obj.contains_key(style) {
-                            set.remove(clear_key);
+                        if o.get(style).is_none() && inst_obj.contains_key(style) && set.remove(clear_key).is_some() {
                             insert_style_override_link(&mut set, inst_obj, lk, style, slot, clear_key);
                         }
                     }
