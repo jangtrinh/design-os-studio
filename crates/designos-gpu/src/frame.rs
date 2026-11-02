@@ -295,6 +295,39 @@ pub struct FrameStats {
 }
 
 impl Frame {
+    /// The programs that must have run before ops `ops` of program `p` (and its
+    /// post-processing) can: composited and aux sources, clip masks, backdrop
+    /// masks and displacement masks. Not sorted, may repeat.
+    pub(crate) fn deps_of(&self, p: ProgId, ops: std::ops::Range<usize>, out: &mut Vec<ProgId>) {
+        let prog = &self.programs[p as usize];
+        let clip_dep = |c: ClipId, out: &mut Vec<ProgId>| {
+            if let Some(m) = self.clips[c as usize].mask {
+                out.push(m);
+            }
+        };
+        for op in &prog.ops[ops] {
+            match op {
+                Op::Draw(x) => clip_dep(x.clip, out),
+                Op::Composite(c) => {
+                    out.push(c.src);
+                    if let Some((a, _)) = c.aux {
+                        out.push(a);
+                    }
+                    clip_dep(c.clip, out);
+                }
+                Op::Backdrop(b) => {
+                    out.push(b.mask);
+                    clip_dep(b.clip, out);
+                }
+            }
+        }
+        for post in &prog.post {
+            if let Post::Displace { clip_to: Some(m), .. } = post {
+                out.push(*m);
+            }
+        }
+    }
+
     pub fn stats(&self) -> FrameStats {
         let mut s = FrameStats { programs: self.programs.len(), ..Default::default() };
         for p in &self.programs {
