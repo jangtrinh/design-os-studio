@@ -1,0 +1,19 @@
+[package]
+name = "block-editor-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "THROWAWAY spike for issue 1526: can the Notion-style block editor be built in egui?"
+
+# Own workspace root: the spike must not be a member of the Studio workspace, and this empty table
+# stops cargo from searching upwards and rejecting the package as "believes it is in a workspace".
+[workspace]
+
+[dependencies]
+eframe = "0.35.0"
+egui = "0.35"
+designos-fonts = { path = "../../crates/designos-fonts", default-features = false }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[profile.dev.package."*"]
+opt-level = 2
