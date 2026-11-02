@@ -190,6 +190,8 @@ clippy_rc=0
 ## 5. Git & Pull Request
 
 - **Branch**: `jangtrinh/agy-1467-truncate-text` (based on `origin/main` = `a98ec2b1bcd6668092cbb4e97d8c82f305be8d54`)
-- **Draft PR**: Pending creation in final step (will be updated immediately below)
+- **Draft PR**: https://github.com/jangtrinh/design-os-studio/pull/1541
+- **`git log --oneline origin/main..HEAD`**:
+  - `e28ae5f1 feat(typography): truncate text toggle and max lines in Type settings (#1467)` (`crates/designos-app/src/panels/typography.rs:633-768,1044-1067`, `crates/designos-app/src/shell/tests/typography.rs:178-519`, `crates/designos-mcp/tests/text_truncation_roundtrip.rs:1-220`)
 
 Status: READY
