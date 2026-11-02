@@ -351,6 +351,11 @@ pub struct GeomCache {
     /// the life of the cache: compare two readings to see whether a span of
     /// drawing met such a node.
     pub deferred_empty: u64,
+    /// The nodes behind `stale_hits` of the last frame, as (node, zoom bucket): what
+    /// [`GeomCache::get`] reused stale or left out while over budget. Cleared at the
+    /// start of each frame; the app's idle refine builds them frame by frame
+    /// (`SceneCompiler::warm_deferred`) instead of compiling the page again.
+    pub deferred: Vec<(NodeId, i32)>,
 }
 
 /// Zoom bucket for a device scale: the power of two at or above it.
@@ -377,6 +382,18 @@ impl GeomCache {
     pub fn begin_frame(&mut self) {
         self.frame_build_nanos = 0;
         self.stale_hits = 0;
+        self.deferred.clear();
+    }
+
+    /// Starts a frame of building deferred geometry: resets the re-tessellation
+    /// budget, keeps `stale_hits` and the list.
+    pub fn begin_warm(&mut self) {
+        self.frame_build_nanos = 0;
+    }
+
+    /// Whether this frame has spent its re-tessellation budget.
+    pub fn is_over_budget(&self) -> bool {
+        self.over_budget()
     }
 
     fn over_budget(&self) -> bool {
@@ -408,6 +425,7 @@ impl GeomCache {
             if e.bucket != bucket && e.rev == rev && over {
                 // same document state, only the zoom bucket moved: reuse until budget allows
                 self.stale_hits += 1;
+                self.deferred.push((n.id, bucket));
                 return e.geom.clone();
             }
             let clean = e.doc_id == doc_id
@@ -429,6 +447,7 @@ impl GeomCache {
                     e.doc_id = doc_id;
                     e.doc_epoch = doc_epoch;
                     self.stale_hits += 1;
+                    self.deferred.push((n.id, bucket));
                     return e.geom.clone();
                 }
             }
@@ -447,6 +466,7 @@ impl GeomCache {
         }
         if over && matches!(n.kind, NodeKind::Text(_) | NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
             self.stale_hits += 1;
+            self.deferred.push((n.id, bucket));
             self.deferred_empty += 1;
             let scale = bucket_scale(bucket);
             return Rc::new(NodeGeom { shape: None, fill: None, stroke: RefCell::default(), text: Vec::new(), scale, lazy: RefCell::default() });
