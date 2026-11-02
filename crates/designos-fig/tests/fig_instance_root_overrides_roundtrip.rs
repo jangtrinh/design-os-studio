@@ -82,6 +82,12 @@ fn families() -> Vec<Family> {
             check: |n| assert_eq!(n.blend, BlendMode::Multiply),
         },
         Family {
+            name: "Moved badge",
+            fields: json!({"transform": {"m00": 1.0, "m01": 0.0, "m02": 7.0, "m10": 0.0, "m11": 1.0, "m12": 9.0}}),
+            flag: OverrideField::Transform,
+            check: |n| assert_eq!((n.transform.tx, n.transform.ty), (7.0, 9.0)),
+        },
+        Family {
             name: "Filled badge",
             fields: json!({"fillPaints": [solid(1.0, 0.0, 0.0)]}),
             flag: OverrideField::Fills,
