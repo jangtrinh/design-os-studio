@@ -561,12 +561,33 @@ pub(crate) fn parse_number(s: &str) -> Option<f32> {
 /// `text_secondary`, value at x+24 (x+8 without a prefix), suffix right after the value
 /// in `text_secondary`. Integers print without decimals, other values with at most two.
 pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
+    num_field_inner(ui, rect, key, prefix, value, suffix, false)
+}
+
+/// Like [`num_field`], with the value placed at the prefix label's measured right edge plus [`theme::SPACE_FACT`].
+pub fn num_field_prefix_gap(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
+    num_field_inner(ui, rect, key, prefix, value, suffix, true)
+}
+
+fn num_field_inner(
+    ui: &mut Ui,
+    rect: Rect,
+    key: impl crate::widgets::Key,
+    prefix: Prefix,
+    value: Option<f32>,
+    suffix: &str,
+    tight_prefix_gap: bool,
+) -> Option<f32> {
     #[cfg(test)]
-    ui.ctx().data_mut(|d| {
+    {
         let k = format!("{key:?}");
-        d.insert_temp(Id::new(("field-rect", k.clone())), rect);
-        d.insert_temp(Id::new(("field-prefix", k)), prefix);
-    });
+        let rect_id = Id::new(("field-rect", k.clone()));
+        let prefix_id = Id::new(("field-prefix", k));
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(rect_id, rect);
+            d.insert_temp(prefix_id, prefix);
+        });
+    }
     let id = ui.id().with(("num", key));
     let display = value.map(super::numeric_field_value).unwrap_or_default();
     let has_prefix = !matches!(prefix, Prefix::None);
@@ -590,7 +611,9 @@ pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix:
                 theme::TEXT_SECONDARY,
             );
             let prefix_right = painted.right() - rect.left();
-            if prefix_right > theme::FIELD_PREFIX_W {
+            if tight_prefix_gap {
+                pw = prefix_right + theme::SPACE_FACT;
+            } else if prefix_right > theme::FIELD_PREFIX_W {
                 pw = prefix_right.ceil() + theme::SPACE_FACT;
             }
         }

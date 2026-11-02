@@ -1,0 +1,23 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1466-corner-radius/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1466-corner-radius/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1466-corner-radius/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1466-corner-radius/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.51s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 11 tests
+test canvas::handles::tests::corner_radius_handle_positions_and_hit_testing ... ok
+test canvas::vector::tests::corner_radius_is_one_undo_step_and_rounds_the_derived_path ... ok
+test check_designs::tests::numbers::uniform_and_per_corner_radius_match_number_variables_and_bind_cleanly ... ok
+test check_designs::tests::under_an_opaque_fill::text_inside_a_rounded_opaque_card_inset_by_corner_radius_is_checked_while_corner_cutout_text_is_skipped ... ok
+test shell::tests::vector::the_vector_edit_fixture_shows_the_corner_radius_field ... ok
+test shell::tests::corner_radius::binding_corner_field_to_variable_resolves_and_survives_save_and_reopen ... ok
+test shell::tests::corner_radius::toggle_on_shows_four_fields_in_figma_order ... ok
+test shell::tests::vector::the_vertex_inspector_edits_the_corner_radius_as_one_undo_step ... ok
+test shell::tests::corner_radius::mixed_selection_shows_mixed_and_edit_writes_every_node ... ok
+test shell::tests::corner_radius::per_corner_edit_changes_only_that_corner ... ok
+test shell::tests::corner_radius::smoothing_slider_writes_0_6_at_ios_preset_and_one_drag_is_one_undo_step ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 4156 filtered out; finished in 2.05s
+

@@ -1179,6 +1179,7 @@ mod comments;
 mod components;
 mod components_cycles;
 mod components_main_copies;
+mod corner_radius;
 mod decks;
 mod deferred_page_instances;
 mod dev;

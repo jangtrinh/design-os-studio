@@ -75,16 +75,6 @@
       ],
       "count": 1
     },
-    "bind:topLeftRadius": {
-      "region": "right_panel",
-      "rect": [
-        1536.0,
-        548.0,
-        24.0,
-        24.0
-      ],
-      "count": 1
-    },
     "bind:width": {
       "region": "right_panel",
       "rect": [
@@ -1401,32 +1391,6 @@
         1400.0,
         544.0,
         27.25,
-        32.0
-      ],
-      "sense": [
-        "click",
-        "drag",
-        "focus"
-      ]
-    },
-    {
-      "region": "right_panel",
-      "rect": [
-        1472.0,
-        544.0,
-        24.0,
-        32.0
-      ],
-      "sense": [
-        "drag"
-      ]
-    },
-    {
-      "region": "right_panel",
-      "rect": [
-        1496.0,
-        544.0,
-        39.0,
         32.0
       ],
       "sense": [
