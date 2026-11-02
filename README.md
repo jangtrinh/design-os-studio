@@ -148,6 +148,16 @@ Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.
 - **Layout and export.** Wrapped Fill-width text re-measures its height after a width change, and native code export (SwiftUI, UIKit, Compose, Android XML) places grid children on the layout tracks.
 - **App, Agents and MCP.** A narrow window no longer crashes, the Auto-save OFF switch shows its track edge, a second send while a prompt waits is queued behind it, and a `set_slot` op in `designos_apply_batch` fills the instance's slot.
 
+<a id="new-in-v076"></a>
+### 0.7.6
+
+- **Inspector.** Bind variables on a layer's effect rows and on gradient stops. Instance properties are listed in the order the designer set in Figma, with the source component, its description, and an ellipsis for long values.
+- **Agents.** The Agents panel is simpler and uses the dark kit. Approvals gain an `Ask for risky only` mode and a grant that lasts for the session for edits you have already allowed.
+- **`designos-mcp`.** Each tool publishes its risk tier and tool annotations. `designos_close_document` closes a document with an explicit policy for unsaved changes and an optional save path, so an agent is no longer stuck on a "Save changes?" dialog. A `LOOP_SUSPECTED` hint appears when an agent repeats the same call, alternates between two, or keeps calling a failing tool, and errors carry an `error_kind` (retryable, fatal or needs a person).
+- **`.fig` import.** An instance text override that names a text style now links that style, so text in kits such as Untitled UI no longer comes out one size too big and clipped. Design-token aliases resolve by their manifest group.
+- **Components, Typography and export.** Swapping an instance keeps the overrides set on its layers, the way Figma does. Editing a Typography field that a text style owns detaches the style, so the panel never shows a style the text no longer matches. CSS and Tailwind grids export with the layout solver's track sizes and row heights.
+- **Controls, CLI and Windows.** The radio card's focus ring follows the card's corners, and a closed dropdown paints its keyboard focus ring. `--select` refuses a value that matches both a layer name and an id, and refuses ids that exist only in a session. Hug text sizes from a spec are whole pixels, the Windows app binaries get an 8 MiB main-thread stack, and the plugin manifest import that nothing used is removed.
+
 <a id="new-in-v075"></a>
 ### 0.7.5
 
