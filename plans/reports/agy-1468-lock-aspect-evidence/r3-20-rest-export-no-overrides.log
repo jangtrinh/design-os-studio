@@ -1,0 +1,9 @@
+# does the REST exporter write instance override entries? (crates/designos-fig/src/export.rs, at ed4d2e96123d39a033a018843ca74e9741ee3f29)
+$ grep -n "overriddenFields\|\"overrides\"\|symbolOverrides\|proportionsConstrained\|preserveRatio" crates/designos-fig/src/export.rs
+461:                m.insert("preserveRatio".into(), true.into());
+grep_rc=0  (the only match above is the node-level preserveRatio of a locked node; nothing writes an overrides array or overriddenFields)
+$ sed -n 603,606p crates/designos-fig/src/export.rs   (how an instance is exported)
+        NodeKind::Instance { frame, component, component_key } => {
+            frame_fields(&mut m, frame, doc, node);
+            if let Some(c) = component {
+                m.insert("componentId".into(), figma_id(doc, *c).into());

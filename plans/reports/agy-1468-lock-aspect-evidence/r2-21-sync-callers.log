@@ -1,0 +1,9 @@
+# who runs an instance sync outside test code, at 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+# non-test call sites of sync_instances( / with_sync( (from: grep -rn "sync_instances(\|with_sync(" crates --include=*.rs, test modules dropped by hand)
+crates/designos-app/src/edit.rs:296: let cmd = crate::comp_ops::with_sync(doc, cmd);
+crates/designos-app/src/ops.rs:377: let cmd = crate::comp_ops::with_sync(&mut self.doc, cmd);
+crates/designos-app/src/comp_ops.rs:155: let s = sync_instances(doc, o);
+crates/designos-doc/src/library_ops.rs:1191: let c = sync_instances(t.doc, root);
+crates/designos-doc/src/lint/fix.rs:278: let sync_cmd = crate::sync_instances(&mut scratch, owner);
+$ grep -rln "sync_instances\|with_sync" crates/designos-fig/src crates/designos-library/src crates/designos-app/src/io.rs crates/designos-app/src/io
+grep_rc=1 (1 = no file in the importers, the library crate or the open/save code calls a sync)

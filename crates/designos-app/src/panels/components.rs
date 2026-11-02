@@ -461,6 +461,7 @@ fn override_name(f: OverrideField) -> &'static str {
         OverrideField::Layout => "layout",
         OverrideField::MainComponent => "component",
         OverrideField::SlotContent => "slot content",
+        OverrideField::LockAspect => "aspect lock",
     }
 }
 

@@ -1656,6 +1656,9 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::Locked) {
                 ov.push(("locked", V::Bool(n.locked)));
             }
+            if ovs.contains(&OverrideField::LockAspect) {
+                ov.push(("proportionsConstrained", V::Bool(n.lock_aspect)));
+            }
             if ovs.contains(&OverrideField::Opacity) {
                 ov.push(("opacity", fl_one(n.opacity)));
             }
