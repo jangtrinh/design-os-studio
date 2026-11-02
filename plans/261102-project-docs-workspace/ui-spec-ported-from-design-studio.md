@@ -33,7 +33,7 @@ Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4
 ## Doc tree
 - **Header** (`LEFT_HEADER_HEIGHT` 65, inset `INSET_PANEL` 16): project name 14/20 600 `TEXT`; second line "N files" 12/18 400 `TEXT_TERTIARY`; a 24 px "…" icon button at right (menu: Link spec folder, Open in Home, Reveal in Finder).
 - **Panel title row** (`PANEL_TITLE_ROW_HEIGHT` 40): "Documents" 14/20 600 `TEXT`; right: search and collapse-all icon buttons (`PANEL_ACTION_BUTTON` 24) and "+" (new page menu).
-- **Group row** (Overview, Spec, Screens, States, Discovery): height 32, 12/18 500 `TEXT_SECONDARY`, 24 px chevron box left (`LAYER_CHEVRON_BOX`), count pill at right (`Badge/StatusCount`, never "(3)").
+- **Group row** (Overview, Spec, Screens, States, Discovery): height 32, 12/18 500 `TEXT_SECONDARY`, 24 px chevron box left (`LAYER_CHEVRON_BOX`), count pill at right (kit `count_badge`, see Count pill below; never "(3)").
 - **Item row**: height 32, inset 8 from the panel edge (`PAGE_ROW_INSET`), radius `RADIUS_CONTROL` 8, 12/18 400 `TEXT_SECONDARY`, indent 16 per depth (`LAYER_INDENT`), 16 px icon + `SPACE_FACT` 4 + label. Icons: page, frame (screen), state, diagram, linked-spec file (page icon with a small link mark).
 - **States** (kit Pages row, ruling Q2): rest text `TEXT_SECONDARY`, icon `ICON_QUATERNARY`; hover `BG_HOVER` + `TEXT_SECONDARY_HOVER`; selected `BG_SELECTED` + `TEXT_SECONDARY_HOVER`, weight 600; keyboard focus: the kit 2 px `FOCUS_RING` band drawn inside the row (no room outside a full-width row); drag in progress: 2 px `TEXT` insertion line between rows.
 - **Icon buttons** in the tree header and title row (24 px, radius 8): rest `ICON_QUATERNARY`, hover `BG_HOVER` + `ICON_QUATERNARY_HOVER`, pressed or menu open `BG_SELECTED` + `ICON_SECONDARY_HOVER`.
@@ -52,7 +52,7 @@ Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4
 | Link | inherits | `TEXT`, underline | hover: `TEXT_SECONDARY` underline |
 | Inline code | 13/24 `Roboto Mono` | `TEXT` on `BG_TERTIARY`, radius 6 | inset 2 6 |
 | Code block | 13/20 `Roboto Mono` | `TEXT_SECONDARY` on `BG_SECONDARY` | radius 12, inset 16, horizontal scroll |
-| Table | header 12/18 600 `TEXT_SECONDARY` on `BG_SECONDARY`; cells 14/20 400 | 1 px `BORDER` grid, outer radius 12 | cell inset 8 12; wider than 690 → horizontal scroll inside the column |
+| Table | header 12/18 600 `TEXT_SECONDARY` on `BG_SECONDARY`; cells 14/20 400 | 1 px `BORDER` grid, outer radius 12 | cell inset 8 12; column width = widest cell + 24, 120 to 320, longer text wraps (part 2 §4); wider than 690 → horizontal scroll inside the column |
 | Callout | 14/24 | bg `BG_SECONDARY`, radius 12, 16 px icon tinted by kind: note `INFO`, tip `SUCCESS`, warning `WARNING`, danger `DANGER` | inset 12 16, icon gap 8 |
 | Checklist item | 14/24 | box: Studio's checkbox widget 16 px in a 24 px hit area; checked text stays `TEXT_SECONDARY` (no strike-through) | 4 between items |
 | Divider (`---`) | 1 px `BORDER` | — | 24 above and below |

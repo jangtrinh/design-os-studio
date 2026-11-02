@@ -1,4 +1,4 @@
-# Project docs workspace: UI mockups (M01 to M13b, 22 screens)
+# Project docs workspace: UI mockups (M01 to M13b, 23 screens)
 
 Open **[index.html](index.html)** first: left list of every mockup with its spec section, the selected mockup in an iframe scaled to fit (CSS transform), Prev / Next buttons, Left / Right arrow keys, `#m07`-style deep links (`#m09full` is the tall M09 page), and an "Open full size" link. Works from `file://`, no server, no network. Capture: [png/index.png](png/index.png).
 
@@ -17,7 +17,8 @@ Shared files: [tokens.css](tokens.css) (the only file with colour literals; ever
 | M02 First open, empty states, search with no result | [m02-first-open-empty-states.html](m02-first-open-empty-states.html) | [png](png/m02-first-open-empty-states.png) | part 2 §2 |
 | M03 Reading page, block hover, block menu, Turn into | [m03-reading-block-menu.html](m03-reading-block-menu.html) | [png](png/m03-reading-block-menu.png) | part 1 reading page, embed card, On this page; part 2 §3.1 |
 | M04 Slash menu filtered "ta" + no match | [m04-slash-menu-filtered.html](m04-slash-menu-filtered.html) | [png](png/m04-slash-menu-filtered.png) | part 2 §3.2 |
-| M04b Slash menu unfiltered (top, scrolled to end) | [m04b-slash-menu-unfiltered.html](m04b-slash-menu-unfiltered.html) | [png](png/m04b-slash-menu-unfiltered.png) | part 2 §3.2 |
+| M04b Slash menu unfiltered, top of the list | [m04b-slash-menu-unfiltered.html](m04b-slash-menu-unfiltered.html) | [png](png/m04b-slash-menu-unfiltered.png) | part 2 §3.2 |
+| M04c Slash menu unfiltered, scrolled to the end (ruling T2) | [m04c-slash-menu-scrolled-to-end.html](m04c-slash-menu-scrolled-to-end.html) | [png](png/m04c-slash-menu-scrolled-to-end.png) | part 2 §3.2 |
 | M05 Inline toolbar, link popover, existing link | [m05-inline-toolbar-link-popover.html](m05-inline-toolbar-link-popover.html) | [png](png/m05-inline-toolbar-link-popover.png) | part 2 §3.3 |
 | M06 Table editing | [m06-table-editing.html](m06-table-editing.html) | [png](png/m06-table-editing.png) | part 2 §4 |
 | M06b Table scrolled to the end, add-column + (ruling S4) | [m06b-table-scrolled-to-end.html](m06b-table-scrolled-to-end.html) | [png](png/m06b-table-scrolled-to-end.png) | part 2 §4 |
@@ -35,7 +36,71 @@ Shared files: [tokens.css](tokens.css) (the only file with colour literals; ever
 | M13 Tree interactions (rename, drag, context menu, search) | [m13-tree-interactions.html](m13-tree-interactions.html) | [png](png/m13-tree-interactions.png) | part 2 §12 |
 | M13b Delete page dialog | [m13b-delete-page-modal.html](m13b-delete-page-modal.html) | [png](png/m13b-delete-page-modal.png) | part 2 §12 |
 
-22 mockups + index = 23 PNGs. 21 mockup PNGs plus `index.png` are 1440 x 900 (checked with `sips`); `m09-full.png` is 1440 x 2630 because the Rendering and Ready cards are 410 px tall under the spec's 420 px render cap (the first brief said 1600; that does not fit all states). Responsive captures (375/768) are SKIPPED by owner default.
+23 mockups + index = 24 PNGs. 22 mockup PNGs plus `index.png` are 1440 x 900 (checked with `sips`); `m09-full.png` is 1440 x 2630 because the Rendering and Ready cards are 410 px tall under the spec's 420 px render cap (the first brief said 1600; that does not fit all states). Responsive captures (375/768) are SKIPPED by owner default.
+
+## Round 4 fixes (critique r3, 0 HIGH + 3 MED + 6 LOW, rulings T1 to T4)
+
+Source: [critique-261102-project-docs-mockups-r3.md](../../reports/critique-261102-project-docs-mockups-r3.md). Rulings: [ui-polish-rulings-r2.md](../ui-polish-rulings-r2.md) section "Round 3 rulings" (T1 to T4) over S1 to S4 and [ui-polish-rulings-r1.md](../ui-polish-rulings-r1.md) (R0). Edits are in `shell.css`, 11 mockup HTML files, `index.html`, the new `m04c`, the two spec files and this README. No settled item is open any more: S1 (cap 344) was confirmed in ruling S1 confirmation, phase-02 was edited in `c221d9d5`, and the M04b composite is resolved by T2.
+
+### ID ledger
+
+| ID | Change | Status |
+|---|---|---|
+| N1 (T1) | Table column width follows the rule: widest cell text + 12 + 12 insets (+ the 1 px divider), clamped 120 to 320; longer text wraps and the row grows; no ellipsis. `shell.css` `.tbl th, .tbl td`: `overflow: hidden; white-space: nowrap; text-overflow: ellipsis` replaced by `white-space: normal; overflow-wrap: anywhere; vertical-align: top` (header cells stay `middle`). All 11 table screens (and m04c): `<colgroup>` 160/150/130/140/150/190 to 120/120/120/120/120/320. The Card row Notes sample "3-D Secure when the issuer asks" became "3-D Secure when the issuer asks. A declined card is never retried." (461.7 px natural width, so it hits the 320 cap and wraps to two lines, as T1 asks of M06b). Spec part 2 §4 states the rule, the sample widths and the top alignment; part 1 table row points to it. | FIXED |
+| N2 (T2) | M04b = unfiltered menu at the top of its list, one menu. New `m04c-slash-menu-scrolled-to-end.html` = the same menu scrolled to the end (list offset 192, thumb at the bottom of the band, "Table" highlighted), one menu. The second menu and its "Scrolled to end" caption left M04b; M04c carries the caption. `index.html`: M04b renamed "Slash menu, top of the list", M04c "Slash menu, scrolled to end" added after it. Spec §3.2 heading and text name M04c. | FIXED |
+| N3 (T3) | Spec part 2 §5: "count pill = the number of frames the grid lists for that file (ruling T3: all frames in Pin and Embed modes, unpinned frames in Suggest mode); it is not the number of page rows". Mockups unchanged (M07 6, M08 1 / 3 / 4). | FIXED |
+| N4 | Spec §4: "thumb length = track x viewport / content = 690 x 690 / content width, 499 for the 954 sample". Mockup thumb stays 499 (690 x 690 / 954 = 499.06). | FIXED |
+| N5 | `shell.css` `.ftb .fb.txt { line-height: var(--lh-sm) }`: "Turn into" 14/24/600 to 14/20/600 (spec §3.3 already said 14/20). Button box 92.1 x 32 and toolbar x unchanged. | FIXED |
+| N6 | Spec part 1 group-row line: "(`Badge/StatusCount`, ...)" to "(kit `count_badge`, see Count pill below; never "(3)")". No other `Badge/StatusCount` in the spec files (grep). | FIXED |
+| N7 (T4) | M04, M04b, M04c now render the shared "Card payments use 3-D Secure when the issuer asks for it." callout, as the other ten Payment methods screens do. It sits straight after the list (like every other screen), so the "/" line follows it; the critique suggested "after the '/' line", but there the callout text would show in the 20 px gap between the two M04 specimens (the M04b artifact again). | FIXED |
+| N8 | Spec §3.2: "its left edge is 6 px inside the panel's right edge, kit `scroll_thumb`". Measured M04b/M04c: panel right 719, thumb 713 to 717 (4 x 206.9). The README M04b-02 row in the round-2 ledger says "1 px from the right edge" (inner border edge); this is the kit wording now. | FIXED |
+| N9 | "Needs owner" item 2 (phase-02 "Delete to Trash") deleted; items 1 and 3 of that list were settled too (S1 confirmation, T2) and are deleted with it. | FIXED |
+
+Follow-on values the N1 change forced (all derived, listed so nothing is a surprise): row 1 of the table is 20 px taller (37 to 57), so M06 row handle top 79 to 99, add-row "+" 173 to 193 (M06 and M06b), column handle (Fee column right edge 241 - 8 - 24) left 279 to 209 with its menu; M11b and M11c show the page scrolled by 20 px (`main.col` top 80 to 60) so the last checklist item keeps its 15 px gap above the bottom chip (it would overlap the chip by 5 px otherwise); M06 cut column is Notes (89 of 320 px visible) instead of Limit (109 of 150). Table width 922, content width 954, thumb 499 and the M06b offset 264 are the same as before (5 x 120 + 320 = 920 = 160+150+130+140+150+190).
+
+### Before and after (Playwright, 1440 x 900, 1x, real fonts; before = `a3fb8041` copies, after = this tree)
+
+| ID | Measurement | Before | After |
+|---|---|---|---|
+| N1 | M06b Notes cell (row 1) scrollWidth / clientWidth | 243 / 190 (ellipsis: "3-D Secure when the i...") | 320 / 320, wraps to 2 lines |
+| N1 | Cells with `text-overflow: ellipsis` / overflowing cells, every `td` and `th` on all screens | 264 / 11 (one per table screen, 11 screens) | 0 / 0 (288 cells, 12 screens) |
+| N1 | Column widths (6 columns) | 160 / 150 / 130 / 140 / 150 / 190 | 120 / 120 / 120 / 120 / 120 / 320 (natural widest + 24 + 1: 113.5 / 115.6 / 88.0 / 114.9 / 81.0 / 461.7, clamped) |
+| N1 | M06 row 1 (y, height) / table width | 241, 37 / 922 | 241, 57 / 922 |
+| N2 | `.menu.scr` per capture, M04b / M04c | 2 / (no M04c) | 1 / 1 |
+| N2 | Page text visible in the 20 px gap between menus (x 719 to 739) | table text "Set", "2 c", "2 d", "5 c" | no gap: one menu per capture |
+| N3 | Spec §5 wording | "count of the rows listed under the file" (head clause 4, parenthesis 6) | "number of frames the grid lists for that file", not page rows |
+| N4 | Thumb: spec formula / mockup | 690 x 688 / 954 = 497.6 / 499 | 690 x 690 / 954 = 499.06 / 499 |
+| N5 | M05 "Turn into" font-size / line-height / weight, box | 14px / 24px / 600, 92.1 x 32 | 14px / 20px / 600, 92.1 x 32 |
+| N6 | `Badge/StatusCount` occurrences in the two spec files | 1 | 0 |
+| N7 | `.callout.note` in M04 / M04b / M04c | 0 / 0 / (no M04c) | 1 / 1 / 1 |
+| N8 | Slash-menu thumb, panel right minus thumb left (M04b, M04c) | 6 (spec said "6 px from the right edge") | 6 (spec says "left edge 6 px inside the panel's right edge") |
+
+### No ellipsis anywhere (acceptance 2)
+
+`cells.cjs`, every `td` and `th` on every `m*.html`: `scrollWidth <= clientWidth && scrollHeight <= clientHeight`, `getComputedStyle().textOverflow !== 'ellipsis'`. Result: `{"htmlFiles":23,"screensWithTables":12,"cells":288,"ellipsisStyled":0,"overflowing":[]}`. Run against the before copies: 264 cells ellipsis-styled, 11 overflowing (`3-D Secure when the issuer ask` 243 > 190 on each of the 11 table screens).
+
+### Geometry unchanged (acceptance 5)
+
+`geom.cjs` over all `m02` to `m13b`, after: rail `[0, 48]`, tree `[48, 240]`, column `[399, 690]`, contents `[1137, 192]` on the 19 screens that have all four (M03 to M11c, M12, M13b, plus the new M04c); M02 has no contents, M13 has no column. Identical to before, apart from M04c being new.
+
+### Captures and index (acceptance 3, 6)
+
+24 PNGs regenerated from the worktree with headless Chrome (`--headless=new --hide-scrollbars --window-size=1440,900`; `m09-full.png` 1440 x 2630; `index.png` from `index.html#m07`); `sips`: 1440 x 900 for 23 PNGs, 1440 x 2630 for `m09-full`. Changed PNGs: M03, M04, M04b, M04c (new), M06, M06b, M10, M10b, M10c, M11, M11b, M11c, index. M05's PNG is byte-identical (N5 changes no pixel). Each changed screen was opened at 2x (`deviceScaleFactor` 2) and inspected.
+
+Index (`index-test.cjs`, Playwright, 0 page errors): 23 list entries; the list has M04, M04b, M04c, M06, M06b; `#m04b` then Next goes to `#m04c` (m04c-slash-menu-scrolled-to-end.html); ArrowRight from `#m04c` goes to `#m05`; ArrowLeft twice returns to `#m04b`; deep link `#m04c` loads the right file; Prev from `#m04c` goes to `#m04b`; the round-3 checks (`#m06` / `#m06b` / `#m09full`) still pass.
+
+### Gates (acceptance 7), 24 files, before = `a3fb8041` copies, after = this tree
+
+- `ui gate`: exit 1 on all 24 (before: 23 of 23). Errors only `low-contrast` for `#737373` (settled), 42 on the 22 old mockups before and after; M04c adds the same 2. Finding classes per file: no class added or removed. Counts that moved: `off-system-token` +1 on every shell file (the new `var(--lh-sm)` reference of N5, same class; 552 to 553, M05 and M11 553 to 554), M04b `container-nesting-depth` 34 to 17 (one menu instead of two). M04c has the same classes as M04b. Before runs were done from a copy inside the repo tree so the project design system applies (a copy outside the repo shows no `off-system-token` or `token-coverage`).
+- `slop-detect`: 213 findings (before 207), same four classes (`cramped-padding` 183, `clipped-overflow-container` 22, `overused-font` 7, `gray-on-color` 1); the +6 are the new M04c (4 + 3) minus one in M04b. No new class.
+- axe: 18 of 24 exit 0, 6 exit 1 with the single `color-contrast` of `TEXT_PLACEHOLDER` (index, M01, M01b, M05, M07, M08). Same six as before; M04c exits 0.
+- `ui gate` appended to `design/memory.events.*`; both files were restored with `git checkout`.
+- Colour literals in `shell.css`, `index.html`, `m*.html`: 0. Shadows in `shell.css`: 0.
+
+### NOT verified in round 4
+
+Motion, drag-ghost offset, screen-reader names, egui text metrics (wrap points in the Notes cell depend on Inter metrics; a different engine may break the line one word earlier or later), kit horizontal-scrollbar thumb formula (no kit source for the table scrollbar; N4 compares spec against mockup only). Responsive captures skipped by owner default.
+
 
 ## Round 3 fixes (critique r2, 1 HIGH + 11 MED + 14 LOW, rulings S1 to S4)
 
@@ -51,7 +116,7 @@ Source: [critique-261102-project-docs-mockups-r2.md](../../reports/critique-2611
 | M11-1 | `.agent-tag { font-size: var(--fs-xs); line-height: var(--lh-xs) }` (l.282), height stays `BADGE_MD` 24. Spec 2 section 9 already said 12/18. | FIXED |
 | M10-1 | `.banner > .ico { display:grid; place-items:center; height:20px; align-self:center }` (l.274); wrapper `<span class="ico">` in M10 and M10c. | FIXED |
 | G3 | M04, M04b, M10, M10b, M10c: appended the shared "Fees and limits" table and "Before release" checklist (byte-identical block to M11b). M04 and M04b captions moved onto the empty `/` line so they do not land on page text. | FIXED |
-| M04b-1 | Ruling S1: `.menu.scr` 360 to 344, `.mclip` 344 to 328 (l.455-456); thumb 227.6 to 206.9 (328 squared / 520); scrolled-to-end offset -176 to -192, thumb top 123.4 to 128.1. Spec 2 section 3.2 carries the number. See "Needs owner" 1. | RULED (S1) |
+| M04b-1 | Ruling S1: `.menu.scr` 360 to 344, `.mclip` 344 to 328 (l.455-456); thumb 227.6 to 206.9 (328 squared / 520); scrolled-to-end offset -176 to -192, thumb top 123.4 to 128.1. Spec 2 section 3.2 carries the number. The 344 reading was confirmed in the ruling S1 confirmation. | RULED (S1) |
 | M06-1 | M06: `hov` removed from Row handle, Add row (and Add column); only the open Column handle keeps its `on` look. | FIXED |
 | M06-2 | Ruling S4: table frame (1 px border, radius 12) is now `.tbl` itself and scrolls with its cells inside `.tbl-scroll` (l.201-204); width 960 to 922; columns 160/150/130/140/150/190 so Limit is cut mid-column (109 of 150 visible) instead of 11 px; thumb 496 to 499 (l.212). Add-column + lives in `.tbl-end` after the last column (out of view at scroll start). New screen M06b shows the scrolled-to-end state with the + 8 px right of the last column. Spec 2 section 4 rewritten. | RULED (S4) |
 | M09-1 | M09 and M09 full: "Order confirmed . Checkout-web" (Frame not found) to "Promo banner . Checkout-web"; "Cart . Checkout-mobile" (File not found) to "Cart . Checkout-tablet". Neither name exists in the sample world. | FIXED |
@@ -72,7 +137,7 @@ Source: [critique-261102-project-docs-mockups-r2.md](../../reports/critique-2611
 | L13 (G5) | `.r.foc` outline-offset 2 to -2 (l.92) = band drawn inside the row; M13 "Processing" row carries `foc`. | FIXED |
 | L14 (M07-1) | `.pk-foot .dd { height: var(--control-xs) }` (l.325): footer dropdown 36 to 32, same row as the 32 segmented control. | FIXED |
 
-BLOCKED: none. Needs owner: see below.
+BLOCKED: none. Needs owner: none (the three open items were settled; see round 4).
 
 **ID proof** (`id-proof.py` reads the ID column of critique r2 and of the ledger above; red probe = same script on a copy with one ledger row deleted):
 
@@ -145,12 +210,6 @@ Index (`index-test.cjs`, Playwright, 0 page errors): list has 22 entries incl. "
 - `slop-detect`: 207 findings (before 208 on 22 files), same four classes (`cramped-padding` 180, `clipped-overflow-container` 19, `overused-font` 7, `gray-on-color` 1), no new class.
 - axe: 17 of 23 files exit 0; 6 exit 1 with the single settled `color-contrast` of `TEXT_PLACEHOLDER` (`.ph` on M05, M07, M08; `.hs-search > span` on M01, M01b; the index iframe). Same six as before; no new rule.
 - Running `ui gate` appended to `design/memory.events.*`; both files were restored with `git checkout`.
-
-### Needs owner
-
-1. **Slash cap value (ruling S1).** Taken literally, "8 + 10.5 x 32 + 8" is 352, but the first entry in the list is the 24 px "Basic" label, so 352 would show Code at 24 of 32 px (75 %). 344 counts the label as the first of the 10.5 entries and shows exactly half of the eleventh entry (Code), which is what the ruling says it wants ("half of row 11 shows"). If 352 was meant, change `.menu.scr` to 352, `.mclip` 336, thumb 336 squared / 520 = 217.1, end offset 184 and the spec number.
-2. **`phase-02-project-tab-tree-and-reader.md`** still says "Delete to Trash" (outside the two spec files and this folder, not edited). Lowercase "trash" per S2.
-3. **Overlays over page text.** M04 and M04b now show the real page under the slash menus; the M04 filtered menu cuts the "Card" row of the table at its bottom edge and a table sliver shows between the two M04b menus. That is true overlay behaviour; say so if you want a quieter backdrop.
 
 ### NOT verified in round 3
 

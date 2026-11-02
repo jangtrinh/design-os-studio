@@ -19,3 +19,9 @@ Every other HIGH/MED/LOW finding is accepted as the critique states. Sample data
 
 ## S1 confirmation (after round 3)
 The cap is 344: the 24 px "Basic" section label counts as the first entry, so half of the eleventh entry shows under the cap, which is what S1 asks for. The literal "8 + 10.5 × 32 + 8 = 352" ignored the label and is not used.
+
+## Round 3 rulings (after `critique-261102-project-docs-mockups-r3.md`)
+- **T1 — Table column width (N1).** Never ellipsis in a cell; hiding cell text hides data. Column width = widest cell content + 12 px insets each side, clamped to 120–320. Text that is still longer wraps inside the cell and the row grows. Tables wider than the column scroll horizontally (S4). Spec §4 states it; M06b's Notes cell wraps.
+- **T2 — Two-menu capture (N2).** Split like M06/M06b: M04b = unfiltered menu at the top of its list, new M04c = the same menu scrolled to the end. One menu per capture, no composite.
+- **T3 — Picker pill wording (N3).** "The number of frames listed for that file: all frames in Pin mode, unpinned frames in Suggest mode. Not the number of page rows." Replaces S3's wording; the meaning is unchanged.
+- **T4 — LOWs N4–N9 accepted.** Scrollbar thumb formula in the spec matches the mockup (thumb = track × viewport ÷ content). Slash-menu thumb inset is the kit's 2 px (`menu.rs`). "Turn into" line height matches the spec 14/20. Spec part 1 drops the old `Badge/StatusCount` name. M04/M04b/M04c show the callout block like every other "Payment methods" screen. README "Needs owner" drops the settled items.

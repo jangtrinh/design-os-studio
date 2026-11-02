@@ -195,15 +195,15 @@ svg.mm text.l { fill: var(--text-tertiary); }
 .kpi .l { color: var(--text-tertiary); }
 .kpi .s { color: var(--text-tertiary); }
 
-/* tables */
+/* tables: column = widest cell text + 12 + 12 insets (+ the 1 px divider), clamped 120 to 320; longer text wraps and the row grows (ruling T1); no ellipsis */
 .tbl-wrap { margin-top: 16px; position: relative; }
 .h2 + .tbl-wrap { margin-top: 0; }
 .tbl-scroll { width: 690px; display: flex; align-items: flex-start; overflow: hidden; }
 /* add-column + belongs to the last column: 8 px right of it, 24 wide, centred on the 36 px header row (1 border + 6) */
 .tbl-end { flex: none; width: 32px; padding: 7px 0 0 8px; }
 .tbl { flex: none; border-collapse: separate; border-spacing: 0; width: 922px; table-layout: fixed; border: 1px solid var(--border); border-radius: var(--radius-xl); overflow: hidden; }
-.tbl th, .tbl td { padding: 8px 12px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.tbl th { font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--w-strong); color: var(--text-secondary); background: var(--bg-secondary); height: 36px; }
+.tbl th, .tbl td { padding: 8px 12px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
+.tbl th { vertical-align: middle; font-size: var(--fs-xs); line-height: var(--lh-xs); font-weight: var(--w-strong); color: var(--text-secondary); background: var(--bg-secondary); height: 36px; }
 .tbl td { font-size: var(--fs-sm); line-height: var(--lh-sm); font-weight: var(--w-regular); color: var(--text-secondary); height: 36px; }
 .tbl tr > :last-child { border-right: 0; }
 .tbl tr:last-child td { border-bottom: 0; }
@@ -234,7 +234,7 @@ svg.mm text.l { fill: var(--text-tertiary); }
 .ftb { position: absolute; z-index: 20; display: flex; align-items: center; gap: 4px; padding: 3px; border: 1px solid var(--border-menu); border-radius: var(--radius-xl); background: var(--bg); }
 .ftb .fb { width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--radius-control); color: var(--icon-quaternary-hover); }
 .ftb .fb.on { background: var(--bg-selected); color: var(--icon); }
-.ftb .fb.txt { width: auto; padding: 0 8px; gap: 4px; display: flex; align-items: center; color: var(--text-secondary); font-weight: var(--w-strong); }
+.ftb .fb.txt { width: auto; padding: 0 8px; gap: 4px; display: flex; align-items: center; color: var(--text-secondary); font-weight: var(--w-strong); line-height: var(--lh-sm); }
 .ftb .fb.txt .i { width: 12px; height: 12px; color: var(--icon-quaternary); }
 .ftb .vd { width: 1px; height: 16px; background: var(--border-menu); margin: 0 4px; }
 /* kit field_look: BG, 1 px BORDER_STRONG, placeholder TEXT_PLACEHOLDER, icon ICON_QUATERNARY; focused 2 px BORDER_SELECTED */
