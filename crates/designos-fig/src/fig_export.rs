@@ -1685,6 +1685,36 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                     n.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &n.variables.bindings)).collect();
                 ov.push(("strokePaints", V::Array(sps)));
                 ov.push(("strokeWeight", fl(n.stroke.weight)));
+                ov.push((
+                    "strokeAlign",
+                    en(match n.stroke.align {
+                        StrokeAlign::Inside => "INSIDE",
+                        StrokeAlign::Center => "CENTER",
+                        StrokeAlign::Outside => "OUTSIDE",
+                    }),
+                ));
+                ov.push((
+                    "strokeJoin",
+                    en(match n.stroke.join {
+                        StrokeJoin::Miter => "MITER",
+                        StrokeJoin::Bevel => "BEVEL",
+                        StrokeJoin::Round => "ROUND",
+                    }),
+                ));
+                ov.push((
+                    "strokeCap",
+                    en(match n.stroke.cap {
+                        StrokeCap::None => "NONE",
+                        StrokeCap::Round => "ROUND",
+                        StrokeCap::Square => "SQUARE",
+                    }),
+                ));
+                if !n.stroke.dashes.is_empty() {
+                    ov.push(("dashPattern", V::Array(n.stroke.dashes.iter().map(|&d| fl(d)).collect())));
+                }
+                if n.stroke.miter_limit >= 1.0 {
+                    ov.push(("miterLimit", fl(n.stroke.miter_limit)));
+                }
                 if let Some([top, right, bottom, left]) = n.stroke.side_weights {
                     ov.push(("borderStrokeWeightsIndependent", V::Bool(true)));
                     ov.push(("borderTopWeight", fl(top)));

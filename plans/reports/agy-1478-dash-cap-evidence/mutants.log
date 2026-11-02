@@ -1,0 +1,181 @@
+=== NULL CONTROL (No Mutants) ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 3 tests
+test dashed_line_and_caps ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 2 tests
+test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.14s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.81s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4195 filtered out; finished in 0.02s
+
+
+=== MUTANT 1: Renderer ignores the dash cap (crates/designos-render/src/outline.rs) ===
+             v.extend_from_within(..);
+         }
+         st.dash = sk::StrokeDash::new(v, 0.0);
++        st.line_cap = sk::LineCap::Butt; // MUTANT 1: renderer ignores dash cap
+     }
+     st
+ }
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.62s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 3 tests
+test dashed_line_and_caps ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash ... FAILED
+test dashed_rect_round_dash_cap_renders_round_dash_ends ... FAILED
+
+failures:
+
+---- dashed_open_line_uses_stroke_cap_on_every_dash stdout ----
+
+thread 'dashed_open_line_uses_stroke_cap_on_every_dash' (74020250) panicked at crates/designos-render/tests/render.rs:751:5:
+assertion `left == right` failed: first dash start cap is round at midline (18, 20)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- dashed_rect_round_dash_cap_renders_round_dash_ends stdout ----
+
+thread 'dashed_rect_round_dash_cap_renders_round_dash_ends' (74020251) panicked at crates/designos-render/tests/render.rs:701:5:
+assertion `left == right` failed: round dash cap extends +2px along midline y=24
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+
+
+failures:
+    dashed_open_line_uses_stroke_cap_on_every_dash
+    dashed_rect_round_dash_cap_renders_round_dash_ends
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test render`
+MUTANT 1 KILLED BY designos-render
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.75s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 2 tests
+test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... FAILED
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... FAILED
+
+failures:
+
+---- dashed_open_line_uses_stroke_cap_on_every_dash_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+dashed_open_line_round_cap: mismatch 0.0000% (0 px of 4800) at tolerance 8, ssim 1.0000
+dashed_open_line_round_cap: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'dashed_open_line_uses_stroke_cap_on_every_dash_gpu' (74021540) panicked at crates/designos-gpu/tests/fidelity.rs:599:5:
+assertion `left == right` failed
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- dashed_rect_round_dash_cap_renders_round_dash_ends_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+dashed_rect_round_cap: mismatch 0.0000% (0 px of 8000) at tolerance 8, ssim 1.0000
+dashed_rect_round_cap: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'dashed_rect_round_dash_cap_renders_round_dash_ends_gpu' (74021541) panicked at crates/designos-gpu/tests/fidelity.rs:545:5:
+assertion `left == right` failed: GPU round dash cap painted on midline (46, 24)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+
+
+failures:
+    dashed_open_line_uses_stroke_cap_on_every_dash_gpu
+    dashed_rect_round_dash_cap_renders_round_dash_ends_gpu
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.18s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+MUTANT 1 KILLED BY designos-gpu
+
+=== MUTANT 2: Panel writes only the first selected layer (crates/designos-app/src/panels/stroke.rs) ===
++        if show_dash_cap {
++            popover::row(ui, body, 5, "Dash cap", |ui, r| {
++                if let Some(i) = dropdown(ui, r, "strokep-dash-cap", cap_lbl, &caps) {
++                    app.edit_nodes(&ids[..1], |n| { // MUTANT 2: panel writes only first selected layer
++                        n.stroke.cap = CAPS[i].1;
++                        n.stroke_geometry = None;
++                    });
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-mcp)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-export)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+   Compiling designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-library)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.07s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo ... FAILED
+
+failures:
+
+---- panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo stdout ----
+
+thread 'panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo' (74024226) panicked at crates/designos-app/src/panels/stroke.rs:339:9:
+assertion `left == right` failed: r2 updated to Round
+  left: Square
+ right: Round
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4195 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+MUTANT 2 KILLED BY designos-app

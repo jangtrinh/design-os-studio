@@ -675,3 +675,79 @@ fn auto_layout_reverse_z_paints_first_child_on_top() {
     let pm_normal = t.render(40, 20);
     assert_eq!(px(&pm_normal, 14, 10), [0, 0, 255, 255], "overlap without reverse_z paints child 1 (blue) on top");
 }
+
+#[test]
+fn dashed_rect_round_dash_cap_renders_round_dash_ends() {
+    let mut t = T::new();
+    // 1. Rectangle with default StrokeAlign::Inside, weight 8, dashes [20, 20].
+    // The 8px inside stroke band along the top edge occupies y = 20..28 (centerline y = 24, radius 4).
+    // Inset centerline runs x = 24..76, so the first 20px dash runs x = 24..44.
+    let r = t.add(None, |id| {
+        let mut n = Node::rectangle(id, Rect::new(20.0, 20.0, 60.0, 40.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(RED)];
+        n.stroke.weight = 8.0;
+        n.stroke.align = StrokeAlign::Inside;
+        n.stroke.dashes = vec![20.0, 20.0];
+        n.stroke.cap = StrokeCap::None;
+        n
+    });
+    let pm_none = t.render(100, 80);
+    assert_eq!(px(&pm_none, 34, 24), [255, 0, 0, 255], "dash body painted on midline");
+    assert_eq!(px(&pm_none, 46, 24), WHITE, "butt dash cap stops at x=44");
+
+    t.node(r).stroke.cap = StrokeCap::Round;
+    let pm_round = t.render(100, 80);
+    assert_eq!(px(&pm_round, 46, 24), [255, 0, 0, 255], "round dash cap extends +2px along midline y=24");
+    assert_eq!(px(&pm_round, 47, 20), WHITE, "round dash cap curves away from outer corner (47, 20) instead of painting a square or 2x-radius shelf");
+
+    t.node(r).stroke.cap = StrokeCap::Square;
+    let pm_square = t.render(100, 80);
+    assert_eq!(px(&pm_square, 46, 24), [255, 0, 0, 255], "square dash cap extends along midline");
+    assert_eq!(px(&pm_square, 47, 20), [255, 0, 0, 255], "square dash cap fills outer corner (47, 20)");
+}
+
+#[test]
+fn dashed_open_line_uses_stroke_cap_on_every_dash() {
+    let mut t = T::new();
+    // Open vector line from (20, 20) to (100, 20) with VectorNetwork vertices carrying cap = Some(StrokeCap::None),
+    // while Stroke::cap is Round and dashes = [20, 20]. Under Branch B, every dash uses Stroke::cap (Round).
+    let line = t.add(None, |id| {
+        let p = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(80.0, 0.0))], fill_rule: FillRule::NonZero };
+        let mut v0 = vector::Vertex::new(Vec2::new(0.0, 0.0));
+        v0.cap = Some(StrokeCap::None);
+        let mut v1 = vector::Vertex::new(Vec2::new(80.0, 0.0));
+        v1.cap = Some(StrokeCap::None);
+        let mut n = Node::new(
+            id,
+            NodeKind::Vector {
+                paths: vec![p],
+                network: Some(VectorNetwork {
+                    vertices: vec![v0, v1],
+                    segments: vec![vector::Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
+                    regions: Vec::new(),
+                }),
+            },
+        );
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(80.0, 0.0);
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(RED)];
+        n.stroke.weight = 8.0;
+        n.stroke.align = StrokeAlign::Center;
+        n.stroke.dashes = vec![20.0, 20.0];
+        n.stroke.cap = StrokeCap::Round;
+        n
+    });
+    let pm = t.render(120, 40);
+    // Start of first dash at x=20 and end of first dash at x=40 both get round caps of radius 4:
+    assert_eq!(px(&pm, 18, 20), [255, 0, 0, 255], "first dash start cap is round at midline (18, 20)");
+    assert_eq!(px(&pm, 16, 16), WHITE, "first dash start cap corner (16, 16) is unpainted");
+    assert_eq!(px(&pm, 42, 20), [255, 0, 0, 255], "inner dash end cap is round at midline (42, 20)");
+    assert_eq!(px(&pm, 43, 16), WHITE, "inner dash end cap corner (43, 16) is unpainted");
+
+    t.node(line).stroke.cap = StrokeCap::None;
+    let pm_butt = t.render(120, 40);
+    assert_eq!(px(&pm_butt, 18, 20), WHITE, "butt cap leaves x < 20 unpainted");
+    assert_eq!(px(&pm_butt, 42, 20), WHITE, "butt cap leaves x > 40 unpainted on first dash");
+}

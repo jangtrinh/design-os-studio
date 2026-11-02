@@ -325,10 +325,11 @@ fn cap_polygons(sub: &d::Path, w: f32, start_cap: d::StrokeCap, end_cap: d::Stro
 }
 
 /// Cap shapes to draw over a butt-capped stroke of a vector whose vertices
-/// carry their own stroke caps; `None` when no vertex overrides the cap.
+/// carry their own stroke caps; `None` when no vertex overrides the cap or when
+/// the stroke is dashed (dashed strokes cap every dash with `Stroke::cap`).
 pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
     let NodeKind::Vector { network: Some(net), .. } = &n.kind else { return None };
-    if !net.is_valid() || !net.vertices.iter().any(|v| v.cap.is_some()) || n.stroke.weight <= 0.0 {
+    if crate::outline::has_dashes(&n.stroke) || !net.is_valid() || !net.vertices.iter().any(|v| v.cap.is_some()) || n.stroke.weight <= 0.0 {
         return None;
     }
     let ends = net.open_chain_ends();
@@ -352,7 +353,7 @@ pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
             idx += 1;
         }
     }
-    Some(out)
+    (!out.is_empty()).then_some(out)
 }
 
 /// Converts the stroke of `paths` into filled geometry: weight, alignment,
@@ -368,7 +369,7 @@ pub fn outline_stroke(paths: &[d::Path], stroke: &d::Stroke, network: Option<&Ve
     if w <= 0.0 || paths.is_empty() {
         return vec![];
     }
-    let per_vertex_caps = network.is_some_and(|n| n.vertices.iter().any(|v| v.cap.is_some()));
+    let per_vertex_caps = !crate::outline::has_dashes(stroke) && network.is_some_and(|n| n.vertices.iter().any(|v| v.cap.is_some()));
     let chain_caps: Vec<(d::StrokeCap, d::StrokeCap)> = match network {
         Some(n) if per_vertex_caps => {
             n.open_chain_ends().iter().map(|(a, b)| (n.vertices[*a].cap.unwrap_or(stroke.cap), n.vertices[*b].cap.unwrap_or(stroke.cap))).collect()

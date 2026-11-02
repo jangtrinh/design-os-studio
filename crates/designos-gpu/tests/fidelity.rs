@@ -522,3 +522,76 @@ fn auto_layout_reverse_z_matches_cpu() {
     let p_swatch = c.gpu.pixel(20, 40).unwrap();
     assert_eq!([p_swatch.red(), p_swatch.green(), p_swatch.blue(), p_swatch.alpha()], [255, 0, 0, 255]);
 }
+
+#[test]
+fn dashed_rect_round_dash_cap_renders_round_dash_ends_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+    let r = t.add(None, |id| {
+        let mut n = Node::rectangle(id, Rect::new(20.0, 20.0, 60.0, 40.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(red)];
+        n.stroke.weight = 8.0;
+        n.stroke.align = StrokeAlign::Inside;
+        n.stroke.dashes = vec![20.0, 20.0];
+        n.stroke.cap = StrokeCap::Round;
+        n
+    });
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "dashed_rect_round_cap", &t.doc, t.page, vp, (100, 80), 8);
+    assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
+    let mid = c.gpu.pixel(46, 24).unwrap();
+    assert_eq!([mid.red(), mid.green(), mid.blue(), mid.alpha()], [255, 0, 0, 255], "GPU round dash cap painted on midline (46, 24)");
+    let corner = c.gpu.pixel(47, 20).unwrap();
+    assert_eq!([corner.red(), corner.green(), corner.blue(), corner.alpha()], [255, 255, 255, 255], "GPU round dash cap leaves outer corner (47, 20) white");
+
+    t.node(r).stroke.cap = StrokeCap::None;
+    g.compiler.geom.clear();
+    let c_none = compare(&mut g, "dashed_rect_butt_cap", &t.doc, t.page, vp, (100, 80), 8);
+    let mid_none = c_none.gpu.pixel(46, 24).unwrap();
+    assert_eq!([mid_none.red(), mid_none.green(), mid_none.blue(), mid_none.alpha()], [255, 255, 255, 255]);
+}
+
+#[test]
+fn dashed_open_line_uses_stroke_cap_on_every_dash_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+    t.add(None, |id| {
+        let p = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(80.0, 0.0))], fill_rule: FillRule::NonZero };
+        let mut v0 = vector::Vertex::new(Vec2::new(0.0, 0.0));
+        v0.cap = Some(StrokeCap::None);
+        let mut v1 = vector::Vertex::new(Vec2::new(80.0, 0.0));
+        v1.cap = Some(StrokeCap::None);
+        let mut n = Node::new(
+            id,
+            NodeKind::Vector {
+                paths: vec![p],
+                network: Some(VectorNetwork {
+                    vertices: vec![v0, v1],
+                    segments: vec![vector::Segment { a: 0, b: 1, ta: Vec2::ZERO, tb: Vec2::ZERO }],
+                    regions: Vec::new(),
+                }),
+            },
+        );
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(80.0, 0.0);
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(red)];
+        n.stroke.weight = 8.0;
+        n.stroke.align = StrokeAlign::Center;
+        n.stroke.dashes = vec![20.0, 20.0];
+        n.stroke.cap = StrokeCap::Round;
+        n
+    });
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "dashed_open_line_round_cap", &t.doc, t.page, vp, (120, 40), 8);
+    assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
+    let start_mid = c.gpu.pixel(18, 20).unwrap();
+    assert_eq!([start_mid.red(), start_mid.green(), start_mid.blue(), start_mid.alpha()], [255, 0, 0, 255]);
+    let inner_mid = c.gpu.pixel(42, 20).unwrap();
+    assert_eq!([inner_mid.red(), inner_mid.green(), inner_mid.blue(), inner_mid.alpha()], [255, 0, 0, 255]);
+    let inner_corner = c.gpu.pixel(43, 16).unwrap();
+    assert_eq!([inner_corner.red(), inner_corner.green(), inner_corner.blue(), inner_corner.alpha()], [255, 255, 255, 255]);
+}

@@ -57,13 +57,20 @@ pub fn decoded_image(doc: &Document, image_ref: &str) -> Option<Rc<sk::Pixmap>> 
     crate::paint::load_image(doc, image_ref, None)
 }
 
+/// True when `s` carries a non-zero dash pattern.
+pub fn has_dashes(s: &d::Stroke) -> bool {
+    !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0
+}
+
 /// The stroke style the renderer uses for `n` at line width `width`.
 pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
     let s = &n.stroke;
+    // per-vertex caps are drawn as decorations over a butt-capped stroke
+    let cap = if crate::vectorops::vertex_caps(n).is_some() { d::StrokeCap::None } else { s.cap };
     let mut st = sk::Stroke {
         width,
         miter_limit: s.miter_limit.max(1.0),
-        line_cap: match s.cap {
+        line_cap: match cap {
             d::StrokeCap::None => sk::LineCap::Butt,
             d::StrokeCap::Round => sk::LineCap::Round,
             d::StrokeCap::Square => sk::LineCap::Square,
@@ -75,7 +82,7 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
         },
         dash: None,
     };
-    if !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0 {
+    if has_dashes(s) {
         let mut v = s.dashes.clone();
         if v.len() % 2 == 1 {
             v.extend_from_within(..);
@@ -210,6 +217,48 @@ pub fn per_side_stroke_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path>
     pb.finish()
 }
 
+/// Inset (`Inside`) or outset (`Outside`) centerline path for a dashed rectangle-like shape,
+/// so each dash is stroked at its true weight `w` and dash caps (`Round`, `Square`) sit centered
+/// in the `w`-wide stroke band rather than being half-clipped `2 * w` caps on the outer boundary.
+pub fn dashed_rect_center_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path> {
+    let (w, h) = (n.size.x, n.size.y);
+    let sw = n.stroke.weight;
+    if w <= 0.0 || h <= 0.0 || sw <= 0.0 {
+        return None;
+    }
+    let half = sw * 0.5;
+    let [rtl, rtr, rbr, rbl] = if matches!(n.kind, d::NodeKind::Section) {
+        [0.0; 4]
+    } else {
+        let lim = w.min(h) / 2.0;
+        n.corner_radii.map(|v| v.max(0.0).min(lim))
+    };
+    let mut pb = sk::PathBuilder::new();
+    match align {
+        d::StrokeAlign::Inside => {
+            let (x0, y0, x1, y1) = (half, half, w - half, h - half);
+            if x1 <= x0 || y1 <= y0 {
+                return None;
+            }
+            let c = |r: f32| {
+                let v = (r - half).max(0.0);
+                (v, v)
+            };
+            push_elliptical_rrect(&mut pb, x0, y0, x1, y1, [c(rtl), c(rtr), c(rbr), c(rbl)], false);
+        }
+        d::StrokeAlign::Outside => {
+            let (x0, y0, x1, y1) = (-half, -half, w + half, h + half);
+            let c = |r: f32| {
+                let v = if r > 0.0 { r + half } else { 0.0 };
+                (v, v)
+            };
+            push_elliptical_rrect(&mut pb, x0, y0, x1, y1, [c(rtl), c(rtr), c(rbr), c(rbl)], false);
+        }
+        d::StrokeAlign::Center => return None,
+    }
+    pb.finish()
+}
+
 /// Stroke geometry of a node with a shape, mirroring the CPU renderer's
 /// handling of precomputed outlines, per-side weights and the three alignments.
 pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
@@ -227,6 +276,13 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
     let w = n.stroke.weight;
     if w <= 0.0 {
         return None;
+    }
+    if sh.is_rect && has_dashes(&n.stroke) && align != d::StrokeAlign::Center {
+        let center_path = dashed_rect_center_path(n, align)?;
+        let st = node_stroke_style(n, w);
+        let outline = stroke_outline(&center_path, &st, res_scale)?;
+        let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
+        return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
     }
     let (width, clip) = match align {
         d::StrokeAlign::Center => (w, StrokeClip::None),

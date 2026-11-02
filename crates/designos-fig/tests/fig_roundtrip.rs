@@ -4271,3 +4271,139 @@ fn legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_v
     let fig_inst_mask = fig_inst.children.iter().filter_map(|id| fig_ov_doc.get(*id)).find(|n| n.name == "FigCompMask").expect("FigCompMask in .fig instance");
     assert_eq!(fig_inst_mask.mask_type, MaskType::Vector, ".fig symbolOverrides with isMaskOutline: true must map to MaskType::Vector");
 }
+
+#[test]
+fn fig_export_import_preserves_dash_cap() {
+    let mut doc = Document::new("FigDashCapRoundtrip");
+    let page = doc.add_page("Page 1");
+
+    // 1. Standalone dashed rectangle with Round dash cap
+    let rect_id = doc.alloc_id();
+    let mut rect = Node::rectangle(rect_id, Rect::new(10.0, 10.0, 80.0, 40.0));
+    rect.name = "DashedRoundRect".into();
+    rect.stroke.paints = vec![Paint::solid(Color::BLACK)];
+    rect.stroke.weight = 3.0;
+    rect.stroke.dashes = vec![8.0, 4.0];
+    rect.stroke.cap = StrokeCap::Round;
+    doc.insert(page, rect).unwrap();
+
+    // 2. Standalone dashed vector with Square dash cap
+    let vec_id = doc.alloc_id();
+    let mut vec_node = Node::new(
+        vec_id,
+        NodeKind::Vector {
+            paths: vec![Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(60.0, 0.0))], fill_rule: FillRule::NonZero }],
+            network: None,
+        },
+    );
+    vec_node.name = "DashedSquareLine".into();
+    vec_node.transform = Affine::translate(10.0, 70.0);
+    vec_node.size = Vec2::new(60.0, 0.0);
+    vec_node.stroke.paints = vec![Paint::solid(Color::BLACK)];
+    vec_node.stroke.weight = 4.0;
+    vec_node.stroke.dashes = vec![10.0, 5.0];
+    vec_node.stroke.cap = StrokeCap::Square;
+    doc.insert(page, vec_node).unwrap();
+
+    // 3. Component instance with overridden dash cap + dashes on child
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "DashedCardComp".into();
+    comp.transform = Affine::translate(120.0, 10.0);
+    comp.size = Vec2::new(80.0, 40.0);
+    doc.insert(page, comp).unwrap();
+
+    let comp_child_id = doc.alloc_id();
+    let mut comp_child = Node::rectangle(comp_child_id, Rect::new(0.0, 0.0, 80.0, 40.0));
+    comp_child.name = "DashedBorder".into();
+    comp_child.stroke.paints = vec![Paint::solid(Color::BLACK)];
+    comp_child.stroke.weight = 2.0;
+    comp_child.stroke.dashes = vec![6.0, 4.0];
+    comp_child.stroke.cap = StrokeCap::None;
+    doc.insert(comp_id, comp_child).unwrap();
+
+    create_instance(&mut doc, comp_id, page, Vec2::new(220.0, 10.0)).apply(&mut doc).unwrap();
+    let inst_id =
+        *doc.get(page).unwrap().children.iter().find(|&&id| matches!(doc.get(id).map(|n| &n.kind), Some(NodeKind::Instance { .. }))).expect("instance created");
+    doc.get_mut(inst_id).unwrap().name = "DashedCardInst".into();
+    let inst_child_id = doc.get(inst_id).unwrap().children[0];
+    {
+        let ch = doc.get_mut(inst_child_id).unwrap();
+        ch.stroke.cap = StrokeCap::Round;
+        ch.stroke.dashes = vec![12.0, 6.0];
+        ch.component.overrides.insert(OverrideField::Stroke);
+    }
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let roundtripped = import_fig(&bytes).expect("import_fig");
+
+    let rt_rect = find(&roundtripped, "DashedRoundRect");
+    assert_eq!(rt_rect.stroke.dashes, vec![8.0, 4.0]);
+    assert_eq!(rt_rect.stroke.cap, StrokeCap::Round, "standalone dashed rect preserves Round dash cap across .fig");
+
+    let rt_line = find(&roundtripped, "DashedSquareLine");
+    assert_eq!(rt_line.stroke.dashes, vec![10.0, 5.0]);
+    assert_eq!(rt_line.stroke.cap, StrokeCap::Square, "standalone dashed vector preserves Square dash cap across .fig");
+
+    let rt_inst = find(&roundtripped, "DashedCardInst");
+    let rt_inst_child = roundtripped.get(rt_inst.children[0]).expect("instance child");
+    assert_eq!(rt_inst_child.stroke.dashes, vec![12.0, 6.0], "instance child preserves overridden dash pattern across .fig");
+    assert_eq!(rt_inst_child.stroke.cap, StrokeCap::Round, "instance child preserves overridden Round dash cap across .fig");
+}
+
+#[test]
+fn rest_export_import_preserves_dash_cap() {
+    let mut doc = Document::new("RestDashCapRoundtrip");
+    let page = doc.add_page("Page 1");
+
+    let rect_id = doc.alloc_id();
+    let mut rect = Node::rectangle(rect_id, Rect::new(10.0, 10.0, 80.0, 40.0));
+    rect.name = "RestDashedRoundRect".into();
+    rect.stroke.paints = vec![Paint::solid(Color::BLACK)];
+    rect.stroke.weight = 3.0;
+    rect.stroke.dashes = vec![10.0, 6.0];
+    rect.stroke.cap = StrokeCap::Round;
+    doc.insert(page, rect).unwrap();
+
+    let comp_id = doc.alloc_id();
+    let mut comp = Node::new(comp_id, NodeKind::Component(FrameProps::default()));
+    comp.name = "RestDashedComp".into();
+    comp.transform = Affine::translate(120.0, 10.0);
+    comp.size = Vec2::new(80.0, 40.0);
+    doc.insert(page, comp).unwrap();
+
+    let comp_child_id = doc.alloc_id();
+    let mut comp_child = Node::rectangle(comp_child_id, Rect::new(0.0, 0.0, 80.0, 40.0));
+    comp_child.name = "RestDashedBorder".into();
+    comp_child.stroke.paints = vec![Paint::solid(Color::BLACK)];
+    comp_child.stroke.weight = 2.0;
+    comp_child.stroke.dashes = vec![6.0, 4.0];
+    comp_child.stroke.cap = StrokeCap::None;
+    doc.insert(comp_id, comp_child).unwrap();
+
+    create_instance(&mut doc, comp_id, page, Vec2::new(220.0, 10.0)).apply(&mut doc).unwrap();
+    let inst_id =
+        *doc.get(page).unwrap().children.iter().find(|&&id| matches!(doc.get(id).map(|n| &n.kind), Some(NodeKind::Instance { .. }))).expect("instance created");
+    doc.get_mut(inst_id).unwrap().name = "RestDashedInst".into();
+    let inst_child_id = doc.get(inst_id).unwrap().children[0];
+    {
+        let ch = doc.get_mut(inst_child_id).unwrap();
+        ch.stroke.cap = StrokeCap::Round;
+        ch.stroke.dashes = vec![12.0, 6.0];
+        ch.component.overrides.insert(OverrideField::Stroke);
+    }
+
+    let json_str = designos_fig::export_rest_json(&doc).to_string();
+    let mut roundtripped = designos_fig::import_rest_json(&json_str).expect("import_rest_json");
+
+    let rt_rect = find(&roundtripped, "RestDashedRoundRect");
+    assert_eq!(rt_rect.stroke.dashes, vec![10.0, 6.0]);
+    assert_eq!(rt_rect.stroke.cap, StrokeCap::Round, "standalone dashed rect preserves Round dash cap across REST");
+
+    // Re-syncing component instances after REST import must keep the instance's overridden dash cap (OverrideField::Stroke).
+    let rt_comp_id = find(&roundtripped, "RestDashedComp").id;
+    sync_instances(&mut roundtripped, rt_comp_id).apply(&mut roundtripped).unwrap();
+    let rt_inst = find(&roundtripped, "RestDashedInst");
+    let rt_inst_child = roundtripped.get(rt_inst.children[0]).expect("instance child after REST import + sync");
+    assert_eq!(rt_inst_child.stroke.cap, StrokeCap::Round, "instance child preserves overridden Round dash cap across REST export + import + sync_instances");
+}
