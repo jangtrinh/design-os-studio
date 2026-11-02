@@ -1,0 +1,22 @@
+M01 matrix fwd l-row g 0.53633255->0.53733255 | KILLED   | 
+M02 matrix inv g-row m 2.6097574->2.6107574 | KILLED   | 
+M03 matrix fwd a-row s 0.4505937->0.4515937 | KILLED   | 
+M04 clamp: linear sRGB clamp removed (NaN->0 kept) | KILLED   | 
+M05 clamp: parse C plain clamp 0.4->0.5 | KILLED   | 
+M06 clamp: sync_ok C clamp 0.4->0.5 | SURVIVED | 
+M07 clamp: parse L clamp removed | KILLED   | 
+M08 %scale: C body x0.004->x0.005 | KILLED   | 
+M09 %scale: a/b body x0.004->x0.005 | KILLED   | 
+M10 %scale: C relative current /0.004->/0.005 | KILLED   | 
+M11 hue memory: sync_ok grey branch removed | KILLED   | 
+M12 hue memory: set_oklab_channel grey branch removed | KILLED   | 
+M13 R6 keep: sync_ok always re-derives OKLCH | KILLED   | 
+M14 decimals: 2 -> 1 decimal | KILLED   | 
+M15 decimals: L shown raw (no x100) | KILLED   | 
+M16 format order: OKLCH/OKLAB swapped in ALL | KILLED   | 
+M17 hue wrap removed in parse | KILLED   | 
+M18 per-frame sync_ok in show() removed | SURVIVED | 
+M19 hue 360 guard removed in oklab_to_oklch | SURVIVED | 
+M20 grey shortcut removed in srgb_to_oklab | KILLED   | 
+
+SUMMARY: 17 killed, 3 survived out of 20

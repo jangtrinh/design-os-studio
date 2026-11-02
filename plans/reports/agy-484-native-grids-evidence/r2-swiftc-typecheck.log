@@ -1,0 +1,44 @@
+== B1 overlap_same_cell (r2_b1_overlap_same_cell_swift.swift) -> exit 0
+== B1 overlap_inside_col_span (r2_b1_overlap_col_span_swift.swift) -> exit 0
+== B3 grid_slot (comp + inst) (r2_b3_grid_slot_swift.swift) -> exit 0
+== Acceptance 1 equal_tracks (acc_1_equal_tracks_swift.swift) -> exit 1
+/Users/jangtrinh/.gemini/antigravity-cli/brain/85b8b2b0-ea23-4467-a740-8efaddd3d101/scratch/rev_dumps/acc_1_equal_tracks_swift.swift:8:49: error: extra argument 'height' in call
+ 6 |         Rectangle()
+ 7 |             .fill(Color(red: 0.208, green: 0.51, blue: 1))
+ 8 |             .frame(maxWidth: .infinity, height: 36)
+   |                                                 `- error: extra argument 'height' in call
+ 9 |             .frame(width: 92, height: 36, alignment: .topLeading)
+10 |         Rectangle()
+== Acceptance 2 unequal_tracks (acc_2_unequal_tracks_swift.swift) -> exit 1
+/Users/jangtrinh/.gemini/antigravity-cli/brain/85b8b2b0-ea23-4467-a740-8efaddd3d101/scratch/rev_dumps/acc_2_unequal_tracks_swift.swift:22:49: error: extra argument 'height' in call
+20 |         Rectangle()
+21 |             .fill(Color(red: 0.208, green: 0.51, blue: 1))
+22 |             .frame(maxWidth: .infinity, height: 30)
+   |                                                 `- error: extra argument 'height' in call
+23 |             .frame(width: 100, height: 30, alignment: .topLeading)
+24 |         Rectangle()
+== Acceptance 3 fixed_first_column (acc_3_fixed_first_column_swift.swift) -> exit 1
+/Users/jangtrinh/.gemini/antigravity-cli/brain/85b8b2b0-ea23-4467-a740-8efaddd3d101/scratch/rev_dumps/acc_3_fixed_first_column_swift.swift:8:49: error: extra argument 'height' in call
+ 6 |         Rectangle()
+ 7 |             .fill(Color(red: 0.208, green: 0.51, blue: 1))
+ 8 |             .frame(maxWidth: .infinity, height: 40)
+   |                                                 `- error: extra argument 'height' in call
+ 9 |             .frame(width: 200, height: 40, alignment: .topLeading)
+10 |         Rectangle()
+== Acceptance 4 hugging_grid (acc_4_hugging_grid_swift.swift) -> exit 1
+/Users/jangtrinh/.gemini/antigravity-cli/brain/85b8b2b0-ea23-4467-a740-8efaddd3d101/scratch/rev_dumps/acc_4_hugging_grid_swift.swift:22:49: error: extra argument 'height' in call
+20 |         Rectangle()
+21 |             .fill(Color(red: 0.208, green: 0.51, blue: 1))
+22 |             .frame(maxWidth: .infinity, height: 20)
+   |                                                 `- error: extra argument 'height' in call
+23 |             .frame(width: 100, height: 20, alignment: .topLeading)
+24 |         Rectangle()
+== Acceptance 5 fixed_height_auto_rows (acc_5_fixed_height_auto_rows_swift.swift) -> exit 1
+/Users/jangtrinh/.gemini/antigravity-cli/brain/85b8b2b0-ea23-4467-a740-8efaddd3d101/scratch/rev_dumps/acc_5_fixed_height_auto_rows_swift.swift:8:49: error: extra argument 'height' in call
+ 6 |         Rectangle()
+ 7 |             .fill(Color(red: 0.208, green: 0.51, blue: 1))
+ 8 |             .frame(maxWidth: .infinity, height: 24)
+   |                                                 `- error: extra argument 'height' in call
+ 9 |             .frame(width: 108, height: 24, alignment: .topLeading)
+10 |         Rectangle()
+== Acceptance 6 row_and_column_spans (acc_6_row_and_column_spans_swift.swift) -> exit 0

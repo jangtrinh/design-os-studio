@@ -1,0 +1,7 @@
+XML_OK plans/reports/agy-484-native-grids-evidence/scene_equal_tracks.xml
+XML_OK plans/reports/agy-484-native-grids-evidence/scene_fixed_first_column.xml
+XML_OK plans/reports/agy-484-native-grids-evidence/scene_fixed_height_auto_rows.xml
+XML_OK plans/reports/agy-484-native-grids-evidence/scene_hugging_grid.xml
+XML_OK plans/reports/agy-484-native-grids-evidence/scene_row_and_column_spans.xml
+XML_OK plans/reports/agy-484-native-grids-evidence/scene_unequal_tracks.xml
+SWIFTC_TYPECHECK_OK exit=0
