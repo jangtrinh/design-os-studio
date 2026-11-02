@@ -39,9 +39,24 @@ fn enter_written_after(st: &mut TerminalState, tab: usize, waits: impl FnOnce(&m
     assert!(matches!(st.send_to_agent("make it blue", None), SendOutcome::Written));
     assert!(st.tabs[tab].composer.pending_enter_deadline.is_some(), "the send left no Enter to write");
     waits(st);
+    flush_enter(st, tab)
+}
+
+/// Flushes the delayed Enter of tab `tab`. True when it reached the tab's terminal.
+fn flush_enter(st: &mut TerminalState, tab: usize) -> bool {
     let mark = st.tabs[tab].written_bytes.len();
     st.flush_pending_enter_now();
     st.tabs[tab].written_bytes[mark..].contains(&b'\r')
+}
+
+/// Appends the record Claude's hook writes for `event` (its payload names the tab's session) to the session's event log, then polls
+/// the bridge once: the path a real turn start or end takes.
+fn claude_record(st: &mut TerminalState, tab: usize, event: &str) {
+    use std::io::Write;
+    let session = st.tabs[tab].session_uuid.clone().expect("a Claude tab has a pre-assigned session id");
+    let mut log = std::fs::OpenOptions::new().create(true).append(true).open(st.prepared_hook_paths().events()).unwrap();
+    writeln!(log, r#"{{"t":10,"e":"{event}","p":{{"session_id":"{session}"}}}}"#).unwrap();
+    let _ = st.poll_live_agent_bridge();
 }
 
 fn set_waiting(st: &mut TerminalState, tab: usize) {
@@ -69,9 +84,30 @@ fn the_delayed_enter_is_not_sent_to_a_claude_tab_that_began_to_wait_after_the_pa
     let claude = add_tab(&dir, &mut st, "claude", STUB_SLEEP, AgentCliPreset::Claude);
     assert!(!enter_written_after(&mut st, claude, |st| set_waiting(st, claude)), "Enter went to a Claude tab that began to wait after the paste");
     assert_eq!(st.tabs[claude].composer.last_outcome, Some(REFUSED));
-    // Control: the same send to the same tab, with nothing waiting, does write its Enter.
+    assert!(st.tabs[claude].composer.flush_paused, "the held Enter left the tab's queue unpaused");
+    // The question is answered and the status reads Idle, but the held line is still pasted, unsubmitted: only a turn-start record
+    // ends the pause, so a send queues behind that line and writes nothing.
     *st.tabs[claude].agent_status.lock().unwrap() = AgentTabStatus::Idle;
-    assert!(enter_written_after(&mut st, claude, |_| {}), "a Claude tab that waits for nothing got no Enter");
+    let mark = st.tabs[claude].written_bytes.len();
+    assert_eq!(st.send_to_agent("make it blue", None), SendOutcome::Queued, "a send reached a tab whose held line was never submitted");
+    assert_eq!(st.tabs[claude].written_bytes.len(), mark, "a send wrote bytes onto the unsubmitted held line");
+    assert_eq!(st.tabs[claude].composer.pending_send.len(), 1);
+    // The user submits the held line: the turn-start record ends the pause, but the queued send waits while that turn works.
+    let _ = st.tabs[claude].try_write_bytes(b"\r");
+    let mark = st.tabs[claude].written_bytes.len();
+    claude_record(&mut st, claude, "UserPromptSubmit");
+    assert!(!st.tabs[claude].composer.flush_paused, "a turn-start record did not end the pause");
+    assert_eq!(st.tabs[claude].composer.pending_send.len(), 1, "the queued send did not wait for the submitted turn to end");
+    assert_eq!(st.tabs[claude].written_bytes.len(), mark, "a send was written while the submitted turn was working");
+    // The turn ends: the bridge poll flushes the queued send, pasted without its Enter, which follows after its delay.
+    claude_record(&mut st, claude, "Stop");
+    let pasted = String::from_utf8_lossy(&st.tabs[claude].written_bytes[mark..]).into_owned();
+    assert!(pasted.contains("make it blue"), "the queued send was not pasted once the held turn ended: {pasted:?}");
+    assert!(!pasted.contains('\r'), "the queued send's Enter was written with the paste, not after its delay: {pasted:?}");
+    assert!(st.tabs[claude].composer.pending_send.is_empty());
+    // Control: that send to the same tab, with nothing waiting, does write its Enter.
+    assert!(st.tabs[claude].composer.pending_enter_deadline.is_some(), "the flushed send left no Enter to write");
+    assert!(flush_enter(&mut st, claude), "a Claude tab that waits for nothing got no Enter");
     finish(dir, st);
 }
 
