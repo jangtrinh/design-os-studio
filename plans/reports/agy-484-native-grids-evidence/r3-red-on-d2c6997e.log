@@ -1,0 +1,431 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-484-native-grids/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.32s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-3f1ac65412ac9dbb)
+
+running 159 tests
+test bounds::tests::child_rotated_30_degrees_contributes_its_bounding_box ... ok
+test bounds::tests::date_picker_fit_328x540_negative_spread ... ok
+test bounds::tests::each_stroke_alignment_adds_0_half_or_full ... ok
+test bounds::tests::clipped_frame_counts_own_shadow_not_children ... ok
+test agent_context::tests::missing_rules_pack_is_stated_not_left_blank ... ok
+test bounds::tests::footer_badge_fit_304x36_additive_stroke_and_shadow ... ok
+test agent_context::tests::empty_variables_and_components_stated_explicitly_and_rules_pack_passes_through_unchanged ... ok
+test bounds::tests::group_with_offset_children_and_own_shadow ... ok
+test android_xml::tests::android_xml_hugging_row_all_fill_children ... ok
+test bounds::tests::negative_spread_larger_than_blur_adds_nothing ... ok
+test agent_context::tests::first_turn_contains_every_section ... ok
+test bounds::tests::group_with_all_hidden_children_has_no_bounds ... ok
+test bounds::tests::opacity_zero_child_skipped_in_bounds ... ok
+test android_xml::tests::android_xml_grid_emits_grid_layout_spans_and_uncovered_spaces ... ok
+test bounds::tests::per_side_stroke_weights_gate_and_outset_agree ... ok
+test bounds::tests::outside_stroke_and_clipping ... ok
+test android_xml::tests::text_is_escaped_for_xml_and_android_resources ... ok
+test android_xml::tests::golden_card ... ok
+test bounds::tests::two_shadows_take_the_union_not_the_sum ... ok
+test bounds::tests::stroke_and_shadow_add_not_max ... ok
+test bounds::tests::shadow_extends_bounds_with_offset ... ok
+test bounds::tests::width_bound_to_variable_resolved_in_bounds ... ok
+test agent_context::tests::selection_never_injected_unless_explicitly_requested ... ok
+test android_xml::tests::android_xml_grid_fill_child_exports_solved_height ... ok
+test codegen::tests::css_fallback_follows_the_node_mode ... ok
+test codegen::tests::grid_stretch_child_solved_sizes ... ok
+test codegen::tests::identifier_helpers ... ok
+test bounds::tests::render_bounds_svg_filter_region_matches_own_overflow ... ok
+test codegen::tests::css_variable_names_follow_figmas_sanitizer ... ok
+test codegen::tests::grid_items_are_sized_as_a_column_by_the_stack_generators_and_along_the_width_by_the_web_ones ... ok
+test codegen::tests::css_uses_variable_references ... ok
+test codegen::tests::css_prints_code_syntax_verbatim_else_name_with_resolved_fallback ... ok
+test android_xml::tests::variables_spacing_and_shared_fixture_render ... ok
+test codegen::tests::variable_names ... ok
+test codegen::tests::solved_grid_matches_solver_accessors_and_place_children ... ok
+test compose::tests::compose_hugging_row_all_fill_children ... ok
+test css::tests::css_hugging_row_all_fill_children_print_the_solved_height ... ok
+test compose::tests::grid_emits_lazy_vertical_grid_tracks_explicit_height_and_holes ... ok
+test compose::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test css::tests::css_grid_imported_fill_plus_stretch ... ok
+test css::tests::absolute_child_and_gradient ... ok
+test css::tests::css_grid_fill_child_exports_solved_height ... ok
+test css::tests::auto_spacing_modes_and_wrap_content_map_to_css ... ok
+test compose::tests::golden_card ... ok
+test agent_context::tests::components_section_reports_omitted_libraries_and_retrim_uses_real_frame_id ... ok
+test css::tests::ellipse_and_radial ... ok
+test css::tests::css_hugging_row_fill_text_children_print_the_solved_height ... ok
+test css::tests::fixed_grid_keeps_fractional_tracks_and_pixel_size ... ok
+test compose::tests::grid_stretch_child_exports_its_solved_size ... ok
+test compose::tests::compose_grid_fill_child_exports_solved_height ... ok
+test css::tests::fixed_parent_stays_fill_only ... ok
+test css::tests::golden_auto_layout_and_children ... ok
+test css::tests::golden_card_css ... ok
+test css::tests::grid_child_horizontal_fill_unchanged ... ok
+test bounds::tests::scales_0_5_and_1_5_on_odd_sizes_keep_ceil ... ok
+test css::tests::flex_child_align_self_exports_css_align_self_for_all_variants ... ok
+test css::tests::grid_item_with_grow_stretches_across_its_cell_and_keeps_its_height ... ok
+test css::tests::grid_item_with_hug_sizing_mode_keeps_its_pixel_size ... ok
+test css::tests::grid_frame_and_children_sizing_in_css_and_codegen ... ok
+test css::tests::grid_stretch_child_exports_its_solved_size ... ok
+test codegen::tests::icons_become_asset_references_in_every_language ... ok
+test css::tests::grid_tracks_placement_and_gaps_css ... ok
+test css::tests::hugging_grid_exports_the_solved_height_with_template_rows ... ok
+test css::tests::hugging_grid_exports_the_solved_width_for_a_small_child ... ok
+test css::tests::hugging_grid_exports_the_solved_width_when_a_child_spans_columns ... ok
+test css::tests::hugging_grid_exports_the_solved_width_when_the_widest_child_fills ... ok
+test css::tests::hugging_grid_exports_the_solved_width_with_a_fixed_track ... ok
+test css::tests::plain_sibling_sets_the_line ... ok
+test css::tests::imported_fill_plus_stretch_same_output ... ok
+test css::tests::stretch_child_leaves_the_cross_size_to_a_fixed_parent ... ok
+test css::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test css::tests::text_block_css ... ok
+test css::tests::text_features_direction_and_paragraph_settings_css ... ok
+test css::tests::text_wrap_maps_to_css ... ok
+test css::tests::vertical_stack_symmetric ... ok
+test design_context::tests::effective_cross_collection_alias_uses_the_inherited_target_mode ... ok
+test design_context::tests::effective_variables_resolve_each_binding_at_its_own_layer ... ok
+test design_context::tests::margins_are_the_gaps_to_neighbouring_siblings ... ok
+test design_context::tests::inspect_output_unchanged ... ok
+test design_context::tests::missing_variable_definitions_remain_visible_and_unresolved ... ok
+test design_context::tests::padding_comes_from_the_layers_own_auto_layout ... ok
+test design_context::tests::missing_collections_broken_aliases_and_cycles_are_unresolved ... ok
+test design_context::tests::pinned_property_values ... ok
+test geo::tests::closed_detection ... ok
+test design_context::tests::subtree_copy_keeps_the_bytes_of_the_images_it_references ... ok
+test design_context::tests::variables_used_lists_every_mode_through_aliases ... ok
+test geo::tests::square_rect_path ... ok
+test design_context::tests::html_of_a_subtree_inlines_the_image_instead_of_the_placeholder ... ok
+test html::tests::card_passes_html_validate ... ignored, needs html-validate (cargo test -p designos-export --lib card_passes_html_validate -- --ignored)
+test html::tests::auto_layout_to_flex ... ok
+test html::tests::escaping ... ok
+test language::tests::language_ids_round_trip_in_dropdown_order ... ok
+test pdf::tests::invalid_selection_and_dimensions_return_errors ... ok
+test html::tests::edge_cases_emoji_runs_rtl_rotation_images_hidden_and_fragment ... ok
+test html::tests::root_fill_layer_emits_solved_size_and_drops_parent_flex_or_grid_placement ... ok
+test html::tests::card_snapshot ... ok
+test html::tests::card_html_structure_is_well_formed ... ok
+test pdf::tests::large_frame_keeps_media_box_aspect_without_raster_image ... ok
+test raster::tests::scale_parse_and_display ... ok
+test pdf::tests::pdf_has_valid_offsets_order_dimensions_and_vector_page_streams ... ok
+test pdf::tests::transparent_slide_is_white_and_single_slide_exports_alone ... ok
+test html::tests::bound_variables_print_code_syntax ... ok
+test svg::tests::frame_clips_children_and_groups_nest ... ok
+test react::tests::golden_react_grid_inline_and_tailwind ... ok
+test svg::tests::golden_independent_radii_become_a_path ... ok
+test react::tests::golden_tailwind_card ... ok
+test svg::tests::golden_ellipse_and_linear_gradient ... ok
+test svg::tests::golden_rect_with_radius_and_opacity ... ok
+test svg::tests::golden_inside_stroke_uses_clip_and_double_width ... ok
+test svg::tests::golden_shadow_filter_and_blur ... ok
+test html::tests::web_code_syntax_prefix_and_shared_bindings_do_not_corrupt_var_references ... ok
+test svg::tests::noise_and_texture_become_filter_primitives_and_glass_is_skipped ... ok
+test react::tests::golden_inline_card ... ok
+test svg::tests::outside_stroke_grows_viewbox_and_masks ... ok
+test svg::tests::star_vector_evenodd_and_image_fill ... ok
+test svg::tests::mask_node_masks_following_siblings ... ok
+test svg::tests::image_fill_is_embedded_as_base64_pattern ... ok
+test svg::tests::union_boolean_joins_operands ... ok
+test swiftui::tests::grid_child_horizontal_fill_unchanged ... ok
+test swiftui::tests::golden_card ... ok
+test swiftui::tests::grid_emits_swiftui_grid_rows_spans_holes_and_abs_child ... ok
+test swiftui::tests::grid_stretch_child_exports_its_solved_size ... ok
+test html::tests::language_listed_once ... ok
+test swiftui::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test tailwind::tests::exact_values_when_off_scale ... ok
+test tailwind::tests::golden_card ... ok
+test swiftui::tests::swiftui_hugging_row_all_fill_children ... ok
+test tailwind::tests::golden_grid_tracks_placement_and_gaps ... ok
+test tailwind::tests::stretch_child_keeps_its_cross_size_when_the_parent_hugs ... ok
+test tailwind::tests::grid_item_with_grow_stretches_across_its_cell_and_keeps_its_height ... ok
+test bounds::tests::rectangle_100x40_with_drop_shadow_export_bounds_and_svg ... ok
+test tailwind::tests::grid_items_keep_their_size_and_only_content_sized_items_align_to_start ... ok
+test tailwind::tests::stretch_child_leaves_the_cross_size_to_a_fixed_parent ... ok
+test tailwind::tests::tailwind_hugging_row_all_fill_children ... ok
+test tailwind::tests::tailwind_grid_fill_child_exports_solved_height ... ok
+test tailwind::tests::hugging_grid_exports_its_solved_pixel_size_with_fractional_tracks ... ok
+test tests::setting_file_names ... ok
+test tests::png_at_2x_has_exact_size_and_pixels ... ok
+test tests::setting_render_uses_constraint ... ok
+test swiftui::tests::swiftui_grid_fill_child_exports_solved_height ... ok
+test uikit::tests::golden_card ... ok
+test uikit::tests::strings_and_font_names_are_escaped_as_swift_literals ... ok
+test uikit::tests::uikit_grid_fill_child_exports_solved_height ... ok
+test uikit::tests::uikit_grid_emits_row_stacks_cell_views_and_holes ... ok
+test tests::jpg_flattens_on_white ... ok
+test util::tests::css_colors_match_figma_style ... ok
+test uikit::tests::uikit_hugging_row_all_fill_children ... ok
+test uikit::tests::bound_variables_and_shared_fixture_render ... ok
+test util::tests::numbers_are_trimmed ... ok
+test tests::png_includes_shadow_overflow ... ok
+test tests::webp_lossless_decoded_output_equals_png_pixels ... ok
+test agent_context::tests::large_fixture_within_budget_with_markers ... ok
+test text::tests::list_markers_and_indent_are_exported ... ok
+test text::tests::lays_out_lines_with_outlines ... ok
+test svg::tests::text_as_text_element_and_as_outlines ... ok
+test pdf::tests::two_frame_pdf_has_selectable_text_and_no_full_page_image ... ok
+test swiftui::tests::slot_component_prop_defaults_and_font_names_escape_swift_literals ... ok
+test swiftui::tests::golden_text_and_prop_string_literals_escape_swift_special_chars ... ok
+test swiftui::tests::text_nodes_with_dollar_braces_and_swift_interpolation_parse_cleanly ... ok
+
+test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+     Running tests/board.rs (out/cargo/debug/deps/board-8752815cd19cbdc3)
+
+running 3 tests
+test svg_of_a_single_sticky_covers_its_shadow ... ok
+test svg_of_a_board_page_has_notes_shapes_connectors_and_text ... ok
+test png_of_board_nodes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/codegen_escapes_variable_code_syntax.rs (out/cargo/debug/deps/codegen_escapes_variable_code_syntax-9673c572b5a4b587)
+
+running 4 tests
+test android_xml_leaves_plain_code_syntax_untouched ... ok
+test android_xml_escapes_code_syntax_inside_attributes ... ok
+test react_escapes_quotes_and_backslashes_in_code_syntax ... ok
+test react_keeps_a_newline_in_code_syntax_inside_its_string_literal ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_chrome_fixtures.rs (out/cargo/debug/deps/grid_chrome_fixtures-68e44f521f53a4ec)
+
+running 27 tests
+test mutation_m13_fixed_width_grid_with_weighted_flex_columns_keeps_fractional_tracks ... ok
+test mutation_r3_flex_zero_auto_tracks_packs_rows_at_top ... ok
+test mutation_m14_flex_unit_tolerance_distinguishes_unequal_and_weighted_equal_columns ... ok
+test mutation_m11_fixed_height_grid_with_flex_auto_rows_omits_align_content_start ... ok
+test mutation_m7_non_fill_child_width_wins_over_stale_wider_fill_child ... ok
+test mutation_m4_hugging_grid_min_w_distributes_extra_across_flex_columns ... ok
+test mutation_r1_stroked_hug_grid_uses_effective_padding_for_column_tracks ... ok
+test n2_hug_equal_flex_two_empty_hug_cols_css_and_tailwind ... ok
+test equal_tracks_css_and_tailwind ... ok
+test c7_single_hug_col_min_w_fill_css_and_tailwind ... ok
+test n2c_hug_equal_flex_fill_only_hug_col_css_and_tailwind ... ok
+test fixed_first_column_css_and_tailwind ... ok
+test n1_explicit_hug_rows_flex_auto_css_and_tailwind ... ok
+test fixed_height_auto_rows_css_and_tailwind ... ok
+test hugging_grid_css_and_tailwind ... ok
+test n2b_hug_equal_flex_one_empty_hug_col_css_and_tailwind ... ok
+test one_column_flex_grid_keeps_minmax_0_1fr ... ok
+test n6_stroke_v0_unpadded_hug_css_and_tailwind ... ok
+test n6c_stroke_v0_unpadded_fixed_css_and_tailwind ... ok
+test row_and_column_spans_css_and_tailwind ... ok
+test s1_stretch_child_hug_css_and_tailwind ... ok
+test s2_empty_hug_column_css_and_tailwind ... ok
+test s3_hug_grid_max_w_css_and_tailwind ... ok
+test s5_hug_height_min_h_css_and_tailwind ... ok
+test s5b_hug_height_min_h_flex_auto_css_and_tailwind ... ok
+test s7_explicit_rows_hug_css_and_tailwind ... ok
+test unequal_tracks_css_and_tailwind ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_codegen_placement_normalisation.rs (out/cargo/debug/deps/grid_codegen_placement_normalisation-c2df63f1240b8b8a)
+
+running 3 tests
+test out_of_range_column_pin_is_dropped_while_keeping_row_pin_and_matching_relayout_cell ... ok
+test span_exceeding_grid_columns_clamps_to_column_count_and_span_clamping_to_one_is_omitted ... ok
+test wide_column_span_pulls_start_column_back_to_match_solver_cell ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_codegen_spacing_bindings.rs (out/cargo/debug/deps/grid_codegen_spacing_bindings-2c22f3444c608765)
+
+running 9 tests
+test css_unbound_gaps_keep_both_pixel_values ... ok
+test css_counter_spacing_binding_only_replaces_the_row_gap ... ok
+test css_item_spacing_binding_only_replaces_the_column_gap ... ok
+test css_both_bindings_replace_both_gaps ... ok
+test css_row_follows_the_item_variable_only_when_it_has_no_spacing_of_its_own ... ok
+test tailwind_splits_the_axes_for_an_equal_row_gap_of_its_own_and_joins_them_for_an_unset_one ... ok
+test react_inline_row_gap_with_the_same_pixels_as_the_column_gap_stays_its_own ... ok
+test tailwind_keeps_one_class_per_axis ... ok
+test react_inline_styles_follow_the_css_gap ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_codegen_tailwind_scale.rs (out/cargo/debug/deps/grid_codegen_tailwind_scale-02bcd175aa187585)
+
+running 5 tests
+test react_with_tailwind_writes_the_same_classes ... ok
+test uniform_columns_use_the_scale_up_to_twelve_and_an_arbitrary_value_past_it ... ok
+test column_and_row_pins_use_the_scale_up_to_thirteen_and_seven ... ok
+test spans_use_the_scale_up_to_twelve_and_six ... ok
+test uniform_rows_use_the_scale_up_to_six_and_an_arbitrary_value_past_it ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grid_codegen_track_counts.rs (out/cargo/debug/deps/grid_codegen_track_counts-e99d8448e156ad49)
+
+running 8 tests
+test an_unset_column_count_is_three_as_in_the_solver ... ok
+test a_default_grid_is_the_same_uniform_template_in_css_react_and_tailwind ... ok
+test runs_of_default_tracks_fold_wherever_they_sit ... ok
+test a_huge_column_count_exports_in_constant_time ... ok
+test a_huge_row_count_exports_in_constant_time ... ok
+test row_tracks_follow_the_same_rules ... ok
+test flex_tracks_in_a_mixed_template_can_shrink_under_their_content ... ok
+test a_column_count_past_the_solver_limit_exports_the_columns_the_solver_lays_out ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/grid_native_fixtures.rs (out/cargo/debug/deps/grid_native_fixtures-1e3dc0963dd7a310)
+
+running 29 tests
+test b2_compose_out_of_flow_children_wrap_grid_in_outer_box ... ok
+test explicit_hole_emits_filler_and_keeps_column_width ... ok
+test d3_explicit_trailing_grid_rows_exported ... ok
+test b1_overlap_same_cell_keeps_all_children_and_solver_offsets ... FAILED
+test m1_compose_grid_component_instance_keeps_frame_height ... ok
+test absolute_child_in_grid_keeps_generator_handling_in_all_four_generators ... ok
+test b3_grid_slot_keeps_slot_parameter ... ok
+test m3_android_out_of_flow_and_variable_hidden_children_wrap_grid_in_frame_layout ... ok
+test b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets ... FAILED
+test m2_android_span_only_column_and_row_emit_space ... ok
+test m4_compose_grid_height_fixed_vs_hug_and_fill ... FAILED
+test bound_item_spacing_prints_token_in_all_four_generators ... ok
+test m5_bound_counter_axis_spacing_and_non_start_cell_alignments ... ok
+test equal_tracks_native_generators ... ok
+test n1_overlap_centered_dot_with_bigger_card_stacked ... FAILED
+test n1_overlap_centered_photo_and_start_chip ... FAILED
+test hugging_grid_native_generators ... ok
+test fixed_height_auto_rows_native_generators ... ok
+test n1_overlap_fill_child_inside_two_col_span ... FAILED
+test n1_overlap_centered_icon_and_top_right_badge ... FAILED
+test item3_android_xml_all_six_scenes ... ok
+test solver_row_heights_match_compute_grid_across_all_six_scenes ... ok
+test fixed_first_column_native_generators ... ok
+test item3_uikit_all_six_scenes ... ok
+test row_and_column_spans_native_generators ... ok
+test syntax_smoke_android_xml_and_swiftui_span_scene ... ok
+test unequal_tracks_native_generators ... ok
+test item3_swiftui_all_six_scenes ... ok
+test item3_compose_all_six_scenes ... ok
+
+failures:
+
+---- b1_overlap_same_cell_keeps_all_children_and_solver_offsets stdout ----
+
+thread 'b1_overlap_same_cell_keeps_all_children_and_solver_offsets' (52655387) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1073:5:
+SwiftUI PrimaryTile cell should frame primary and outer ZStack at 100x60 .topLeading:
+            Rectangle()
+                .fill(Color(red: 0.208, green: 0.51, blue: 1))
+                .frame(width: 100, height: 60)
+        }
+            .frame(width: 100, height: 60, alignment: .topLeading)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets stdout ----
+
+thread 'b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets' (52655386) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1168:5:
+SwiftUI SpanBanner cell:
+            Rectangle()
+                .fill(Color(red: 0.208, green: 0.51, blue: 1))
+                .frame(width: 210, height: 60)
+        }
+            .frame(width: 210, height: 60, alignment: .topLeading)
+            .gridCellColumns(2)
+
+---- m4_compose_grid_height_fixed_vs_hug_and_fill stdout ----
+
+thread 'm4_compose_grid_height_fixed_vs_hug_and_fill' (52655404) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1886:5:
+Fill-height grid in Compose should export the frame's solved height 200.dp, not content height 106.dp:
+LazyVerticalGrid(
+    columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(97.dp, 97.dp).map { it.roundToPx() } },
+    modifier = Modifier
+        .size(width = 220.dp, height = 106.dp)
+        .padding(8.dp),
+    horizontalArrangement = Arrangement.spacedBy(10.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
+    userScrollEnabled = false
+) {
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 90.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 90.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 90.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+    item {
+        Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+            Box(
+                modifier = Modifier
+                    .size(width = 90.dp, height = 40.dp)
+                    .background(Color(0xFF3582FF))
+            )
+        }
+    }
+}
+
+---- n1_overlap_centered_dot_with_bigger_card_stacked stdout ----
+
+thread 'n1_overlap_centered_dot_with_bigger_card_stacked' (52655406) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1444:5:
+SwiftUI Dot must stay centered in its own 100x60 frame even when Card (100x60) is larger:
+            Rectangle()
+                .fill(Color(red: 1, green: 0.188, blue: 0.188))
+                .frame(width: 20, height: 20)
+        }
+            .frame(width: 100, height: 60, alignment: .center)
+
+---- n1_overlap_centered_photo_and_start_chip stdout ----
+
+thread 'n1_overlap_centered_photo_and_start_chip' (52655408) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1360:5:
+SwiftUI Photo cell:
+            Rectangle()
+                .fill(Color(red: 0.208, green: 0.51, blue: 1))
+                .frame(width: 60, height: 30)
+        }
+            .frame(width: 100, height: 60, alignment: .center)
+
+---- n1_overlap_fill_child_inside_two_col_span stdout ----
+
+thread 'n1_overlap_fill_child_inside_two_col_span' (52655409) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1523:5:
+SwiftUI InnerFill should fill its own 40x40 column-1 cell at offset (110, 0), not the 150x40 span:
+            Rectangle()
+                .fill(Color(red: 1, green: 0.188, blue: 0.188))
+                .frame(maxWidth: .infinity, height: 20)
+                .offset(x: 110, y: 0)
+
+---- n1_overlap_centered_icon_and_top_right_badge stdout ----
+
+thread 'n1_overlap_centered_icon_and_top_right_badge' (52655407) panicked at crates/designos-export/tests/grid_native_fixtures.rs:1266:5:
+SwiftUI Icon should be centered in its own 100x60 frame inside a .topLeading ZStack:
+            Rectangle()
+                .fill(Color(red: 0.208, green: 0.51, blue: 1))
+                .frame(width: 20, height: 20)
+        }
+            .frame(width: 100, height: 60, alignment: .center)
+
+
+failures:
+    b1_overlap_inside_col_span_keeps_all_children_and_solver_offsets
+    b1_overlap_same_cell_keeps_all_children_and_solver_offsets
+    m4_compose_grid_height_fixed_vs_hug_and_fill
+    n1_overlap_centered_dot_with_bigger_card_stacked
+    n1_overlap_centered_icon_and_top_right_badge
+    n1_overlap_centered_photo_and_start_chip
+    n1_overlap_fill_child_inside_two_col_span
+
+test result: FAILED. 22 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-export --test grid_native_fixtures`
