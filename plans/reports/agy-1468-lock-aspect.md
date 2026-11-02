@@ -36,7 +36,7 @@
 - **FACT:** `Node::lock_aspect` (`crates/designos-doc/src/node.rs:143`) is already tracked by undo (`crates/designos-app/src/edit.rs:147`), autosave hashing (`crates/designos-app/src/home/session.rs:525`), `.fig` import (`crates/designos-fig/src/fig.rs:1461-1468`), `.fig` export (`crates/designos-fig/src/fig_export.rs:807-809`), and REST JSON import (`crates/designos-fig/src/rest_import.rs:1194`).
 - **FACT:** In the right-hand inspector (`crates/designos-app/src/panels/properties.rs:1099`, `crates/designos-app/src/panels/properties.rs:1259`), trailing `24x24` (`theme::PANEL_ACTION_BUTTON`, `crates/designos-app/src/theme.rs:525`) toggle buttons on two-column field rows sit at `x = theme::SECTION_TRAILING_X` (`209.0`, `crates/designos-app/src/theme.rs:594`) and `dy = theme::SPACE_FACT` (`4.0`, `crates/designos-app/src/theme.rs:447`), leaving an `8.0` px (`theme::SPACE_INLINE`, `crates/designos-app/src/theme.rs:451`) gap after column `1` (`113.0..201.0`, `crates/designos-app/src/theme.rs:596-597`).
 - **FACT:** `apply_resize` (`crates/designos-app/src/ops.rs:32-55`) only mutates horizontal or vertical sizing mode when `w_changed` or `h_changed` exceeds `1e-4`. Keeping the unedited axis equal to `n.size.y` (or `n.size.x`) when `sizing_of_with_parent(n, other_horiz, counter_horiz) != Sizing::Fixed` (`crates/designos-app/src/panels/properties.rs:1382-1394`) leaves `Fill` and `Hug` untouched.
-- **INFERENCE:** Recording the toggle rect via `widgets::record(ui, "lock-aspect", lock_r)` (`crates/designos-app/src/panels/properties.rs:1468`) when `!is_line` and clearing it via `remove_test_rect(ui.ctx(), "lock-aspect")` (`crates/designos-app/src/panels/properties.rs:1464`) when `is_line` leaves the other inspector widget rects where they were. Round 1 cited a log line for this that is an unrelated test; the `layout_unchanged_*` snapshot tests are checked in Round 2 (section R2.7).
+- **INFERENCE:** Recording the toggle rect via `widgets::record(ui, "lock-aspect", lock_r)` (`crates/designos-app/src/panels/properties.rs:1468`) when `!is_line` and clearing it via `remove_test_rect(ui.ctx(), "lock-aspect")` (`crates/designos-app/src/panels/properties.rs:1464`) when `is_line` leaves the other inspector widget rects where they were. Round 1 cited a log line for this that is an unrelated test; the `layout_unchanged_*` snapshot tests are checked in Round 2 (section R2.4).
 - **ASSUMPTION:** None required; all behavioral rulings were specified in the task brief.
 
 ---
@@ -240,7 +240,7 @@ ls_out_cargo_rc=1
 
 ---
 
-## 8. Weakest Link (round 1; resolved in Round 2, section R2.1)
+## 8. Weakest Link (round 1; resolved in Round 2, section R2.2)
 
 - In a multi-node canvas handle drag (`ResizeKind::Multi` at `crates/designos-app/src/canvas/interact.rs:1513-1536`), aspect-ratio locking continues to be governed by `inp.mods.shift || is_scale_tool` on the selection bounding box (`crates/designos-app/src/canvas/interact.rs:1515`), whereas single-node handle drags (`ResizeKind::Single` at `crates/designos-app/src/canvas/interact.rs:1487-1494`) and multi-selection W/H commits in the inspector (`resize_selection` at `crates/designos-app/src/panels/properties.rs:1420-1441`) enforce each node's `lock_aspect`.
 
@@ -250,107 +250,301 @@ Round 1 status, superseded by the Round 2 status at the end of this report: PASS
 
 ## Round 2
 
-Pull request: https://github.com/jangtrinh/design-os-studio/pull/1540 (draft, open; `plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:9-10`). Round 2 was built on `81a197c5`; the gated code commit is `7cc90b29` (`plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:2`). `origin/main` is `a98ec2b1` and the branch is 0 commits behind it (`plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:3`, `plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:7-8`), so no merge was needed.
-
-`git log --oneline origin/main..HEAD` at the gated commit (`plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:5-6`); the commit that carries this report follows it:
-```text
-7cc90b29 feat(inspector): carry the aspect lock through multi-selection drags, instances, snapping and a link glyph
-81a197c5 feat(inspector): lock aspect ratio toggle next to W and H (#1468)
-```
+Round 2 was built on `81a197c5`. The gated code commit is `1462d2db` (`plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log`, first lines). Pull request: https://github.com/jangtrinh/design-os-studio/pull/1540 (draft; state in R2.1).
 
 ### R2.0 What could NOT be verified
 
-Labels: a cited line is a FACT from a run or the tree; "inference" is marked where it applies; R2.4 holds the assumptions. Weakest link: the `.fig` instance lock override is written but not read back (item 2).
+Labels: a cited line is a FACT from a run or the tree; "inference" is marked where it applies; R2.5 holds the assumptions. Weakest link: the `.fig` instance lock override is written but not read back (item 2).
 
-1. **A windowed capture of the panel.** `HIDIdleTime` never reached 300: ten samples one minute apart peaked at 102 s (`plans/reports/agy-1468-lock-aspect-evidence/r2-18-idle-samples.log:1-10`) and was 0 when the render ran (`plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:1`); no Studio process was running during the samples (same log). So the images are the headless render of the real `show` panel code, not a Studio window. The render rasterizes egui meshes with a software rasterizer inside a test (`crates/designos-app/src/panels/properties.rs:3798`), so edge anti-aliasing is not Studio's GPU output. Between the render run and the gated commit the only edit was rustfmt on test code in `properties.rs` (observed in the session, not logged); no production code changed.
-2. **The `.fig` importer does not read the new instance override back.** The exporter now writes `proportionsConstrained` into an instance's override entry (`crates/designos-fig/src/fig_export.rs:1659-1661`), but the importer's override whitelists do not list it (`crates/designos-fig/src/fig.rs:2194`, `crates/designos-fig/src/rest_import.rs:3572`). Reading the code says an instance lock override survives export, not a reopen; there is no test of the reopen, because none could pass. Follow-up, not done: it needs `fig.rs` and `rest_import.rs`, outside the Round 2 file list.
-3. **Imported instances whose own lock differs from their main's.** An imported instance carries its lock bit but no `LockAspect` flag, so the next sync of its main copies the main's value over it (`crates/designos-doc/src/components.rs:1136` skips only flagged fields; `crates/designos-doc/src/components.rs:1048` copies). Inference from the code; not tested on a real file.
+1. **A windowed capture of the panel.** `HIDIdleTime` never reached 300 in 38 samples one minute apart over two windows; the highest was 110 s (`plans/reports/agy-1468-lock-aspect-evidence/r2-18-idle-samples.log:1-39`), it was 0 when the render started (`plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:2`), and no Studio process showed in any sample (same log). So the images are a headless render of the real `show` panel code on the final commit, not a Studio window. The render rasterizes egui meshes with a software rasterizer inside a test (`crates/designos-app/src/panels/properties.rs:3806`), so edge anti-aliasing is not Studio's GPU output.
+2. **The `.fig` importer does not read the new instance override back.** The exporter now writes `proportionsConstrained` into an instance's override entry (`crates/designos-fig/src/fig_export.rs:1660`), but the importer's override whitelists do not list it (`crates/designos-fig/src/fig.rs:2194`, `crates/designos-fig/src/rest_import.rs:3572`). Reading the code says an instance lock override survives export, not a reopen; there is no test of the reopen, because none could pass. Follow-up, not done: it needs `fig.rs` and `rest_import.rs`, outside the Round 2 file list.
+3. **Imported instances whose own lock differs from their main's.** FACT: an instance sync runs when a main is edited (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:3`, `plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:5`) and when library updates are applied (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:6`); no importer, library-crate or open/save file calls one (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:9`), so nothing is lost at open. FACT: a sync copies every field the instance has not flagged (`crates/designos-doc/src/components.rs:1136`). An imported instance has its lock bit but no `LockAspect` flag, so INFERENCE: its own lock is overwritten by its main's at the next such sync. The test module of `crates/designos-fig/tests/fig_instance_root_overrides_roundtrip.rs` states the same behaviour for the other override flags (its header comment: "follows its main on the next sync"). Not tested on a real file.
 4. **Older builds reading a newer file.** A document saved with `LockAspect` in an instance's override set names a variant older builds do not have (`crates/designos-doc/src/node.rs:223`). Inference; not tested.
-5. **A second `vecops` test failed in the full app run.** The brief expected `two_deferred_text_commands_both_convert_in_order`; `text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope` failed too (`plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4086`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4233`, message "text stays until font arrives" at `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4253`) and passes alone (`plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:14`). The diff touches no `vecops.rs` or font code (`git diff 81a197c5 -- crates/designos-app/src/vecops.rs` is empty). Cause not diagnosed.
+5. **`vecops` tests in the full app run.** In Round 1's full run `two_deferred_text_commands_both_convert_in_order` failed (`plans/reports/agy-1468-lock-aspect-evidence/07-test-designos.log:4221`) and `text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope` passed (`plans/reports/agy-1468-lock-aspect-evidence/07-test-designos.log:4227`). In the Round 2 run on this commit `two_deferred_text_commands_both_convert_in_order` failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4232`) and `text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope` failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4089`); the run's result line is `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4266`; in the earlier Round 2 run under a `/tmp` sandbox the same two failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4089`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4129`). Both pass alone (`plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:15`), and the module on its own gives test result: ok. 33 passed; 0 failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13c-test-vecops-module.log:47`). The diff touches no `vecops.rs` or font code. Cause not diagnosed; it looks like contention in the full run, as Round 1 already saw for one of them.
 6. **Real pointer input.** The drag tests call `update_resize` after the real `start_resize`; handle hit-testing and egui pointer events are not driven (`crates/designos-app/src/canvas/interact.rs:3504`).
-7. **Responsive widths:** SKIPPED (owner default). **GPU suites:** not run.
+7. **Responsive widths:** SKIPPED (owner default). **GPU suites:** not run. **`/es:dev`:** not loaded (R2.6).
 
-### R2.1 Rulings, what changed, which test proves it
+### R2.1 Branch and pull request
 
-| # | Ruling | Change | Test (red on `81a197c5`, green on `7cc90b29`) |
+`origin/main` is `a98ec2b1` and the branch is 0 commits behind it (`plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:3`, `plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:10`), so no merge was needed. `git log --oneline origin/main..HEAD` at the gated commit (the commit carrying this report follows it, and the final message pastes the pushed state):
+```text
+1462d2db test(inspector): check the lock toggle with a line first and with a rectangle first in separate tests
+044bb5ef docs(plans): add the evidence and report for the aspect lock follow-up
+7cc90b29 feat(inspector): carry the aspect lock through multi-selection drags, instances, snapping and a link glyph
+81a197c5 feat(inspector): lock aspect ratio toggle next to W and H (#1468)
+```
+Pull request #1540 at the start of Round 2: `plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:11`.
+
+### R2.2 Rulings, what changed, which test proves it
+
+| # | Ruling | Change | Test |
 |---|---|---|---|
-| 1 | Multi-selection drags keep the box ratio when any node with W and H is locked | `locked_ratio` over the selection (`crates/designos-app/src/canvas/interact.rs:1479`, helper `crates/designos-app/src/canvas/interact.rs:1464`) is ORed into the Multi ratio flag (`crates/designos-app/src/canvas/interact.rs:1526`) | `crates/designos-app/src/canvas/interact.rs:3526` (locked 100x50 plus unlocked 100x100, right edge to 2x without Shift: locked ends 200x100; unlocked-only selection still frees the height; bottom edge too) |
-| 2 | `lock_aspect` is an instance override | new variant (`crates/designos-doc/src/node.rs:223`), listed in `ALL` (`crates/designos-doc/src/components.rs:37`), copied unless overridden (`crates/designos-doc/src/components.rs:1048`), recorded from an edit (`crates/designos-doc/src/components.rs:458`), named in the Reset row (`crates/designos-app/src/panels/components.rs:464`), written to `.fig` as `proportionsConstrained` (`crates/designos-fig/src/fig_export.rs:1659-1661`) | `crates/designos-app/src/comp_ops.rs:738` (follows), `crates/designos-app/src/comp_ops.rs:751` (keeps its own while another instance follows), `crates/designos-app/src/comp_ops.rs:777` (reset restores); doc level `crates/designos-doc/src/components.rs:3243`, `crates/designos-doc/src/components.rs:3253`, `crates/designos-doc/src/components.rs:3286`; export `crates/designos-fig/tests/fig_roundtrip.rs:4306` |
-| 3 | A locked single drag skips snapping like Shift | snap runs only when `!locked_ratio` (`crates/designos-app/src/canvas/interact.rs:1483`); the Single ratio flag reads the same value (`crates/designos-app/src/canvas/interact.rs:1503`) | `crates/designos-app/src/canvas/interact.rs:3569` (controls: unlocked no-Shift snaps to the target edge, Shift does not; then locked no-Shift equals Shift) |
-| 4 | Mixed selections with lines | toggle shows when any selected node has W and H, reads on when all of those are locked, click writes only those (`crates/designos-app/src/panels/properties.rs:1464`, `crates/designos-app/src/panels/properties.rs:1472`); the H field still follows the first node | `crates/designos-app/src/panels/properties.rs:3504` (both orders; H hidden line-first, shown rectangle-first; line never locked) |
-| 5 | Link glyph | `Icon::Link` on the toggle (`crates/designos-app/src/panels/properties.rs:1469`); enum, `ALL`, name, vendored file (`crates/designos-app/src/icons.rs:31`, `crates/designos-app/src/icons.rs:173`, `crates/designos-app/src/icons.rs:298`, `crates/designos-app/src/icons.rs:481`); header lock keeps the padlock | `crates/designos-app/src/icons.rs:648` (120 variants), `crates/designos-app/src/icons.rs:653`; render below |
-| 6 | Report | this section and the corrections in R2.3 | `plans/reports/agy-1468-lock-aspect-evidence/r2-citation-grep.log` |
+| 1 | Multi-selection drags keep the box ratio when any node with W and H is locked | `locked_ratio` over the selection (`crates/designos-app/src/canvas/interact.rs:1479`, helper `crates/designos-app/src/canvas/interact.rs:1464`) is ORed into the Multi ratio flag (`crates/designos-app/src/canvas/interact.rs:1526`) | `crates/designos-app/src/canvas/interact.rs:3526`: locked 100x50 plus unlocked 100x100, right edge to 2x without Shift, locked ends 200x100; an unlocked-only selection still frees the height; bottom edge too |
+| 2 | `lock_aspect` is an instance override | new variant (`crates/designos-doc/src/node.rs:223`), in `ALL` (`crates/designos-doc/src/components.rs:37`), copied unless overridden (`crates/designos-doc/src/components.rs:1048`), recorded from an edit (`crates/designos-doc/src/components.rs:458`), named in the Reset row (`crates/designos-app/src/panels/components.rs:464`), written to `.fig` as `proportionsConstrained` (`crates/designos-fig/src/fig_export.rs:1660`) | app: `crates/designos-app/src/comp_ops.rs:738` (follows), `crates/designos-app/src/comp_ops.rs:751` (keeps its own while another instance follows), `crates/designos-app/src/comp_ops.rs:777` (reset restores); doc: `crates/designos-doc/src/components.rs:3243`, `crates/designos-doc/src/components.rs:3253`, `crates/designos-doc/src/components.rs:3286`; export: `crates/designos-fig/tests/fig_roundtrip.rs:4306` |
+| 3 | A locked single drag skips snapping like Shift | snap runs only when `!locked_ratio` (`crates/designos-app/src/canvas/interact.rs:1483`); the Single ratio flag reads the same value (`crates/designos-app/src/canvas/interact.rs:1503`) | `crates/designos-app/src/canvas/interact.rs:3569`: controls first (unlocked no-Shift snaps to the target edge, Shift does not), then locked no-Shift equals Shift; `crates/designos-app/src/canvas/interact.rs:3551` for multi drags |
+| 4 | Mixed selections with lines | toggle shows when any selected node has W and H, reads on when all of those are locked, click writes only those (`crates/designos-app/src/panels/properties.rs:1464`, `crates/designos-app/src/panels/properties.rs:1472`); the H field still follows the first node | `crates/designos-app/src/panels/properties.rs:3555` and `crates/designos-app/src/panels/properties.rs:3560` (shared body `crates/designos-app/src/panels/properties.rs:3505`; H hidden line-first, shown rectangle-first; the line is never locked) |
+| 5 | Link glyph | `Icon::Link` on the toggle (`crates/designos-app/src/panels/properties.rs:1469`); enum, `ALL`, name, vendored file (`crates/designos-app/src/icons.rs:31`, `crates/designos-app/src/icons.rs:173`, `crates/designos-app/src/icons.rs:298`, `crates/designos-app/src/icons.rs:481`); the header lock keeps the padlock | `crates/designos-app/src/icons.rs:652`, variant count `crates/designos-app/src/icons.rs:648` |
+| 6 | Report | this section and R2.4 | `plans/reports/agy-1468-lock-aspect-evidence/r2-citation-grep.log` |
 
-The glyph is Phosphor `regular/link.svg`, byte-identical to `@phosphor-icons/core@2.1.1`, the version `crates/designos-app/assets/icons/phosphor/README.md:3` names (`plans/reports/agy-1468-lock-aspect-evidence/r2-09-glyph-source.log:2`, `plans/reports/agy-1468-lock-aspect-evidence/r2-09-glyph-source.log:4`, `plans/reports/agy-1468-lock-aspect-evidence/r2-09-glyph-source.log:6`).
+The glyph is Phosphor `regular/link.svg`, byte-identical to `@phosphor-icons/core@2.1.1`, the version `crates/designos-app/assets/icons/phosphor/README.md:3` names (`plans/reports/agy-1468-lock-aspect-evidence/r2-09-glyph-source.log:2`, `plans/reports/agy-1468-lock-aspect-evidence/r2-09-glyph-source.log:6`).
 
-### R2.2 Acceptance
+### R2.3 Acceptance
 
 | # | Acceptance | Result | Evidence |
 |---|---|---|---|
-| 1 | Red on `81a197c5`, green on head | PASS | Red: the new tests on the `81a197c5` production code, 7 failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:450`; names `plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:367-374`; first line is the base sha, `plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:1`). Green on the gated commit: 40 passed (`plans/reports/agy-1468-lock-aspect-evidence/r2-02-green.log:53`, sha `plans/reports/agy-1468-lock-aspect-evidence/r2-02-green.log:1`). The same filter ran in both, so the red run's other 33 are the unrelated tests the filter matches. "Keeps its own override" holds vacuously on `81a197c5` (nothing synced the field), so it is pinned by mutant 3 below, not by the red run |
-| 2 | Two mutants after a green null control | PASS (4 killed) | Null control `plans/reports/agy-1468-lock-aspect-evidence/r2-02-green.log:53`. Mutant 1, multi-drag ignores locks: 2 failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-03-mutant-1-multi-drag.log:38`). Mutant 2, main lock change does not reach an instance: doc test failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-04-mutant-2-main-lock-sync.log:26`) and 3 app tests failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-04-mutant-2-main-lock-sync.log:65`). Extra: mutant 3, toggle on an instance records no override (`plans/reports/agy-1468-lock-aspect-evidence/r2-05-mutant-3-no-override-recorded.log:26`); mutant 4, exporter omits the override (`plans/reports/agy-1468-lock-aspect-evidence/r2-06-mutant-4-fig-export.log:24`). The three mutated files equal the committed ones (`plans/reports/agy-1468-lock-aspect-evidence/r2-08-mutant-files-unchanged.log:1-3`) |
-| 3 | Capture: the panel with the link off and on | PASS as a headless render (idle rule never held, R2.0 item 1) | `plans/reports/agy-1468-lock-aspect-evidence/r2-lock-aspect-panel.png` (off left, on right), `plans/reports/agy-1468-lock-aspect-evidence/r2-lock-aspect-off.png`, `plans/reports/agy-1468-lock-aspect-evidence/r2-lock-aspect-on.png`; render test passed (`plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:12`). Studio panel crops only; no kit canvas pixels are committed |
-| 4 | Gates | see R2.6 | fmt `plans/reports/agy-1468-lock-aspect-evidence/r2-10-fmt.log:2`; clippy `plans/reports/agy-1468-lock-aspect-evidence/r2-11-clippy.log:415`; designos-doc `plans/reports/agy-1468-lock-aspect-evidence/r2-12-test-doc.log:735`; designos-app bin `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4266` plus rerun `plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:17`; workspace lib `plans/reports/agy-1468-lock-aspect-evidence/r2-14-test-workspace-lib.log:1662`; designos-fig `plans/reports/agy-1468-lock-aspect-evidence/r2-15-test-fig.log:808`; zero fake UI `plans/reports/agy-1468-lock-aspect-evidence/r2-16-zero-fake-ui.log:25` |
-| 5 | Pushed without force; `out/cargo` deleted | see final message for the push; `ls out/cargo` fails (`plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:5-6`) | nothing in `crates/` or `scripts/` changed after the gated commit (`plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:9-10`) |
+| 1 | Red on `81a197c5`, green on head | PASS | Red: the new tests on the `81a197c5` production code, 33 passed; 7 failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:450`; names `plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:367-374`, the last being the combined toggle test that was later split into the two below; first line is the base sha, `plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:1`). The line-first clause: the two split toggle tests with only `dimensions_ui` swapped back to its `81a197c5` text: 0 passed; 2 failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-01b-red-line-first.log:31`; the line-first panic is `plans/reports/agy-1468-lock-aspect-evidence/r2-01b-red-line-first.log:18`, the rectangle-first one `plans/reports/agy-1468-lock-aspect-evidence/r2-01b-red-line-first.log:24`). Green on the gated commit: 41 passed; 0 failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-02-green.log:54`, sha `plans/reports/agy-1468-lock-aspect-evidence/r2-02-green.log:1`). "Keeps its own override" holds vacuously on `81a197c5` (nothing synced the field), so mutant 3 below pins it, not the red run |
+| 2 | Two mutants after a green null control | PASS (4 killed) | Null control: `plans/reports/agy-1468-lock-aspect-evidence/r2-02-green.log:54` (sha 1462d2db, run immediately before the mutants; each mutant log opens with its sha and the one-line change: `plans/reports/agy-1468-lock-aspect-evidence/r2-03-mutant-1-multi-drag.log:2`). Mutant 1, multi-drag ignores locks: `plans/reports/agy-1468-lock-aspect-evidence/r2-03-mutant-1-multi-drag.log:40`. Mutant 2, main's lock change does not reach an instance: `plans/reports/agy-1468-lock-aspect-evidence/r2-04-mutant-2-main-lock-sync.log:30`, `plans/reports/agy-1468-lock-aspect-evidence/r2-04-mutant-2-main-lock-sync.log:69`. Extra: mutant 3, toggle on an instance records no override: `plans/reports/agy-1468-lock-aspect-evidence/r2-05-mutant-3-no-override-recorded.log:29`; mutant 4, exporter omits the override: `plans/reports/agy-1468-lock-aspect-evidence/r2-06-mutant-4-fig-export.log:27`. The mutated files equal the committed ones after each restore (`plans/reports/agy-1468-lock-aspect-evidence/r2-08-mutant-files-unchanged.log:1-7`) |
+| 3 | Capture: the panel with the link off and on | PASS as a headless render (idle rule never held, R2.0 item 1) | `plans/reports/agy-1468-lock-aspect-evidence/r2-lock-aspect-panel.png` (off left, on right), `plans/reports/agy-1468-lock-aspect-evidence/r2-lock-aspect-off.png`, `plans/reports/agy-1468-lock-aspect-evidence/r2-lock-aspect-on.png`; render test passed (`plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:13`, sha `plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:1`) from a fresh APFS clone of the kit, deleted afterwards (`plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:8`). Studio panel crops only; no kit canvas pixels are committed |
+| 4 | Gates | see R2.8 | fmt `plans/reports/agy-1468-lock-aspect-evidence/r2-10-fmt.log:2`; clippy `plans/reports/agy-1468-lock-aspect-evidence/r2-11-clippy.log:417`; designos-doc `plans/reports/agy-1468-lock-aspect-evidence/r2-12-test-doc.log:746-780`; designos-app bin `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4266` plus the rerun `plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:17`; workspace lib `plans/reports/agy-1468-lock-aspect-evidence/r2-14-test-workspace-lib.log:1662`; designos-fig `plans/reports/agy-1468-lock-aspect-evidence/r2-15-test-fig.log:870`; mcp, export, library `plans/reports/agy-1468-lock-aspect-evidence/r2-15b-test-mcp-export-library.log:1320`; zero fake UI `plans/reports/agy-1468-lock-aspect-evidence/r2-16-zero-fake-ui.log:25` |
+| 5 | Pushed without force; `out/cargo` deleted | see the final message for the push; `ls out/cargo` fails (`plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:3-5`) | nothing in `crates/` or `scripts/` changed after the gated commit (`plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:10`) |
 
 ![Studio inspector, link glyph off (left) and on (right), headless render](agy-1468-lock-aspect-evidence/r2-lock-aspect-panel.png)
 
-### R2.3 Corrections to Round 1 (applied in place above)
+### R2.4 Corrections to Round 1 (applied in place above)
 
-- Theme citations: `SECTION_TRAILING_X` is `crates/designos-app/src/theme.rs:594`, `SPACE_FACT` is `crates/designos-app/src/theme.rs:447`, `PANEL_ACTION_BUTTON` is `crates/designos-app/src/theme.rs:525`, the field columns are `crates/designos-app/src/theme.rs:596-597`; also `SPACE_INLINE` (Round 1 said `theme.rs:335`) is `crates/designos-app/src/theme.rs:451`. The values Round 1 quoted were right; the line numbers were not.
-- `layout_unchanged`: Round 1 pointed at a log line that is an unrelated test. The layout snapshot tests are `shell::tests::layout_unchanged::{d..k}`; all eight listed in the full run passed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2923`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2927`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2942`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2944`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2955`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2963`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2968`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2990`).
+- Theme citations: `SECTION_TRAILING_X` is `crates/designos-app/src/theme.rs:594`, `SPACE_FACT` is `crates/designos-app/src/theme.rs:447`, `PANEL_ACTION_BUTTON` is `crates/designos-app/src/theme.rs:525`, the field columns are `crates/designos-app/src/theme.rs:596` and `crates/designos-app/src/theme.rs:597`; also `SPACE_INLINE` (Round 1 gave another line) is `crates/designos-app/src/theme.rs:451`. The values Round 1 quoted were right; the line numbers were not.
+- `layout_unchanged`: Round 1 pointed at a log line that is an unrelated test. The layout snapshot tests are `shell::tests::layout_unchanged::{d..k}`; all eight passed in the full run: `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2955`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2926`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2997`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2941`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2921`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2966`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2971`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2944`.
 - Idle: Round 1 said "54 seconds"; its log holds only `HIDIdleTime=0` (`plans/reports/agy-1468-lock-aspect-evidence/11-idle-check.log:1`). The 54 is withdrawn.
 - Two more Round 1 line numbers were off and are fixed in place: `app.run_tx(tx)` in `resize_selection` is `crates/designos-app/src/panels/properties.rs:1439` at `81a197c5` (Round 1 said line 1440), and the headless render test spans `crates/designos-app/src/panels/properties.rs:3742-3828` at `81a197c5` (Round 1 gave an end line past the end of the file). The panic position `properties.rs:3484` pasted in Round 1's mutant 2 output is a position in the mutated tree of that run, not in `81a197c5`.
-- Weakest link of Round 1 (Multi drags ignored locks) is fixed (R2.1 row 1). Its status line is marked superseded.
+- Weakest link of Round 1 (Multi drags ignored locks) is fixed (R2.2 row 1). Its status line is marked superseded.
 
-### R2.4 Assumptions (confidence; what would flip it)
+### R2.5 Assumptions (confidence; what would flip it)
 
 1. A lock-driven multi-selection drag also skips pointer snapping, as a Shift multi drag does (`crates/designos-app/src/canvas/interact.rs:1483` covers both kinds). Ruling 1 says "exactly as Shift"; ruling 3 only names single drags. High. Flips if multi drags should snap.
 2. One glyph, `link`, for on and off; the on state is the selected fill, like the other inspector toggles. Medium. Flips if a broken-link glyph is wanted for off (Phosphor `link-break` exists, not vendored).
 3. Ruling 2's exporter mapping needed `crates/designos-fig/src/fig_export.rs`, which Round 1's list allowed only for the REST mapping. I read the ruling ("if the exporter maps override fields... map this one") as authorising that one added write, and did not touch the importer (R2.0 item 2). Medium. Flips if the controller wants the exporter left alone until the importer is done.
 4. The instance root follows its main's lock unless it overrides it: `LockAspect` is not in the root's "never copied" list (`crates/designos-doc/src/components.rs:1139`) and not in the "moving, hiding or locking is no override" list (`crates/designos-app/src/comp_ops.rs:68`). High; ruling 2 says so.
 5. A node that has a lock bit but no W/H field (a line from an import) is ignored by the toggle, the drag and the inspector commit, as before. High.
-6. Sandbox: the first full app run used a sandbox under `/tmp` and failed 25 tests that are path-sensitive (`plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4411`); kept for the record. The accepted run uses the brief's harness (sandbox under `$TMPDIR`), `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4266`. The three failures there were rerun alone in a short-path sandbox, as the brief allows (`plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:17`).
+6. Sandbox: an earlier Round 2 full run used a sandbox under `/tmp` and failed 25 path-sensitive tests (`plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4411`, sha `plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:1`); kept for the record. The accepted run uses the brief's harness (sandbox under `$TMPDIR`). Failures there that are the brief's known long-path socket test and the `vecops` pair were rerun alone in a short-path sandbox, as the brief allows.
 
-### R2.5 Skills loaded and what they changed
+### R2.6 Skills loaded and what they changed
 
-- `es-designer` (SKILL.md read in full): used the existing 24 px trailing-button slot and icon-add procedure instead of a new control; ran `scripts/check_spacing_relationships.py` and `scripts/check_chrome_colour_literals.py` (`plans/reports/agy-1468-lock-aspect-evidence/r2-17-design-checks.log:5`, `plans/reports/agy-1468-lock-aspect-evidence/r2-17-design-checks.log:7`). Responsive checks skipped per owner default.
-- `es-rust` and `es-rust-gpu-canvas` (I read their headers and the sections on borrowing and the frame key, not every law): the toggle reads the selection with iterators and allocates a `Vec` only on click; the drag change adds no allocation beyond a selection-length scan and touches no GPU path, `FrameKey` or `interactive()` gating.
-- `es-fable-thinking`: red before green, the null control before each mutant, a pre-work advisor call.
+- `es-designer` (SKILL.md read in full): used the existing 24 px trailing-button slot and the icon-add procedure instead of a new control; ran `scripts/check_spacing_relationships.py` and `scripts/check_chrome_colour_literals.py` (`plans/reports/agy-1468-lock-aspect-evidence/r2-17-design-checks.log:5`, `plans/reports/agy-1468-lock-aspect-evidence/r2-17-design-checks.log:7`). Responsive checks skipped per owner default.
+- `es-rust` and `es-rust-gpu-canvas`: I read the first sections of each (the borrowing and frame-key laws), not every law. The toggle reads the selection with iterators and allocates a `Vec` only on click; the drag change adds a selection-length scan and touches no GPU path, `FrameKey` or `interactive()` gating.
+- `es-fable-thinking`: red before green, a green null control run immediately before the mutants, a pre-work advisor call and a pre-finish one.
+- `/es:dev` (named in the common brief): I did not load it; the dispatch for this round named `es-rust`, `es-rust-gpu-canvas` and `es-designer` and I followed the brief's rulings as the plan.
 
-### R2.6 Commands and pasted output
+### R2.7 Unresolved questions
 
-Harness for every cargo command (sandbox under `$TMPDIR`, HOME and TMPDIR siblings, target dir inside the worktree):
+1. Should the importer read the instance lock override back (`fig.rs`, `rest_import.rs`)? Until then the lock override is write-only in `.fig`.
+2. Should the `vecops` pair be treated as one known full-run flake? Round 1 saw one of them fail; Round 2 sees the second as well (R2.0 item 5).
+3. Do you want `link-break` for the off state?
+
+### R2.8 Commands and verbatim output
+
+Note: where a log's cargo output went through `grep -v '^   Compiling'` (the red line-first run, the mutants, the render), the `_rc=` line is grep's, not cargo's; the `test result` and `FAILED` lines are the evidence there. Logs without that pipe carry cargo's own exit code.
+Every cargo command ran through this harness (sandbox under `$TMPDIR`, HOME and TMPDIR siblings, target dir inside the worktree; the rerun of the long-path tests used a sandbox under `/tmp` instead):
 ```text
 export PATH="$HOME/.cargo/bin:$PATH"; REAL_HOME="$HOME"; T0="${TMPDIR:-/tmp}"; T0="${T0%/}"; S="$(mktemp -d "$T0/x.XXXXXX")"; mkdir -p "$S/home" "$S/tmp"
 export CARGO_TARGET_DIR="$PWD/out/cargo"
 env HOME="$S/home" TMPDIR="$S/tmp/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo <args>
 ```
+**Red on the base production code (new tests added, `dimensions_ui` and the rest at the base), 6 of the 7 relevant tests**
 ```text
-$ cargo fmt --all -- --check; echo fmt_rc=$?                                   -> fmt_rc=0                         (plans/reports/agy-1468-lock-aspect-evidence/r2-10-fmt.log:2)
-$ cargo clippy --workspace --all-targets --locked                              -> clippy_rc=0                      (plans/reports/agy-1468-lock-aspect-evidence/r2-11-clippy.log:415)
-    warnings: 2x needless_return agent_permissions.rs:1176,:1194; type_complexity inspector_var_binds.rs:1181 (all on main)
-$ cargo test -p designos-doc --locked                                          -> test result: ok. 723 passed; 0 failed   (plans/reports/agy-1468-lock-aspect-evidence/r2-12-test-doc.log:735)
-$ cargo test -p designos-app --bin designos --locked                           -> test result: FAILED. 4193 passed; 3 failed; 13 ignored   (plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4266)
-    failed: agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root (socket path 130 bytes, plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4247),
-            vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope,
-            vecops::tests::two_deferred_text_commands_both_convert_in_order
-$ cargo test -p designos-app --bin designos --locked -- <those three, alone, short-path sandbox>
-                                                                               -> test result: ok. 3 passed; 0 failed   (plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:17), rerun_rc=0 (:19)
-$ cargo test --workspace --locked --lib                                        -> workspace_lib_rc=0               (plans/reports/agy-1468-lock-aspect-evidence/r2-14-test-workspace-lib.log:1662)
-    designos-doc 723 passed (plans/reports/agy-1468-lock-aspect-evidence/r2-14-test-workspace-lib.log:832); designos-fig 143 passed (:1153); designos-mcp 326 passed (:1575)
-$ cargo test -p designos-fig --locked                                          -> fig_rc=0                         (plans/reports/agy-1468-lock-aspect-evidence/r2-15-test-fig.log:808)
-$ python3 scripts/zero_fake_ui_gate.py                                         -> Gate Verdict: PASS (17/17 invariants satisfied)   (plans/reports/agy-1468-lock-aspect-evidence/r2-16-zero-fake-ui.log:25)
-$ ls out/cargo                                                                 -> ls: out/cargo: No such file or directory; ls_out_cargo_rc=1   (plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:5-6)
+$ cargo test -p designos-app --bin designos --locked -- multi_selection_drag locked_single_drag_beside an_instance_ resetting_overrides_returns lock_aspect_toggle_in_a_selection_with_a_line   # the toggle test was one test then; Round 2's later split is next
+r2-01-red.log:1: 81a197c5064d7aa019a2e12c3cd27c904e494332
+r2-01-red.log:367: test canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked ... FAILED
+r2-01-red.log:368: test comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock ... FAILED
+r2-01-red.log:369: test comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main ... FAILED
+r2-01-red.log:370: test comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main ... FAILED
+r2-01-red.log:371: test canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target ... FAILED
+r2-01-red.log:372: test canvas::interact::tests::locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag ... FAILED
+r2-01-red.log:374: test panels::properties::tests::lock_aspect_toggle_in_a_selection_with_a_line_acts_on_the_nodes_that_have_width_and_height_in_either_order ... FAILED
+r2-01-red.log:450: test result: FAILED. 33 passed; 7 failed; 0 ignored; 0 measured; 4168 filtered out; finished in 4.22s
+r2-01-red.log:453: red_rc=101
 ```
-The new tests in the full app run: `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:764` (round-1 drag test), `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:1867`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:1872`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:1875`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:1882`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:1883`; icons `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:1393`.
-
-### R2.7 Unresolved questions
-
-1. Should the importer read the instance lock override back (`fig.rs`, `rest_import.rs`)? Until then the lock override is write-only in `.fig`.
-2. Is the second `vecops` flake (R2.0 item 5) known, or a new case of the same cause as the first?
-3. Do you want `link-break` for the off state?
+**Red, line-first (only `dimensions_ui` at the base text)**
+```text
+$ cargo test -p designos-app --bin designos --locked -- lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first
+r2-01b-red-line-first.log:1: RED CONTROL: dimensions_ui at 81a197c5 (git show 81a197c5:crates/designos-app/src/panels/properties.rs), everything else at the working tree on top of 044bb5ef651678e8a54bd9e5e4969fa6b2ef7706
+r2-01b-red-line-first.log:10: test panels::properties::tests::lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first ... FAILED
+r2-01b-red-line-first.log:11: test panels::properties::tests::lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first ... FAILED
+r2-01b-red-line-first.log:17: thread 'panels::properties::tests::lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first' (72361377) panicked at crates/designos-app/src/panels/properties.rs:3536:71:
+r2-01b-red-line-first.log:18: the toggle must show when any selected node has width and height (line first)
+r2-01b-red-line-first.log:23: thread 'panels::properties::tests::lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first' (72361376) panicked at crates/designos-app/src/panels/properties.rs:3540:9:
+r2-01b-red-line-first.log:24: a line must never get an aspect lock (rectangle first)
+r2-01b-red-line-first.log:31: test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4208 filtered out; finished in 0.04s
+r2-01b-red-line-first.log:34: red_line_first_rc=0
+```
+**Green (null control)**
+```text
+$ cargo test -p designos-app --bin designos --locked -- multi_selection_drag locked_single_drag_beside an_instance_ resetting_overrides_returns lock_aspect_toggle_shows_and_leaves_the_line_unlocked lock_aspect_toggle_never_locks_the_line
+r2-02-green.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-02-green.log:54: test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 4.08s
+r2-02-green.log:56: green_rc=0
+```
+**Mutant 1: multi-drag ignores locks**
+```text
+$ cargo test -p designos-app --bin designos --locked -- multi_selection_drag
+r2-03-mutant-1-multi-drag.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-03-mutant-1-multi-drag.log:2: MUTANT 1: multi-selection drag ignores aspect locks
+r2-03-mutant-1-multi-drag.log:3: change (git diff -U0 crates/designos-app/src/canvas/interact.rs, changed lines only):
+r2-03-mutant-1-multi-drag.log:4: -        ResizeKind::Multi { nodes, .. } => nodes.iter().any(|(id, ..)| keeps_aspect_in_drag(&app.doc, *id)),
+r2-03-mutant-1-multi-drag.log:5: +        ResizeKind::Multi { nodes, .. } => false && nodes.iter().any(|(id, ..)| keeps_aspect_in_drag(&app.doc, *id)),
+r2-03-mutant-1-multi-drag.log:14: test canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked ... FAILED
+r2-03-mutant-1-multi-drag.log:15: test canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target ... FAILED
+r2-03-mutant-1-multi-drag.log:40: test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.71s
+r2-03-mutant-1-multi-drag.log:43: mutant1_done
+```
+**Mutant 2: main lock change not synced**
+```text
+$ cargo test -p designos-doc --locked --lib -- aspect_lock   &&   cargo test -p designos-app --bin designos --locked -- an_instance_follows_a_change an_instance_that_set_its_own resetting_overrides_returns
+r2-04-mutant-2-main-lock-sync.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-04-mutant-2-main-lock-sync.log:2: MUTANT 2: the main's lock change does not reach a non-overridden instance
+r2-04-mutant-2-main-lock-sync.log:3: change (git diff -U0 crates/designos-doc/src/components.rs, changed lines only):
+r2-04-mutant-2-main-lock-sync.log:4: -        OverrideField::LockAspect => to.lock_aspect = from.lock_aspect,
+r2-04-mutant-2-main-lock-sync.log:5: +        OverrideField::LockAspect => {}
+r2-04-mutant-2-main-lock-sync.log:16: test components::tests::sync_gives_every_mirrored_node_the_main_aspect_lock_unless_it_overrides_it ... FAILED
+r2-04-mutant-2-main-lock-sync.log:30: test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 720 filtered out; finished in 0.01s
+r2-04-mutant-2-main-lock-sync.log:41: test comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock ... FAILED
+r2-04-mutant-2-main-lock-sync.log:42: test comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main ... FAILED
+r2-04-mutant-2-main-lock-sync.log:43: test comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main ... FAILED
+r2-04-mutant-2-main-lock-sync.log:69: test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.02s
+r2-04-mutant-2-main-lock-sync.log:72: mutant2_done
+```
+**Mutant 3: no override recorded**
+```text
+$ cargo test -p designos-app --bin designos --locked -- an_instance_follows_a_change an_instance_that_set_its_own resetting_overrides_returns
+r2-05-mutant-3-no-override-recorded.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-05-mutant-3-no-override-recorded.log:2: MUTANT 3: toggling the lock on an instance records no override
+r2-05-mutant-3-no-override-recorded.log:3: change (git diff -U0 crates/designos-doc/src/components.rs, changed lines only):
+r2-05-mutant-3-no-override-recorded.log:4: -    add(before.lock_aspect != after.lock_aspect, OverrideField::LockAspect);
+r2-05-mutant-3-no-override-recorded.log:15: test comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main ... FAILED
+r2-05-mutant-3-no-override-recorded.log:29: test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.02s
+r2-05-mutant-3-no-override-recorded.log:32: mutant3_done
+```
+**Mutant 4: exporter omits the override**
+```text
+$ cargo test -p designos-fig --locked --test fig_roundtrip -- aspect_lock
+r2-06-mutant-4-fig-export.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-06-mutant-4-fig-export.log:2: MUTANT 4: the .fig exporter does not write the instance lock override
+r2-06-mutant-4-fig-export.log:3: change (git diff -U0 crates/designos-fig/src/fig_export.rs, changed lines only):
+r2-06-mutant-4-fig-export.log:4: -                ov.push(("proportionsConstrained", V::Bool(n.lock_aspect)));
+r2-06-mutant-4-fig-export.log:13: test an_instance_aspect_lock_override_is_written_as_proportions_constrained ... FAILED
+r2-06-mutant-4-fig-export.log:27: test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 41 filtered out; finished in 0.03s
+r2-06-mutant-4-fig-export.log:30: mutant4_done
+```
+**Headless render**
+```text
+$ DESIGNOS_KIT_PANEL_COPY=<fresh APFS clone of the kit> cargo test -p designos-app --bin designos --locked -- render_headless_kit_panel_evidence_when_requested --nocapture
+r2-07-headless-render.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-07-headless-render.log:2: idle=0
+r2-07-headless-render.log:13: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4209 filtered out; finished in 31.49s
+r2-07-headless-render.log:15: render_rc=0
+r2-07-headless-render.log:19: -rw-r--r--@  1 jangtrinh  staff  130457 Nov  2 23:26 lock-aspect-off.png
+r2-07-headless-render.log:20: -rw-r--r--@  1 jangtrinh  staff  132199 Nov  2 23:26 lock-aspect-on.png
+r2-07-headless-render.log:21: -rw-r--r--@  1 jangtrinh  staff  261157 Nov  2 23:26 lock-aspect-panel.png
+```
+**fmt**
+```text
+$ cargo fmt --all -- --check; echo fmt_rc=$?
+r2-10-fmt.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-10-fmt.log:2: fmt_rc=0
+```
+**clippy (the same three warnings as the Round 1 run, plans/reports/agy-1468-lock-aspect-evidence/06-clippy.log:372-413: agent_permissions.rs twice, inspector_var_binds.rs once)**
+```text
+$ cargo clippy --workspace --all-targets --locked
+r2-11-clippy.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-11-clippy.log:377:     --> crates/designos-app/src/agent_permissions.rs:1176:9
+r2-11-clippy.log:391:     --> crates/designos-app/src/agent_permissions.rs:1194:9
+r2-11-clippy.log:406:     --> crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181:21
+r2-11-clippy.log:417: clippy_rc=0
+```
+**designos-doc**
+```text
+$ cargo test -p designos-doc --locked
+r2-12-test-doc.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-12-test-doc.log:746: test result: ok. 723 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.56s
+r2-12-test-doc.log:755: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+r2-12-test-doc.log:766: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+r2-12-test-doc.log:774: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+r2-12-test-doc.log:780: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+r2-12-test-doc.log:782: doc_rc=0
+```
+**designos-app bin, full run**
+```text
+$ cargo test -p designos-app --bin designos --locked
+r2-13-test-designos.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-13-test-designos.log:23: test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... FAILED
+r2-13-test-designos.log:4089: test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... FAILED
+r2-13-test-designos.log:4232: test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+r2-13-test-designos.log:4266: test result: FAILED. 4194 passed; 3 failed; 13 ignored; 0 measured; 0 filtered out; finished in 412.65s
+r2-13-test-designos.log:4269: designos_rc=101
+```
+**the failed tests alone, short-path sandbox**
+```text
+$ cargo test -p designos-app --bin designos --locked -- agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope vecops::tests::two_deferred_text_commands_both_convert_in_order
+r2-13b-test-designos-rerun.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-13b-test-designos-rerun.log:2: sandbox=/tmp/x.X0mhIr
+r2-13b-test-designos-rerun.log:13: test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+r2-13b-test-designos-rerun.log:14: test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+r2-13b-test-designos-rerun.log:15: test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+r2-13b-test-designos-rerun.log:17: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 1.48s
+r2-13b-test-designos-rerun.log:19: rerun_rc=0
+```
+**vecops module on its own**
+```text
+$ cargo test -p designos-app --bin designos --locked -- vecops::
+r2-13c-test-vecops-module.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-13c-test-vecops-module.log:47: test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 4177 filtered out; finished in 1.48s
+r2-13c-test-vecops-module.log:49: vecops_module_rc=0
+```
+**workspace lib tests**
+```text
+$ cargo test --workspace --locked --lib
+r2-14-test-workspace-lib.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-14-test-workspace-lib.log:103: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+r2-14-test-workspace-lib.log:832: test result: ok. 723 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.48s
+r2-14-test-workspace-lib.log:839: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+r2-14-test-workspace-lib.log:1004: test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.52s
+r2-14-test-workspace-lib.log:1153: test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.59s
+r2-14-test-workspace-lib.log:1189: test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+r2-14-test-workspace-lib.log:1200: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+r2-14-test-workspace-lib.log:1243: test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.29s
+r2-14-test-workspace-lib.log:1575: test result: ok. 326 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.83s
+r2-14-test-workspace-lib.log:1639: test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 33.03s
+r2-14-test-workspace-lib.log:1646: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+r2-14-test-workspace-lib.log:1660: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+r2-14-test-workspace-lib.log:1662: workspace_lib_rc=0
+```
+**designos-fig, all targets**
+```text
+$ cargo test -p designos-fig --locked
+r2-15-test-fig.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-15-test-fig.log:870: fig_rc=0
+```
+**designos-mcp, designos-export, designos-library, all targets**
+```text
+$ cargo test -p designos-mcp -p designos-export -p designos-library --locked
+r2-15b-test-mcp-export-library.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-15b-test-mcp-export-library.log:1320: mcp_export_library_rc=0
+```
+**zero fake UI gate**
+```text
+$ python3 scripts/zero_fake_ui_gate.py
+r2-16-zero-fake-ui.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-16-zero-fake-ui.log:25:  Gate Verdict: PASS (17/17 invariants satisfied)
+r2-16-zero-fake-ui.log:27: zero_fake_ui_rc=0
+```
+**design hygiene scripts**
+```text
+$ python3 scripts/check_spacing_relationships.py; python3 scripts/check_chrome_colour_literals.py
+r2-17-design-checks.log:1: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-17-design-checks.log:4: PASS: no count rose above the baseline
+r2-17-design-checks.log:5: spacing_rc=0
+r2-17-design-checks.log:6: Chrome colour literal gate PASSED (29 files with findings, 199/199 baseline chrome sites).
+r2-17-design-checks.log:7: chrome_colour_rc=0
+```
+**cleanup**
+```text
+$ rm -rf out/cargo out/kit-clone; ls out/cargo; git diff --stat <gated sha> -- crates scripts
+r2-20-cleanup.log:2: gated code commit: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+r2-20-cleanup.log:5: ls: out/cargo: No such file or directory
+r2-20-cleanup.log:6: ls_out_cargo_rc=1
+r2-20-cleanup.log:8: ls: out/kit-clone: No such file or directory
+r2-20-cleanup.log:10: code_diff_since_gated_rc=0
+```
 
 Status: DONE_WITH_CONCERNS
-Summary: Locked layers keep their ratio in multi-selection drags and skip snapping like Shift; `lock_aspect` is an instance override that follows the main, records on toggle and resets; mixed selections with lines toggle correctly; the toggle uses a link glyph; red-to-green and four mutants killed; gates green except three tests that fail only in the full app run and pass alone.
-Concerns/Blockers: `.fig` import does not read the new instance override back; imported instances whose lock differs from their main lose it at the next sync of that main; a second `vecops` test failed in the full run; the panel images are a headless render because the idle rule never held.
+Summary: Locked layers keep their ratio in multi-selection drags and skip snapping like Shift; `lock_aspect` is an instance override that follows the main, records on toggle and resets; mixed selections with lines toggle correctly in both orders; the toggle uses a link glyph; red to green and four mutants killed; the gates are green except the tests R2.0 item 5 and the brief's long-path test, which pass alone.
+Concerns/Blockers: the `.fig` instance lock override is written but not read back; an imported instance whose lock differs from its main loses it at the next sync of that main; the `vecops` pair fails in full runs; the panel images are a headless render because the idle rule never held.
