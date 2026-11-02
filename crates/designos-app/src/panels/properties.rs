@@ -3500,57 +3500,65 @@ mod tests {
         assert!(app.doc.get(r1).unwrap().lock_aspect && app.doc.get(r2).unwrap().lock_aspect);
     }
 
+    /// One selection holding a rectangle and a line, in the given order: the toggle shows, a click locks the rectangle
+    /// and never the line, and the H field still follows the first node.
+    fn check_lock_aspect_toggle_with_a_line_in_the_selection(line_first: bool) {
+        let mut doc = designos_doc::Document::new("lock-aspect-line-mix");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+        let rect_id = app.doc.alloc_id();
+        let rect = app.doc.insert(page, Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
+        let line_id = app.doc.alloc_id();
+        let mut line_node = Node::new(line_id, NodeKind::Line);
+        line_node.size = DVec2::new(100.0, 0.0);
+        let line = app.doc.insert(page, line_node).unwrap();
+        app.selection = if line_first { vec![line, rect] } else { vec![rect, line] };
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+        let step = |app: &mut App, events: Vec<egui::Event>| -> egui::FullOutput {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            ctx.run_ui(raw, |ui| show(app, ui, region))
+        };
+        let click = |app: &mut App, pos: Pos2| {
+            let _ = step(app, vec![egui::Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                let _ = step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+        };
+
+        let order = if line_first { "line first" } else { "rectangle first" };
+        let _ = step(&mut app, vec![]);
+        assert_eq!(field_rect(&ctx, "h").is_some(), !line_first, "the H field follows the first selected node ({order})");
+        let lock_r = test_rect(&ctx, "lock-aspect").unwrap_or_else(|| panic!("the toggle must show when any selected node has width and height ({order})"));
+
+        click(&mut app, lock_r.center());
+        assert!(app.doc.get(rect).unwrap().lock_aspect, "a click must lock the rectangle ({order})");
+        assert!(!app.doc.get(line).unwrap().lock_aspect, "a line must never get an aspect lock ({order})");
+        let out_on = step(&mut app, vec![egui::Event::PointerMoved(Pos2::new(1.0, 1.0))]);
+        assert!(
+            has_rect_fill(&out_on.shapes, lock_r, crate::theme::BG_SELECTED),
+            "the toggle shows on once every node with width and height is locked ({order})"
+        );
+
+        click(&mut app, lock_r.center());
+        assert!(!app.doc.get(rect).unwrap().lock_aspect, "a second click must unlock the rectangle ({order})");
+        assert!(!app.doc.get(line).unwrap().lock_aspect, "a line must never get an aspect lock ({order})");
+    }
+
     #[test]
-    fn lock_aspect_toggle_in_a_selection_with_a_line_acts_on_the_nodes_that_have_width_and_height_in_either_order() {
-        for line_first in [false, true] {
-            let mut doc = designos_doc::Document::new("lock-aspect-line-mix");
-            let page = doc.add_page("Page 1");
-            let mut app = App::new(doc);
-            app.page = page;
-            let rect_id = app.doc.alloc_id();
-            let rect = app.doc.insert(page, Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
-            let line_id = app.doc.alloc_id();
-            let mut line_node = Node::new(line_id, NodeKind::Line);
-            line_node.size = DVec2::new(100.0, 0.0);
-            let line = app.doc.insert(page, line_node).unwrap();
-            app.selection = if line_first { vec![line, rect] } else { vec![rect, line] };
+    fn lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first() {
+        check_lock_aspect_toggle_with_a_line_in_the_selection(true);
+    }
 
-            let ctx = egui::Context::default();
-            crate::theme::apply(&ctx);
-            crate::theme::install_fonts(&ctx);
-            let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
-            let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
-            let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
-            let step = |app: &mut App, events: Vec<egui::Event>| -> egui::FullOutput {
-                let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
-                ctx.run_ui(raw, |ui| show(app, ui, region))
-            };
-            let click = |app: &mut App, pos: Pos2| {
-                let _ = step(app, vec![egui::Event::PointerMoved(pos)]);
-                for pressed in [true, false] {
-                    let _ =
-                        step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
-                }
-            };
-
-            let order = if line_first { "line first" } else { "rectangle first" };
-            let _ = step(&mut app, vec![]);
-            assert_eq!(field_rect(&ctx, "h").is_some(), !line_first, "the H field follows the first selected node ({order})");
-            let lock_r = test_rect(&ctx, "lock-aspect").unwrap_or_else(|| panic!("the toggle must show when any selected node has width and height ({order})"));
-
-            click(&mut app, lock_r.center());
-            assert!(app.doc.get(rect).unwrap().lock_aspect, "a click must lock the rectangle ({order})");
-            assert!(!app.doc.get(line).unwrap().lock_aspect, "a line must never get an aspect lock ({order})");
-            let out_on = step(&mut app, vec![egui::Event::PointerMoved(Pos2::new(1.0, 1.0))]);
-            assert!(
-                has_rect_fill(&out_on.shapes, lock_r, crate::theme::BG_SELECTED),
-                "the toggle shows on once every node with width and height is locked ({order})"
-            );
-
-            click(&mut app, lock_r.center());
-            assert!(!app.doc.get(rect).unwrap().lock_aspect, "a second click must unlock the rectangle ({order})");
-            assert!(!app.doc.get(line).unwrap().lock_aspect, "a line must never get an aspect lock ({order})");
-        }
+    #[test]
+    fn lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first() {
+        check_lock_aspect_toggle_with_a_line_in_the_selection(false);
     }
 
     #[test]
