@@ -2,6 +2,34 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.7] - 2026-11-02
+
+A fix and feature release from `main`: zoomed-out frames no longer go blank, `.fig` instance overrides survive a save and reopen, and Figma basics from the styles, layout, components and vector work land.
+
+### Added
+- **Colour picker.** OKLCH and OKLAB colour modes (#137, PR #1451).
+- **Object menu.** Resize to fit shrinks or grows a frame to its visible content; Paste to replace keeps its own shortcut (#1470, PR #1488).
+- **Inspector.** A variable bind icon is always visible on bindable fields, and Typography fields get bind entry points (#876, #133, PR #1452).
+- **Canvas selection.** A click selects from the outside in like Figma, and Shift-click or Shift-drag adds the matching layers (#1482, PR #1489).
+- **Vector.** Flatten and Outline stroke convert text to vector paths (#1469, PR #1491).
+- **Masks.** Alpha, Vector and Luminance mask types (#1465, PR #1492).
+
+### Fixed
+- **GPU canvas.** A page viewed zoomed far out draws full detail once the view is still, instead of frames with most of their text and small content missing (PR #1485).
+- **`.fig` round trip.**
+  - An instance's fill and stroke overrides keep their own colour style instead of the main component's, so gradient swatches in the Untitled UI kit are no longer drawn purple (#1464, PR #1484).
+  - Saving to `.fig` keeps an instance's own size, opacity and other root overrides (#834, PR #1505).
+- **Export.** Native code export (SwiftUI, UIKit, Compose, Android XML) places grid children on the layout solver's tracks (#484, PR #1450).
+- **Layout.** Wrapped Fill-width text re-measures its height after a width change (#856, PR #1360).
+- **App.** A narrow window no longer panics (PR #1483). The Auto-save OFF switch shows its track edge (PR #1463).
+- **Agents.** A second send while a prompt waits is queued behind it instead of replacing it (#1437, PR #1461).
+- **`designos-mcp`.** A `set_slot` op in `designos_apply_batch` fills the instance's slot instead of answering ok and changing nothing; carried from PR #1352 by @NamAIEngineer (#1339, #1498, PR #1515).
+
+### Known issues
+- The two GPU canvas and instance-fill issues listed for 0.7.6 are fixed in this release (see Fixed).
+- Text strokes ignore stroke alignment (#1504). Group bounds count hidden children (#1503).
+- The known issues listed for 0.7.5 still apply. The Windows test suite stays advisory; releases are verified on macOS (#1158).
+
 ## [0.7.6] - 2026-11-01
 
 A fix release from `main`: Untitled UI-style kits import with the right text sizes, instance swaps keep your overrides, and the inspector and the agent tools gain the work merged since 0.7.5.
