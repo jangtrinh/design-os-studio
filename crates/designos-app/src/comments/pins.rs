@@ -29,7 +29,7 @@ pub fn process(app: &mut App, rect: Rect, resp: &Response) {
         return;
     }
     let point = app.view.to_page(rect.min, pos);
-    let node = interact::hit_under(app, point, false);
+    let node = interact::hit_under_any_depth(app, point, false);
     let anchor = model::make_anchor(&app.doc, app.page, point, node);
     app.comments.composer = Some(Composer { anchor, text: String::new(), fresh: true });
 }
