@@ -1,0 +1,215 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-doc)
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-mcp)
+   Compiling designos-fonts v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-fonts)
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-render)
+   Compiling designos-svg v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-svg)
+   Compiling designos-export v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-export)
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-webcapture)
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-fig)
+   Compiling designos-library v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-library)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.58s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+error: test failed, to rerun pass `-p designos-app --bin designos`
+
+running 28 tests
+test shell::tests::click_selection::select_all_with_same_text_properties_and_variant ... FAILED
+test shell::tests::click_selection::comment_pin_inside_nested_frame_attaches_to_nested_layer ... ok
+test shell::tests::click_selection::hover_outline_matches_plain_and_cmd_click_target ... FAILED
+test shell::tests::click_selection::click_nested_layer_inside_section_frame_selects_direct_child_of_section_frame ... FAILED
+test shell::tests::click_selection::hover_highlight_preference_toggles_canvas_hover_outline_and_persists_across_shells ... FAILED
+test shell::tests::click_selection::double_click_drills_one_level_per_double_click_and_starts_text_edit_on_text ... FAILED
+test shell::tests::click_selection::cmd_marquee_over_nested_container_selects_leaf_layers_without_ancestors ... FAILED
+test shell::tests::click_selection::right_click_select_layer_submenu_lists_parents_first_and_selects_picked ... FAILED
+test shell::tests::click_selection::click_group_child_with_nothing_selected_selects_group ... ok
+test shell::tests::click_selection::cmd_click_deep_selects_innermost_layer ... ok
+test shell::tests::click_selection::click_nested_label_with_nothing_selected_selects_top_frame_child ... FAILED
+test shell::tests::click_selection::select_layer_submenu_includes_locked_layers_and_can_select_them ... FAILED
+test shell::tests::click_selection::click_other_top_level_frame_when_deeply_selected_selects_outermost_child_of_other_frame ... FAILED
+test shell::tests::click_selection::click_sibling_branch_when_deeply_selected_selects_direct_child_of_shared_ancestor ... ok
+test shell::tests::click_selection::select_matching_layers_enforces_symmetric_section_scope_sibling_index_and_text_override_rules ... FAILED
+test shell::tests::click_selection::select_matching_layers_in_section_scopes_to_section ... FAILED
+test shell::tests::click_selection::select_same_instance_matches_main_component_while_select_same_variant_matches_component_set ... FAILED
+test shell::tests::click_selection::select_layer_submenu_orders_frontmost_sibling_first_caps_deepest_and_skips_layers_panel_menu ... FAILED
+test shell::tests::click_selection::shift_hover_and_selection_change_update_hover_target_to_match_press_target ... FAILED
+test shell::tests::click_selection::shift_marquee_with_direct_child_selected_extends_to_siblings_and_plain_marquee_hits_nested_frame ... FAILED
+test shell::tests::click_selection::enter_selects_children_and_shift_enter_selects_parent ... ok
+test shell::tests::click_selection::select_matching_layers_selects_matching_in_other_frames_with_toast ... FAILED
+test shell::tests::click_selection::shift_click_on_non_matching_layer_uses_normal_outside_in_hit ... ok
+test shell::tests::click_selection::shift_click_toggles_matching_nested_layer_across_frames ... FAILED
+test shell::tests::click_selection::shift_marquee_over_frame_with_nested_selection_adds_only_matching_layers ... FAILED
+test shell::tests::click_selection::single_click_or_drag_inside_selected_frame_keeps_and_moves_selected_frame ... FAILED
+test shell::tests::click_selection::eyedropper_shift_click_samples_deep_nested_token_and_vector_edit_exits_on_nested_sibling ... ok
+test shell::tests::click_selection::shift_marquee_with_nested_selection_toggles_only_matching_layers_and_caches_candidates ... FAILED
+
+failures:
+
+---- shell::tests::click_selection::select_all_with_same_text_properties_and_variant stdout ----
+
+thread 'shell::tests::click_selection::select_all_with_same_text_properties_and_variant' (61313763) panicked at crates/designos-app/src/shell/tests/click_selection.rs:571:5:
+assertion failed: t.sim.app().selection.contains(&t.a.btn1_label)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::click_selection::hover_outline_matches_plain_and_cmd_click_target stdout ----
+
+thread 'shell::tests::click_selection::hover_outline_matches_plain_and_cmd_click_target' (61313761) panicked at crates/designos-app/src/shell/tests/click_selection.rs:365:5:
+assertion `left == right` failed
+  left: Some(NodeId(9))
+ right: Some(NodeId(6))
+
+---- shell::tests::click_selection::click_nested_layer_inside_section_frame_selects_direct_child_of_section_frame stdout ----
+
+thread 'shell::tests::click_selection::click_nested_layer_inside_section_frame_selects_direct_child_of_section_frame' (61313751) panicked at crates/designos-app/src/shell/tests/click_selection.rs:241:5:
+assertion `left == right` failed
+  left: [NodeId(28)]
+ right: [NodeId(27)]
+
+---- shell::tests::click_selection::hover_highlight_preference_toggles_canvas_hover_outline_and_persists_across_shells stdout ----
+
+thread 'shell::tests::click_selection::hover_highlight_preference_toggles_canvas_hover_outline_and_persists_across_shells' (61313760) panicked at crates/designos-app/src/shell/tests/click_selection.rs:532:5:
+assertion `left == right` failed
+  left: Some(NodeId(9))
+ right: Some(NodeId(6))
+
+---- shell::tests::click_selection::double_click_drills_one_level_per_double_click_and_starts_text_edit_on_text stdout ----
+
+thread 'shell::tests::click_selection::double_click_drills_one_level_per_double_click_and_starts_text_edit_on_text' (61313757) panicked at crates/designos-app/src/shell/tests/click_selection.rs:298:5:
+assertion `left == right` failed
+  left: [NodeId(10)]
+ right: [NodeId(9)]
+
+---- shell::tests::click_selection::cmd_marquee_over_nested_container_selects_leaf_layers_without_ancestors stdout ----
+
+thread 'shell::tests::click_selection::cmd_marquee_over_nested_container_selects_leaf_layers_without_ancestors' (61313755) panicked at crates/designos-app/src/shell/tests/click_selection.rs:354:5:
+deep marquee must select leaf layers inside Btn1: [NodeId(7), NodeId(9)]
+
+---- shell::tests::click_selection::right_click_select_layer_submenu_lists_parents_first_and_selects_picked stdout ----
+
+thread 'shell::tests::click_selection::right_click_select_layer_submenu_lists_parents_first_and_selects_picked' (61313762) panicked at crates/designos-app/src/shell/tests/click_selection.rs:490:71:
+plain right-click menu must include 'Select layer' submenu
+
+---- shell::tests::click_selection::click_nested_label_with_nothing_selected_selects_top_frame_child stdout ----
+
+thread 'shell::tests::click_selection::click_nested_label_with_nothing_selected_selects_top_frame_child' (61313750) panicked at crates/designos-app/src/shell/tests/click_selection.rs:222:5:
+assertion `left == right` failed
+  left: [NodeId(9)]
+ right: [NodeId(6)]
+
+---- shell::tests::click_selection::select_layer_submenu_includes_locked_layers_and_can_select_them stdout ----
+
+thread 'shell::tests::click_selection::select_layer_submenu_includes_locked_layers_and_can_select_them' (61313764) panicked at crates/designos-app/src/shell/tests/click_selection.rs:596:71:
+called `Option::unwrap()` on a `None` value
+
+---- shell::tests::click_selection::click_other_top_level_frame_when_deeply_selected_selects_outermost_child_of_other_frame stdout ----
+
+thread 'shell::tests::click_selection::click_other_top_level_frame_when_deeply_selected_selects_outermost_child_of_other_frame' (61313752) panicked at crates/designos-app/src/shell/tests/click_selection.rs:286:5:
+assertion `left == right` failed
+  left: [NodeId(19)]
+ right: [NodeId(16)]
+
+---- shell::tests::click_selection::select_matching_layers_enforces_symmetric_section_scope_sibling_index_and_text_override_rules stdout ----
+
+thread 'shell::tests::click_selection::select_matching_layers_enforces_symmetric_section_scope_sibling_index_and_text_override_rules' (61314214) panicked at crates/designos-app/src/shell/tests/click_selection.rs:811:5:
+assertion `left == right` failed
+  left: [NodeId(31), NodeId(28), NodeId(22), NodeId(20), NodeId(18), NodeId(12), NodeId(10), NodeId(8)]
+ right: [NodeId(28)]
+
+---- shell::tests::click_selection::select_matching_layers_in_section_scopes_to_section stdout ----
+
+thread 'shell::tests::click_selection::select_matching_layers_in_section_scopes_to_section' (61314231) panicked at crates/designos-app/src/shell/tests/click_selection.rs:459:5:
+assertion `left == right` failed
+  left: [NodeId(30), NodeId(28), NodeId(22), NodeId(20), NodeId(18), NodeId(12), NodeId(10), NodeId(8)]
+ right: [NodeId(28)]
+
+---- shell::tests::click_selection::select_same_instance_matches_main_component_while_select_same_variant_matches_component_set stdout ----
+
+thread 'shell::tests::click_selection::select_same_instance_matches_main_component_while_select_same_variant_matches_component_set' (61314314) panicked at crates/designos-app/src/shell/tests/click_selection.rs:907:5:
+assertion failed: designos_doc::find::can_select_same_instance(&t.sim.app().doc,
+    &t.sim.app().selection)
+
+---- shell::tests::click_selection::select_layer_submenu_orders_frontmost_sibling_first_caps_deepest_and_skips_layers_panel_menu stdout ----
+
+thread 'shell::tests::click_selection::select_layer_submenu_orders_frontmost_sibling_first_caps_deepest_and_skips_layers_panel_menu' (61314211) panicked at crates/designos-app/src/shell/tests/click_selection.rs:745:5:
+assertion `left == right` failed: overlapping siblings must list front-most sibling first after shared parent
+  left: []
+ right: ["A", "Front", "Back"]
+
+---- shell::tests::click_selection::shift_hover_and_selection_change_update_hover_target_to_match_press_target stdout ----
+
+thread 'shell::tests::click_selection::shift_hover_and_selection_change_update_hover_target_to_match_press_target' (61314318) panicked at crates/designos-app/src/shell/tests/click_selection.rs:718:5:
+assertion `left == right` failed: Shift-hover over matching layer must preview the deep matching layer
+  left: Some(NodeId(19))
+ right: Some(NodeId(20))
+
+---- shell::tests::click_selection::shift_marquee_with_direct_child_selected_extends_to_siblings_and_plain_marquee_hits_nested_frame stdout ----
+
+thread 'shell::tests::click_selection::shift_marquee_with_direct_child_selected_extends_to_siblings_and_plain_marquee_hits_nested_frame' (61314336) panicked at crates/designos-app/src/shell/tests/click_selection.rs:615:5:
+assertion `left == right` failed
+  left: [NodeId(7), NodeId(9)]
+ right: [NodeId(6)]
+
+---- shell::tests::click_selection::select_matching_layers_selects_matching_in_other_frames_with_toast stdout ----
+
+thread 'shell::tests::click_selection::select_matching_layers_selects_matching_in_other_frames_with_toast' (61314245) panicked at crates/designos-app/src/shell/tests/click_selection.rs:433:5:
+assertion `left == right` failed
+  left: [NodeId(8), NodeId(10), NodeId(12), NodeId(18), NodeId(20), NodeId(22)]
+ right: [NodeId(10), NodeId(20)]
+
+---- shell::tests::click_selection::shift_click_toggles_matching_nested_layer_across_frames stdout ----
+
+thread 'shell::tests::click_selection::shift_click_toggles_matching_nested_layer_across_frames' (61314317) panicked at crates/designos-app/src/shell/tests/click_selection.rs:383:5:
+assertion `left == right` failed
+  left: [NodeId(10), NodeId(19)]
+ right: [NodeId(10), NodeId(20)]
+
+---- shell::tests::click_selection::shift_marquee_over_frame_with_nested_selection_adds_only_matching_layers stdout ----
+
+thread 'shell::tests::click_selection::shift_marquee_over_frame_with_nested_selection_adds_only_matching_layers' (61314335) panicked at crates/designos-app/src/shell/tests/click_selection.rs:420:5:
+assertion `left == right` failed
+  left: [NodeId(10), NodeId(15)]
+ right: [NodeId(10), NodeId(20)]
+
+---- shell::tests::click_selection::single_click_or_drag_inside_selected_frame_keeps_and_moves_selected_frame stdout ----
+
+thread 'shell::tests::click_selection::single_click_or_drag_inside_selected_frame_keeps_and_moves_selected_frame' (61314420) panicked at crates/designos-app/src/shell/tests/click_selection.rs:253:5:
+assertion `left == right` failed: single click must not enter selected container
+  left: [NodeId(11)]
+ right: [NodeId(6)]
+
+---- shell::tests::click_selection::shift_marquee_with_nested_selection_toggles_only_matching_layers_and_caches_candidates stdout ----
+
+thread 'shell::tests::click_selection::shift_marquee_with_nested_selection_toggles_only_matching_layers_and_caches_candidates' (61314387) panicked at crates/designos-app/src/shell/tests/click_selection.rs:651:5:
+assertion `left == right` failed
+  left: [NodeId(14), NodeId(29)]
+ right: [NodeId(14)]
+
+
+failures:
+    shell::tests::click_selection::click_nested_label_with_nothing_selected_selects_top_frame_child
+    shell::tests::click_selection::click_nested_layer_inside_section_frame_selects_direct_child_of_section_frame
+    shell::tests::click_selection::click_other_top_level_frame_when_deeply_selected_selects_outermost_child_of_other_frame
+    shell::tests::click_selection::cmd_marquee_over_nested_container_selects_leaf_layers_without_ancestors
+    shell::tests::click_selection::double_click_drills_one_level_per_double_click_and_starts_text_edit_on_text
+    shell::tests::click_selection::hover_highlight_preference_toggles_canvas_hover_outline_and_persists_across_shells
+    shell::tests::click_selection::hover_outline_matches_plain_and_cmd_click_target
+    shell::tests::click_selection::right_click_select_layer_submenu_lists_parents_first_and_selects_picked
+    shell::tests::click_selection::select_all_with_same_text_properties_and_variant
+    shell::tests::click_selection::select_layer_submenu_includes_locked_layers_and_can_select_them
+    shell::tests::click_selection::select_layer_submenu_orders_frontmost_sibling_first_caps_deepest_and_skips_layers_panel_menu
+    shell::tests::click_selection::select_matching_layers_enforces_symmetric_section_scope_sibling_index_and_text_override_rules
+    shell::tests::click_selection::select_matching_layers_in_section_scopes_to_section
+    shell::tests::click_selection::select_matching_layers_selects_matching_in_other_frames_with_toast
+    shell::tests::click_selection::select_same_instance_matches_main_component_while_select_same_variant_matches_component_set
+    shell::tests::click_selection::shift_click_toggles_matching_nested_layer_across_frames
+    shell::tests::click_selection::shift_hover_and_selection_change_update_hover_target_to_match_press_target
+    shell::tests::click_selection::shift_marquee_over_frame_with_nested_selection_adds_only_matching_layers
+    shell::tests::click_selection::shift_marquee_with_direct_child_selected_extends_to_siblings_and_plain_marquee_hits_nested_frame
+    shell::tests::click_selection::shift_marquee_with_nested_selection_toggles_only_matching_layers_and_caches_candidates
+    shell::tests::click_selection::single_click_or_drag_inside_selected_frame_keeps_and_moves_selected_frame
+
+test result: FAILED. 7 passed; 21 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 5.24s
+

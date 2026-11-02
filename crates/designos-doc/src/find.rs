@@ -294,14 +294,18 @@ pub enum MatchCriteria {
     Fill,
     Stroke,
     Effect,
+    /// Text style properties on text layers.
+    TextProperties,
     /// Font family, weight and size of text layers.
     Font,
     /// Instances of the same main component.
     Instance,
+    /// Instances of any variant in the same component set.
+    Variant,
     /// Same kind of layer (rectangle, frame, text, ...).
     Type,
     Name,
-    /// Same type and the same visual properties (Ctrl+Alt+A).
+    /// Same type and the same visual properties.
     Properties,
 }
 
@@ -320,6 +324,50 @@ fn main_of(n: &Node) -> Option<NodeId> {
     }
 }
 
+fn enclosing_instance_node(doc: &Document, mut id: NodeId) -> Option<NodeId> {
+    loop {
+        let n = doc.get(id)?;
+        if matches!(n.kind, NodeKind::Instance { component: Some(_), .. }) {
+            return Some(id);
+        }
+        id = n.parent?;
+    }
+}
+
+fn enclosing_instance_or_component_node(doc: &Document, mut id: NodeId) -> Option<NodeId> {
+    loop {
+        let n = doc.get(id)?;
+        if matches!(n.kind, NodeKind::Instance { component: Some(_), .. } | NodeKind::Component(_)) {
+            return Some(id);
+        }
+        id = n.parent?;
+    }
+}
+
+fn enclosing_main_of(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let holder = enclosing_instance_or_component_node(doc, id)?;
+    doc.get(holder).and_then(main_of)
+}
+
+fn variant_set_of(doc: &Document, id: NodeId) -> Option<NodeId> {
+    let inst_id = enclosing_instance_node(doc, id)?;
+    let main_id = doc.get(inst_id).and_then(main_of)?;
+    let parent = doc.get(main_id)?.parent?;
+    doc.get(parent).is_some_and(|pn| matches!(pn.kind, NodeKind::ComponentSet(_))).then_some(parent)
+}
+
+/// True when `Select all with same instance` should be enabled for `selection`
+/// (a single node that is, or sits inside, an instance).
+pub fn can_select_same_instance(doc: &Document, selection: &[NodeId]) -> bool {
+    selection.len() == 1 && enclosing_instance_node(doc, selection[0]).is_some()
+}
+
+/// True when `Select all with same variant` should be enabled for `selection`
+/// (a single node that is, or sits inside, a component-set variant instance).
+pub fn can_select_same_variant(doc: &Document, selection: &[NodeId]) -> bool {
+    selection.len() == 1 && variant_set_of(doc, selection[0]).is_some()
+}
+
 fn same_kind(a: &Node, b: &Node) -> bool {
     std::mem::discriminant(&a.kind) == std::mem::discriminant(&b.kind)
 }
@@ -334,6 +382,13 @@ fn same_stroke(a: &Node, b: &Node) -> bool {
 
 fn same_effects(a: &Node, b: &Node) -> bool {
     a.effects == b.effects && a.style_refs.get("effect") == b.style_refs.get("effect")
+}
+
+fn same_text_properties(a: &Node, b: &Node) -> bool {
+    match (&a.kind, &b.kind) {
+        (NodeKind::Text(x), NodeKind::Text(y)) => x.style == y.style && a.style_refs.get("text") == b.style_refs.get("text"),
+        _ => false,
+    }
 }
 
 fn same_font(a: &Node, b: &Node) -> bool {
@@ -362,25 +417,33 @@ fn same_properties(a: &Node, b: &Node) -> bool {
     shape && kind
 }
 
-fn has_criteria(n: &Node, c: MatchCriteria) -> bool {
+fn has_criteria(doc: &Document, n: &Node, c: MatchCriteria) -> bool {
     match c {
         MatchCriteria::Fill => !fills_of(n).is_empty(),
         MatchCriteria::Stroke => !n.stroke.paints.is_empty(),
         MatchCriteria::Effect => !n.effects.is_empty(),
-        MatchCriteria::Font => matches!(n.kind, NodeKind::Text(_)),
-        MatchCriteria::Instance => main_of(n).is_some(),
+        MatchCriteria::TextProperties | MatchCriteria::Font => matches!(n.kind, NodeKind::Text(_)),
+        MatchCriteria::Instance => enclosing_main_of(doc, n.id).is_some(),
+        MatchCriteria::Variant => variant_set_of(doc, n.id).is_some(),
         MatchCriteria::Type | MatchCriteria::Name | MatchCriteria::Properties => true,
     }
 }
 
-fn matches_criteria(reference: &Node, n: &Node, c: MatchCriteria) -> bool {
+fn matches_criteria(doc: &Document, reference: &Node, n: &Node, c: MatchCriteria) -> bool {
     match c {
         MatchCriteria::Fill => same_fill(reference, n),
         MatchCriteria::Stroke => same_stroke(reference, n),
         MatchCriteria::Effect => same_effects(reference, n),
+        MatchCriteria::TextProperties => same_text_properties(reference, n),
         MatchCriteria::Font => same_font(reference, n),
         MatchCriteria::Instance => {
-            main_of(reference).is_some() && main_of(reference) == main_of(n) && (matches!(n.kind, NodeKind::Instance { .. }) || n.id == reference.id)
+            let Some(ref_main) = enclosing_main_of(doc, reference.id) else { return false };
+            main_of(n) == Some(ref_main) && (matches!(n.kind, NodeKind::Instance { .. }) || n.id == reference.id)
+        }
+        MatchCriteria::Variant => {
+            let Some(ref_set) = variant_set_of(doc, reference.id) else { return false };
+            let Some(cand_main) = main_of(n) else { return false };
+            doc.get(cand_main).and_then(|m| m.parent) == Some(ref_set) && (matches!(n.kind, NodeKind::Instance { .. }) || n.id == reference.id)
         }
         MatchCriteria::Type => same_kind(reference, n),
         MatchCriteria::Name => reference.name == n.name,
@@ -391,6 +454,20 @@ fn matches_criteria(reference: &Node, n: &Node, c: MatchCriteria) -> bool {
 /// Whether the canvas lets you select `id` right now (shown and unlocked).
 pub fn selectable(doc: &Document, id: NodeId) -> bool {
     doc.get(id).is_some_and(|n| n.visible && !n.locked && !matches!(n.kind, NodeKind::Page { .. }))
+}
+
+fn selectable_in_hierarchy(doc: &Document, mut id: NodeId) -> bool {
+    loop {
+        let Some(n) = doc.get(id) else { return false };
+        if matches!(n.kind, NodeKind::Page { .. }) {
+            return true;
+        }
+        if !n.visible || n.locked {
+            return false;
+        }
+        let Some(p) = n.parent else { return false };
+        id = p;
+    }
 }
 
 /// Layers that match `node` on `criteria`, on the page of `node` (the layer
@@ -405,16 +482,20 @@ pub fn select_matching(doc: &Document, node: NodeId, criteria: MatchCriteria) ->
 
 /// [`select_matching`] restricted to `scope` (for example the selection's subtree).
 pub fn select_matching_in(doc: &Document, node: NodeId, criteria: MatchCriteria, scope: &Scope) -> Vec<NodeId> {
-    let Some(reference) = doc.get(node) else { return Vec::new() };
-    if !has_criteria(reference, criteria) {
+    let ref_id = match criteria {
+        MatchCriteria::Instance | MatchCriteria::Variant => enclosing_instance_or_component_node(doc, node).unwrap_or(node),
+        _ => node,
+    };
+    let Some(reference) = doc.get(ref_id) else { return Vec::new() };
+    if !has_criteria(doc, reference, criteria) {
         return vec![node];
     }
     let mut out: Vec<NodeId> = scope_nodes(doc, scope)
         .into_iter()
-        .filter(|id| *id == node || (selectable(doc, *id) && doc.get(*id).is_some_and(|n| matches_criteria(reference, n, criteria))))
+        .filter(|id| *id == ref_id || (selectable(doc, *id) && doc.get(*id).is_some_and(|n| matches_criteria(doc, reference, n, criteria))))
         .collect();
-    if !out.contains(&node) {
-        out.push(node);
+    if !out.contains(&ref_id) {
+        out.push(ref_id);
     }
     out
 }
@@ -424,6 +505,343 @@ pub fn select_matching_in(doc: &Document, node: NodeId, criteria: MatchCriteria,
 pub fn select_matching_all(doc: &Document, nodes: &[NodeId], criteria: MatchCriteria) -> Vec<NodeId> {
     let mut seen = HashSet::new();
     nodes.iter().flat_map(|n| select_matching(doc, *n, criteria)).filter(|id| seen.insert(*id)).collect()
+}
+
+// ------------------------------------------------ matching across containers
+/// Scope within which cross-container matching layers are searched.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MatchScope {
+    Page(NodeId),
+    Section(NodeId),
+    ComponentSet(NodeId),
+}
+
+/// Returns `(scope, scope_root)` for `id`, where `scope_root` is the containing
+/// component-set variant (`Component` inside `ComponentSet`) or top-level `Frame`,
+/// `Group`, or `Instance` (inside a `Section` or `Page`). Returns `None` if `id` is
+/// not inside a frame, group, instance, or component variant.
+pub fn matching_scope_of(doc: &Document, id: NodeId) -> Option<(MatchScope, NodeId)> {
+    let n = doc.get(id)?;
+    let mut cur = n.parent;
+    let mut top_container: Option<(NodeId, NodeId)> = None;
+    while let Some(cid) = cur {
+        let cn = doc.get(cid)?;
+        let parent_id = cn.parent?;
+        let pn = doc.get(parent_id)?;
+        if matches!(cn.kind, NodeKind::Component(_)) && matches!(pn.kind, NodeKind::ComponentSet(_)) {
+            return Some((MatchScope::ComponentSet(parent_id), cid));
+        }
+        if matches!(cn.kind, NodeKind::Frame(_) | NodeKind::Group | NodeKind::Instance { .. }) && matches!(pn.kind, NodeKind::Page { .. } | NodeKind::Section) {
+            top_container = Some((cid, parent_id));
+        }
+        if matches!(pn.kind, NodeKind::Page { .. }) {
+            break;
+        }
+        cur = cn.parent;
+    }
+    let (root, parent_id) = top_container?;
+    let pn = doc.get(parent_id)?;
+    match pn.kind {
+        NodeKind::Section => Some((MatchScope::Section(parent_id), root)),
+        NodeKind::Page { .. } => Some((MatchScope::Page(parent_id), root)),
+        _ => None,
+    }
+}
+
+/// Effective layer name used when matching across containers: if an instance or
+/// sublayer has been renamed (`OverrideField::Name`), uses its original source
+/// component or layer name.
+fn effective_matching_name<'a>(doc: &'a Document, n: &'a Node) -> &'a str {
+    if n.component.overrides.contains(&OverrideField::Name) {
+        if let Some(src_id) = n.component.source.or_else(|| main_of(n)) {
+            if let Some(src) = doc.get(src_id) {
+                if matches!(n.kind, NodeKind::Instance { .. }) {
+                    if let Some(cs) = src.parent.and_then(|p| doc.get(p)).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_))) {
+                        return cs.name.as_str();
+                    }
+                }
+                return src.name.as_str();
+            }
+        }
+    }
+    n.name.as_str()
+}
+
+fn same_named_sibling_index(doc: &Document, n: &Node) -> usize {
+    let Some(pid) = n.parent else { return 0 };
+    let Some(pn) = doc.get(pid) else { return 0 };
+    let target = effective_matching_name(doc, n);
+    let mut idx = 0;
+    for &sib_id in &pn.children {
+        if sib_id == n.id {
+            break;
+        }
+        if let Some(sib) = doc.get(sib_id) {
+            if effective_matching_name(doc, sib) == target {
+                idx += 1;
+            }
+        }
+    }
+    idx
+}
+
+/// Matching layers must sit at the same name path from their scope root, with same-named sibling ties broken by sibling index; to be confirmed against Figma.
+fn matching_hierarchy_position(doc: &Document, id: NodeId, scope_root: NodeId) -> Option<Vec<(&str, usize)>> {
+    let mut path = Vec::new();
+    let mut cur = doc.get(id)?.parent;
+    while let Some(cid) = cur {
+        if cid == scope_root {
+            path.reverse();
+            return Some(path);
+        }
+        let cn = doc.get(cid)?;
+        path.push((effective_matching_name(doc, cn), same_named_sibling_index(doc, cn)));
+        cur = cn.parent;
+    }
+    None
+}
+
+fn is_never_renamed_text(n: &Node) -> Option<&TextProps> {
+    let NodeKind::Text(t) = &n.kind else { return None };
+    if n.component.overrides.contains(&OverrideField::Name) {
+        return None;
+    }
+    (n.name == t.content).then_some(t)
+}
+
+fn relative_pos_in_scope(doc: &Document, id: NodeId, scope_root: NodeId) -> Vec2 {
+    let mut chain = Vec::new();
+    let mut cur = Some(id);
+    while let Some(cid) = cur {
+        if cid == scope_root {
+            break;
+        }
+        let Some(n) = doc.get(cid) else { break };
+        chain.push(n.transform);
+        cur = n.parent;
+    }
+    let xf = chain.iter().rev().fold(Affine::IDENTITY, |acc, t| acc * *t);
+    xf.apply(Vec2::ZERO)
+}
+
+fn scope_compatible(s_scope: MatchScope, c_scope: MatchScope) -> bool {
+    match s_scope {
+        MatchScope::ComponentSet(cs) => c_scope == MatchScope::ComponentSet(cs),
+        MatchScope::Section(sec) => c_scope == MatchScope::Section(sec),
+        MatchScope::Page(page) => c_scope == MatchScope::Page(page),
+    }
+}
+
+struct PreparedMatch<'a> {
+    id: NodeId,
+    node: &'a Node,
+    scope: MatchScope,
+    root: NodeId,
+    path: Vec<(&'a str, usize)>,
+    text: Option<&'a TextProps>,
+    eff_name: &'a str,
+    sib_idx: usize,
+    pos: Vec2,
+}
+
+impl<'a> PreparedMatch<'a> {
+    fn new(doc: &'a Document, id: NodeId) -> Option<Self> {
+        let node = doc.get(id)?;
+        let (scope, root) = matching_scope_of(doc, id)?;
+        let path = matching_hierarchy_position(doc, id, root)?;
+        let text = is_never_renamed_text(node);
+        let (eff_name, sib_idx, pos) = if text.is_some() {
+            ("", 0, relative_pos_in_scope(doc, id, root))
+        } else {
+            (effective_matching_name(doc, node), same_named_sibling_index(doc, node), Vec2::ZERO)
+        };
+        Some(Self { id, node, scope, root, path, text, eff_name, sib_idx, pos })
+    }
+}
+
+fn ancestor_names_match(doc: &Document, cn: &Node, want: &[(&str, usize)]) -> bool {
+    let mut cur = cn.parent;
+    for &(want_name, _) in want.iter().rev() {
+        let Some(cid) = cur else { return false };
+        let Some(anc) = doc.get(cid) else { return false };
+        if effective_matching_name(doc, anc) != want_name {
+            return false;
+        }
+        cur = anc.parent;
+    }
+    cur.is_some()
+}
+
+fn matches_prepared(doc: &Document, pm: &PreparedMatch<'_>, c: NodeId, cn: &Node) -> bool {
+    if pm.id == c {
+        return false;
+    }
+    if !same_kind(pm.node, cn) {
+        return false;
+    }
+    if !ancestor_names_match(doc, cn, &pm.path) {
+        return false;
+    }
+    let c_text = is_never_renamed_text(cn);
+    match (pm.text, c_text) {
+        (Some(st), Some(ct)) => {
+            if st.style != ct.style {
+                return false;
+            }
+        }
+        (None, None) => {
+            if pm.eff_name != effective_matching_name(doc, cn) {
+                return false;
+            }
+        }
+        _ => return false,
+    }
+    let Some((c_scope, c_root)) = matching_scope_of(doc, c) else { return false };
+    if pm.root == c_root || !scope_compatible(pm.scope, c_scope) {
+        return false;
+    }
+    if pm.text.is_none() && pm.sib_idx != same_named_sibling_index(doc, cn) {
+        return false;
+    }
+    let Some(c_path) = matching_hierarchy_position(doc, c, c_root) else { return false };
+    if pm.path != c_path {
+        return false;
+    }
+    if let Some(st) = pm.text {
+        let Some(c_parent) = cn.parent.and_then(|p| doc.get(p)) else { return false };
+        let s_pos = pm.pos;
+        let c_pos = relative_pos_in_scope(doc, c, c_root);
+        let c_dist = (c_pos.x - s_pos.x).powi(2) + (c_pos.y - s_pos.y).powi(2);
+        for &sib_id in &c_parent.children {
+            if sib_id == c || !selectable_in_hierarchy(doc, sib_id) {
+                continue;
+            }
+            let Some(sib) = doc.get(sib_id) else { continue };
+            if let Some(sibt) = is_never_renamed_text(sib) {
+                if sibt.style == st.style {
+                    let sib_pos = relative_pos_in_scope(doc, sib_id, c_root);
+                    let sib_dist = (sib_pos.x - s_pos.x).powi(2) + (sib_pos.y - s_pos.y).powi(2);
+                    if sib_dist < c_dist - 1e-4 {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    true
+}
+
+/// True when candidate `c` matches selected layer `s` across top-level containers
+/// (or variants within a component set).
+pub fn matches_layer_across_containers(doc: &Document, s: NodeId, c: NodeId) -> bool {
+    if s == c || !selectable_in_hierarchy(doc, c) {
+        return false;
+    }
+    let Some(cn) = doc.get(c) else { return false };
+    let Some(pm) = PreparedMatch::new(doc, s) else { return false };
+    matches_prepared(doc, &pm, c, cn)
+}
+
+fn walk_component_set_variants(doc: &Document, cs_node: &Node, selection: &[NodeId], prepared: &[PreparedMatch<'_>], out: &mut Vec<NodeId>) {
+    for &vid in &cs_node.children {
+        if let Some(vn) = doc.get(vid) {
+            if vn.visible && !vn.locked && matches!(vn.kind, NodeKind::Component(_)) {
+                walk_in_scope_root(doc, vid, 0, selection, prepared, out);
+            }
+        }
+    }
+}
+
+fn walk_component_sets_in(doc: &Document, parent: NodeId, selection: &[NodeId], prepared: &[PreparedMatch<'_>], out: &mut Vec<NodeId>) {
+    let Some(pn) = doc.get(parent) else { return };
+    for &cid in &pn.children {
+        let Some(n) = doc.get(cid) else { continue };
+        if !n.visible || n.locked {
+            continue;
+        }
+        if matches!(n.kind, NodeKind::ComponentSet(_)) {
+            walk_component_set_variants(doc, n, selection, prepared, out);
+        } else if !n.children.is_empty() {
+            walk_component_sets_in(doc, cid, selection, prepared, out);
+        }
+    }
+}
+
+fn walk_in_scope_root(doc: &Document, parent: NodeId, depth: usize, selection: &[NodeId], prepared: &[PreparedMatch<'_>], out: &mut Vec<NodeId>) {
+    let Some(pn) = doc.get(parent) else { return };
+    let check_here = prepared.iter().any(|pm| pm.path.len() == depth);
+    for &cid in &pn.children {
+        let Some(n) = doc.get(cid) else { continue };
+        if !n.visible || n.locked {
+            continue;
+        }
+        if check_here && !selection.contains(&cid) && prepared.iter().any(|pm| pm.path.len() == depth && matches_prepared(doc, pm, cid, n)) {
+            out.push(cid);
+        }
+        if matches!(n.kind, NodeKind::ComponentSet(_)) {
+            let eff = effective_matching_name(doc, n);
+            let check_variants_in_outer_scope =
+                prepared.iter().any(|pm| pm.path.len() == depth + 1 && pm.path.get(depth).is_some_and(|&(want, _)| want == eff));
+            for &vid in &n.children {
+                if let Some(vn) = doc.get(vid) {
+                    if vn.visible && !vn.locked {
+                        if check_variants_in_outer_scope
+                            && !selection.contains(&vid)
+                            && prepared.iter().any(|pm| pm.path.len() == depth + 1 && matches_prepared(doc, pm, vid, vn))
+                        {
+                            out.push(vid);
+                        }
+                        if matches!(vn.kind, NodeKind::Component(_)) {
+                            walk_in_scope_root(doc, vid, 0, selection, prepared, out);
+                        }
+                    }
+                }
+            }
+        } else if !n.children.is_empty() {
+            let eff = effective_matching_name(doc, n);
+            if prepared.iter().any(|pm| pm.path.get(depth).is_some_and(|&(want, _)| want == eff)) {
+                walk_in_scope_root(doc, cid, depth + 1, selection, prepared, out);
+            } else if prepared.iter().any(|pm| matches!(pm.scope, MatchScope::ComponentSet(_))) {
+                walk_component_sets_in(doc, cid, selection, prepared, out);
+            }
+        }
+    }
+}
+
+fn walk_matching_layers(doc: &Document, root: NodeId, selection: &[NodeId], prepared: &[PreparedMatch<'_>], out: &mut Vec<NodeId>) {
+    let Some(rn) = doc.get(root) else { return };
+    for &cid in &rn.children {
+        let Some(n) = doc.get(cid) else { continue };
+        if !n.visible || n.locked {
+            continue;
+        }
+        match n.kind {
+            NodeKind::Section => walk_matching_layers(doc, cid, selection, prepared, out),
+            NodeKind::ComponentSet(_) => walk_component_set_variants(doc, n, selection, prepared, out),
+            NodeKind::Frame(_) | NodeKind::Group | NodeKind::Instance { .. } => {
+                walk_in_scope_root(doc, cid, 0, selection, prepared, out);
+            }
+            _ => {
+                if !n.children.is_empty() {
+                    walk_component_sets_in(doc, cid, selection, prepared, out);
+                }
+            }
+        }
+    }
+}
+
+/// Finds all selectable layers on the active page of `selection` that match at least
+/// one layer in `selection` across containers, excluding layers already in `selection`.
+pub fn find_matching_layers(doc: &Document, selection: &[NodeId]) -> Vec<NodeId> {
+    let Some(&first) = selection.first() else { return Vec::new() };
+    let Some(page) = doc.page_of(first) else { return Vec::new() };
+    let prepared: Vec<PreparedMatch<'_>> = selection.iter().filter_map(|&s| PreparedMatch::new(doc, s)).collect();
+    if prepared.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    walk_matching_layers(doc, page, selection, &prepared, &mut out);
+    out
 }
 
 // -------------------------------------------------------- structural selection
@@ -1030,5 +1448,199 @@ mod tests {
         // Locked or hidden siblings are skipped.
         f.doc.get_mut(fr).unwrap().locked = true;
         assert_eq!(select_sibling(&f.doc, f.page, &[e], true), vec![b]);
+    }
+
+    #[test]
+    fn same_text_properties_and_variant() {
+        let mut f = Fx::new();
+        let t1 = f.text(f.page, "Heading 1");
+        let t2 = f.text(f.page, "Heading 2");
+        let t3 = f.text(f.page, "Subheading");
+        if let NodeKind::Text(tp) = &mut f.doc.get_mut(t3).unwrap().kind {
+            tp.style.letter_spacing = 2.0;
+        }
+        let mut got = select_matching(&f.doc, t1, MatchCriteria::TextProperties);
+        got.sort();
+        let mut want = vec![t1, t2];
+        want.sort();
+        assert_eq!(got, want);
+
+        let set_id = f.id();
+        let set = f.add(f.page, Node::new(set_id, NodeKind::ComponentSet(FrameProps::default())), "ButtonSet");
+        let v1_id = f.id();
+        let v1 = f.add(set, Node::new(v1_id, NodeKind::Component(FrameProps::default())), "Primary");
+        let v2_id = f.id();
+        let v2 = f.add(set, Node::new(v2_id, NodeKind::Component(FrameProps::default())), "Secondary");
+        let mk_inst = |f: &mut Fx, comp: NodeId, name: &str| {
+            let id = f.id();
+            let kind = NodeKind::Instance { frame: FrameProps::default(), component: Some(comp), component_key: None };
+            f.add(f.page, Node::new(id, kind), name)
+        };
+        let i_v1_a = mk_inst(&mut f, v1, "Button");
+        let i_v1_b = mk_inst(&mut f, v1, "Button");
+        let i_v2 = mk_inst(&mut f, v2, "Button");
+
+        assert!(can_select_same_instance(&f.doc, &[i_v1_a]));
+        assert!(can_select_same_variant(&f.doc, &[i_v1_a]));
+        assert!(!can_select_same_instance(&f.doc, &[v1]));
+
+        let mut same_inst = select_matching(&f.doc, i_v1_a, MatchCriteria::Instance);
+        same_inst.sort();
+        let mut want_inst = vec![i_v1_a, i_v1_b];
+        want_inst.sort();
+        assert_eq!(same_inst, want_inst);
+
+        let mut same_var = select_matching(&f.doc, i_v1_a, MatchCriteria::Variant);
+        same_var.sort();
+        let mut want_var = vec![i_v1_a, i_v1_b, i_v2];
+        want_var.sort();
+        assert_eq!(same_var, want_var);
+    }
+
+    #[test]
+    fn find_matching_layers_matches_hierarchy_and_unnamed_text_by_style_and_position() {
+        let mut f = Fx::new();
+        let fa = f.frame(f.page, "Frame A");
+        let fb = f.frame(f.page, "Frame B");
+        let ca = f.frame(fa, "Card");
+        let cb = f.frame(fb, "Card");
+        let r_a = f.rect(ca, "Badge", Color::rgb(255, 0, 0));
+        let r_b = f.rect(cb, "Badge", Color::rgb(0, 0, 255));
+        assert_eq!(find_matching_layers(&f.doc, &[r_a]), vec![r_b]);
+
+        let t_a = f.text(ca, "Alice");
+        let t_b = f.text(cb, "Bob");
+        assert_eq!(find_matching_layers(&f.doc, &[t_a]), vec![t_b]);
+    }
+
+    #[test]
+    fn matching_layers_respects_sibling_index_nearest_text_override_names_and_symmetric_sections() {
+        let mut f = Fx::new();
+        let fa = f.frame(f.page, "Frame A");
+        let fb = f.frame(f.page, "Frame B");
+        let ca = f.frame(fa, "Card");
+        let cb = f.frame(fb, "Card");
+
+        // Same-named sibling index tie-break: second Badge matches only second Badge.
+        let r_a0 = f.rect(ca, "Badge", Color::rgb(255, 0, 0));
+        let r_a1 = f.rect(ca, "Badge", Color::rgb(255, 128, 0));
+        let r_b0 = f.rect(cb, "Badge", Color::rgb(0, 0, 255));
+        let r_b1 = f.rect(cb, "Badge", Color::rgb(0, 128, 255));
+        assert_eq!(find_matching_layers(&f.doc, &[r_a0]), vec![r_b0]);
+        assert_eq!(find_matching_layers(&f.doc, &[r_a1]), vec![r_b1]);
+
+        // Never-renamed text layers with the same style break ties by nearest relative location.
+        let t_a_top = f.text(ca, "First");
+        f.doc.get_mut(t_a_top).unwrap().transform = Affine::translate(10.0, 10.0);
+        let t_a_bot = f.text(ca, "Second");
+        f.doc.get_mut(t_a_bot).unwrap().transform = Affine::translate(10.0, 120.0);
+        let t_b_top = f.text(cb, "One");
+        f.doc.get_mut(t_b_top).unwrap().transform = Affine::translate(10.0, 12.0);
+        let t_b_bot = f.text(cb, "Two");
+        f.doc.get_mut(t_b_bot).unwrap().transform = Affine::translate(10.0, 118.0);
+        assert_eq!(find_matching_layers(&f.doc, &[t_a_top]), vec![t_b_top]);
+        assert_eq!(find_matching_layers(&f.doc, &[t_a_bot]), vec![t_b_bot]);
+
+        // Instance override rename is ignored when matching across containers.
+        let comp_id = f.id();
+        let comp = f.add(f.page, Node::new(comp_id, NodeKind::Component(FrameProps::default())), "ActionBtn");
+        let inst_a_id = f.id();
+        let inst_a =
+            f.add(ca, Node::new(inst_a_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp), component_key: None }), "RenamedInA");
+        f.doc.get_mut(inst_a).unwrap().component.overrides.insert(OverrideField::Name);
+        let inst_b_id = f.id();
+        let inst_b =
+            f.add(cb, Node::new(inst_b_id, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp), component_key: None }), "ActionBtn");
+        assert_eq!(find_matching_layers(&f.doc, &[inst_a]), vec![inst_b]);
+
+        // Section scope is symmetric: page frames and section frames do not match each other.
+        let sec_id = f.id();
+        let mut sec_node = Node::frame(sec_id, Rect::new(0.0, 500.0, 400.0, 400.0));
+        sec_node.kind = NodeKind::Section;
+        let sec = f.add(f.page, sec_node, "Sec");
+        let fs1 = f.frame(sec, "Sec Frame 1");
+        let fs2 = f.frame(sec, "Sec Frame 2");
+        let cs1 = f.frame(fs1, "Card");
+        let cs2 = f.frame(fs2, "Card");
+        let r_s1 = f.rect(cs1, "Badge", Color::rgb(10, 20, 30));
+        let r_s2 = f.rect(cs2, "Badge", Color::rgb(40, 50, 60));
+        assert_eq!(find_matching_layers(&f.doc, &[r_s1]), vec![r_s2]);
+        assert_eq!(find_matching_layers(&f.doc, &[r_a0]), vec![r_b0]);
+    }
+
+    #[test]
+    fn find_matching_layers_equals_brute_force_oracle_across_top_level_instances_and_nested_component_sets() {
+        let mut f = Fx::new();
+        let fa = f.frame(f.page, "Frame A");
+        let fb = f.frame(f.page, "Frame B");
+        let ca = f.frame(fa, "Card");
+        let cb = f.frame(fb, "Card");
+        let _r_a0 = f.rect(ca, "Badge", Color::rgb(255, 0, 0));
+        let _r_b0 = f.rect(cb, "Badge", Color::rgb(0, 0, 255));
+
+        // Top-level component instances on the page and inside a section act as matching scope roots.
+        let comp_id = f.id();
+        let main_comp = f.add(f.page, Node::new(comp_id, NodeKind::Component(FrameProps::default())), "ButtonMain");
+        let _main_lbl = f.text(main_comp, "Label");
+        let mk_inst = |f: &mut Fx, parent: NodeId, comp: NodeId, name: &str| -> (NodeId, NodeId) {
+            let iid = f.id();
+            let inst = f.add(parent, Node::new(iid, NodeKind::Instance { frame: FrameProps::default(), component: Some(comp), component_key: None }), name);
+            let lid = f.id();
+            let mut lnode = Node::text(lid, Rect::new(8.0, 4.0, 60.0, 20.0), "OK", TextStyle::default());
+            lnode.name = "Label".into();
+            let lbl = f.add(inst, lnode, "Label");
+            (inst, lbl)
+        };
+        let page = f.page;
+        let (top_inst_a, top_inst_a_lbl) = mk_inst(&mut f, page, main_comp, "TopInstA");
+        let (_top_inst_b, top_inst_b_lbl) = mk_inst(&mut f, page, main_comp, "TopInstB");
+        assert_eq!(matching_scope_of(&f.doc, top_inst_a_lbl), Some((MatchScope::Page(page), top_inst_a)));
+        assert_eq!(find_matching_layers(&f.doc, &[top_inst_a_lbl]), vec![top_inst_b_lbl]);
+
+        let sec_id = f.id();
+        let mut sec_node = Node::frame(sec_id, Rect::new(0.0, 400.0, 400.0, 300.0));
+        sec_node.kind = NodeKind::Section;
+        let sec = f.add(f.page, sec_node, "Sec");
+        let (sec_inst_a, sec_inst_a_lbl) = mk_inst(&mut f, sec, main_comp, "SecInstA");
+        let (_sec_inst_b, sec_inst_b_lbl) = mk_inst(&mut f, sec, main_comp, "SecInstB");
+        assert_eq!(matching_scope_of(&f.doc, sec_inst_a_lbl), Some((MatchScope::Section(sec), sec_inst_a)));
+        assert_eq!(find_matching_layers(&f.doc, &[sec_inst_a_lbl]), vec![sec_inst_b_lbl]);
+
+        // Component sets inside a frame, inside a group, and inside a nested section are reached and walked from depth 0.
+        let mk_nested_set = |f: &mut Fx, parent: NodeId, set_name: &str, child_name: &str| -> (NodeId, NodeId) {
+            let sid = f.id();
+            let set = f.add(parent, Node::new(sid, NodeKind::ComponentSet(FrameProps::default())), set_name);
+            let v1_id = f.id();
+            let v1 = f.add(set, Node::new(v1_id, NodeKind::Component(FrameProps::default())), "State=Default");
+            let v2_id = f.id();
+            let v2 = f.add(set, Node::new(v2_id, NodeKind::Component(FrameProps::default())), "State=Hover");
+            let c1 = f.rect(v1, child_name, Color::rgb(10, 20, 30));
+            let c2 = f.rect(v2, child_name, Color::rgb(40, 50, 60));
+            (c1, c2)
+        };
+        let (frame_icon_1, frame_icon_2) = mk_nested_set(&mut f, fa, "FramedSet", "Icon");
+        assert_eq!(find_matching_layers(&f.doc, &[frame_icon_1]), vec![frame_icon_2]);
+
+        let grp_id = f.id();
+        let grp = f.add(fa, Node::new(grp_id, NodeKind::Group), "InnerGroup");
+        let (grp_icon_1, grp_icon_2) = mk_nested_set(&mut f, grp, "GroupedSet", "Glyph");
+        assert_eq!(find_matching_layers(&f.doc, &[grp_icon_1]), vec![grp_icon_2]);
+
+        let nsec_id = f.id();
+        let mut nsec_node = Node::frame(nsec_id, Rect::new(0.0, 0.0, 200.0, 200.0));
+        nsec_node.kind = NodeKind::Section;
+        let nsec = f.add(fb, nsec_node, "NestedSection");
+        let (nsec_icon_1, nsec_icon_2) = mk_nested_set(&mut f, nsec, "SectionedSet", "VectorMark");
+        assert_eq!(find_matching_layers(&f.doc, &[nsec_icon_1]), vec![nsec_icon_2]);
+
+        // Brute-force oracle across every node on the page.
+        let all_page_nodes = scope_nodes(&f.doc, &Scope::Page(f.page));
+        for &id in &all_page_nodes {
+            let mut got = find_matching_layers(&f.doc, &[id]);
+            got.sort();
+            let mut oracle: Vec<NodeId> = all_page_nodes.iter().copied().filter(|&c| c != id && matches_layer_across_containers(&f.doc, id, c)).collect();
+            oracle.sort();
+            assert_eq!(got, oracle, "oracle mismatch for selected node {:?} ({:?})", id, f.doc.get(id).map(|n| (&n.name, &n.kind)));
+        }
     }
 }
