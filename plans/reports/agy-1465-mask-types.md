@@ -375,7 +375,7 @@ dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
 | `FACT` | Setting `designos_render::LUMINANCE_MASK_COEFFS` to Rec. 601 `[0.299, 0.587, 0.114]` does not panic in `Pipelines::new` and instead changes GPU luminance output, failing `gpu_vector_mask_outlines_and_rgb_luminance_match_cpu` with `gpu pure red: expected 54, got 76` | [`r3-rec601-red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-rec601-red.log) |
 | `FACT` | All 5 Round 2 surviving mutants (`N4`, `N8`, `N9`, `N11`, `N15`) plus `N16` (`.fig` `symbolOverrides` `isMaskOutline`) and `N17` (`take(128)` Mask section bound) are killed after `M0-null-control` passes (`25/25` non-equivalent mutants killed; `N2` is equivalent because `fig_export.rs` falls through to `n.fig_metadata`) | [`r3-mutants.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-mutants.log) |
 | `FACT` | The per-frame right-inspector header scan (`properties.rs:854`) and `Mask` section scan (`properties.rs:1043`) are bounded with `.take(128)`, and the full `masks` vector is collected only inside `if let Some(i) = dropdown(...)` when an option is chosen | [`properties.rs:854`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L854), [`properties.rs:1043-1058`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L1043-L1058), killed mutant `N17-mask-section-unbounded-scan` |
-| `FACT` | The regenerated CPU/GPU per-type proof sheet on `HEAD` (`r3-proof-sheet-cpu-gpu-per-type.png`) and probe log (`r3-probe-log.txt`) have `0` pixels difference (`ImageChops.difference` bbox `None`) and `0` lines diff against Round 2 (`proof-sheet-r2-cpu-gpu-per-type.png` and `head-r2-probe-log.txt`) | [`r3-proof-sheet-cpu-gpu-per-type.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png), [`r3-probe-log.txt`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-probe-log.txt) |
+| `FACT` | The regenerated CPU/GPU per-type proof sheet on `HEAD` (`r3-proof-sheet-cpu-gpu-per-type.png`, `1266 × 1842`) and probe log (`r3-probe-log.txt`, `76` lines) have `0` pixels difference (`proof_sheet_diff_bbox=None differing_pixels=0`) and `0` lines diff (`probe_log_diff_exit=0 diff_lines=0`) against Round 2 (`proof-sheet-r2-cpu-gpu-per-type.png` and `head-r2-probe-log.txt`) | [`r4-proof-sheet-diff.log:1-6`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-proof-sheet-diff.log#L1-L6), [`r3-proof-sheet-cpu-gpu-per-type.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png), [`r3-probe-log.txt:1-76`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-probe-log.txt#L1-L76) |
 | `ASSUMPTION` | Bounding the per-frame inspector `Mask` section and header scan to the first `128` selected nodes matches the existing `common` helper (`take(128)`) while full-selection edits on dropdown selection apply to all selected masks | Ruling 3 (`brief-agy-1465-r3.txt`) |
 | `UNKNOWN` | Figma's exact rendering for `Q1` (non-clipping frame with overflowing child inside a Vector group mask), `Q2` (nested mask inside a Vector group mask), and `Q3` (strokes on a Vector mask) | Deferred per Ruling 5 (`brief-agy-1465-r3.txt`) |
 
@@ -386,36 +386,36 @@ dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
 1. **Ruling 1 (Ruling 4 done for real — `crates/designos-gpu/src/shaders/composite.wgsl`, `crates/designos-gpu/src/pipelines.rs`, `crates/designos-render/tests/mask_without_own_fill.rs`):**
    - Replaced the hardcoded literal in [`crates/designos-gpu/src/shaders/composite.wgsl:193`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu/src/shaders/composite.wgsl#L193) with `let m = dot(aux.rgb, LUMINANCE_MASK_COEFFS);`.
    - Updated [`composite_shader_source()`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu/src/pipelines.rs#L241-L245) in `crates/designos-gpu/src/pipelines.rs` to replace `"LUMINANCE_MASK_COEFFS"` with `&format!("vec3<f32>({r:?}, {g:?}, {b:?})")` from `designos_render::LUMINANCE_MASK_COEFFS`, with no `assert!` in `Pipelines::new` or `composite_shader_source()`.
-   - Added unit test [`pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu/src/pipelines.rs#L273-L289) verifying that the raw shader template contains `"LUMINANCE_MASK_COEFFS"`, the processed source has no `"LUMINANCE_MASK_COEFFS"` token left, and the processed source contains `vec3<f32>(0.2126, 0.7152, 0.0722)`.
+   - Added unit test [`pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu/src/pipelines.rs#L373-L382) verifying that the raw shader template contains `"dot(aux.rgb, LUMINANCE_MASK_COEFFS)"` (`pipelines.rs:376`), the processed source has no `"LUMINANCE_MASK_COEFFS"` token left (`pipelines.rs:378`), and the processed source formats `let [r, g, b] = designos_render::LUMINANCE_MASK_COEFFS;` (`crates/designos-render/src/mask.rs:12`) via `let expected = format!("vec3<f32>({r:?}, {g:?}, {b:?})");` (`pipelines.rs:379-381`; mutant failure message `vec3<f32>(0.2126, 0.7152, 0.0722)` in `r3-mutants.log:40`).
    - Removed the `wgsl.contains` and `pipelines_rs.contains` source greps from `luminance_mask_rgb_channels_and_shader_coefficients_match_rec709` in [`crates/designos-render/tests/mask_without_own_fill.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render/tests/mask_without_own_fill.rs#L427-L429).
 
 2. **Ruling 2 (`m3` — Kill Surviving Mutants `N4`, `N8`, `N9`, `N11`, `N15`):**
    - **`N4` (REST & `.fig` symbol overrides with `isMaskOutline`):** Extended `legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector` in [`crates/designos-fig/tests/fig_roundtrip.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig/tests/fig_roundtrip.rs#L4193-L4272) with a REST `COMPONENT` + `INSTANCE` carrying `_overrides: [{"path": ["1:11"], "set": {"isMaskOutline": true}}]` (kills `N4`) and a `.fig` `SYMBOL` + `INSTANCE` carrying `symbolOverrides: [{"guidPath": {"guids": [g(1, 11)]}, "isMaskOutline": true}]`, and updated `convert_override` in [`crates/designos-fig/src/fig.rs:2195`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig/src/fig.rs#L2195) to forward `"isMaskOutline"` alongside `"maskType"` (kills `N16`).
    - **`N8` (`MaskType::Vector` `BooleanOp` keeps its operands):** Added a 0%-fill `BooleanOp::Union` `MaskType::Vector` mask case to `vector_mask_uses_own_outline_for_shape_frame_group_and_text` in [`crates/designos-render/tests/mask_without_own_fill.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render/tests/mask_without_own_fill.rs#L397-L423) and `gpu_vector_mask_outlines_and_rgb_luminance_match_cpu` in [`crates/designos-gpu/tests/mask_without_own_fill.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu/tests/mask_without_own_fill.rs#L569-L598).
-   - **`N9` (Hidden nested `Group` inside a `MaskType::Vector` group mask):** Added a hidden nested `Group` (`visible = false`) containing a visible rectangle at `(5, 45, 25, 25)` inside the `Group` mask case in both [`crates/designos-render/tests/mask_without_own_fill.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render/tests/mask_without_own_fill.rs#L343-L361) and [`crates/designos-gpu/tests/mask_without_own_fill.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu/tests/mask_without_own_fill.rs#L533-L552), asserting `(15, 55)` stays unrevealed (`[255, 255, 255, 255]`).
-   - **`N11` (Dropdown label reads mask layers only):** In `mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle` in [`crates/designos-app/src/panels/properties.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L2981-L2992), after setting `[m1 (Luminance mask), plain (non-mask, Alpha)]` and opening the `"mask-type"` dropdown, asserted that `test_rect(&ctx, "menu-check-0-2")` (`Luminance` checkmark) is positive (whereas under `N11`, `common(app, sel, ...)` yields `None` -> `"Mixed"` and `"menu-check-0-2"` is `Rect::NOTHING`).
+   - **`N9` (Hidden nested `Group` inside a `MaskType::Vector` group mask):** Added a hidden nested `Group` (`visible = false`) containing a visible rectangle inside the `Group` mask case in both [`crates/designos-render/tests/mask_without_own_fill.rs:361-380`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render/tests/mask_without_own_fill.rs#L361-L380) (`Rect::new(0.0, 60.0, 30.0, 30.0)` at `:368`, asserting `px(&pm, 15, 75) == WHITE` at `:380`) and [`crates/designos-gpu/tests/mask_without_own_fill.rs:555-570`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu/tests/mask_without_own_fill.rs#L555-L570) (`Rect::new(0.0, 50.0, 30.0, 30.0)` at `:562`, asserting `px(&c.gpu, 15, 65) == [255, 255, 255, 255]` at `:570`).
+   - **`N11` (Dropdown label reads mask layers only):** In `mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle` in [`crates/designos-app/src/panels/properties.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L3067-L3070), after setting `[m1 (Luminance mask), plain (non-mask, Alpha)]` and opening the `"mask-type"` dropdown, asserted that `test_rect(&ctx, "menu-check-0-2")` (`Luminance` checkmark) is positive (whereas under `N11`, `common(app, sel, ...)` yields `None` -> `"Mixed"` and `"menu-check-0-2"` is `Rect::NOTHING`).
    - **`N15` (`⌃⌥⌘M` does not toggle):** In `use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos` in [`crates/designos-app/src/shell/tests.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/shell/tests.rs#L1943-L1953), dispatched `Key::M` with `Modifiers { alt: true, ctrl: true, mac_cmd: true, command: true, .. }` (`⌃⌥⌘M`) and asserted `!app.doc.get(r).unwrap().is_mask`.
 
 3. **Ruling 3 (`m5` — Bound Per-Frame Inspector Scan in `crates/designos-app/src/panels/properties.rs`):**
    - Bounded the header `all_mask` check at [`properties.rs:854`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L854) to `sel.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask))`.
    - Bounded the per-frame `Mask` section filter at [`properties.rs:1043`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L1043) to `let masks: Vec<NodeId> = sel.iter().take(128).copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();`, and collected the full `masks` list (`sel.iter().copied().filter(...)`) only inside `if let Some(i) = dropdown(...)` when the user selects a mask type.
-   - Added a 129-node selection assertion (`128` non-masks followed by `m1` at index `128`) in `mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle` verifying that the `Mask` section does not scan beyond index `127` per frame (kills `N17`).
+   - Added a 129-node selection assertion (`128` non-masks followed by `m1` at index `128`) in `mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle` (`properties.rs:3091-3108`) verifying that the `Mask` section does not scan beyond index `127` per frame (kills `N17`).
 
 ### 5. Red Runs, Rec. 601 Red Check, and Full Mutant Sweep
 
 1. **Red on `0d652a1e` (`r3-red-on-0d652a1e.log`) vs Green on `HEAD` (`r3-green-on-head.log`):**
-   - The 3 new tests for code modified in Round 3 (`pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant`, the `.fig` `symbolOverrides` `isMaskOutline` check in `legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector`, and the `take(128)` bound check in `mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle`) failed on `0d652a1e` production code and passed on `HEAD`; the 5 tests for `N4`, `N8`, `N9`, `N11`, `N15` (where `0d652a1e` production code already implemented the rule) were verified red against their corresponding mutants in `r3-mutants.log`:
+   - The 3 new tests for code modified in Round 3 (`pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant`, the `.fig` `symbolOverrides` `isMaskOutline` check in `legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector`, and the `take(128)` bound check in `mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle`) failed on `0d652a1e` production code (`r3-red-on-0d652a1e.log:8-76`) and passed on `HEAD` (`r3-green-on-head.log:11,24,90`); the 5 tests for `N4`, `N8`, `N9`, `N11`, `N15` (where `0d652a1e` production code already implemented the rule) were verified red against their corresponding mutants in `r3-mutants.log`:
 ```text
 === RED RUN ON 0d652a1e PRODUCTION CODE ===
 running 1 test
 test pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant ... FAILED
-thread 'pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant' panicked at crates/designos-gpu/src/pipelines.rs:281:9:
+thread 'pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant' (63070634) panicked at crates/designos-gpu/src/pipelines.rs:379:9:
 composite.wgsl must hold the LUMINANCE_MASK_COEFFS token
 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
 
 running 1 test
 test legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector ... FAILED
-thread 'legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector' panicked at crates/designos-fig/tests/fig_roundtrip.rs:4272:5:
+thread 'legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector' (63071332) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4272:5:
 assertion `left == right` failed: .fig symbolOverrides with isMaskOutline: true must map to MaskType::Vector
   left: Alpha
  right: Vector
@@ -423,9 +423,9 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out;
 
 running 1 test
 test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... FAILED
-thread 'panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle' panicked at crates/designos-app/src/panels/properties.rs:3042:9:
+thread 'panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle' (63073731) panicked at crates/designos-app/src/panels/properties.rs:3105:9:
 Mask section per-frame scan must be bounded to take(128) and not scan beyond index 127
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4040 filtered out; finished in 0.35s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4040 filtered out; finished in 0.04s
 ```
 
 2. **Ruling 1 Rec. 601 Red Check ([`r3-rec601-red.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-rec601-red.log)):**
@@ -476,15 +476,17 @@ N17-mask-section-unbounded-scan: KILLED ['Mask section per-frame scan must be bo
 
 ### 6. Proof Sheet Regeneration on `HEAD` (Acceptance 2)
 
-Regenerated the 8-row × 3-type (`Alpha` / `Vector` / `Luminance`) + committed fixture CPU/GPU proof sheet on `HEAD` using `review_probe_1492_r2.rs` and `make_sheet_r2.py`:
-- **Saved artifact:** [`plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png) (`1266 × 1842`)
-- **Saved probe log:** [`plans/reports/agy-1465-mask-types-evidence/r3-probe-log.txt`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-probe-log.txt) (`76` lines)
-- **Comparison against Round 2:**
+Regenerated the 8-row × 3-type (`Alpha` / `Vector` / `Luminance`) + committed fixture CPU/GPU proof sheet on `HEAD`:
+- **Saved artifact:** [`plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png) (`1266 × 1842`, `r4-proof-sheet-diff.log:1`)
+- **Saved probe log:** [`plans/reports/agy-1465-mask-types-evidence/r3-probe-log.txt`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-probe-log.txt) (`76` lines, ending at `fixture-mask-types`, `r3-probe-log.txt:1-76`, `r4-proof-sheet-diff.log:4`)
+- **Comparison against Round 2 ([`r4-proof-sheet-diff.log:1-6`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-proof-sheet-diff.log#L1-L6)):**
 ```text
-wrote plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png (1266, 1842)
-diff bbox against round-2 proof sheet: None
-=== PROBE LOG DIFF ===
-PROBE LOG IDENTICAL TO ROUND 2 (0 lines diff)
+r3_proof_sheet_path=plans/reports/agy-1465-mask-types-evidence/r3-proof-sheet-cpu-gpu-per-type.png size=(1266, 1842)
+r2_proof_sheet_path=/Users/jangtrinh/Products/design-os-studio/plans/reports/code-reviewer-261101-1900-pr-1492-r2-evidence/proof-sheet-r2-cpu-gpu-per-type.png size=(1266, 1842)
+proof_sheet_diff_bbox=None differing_pixels=0
+r3_probe_log_path=plans/reports/agy-1465-mask-types-evidence/r3-probe-log.txt lines=76
+r2_probe_log_path=/Users/jangtrinh/Products/design-os-studio/plans/reports/code-reviewer-261101-1900-pr-1492-r2-evidence/head-r2-probe-log.txt lines=76
+probe_log_diff_exit=0 diff_lines=0
 ```
 
 ### 7. Exact Gate Commands & Pasted Outputs (Acceptance 3)
@@ -546,20 +548,20 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 Total across designos-gpu: 80 passed; 0 failed; 0 ignored; 1 filtered out.
 ```
 
-4. **`cargo test -p designos-render --locked` ([`r3-cargo-test-render.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-cargo-test-render.log)):**
+4. **`cargo test -p designos-render --locked` ([`r3-cargo-test-render.log:5,67,300,316`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-cargo-test-render.log#L5)):**
 ```text
      Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-9b14b2798b267e2b)
-test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.95s
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 34.30s
      Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-0f3196e55216fa9f)
 test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
      (... 24 integration test binaries total in designos-render ...)
 Total across designos-render: 279 passed; 0 failed; 5 ignored.
 ```
 
-5. **`cargo test -p designos-fig --locked` ([`r3-cargo-test-fig.log`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-cargo-test-fig.log)):**
+5. **`cargo test -p designos-fig --locked` ([`r3-cargo-test-fig.log:6,153,365,410`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-cargo-test-fig.log#L6)):**
 ```text
-     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-861945a6becd4004)
-test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.42s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-fccf9acfc4106716)
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.31s
      Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-ab37cec47eaf5b06)
 test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
      (... 37 integration test binaries total in designos-fig ...)
@@ -629,7 +631,7 @@ dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
 | # | Acceptance Criterion | Evidence | Verdict |
 |---|---|---|---|
 | 1 | Each new test red on `0d652a1e` (or against its target mutant), green on `HEAD`; `N4`, `N8`, `N9`, `N11`, `N15` killed, null control first | `r3-red-on-0d652a1e.log`, `r3-rec601-red.log` (`gpu pure red: expected 54, got 76`), `r3-green-on-head.log`, `r3-mutants.log` (`M0-null-control: PASS`, `25/25` non-equivalent mutants killed including `N4`, `N8`, `N9`, `N11`, `N15`, `N16`, `N17`) | **PASS** |
-| 2 | CPU/GPU per-type proof sheet regenerated on `HEAD`, unchanged against Round 2 | `r3-proof-sheet-cpu-gpu-per-type.png` (`0` px diff against Round 2 proof sheet), `r3-probe-log.txt` (`0` lines diff against Round 2 probe log) | **PASS** |
+| 2 | CPU/GPU per-type proof sheet regenerated on `HEAD`, unchanged against Round 2 | `r3-proof-sheet-cpu-gpu-per-type.png` (`1266 × 1842`), `r3-probe-log.txt` (`76` lines), `r4-proof-sheet-diff.log:1-6` (`proof_sheet_diff_bbox=None differing_pixels=0`, `probe_log_diff_exit=0 diff_lines=0`) | **PASS** |
 | 3 | Gates: `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --locked --keep-going -- -D warnings` (only main's 2 `agent_permissions.rs` lints); `cargo test -p designos-gpu --locked -- --skip large_file_perf`; `cargo test -p designos-render --locked`; `cargo test -p designos-fig --locked`; `cargo test --workspace --locked --lib` | `r3-cargo-fmt.log` (`exit=0`), `r3-cargo-clippy.log`, `r3-cargo-test-gpu.log` (`80 passed; 0 failed`), `r3-cargo-test-render.log` (`279 passed; 0 failed`), `r3-cargo-test-fig.log` (`493 passed; 0 failed`), `r3-cargo-test-workspace-lib.log` (`1,479 passed; 0 failed`), `r3-cargo-test-app-mask.log` (`6 passed; 0 failed`), `r3-zero-fake-ui.log` (`17/17 PASS`) | **PASS** |
 | 4 | Pushed; PR body updated; paste `git log --oneline origin/main..HEAD` | Pasted in §7.9 above; PR #1492 body updated via `gh pr edit 1492` | **PASS** |
 
@@ -641,5 +643,276 @@ dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
   1. **Q1:** When a `MaskType::Vector` group holds a non-clipping frame (`clips_content == false`) whose child overflows the frame box, should the overflowing child's outline be included in the group stencil?
   2. **Q2:** When a `MaskType::Vector` group contains a nested mask, should the nested mask clip its sibling descendants within the group or be unioned like other children?
   3. **Q3:** Should stroke geometry count toward `MaskType::Vector` coverage (e.g., on `Line` or open vector paths)?
+
+---
+
+## Round 4
+
+### 1. What Could NOT Be Verified
+
+1. **Interactive Desktop Window / Live OS Menu Bar Capture:**
+   - Not executed in Round 4; no interactive window capture was required by `brief-agy-1465-r4.txt`, and both `selection_shows_all_mask` and `toggle_mask_selection` were verified through headless `designos-app` unit tests (`r4-cargo-test-app-mask.log:7-19`) plus the terminal render PNG (`r4-red-to-green-terminal.png`).
+2. **Full `designos-app` 4,059-Test Binary Suite:**
+   - Only the 8 `mask`-filtered binary unit tests in `designos-app` (`8 passed; 0 failed; 0 ignored; 0 measured; 4051 filtered out`, `r4-cargo-test-app-mask.log:19`) and the 12-crate `cargo test --workspace --locked --lib` suite (`1,490 passed; 0 failed; 3 ignored`, `r4-cargo-test-workspace-lib.log:101,823,830,995,1144,1180,1191,1234,1562,1626,1633,1647`) were executed per Acceptance 2 of `brief-agy-1465-r4.txt`.
+3. **Deferred Items (`m6`, `L1`, `L2`, `L3`, `Q1`–`Q3`):**
+   - Left unchanged per Ruling 4 of `brief-agy-1465-r4.txt` (filed as `#1506`).
+
+### 2. Conclusion & Skills Loaded
+
+- **Conclusion:** All Round 4 rulings (`Rulings 1–4` in `brief-agy-1465-r4.txt`) are implemented and verified on top of merge commit `4d288316` (`r4-git-log.log:2`): one shared `pub(crate) fn selection_shows_all_mask(app: &App) -> bool` (`crates/designos-app/src/panels/menus.rs:145-147`) now drives the properties header mask button (`crates/designos-app/src/panels/properties.rs:854`), the Object menu `Use as mask` `.on(...)` flag (`crates/designos-app/src/panels/menus.rs:503,511`), and `toggle_mask_selection` (`crates/designos-app/src/panels/menus.rs:151-155`), while keeping the `take(128)` per-frame `Mask` section scan (`crates/designos-app/src/panels/properties.rs:1043`) and full mask-id collection inside the dropdown pick handler (`crates/designos-app/src/panels/properties.rs:1054`). All 7 Round 3 report citation discrepancies identified in `grok-261102-0750-pr-1492-r3.md` are corrected and backed by `r4-proof-sheet-diff.log:1-6`.
+- **Skills Loaded & What Changed Because of Them:**
+  - **`/es:dev` & `es:feature-dev`:** Treated `brief-agy-1465-r4.txt` as the approved DEV plan without re-entering brainstorm/plan approval, and kept file modifications strictly within the allowed list (`crates/designos-app/src/panels/menus.rs`, `crates/designos-app/src/panels/properties.rs`, their tests, report, and evidence).
+  - **`/es:rust` & `/es:rust-gpu-canvas`:** Preserved the O(1)-bounded `.take(128)` iterator check in `selection_shows_all_mask` (`crates/designos-app/src/panels/menus.rs:146`) and `properties.rs:1043` so neither the properties header nor the Object menu allocates or scans past index `127` on large selections, while `toggle_mask_selection` (`crates/designos-app/src/panels/menus.rs:151-155`) and the dropdown pick handler (`crates/designos-app/src/panels/properties.rs:1054`) apply edits across the full selection on user click.
+  - **`es:fable-thinking` & `es:astra-work`:** Verified both new tests (`selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask` and `selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected`) red on `4d288316` (`r4-red-on-4d288316.log:353-382`) and green on `HEAD` (`r4-green-on-head.log:9-19`), ran the green null control (`M0-null-control`, `r4-mutants.log:4-19`) before killing the `.any(!is_mask)` toggle mutant (`N18-toggle-full-any-unmasked`, `r4-mutants.log:20-47`), visually inspected `r4-red-to-green-terminal.png` and widened it from `1360` px to `1520` px so right-margin panic line numbers (`menus.rs:1314:9:`, `:1353:9:`, `:1320:9:`) were not clipped, and audited every figure in Round 3 and Round 4 against its exact `(file:line)` or `(log-file:line)` citation.
+
+### 3. Epistemic Ledger & Weakest Link
+
+| Kind | Statement | Basis |
+|---|---|---|
+| `FACT` | `selection_shows_all_mask(app: &App) -> bool` returns `!app.selection.is_empty() && app.selection.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask))` and is called by the properties header (`properties.rs:854`), Object menu `Use as mask` row (`menus.rs:503,511`), and `toggle_mask_selection` (`menus.rs:151-155`) | [`crates/designos-app/src/panels/menus.rs:145-155`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L145-L155), [`crates/designos-app/src/panels/menus.rs:503-511`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L503-L511), [`crates/designos-app/src/panels/properties.rs:854-864`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L854-L864) |
+| `FACT` | On `4d288316` predicates (`properties.rs:854` `take(128).all` without `!is_empty()`, `menus.rs:496` full `.all`, `menus.rs:146` full `.any(!is_mask)`), both new tests fail at runtime (`6 passed; 2 failed`): `selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask` panics at `crates/designos-app/src/panels/menus.rs:1314:9` (`left: false`, `right: true`) and `selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected` panics at `crates/designos-app/src/panels/menus.rs:1353:9` (`empty selection must not report all-mask`) | [`r4-red-on-4d288316.log:352-382`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-red-on-4d288316.log#L352-L382) |
+| `FACT` | On `HEAD` (`155e9209`), all 8 `mask` tests in `designos-app` pass (`8 passed; 0 failed; 0 ignored; 0 measured; 4051 filtered out; finished in 0.40s`) | [`r4-green-on-head.log:9-19`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-green-on-head.log#L9-L19), [`r4-cargo-test-app-mask.log:9-19`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-cargo-test-app-mask.log#L9-L19) |
+| `FACT` | After `M0-null-control` passes (`8 passed; 0 failed`, `exit=0`), mutating `toggle_mask_selection` back to the full `.any(!is_mask)` (`N18-toggle-full-any-unmasked`) is killed (`7 passed; 1 failed`, `exit=101`) at `crates/designos-app/src/panels/menus.rs:1320:9` (`node 0 unmasked after toggle_mask_selection`) | [`r4-mutants.log:4-47`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-mutants.log#L4-L47) |
+| `FACT` | `r3-proof-sheet-cpu-gpu-per-type.png` (`(1266, 1842)`) has `proof_sheet_diff_bbox=None differing_pixels=0` against Round 2's `proof-sheet-r2-cpu-gpu-per-type.png` (`(1266, 1842)`), and `r3-probe-log.txt` (`76` lines) has `probe_log_diff_exit=0 diff_lines=0` against Round 2's `head-r2-probe-log.txt` (`76` lines) | [`r4-proof-sheet-diff.log:1-6`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-proof-sheet-diff.log#L1-L6) |
+| `ASSUMPTION` | Evaluating `selection_shows_all_mask` over the first `128` selected layers (`take(128)`) while applying `toggle_mask_selection` (`is_mask = !selection_shows_all_mask(app)`) to the entire selection matches the decided Ruling 1 contract | Ruling 1 (`brief-agy-1465-r4.txt:10`) |
+| `UNKNOWN` | Figma ground truth for `Q1`–`Q3` (`m6`, `L1`, `L2`, `L3`, `Q1`–`Q3` tracked in `#1506`) | Ruling 4 (`brief-agy-1465-r4.txt:13`) |
+
+- **Weakest Link:** When `> 128` layers are selected, `selection_shows_all_mask` inspects only the first `128` selected layers (`crates/designos-app/src/panels/menus.rs:146`), so any mask state difference appearing only at index `>= 128` does not affect the checked indicator, though clicking the header button or Object menu item still sets `is_mask = !selection_shows_all_mask(app)` uniformly across all selected layers (`crates/designos-app/src/panels/menus.rs:151-155`).
+
+### 4. Round 4 Changes by Ruling
+
+1. **Ruling 1 (MAJOR — Unify `selection_shows_all_mask` across header, Object menu, and `toggle_mask_selection`):**
+   - Added `pub(crate) fn selection_shows_all_mask(app: &App) -> bool` at [`crates/designos-app/src/panels/menus.rs:145-147`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L145-L147):
+     ```rust
+     pub(crate) fn selection_shows_all_mask(app: &App) -> bool {
+         !app.selection.is_empty() && app.selection.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask))
+     }
+     ```
+   - Updated `toggle_mask_selection` at [`crates/designos-app/src/panels/menus.rs:151-155`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L151-L155) to compute `let on = selection_shows_all_mask(app);` and set `n.is_mask = !on` across `&sel`.
+   - Updated the Object menu `all_mask` binding at [`crates/designos-app/src/panels/menus.rs:503`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L503) (used by `.on(all_mask)` at `:511`) to call `selection_shows_all_mask(app)`.
+   - Updated the properties header `all_mask` binding at [`crates/designos-app/src/panels/properties.rs:854`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L854) to call `super::menus::selection_shows_all_mask(app)`.
+   - Kept the `take(128)` bound on the per-frame `Mask` section scan (`crates/designos-app/src/panels/properties.rs:1043`) and kept the full mask-id collect inside the dropdown pick handler (`crates/designos-app/src/panels/properties.rs:1054`).
+
+2. **Ruling 2 (Tests — Red on `4d288316`, Green on `HEAD`, Mutant Killed After Null Control):**
+   - Added `selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask` at [`crates/designos-app/src/panels/menus.rs:1295-1324`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L1295-L1324): selects `128` masks (`0..128`) followed by `1` non-mask (`128`), asserts `selection_shows_all_mask(&app)` is `true` (`:1316`), asserts `mask_row(&app).checked == selection_shows_all_mask(&app)` (`:1317`), calls `toggle_mask_selection(&mut app)` (`:1319`), and asserts `!app.doc.get(ids[0]).unwrap().is_mask` (`:1320`) and `!app.doc.get(ids[128]).unwrap().is_mask` (`:1321`).
+   - Added `selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected` at [`crates/designos-app/src/panels/menus.rs:1327-1360`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L1327-L1360): selects `129` non-masks (`:1346`), asserts `!selection_shows_all_mask(&app)` (`:1347`), calls `toggle_mask_selection(&mut app)` (`:1350`), asserts all `129` nodes become masks (`:1351`), then clears the selection (`:1355`), asserts `!selection_shows_all_mask(&app)` (`:1356`) and `mask_row(&app).checked == false` (`:1357`), calls `toggle_mask_selection(&mut app)` (`:1358`), and asserts all `129` nodes remain masks (`:1359`).
+
+3. **Ruling 3 (MINOR — Round 3 Report Corrections & `r4-proof-sheet-diff.log`):**
+   - Corrected all 7 Round 3 citations in `plans/reports/agy-1465-mask-types.md`:
+     1. Hidden nested group child rect and pixel coordinates cited from `crates/designos-render/tests/mask_without_own_fill.rs:368,380` (`Rect::new(0.0, 60.0, 30.0, 30.0)`, `px(&pm, 15, 75)`) and `crates/designos-gpu/tests/mask_without_own_fill.rs:562,570` (`Rect::new(0.0, 50.0, 30.0, 30.0)`, `px(&c.gpu, 15, 65)`).
+     2. Unit test range cited at `crates/designos-gpu/src/pipelines.rs:373-382`, formatting `designos_render::LUMINANCE_MASK_COEFFS` (`crates/designos-render/src/mask.rs:12`) via `format!("vec3<f32>({r:?}, {g:?}, {b:?})")` (`pipelines.rs:379-380`; mutant message in `r3-mutants.log:40`).
+     3. Red panic line for `composite_shader_injects_luminance_mask_coeffs_from_render_constant` updated to `crates/designos-gpu/src/pipelines.rs:379:9` (`r3-red-on-0d652a1e.log:15`).
+     4. Red panic line for `mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle` updated to `crates/designos-app/src/panels/properties.rs:3105:9` and `finished in 0.04s` (`r3-red-on-0d652a1e.log:68,76`).
+     5. `designos-render` lib test timing updated to `finished in 34.30s` (`r3-cargo-test-render.log:67`).
+     6. `designos-fig` lib binary hash and timing updated to `designos_fig-fccf9acfc4106716` and `finished in 12.31s` (`r3-cargo-test-fig.log:6,153`).
+     7. Ran the proof-sheet and probe-log diff command, saved [`r4-proof-sheet-diff.log:1-6`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-proof-sheet-diff.log#L1-L6), and cited it at every proof-sheet diff reference.
+
+### 5. Acceptance Gates & Pasted Outputs
+
+1. **Acceptance 1 — Red on `4d288316` ([`r4-red-on-4d288316.log:350-384`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-red-on-4d288316.log#L350-L384)), Green on `HEAD` ([`r4-green-on-head.log:6-19`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-green-on-head.log#L6-L19)), and Mutant Killed After Green Null Control ([`r4-mutants.log:4-47`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-mutants.log#L4-L47)):**
+   - **Red on `4d288316` (`r4-red-on-4d288316.log:350-384`):**
+```text
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 8 tests
+test panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask ... FAILED
+test check_designs::tests::covering_sibling::a_mask_before_the_rectangle_leaves_the_backdrop_unknown ... ok
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected ... FAILED
+test panels::properties::tests::mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... ok
+test image_jobs::tests::erase_without_region_omits_mask_file_and_field ... ok
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... ok
+
+failures:
+
+---- panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask stdout ----
+
+thread 'panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask' (65707164) panicked at crates/designos-app/src/panels/menus.rs:1314:9:
+assertion `left == right` failed: Object menu Use as mask on flag must equal selection_shows_all_mask
+  left: false
+ right: true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected stdout ----
+
+thread 'panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected' (65707163) panicked at crates/designos-app/src/panels/menus.rs:1353:9:
+empty selection must not report all-mask
+
+
+failures:
+    panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected
+    panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask
+
+test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 4051 filtered out; finished in 0.46s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+```
+   - **Green on `HEAD` (`r4-green-on-head.log:6-19` / `r4-cargo-test-app-mask.log:6-19`):**
+```text
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.21s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 8 tests
+test check_designs::tests::covering_sibling::a_mask_before_the_rectangle_leaves_the_backdrop_unknown ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask ... ok
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... ok
+test image_jobs::tests::erase_without_region_omits_mask_file_and_field ... ok
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4051 filtered out; finished in 0.40s
+```
+   - **Null Control First, Then Toggle `.any(!is_mask)` Mutant Killed (`r4-mutants.log:4-47`):**
+```text
+=== M0-null-control (HEAD) ===
+
+running 8 tests
+test check_designs::tests::covering_sibling::a_mask_before_the_rectangle_leaves_the_backdrop_unknown ... ok
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask ... ok
+test panels::properties::tests::mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... ok
+test image_jobs::tests::erase_without_region_omits_mask_file_and_field ... ok
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4051 filtered out; finished in 0.50s
+
+
+M0-null-control exit=0
+=== N18-toggle-full-any-unmasked ===
+
+running 8 tests
+test check_designs::tests::covering_sibling::a_mask_before_the_rectangle_leaves_the_backdrop_unknown ... ok
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask ... FAILED
+test panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected ... ok
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... ok
+test panels::properties::tests::mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step ... ok
+test image_jobs::tests::erase_without_region_omits_mask_file_and_field ... ok
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... ok
+
+failures:
+
+---- panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask stdout ----
+
+thread 'panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask' (65755149) panicked at crates/designos-app/src/panels/menus.rs:1320:9:
+node 0 unmasked after toggle_mask_selection
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 4051 filtered out; finished in 0.59s
+
+
+N18-toggle-full-any-unmasked exit=101 (KILLED=True)
+```
+
+2. **Acceptance 2 — Gates:**
+   - **`cargo fmt --all -- --check` ([`r4-cargo-fmt.log:1`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-cargo-fmt.log#L1)):**
+```text
+cargo fmt exit=0
+```
+   - **`cargo clippy --workspace --all-targets --locked --keep-going -- -D warnings` ([`r4-cargo-clippy.log:353-406`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-cargo-clippy.log#L353-L406)):**
+```text
+    Checking designos-diff v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-diff)
+    Checking designos-fonts v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fonts)
+    Checking designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render)
+    Checking designos-svg v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-svg)
+    Checking designos-export v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-export)
+    Checking designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu)
+    Checking designos-webcapture v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-webcapture)
+    Checking designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+    Checking designos-library v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-library)
+    Checking designos-eval v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-eval)
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1176:9
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1194:9
+```
+   - **`cargo test -p designos-app --bin designos --locked mask` ([`r4-cargo-test-app-mask.log:7-19`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-cargo-test-app-mask.log#L7-L19)):**
+```text
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 8 tests
+test check_designs::tests::covering_sibling::a_mask_before_the_rectangle_leaves_the_backdrop_unknown ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask ... ok
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... ok
+test image_jobs::tests::erase_without_region_omits_mask_file_and_field ... ok
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4051 filtered out; finished in 0.40s
+```
+   - **`cargo test --workspace --locked --lib` ([`r4-cargo-test-workspace-lib.log:84-1647`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-cargo-test-workspace-lib.log#L84-L1647)):**
+```text
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-97b5db69fdcd9c68)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-18f4500351079eb1)
+test result: ok. 716 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.11s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-c2489b38bbcccff9)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-18adcc4017a7a7af)
+test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.18s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-861945a6becd4004)
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.29s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-c2d586a1e5c886ba)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-77666ce24b473797)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-7534529c79ad779d)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-db051a2df27fbe42)
+test result: ok. 322 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.91s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-59facfce9e95a574)
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 34.73s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-dd3732f70a143b29)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-2fa66b1349242d0a)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+Total across workspace --lib (sum of lines :101,:823,:830,:995,:1144,:1180,:1191,:1234,:1562,:1626,:1633,:1647): 1,490 passed; 0 failed; 3 ignored.
+```
+   - **`python3 scripts/zero_fake_ui_gate.py` ([`r4-zero-fake-ui.log:24`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-zero-fake-ui.log#L24)):**
+```text
+ Gate Verdict: PASS (17/17 invariants satisfied)
+```
+
+3. **Acceptance 3 — Terminal Render PNG of Red → Green Runs:**
+   - [`plans/reports/agy-1465-mask-types-evidence/r4-red-to-green-terminal.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-red-to-green-terminal.png) (`1520 × 1822` px, rendered from `r4-red-on-4d288316.log:349-384`, `r4-green-on-head.log:6-19`, and `r4-mutants.log:4-47`).
+
+4. **Acceptance 4 — `git log --oneline origin/main..HEAD` ([`r4-git-log.log:1-8`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-git-log.log#L1-L8), plus the Round 4 report commit on top):**
+```text
+155e9209 fix(mask): unify selection_shows_all_mask across header, Object menu and toggle
+4d288316 Merge branch 'main' into jangtrinh/agy-1465-mask-types
+814629b8 docs(report): record round 3 verification for #1465
+e4ff8103 fix(mask): inject LUMINANCE_MASK_COEFFS token in WGSL, bound mask inspector scan and expand mask tests
+04654004 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1465-mask-types
+0d652a1e fix(mask): preserve legacy maskType export, align Vector outline coverage and luminance coefficients
+7dfe45e2 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1465-mask-types
+dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
+```
+
+### 6. Acceptance Table
+
+| # | Acceptance Criterion | Evidence | Verdict |
+|---|---|---|---|
+| 1 | Both new tests red on `4d288316`, green on `HEAD`; the mutant killed after a green null control | `r4-red-on-4d288316.log:350-384` (`6 passed; 2 failed`), `r4-green-on-head.log:6-19` (`8 passed; 0 failed`), `r4-mutants.log:4-47` (`M0-null-control exit=0`, `N18-toggle-full-any-unmasked exit=101 (KILLED=True)`) | **PASS** |
+| 2 | Gates: `cargo fmt --all -- --check`; workspace clippy `--all-targets --locked -- -D warnings` with only main's known lints; `cargo test -p designos-app --bin designos --locked mask`; `cargo test --workspace --locked --lib`; `python3 scripts/zero_fake_ui_gate.py` | `r4-cargo-fmt.log:1` (`cargo fmt exit=0`), `r4-cargo-clippy.log:374-390` (only `agent_permissions.rs:1176:9` and `:1194:9`), `r4-cargo-test-app-mask.log:19` (`8 passed; 0 failed`), `r4-cargo-test-workspace-lib.log:101,823,830,995,1144,1180,1191,1234,1562,1626,1633,1647` (`1,490 passed; 0 failed; 3 ignored`), `r4-zero-fake-ui.log:24` (`PASS (17/17 invariants satisfied)`) | **PASS** |
+| 3 | Terminal render PNG of the red→green runs in the evidence folder | `plans/reports/agy-1465-mask-types-evidence/r4-red-to-green-terminal.png` (`1520 × 1822` px) | **PASS** |
+| 4 | Pushed (no force); paste `git log --oneline origin/main..HEAD`; delete `out/cargo` at the end | `r4-git-log.log:1-8` (`155e9209` on top of `4d288316`); `out/cargo` deleted | **PASS** |
+
+### 7. Assumptions & Unresolved Questions
+
+- **Assumptions:**
+  - `selection_shows_all_mask(app: &App) -> bool` (`crates/designos-app/src/panels/menus.rs:145-147`) is the single predicate shared by the properties header (`crates/designos-app/src/panels/properties.rs:854`), Object menu `Use as mask` row (`crates/designos-app/src/panels/menus.rs:503,511`), and `toggle_mask_selection` (`crates/designos-app/src/panels/menus.rs:151-155`).
+- **Unresolved Questions:**
+  - None for Round 4 (`m6`, `L1`, `L2`, `L3`, `Q1`–`Q3` tracked in `#1506` per Ruling 4 of `brief-agy-1465-r4.txt:13`).
 
 Status: DONE
