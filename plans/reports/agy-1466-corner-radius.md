@@ -639,4 +639,12 @@ ls: out/cargo: No such file or directory
 ls_out_cargo_rc=1
 ```
 
+`git log --oneline origin/main..HEAD` (`plans/reports/agy-1466-corner-radius-evidence/r2-12-git-log.log:1-4`):
+```text
+a714fe30 fix(inspector): address round 2 corner radius review rulings
+720bfff3 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1466-corner-radius
+76a3f9b6 docs(report): record verification report and evidence for #1466
+88d8579d feat(inspector): individual corner radius fields and a corner smoothing slider (#1466)
+```
+
 Status: DONE
