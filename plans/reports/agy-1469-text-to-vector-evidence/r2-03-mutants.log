@@ -1,0 +1,20 @@
+N0-null    | SURVIVED |  59.1s | null control
+N1         | KILLED   |  13.9s | flatten never merges runs that share a paint set | test vecops::tests::text_to_vector_preserves_gradient_style_links_and_merges_shared_paint_runs_without_leaking_bindings ... FAILED
+N2         | KILLED   |  17.6s | every flatten run treated as base fill (bindings leak to recoloured runs) | test vecops::tests::text_to_vector_preserves_gradient_style_links_and_merges_shared_paint_runs_without_leaking_bindings ... FAILED
+N3         | KILLED   |  23.0s | stroke bindings dropped | test vecops::tests::text_to_vector_carries_over_fill_and_stroke_bindings ... FAILED
+N4         | KILLED   |  29.7s | gradient handles not remapped | test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... FAILED
+N5         | KILLED   |  33.0s | outline stroke drops underline bars | test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... FAILED
+N6         | KILLED   |  47.9s | outline stroke drops list markers | test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... FAILED
+N7         | KILLED   |  36.4s | font check bypassed | test vecops::tests::text_to_vector_loads_unloaded_font_and_refuses_unavailable_font ... FAILED
+N8         | KILLED   |  47.6s | group loses the text transform | test vecops::tests::outline_stroke_of_two_run_text_gives_one_vector_per_glyph_with_each_runs_fill ... FAILED
+N9         | KILLED   |  13.9s | node_paths has no text arm (mixed flatten skips text) | test flatten_converts_text_and_skips_empty_selections ... FAILED
+N10        | KILLED   |  92.5s | glyph vectors keep the text effects (double shadow) | test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... FAILED
+N11        | KILLED   |  37.5s | single vector drops fill bindings | test vecops::tests::text_to_vector_carries_over_fill_and_stroke_bindings ... FAILED
+N12        | KILLED   |  26.2s | outline stroke glyphs shifted 1 px right | test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... FAILED
+N13        | KILLED   |  45.5s | child vectors keep the text opacity (double opacity) | test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... FAILED
+R2-B1      | KILLED   |  14.0s | converted text keeps Sizing::Fill instead of Fixed on both axes | test vecops::tests::text_in_auto_layout_keeps_fixed_size_after_relayout_and_redo_matches_commit ... FAILED
+R2-B2      | KILLED   |  23.5s | converted text vector keeps StrokeAlign::Inside instead of Center | test vecops::tests::pixel_test_converted_text_vectors_match_original_text_render ... FAILED
+R2-M2      | KILLED   |  42.3s | outline stroke walks subtree for font requests instead of top-level only | test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... FAILED
+R2-M3      | KILLED   |  25.2s | carry_paint_bindings compares remapped gradient handles against un-remapped base_fills | test vecops::tests::text_to_vector_preserves_gradient_style_links_and_merges_shared_paint_runs_without_leaking_bindings ... FAILED
+R2-m1      | KILLED   |  19.1s | converted text vector drops visible and locked flags | test vecops::tests::text_in_auto_layout_keeps_fixed_size_after_relayout_and_redo_matches_commit ... FAILED
+R2-m2      | KILLED   |  27.7s | outline stroke group box not fitted to children union at commit | test vecops::tests::outline_stroke_of_two_run_text_gives_one_vector_per_glyph_with_each_runs_fill ... FAILED

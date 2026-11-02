@@ -34,7 +34,7 @@ pub use diff_image::{render_diff_image, DiffImageResult};
 use geom::{node_shape, to_sk_transform, transformed_bounds, Shape};
 pub use index::SceneIndex;
 pub use lint_env::RenderLintEnv;
-pub use mask::{mask_frame_box, mask_stencil};
+pub use mask::{apply_luminance_mask, mask_frame_box, mask_stencil, vector_mask_descendant_stencil, LUMINANCE_MASK_COEFFS};
 pub use outline::{
     decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
     StrokeClip, StrokePlan, TextOutline,
@@ -400,15 +400,42 @@ impl Renderer<'_> {
                 let needs_back = children[i + 1..].iter().any(|c| self.doc.get(*c).is_some_and(|c| self.has_bg_blur(c)));
                 let backdrop = needs_back.then(|| composite_backdrop(back, target));
                 self.draw_children(&children[i + 1..], parent_ts, &mut layer, clip, backdrop.as_ref());
-                // Masks use the shape's alpha regardless of its paints.
+                // Masks use the shape's alpha (or geometry coverage / Rec. 709 luminance) regardless of its paints.
                 let mask_node = mask::mask_stencil(child);
-                self.draw_node(&mask_node, ts, &mut mask_layer, None, None);
+                if child.mask_type == designos_doc::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
+                    self.draw_vector_group_children(&mask_node.children, ts, &mut mask_layer, None, None);
+                } else {
+                    self.draw_node(&mask_node, ts, &mut mask_layer, None, None);
+                }
+                if child.mask_type == designos_doc::MaskType::Luminance {
+                    mask::apply_luminance_mask(&mut mask_layer);
+                }
                 let pp = sk::PixmapPaint { blend_mode: sk::BlendMode::DestinationIn, ..Default::default() };
                 layer.draw_pixmap(0, 0, mask_layer.as_ref(), &pp, sk::Transform::identity(), None);
                 target.draw_pixmap(0, 0, layer.as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
                 return;
             }
             self.draw_node(child, ts, target, clip, back);
+        }
+    }
+
+    fn draw_vector_group_children(&self, children: &[NodeId], parent_ts: sk::Transform, target: &mut sk::Pixmap, clip: Option<&sk::Mask>, back: Back) {
+        for cid in children {
+            if self.hide.contains(cid) {
+                continue;
+            }
+            let Some(child) = board::get(self.doc, *cid) else { continue };
+            let child = &*resolve_node(self.doc, &child);
+            if !child.visible {
+                continue;
+            }
+            let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
+            let stencil_child = mask::vector_mask_descendant_stencil(child);
+            if matches!(stencil_child.kind, NodeKind::Group) {
+                self.draw_vector_group_children(&stencil_child.children, ts, target, clip, back);
+            } else {
+                self.draw_node(&stencil_child, ts, target, clip, back);
+            }
         }
     }
 

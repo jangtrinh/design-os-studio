@@ -105,6 +105,9 @@ pub struct Node {
     pub layout_child: LayoutChild,
     #[serde(default, skip_serializing_if = "is_false")]
     pub is_mask: bool,
+    /// How this mask clips its following siblings (`Alpha` by default, `Vector`, `Luminance`).
+    #[serde(default, skip_serializing_if = "MaskType::is_default")]
+    pub mask_type: MaskType,
     /// Style id per property ("fill", "stroke", "text", "effect", "grid").
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub style_refs: BTreeMap<String, String>,
@@ -159,6 +162,35 @@ pub struct Node {
 pub struct SlideProps {
     #[serde(default)]
     pub notes: String,
+}
+
+/// How a mask node (`is_mask = true`) clips the siblings that follow it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub enum MaskType {
+    /// Clip by the mask's rendered alpha channel.
+    #[default]
+    Alpha,
+    /// Clip by the mask's geometry coverage only (fills, fill opacity and effects ignored).
+    Vector,
+    /// Clip by the Rec. 709 luminance of the mask's rendered colour times its alpha.
+    Luminance,
+}
+
+impl MaskType {
+    pub const ALL: [Self; 3] = [Self::Alpha, Self::Vector, Self::Luminance];
+
+    pub fn is_default(&self) -> bool {
+        matches!(self, Self::Alpha)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Alpha => "Alpha",
+            Self::Vector => "Vector",
+            Self::Luminance => "Luminance",
+        }
+    }
 }
 
 /// A node property that an instance can override independently of its main
@@ -359,6 +391,7 @@ impl Node {
             constraints: Constraints::default(),
             layout_child: LayoutChild::default(),
             is_mask: false,
+            mask_type: MaskType::default(),
             style_refs: BTreeMap::new(),
             fill_geometry: None,
             stroke_geometry: None,
@@ -1196,5 +1229,105 @@ mod grid_child_align_compat_tests {
         let child = back.nodes.values().find(|n| matches!(n.kind, NodeKind::Rectangle)).map(|n| n.id).unwrap();
         let frame = back.get(child).and_then(|n| n.parent).unwrap();
         assert_eq!(solved_origin(&mut back, frame, child), (30.0, 80.0));
+    }
+}
+
+#[cfg(test)]
+mod mask_type_serde_tests {
+    use super::*;
+    use crate::{Document, Rect};
+
+    #[test]
+    fn mask_type_default_is_omitted_from_json_and_non_defaults_round_trip() {
+        let mut doc = Document::new("mask-types");
+        let page = doc.add_page("Page 1");
+
+        let alpha_id = doc.alloc_id();
+        let mut alpha = Node::rectangle(alpha_id, Rect::new(0.0, 0.0, 50.0, 50.0));
+        alpha.name = "AlphaMask".into();
+        alpha.is_mask = true;
+        assert_eq!(alpha.mask_type, MaskType::Alpha);
+        doc.insert(page, alpha).unwrap();
+
+        let json_default = doc.to_json().unwrap();
+        assert!(!json_default.contains("mask_type"), "default MaskType::Alpha must be omitted by skip_serializing_if: {json_default}");
+
+        let vec_id = doc.alloc_id();
+        let mut vec_node = Node::rectangle(vec_id, Rect::new(60.0, 0.0, 50.0, 50.0));
+        vec_node.name = "VectorMask".into();
+        vec_node.is_mask = true;
+        vec_node.mask_type = MaskType::Vector;
+        doc.insert(page, vec_node).unwrap();
+
+        let lum_id = doc.alloc_id();
+        let mut lum_node = Node::rectangle(lum_id, Rect::new(120.0, 0.0, 50.0, 50.0));
+        lum_node.name = "LumMask".into();
+        lum_node.is_mask = true;
+        lum_node.mask_type = MaskType::Luminance;
+        doc.insert(page, lum_node).unwrap();
+
+        let json = doc.to_json().unwrap();
+        assert!(json.contains("\"mask_type\":\"Vector\"") && json.contains("\"mask_type\":\"Luminance\""), "{json}");
+
+        let back = Document::from_json(&json).unwrap();
+        assert_eq!(back.get(alpha_id).unwrap().mask_type, MaskType::Alpha);
+        assert_eq!(back.get(vec_id).unwrap().mask_type, MaskType::Vector);
+        assert_eq!(back.get(lum_id).unwrap().mask_type, MaskType::Luminance);
+    }
+
+    #[test]
+    fn mask_type_fixture_merges_branches_and_syncs_component_instances() {
+        let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../designos-app/tests/fixtures/mask-types.designos");
+        let raw = std::fs::read_to_string(&fixture_path).expect("committed synthetic mask types fixture must exist");
+        let mut doc = Document::from_json(&raw).expect("parse synthetic mask types fixture");
+        assert_eq!(doc.to_json().expect("re-serialise fixture"), raw.trim(), "synthetic fixture must re-serialise byte-identical");
+
+        let mut seen_alpha = false;
+        let mut seen_vector = false;
+        let mut seen_luminance = false;
+        for n in doc.nodes.values() {
+            if n.is_mask {
+                match n.mask_type {
+                    MaskType::Alpha => seen_alpha = true,
+                    MaskType::Vector => seen_vector = true,
+                    MaskType::Luminance => seen_luminance = true,
+                }
+            }
+        }
+        assert!(seen_alpha && seen_vector && seen_luminance, "fixture must contain Alpha, Vector, and Luminance masks");
+
+        let alpha_mask_id = *doc.nodes.iter().find(|(_, n)| n.is_mask && n.mask_type == MaskType::Alpha).expect("alpha mask in fixture").0;
+        let mut branch = doc.clone();
+        branch.get_mut(alpha_mask_id).unwrap().mask_type = MaskType::Luminance;
+        let (merged_doc, _) = crate::branch_merge::merge_branch(&doc, &doc, &branch, &crate::branch_merge::Resolution::default()).expect("merge_branch");
+        assert_eq!(merged_doc.get(alpha_mask_id).unwrap().mask_type, MaskType::Luminance, "branch merge must propagate mask_type changes");
+
+        let page = doc.pages[0];
+        let comp_id = doc.alloc_id();
+        let mut comp = Node::new(comp_id, crate::NodeKind::Component(crate::FrameProps::default()));
+        comp.size = crate::Vec2::new(80.0, 80.0);
+        doc.insert(page, comp).unwrap();
+        let mask_child = doc.alloc_id();
+        let mut mc = Node::rectangle(mask_child, Rect::new(0.0, 0.0, 40.0, 40.0));
+        mc.is_mask = true;
+        mc.mask_type = MaskType::Alpha;
+        doc.insert(comp_id, mc).unwrap();
+
+        let create_cmd = crate::components::create_instance(&mut doc, comp_id, page, crate::Vec2::new(100.0, 0.0));
+        create_cmd.apply(&mut doc).unwrap();
+        let inst_id = *doc
+            .get(page)
+            .unwrap()
+            .children
+            .iter()
+            .find(|&&id| matches!(doc.get(id).map(|n| &n.kind), Some(crate::NodeKind::Instance { .. })))
+            .expect("instance created");
+        let inst_mask = doc.get(inst_id).unwrap().children[0];
+        assert_eq!(doc.get(inst_mask).unwrap().mask_type, MaskType::Alpha);
+
+        doc.get_mut(mask_child).unwrap().mask_type = MaskType::Vector;
+        let sync_cmd = crate::components::sync_instances(&mut doc, comp_id);
+        sync_cmd.apply(&mut doc).unwrap();
+        assert_eq!(doc.get(inst_mask).unwrap().mask_type, MaskType::Vector, "component instance sync must propagate mask_type changes");
     }
 }

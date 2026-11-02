@@ -1,0 +1,76 @@
+iv-frame-own-fill-Alpha: settled: (20,20) m=1.00 (60,60) m=1.00; interactive-zero-budget: (20,20) m=1.00 (60,60) m=1.00 ; px differing settled vs interactive = 0
+iv-frame-own-fill-Vector: settled: (20,20) m=1.00 (60,60) m=1.00; interactive-zero-budget: (20,20) m=1.00 (60,60) m=1.00 ; px differing settled vs interactive = 0
+iv-frame-own-fill-Luminance: settled: (20,20) m=0.07 (60,60) m=1.00; interactive-zero-budget: (20,20) m=1.00 (60,60) m=1.00 ; px differing settled vs interactive = 1600
+iv-frame-fillless-Alpha: settled: (20,20) m=1.00 (60,60) m=0.00; interactive-zero-budget: (20,20) m=1.00 (60,60) m=1.00 ; px differing settled vs interactive = 4800
+iv-frame-fillless-Vector: settled: (20,20) m=1.00 (60,60) m=1.00; interactive-zero-budget: (20,20) m=1.00 (60,60) m=1.00 ; px differing settled vs interactive = 0
+iv-frame-fillless-Luminance: settled: (20,20) m=0.07 (60,60) m=0.00; interactive-zero-budget: (20,20) m=1.00 (60,60) m=1.00 ; px differing settled vs interactive = 6400
+iv-group-Alpha: settled: (20,20) m=1.00 (60,60) m=0.00; interactive-zero-budget: (20,20) m=0.00 (60,60) m=0.00 ; px differing settled vs interactive = 1600
+iv-group-Vector: settled: (20,20) m=1.00 (60,60) m=0.00; interactive-zero-budget: (20,20) m=0.00 (60,60) m=0.00 ; px differing settled vs interactive = 1600
+iv-group-Luminance: settled: (20,20) m=0.07 (60,60) m=0.00; interactive-zero-budget: (20,20) m=0.00 (60,60) m=0.00 ; px differing settled vs interactive = 1600
+iv-text-Alpha: settled: (20,20) m=1.00 (60,60) m=0.00; interactive-zero-budget: (20,20) m=0.00 (60,60) m=0.00 ; px differing settled vs interactive = 1193
+iv-text-Vector: settled: (20,20) m=1.00 (60,60) m=0.00; interactive-zero-budget: (20,20) m=0.00 (60,60) m=0.00 ; px differing settled vs interactive = 1193
+iv-text-Luminance: settled: (20,20) m=0.00 (60,60) m=0.00; interactive-zero-budget: (20,20) m=0.00 (60,60) m=0.00 ; px differing settled vs interactive = 0
+lum-swatches: strict mismatched=0 aa_mismatched=0
+lum-swatches white: cpu m=1.000 gpu m=1.000; grey128: cpu m=0.502 gpu m=0.502; black: cpu m=0.000 gpu m=0.000; red: cpu m=0.212 gpu m=0.212; green: cpu m=0.714 gpu m=0.714; blue: cpu m=0.071 gpu m=0.071; white@50%: cpu m=0.502 gpu m=0.502
+p4b-fillless-frame-child50-Alpha: strict mismatched=0 aa_mismatched=0
+p4b-fillless-frame-child50-Alpha: child(20,20) cpu m=0.50 gpu m=0.50; box(60,60) cpu m=0.00 gpu m=0.00
+p4b-fillless-frame-child50-Vector: strict mismatched=0 aa_mismatched=0
+p4b-fillless-frame-child50-Vector: child(20,20) cpu m=1.00 gpu m=1.00; box(60,60) cpu m=1.00 gpu m=1.00
+p4b-fillless-frame-child50-Luminance: strict mismatched=0 aa_mismatched=0
+p4b-fillless-frame-child50-Luminance: child(20,20) cpu m=0.00 gpu m=0.00; box(60,60) cpu m=0.00 gpu m=0.00
+group-nonclip-frame-overflow-Alpha: strict mismatched=0 aa_mismatched=0
+group-nonclip-frame-overflow-Alpha: frame(20,20) cpu m=1.00 gpu m=1.00; overflow-child(55,55) cpu m=1.00 gpu m=1.00; gap(75,10) cpu m=0.00 gpu m=0.00
+group-nonclip-frame-overflow-Vector: strict mismatched=0 aa_mismatched=0
+group-nonclip-frame-overflow-Vector: frame(20,20) cpu m=1.00 gpu m=1.00; overflow-child(55,55) cpu m=0.00 gpu m=0.00; gap(75,10) cpu m=0.00 gpu m=0.00
+group-nonclip-frame-overflow-Luminance: strict mismatched=0 aa_mismatched=0
+group-nonclip-frame-overflow-Luminance: frame(20,20) cpu m=0.00 gpu m=0.00; overflow-child(55,55) cpu m=0.00 gpu m=0.00; gap(75,10) cpu m=0.00 gpu m=0.00
+group-nested-mask-Alpha: strict mismatched=0 aa_mismatched=0
+group-nested-mask-Alpha: inside-nested-mask(15,15) cpu m=1.00 gpu m=1.00; outside-nested-mask(60,60) cpu m=0.00 gpu m=0.00
+group-nested-mask-Vector: strict mismatched=0 aa_mismatched=0
+group-nested-mask-Vector: inside-nested-mask(15,15) cpu m=1.00 gpu m=1.00; outside-nested-mask(60,60) cpu m=1.00 gpu m=1.00
+group-nested-mask-Luminance: strict mismatched=0 aa_mismatched=0
+group-nested-mask-Luminance: inside-nested-mask(15,15) cpu m=0.00 gpu m=0.00; outside-nested-mask(60,60) cpu m=0.00 gpu m=0.00
+group-hidden-rotated-Alpha: strict mismatched=0 aa_mismatched=0
+group-hidden-rotated-Alpha: hidden(15,15) cpu m=0.00 gpu m=0.00; rotated(45,40) cpu m=0.00 gpu m=0.00
+group-hidden-rotated-Vector: strict mismatched=108 aa_mismatched=0
+group-hidden-rotated-Vector: hidden(15,15) cpu m=0.00 gpu m=0.00; rotated(45,40) cpu m=1.00 gpu m=1.00
+group-hidden-rotated-Luminance: strict mismatched=0 aa_mismatched=0
+group-hidden-rotated-Luminance: hidden(15,15) cpu m=0.00 gpu m=0.00; rotated(45,40) cpu m=0.00 gpu m=0.00
+boolean-union-zero-fill-Alpha: strict mismatched=0 aa_mismatched=0
+boolean-union-zero-fill-Alpha: op1(15,15) cpu m=0.00 gpu m=0.00; op2(60,60) cpu m=0.00 gpu m=0.00; outside(75,5) cpu m=0.00 gpu m=0.00
+boolean-union-zero-fill-Vector: strict mismatched=0 aa_mismatched=0
+boolean-union-zero-fill-Vector: op1(15,15) cpu m=1.00 gpu m=1.00; op2(60,60) cpu m=1.00 gpu m=1.00; outside(75,5) cpu m=0.00 gpu m=0.00
+boolean-union-zero-fill-Luminance: strict mismatched=0 aa_mismatched=0
+boolean-union-zero-fill-Luminance: op1(15,15) cpu m=0.00 gpu m=0.00; op2(60,60) cpu m=0.00 gpu m=0.00; outside(75,5) cpu m=0.00 gpu m=0.00
+sheet-leaf-gradient-50pct-Alpha: strict mismatched=43 aa_mismatched=0
+sheet-leaf-gradient-50pct-Alpha: a(20,20) cpu m=0.41 gpu m=0.41; b(60,60) cpu m=0.08 gpu m=0.08; c(60,20) cpu m=0.08 gpu m=0.08; d(20,60) cpu m=0.41 gpu m=0.41
+sheet-leaf-gradient-50pct-Vector: strict mismatched=85 aa_mismatched=0
+sheet-leaf-gradient-50pct-Vector: a(20,20) cpu m=1.00 gpu m=1.00; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=1.00 gpu m=1.00; d(20,60) cpu m=1.00 gpu m=1.00
+sheet-leaf-gradient-50pct-Luminance: strict mismatched=43 aa_mismatched=0
+sheet-leaf-gradient-50pct-Luminance: a(20,20) cpu m=0.34 gpu m=0.34; b(60,60) cpu m=0.02 gpu m=0.01; c(60,20) cpu m=0.02 gpu m=0.01; d(20,60) cpu m=0.34 gpu m=0.34
+sheet-frame-own-fill-small-child-Alpha: strict mismatched=83 aa_mismatched=3
+sheet-frame-own-fill-small-child-Alpha: a(20,20) cpu m=1.00 gpu m=1.00; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=1.00 gpu m=1.00; d(20,60) cpu m=1.00 gpu m=1.00
+sheet-frame-own-fill-small-child-Vector: strict mismatched=110 aa_mismatched=4
+sheet-frame-own-fill-small-child-Vector: a(20,20) cpu m=1.00 gpu m=1.00; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=1.00 gpu m=1.00; d(20,60) cpu m=1.00 gpu m=1.00
+sheet-frame-own-fill-small-child-Luminance: strict mismatched=83 aa_mismatched=3
+sheet-frame-own-fill-small-child-Luminance: a(20,20) cpu m=0.71 gpu m=0.71; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=1.00 gpu m=1.00; d(20,60) cpu m=1.00 gpu m=1.00
+sheet-group-zero-fill-children-Alpha: strict mismatched=0 aa_mismatched=0
+sheet-group-zero-fill-children-Alpha: a(20,20) cpu m=0.00 gpu m=0.00; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=0.00 gpu m=0.00; d(20,60) cpu m=0.00 gpu m=0.00
+sheet-group-zero-fill-children-Vector: strict mismatched=110 aa_mismatched=2
+sheet-group-zero-fill-children-Vector: a(20,20) cpu m=1.00 gpu m=1.00; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=0.00 gpu m=0.00; d(20,60) cpu m=0.00 gpu m=0.00
+sheet-group-zero-fill-children-Luminance: strict mismatched=0 aa_mismatched=0
+sheet-group-zero-fill-children-Luminance: a(20,20) cpu m=0.00 gpu m=0.00; b(60,60) cpu m=0.07 gpu m=0.07; c(60,20) cpu m=0.00 gpu m=0.00; d(20,60) cpu m=0.00 gpu m=0.00
+sheet-text-zero-fill-Alpha: strict mismatched=0 aa_mismatched=0
+sheet-text-zero-fill-Alpha: a(20,20) cpu m=0.00 gpu m=0.00; b(60,60) cpu m=0.00 gpu m=0.00; c(60,20) cpu m=0.00 gpu m=0.00; d(20,60) cpu m=0.00 gpu m=0.00
+sheet-text-zero-fill-Vector: strict mismatched=302 aa_mismatched=0
+sheet-text-zero-fill-Vector: a(20,20) cpu m=1.00 gpu m=1.00; b(60,60) cpu m=0.00 gpu m=0.00; c(60,20) cpu m=0.00 gpu m=0.00; d(20,60) cpu m=0.00 gpu m=0.00
+sheet-text-zero-fill-Luminance: strict mismatched=0 aa_mismatched=0
+sheet-text-zero-fill-Luminance: a(20,20) cpu m=0.00 gpu m=0.00; b(60,60) cpu m=0.00 gpu m=0.00; c(60,20) cpu m=0.00 gpu m=0.00; d(20,60) cpu m=0.00 gpu m=0.00
+sheet-rgb-swatches-Alpha: strict mismatched=0 aa_mismatched=0
+sheet-rgb-swatches-Alpha: a(20,20) cpu m=1.00 gpu m=1.00; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=1.00 gpu m=1.00; d(20,60) cpu m=1.00 gpu m=1.00
+sheet-rgb-swatches-Vector: strict mismatched=0 aa_mismatched=0
+sheet-rgb-swatches-Vector: a(20,20) cpu m=1.00 gpu m=1.00; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=1.00 gpu m=1.00; d(20,60) cpu m=1.00 gpu m=1.00
+sheet-rgb-swatches-Luminance: strict mismatched=0 aa_mismatched=0
+sheet-rgb-swatches-Luminance: a(20,20) cpu m=0.71 gpu m=0.71; b(60,60) cpu m=1.00 gpu m=1.00; c(60,20) cpu m=1.00 gpu m=1.00; d(20,60) cpu m=0.71 gpu m=0.71
+fixture-mask-types: strict mismatched=0 aa_mismatched=0
+fixture-mask-types: alpha(50,50) cpu m=0.44 gpu m=0.44; vector(170,50) cpu m=0.88 gpu m=0.88; lum(290,50) cpu m=0.63 gpu m=0.63; alpha-edge(5,5) cpu m=0.00 gpu m=0.00; vector-edge(125,5) cpu m=0.00 gpu m=0.00

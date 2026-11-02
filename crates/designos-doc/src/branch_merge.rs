@@ -977,7 +977,10 @@ fn copy_node_group(dst: &mut Node, src: &Node, group: Group) {
         }
         Group::Constraints => dst.constraints = src.constraints,
         Group::LayoutChild => dst.layout_child = src.layout_child,
-        Group::Mask => dst.is_mask = src.is_mask,
+        Group::Mask => {
+            dst.is_mask = src.is_mask;
+            dst.mask_type = src.mask_type;
+        }
         Group::StyleRefs => dst.style_refs = src.style_refs.clone(),
         Group::Variables => dst.variables = src.variables.clone(),
         Group::Component => {

@@ -42,10 +42,77 @@ fn rule_of(r: sk::FillRule) -> d::FillRule {
     }
 }
 
-/// Geometry of a shape node in its own coordinate space as document paths
-/// (rectangles, ellipses, polygons, stars, lines, vectors, boolean groups).
-/// Text and containers have none.
+/// Outlined geometry of one paint set (for Flatten) or one glyph (for Outline stroke)
+/// of a text node, in node-local coordinates.
+#[derive(Clone, Debug)]
+pub struct TextVectorRun {
+    pub name: String,
+    pub path: d::Path,
+    pub fills: Vec<d::Paint>,
+    /// Whether this run uses the text node's base fill (so node-level `fills/*` bindings apply).
+    pub uses_base_fill: bool,
+}
+
+/// Outlines a text node for Flatten: one [`TextVectorRun`] per distinct fill paint set across the
+/// shaped runs, in node-local coordinates (`FillRule::NonZero`).
+pub fn text_flatten_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
+    let resolved = d::resolve_node(doc, n);
+    let NodeKind::Text(tp) = &resolved.kind else {
+        return Vec::new();
+    };
+    let tl = crate::text::layout(tp, resolved.size);
+    let mut out: Vec<TextVectorRun> = Vec::new();
+    for (style_idx, (opt_path, style)) in tl.paths.iter().zip(tl.styles.iter()).enumerate() {
+        let Some(sk_path) = opt_path.as_ref() else { continue };
+        let d_path = sk_to_doc(sk_path, d::FillRule::NonZero);
+        if d_path.cmds.is_empty() {
+            continue;
+        }
+        let uses_base = style_idx == 0 || style.fills == tp.style.fills;
+        if let Some(existing) = out.iter_mut().find(|r| r.fills == style.fills) {
+            existing.path.cmds.extend(d_path.cmds);
+            existing.uses_base_fill |= uses_base;
+        } else {
+            out.push(TextVectorRun { name: n.name.clone(), path: d_path, fills: style.fills.clone(), uses_base_fill: uses_base });
+        }
+    }
+    out
+}
+
+/// Outlines a text node for Outline stroke: one [`TextVectorRun`] per shaped glyph (plus any list
+/// markers and underline / strikethrough bars), in node-local coordinates (`FillRule::NonZero`).
+pub fn text_glyph_runs(doc: &Document, n: &Node) -> Vec<TextVectorRun> {
+    let resolved = d::resolve_node(doc, n);
+    let NodeKind::Text(tp) = &resolved.kind else {
+        return Vec::new();
+    };
+    let go = crate::text::glyph_outlines(tp, resolved.size);
+    let mut out = Vec::new();
+    for g in go.glyphs {
+        let d_path = sk_to_doc(&g.path, d::FillRule::NonZero);
+        if d_path.cmds.is_empty() {
+            continue;
+        }
+        let fills = go.styles.get(g.style).map(|s| s.fills.clone()).unwrap_or_default();
+        let uses_base = g.style == 0 || fills == tp.style.fills;
+        let name = if g.text.trim().is_empty() { "Vector".to_string() } else { g.text };
+        out.push(TextVectorRun { name, path: d_path, fills, uses_base_fill: uses_base });
+    }
+    out
+}
+
+/// Geometry of a shape or text node in its own coordinate space as document paths
+/// (rectangles, ellipses, polygons, stars, lines, vectors, boolean groups, text).
+/// Containers have none.
 pub fn node_paths(doc: &Document, n: &Node) -> Option<Vec<d::Path>> {
+    if matches!(n.kind, NodeKind::Text(_)) {
+        let runs = text_flatten_runs(doc, n);
+        let mut cmds = Vec::new();
+        for r in runs {
+            cmds.extend(r.path.cmds);
+        }
+        return (!cmds.is_empty()).then(|| vec![d::Path { cmds, fill_rule: d::FillRule::NonZero }]);
+    }
     if let NodeKind::Vector { paths, network: Some(net) } = &n.kind {
         let p = net.to_paths();
         return Some(if p.is_empty() { paths.clone() } else { p });
@@ -380,7 +447,7 @@ fn collect_geometry(doc: &Document, id: NodeId, to_target: &Affine, out: &mut Ve
                 collect_geometry(doc, *c, &here, out);
             }
         }
-        NodeKind::Text(_) | NodeKind::Page { .. } | NodeKind::Unknown { .. } => {}
+        NodeKind::Page { .. } | NodeKind::Unknown { .. } => {}
         k if k.is_container() && !matches!(k, NodeKind::BooleanOp(_)) => {
             // frames flatten their children, not their own box
             for c in &n.children {

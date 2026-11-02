@@ -1,0 +1,95 @@
+=== GREEN RUN ON HEAD ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.81s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-5ccf888a59871cb9)
+
+running 1 test
+test pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.19s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-ab37cec47eaf5b06)
+
+running 2 tests
+test mask_types_round_trip_through_fig_and_rest_import ... ok
+test legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.02s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.41s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-0f3196e55216fa9f)
+
+running 11 tests
+test mask_frame_box_matches_alpha_only_from_children_rule ... ok
+test frame_mask_without_fill_uses_the_alpha_of_its_children ... ok
+test reverse_z_auto_layout_draws_masked_background_pattern_behind_earlier_siblings ... ok
+test frame_mask_with_children_still_adds_its_own_fill ... ok
+test luminance_mask_rgb_channels_and_shader_coefficients_match_rec709 ... ok
+test vector_mask_with_zero_opacity_fill_still_clips_to_geometry_coverage ... ok
+test childless_shape_without_fill_still_masks_as_an_opaque_stencil ... ok
+test frame_mask_without_fill_keeps_partial_alpha_of_children ... ok
+test childless_frame_without_fill_masks_as_an_opaque_box ... ok
+test luminance_mask_over_white_to_black_ramp_keeps_white_hides_black_and_halves_mid_grey ... ok
+test vector_mask_uses_own_outline_for_shape_frame_group_and_text ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.60s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-2ce90af7d717be90)
+
+running 14 tests
+test standing_in_the_frame_box_opens_no_extra_program ... ok
+test fill_less_mask_frames_respect_every_program_ceiling ... ok
+test fill_less_mask_frames_stay_within_the_vram_budget ... ok
+test many_fill_less_mask_frames_stay_under_the_default_program_ceiling ... ok
+test refined_interactive_gpu_frame_cuts_by_the_children ... ok
+test a_subpixel_zoomed_out_mask_frame_keeps_its_stand_in ... ok
+test the_frame_box_stands_in_for_one_frame_only ... ok
+test a_built_vector_child_still_cuts_by_its_shape ... ok
+test headless_gpu_matches_the_cpu_for_a_frame_mask_without_fill ... ok
+test a_deferred_child_does_not_paint_the_stand_in_box_over_alpha_already_drawn ... ok
+test headless_gpu_matches_cpu_for_alpha_vector_and_luminance_mask_types ... ok
+test a_deferred_vector_child_does_not_empty_the_mask ... ok
+test a_tiny_zoomed_out_mask_frame_keeps_cutting ... ok
+test gpu_vector_mask_outlines_and_rgb_luminance_match_cpu ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-mcp)
+   Compiling designos-gpu v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-gpu)
+   Compiling designos-library v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-library)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 46.77s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 6 tests
+test check_designs::tests::covering_sibling::a_mask_before_the_rectangle_leaves_the_backdrop_unknown ... ok
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_dropdown_edits_mixed_selection_and_undoes_in_one_step ... ok
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... ok
+test image_jobs::tests::erase_without_region_omits_mask_file_and_field ... ok
+test shell::tests::agent_a11y::use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4035 filtered out; finished in 0.51s
+
