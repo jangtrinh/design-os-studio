@@ -139,12 +139,19 @@ pub enum Action {
     Tool(Tool),
 }
 
+/// Shared "is the selection a mask" rule used by the properties header button,
+/// the Object menu item, and `toggle_mask_selection`: true when the selection is
+/// non-empty and the first 128 selected nodes are all masks.
+pub(crate) fn selection_shows_all_mask(app: &App) -> bool {
+    !app.selection.is_empty() && app.selection.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask))
+}
+
 /// Shared "Use as mask" toggle rule used by both the Object menu and the properties header button:
-/// if any selected layer is not a mask, turns all selected layers into masks; otherwise unmasks all.
+/// sets `is_mask = !selection_shows_all_mask(app)` across the whole selection.
 pub fn toggle_mask_selection(app: &mut App) {
+    let on = selection_shows_all_mask(app);
     let sel = app.selection.clone();
-    let any_unmasked = sel.iter().any(|id| app.doc.get(*id).is_some_and(|n| !n.is_mask));
-    app.edit_nodes(&sel, |n| n.is_mask = any_unmasked);
+    app.edit_nodes(&sel, |n| n.is_mask = !on);
 }
 
 pub fn run(app: &mut App, ctx: &Context, a: Action) {
@@ -493,7 +500,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Rulers", "Shift+R", Action::ToggleRulers).on(app.ui.rulers),
         leaf("Show/Hide UI", "Ctrl+\\", Action::ToggleSidebar).on(!app.ui.left_collapsed),
     ];
-    let all_mask = has_sel && app.selection.iter().all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask));
+    let all_mask = selection_shows_all_mask(app);
     let mask_shortcut = if cfg!(target_os = "macos") { "⌃⌘M" } else { "Ctrl+Alt+M" };
     let object = vec![
         leaf("Group selection", "Ctrl+G", Action::Group).off(!has_sel),
@@ -1282,5 +1289,73 @@ mod tests {
 
         app.undo();
         assert!(!app.doc.get(a).unwrap().is_mask && !app.doc.get(b).unwrap().is_mask);
+    }
+
+    #[test]
+    fn selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-128-prefix");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::with_capacity(129);
+        for i in 0..129 {
+            let id = doc.alloc_id();
+            let mut n = DocNode::rectangle(id, Rect::new((i as f32) * 12.0, 0.0, 10.0, 10.0));
+            n.is_mask = i < 128;
+            ids.push(doc.insert(page, n).unwrap());
+        }
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = ids.clone();
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        assert!(selection_shows_all_mask(&app), "first 128 selected nodes are masks");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app), "Object menu Use as mask on flag must equal selection_shows_all_mask");
+
+        toggle_mask_selection(&mut app);
+        assert!(!app.doc.get(ids[0]).unwrap().is_mask, "node 0 unmasked after toggle_mask_selection");
+        assert!(!app.doc.get(ids[128]).unwrap().is_mask, "node 128 remains unmasked after toggle_mask_selection");
+        assert!(!selection_shows_all_mask(&app));
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+    }
+
+    #[test]
+    fn selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-129-non-masks");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::with_capacity(129);
+        for i in 0..129 {
+            let id = doc.alloc_id();
+            let n = DocNode::rectangle(id, Rect::new((i as f32) * 12.0, 0.0, 10.0, 10.0));
+            ids.push(doc.insert(page, n).unwrap());
+        }
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        app.selection = ids.clone();
+        assert!(!selection_shows_all_mask(&app), "129 non-masks must not report all-mask");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+
+        toggle_mask_selection(&mut app);
+        assert!(ids.iter().all(|id| app.doc.get(*id).unwrap().is_mask), "all 129 non-masks become masks");
+        assert!(selection_shows_all_mask(&app));
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+
+        app.selection.clear();
+        assert!(!selection_shows_all_mask(&app), "empty selection must not report all-mask");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+        toggle_mask_selection(&mut app);
+        assert!(ids.iter().all(|id| app.doc.get(*id).unwrap().is_mask), "toggling with nothing selected leaves all 129 masks intact");
     }
 }

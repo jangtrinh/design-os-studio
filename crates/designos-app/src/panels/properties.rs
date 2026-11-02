@@ -851,7 +851,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             app.rename(sel[0], &s);
         }
     }
-    let all_mask = sel.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask));
+    let all_mask = super::menus::selection_shows_all_mask(app);
     let btns = [
         (Icon::Mask, "Use as mask", all_mask),
         (if n0.locked { Icon::Lock } else { Icon::Unlock }, "Lock", n0.locked),
