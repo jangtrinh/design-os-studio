@@ -476,9 +476,20 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.5. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.7. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--077" id="new-in-v077" aria-labelledby="v077-h">
+          <h3 id="v077-h" class="new-ver">0.7.7</h3>
+          <ul class="new-bullets">
+            <li><strong>Canvas.</strong> A page viewed zoomed far out draws full detail once the view is still, a click selects from the outside in, and Shift-click or Shift-drag adds the matching layers.</li>
+            <li><strong>Colour and inspector.</strong> The colour picker adds OKLCH and OKLAB modes, a variable bind icon is always visible on bindable fields, and Typography fields get bind entry points.</li>
+            <li><strong>Objects, vectors and masks.</strong> <code>Resize to fit</code> shrinks or grows a frame to its visible content, <code>Paste to replace</code> keeps its own shortcut, <code>Flatten</code> and <code>Outline stroke</code> turn text into vector paths, and masks come in Alpha, Vector and Luminance types.</li>
+            <li><strong><code>.fig</code> files.</strong> An instance's fill and stroke overrides keep their own colour style, and saving to <code>.fig</code> keeps an instance's own size, opacity and other root overrides.</li>
+            <li><strong>Layout and export.</strong> Wrapped Fill-width text re-measures its height after a width change, and native code export (SwiftUI, UIKit, Compose, Android XML) places grid children on the layout tracks.</li>
+            <li><strong>App, Agents and MCP.</strong> A narrow window no longer crashes, the Auto-save OFF switch shows its track edge, a second send while a prompt waits is queued behind it, and a <code>set_slot</code> op in <code>designos_apply_batch</code> fills the instance's slot.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--075" id="new-in-v075" aria-labelledby="v075-h">
           <h3 id="v075-h" class="new-ver">0.7.5</h3>
           <ul class="new-bullets">
