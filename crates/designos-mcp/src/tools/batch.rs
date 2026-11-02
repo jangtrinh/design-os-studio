@@ -2009,12 +2009,17 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                         measured_with_fallback.push(*fid);
                     }
                 }
+                for w in &built_report.warnings {
+                    if w.code != "TEXT_MEASURED_WITH_FALLBACK_FONT" || !batch_warnings.iter().any(|bw| bw.code == "TEXT_MEASURED_WITH_FALLBACK_FONT") {
+                        batch_warnings.push(w.clone());
+                    }
+                }
 
                 let target_slot = resolve_slot_container(&trial, id, &a.slot).ok_or_else(|| {
                     op_failed_error(
                         op_idx,
                         op_name,
-                        ErrorCode::InvalidArguments,
+                        ErrorCode::SlotContainerNotFound,
                         &format!("{op_path}/slot"),
                         format!("slot '{}' was not found on instance {}", a.slot, id.0),
                     )
@@ -2107,6 +2112,14 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                             op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("slot node {} not found", target_slot.0))
                         })?;
                         slot.component.overrides.insert(designos_doc::OverrideField::SlotContent);
+                        if let Some(generated_slot) = temp_doc.get(built_slot) {
+                            slot.visible = generated_slot.visible;
+                            if generated_slot.component.overrides.contains(&designos_doc::OverrideField::Visible) {
+                                slot.component.overrides.insert(designos_doc::OverrideField::Visible);
+                            } else {
+                                slot.component.overrides.remove(&designos_doc::OverrideField::Visible);
+                            }
+                        }
                         if slot != *trial.get(target_slot).unwrap() {
                             let slot_cmd = Command::Update { node: Box::new(slot) };
                             if recording_live {
