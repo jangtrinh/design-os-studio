@@ -628,16 +628,116 @@ fn set_features(app: &mut App, sel: &[NodeId], changes: Vec<(&str, Option<u32>)>
     });
 }
 
+/// Uniform truncation state across `sel`: `Some(true)` when every selected text layer truncates,
+/// `Some(false)` when none truncates, `None` when mixed.
+fn truncate_state(app: &App, sel: &[NodeId]) -> Option<bool> {
+    let mut iter = sel.iter().filter_map(|id| match app.doc.get(*id).map(|n| &n.kind) {
+        Some(NodeKind::Text(t)) => Some(t.auto_resize == TextAutoResize::Truncate),
+        _ => None,
+    });
+    let first = iter.next()?;
+    iter.all(|v| v == first).then_some(first)
+}
+
+/// Uniform `max_lines` across `sel`: `Some(Some(n))` or `Some(None)` when uniform, `None` when mixed.
+fn max_lines_state(app: &App, sel: &[NodeId]) -> Option<Option<u32>> {
+    let mut iter = sel.iter().filter_map(|id| match app.doc.get(*id).map(|n| &n.kind) {
+        Some(NodeKind::Text(t)) => Some(t.max_lines),
+        _ => None,
+    });
+    let first = iter.next()?;
+    iter.all(|v| v == first).then_some(first)
+}
+
+/// Sets `auto_resize` on every selected text layer (`Truncate` when `on`, `None` when off)
+/// while keeping each layer's current `size` in one undo step. A text layer that hugs in its
+/// auto-layout parent is switched to fixed sizing so its box does not collapse; layers of any
+/// other kind in the selection are left untouched.
+fn set_truncate_text(app: &mut App, sel: &[NodeId], on: bool) {
+    app.edit_nodes(sel, |n| {
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.auto_resize = if on { TextAutoResize::Truncate } else { TextAutoResize::None };
+            if n.layout_child.horizontal == Sizing::Hug {
+                n.layout_child.horizontal = Sizing::Fixed;
+            }
+            if n.layout_child.vertical == Sizing::Hug {
+                n.layout_child.vertical = Sizing::Fixed;
+            }
+        }
+    });
+}
+
+/// Sets `max_lines` on every selected text layer in one undo step; when `max_lines` is `Some`,
+/// also clears `layout_child.max_h` and detaches any `"maxHeight"` variable binding on that layer.
+fn set_max_lines(app: &mut App, sel: &[NodeId], max_lines: Option<u32>) {
+    app.edit_nodes(sel, |n| {
+        let mut is_text = false;
+        if let NodeKind::Text(t) = &mut n.kind {
+            t.max_lines = max_lines;
+            is_text = true;
+        }
+        if is_text && max_lines.is_some() {
+            n.layout_child.max_h = None;
+            n.variables.bindings.remove("maxHeight");
+        }
+    });
+}
+
+/// Optional positive integer field for `Max lines`: committing an empty or blank text stores `None`,
+/// committing a number clamps it to an integer `>= 1`, and a field left as it was (including a mixed
+/// selection that shows `"Mixed"`) writes nothing.
+fn max_lines_field(ui: &mut Ui, rect: Rect, key: &str, state: Option<Option<u32>>) -> Option<Option<u32>> {
+    widgets::record(ui, key, rect);
+    #[cfg(test)]
+    {
+        let k = format!("{key:?}");
+        let rect_id = egui::Id::new(("field-rect", k.clone()));
+        let prefix_id = egui::Id::new(("field-prefix", k));
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(rect_id, rect);
+            d.insert_temp(prefix_id, Prefix::None);
+        });
+    }
+    let id = ui.id().with(("max-lines", key));
+    field::field_bg(ui, rect, id);
+    let display = match state {
+        Some(Some(n)) => n.to_string(),
+        _ => String::new(),
+    };
+    let hint = state.is_none().then_some(("Mixed", theme::TEXT_TERTIARY));
+    let committed = field::edit_text_hint(ui, rect, id, &display, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X, hint)?;
+    let trimmed = committed.trim();
+    if trimmed.is_empty() {
+        return Some(None);
+    }
+    let v = trimmed.parse::<f32>().ok().filter(|v| v.is_finite())?;
+    Some(Some(v.round().max(1.0) as u32))
+}
+
+fn clear_max_lines_test_rects(ctx: &egui::Context) {
+    #[cfg(test)]
+    {
+        let k = format!("{:?}", "det-max-lines");
+        ctx.data_mut(|d| {
+            d.remove::<Rect>(egui::Id::new(("test-rect", "det-max-lines".to_string())));
+            d.remove::<Rect>(egui::Id::new(("field-rect", k.clone())));
+            d.remove::<Prefix>(egui::Id::new(("field-prefix", k)));
+        });
+    }
+    #[cfg(not(test))]
+    let _ = ctx;
+}
+
 /// Rows of the Type settings popover for a font with `sets` stylistic sets on `active_tab`.
-fn details_rows(sets: usize, active_tab: usize) -> f32 {
+fn details_rows(sets: usize, active_tab: usize, truncating: bool) -> f32 {
     let chips = if sets == 0 { 0 } else { 1 + sets.div_ceil(SETS_PER_ROW) };
     match active_tab {
         // Variable tab: 3-tab bar + Ag live preview + 4 variable axes + reset row
         2 => (1 + 5) as f32 + 2.5,
         // Details tab: 3-tab bar + Ag live preview + 7 OpenType rows + stylistic set chips
         1 => (1 + 7 + chips) as f32 + 2.5,
-        // Basic tab (default): 3-tab bar + Ag live preview + OpenType + Paragraph (hides Variable Axes to save 136px)
-        _ => (1 + 7 + chips + 8) as f32 + 3.0,
+        // Basic tab (default): 3-tab bar + Ag live preview + OpenType + Paragraph + Truncate text (+ Max lines when on)
+        _ => (1 + 7 + chips + 8 + usize::from(truncating)) as f32 + 3.0,
     }
 }
 
@@ -666,7 +766,8 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
     let sets: Vec<u32> = (1..=20u32).filter(|i| available.iter().any(|f| *f == format!("ss{i:02}"))).collect();
     let tab_state_id = egui::Id::new("type-settings-active-tab");
     let mut active_tab = ctx.data(|d| d.get_temp::<usize>(tab_state_id)).unwrap_or(0);
-    let height = widgets::popover::HEADER_H + 8.0 + details_rows(sets.len(), active_tab) * widgets::popover::ROW_H + 8.0;
+    let trunc_state = truncate_state(app, &ids);
+    let height = widgets::popover::HEADER_H + 8.0 + details_rows(sets.len(), active_tab, trunc_state == Some(true)) * widgets::popover::ROW_H + 8.0;
     let val = |tag: &str| richtext::feature_value(&feats, tag);
 
     let pop = widgets::popover::show(&ctx, egui::Id::new("inspector-popover"), st.anchor, region, DETAILS_W, height, "Type settings", |ui, body| {
@@ -927,6 +1028,32 @@ pub(super) fn details_popover(app: &mut App, ui: &mut Ui, region: Rect, st: &sup
                     set_text_props(app, &ids, |t| t.text_wrap = w);
                 }
             });
+            let trunc_y = next() - 8.0;
+            detail_row(ui, body, trunc_y, "Truncate text", false, |ui, r| {
+                widgets::record(ui, "det-truncate", r);
+                let on = trunc_state == Some(true);
+                if trunc_state.is_none() {
+                    let font = theme::font_body();
+                    let text_x = r.left() + theme::LAYER_ICON_SIZE + theme::SPACE_INLINE;
+                    widgets::text_on_baseline(ui.painter(), text_x, widgets::centered_baseline(r, &font), "Mixed", font, theme::TEXT_TERTIARY);
+                }
+                if let Some(next_on) = widgets::popover::check(ui, r, "det-truncate", on) {
+                    set_truncate_text(app, &ids, next_on);
+                }
+            });
+            if trunc_state == Some(true) {
+                let ml = max_lines_state(app, &ids);
+                let ml_y = next() - 8.0;
+                detail_row(ui, body, ml_y, "Max lines", false, |ui, r| {
+                    if let Some(next_ml) = max_lines_field(ui, r, "det-max-lines", ml) {
+                        set_max_lines(app, &ids, next_ml);
+                    }
+                });
+            } else {
+                clear_max_lines_test_rects(&ctx);
+            }
+        } else {
+            clear_max_lines_test_rects(&ctx);
         }
 
         if active_tab == 2 {

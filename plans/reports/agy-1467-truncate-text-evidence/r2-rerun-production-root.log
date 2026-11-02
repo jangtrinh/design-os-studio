@@ -1,0 +1,30 @@
+# r2 rerun alone: agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+head=b4a7470b7ed6fbd5ea56f1c9c56bf44e6e5bec0b
+cmd: cargo test -p designos-app --bin designos --locked agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root -- --exact
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.00s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... FAILED
+
+failures:
+
+---- agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root stdout ----
+
+thread 'agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root' (73764385) panicked at crates/designos-app/src/agent_approval_channel.rs:286:9:
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.eCD1XK/home/Library/Application Support/designos/ap/c38ac3fda41d8b24/codex.sock is 130 bytes
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4203 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+rc=101
