@@ -1,0 +1,9 @@
+flowchart LR
+  accTitle: Feedback review flow
+  accDescr: Feedback items move from New to Triaged to Planned to Resolved, with a reopen path back to Triaged.
+  new[New] --> triaged[Triaged]
+  triaged --> planned[Planned]
+  planned --> resolved[Resolved]
+  resolved -. reopen .-> triaged
+  triaged --> more{Needs more info?}
+  more -- yes --> new

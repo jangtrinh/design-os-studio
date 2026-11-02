@@ -1,0 +1,30 @@
+# THROWAWAY spike for issue #1527 (Mermaid diagrams). Not a workspace member:
+# the empty [workspace] table below makes this package its own workspace root,
+# so the repo root Cargo.toml needs no `exclude` entry.
+[package]
+name = "spike-mermaid"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[features]
+default = ["mmdr", "merman"]
+# (b) candidate 1: mermaid-rs-renderer (MIT, MSRV unstated, builds on 1.93.1)
+mmdr = ["dep:mermaid-rs-renderer"]
+# (b) candidate 2: merman (MIT OR Apache-2.0, MSRV 1.95, edition 2024)
+merman = ["dep:merman"]
+# (b) candidate 2b: merman 0.6.2, MSRV 1.87, builds on the repo's pinned 1.93.1; older API
+merman06 = ["dep:merman06"]
+
+[dependencies]
+# SVG-only: no clap, no resvg 0.47 pulled by the crate's own `png` feature.
+mermaid-rs-renderer = { version = "=0.3.1", default-features = false, optional = true }
+merman = { version = "=0.9.3", default-features = false, features = ["svg", "diagram-flowchart", "diagram-sequence"], optional = true }
+merman06 = { package = "merman", version = "=0.6.2", default-features = false, features = ["render"], optional = true }
+# Same major as the workspace (usvg/resvg 0.45) so the SVG is judged by the
+# parser Studio's importer (crates/designos-svg) already uses.
+resvg = { version = "0.45", default-features = false, features = ["text"] }
+serde_json = "1"
+libc = "0.2"

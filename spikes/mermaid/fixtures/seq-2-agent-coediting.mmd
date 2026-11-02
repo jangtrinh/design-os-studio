@@ -1,0 +1,17 @@
+sequenceDiagram
+  accTitle: Agent co-editing
+  participant A as Agent
+  participant M as MCP server
+  participant D as Doc
+  participant U as User
+  A->>M: doc_insert_block(text)
+  activate M
+  M->>D: apply(edit)
+  Note over D,U: Edit lands live in the open page
+  loop while the user types
+    U->>D: keystroke
+    D-->>M: hold agent edits
+  end
+  D-->>M: ok
+  deactivate M
+  M-->>A: block_id

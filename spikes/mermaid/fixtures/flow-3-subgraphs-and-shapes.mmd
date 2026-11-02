@@ -1,0 +1,14 @@
+flowchart TD
+  accTitle: Doc save pipeline
+  accDescr: Editing a doc debounces, serialises, writes atomically and reports a conflict if the file changed on disk.
+  A([Keystroke]) --> B[Debounce 300 ms]
+  subgraph Save
+    direction TB
+    B --> C[Serialise blocks]
+    C --> D{Disk changed?}
+    D -- no --> E[(Write atomically)]
+    D -- yes --> F[/Show conflict banner/]
+  end
+  E --> G((Saved))
+  F --> H[Reload from disk]
+  H --> A

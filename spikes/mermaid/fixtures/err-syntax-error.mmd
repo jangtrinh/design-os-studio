@@ -1,0 +1,5 @@
+flowchart LR
+  cart[Cart] --> pay[Payment]
+  pay --> ok{Paid?}
+  ok -- yes --> --> done[Order confirmed]
+  ok -- no --> declined[Card declined]

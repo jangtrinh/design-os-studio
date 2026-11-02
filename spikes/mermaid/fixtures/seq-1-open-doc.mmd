@@ -1,0 +1,19 @@
+sequenceDiagram
+  accTitle: Open a project doc
+  accDescr: The editor asks the library for a doc, the store reads it, and a conflict check runs before the page renders.
+  autonumber
+  participant U as User
+  participant E as Editor
+  participant L as Library
+  participant S as Store
+  U->>E: Open "Payment flow"
+  E->>L: load_doc(id)
+  L->>S: read(path)
+  S-->>L: bytes
+  alt file changed on disk
+    L-->>E: Conflict(revision)
+    E-->>U: Show conflict banner
+  else clean
+    L-->>E: Document
+    E-->>U: Render page
+  end
