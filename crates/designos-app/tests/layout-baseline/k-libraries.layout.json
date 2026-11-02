@@ -69,7 +69,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1456.0,
-        1031.0,
+        1067.0,
         24.0,
         24.0
       ],
@@ -95,6 +95,46 @@
       ],
       "count": 1
     },
+    "corner-individual": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1568.0,
+        874.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1472.0,
+        906.0,
+        76.25,
+        32.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing-ios": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1568.0,
+        910.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "corner-smoothing-slider": {
+      "region": "overlay:Foreground/0",
+      "rect": [
+        1376.0,
+        906.0,
+        88.0,
+        32.0
+      ],
+      "count": 1
+    },
     "distribute": {
       "region": "overlay:Foreground/0",
       "rect": [
@@ -109,7 +149,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1540.0,
-        1125.0,
+        1161.0,
         24.0,
         24.0
       ],
@@ -119,7 +159,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1568.0,
-        3141.0,
+        3177.0,
         24.0,
         24.0
       ],
@@ -139,7 +179,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2707.0,
+        2743.0,
         223.0,
         32.0
       ],
@@ -149,7 +189,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2643.0,
+        2679.0,
         223.0,
         32.0
       ],
@@ -159,7 +199,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2835.0,
+        2871.0,
         223.0,
         32.0
       ],
@@ -169,7 +209,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        3004.0,
+        3040.0,
         223.0,
         32.0
       ],
@@ -179,7 +219,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1568.0,
-        1125.0,
+        1161.0,
         24.0,
         24.0
       ],
@@ -189,7 +229,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1540.0,
-        1166.0,
+        1202.0,
         24.0,
         24.0
       ],
@@ -369,7 +409,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1472.0,
-        942.0,
+        978.0,
         88.0,
         32.0
       ],
@@ -589,7 +629,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1243.0,
+        1279.0,
         96.0,
         32.0
       ],
@@ -599,7 +639,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1283.0,
+        1319.0,
         96.0,
         32.0
       ],
@@ -609,7 +649,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1643.0,
+        1679.0,
         96.0,
         32.0
       ],
@@ -619,7 +659,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1683.0,
+        1719.0,
         96.0,
         32.0
       ],
@@ -629,7 +669,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1723.0,
+        1759.0,
         96.0,
         32.0
       ],
@@ -639,7 +679,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1763.0,
+        1799.0,
         96.0,
         32.0
       ],
@@ -649,7 +689,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1803.0,
+        1839.0,
         96.0,
         32.0
       ],
@@ -659,7 +699,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1843.0,
+        1879.0,
         96.0,
         32.0
       ],
@@ -669,7 +709,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1883.0,
+        1919.0,
         96.0,
         32.0
       ],
@@ -679,7 +719,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1923.0,
+        1959.0,
         96.0,
         32.0
       ],
@@ -689,7 +729,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1963.0,
+        1999.0,
         96.0,
         32.0
       ],
@@ -699,7 +739,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2003.0,
+        2039.0,
         96.0,
         32.0
       ],
@@ -709,7 +749,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1323.0,
+        1359.0,
         96.0,
         32.0
       ],
@@ -719,7 +759,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2043.0,
+        2079.0,
         96.0,
         32.0
       ],
@@ -729,7 +769,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2083.0,
+        2119.0,
         96.0,
         32.0
       ],
@@ -739,7 +779,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2123.0,
+        2159.0,
         96.0,
         32.0
       ],
@@ -749,7 +789,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2163.0,
+        2199.0,
         96.0,
         32.0
       ],
@@ -759,7 +799,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2203.0,
+        2239.0,
         96.0,
         32.0
       ],
@@ -769,7 +809,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2243.0,
+        2279.0,
         96.0,
         32.0
       ],
@@ -779,7 +819,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2283.0,
+        2319.0,
         96.0,
         32.0
       ],
@@ -789,7 +829,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2323.0,
+        2359.0,
         96.0,
         32.0
       ],
@@ -799,7 +839,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2363.0,
+        2399.0,
         96.0,
         32.0
       ],
@@ -809,7 +849,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2403.0,
+        2439.0,
         96.0,
         32.0
       ],
@@ -819,7 +859,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1363.0,
+        1399.0,
         96.0,
         32.0
       ],
@@ -829,7 +869,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2443.0,
+        2479.0,
         96.0,
         32.0
       ],
@@ -839,7 +879,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2483.0,
+        2519.0,
         96.0,
         32.0
       ],
@@ -849,7 +889,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        2523.0,
+        2559.0,
         96.0,
         32.0
       ],
@@ -859,7 +899,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1403.0,
+        1439.0,
         96.0,
         32.0
       ],
@@ -869,7 +909,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1443.0,
+        1479.0,
         96.0,
         32.0
       ],
@@ -879,7 +919,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1483.0,
+        1519.0,
         96.0,
         32.0
       ],
@@ -889,7 +929,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1523.0,
+        1559.0,
         96.0,
         32.0
       ],
@@ -899,7 +939,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1563.0,
+        1599.0,
         96.0,
         32.0
       ],
@@ -909,7 +949,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1400.0,
-        1603.0,
+        1639.0,
         96.0,
         32.0
       ],
@@ -919,7 +959,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1247.0,
+        1283.0,
         16.0,
         16.0
       ],
@@ -929,7 +969,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1287.0,
+        1323.0,
         16.0,
         16.0
       ],
@@ -939,7 +979,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1647.0,
+        1683.0,
         16.0,
         16.0
       ],
@@ -949,7 +989,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1687.0,
+        1723.0,
         16.0,
         16.0
       ],
@@ -959,7 +999,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1727.0,
+        1763.0,
         16.0,
         16.0
       ],
@@ -969,7 +1009,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1767.0,
+        1803.0,
         16.0,
         16.0
       ],
@@ -979,7 +1019,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1807.0,
+        1843.0,
         16.0,
         16.0
       ],
@@ -989,7 +1029,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1847.0,
+        1883.0,
         16.0,
         16.0
       ],
@@ -999,7 +1039,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1887.0,
+        1923.0,
         16.0,
         16.0
       ],
@@ -1009,7 +1049,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1927.0,
+        1963.0,
         16.0,
         16.0
       ],
@@ -1019,7 +1059,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1967.0,
+        2003.0,
         16.0,
         16.0
       ],
@@ -1029,7 +1069,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2007.0,
+        2043.0,
         16.0,
         16.0
       ],
@@ -1039,7 +1079,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1327.0,
+        1363.0,
         16.0,
         16.0
       ],
@@ -1049,7 +1089,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2047.0,
+        2083.0,
         16.0,
         16.0
       ],
@@ -1059,7 +1099,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2087.0,
+        2123.0,
         16.0,
         16.0
       ],
@@ -1069,7 +1109,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2127.0,
+        2163.0,
         16.0,
         16.0
       ],
@@ -1079,7 +1119,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2167.0,
+        2203.0,
         16.0,
         16.0
       ],
@@ -1089,7 +1129,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2207.0,
+        2243.0,
         16.0,
         16.0
       ],
@@ -1099,7 +1139,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2247.0,
+        2283.0,
         16.0,
         16.0
       ],
@@ -1109,7 +1149,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2287.0,
+        2323.0,
         16.0,
         16.0
       ],
@@ -1119,7 +1159,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2327.0,
+        2363.0,
         16.0,
         16.0
       ],
@@ -1129,7 +1169,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2367.0,
+        2403.0,
         16.0,
         16.0
       ],
@@ -1139,7 +1179,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2407.0,
+        2443.0,
         16.0,
         16.0
       ],
@@ -1149,7 +1189,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1367.0,
+        1403.0,
         16.0,
         16.0
       ],
@@ -1159,7 +1199,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2447.0,
+        2483.0,
         16.0,
         16.0
       ],
@@ -1169,7 +1209,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2487.0,
+        2523.0,
         16.0,
         16.0
       ],
@@ -1179,7 +1219,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        2527.0,
+        2563.0,
         16.0,
         16.0
       ],
@@ -1189,7 +1229,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1407.0,
+        1443.0,
         16.0,
         16.0
       ],
@@ -1199,7 +1239,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1447.0,
+        1483.0,
         16.0,
         16.0
       ],
@@ -1209,7 +1249,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1487.0,
+        1523.0,
         16.0,
         16.0
       ],
@@ -1219,7 +1259,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1527.0,
+        1563.0,
         16.0,
         16.0
       ],
@@ -1229,7 +1269,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1567.0,
+        1603.0,
         16.0,
         16.0
       ],
@@ -1239,7 +1279,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        1607.0,
+        1643.0,
         16.0,
         16.0
       ],
@@ -1259,7 +1299,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2675.0,
+        2711.0,
         223.0,
         32.0
       ],
@@ -1269,7 +1309,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        3036.0,
+        3072.0,
         223.0,
         32.0
       ],
@@ -1279,7 +1319,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        3068.0,
+        3104.0,
         223.0,
         32.0
       ],
@@ -1289,7 +1329,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        3100.0,
+        3136.0,
         223.0,
         32.0
       ],
@@ -1299,7 +1339,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2739.0,
+        2775.0,
         223.0,
         32.0
       ],
@@ -1309,7 +1349,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2771.0,
+        2807.0,
         223.0,
         32.0
       ],
@@ -1319,7 +1359,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2803.0,
+        2839.0,
         223.0,
         32.0
       ],
@@ -1329,7 +1369,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2867.0,
+        2903.0,
         223.0,
         32.0
       ],
@@ -1339,7 +1379,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2931.0,
+        2967.0,
         223.0,
         32.0
       ],
@@ -1349,7 +1389,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1367.0,
-        2899.0,
+        2935.0,
         223.0,
         32.0
       ],
@@ -1359,7 +1399,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1380.0,
-        1035.0,
+        1071.0,
         16.0,
         16.0
       ],
@@ -1429,7 +1469,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1568.0,
-        3141.0,
+        3177.0,
         24.0,
         24.0
       ],
@@ -1439,7 +1479,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1568.0,
-        1166.0,
+        1202.0,
         24.0,
         24.0
       ],
@@ -2373,7 +2413,7 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1376.0,
-        906.0,
+        942.0,
         184.0,
         32.0
       ],
@@ -2386,74 +2426,6 @@
       "region": "overlay:Foreground/0",
       "rect": [
         1540.0,
-        991.0,
-        24.0,
-        24.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        1568.0,
-        991.0,
-        24.0,
-        24.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        1360.0,
-        1027.0,
-        16.0,
-        25.0
-      ],
-      "sense": [
-        "click",
-        "drag",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        1400.0,
-        1027.0,
-        55.0,
-        25.0
-      ],
-      "sense": [
-        "click",
-        "drag",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        1481.0,
-        1027.0,
-        38.0,
-        25.0
-      ],
-      "sense": [
-        "click",
-        "drag",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        1543.0,
         1027.0,
         24.0,
         24.0
@@ -2487,32 +2459,6 @@
       "sense": [
         "click",
         "drag",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        1456.0,
-        1031.0,
-        24.0,
-        21.0
-      ],
-      "sense": [
-        "click",
-        "focus"
-      ]
-    },
-    {
-      "region": "overlay:Foreground/0",
-      "rect": [
-        1378.0,
-        1033.0,
-        20.0,
-        19.0
-      ],
-      "sense": [
-        "click",
         "focus"
       ]
     },

@@ -288,49 +288,57 @@ impl App {
             ctx.data_mut(|d| d.insert_temp(id, false));
         }
         match (active, self.scrub.is_some()) {
-            (true, false) => {
-                if self.doc.nodes.len() <= 5_000 {
-                    self.begin_scrub(self.doc.nodes.clone());
-                } else {
-                    let mut snap = std::collections::BTreeMap::new();
-                    if let Some(pn) = self.doc.get(self.page) {
-                        snap.insert(self.page, pn.clone());
-                    }
-                    let mut stack: Vec<NodeId> = Vec::new();
-                    for &sid in &self.selection {
-                        stack.push(sid);
-                        let mut cur = self.doc.get(sid).and_then(|n| n.parent);
-                        while let Some(p) = cur {
-                            if p == self.page {
-                                break;
-                            }
-                            if let Some(pn) = self.doc.get(p) {
-                                snap.entry(p).or_insert_with(|| pn.clone());
-                                for &sib in pn.children.iter().take(256) {
-                                    if let Some(sn) = self.doc.get(sib) {
-                                        snap.entry(sib).or_insert_with(|| sn.clone());
-                                    }
-                                }
-                                cur = pn.parent;
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                    while let Some(nid) = stack.pop() {
-                        if snap.len() >= 4_096 {
-                            break;
-                        }
-                        if let Some(n) = self.doc.get(nid) {
-                            snap.entry(nid).or_insert_with(|| n.clone());
-                            stack.extend(n.children.iter().copied());
-                        }
-                    }
-                    self.begin_scrub(snap);
-                }
-            }
+            (true, false) => self.ensure_scrub(ctx),
             (false, true) => self.scrub_end(),
             _ => {}
+        }
+    }
+
+    /// Ensures a scrub session is open on the current document state before a continuous drag/slider edit mutates nodes.
+    pub(crate) fn ensure_scrub(&mut self, ctx: &egui::Context) {
+        let id = egui::Id::new(crate::widgets::field::SCRUB_FLAG);
+        ctx.data_mut(|d| d.insert_temp(id, true));
+        if self.scrub.is_some() {
+            return;
+        }
+        if self.doc.nodes.len() <= 5_000 {
+            self.begin_scrub(self.doc.nodes.clone());
+        } else {
+            let mut snap = std::collections::BTreeMap::new();
+            if let Some(pn) = self.doc.get(self.page) {
+                snap.insert(self.page, pn.clone());
+            }
+            let mut stack: Vec<NodeId> = Vec::new();
+            for &sid in &self.selection {
+                stack.push(sid);
+                let mut cur = self.doc.get(sid).and_then(|n| n.parent);
+                while let Some(p) = cur {
+                    if p == self.page {
+                        break;
+                    }
+                    if let Some(pn) = self.doc.get(p) {
+                        snap.entry(p).or_insert_with(|| pn.clone());
+                        for &sib in pn.children.iter().take(256) {
+                            if let Some(sn) = self.doc.get(sib) {
+                                snap.entry(sib).or_insert_with(|| sn.clone());
+                            }
+                        }
+                        cur = pn.parent;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            while let Some(nid) = stack.pop() {
+                if snap.len() >= 4_096 {
+                    break;
+                }
+                if let Some(n) = self.doc.get(nid) {
+                    snap.entry(nid).or_insert_with(|| n.clone());
+                    stack.extend(n.children.iter().copied());
+                }
+            }
+            self.begin_scrub(snap);
         }
     }
 

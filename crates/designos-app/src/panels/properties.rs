@@ -163,6 +163,12 @@ pub struct PropsState {
     pub sel_colors_cache: Option<(u64, u64, Vec<Color>, Vec<usize>)>,
     /// Cached `(doc_node_count_and_epoch, sorted_component_ids)` for instance swap menus.
     pub all_components_cache: Option<(u64, Vec<NodeId>)>,
+    /// View state for Figma's "Individual corners" toggle in the Appearance section.
+    pub individual_corners: bool,
+    /// Selection snapshot last synced into `individual_corners`.
+    pub individual_corners_sel: Option<Vec<NodeId>>,
+    /// Whether the current selection had differing corners on the previous frame.
+    pub individual_corners_had_diff: bool,
 }
 
 pub(super) struct Pane {
@@ -371,6 +377,48 @@ fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Op
     let mut it = sel.iter().take(128).filter_map(|id| app.doc.get(*id)).map(f);
     let first = it.next()?;
     it.all(|v| v == first).then_some(first)
+}
+
+fn node_has_corners(n: &Node) -> bool {
+    !matches!(n.kind, NodeKind::Text(_) | NodeKind::Line | NodeKind::Group | NodeKind::Vector { .. })
+}
+
+fn node_corners_differ(n: &Node) -> bool {
+    let r0 = n.corner_radii[0];
+    n.corner_radii[1..].iter().any(|&r| (r - r0).abs() > 1e-3)
+}
+
+fn uniform_corner_radius(n: &Node) -> Option<f32> {
+    if node_corners_differ(n) {
+        None
+    } else {
+        Some(n.corner_radii[0])
+    }
+}
+
+fn common_corners<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+    let mut it = sel.iter().take(128).filter_map(|id| app.doc.get(*id)).filter(|n| node_has_corners(n)).map(f);
+    let first = it.next()?;
+    it.all(|v| v == first).then_some(first)
+}
+
+fn clear_rect_geom(n: &mut Node) {
+    if matches!(n.kind, NodeKind::Rectangle | NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::Instance { .. }) {
+        n.fill_geometry = None;
+        n.stroke_geometry = None;
+    }
+}
+
+fn remove_field_rect(ctx: &egui::Context, key: &str) {
+    ctx.data_mut(|d| {
+        d.remove::<Rect>(egui::Id::new(("field-rect", format!("{key:?}"))));
+    });
+}
+
+fn remove_test_rect(ctx: &egui::Context, name: &str) {
+    ctx.data_mut(|d| {
+        d.remove::<Rect>(egui::Id::new(("test-rect", name.to_string())));
+    });
 }
 
 pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
@@ -1013,17 +1061,157 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         let o = (v / 100.0).clamp(0.0, 1.0);
         app.edit_nodes(sel, |n| n.opacity = o);
     }
-    let has_radius = !matches!(n0.kind, NodeKind::Text(_) | NodeKind::Line | NodeKind::Group | NodeKind::Vector { .. });
+    let corner_nodes: Vec<NodeId> = sel.iter().take(128).copied().filter(|id| app.doc.get(*id).is_some_and(node_has_corners)).collect();
+    let has_radius = !corner_nodes.is_empty();
+    let corners_differ = corner_nodes.iter().any(|id| app.doc.get(*id).is_some_and(node_corners_differ));
+    if app.props.individual_corners_sel.as_deref() != Some(sel) {
+        app.props.individual_corners = corners_differ;
+        app.props.individual_corners_sel = Some(sel.to_vec());
+    } else if corners_differ && !app.props.individual_corners_had_diff {
+        app.props.individual_corners = true;
+    }
+    app.props.individual_corners_had_diff = corners_differ;
+
     if has_radius {
-        let rad = common(app, sel, |n| n.corner_radii[0]);
         let rad_r = pane.col(1, 0.0);
-        let radius_keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
-        if let Some(v) = var_bind::numeric(app, ui, rad_r, sel, &radius_keys, |ui, r| field::num_field(ui, r, "radius", Prefix::Icon(Icon::Radius), rad, "")) {
-            let v = v.max(0.0);
-            app.edit_nodes(sel, |n| n.corner_radii = [v; 4]);
+        let toggle_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        if !app.props.individual_corners {
+            for key in ["radius-tl", "radius-tr", "radius-br", "radius-bl"] {
+                remove_field_rect(ui.ctx(), key);
+            }
+            let rad = common_corners(app, sel, uniform_corner_radius).flatten();
+            let radius_keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
+            if let Some(v) =
+                var_bind::numeric(app, ui, rad_r, &corner_nodes, &radius_keys, |ui, r| field::num_field(ui, r, "radius", Prefix::Icon(Icon::Radius), rad, ""))
+            {
+                let v = v.max(0.0);
+                app.edit_nodes(&corner_nodes, |n| {
+                    n.corner_radii = [v; 4];
+                    clear_rect_geom(n);
+                });
+            }
+        } else {
+            remove_field_rect(ui.ctx(), "radius");
+        }
+        widgets::record(ui, "corner-individual", toggle_r);
+        if widgets::icon_button(ui, toggle_r, "corner-individual", Icon::Grid2x2, app.props.individual_corners, "Individual corners").clicked() {
+            app.props.individual_corners = !app.props.individual_corners;
+        }
+    } else {
+        for key in ["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl", "corner-smoothing"] {
+            remove_field_rect(ui.ctx(), key);
+        }
+        for name in ["corner-individual", "corner-smoothing-slider", "corner-smoothing", "corner-smoothing-ios"] {
+            remove_test_rect(ui.ctx(), name);
         }
     }
     row_end(pane);
+
+    if has_radius && app.props.individual_corners {
+        let corners: [(usize, usize, &str, &str, &'static str); 4] = [
+            (0, 0, "radius-tl", "topLeftRadius", "TL"),
+            (1, 1, "radius-tr", "topRightRadius", "TR"),
+            (0, 2, "radius-br", "bottomRightRadius", "BR"),
+            (1, 3, "radius-bl", "bottomLeftRadius", "BL"),
+        ];
+        for (idx, (col_idx, corner_idx, field_key, var_key, label)) in corners.into_iter().enumerate() {
+            let r = pane.col(col_idx, 0.0);
+            let val = common_corners(app, sel, |n| n.corner_radii[corner_idx]);
+            let keys = [var_key];
+            if let Some(v) = var_bind::numeric(app, ui, r, &corner_nodes, &keys, |ui, r| field::num_field(ui, r, field_key, Prefix::Text(label), val, "")) {
+                let v = v.max(0.0);
+                app.edit_nodes(&corner_nodes, |n| {
+                    n.corner_radii[corner_idx] = v;
+                    clear_rect_geom(n);
+                });
+            }
+            if idx == 1 || idx == 3 {
+                row_end(pane);
+            }
+        }
+    }
+
+    if has_radius {
+        let smooth_val = common_corners(app, sel, |n| (n.corner_smoothing * 100.0).round() / 100.0);
+        let smooth_pct = smooth_val.map(|v| (v * 100.0).round());
+        let slider_r = pane.col(0, 0.0);
+        widgets::record(ui, "corner-smoothing-slider", slider_r);
+        let slider_resp = ui.interact(slider_r, ui.id().with("corner-smoothing-slider"), Sense::click_and_drag());
+        let half_track = theme::SPACE_FACT * 0.5;
+        let track_r = Rect::from_min_max(
+            Pos2::new(slider_r.left() + theme::SPACE_FACT, slider_r.center().y - half_track),
+            Pos2::new(slider_r.right() - theme::SPACE_FACT, slider_r.center().y + half_track),
+        );
+        ui.painter().rect_filled(track_r, theme::cr(theme::RADIUS_MARK), theme::BG_SECONDARY);
+        const IOS_SMOOTHING: f32 = 0.6;
+        let ios_x = track_r.left() + track_r.width() * IOS_SMOOTHING;
+        widgets::vline(ui.painter(), ios_x, track_r.top() - half_track, track_r.bottom() + half_track, theme::TEXT_TERTIARY);
+        let cur_frac = smooth_val.unwrap_or(0.0).clamp(0.0, 1.0);
+        let thumb_x = track_r.left() + cur_frac * track_r.width();
+        if cur_frac > 0.0 {
+            let fill_r = Rect::from_min_max(track_r.min, Pos2::new(thumb_x, track_r.bottom()));
+            ui.painter().rect_filled(fill_r, theme::cr(theme::RADIUS_MARK), theme::BG_BRAND);
+        }
+        let thumb_c = Pos2::new(thumb_x, track_r.center().y);
+        ui.painter().circle_filled(thumb_c, theme::SPACE_FACT, theme::TEXT);
+        ui.painter().circle_stroke(thumb_c, theme::SPACE_FACT, Stroke::new(theme::BORDER_WIDTH, theme::BORDER_STRONG));
+        if slider_resp.dragged() || slider_resp.clicked() {
+            if slider_resp.dragged() {
+                app.ensure_scrub(ui.ctx());
+            }
+            if let Some(pos) = slider_resp.interact_pointer_pos() {
+                let frac = ((pos.x - track_r.left()) / track_r.width().max(1.0)).clamp(0.0, 1.0);
+                let v = (frac * 100.0).round() / 100.0;
+                app.edit_nodes(&corner_nodes, |n| {
+                    n.corner_smoothing = v;
+                    clear_rect_geom(n);
+                });
+            }
+        }
+        if slider_resp.drag_stopped() {
+            app.scrub_end();
+        }
+
+        let smooth_field_r = pane.col(1, 0.0);
+        let pct_w = widgets::text_width(ui.painter(), "%", &theme::font_body());
+        let smooth_text_r =
+            Rect::from_min_max(smooth_field_r.min, Pos2::new((smooth_field_r.right() - pct_w).max(smooth_field_r.left()), smooth_field_r.bottom()));
+        widgets::record(ui, "corner-smoothing", smooth_text_r);
+        if let Some(pct) = field::num_field(ui, smooth_field_r, "corner-smoothing", Prefix::None, smooth_pct, "%") {
+            let v = (pct / 100.0).clamp(0.0, 1.0);
+            app.edit_nodes(&corner_nodes, |n| {
+                n.corner_smoothing = v;
+                clear_rect_geom(n);
+            });
+        }
+
+        let ios_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        widgets::record(ui, "corner-smoothing-ios", ios_r);
+        let ios_resp = ui.interact(ios_r, ui.id().with("corner-smoothing-ios"), Sense::click());
+        let ios_active = smooth_val.is_some_and(|s| (s - IOS_SMOOTHING).abs() < 0.005);
+        let ios_bg = if ios_active {
+            theme::BG_SELECTED
+        } else if ios_resp.hovered() {
+            theme::BG_HOVER
+        } else {
+            theme::BG_SECONDARY
+        };
+        ui.painter().rect_filled(ios_r, theme::cr(theme::RADIUS_CONTROL), ios_bg);
+        ui.painter().text(
+            ios_r.center(),
+            Align2::CENTER_CENTER,
+            "iOS",
+            theme::font_caption_medium(),
+            if ios_active { theme::TEXT_BRAND } else { theme::TEXT_SECONDARY },
+        );
+        if ios_resp.clicked() {
+            app.edit_nodes(&corner_nodes, |n| {
+                n.corner_smoothing = IOS_SMOOTHING;
+                clear_rect_geom(n);
+            });
+        }
+        row_end(pane);
+    }
     if is_frame {
         let clip = n0.kind.frame_props().map(|f| f.clips_content).unwrap_or(false);
         if let Some(v) = checkbox(ui, pane, "clip", "Clip content", clip) {
