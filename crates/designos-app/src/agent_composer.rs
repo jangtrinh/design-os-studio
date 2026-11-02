@@ -898,9 +898,6 @@ impl TerminalState {
                     return SendOutcome::Refused(RefuseReason::Permission);
                 }
                 if tab.is_alive() {
-                    if !from_box && tab.spawn_preset == AgentCliPreset::Gemini && !tab.gemini_dialog_open() && !status_waits(tab) {
-                        tab.composer.flush_paused = false;
-                    }
                     let must_queue = !tab.composer.pending_send.is_empty() || tab.composer.flush_paused || (system && !is_tab_ready_for_queued_send(tab));
                     if must_queue {
                         if !system {
@@ -3606,6 +3603,198 @@ mod tests {
         let p1 = w.find("entry one").expect("entry one written");
         let p2 = w.find("entry two").expect("entry two flushed after held turn completed");
         assert!(w[p1..p2].contains('\r'), "entry one must be submitted with Enter before entry two is written: {w:?}");
+
+        st.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn send_gemini_hook_record(st: &mut TerminalState, tab_id: usize, event: &str) {
+        use std::io::Write;
+        let mut log = std::fs::OpenOptions::new().create(true).append(true).open(st.prepared_hook_paths().events()).expect("open gemini hook events log");
+        writeln!(log, r#"{{"t":10,"e":"{event}","tab":"{tab_id}","p":{{"session_id":"g"}}}}"#).expect("write gemini hook record");
+        let _ = st.poll_live_agent_bridge();
+    }
+
+    #[test]
+    fn gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation() {
+        let dir = temp_composer_dir("gemini-held-entry-points");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "gemini", "sleep 30");
+
+        // 1. `dispatch_figma_ai_prompt`: dialog holds paste -> dialog closes -> status Idle -> new text stays queued until PreInvocation.
+        let mut st = TerminalState::new_for_session("doc-gemini-held-dispatch", "Gemini Held Dispatch", Some(&dir));
+        st.path_prepend.push(bin_dir.clone());
+        st.active_runtime = AgentCliPreset::Gemini;
+        st.spawn_tab(AgentCliPreset::Gemini, None).expect("gemini starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        assert_eq!(st.send_from_composer_box("held gemini prompt", None), SendOutcome::Written);
+        st.tabs[0].parser.lock().unwrap().process(b"\x1b[2J\x1b[H  1. Allow once\r\n  2. No, suggest changes (esc)\r\n");
+        st.tabs[0].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+        assert!(st.tabs[0].gemini_dialog_open(), "gemini dialog must be open on screen");
+        st.flush_pending_enter_now();
+        assert_eq!(st.tabs[0].composer.last_outcome, Some(SendOutcome::Refused(RefuseReason::Permission)));
+        assert!(st.tabs[0].composer.flush_paused, "held Enter must set flush_paused");
+
+        // Dialog closes and status is Idle.
+        st.tabs[0].parser.lock().unwrap().process(b"\x1b[2J\x1b[H");
+        st.tabs[0].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        assert!(!st.tabs[0].gemini_dialog_open(), "gemini dialog must be closed");
+        assert_eq!(st.tabs[0].effective_status(), AgentTabStatus::Idle);
+        let written_at_hold = tab_written_string(&st, 0);
+
+        st.dispatch_figma_ai_prompt("Make Design", "make design card", None);
+        assert_eq!(
+            st.tabs[0].composer.last_outcome,
+            Some(SendOutcome::Queued),
+            "dispatch_figma_ai_prompt after a Gemini dialog hold must stay queued while flush_paused is set"
+        );
+        assert_eq!(st.send_from_composer_box("follow up card", None), SendOutcome::Queued);
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert_eq!(
+            tab_written_string(&st, 0),
+            written_at_hold,
+            "nothing new may be written after dispatch_figma_ai_prompt until a PreInvocation record arrives"
+        );
+
+        let tab_id = st.tabs[0].id;
+        let _ = st.tabs[0].try_write_bytes(b"\r");
+        send_gemini_hook_record(&mut st, tab_id, "PreInvocation");
+        assert!(!st.tabs[0].composer.flush_paused, "PreInvocation must clear flush_paused");
+        send_gemini_hook_record(&mut st, tab_id, "Stop");
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        send_gemini_hook_record(&mut st, tab_id, "PreInvocation");
+        send_gemini_hook_record(&mut st, tab_id, "Stop");
+        make_tab_ready_for_test(&mut st, 0, true);
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        let w = tab_written_string(&st, 0);
+        let p1 = w.find("held gemini prompt").expect("held prompt present");
+        let p2 = w.find("make design card").expect("make design prompt flushed first after PreInvocation");
+        let p3 = w.find("follow up card").expect("follow up prompt flushed second in order");
+        assert!(p1 < p2 && p2 < p3 && w[p1..p2].contains('\r'), "queue must flush in order after PreInvocation: {w:?}");
+        st.shutdown();
+
+        // 2. Separately, `submit_system_image_prompt`: dialog holds paste -> dialog closes -> status Idle -> stays queued until PreInvocation.
+        let mut st_img = TerminalState::new_for_session("doc-gemini-held-image", "Gemini Held Image", Some(&dir));
+        st_img.path_prepend.push(bin_dir);
+        st_img.active_runtime = AgentCliPreset::Gemini;
+        st_img.spawn_tab(AgentCliPreset::Gemini, None).expect("gemini starts");
+        make_tab_ready_for_test(&mut st_img, 0, true);
+
+        assert_eq!(st_img.send_from_composer_box("held before image", None), SendOutcome::Written);
+        st_img.tabs[0].parser.lock().unwrap().process(b"\x1b[2J\x1b[H  1. Allow once\r\n  2. No, suggest changes (esc)\r\n");
+        st_img.tabs[0].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+        st_img.flush_pending_enter_now();
+        assert!(st_img.tabs[0].composer.flush_paused);
+
+        st_img.tabs[0].parser.lock().unwrap().process(b"\x1b[2J\x1b[H");
+        st_img.tabs[0].screen_rev.fetch_add(1, std::sync::atomic::Ordering::Release);
+        *st_img.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Idle;
+        let written_at_img_hold = tab_written_string(&st_img, 0);
+
+        st_img.submit_system_image_prompt(AgentCliPreset::Gemini, "Image task 9: Upscale.", None);
+        assert_eq!(
+            st_img.tabs[0].composer.last_outcome,
+            Some(SendOutcome::Queued),
+            "submit_system_image_prompt after a Gemini dialog hold must stay queued while flush_paused is set"
+        );
+        assert_eq!(st_img.send_from_composer_box("after image prompt", None), SendOutcome::Queued);
+        make_tab_ready_for_test(&mut st_img, 0, true);
+        st_img.tick_composer();
+        st_img.flush_pending_enter_now();
+        assert_eq!(
+            tab_written_string(&st_img, 0),
+            written_at_img_hold,
+            "nothing new may be written after submit_system_image_prompt until a PreInvocation record arrives"
+        );
+
+        let img_tab_id = st_img.tabs[0].id;
+        let _ = st_img.tabs[0].try_write_bytes(b"\r");
+        send_gemini_hook_record(&mut st_img, img_tab_id, "PreInvocation");
+        send_gemini_hook_record(&mut st_img, img_tab_id, "Stop");
+        make_tab_ready_for_test(&mut st_img, 0, true);
+        st_img.tick_composer();
+        st_img.flush_pending_enter_now();
+        send_gemini_hook_record(&mut st_img, img_tab_id, "PreInvocation");
+        send_gemini_hook_record(&mut st_img, img_tab_id, "Stop");
+        make_tab_ready_for_test(&mut st_img, 0, true);
+        st_img.tick_composer();
+        st_img.flush_pending_enter_now();
+        let w_img = tab_written_string(&st_img, 0);
+        let q1 = w_img.find("held before image").expect("held prompt present");
+        let q2 = w_img.find("Image task 9: Upscale.").expect("image prompt flushed first after PreInvocation");
+        let q3 = w_img.find("after image prompt").expect("follow up prompt flushed second in order");
+        assert!(q1 < q2 && q2 < q3 && w_img[q1..q2].contains('\r'), "image queue must flush in order after PreInvocation: {w_img:?}");
+        st_img.shutdown();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end() {
+        let dir = temp_composer_dir("img-during-hookless-idle-turn");
+        let bin_dir = dir.join("bin");
+        write_executable_stub(&bin_dir, "claude", "stty -echo 2>/dev/null || true\nsleep 30");
+        let mut st = TerminalState::new_for_session("doc-img-hookless-idle", "Img Hookless Idle", Some(&dir));
+        st.path_prepend.push(bin_dir);
+        st.active_runtime = AgentCliPreset::Claude;
+        st.spawn_tab(AgentCliPreset::Claude, None).expect("claude starts");
+        make_tab_ready_for_test(&mut st, 0, true);
+
+        // Successful Enter with status left `Idle` (hook-less turn); settle any kernel PTY echo of the input line.
+        assert_eq!(st.send_to_agent("hookless turn one", None), SendOutcome::Written);
+        st.flush_pending_enter_now();
+        std::thread::sleep(Duration::from_millis(30));
+        let out_at_enter = *st.tabs[0].last_output_at.lock().unwrap();
+        st.tabs[0].composer.output_at_enter = out_at_enter;
+        st.tabs[0].composer.enter_written_at = Some(Instant::now());
+        assert_eq!(*st.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Idle);
+
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 10: Remove background.", None);
+
+        std::thread::sleep(READY_QUIET_OUTPUT + Duration::from_millis(40));
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(
+            !tab_written_string(&st, 0).contains("Image task 10"),
+            "image text must stay absent after READY_QUIET_OUTPUT when no real PTY output or turn-end arrived: {:?}",
+            tab_written_string(&st, 0)
+        );
+        assert_eq!(*st.tabs[0].last_output_at.lock().unwrap(), out_at_enter, "submit_system_image_prompt must not advance last_output_at");
+
+        // 1. Written after a real later output timestamp goes quiet.
+        *st.tabs[0].last_output_at.lock().unwrap() = Some(Instant::now() - READY_QUIET_OUTPUT - Duration::from_millis(40));
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(
+            tab_written_string(&st, 0).contains("Image task 10: Remove background."),
+            "image text must flush once a real later output timestamp goes quiet"
+        );
+
+        // 2. Also written when a turn-end status arrives on the next hook-less Idle turn.
+        std::thread::sleep(Duration::from_millis(30));
+        let out_at_enter_2 = *st.tabs[0].last_output_at.lock().unwrap();
+        st.tabs[0].composer.output_at_enter = out_at_enter_2;
+        st.tabs[0].composer.enter_written_at = Some(Instant::now());
+        assert_eq!(*st.tabs[0].agent_status.lock().unwrap(), AgentTabStatus::Idle);
+        st.submit_system_image_prompt(AgentCliPreset::Claude, "Image task 11: Relight.", None);
+        std::thread::sleep(READY_QUIET_OUTPUT + Duration::from_millis(40));
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(!tab_written_string(&st, 0).contains("Image task 11"), "second image text must stay absent until real output or turn-end status arrives");
+
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Working(None);
+        st.tick_composer();
+        *st.tabs[0].agent_status.lock().unwrap() = AgentTabStatus::Done;
+        st.tick_composer();
+        st.flush_pending_enter_now();
+        assert!(tab_written_string(&st, 0).contains("Image task 11: Relight."), "second image text must flush once a turn-end status arrives");
 
         st.shutdown();
         let _ = std::fs::remove_dir_all(&dir);

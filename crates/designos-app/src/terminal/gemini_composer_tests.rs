@@ -49,8 +49,10 @@ fn the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste() {
     st.flush_pending_enter_now();
     assert!(!st.tabs[0].written_bytes[mark..].contains(&b'\r'), "Enter went into the dialog that opened after the paste");
     assert_eq!(st.tabs[0].composer.last_outcome, Some(REFUSED));
-    // The same through the frame tick.
+    // The same through the frame tick, once a turn-start record ends the first hold.
     show(&mut st, 0, CLEAR);
+    let id = st.tabs[0].id;
+    send_record(&mut st, id, "PreInvocation", r#"{"session_id":"g"}"#);
     assert!(matches!(send(&mut st), SendOutcome::Written));
     show(&mut st, 0, &dialog_screen(1, 1));
     st.tabs[0].composer.pending_enter_deadline = Some(std::time::Instant::now() - Duration::from_millis(1));

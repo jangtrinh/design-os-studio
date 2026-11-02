@@ -3367,9 +3367,6 @@ impl TerminalState {
             }
         }
         if let Some(tab) = self.active_tab_mut() {
-            if let Ok(mut last_out) = tab.last_output_at.lock() {
-                *last_out = Some(std::time::Instant::now());
-            }
             tab.composer.premark = Some(prompt.chars().take(64).collect());
         }
         let _ = self.send_system_prompt(prompt, file_path);
