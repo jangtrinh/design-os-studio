@@ -382,6 +382,7 @@ mod tests {
             constraints: designos_doc::Constraints::default(),
             layout_child: designos_doc::LayoutChild::default(),
             is_mask: false,
+            mask_type: designos_doc::MaskType::default(),
             style_refs: BTreeMap::new(),
             fill_geometry: None,
             stroke_geometry: None,

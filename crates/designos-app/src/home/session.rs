@@ -527,6 +527,9 @@ pub(crate) fn node_fingerprint(node: &designos_doc::Node) -> u64 {
         (&node.plugin_data, &node.detached_symbol_id, &node.fig_metadata),
     )
         .serialize(HashSerializer(&mut h));
+    if node.mask_type != designos_doc::MaskType::Alpha {
+        let _ = node.mask_type.serialize(HashSerializer(&mut h));
+    }
     h.finish()
 }
 

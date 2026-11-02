@@ -1,0 +1,78 @@
+=== RED RUN ON 0d652a1e PRODUCTION CODE ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-5ccf888a59871cb9)
+
+running 1 test
+test pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant ... FAILED
+
+failures:
+
+---- pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant stdout ----
+
+thread 'pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant' (63070634) panicked at crates/designos-gpu/src/pipelines.rs:379:9:
+composite.wgsl must hold the LUMINANCE_MASK_COEFFS token
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    pipelines::tests::composite_shader_injects_luminance_mask_coeffs_from_render_constant
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-gpu --lib`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.87s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-ab37cec47eaf5b06)
+
+running 1 test
+test legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector ... FAILED
+
+failures:
+
+---- legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector stdout ----
+
+thread 'legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector' (63071332) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4272:5:
+assertion `left == right` failed: .fig symbolOverrides with isMaskOutline: true must map to MaskType::Vector
+  left: Alpha
+ right: Vector
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.71s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 1 test
+test panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle ... FAILED
+
+failures:
+
+---- panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle stdout ----
+
+thread 'panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle' (63073731) panicked at crates/designos-app/src/panels/properties.rs:3105:9:
+Mask section per-frame scan must be bounded to take(128) and not scan beyond index 127
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::properties::tests::mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4040 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

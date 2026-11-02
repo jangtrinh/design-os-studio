@@ -460,6 +460,14 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             if node.is_mask {
                 m.insert("isMask".into(), true.into());
             }
+            if node.is_mask || node.mask_type != MaskType::Alpha {
+                let mt = match node.mask_type {
+                    MaskType::Alpha => "ALPHA",
+                    MaskType::Vector => "VECTOR",
+                    MaskType::Luminance => "LUMINANCE",
+                };
+                m.insert("maskType".into(), mt.into());
+            }
             if !matches!(node.kind, NodeKind::Text(_)) {
                 m.insert("fills".into(), paints(&node.fills));
             }
