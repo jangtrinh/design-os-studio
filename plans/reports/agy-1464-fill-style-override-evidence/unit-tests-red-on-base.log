@@ -1,0 +1,81 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1464-fill-style-override/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1464-fill-style-override/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1464-fill-style-override/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.99s
+     Running tests/fig_library.rs (out/cargo/debug/deps/fig_library-cb49dfd63a771305)
+
+running 17 tests
+test instance_stroke_override_with_no_style_clears_inherited_link ... FAILED
+test instance_stroke_override_with_sentinel_clears_inherited_link ... FAILED
+test instance_text_style_link_override_survives_main_edit ... ok
+test unavailable_text_style_keeps_local_properties ... ok
+test linked_text_styles_replace_stale_properties_before_character_overrides ... ok
+test files_without_content_on_the_internal_canvas_have_no_library_page ... ok
+test internal_canvas_becomes_the_library_page_with_external_assets ... ok
+test instance_text_style_override_replaces_or_clears_the_master_link ... ok
+test instance_fill_override_with_named_style_relinks ... FAILED
+test overrides_that_name_a_library_style_take_its_paints ... ok
+test instance_copy_without_fill_override_keeps_main_style_link ... FAILED
+test instance_fill_override_with_no_style_clears_inherited_link ... FAILED
+test instance_stroke_override_with_named_style_relinks ... FAILED
+test instance_fill_override_with_sentinel_clears_inherited_link ... FAILED
+test nested_library_instances_expand_and_overrides_follow_override_keys ... ok
+test uniform_scale_scales_the_copied_contents ... ok
+test variable_sets_map_by_asset_key_with_modes_aliases_and_bindings ... ok
+
+failures:
+
+---- instance_stroke_override_with_no_style_clears_inherited_link stdout ----
+
+thread 'instance_stroke_override_with_no_style_clears_inherited_link' (52721637) panicked at crates/designos-fig/tests/fig_library.rs:975:5:
+strokePaints without styleIdForStrokeFill detaches inherited stroke style
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- instance_stroke_override_with_sentinel_clears_inherited_link stdout ----
+
+thread 'instance_stroke_override_with_sentinel_clears_inherited_link' (52721638) panicked at crates/designos-fig/tests/fig_library.rs:1024:5:
+sentinel styleIdForStrokeFill clears inherited stroke style
+
+---- instance_fill_override_with_named_style_relinks stdout ----
+
+thread 'instance_fill_override_with_named_style_relinks' (52721633) panicked at crates/designos-fig/tests/fig_library.rs:807:5:
+assertion `left == right` failed
+  left: "Brand/600"
+ right: "Neutral/600"
+
+---- instance_copy_without_fill_override_keeps_main_style_link stdout ----
+
+thread 'instance_copy_without_fill_override_keeps_main_style_link' (52721632) panicked at crates/designos-fig/tests/fig_library.rs:1079:5:
+assertion failed: !doc.get(ov_id).unwrap().style_refs.contains_key("fill")
+
+---- instance_fill_override_with_no_style_clears_inherited_link stdout ----
+
+thread 'instance_fill_override_with_no_style_clears_inherited_link' (52721634) panicked at crates/designos-fig/tests/fig_library.rs:842:5:
+fillPaints without styleIdForFill detaches inherited fill style
+
+---- instance_stroke_override_with_named_style_relinks stdout ----
+
+thread 'instance_stroke_override_with_named_style_relinks' (52721636) panicked at crates/designos-fig/tests/fig_library.rs:941:5:
+assertion `left == right` failed
+  left: "Brand/600"
+ right: "Neutral/600"
+
+---- instance_fill_override_with_sentinel_clears_inherited_link stdout ----
+
+thread 'instance_fill_override_with_sentinel_clears_inherited_link' (52721635) panicked at crates/designos-fig/tests/fig_library.rs:891:5:
+sentinel styleIdForFill clears inherited fill style
+
+
+failures:
+    instance_copy_without_fill_override_keeps_main_style_link
+    instance_fill_override_with_named_style_relinks
+    instance_fill_override_with_no_style_clears_inherited_link
+    instance_fill_override_with_sentinel_clears_inherited_link
+    instance_stroke_override_with_named_style_relinks
+    instance_stroke_override_with_no_style_clears_inherited_link
+    instance_stroke_override_with_sentinel_clears_inherited_link
+
+test result: FAILED. 10 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-fig --test fig_library`

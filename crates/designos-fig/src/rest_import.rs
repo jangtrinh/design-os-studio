@@ -289,6 +289,29 @@ fn apply_text_style_link(n: &mut Node, set: &Value) {
     }
 }
 
+/// An instance fill or stroke override either links the style it names or drops
+/// the inherited one when it supplies paints or detaches the link.
+fn apply_paint_style_links(n: &mut Node, set: &Value) {
+    let is_text = matches!(n.kind, NodeKind::Text(_));
+    for (paints_key, slot, clear_key, field) in [
+        ("fills", "fill", "_clearFillStyle", if is_text { OverrideField::TextStyle } else { OverrideField::Fills }),
+        ("strokes", "stroke", "_clearStrokeStyle", OverrideField::Stroke),
+    ] {
+        let clear = fbool(set, clear_key) == Some(true);
+        let linked = set.get("styles").and_then(|s| s.get(slot)).and_then(Value::as_str).filter(|s| !s.is_empty());
+        let has_paints = set.get(paints_key).is_some();
+        if !clear && linked.is_none() && !has_paints {
+            continue;
+        }
+        if let Some(sid) = linked.filter(|_| !clear) {
+            n.style_refs.insert(slot.into(), sid.to_string());
+        } else {
+            n.style_refs.remove(slot);
+        }
+        n.component.overrides.insert(field);
+    }
+}
+
 /// Applies the (possibly partial) REST `TypeStyle` fields in `v` onto `ts`.
 pub(crate) fn apply_type_style(ts: &mut TextStyle, v: &Value) {
     if let Some(f) = fstr(v, "fontFamily") {
@@ -3145,6 +3168,7 @@ impl<'a> Ctx<'a> {
                 _ => Sizing::Fixed,
             };
         }
+        apply_paint_style_links(n, set);
         apply_text_style_link(n, set);
         if let NodeKind::Text(t) = &mut n.kind {
             if let Some(ar) = fbool(set, "autoRename") {
@@ -3532,9 +3556,11 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         "blendMode" => OverrideField::Blend,
         "size" => OverrideField::Size,
         "relativeTransform" | "transform" => OverrideField::Transform,
-        "fills" if is_text => OverrideField::TextStyle,
-        "fills" => OverrideField::Fills,
-        "strokes" | "strokeWeight" | "strokeAlign" | "strokeCap" | "strokeJoin" | "strokeDashes" | "individualStrokeWeights" => OverrideField::Stroke,
+        "fills" | "_clearFillStyle" if is_text => OverrideField::TextStyle,
+        "fills" | "_clearFillStyle" => OverrideField::Fills,
+        "strokes" | "_clearStrokeStyle" | "strokeWeight" | "strokeAlign" | "strokeCap" | "strokeJoin" | "strokeDashes" | "individualStrokeWeights" => {
+            OverrideField::Stroke
+        }
         "effects" => OverrideField::Effects,
         "cornerRadius" | "rectangleCornerRadii" | "cornerSmoothing" => OverrideField::CornerRadii,
         "characters" => OverrideField::Characters,
