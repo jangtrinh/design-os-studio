@@ -6,7 +6,7 @@ Part 2 (editor, dialogs, states, agent co-editing, KPI, narrow windows): [ui-spe
 Source: live demo https://itspatmorgan.com/design-studio-demo/ (v0.1.3, MIT), measured at 1440×900 with computed styles on 2026-11-02. Reference captures: `plans/reports/design-studio-doc-ui-evidence/ds-*.jpg`.
 
 ## How design-studio values were reconciled with Studio's design principles
-Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4 radii, P5 type) are earlier owner rulings and still bind. Rule used here:
+Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4 radii, P5 type) are earlier owner rulings and still bind. **Authority for chrome (ruling R0, [ui-polish-rulings-r1.md](ui-polish-rulings-r1.md)): Studio's shipped widget kit (`crates/designos-app/src/widgets/kit/*.rs`) and `theme.rs` beat this spec wherever they disagree.** Rule used here:
 - **Chrome** (tree, tab, "On this page", card headers, menus, dialogs, buttons) uses Studio's existing constants. Where a design-studio value is off Studio's scale it snaps to the nearest Studio role.
 - **Document content** (what the Markdown says: titles, headings, paragraphs, tables, lists) keeps design-studio's type scale. P5 yields to document text.
 
@@ -22,8 +22,8 @@ Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4
 ## Layout at 1440 × 900
 | Region | x | width | Studio constant / rule |
 |---|---|---|---|
-| Tab strip (existing) | 0 | 1440 | 32 px bar, file tabs 26 (R10.1); the tab shows the Project tile icon + "<project> · Project" |
-| App rail (existing) | 0 | 48 | `RAIL_WIDTH` |
+| Tab strip (existing, `tabs.rs`) | 0 | 1440 | 32 px bar; Home tab 72 × 24 at x 8, then a divider; project tabs 240 wide, 26 tall, radius 8, 14 px kind tile (radius 2) with an 11 px glyph, label 12/18, 18 px close plate, a separator between inactive tabs, "+" button 24. The Project tab uses `TILE_SPEC_BG` / `TILE_SPEC_GLYPH` with the book glyph (ruling Q3) and the label "<project> · Project" |
+| App rail (existing, `panels/rail.rs`) | 0 | 48 | `RAIL_WIDTH`; menu button, separator, File / Agents / Assets / Tools tiles, separator, Variables / Plugins, help at the bottom. File is the selected tile while the doc tree is open; the rail gets no new item |
 | Doc tree | 48 | 240 | `LEFT_PANEL_WIDTH`, bg `BG`, 1 px `BORDER` right |
 | Main region | 288 | 1152 | bg `BG` |
 | Reading column | 399 | 690 | the 930 px block (690 + 48 gap + 192) is centred in the main region |
@@ -35,7 +35,9 @@ Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4
 - **Panel title row** (`PANEL_TITLE_ROW_HEIGHT` 40): "Documents" 14/20 600 `TEXT`; right: search and collapse-all icon buttons (`PANEL_ACTION_BUTTON` 24) and "+" (new page menu).
 - **Group row** (Overview, Spec, Screens, States, Discovery): height 32, 12/18 500 `TEXT_SECONDARY`, 24 px chevron box left (`LAYER_CHEVRON_BOX`), count pill at right (`Badge/StatusCount`, never "(3)").
 - **Item row**: height 32, inset 8 from the panel edge (`PAGE_ROW_INSET`), radius `RADIUS_CONTROL` 8, 12/18 400 `TEXT_SECONDARY`, indent 16 per depth (`LAYER_INDENT`), 16 px icon + `SPACE_FACT` 4 + label. Icons: page, frame (screen), state, diagram, linked-spec file (page icon with a small link mark).
-- **States**: hover `BG_HOVER`; selected `BG_SELECTED`, text `TEXT`, weight 500; keyboard focus 1 px `FOCUS_RING` inside the row; drag in progress: 2 px `TEXT` insertion line between rows.
+- **States** (kit Pages row, ruling Q2): rest text `TEXT_SECONDARY`, icon `ICON_QUATERNARY`; hover `BG_HOVER` + `TEXT_SECONDARY_HOVER`; selected `BG_SELECTED` + `TEXT_SECONDARY_HOVER`, weight 600; keyboard focus: the kit 2 px `FOCUS_RING` band drawn inside the row (no room outside a full-width row); drag in progress: 2 px `TEXT` insertion line between rows.
+- **Icon buttons** in the tree header and title row (24 px, radius 8): rest `ICON_QUATERNARY`, hover `BG_HOVER` + `ICON_QUATERNARY_HOVER`, pressed or menu open `BG_SELECTED` + `ICON_SECONDARY_HOVER`.
+- **Count pill**: `Badge/StatusCount` neutral (`BG_TERTIARY` fill, `TEXT_SECONDARY` mono 12), 16 tall.
 - Overview group shows its pages without a chevron (it is never collapsed).
 
 ## Reading page (document content)
@@ -57,14 +59,14 @@ Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4
 
 ## Embed card (frame, state, diagram)
 - Card: full column width, radius `RADIUS_XL` 12, 1 px `BORDER_TRANSLUCENT`, bg `BG`; 24 above and below.
-- Header: 36 tall (`CONTROL_SM`), inset 0 12, bg `BG_TERTIARY` at 60 %; left: 16 px kind icon + title 12/18 500 `TEXT` + " · " + file name 12/18 400 `TEXT_TERTIARY`; right: "Open in canvas" icon button 24 (tooltip "Open in canvas").
+- Header: 36 tall (`CONTROL_SM`), inset 0 8 0 16 (the left 16 matches the body inset), bg `BG_TERTIARY` at 60 %; left: 16 px kind icon + title 12/18 500 `TEXT` + " · " + file name 12/18 400 `TEXT_TERTIARY` as one text run ("Payment · Checkout-web"); right: "Open in canvas" icon button 24 with the frame glyph (the external-link glyph is reserved for links that leave the app) and the tooltip "Open in canvas".
 - Body: inset 16; the render is fit to width, max height 420, centred on `BG`.
 - States are specified in part 2 §6.
 
 ## "On this page"
 - Title "On this page" 12/18 600 `TEXT_SECONDARY`, 8 below.
 - Items: 12/18 500, inset 4 8 4 12 (row 26 ≥ `TARGET_MIN`), 1 px left rule `BORDER`; H3 items indent 12 more.
-- Active item (scroll-spy on the H2/H3 nearest the top): rule and text `TEXT`; others `TEXT_TERTIARY`; hover `TEXT_SECONDARY`. Click scrolls smoothly (200 ms, ease-out); reduced motion → jump.
+- Active item (scroll-spy on the H2/H3 nearest the top): rule and text `TEXT`; others `TEXT_TERTIARY`; hover `TEXT_SECONDARY`. Item text never wraps beyond 192 px (ellipsis). Click scrolls smoothly (200 ms, ease-out); reduced motion → jump.
 - Hidden when the page has fewer than 2 headings.
 
 ## Colour mapping (both apps use the same neutral scale)
@@ -78,7 +80,7 @@ Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4
 | 0.87 body | #D4D4D4 | `TEXT_SECONDARY` |
 | 0.708 muted | #A3A3A3 | `TEXT_TERTIARY` |
 
-The one accent per view is Studio Orange (`BG_BRAND`) for the primary button only. No purple anywhere (P2).
+The one accent per view is Studio Orange (`BG_BRAND`) for the primary button only (and a checked checkbox, a state the principles allow). No purple anywhere (P2).
 
 ## Not ported
 Their global left nav (Prototypes / Systems / Manual), Team mode avatars, the source-code file tree, the Geist font.
