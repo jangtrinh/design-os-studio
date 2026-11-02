@@ -382,7 +382,9 @@ designos-webcapture (line 1644):  8 passed; 0 failed; 0 ignored
 ### 5. Git Log (`origin/main..HEAD`)
 
 ```text
-bb0c2cea docs(report): record Round 2 commit hash for #1469
+e03bc7b5 fix(vector): convert stored node ids in deferred text vector queue (#1469)
+bb0c2cea Merge branch 'main' into jangtrinh/agy-1469-text-to-vector
+60edc976 docs(report): record Round 2 commit hash for #1469
 33d7d0e6 fix(vector): preserve auto-layout sizing, centered text strokes, and async font loading (#1469)
 14188742 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1469-text-to-vector
 93c8e407 docs(report): record final commit hash for #1469
