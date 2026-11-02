@@ -1187,6 +1187,7 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String, 
         }
     }
     n.is_mask = r.is_mask;
+    n.mask_type = r.mask_type;
     if !top {
         n.component.bindings = r.component.bindings.clone();
         n.component.is_slot = r.component.is_slot;

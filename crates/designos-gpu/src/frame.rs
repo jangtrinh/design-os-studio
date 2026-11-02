@@ -163,6 +163,8 @@ pub enum AuxMode {
     Mul,
     /// Multiply the source by `1 - aux alpha`.
     MulInv,
+    /// Multiply the source by the Rec. 709 luminance of the aux premultiplied sRGB colour (`dot(aux.rgb, LUMINANCE_MASK_COEFFS)`).
+    MulLum,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

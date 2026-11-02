@@ -134,6 +134,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         constraints,
         layout_child,
         is_mask,
+        mask_type,
         style_refs,
         fill_geometry,
         stroke_geometry,
@@ -160,6 +161,7 @@ pub(crate) fn properties_changed(old: &Node, cur: &Node) -> bool {
         || *constraints != cur.constraints
         || *layout_child != cur.layout_child
         || *is_mask != cur.is_mask
+        || *mask_type != cur.mask_type
         || *lock_aspect != cur.lock_aspect
         || *name != cur.name
         || *fills != cur.fills

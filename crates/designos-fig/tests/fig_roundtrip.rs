@@ -4077,3 +4077,197 @@ fn bold_text_with_a_wght_axis_keeps_weight_and_axis_through_fig_export_and_impor
     assert_eq!((tp.runs[0].start, tp.runs[0].end), (0, 4));
     assert_eq!((tp.runs[0].style.font_weight, tp.runs[0].style.get_axis("wght")), (700, Some(700.0)), "bold run");
 }
+
+#[test]
+fn mask_types_round_trip_through_fig_and_rest_import() {
+    let rest_payload = json!({
+        "name": "MaskTypesRest",
+        "document": {
+            "id": "0:0",
+            "name": "Document",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "name": "Page 1",
+                "type": "CANVAS",
+                "children": [
+                    {
+                        "id": "1:1",
+                        "name": "MaskAlpha",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "maskType": "ALPHA",
+                        "size": {"x": 40.0, "y": 40.0}
+                    },
+                    {
+                        "id": "1:2",
+                        "name": "MaskVector",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "maskType": "VECTOR",
+                        "size": {"x": 40.0, "y": 40.0}
+                    },
+                    {
+                        "id": "1:3",
+                        "name": "MaskOutline",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "maskType": "OUTLINE",
+                        "size": {"x": 40.0, "y": 40.0}
+                    },
+                    {
+                        "id": "1:4",
+                        "name": "MaskLuminance",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "maskType": "LUMINANCE",
+                        "size": {"x": 40.0, "y": 40.0}
+                    }
+                ]
+            }]
+        }
+    });
+    let doc = designos_fig::import_rest_json(&rest_payload.to_string()).expect("import_rest_json");
+    assert_eq!(find(&doc, "MaskAlpha").mask_type, MaskType::Alpha);
+    assert_eq!(find(&doc, "MaskVector").mask_type, MaskType::Vector);
+    assert_eq!(find(&doc, "MaskOutline").mask_type, MaskType::Vector);
+    assert_eq!(find(&doc, "MaskLuminance").mask_type, MaskType::Luminance);
+    assert!(!find(&doc, "MaskVector").fig_metadata.contains_key("maskType"));
+
+    // Round-trip all three types through .fig export and import
+    let fig_bytes = export_fig(&doc).expect("export_fig");
+    let rt = import_fig(&fig_bytes).expect("import_fig");
+    for (name, expected) in
+        [("MaskAlpha", MaskType::Alpha), ("MaskVector", MaskType::Vector), ("MaskOutline", MaskType::Vector), ("MaskLuminance", MaskType::Luminance)]
+    {
+        let n = find(&rt, name);
+        assert!(n.is_mask, "{name} should stay a mask");
+        assert_eq!(n.mask_type, expected, "{name} mask_type after .fig round-trip");
+    }
+}
+
+#[test]
+fn legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_vector() {
+    let mut doc = Document::new("legacy-mask-metadata");
+    let page = doc.add_page("Page 1");
+    for (name, is_mask, meta_val) in
+        [("LegacyAlpha", true, "ALPHA"), ("LegacyOutline", true, "OUTLINE"), ("LegacyLuminance", true, "LUMINANCE"), ("NotAMaskOutline", false, "OUTLINE")]
+    {
+        let id = doc.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 40.0, 40.0));
+        n.name = name.into();
+        n.is_mask = is_mask;
+        n.fig_metadata.insert("maskType".into(), meta_val.into());
+        doc.insert(page, n).unwrap();
+    }
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let rt = import_fig(&bytes).expect("import_fig");
+    assert_eq!(find(&rt, "LegacyAlpha").mask_type, MaskType::Alpha);
+    assert_eq!(find(&rt, "LegacyOutline").mask_type, MaskType::Vector);
+    assert_eq!(find(&rt, "LegacyLuminance").mask_type, MaskType::Luminance);
+    let non_mask = find(&rt, "NotAMaskOutline");
+    assert!(!non_mask.is_mask);
+    assert_eq!(non_mask.mask_type, MaskType::Vector);
+
+    let rest_payload = json!({
+        "name": "RestMaskOutlineFlag",
+        "document": {
+            "id": "0:0",
+            "name": "Document",
+            "type": "DOCUMENT",
+            "children": [{
+                "id": "0:1",
+                "name": "Page 1",
+                "type": "CANVAS",
+                "children": [
+                    {
+                        "id": "1:1",
+                        "name": "OutlineFlagMask",
+                        "type": "RECTANGLE",
+                        "isMask": true,
+                        "isMaskOutline": true,
+                        "size": {"x": 40.0, "y": 40.0}
+                    },
+                    {
+                        "id": "1:10",
+                        "name": "MaskHostComp",
+                        "type": "COMPONENT",
+                        "size": {"x": 80.0, "y": 80.0},
+                        "children": [{
+                            "id": "1:11",
+                            "name": "CompMaskChild",
+                            "type": "RECTANGLE",
+                            "isMask": true,
+                            "size": {"x": 40.0, "y": 40.0}
+                        }]
+                    },
+                    {
+                        "id": "1:20",
+                        "name": "MaskHostInst",
+                        "type": "INSTANCE",
+                        "componentId": "1:10",
+                        "size": {"x": 80.0, "y": 80.0},
+                        "_overrides": [{
+                            "path": ["1:11"],
+                            "set": {"isMaskOutline": true}
+                        }]
+                    }
+                ]
+            }]
+        }
+    });
+    let rest_doc = designos_fig::import_rest_json(&rest_payload.to_string()).expect("import_rest_json");
+    let flag_node = find(&rest_doc, "OutlineFlagMask");
+    assert!(flag_node.is_mask);
+    assert_eq!(flag_node.mask_type, MaskType::Vector);
+    let inst = find(&rest_doc, "MaskHostInst");
+    let inst_mask = inst.children.iter().filter_map(|id| rest_doc.get(*id)).find(|n| n.name == "CompMaskChild").expect("CompMaskChild in REST instance");
+    assert_eq!(inst_mask.mask_type, MaskType::Vector, "REST symbol override with isMaskOutline: true must map to MaskType::Vector");
+
+    let g = |s: u64, l: u64| -> Value { json!({"sessionID": s, "localID": l}) };
+    let nc = |id: (u64, u64), parent: (u64, u64), pos: &str, ty: &str, name: &str, extra: Value| -> Value {
+        let mut v = json!({
+            "guid": g(id.0, id.1),
+            "parentIndex": {"guid": g(parent.0, parent.1), "position": pos},
+            "type": ty,
+            "name": name,
+            "phase": "CREATED",
+            "visible": true,
+            "opacity": 1.0,
+            "size": {"x": 80.0, "y": 80.0},
+            "transform": {"m00": 1.0, "m01": 0.0, "m02": 0.0, "m10": 0.0, "m11": 1.0, "m12": 0.0}
+        });
+        for (k, x) in extra.as_object().unwrap() {
+            v[k] = x.clone();
+        }
+        v
+    };
+    let changes = json!([
+        nc((0, 0), (0, 0), "!", "DOCUMENT", "Document", json!({})),
+        nc((0, 1), (0, 0), "!", "CANVAS", "Page 1", json!({})),
+        nc((1, 10), (0, 1), "!", "SYMBOL", "FigMaskComp", json!({"size": {"x": 80.0, "y": 80.0}})),
+        nc((1, 11), (1, 10), "!", "ROUNDED_RECTANGLE", "FigCompMask", json!({"mask": true, "size": {"x": 40.0, "y": 40.0}})),
+        nc(
+            (1, 20),
+            (0, 1),
+            "\"",
+            "INSTANCE",
+            "FigMaskInst",
+            json!({
+                "size": {"x": 80.0, "y": 80.0},
+                "symbolData": {
+                    "symbolID": g(1, 10),
+                    "symbolOverrides": [{
+                        "guidPath": {"guids": [g(1, 11)]},
+                        "isMaskOutline": true
+                    }]
+                }
+            })
+        )
+    ]);
+    let fig_ov_doc = import_fig_node_changes(&changes, "FigSymbolOverrideMaskOutline").expect("import_fig_node_changes");
+    let fig_inst = find(&fig_ov_doc, "FigMaskInst");
+    let fig_inst_mask = fig_inst.children.iter().filter_map(|id| fig_ov_doc.get(*id)).find(|n| n.name == "FigCompMask").expect("FigCompMask in .fig instance");
+    assert_eq!(fig_inst_mask.mask_type, MaskType::Vector, ".fig symbolOverrides with isMaskOutline: true must map to MaskType::Vector");
+}

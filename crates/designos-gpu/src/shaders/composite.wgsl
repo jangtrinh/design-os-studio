@@ -28,7 +28,7 @@ struct CParams {
     tint: vec4<f32>,
     opacity: f32,
     has_tint: u32,
-    aux_mode: u32,   // 0 none, 1 multiply, 2 multiply by inverse
+    aux_mode: u32,   // 0 none, 1 multiply, 2 multiply by inverse, 3 multiply by Rec. 709 luminance
     blend: u32,      // blend mode id
 };
 
@@ -184,11 +184,14 @@ fn source(root: vec2<f32>) -> vec4<f32> {
         s = vec4<f32>(p.tint.rgb * a, a);
     }
     if (p.aux_mode != 0u) {
-        let m = load_in(aux_tex, root, p.aux_origin, p.aux_size).a;
+        let aux = load_in(aux_tex, root, p.aux_origin, p.aux_size);
         if (p.aux_mode == 1u) {
-            s = s * m;
+            s = s * aux.a;
+        } else if (p.aux_mode == 2u) {
+            s = s * (1.0 - aux.a);
         } else {
-            s = s * (1.0 - m);
+            let m = dot(aux.rgb, LUMINANCE_MASK_COEFFS);
+            s = s * m;
         }
     }
     return s * p.opacity;

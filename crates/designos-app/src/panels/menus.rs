@@ -57,6 +57,8 @@ pub enum Action {
     SendBackward,
     BringToFront,
     SendToBack,
+    /// Toggle `is_mask` on the selected layers (`⌃⌘M` on macOS, `Ctrl+Alt+M` elsewhere).
+    ToggleMask,
     ToggleSidebar,
     CreateComponent,
     ConvertToSlot,
@@ -142,6 +144,21 @@ pub enum Action {
     Tool(Tool),
 }
 
+/// Shared "is the selection a mask" rule used by the properties header button,
+/// the Object menu item, and `toggle_mask_selection`: true when the selection is
+/// non-empty and the first 128 selected nodes are all masks.
+pub(crate) fn selection_shows_all_mask(app: &App) -> bool {
+    !app.selection.is_empty() && app.selection.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask))
+}
+
+/// Shared "Use as mask" toggle rule used by both the Object menu and the properties header button:
+/// sets `is_mask = !selection_shows_all_mask(app)` across the whole selection.
+pub fn toggle_mask_selection(app: &mut App) {
+    let on = selection_shows_all_mask(app);
+    let sel = app.selection.clone();
+    app.edit_nodes(&sel, |n| n.is_mask = !on);
+}
+
 pub fn run(app: &mut App, ctx: &Context, a: Action) {
     match a {
         Action::New => app.new_file_here(),
@@ -188,6 +205,7 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::SendBackward => app.reorder(false, false),
         Action::BringToFront => app.reorder(true, true),
         Action::SendToBack => app.reorder(false, true),
+        Action::ToggleMask => toggle_mask_selection(app),
         Action::ToggleSidebar => app.ui.left_collapsed = !app.ui.left_collapsed,
         Action::CreateComponent => app.create_component(),
         Action::ConvertToSlot => app.convert_selection_to_slot(),
@@ -519,6 +537,8 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Rulers", "Shift+R", Action::ToggleRulers).on(app.ui.rulers),
         leaf("Show/Hide UI", "Ctrl+\\", Action::ToggleSidebar).on(!app.ui.left_collapsed),
     ];
+    let all_mask = selection_shows_all_mask(app);
+    let mask_shortcut = if cfg!(target_os = "macos") { "⌃⌘M" } else { "Ctrl+Alt+M" };
     let object = vec![
         leaf("Group selection", "Ctrl+G", Action::Group).off(!has_sel),
         leaf("Ungroup", "Ctrl+Shift+G", Action::Ungroup).off(!has_sel),
@@ -526,6 +546,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Resize to fit", "Ctrl+Alt+Shift+R", Action::ResizeToFit).off(!app.can_resize_to_fit()),
         leaf("Add auto layout", "Shift+A", Action::AutoLayout).off(!has_sel),
         leaf("Update auto layout", "", Action::UpdateAutoLayout).off(!app.has_upgradable_auto_layout()).sep(),
+        leaf("Use as mask", mask_shortcut, Action::ToggleMask).off(!has_sel).on(all_mask).sep(),
         leaf("Create component", "Ctrl+Alt+K", Action::CreateComponent).off(!has_sel),
         leaf("Detach instance", "Ctrl+Alt+B", Action::Detach).off(!has_inst).sep(),
         leaf("Bring to front", "Ctrl+Shift+]", Action::BringToFront).off(!has_sel),
@@ -1262,6 +1283,111 @@ mod tests {
         }
         // Several surface roles share one fill, so only the size says this is the palette frame.
         assert!(found.iter().any(|(w, h)| (w - 520.0).abs() < 0.5 && (h - 394.0).abs() < 0.5), "palette frame is 520 by 394, got {found:?}");
+    }
+
+    #[test]
+    fn object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-menu");
+        let page = doc.add_page("Page 1");
+        let (a, b) = (doc.alloc_id(), doc.alloc_id());
+        doc.insert(page, DocNode::rectangle(a, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
+        doc.insert(page, DocNode::rectangle(b, Rect::new(60.0, 0.0, 50.0, 50.0))).unwrap();
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        let expected_sc = if cfg!(target_os = "macos") { "⌃⌘M" } else { "Ctrl+Alt+M" };
+        let row_empty = mask_row(&app);
+        assert!(row_empty.disabled, "disabled when nothing is selected");
+        assert!(!row_empty.checked);
+        assert_eq!(row_empty.shortcut, expected_sc);
+
+        app.selection = vec![a, b];
+        let row_sel = mask_row(&app);
+        assert!(!row_sel.disabled, "enabled when layers are selected");
+        assert!(!row_sel.checked);
+
+        let ctx = egui::Context::default();
+        run(&mut app, &ctx, Action::ToggleMask);
+        assert!(app.doc.get(a).unwrap().is_mask && app.doc.get(b).unwrap().is_mask);
+        assert!(mask_row(&app).checked, "checked when all selected layers are masks");
+
+        app.undo();
+        assert!(!app.doc.get(a).unwrap().is_mask && !app.doc.get(b).unwrap().is_mask);
+    }
+
+    #[test]
+    fn selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-128-prefix");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::with_capacity(129);
+        for i in 0..129 {
+            let id = doc.alloc_id();
+            let mut n = DocNode::rectangle(id, Rect::new((i as f32) * 12.0, 0.0, 10.0, 10.0));
+            n.is_mask = i < 128;
+            ids.push(doc.insert(page, n).unwrap());
+        }
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = ids.clone();
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        assert!(selection_shows_all_mask(&app), "first 128 selected nodes are masks");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app), "Object menu Use as mask on flag must equal selection_shows_all_mask");
+
+        toggle_mask_selection(&mut app);
+        assert!(!app.doc.get(ids[0]).unwrap().is_mask, "node 0 unmasked after toggle_mask_selection");
+        assert!(!app.doc.get(ids[128]).unwrap().is_mask, "node 128 remains unmasked after toggle_mask_selection");
+        assert!(!selection_shows_all_mask(&app));
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+    }
+
+    #[test]
+    fn selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected() {
+        use designos_doc::{Document, Node as DocNode, Rect};
+        let mut doc = Document::new("mask-129-non-masks");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::with_capacity(129);
+        for i in 0..129 {
+            let id = doc.alloc_id();
+            let n = DocNode::rectangle(id, Rect::new((i as f32) * 12.0, 0.0, 10.0, 10.0));
+            ids.push(doc.insert(page, n).unwrap());
+        }
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let mask_row = |app: &App| {
+            let nodes = main_nodes(app);
+            let obj = nodes.iter().find(|n| n.item.label == "Object").expect("Object submenu");
+            obj.kids.iter().find(|n| n.item.label == "Use as mask").expect("Use as mask item").item.clone()
+        };
+
+        app.selection = ids.clone();
+        assert!(!selection_shows_all_mask(&app), "129 non-masks must not report all-mask");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+
+        toggle_mask_selection(&mut app);
+        assert!(ids.iter().all(|id| app.doc.get(*id).unwrap().is_mask), "all 129 non-masks become masks");
+        assert!(selection_shows_all_mask(&app));
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+
+        app.selection.clear();
+        assert!(!selection_shows_all_mask(&app), "empty selection must not report all-mask");
+        assert_eq!(mask_row(&app).checked, selection_shows_all_mask(&app));
+        toggle_mask_selection(&mut app);
+        assert!(ids.iter().all(|id| app.doc.get(*id).unwrap().is_mask), "toggling with nothing selected leaves all 129 masks intact");
     }
 
     #[test]

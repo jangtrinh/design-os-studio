@@ -1,0 +1,8 @@
+155e9209 fix(mask): unify selection_shows_all_mask across header, Object menu and toggle
+4d288316 Merge branch 'main' into jangtrinh/agy-1465-mask-types
+814629b8 docs(report): record round 3 verification for #1465
+e4ff8103 fix(mask): inject LUMINANCE_MASK_COEFFS token in WGSL, bound mask inspector scan and expand mask tests
+04654004 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1465-mask-types
+0d652a1e fix(mask): preserve legacy maskType export, align Vector outline coverage and luminance coefficients
+7dfe45e2 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1465-mask-types
+dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
