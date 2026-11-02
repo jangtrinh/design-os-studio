@@ -244,7 +244,7 @@ ls_out_cargo_rc=1
 
 - In a multi-node canvas handle drag (`ResizeKind::Multi` at `crates/designos-app/src/canvas/interact.rs:1513-1536`), aspect-ratio locking continues to be governed by `inp.mods.shift || is_scale_tool` on the selection bounding box (`crates/designos-app/src/canvas/interact.rs:1515`), whereas single-node handle drags (`ResizeKind::Single` at `crates/designos-app/src/canvas/interact.rs:1487-1494`) and multi-selection W/H commits in the inspector (`resize_selection` at `crates/designos-app/src/panels/properties.rs:1420-1441`) enforce each node's `lock_aspect`.
 
-Round 1 status, superseded by the Round 2 status at the end of this report: PASS (Implemented #1468 inspector lock-aspect toggle, proportional W/H edits respecting Fill/Hug sizing, locked canvas handle drags, and .fig/REST round-trip tests; all gates green and 2 mutants killed.)
+Round 1 status, superseded by the status at the end of this report: PASS (Implemented #1468 inspector lock-aspect toggle, proportional W/H edits respecting Fill/Hug sizing, locked canvas handle drags, and .fig/REST round-trip tests; all gates green and 2 mutants killed.)
 
 ---
 
@@ -257,8 +257,8 @@ Round 2 was built on `81a197c5`. The gated code commit is `1462d2db` (`plans/rep
 Labels: a cited line is a FACT from a run or the tree; "inference" is marked where it applies; R2.5 holds the assumptions. Weakest link: the `.fig` instance lock override is written but not read back (item 2).
 
 1. **A windowed capture of the panel.** `HIDIdleTime` never reached 300 in 38 samples one minute apart over two windows; the highest was 110 s (`plans/reports/agy-1468-lock-aspect-evidence/r2-18-idle-samples.log:1-39`), it was 0 when the render started (`plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:2`), and no Studio process showed in any sample (same log). So the images are a headless render of the real `show` panel code on the final commit, not a Studio window. The render rasterizes egui meshes with a software rasterizer inside a test (`crates/designos-app/src/panels/properties.rs:3806`), so edge anti-aliasing is not Studio's GPU output.
-2. **The `.fig` importer does not read the new instance override back.** The exporter now writes `proportionsConstrained` into an instance's override entry (`crates/designos-fig/src/fig_export.rs:1660`), but the importer's override whitelists do not list it (`crates/designos-fig/src/fig.rs:2194`, `crates/designos-fig/src/rest_import.rs:3572`). Reading the code says an instance lock override survives export, not a reopen; there is no test of the reopen, because none could pass. Follow-up, not done: it needs `fig.rs` and `rest_import.rs`, outside the Round 2 file list.
-3. **Imported instances whose own lock differs from their main's.** FACT: an instance sync runs when a main is edited (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:3`, `plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:5`) and when library updates are applied (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:6`); no importer, library-crate or open/save file calls one (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:9`), so nothing is lost at open. FACT: a sync copies every field the instance has not flagged (`crates/designos-doc/src/components.rs:1136`). An imported instance has its lock bit but no `LockAspect` flag, so INFERENCE: its own lock is overwritten by its main's at the next such sync. The test module of `crates/designos-fig/tests/fig_instance_root_overrides_roundtrip.rs` states the same behaviour for the other override flags (its header comment: "follows its main on the next sync"). Not tested on a real file.
+2. **The `.fig` importer does not read the new instance override back.** The exporter now writes `proportionsConstrained` into an instance's override entry (`crates/designos-fig/src/fig_export.rs:1660`), but the importer's override whitelists do not list it (`crates/designos-fig/src/fig.rs:2194`, `crates/designos-fig/src/rest_import.rs:3572`, both at `d297959c`). Reading the code says an instance lock override survives export, not a reopen; there is no test of the reopen, because none could pass. Follow-up, not done: it needs `fig.rs` and `rest_import.rs`, outside the Round 2 file list. **Resolved for `.fig` in Round 3 (R3.2).**
+3. **Imported instances whose own lock differs from their main's.** FACT: an instance sync runs when a main is edited (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:3`, `plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:5`) and when library updates are applied (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:6`); no importer, library-crate or open/save file calls one (`plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:9`), so nothing is lost at open. FACT: a sync copies every field the instance has not flagged (`crates/designos-doc/src/components.rs:1136`). An imported instance has its lock bit but no `LockAspect` flag, so INFERENCE: its own lock is overwritten by its main's at the next such sync. The test module of `crates/designos-fig/tests/fig_instance_root_overrides_roundtrip.rs` states the same behaviour for the other override flags (its header comment: "follows its main on the next sync"). Not tested on a real file. **Round 3 (R3.4): resolved for the entry the exporter writes; still open for a file with no such entry.**
 4. **Older builds reading a newer file.** A document saved with `LockAspect` in an instance's override set names a variant older builds do not have (`crates/designos-doc/src/node.rs:223`). Inference; not tested.
 5. **`vecops` tests in the full app run.** In Round 1's full run `two_deferred_text_commands_both_convert_in_order` failed (`plans/reports/agy-1468-lock-aspect-evidence/07-test-designos.log:4221`) and `text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope` passed (`plans/reports/agy-1468-lock-aspect-evidence/07-test-designos.log:4227`). In the Round 2 run on this commit `two_deferred_text_commands_both_convert_in_order` failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4232`) and `text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope` failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4089`); the run's result line is `plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4266`; in the earlier Round 2 run under a `/tmp` sandbox the same two failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4089`, `plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4129`). Both pass alone (`plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:15`), and the module on its own gives test result: ok. 33 passed; 0 failed (`plans/reports/agy-1468-lock-aspect-evidence/r2-13c-test-vecops-module.log:47`). The diff touches no `vecops.rs` or font code. Cause not diagnosed; it looks like contention in the full run, as Round 1 already saw for one of them.
 6. **Real pointer input.** The drag tests call `update_resize` after the real `start_resize`; handle hit-testing and egui pointer events are not driven (`crates/designos-app/src/canvas/interact.rs:3504`).
@@ -326,7 +326,7 @@ The glyph is Phosphor `regular/link.svg`, byte-identical to `@phosphor-icons/cor
 
 ### R2.7 Unresolved questions
 
-1. Should the importer read the instance lock override back (`fig.rs`, `rest_import.rs`)? Until then the lock override is write-only in `.fig`.
+1. Should the importer read the instance lock override back (`fig.rs`, `rest_import.rs`)? Until then the lock override is write-only in `.fig`. (Answered in Round 3: done.)
 2. Should the `vecops` pair be treated as one known full-run flake? Round 1 saw one of them fail; Round 2 sees the second as well (R2.0 item 5).
 3. Do you want `link-break` for the off state?
 
@@ -545,6 +545,190 @@ r2-20-cleanup.log:8: ls: out/kit-clone: No such file or directory
 r2-20-cleanup.log:10: code_diff_since_gated_rc=0
 ```
 
-Status: DONE_WITH_CONCERNS
+Round 2 status, superseded by the Round 3 status at the end of this report: DONE_WITH_CONCERNS
 Summary: Locked layers keep their ratio in multi-selection drags and skip snapping like Shift; `lock_aspect` is an instance override that follows the main, records on toggle and resets; mixed selections with lines toggle correctly in both orders; the toggle uses a link glyph; red to green and four mutants killed; the gates are green except the tests R2.0 item 5 and the brief's long-path test, which pass alone.
 Concerns/Blockers: the `.fig` instance lock override is written but not read back; an imported instance whose lock differs from its main loses it at the next sync of that main; the `vecops` pair fails in full runs; the panel images are a headless render because the idle rule never held.
+
+---
+
+## Round 3
+
+Round 3 was built on `d297959c` (the Round 2 head on the pull request). The gated code commit is `ed4d2e96`. Scope: crates/designos-fig only, plus this report and its evidence; no file outside the Round 3 list changed (`plans/reports/agy-1468-lock-aspect-evidence/r3-21-scope.log:8`).
+
+### R3.0 What could NOT be verified
+
+Labels: a cited line is a FACT from a run or the tree; "inference" is marked. Weakest link: whether real Figma files carry the lock in their instance override entries at all (item 2).
+
+1. **A REST round trip.** The REST exporter writes no instance override entries, so there is nothing for the REST importer to read back from our own files (`plans/reports/agy-1468-lock-aspect-evidence/r3-20-rest-export-no-overrides.log:4`; the one match is the node-level `preserveRatio` of a locked node, `plans/reports/agy-1468-lock-aspect-evidence/r3-20-rest-export-no-overrides.log:2`). Ruling 2(c) was therefore not done. The REST importer change is used by the `.fig` import, which converts to the REST shape and applies it through the same code; it has no test of its own for a hand-written REST file.
+2. **Real Figma files.** I did not check whether Figma itself writes `proportionsConstrained` into `symbolOverrides`; the importer reads exactly what this repo's exporter writes. A file where an instance's lock differs from its main but carries no such entry still follows its main at the next sync (Round 2 item 3, unchanged for that case). Not tested on a real file.
+3. **The full `designos-app` suite** was not rerun: Round 3 changes no app code (`plans/reports/agy-1468-lock-aspect-evidence/r3-21-scope.log:9`), and the brief's Round 3 gate list does not include it. The `vecops` pair failing in full runs is the known shared mock-font issue #1538 (controller ruling 5); I did not rerun it.
+4. **Responsive widths:** SKIPPED (owner default). **GPU suites:** not run. **No screenshot:** this round changes importer code and tests, no pixels; the evidence is test output.
+
+### R3.1 Branch and pull request
+
+`origin/main` is `a98ec2b1` and the branch is 0 commits behind it (`plans/reports/agy-1468-lock-aspect-evidence/r3-22-final-state.log:3`, `plans/reports/agy-1468-lock-aspect-evidence/r3-22-final-state.log:12`), so no merge was needed. `git log --oneline origin/main..HEAD` at the gated code commit (the commit carrying this report follows it; the final message pastes the pushed state):
+```text
+ed4d2e96 fix(fig): read an instance's aspect lock override back from .fig and REST files
+d297959c docs(plans): rerun the lock aspect evidence on the final code and rebuild the report
+1462d2db test(inspector): check the lock toggle with a line first and with a rectangle first in separate tests
+044bb5ef docs(plans): add the evidence and report for the aspect lock follow-up
+7cc90b29 feat(inspector): carry the aspect lock through multi-selection drags, instances, snapping and a link glyph
+81a197c5 feat(inspector): lock aspect ratio toggle next to W and H (#1468)
+```
+Pull request #1540 before the Round 3 push: `plans/reports/agy-1468-lock-aspect-evidence/r3-22-final-state.log:13`.
+
+### R3.2 Rulings, what changed, which test proves it
+
+| # | Ruling | Change | Test |
+|---|---|---|---|
+| 1 | Read the instance lock override back in both importers, record `LockAspect` | `.fig`: the override entry's `proportionsConstrained` becomes `preserveRatio` (`crates/designos-fig/src/fig.rs:2197`); REST: the key names the field `LockAspect` (`crates/designos-fig/src/rest_import.rs:3580`) and sets the node's lock (`crates/designos-fig/src/rest_import.rs:2853`). This is exactly what the Round 2 exporter writes, true or false (`crates/designos-fig/src/fig_export.rs:1660`) | (a) `crates/designos-fig/tests/fig_instance_lock_aspect_override_roundtrip.rs:68`: an instance locked over an open main and one opened over a locked main both keep their value and the override flag through export and import, and the two followers record none |
+| 2 | Tests red on `d297959c`, green on head | see R3.3 | (b) `crates/designos-fig/tests/fig_instance_lock_aspect_override_roundtrip.rs:81`: after that reopen the mains are locked and unlocked and synced twice; own values stay, followers follow. (c) not done, R3.0 item 1 |
+| 3 | One mutant after a green null control | the importer drops the field | `plans/reports/agy-1468-lock-aspect-evidence/r3-03-mutant-importer-drops-field.log:2` |
+| 4 | New `OverrideField` variant in older builds: no action | none. Known: an older build cannot read a file whose override set names `LockAspect`; per the controller's ruling `SlotContent` was added the same way (`crates/designos-doc/src/node.rs:221`, `crates/designos-doc/src/node.rs:223`) | none |
+| 5 | `vecops` pair in the full run is #1538 | not rerun; no app code changed | R3.0 item 3 |
+
+### R3.3 Acceptance
+
+| # | Acceptance | Result | Evidence |
+|---|---|---|---|
+| 1 | Both new tests red on `d297959c`, green on head | PASS | Red: the two tests on the `d297959c` production code: 0 passed; 2 failed (`plans/reports/agy-1468-lock-aspect-evidence/r3-01-red.log:32`; sha `plans/reports/agy-1468-lock-aspect-evidence/r3-01-red.log:1`; panics `plans/reports/agy-1468-lock-aspect-evidence/r3-01-red.log:19` and `plans/reports/agy-1468-lock-aspect-evidence/r3-01-red.log:25`). Green on the gated commit: 2 passed; 0 failed (`plans/reports/agy-1468-lock-aspect-evidence/r3-02-green.log:13`, sha `plans/reports/agy-1468-lock-aspect-evidence/r3-02-green.log:1`) |
+| 2 | One mutant after a green null control | PASS | Null control `plans/reports/agy-1468-lock-aspect-evidence/r3-02-green.log:13`, run immediately before the mutant; the mutant removes the importer arm, 0 passed; 2 failed (`plans/reports/agy-1468-lock-aspect-evidence/r3-03-mutant-importer-drops-field.log:38`); the file is back to HEAD afterwards (`plans/reports/agy-1468-lock-aspect-evidence/r3-04-mutant-file-restored.log:1`) |
+| 3 | Gates | PASS | fmt `plans/reports/agy-1468-lock-aspect-evidence/r3-10-fmt.log:2`; clippy `plans/reports/agy-1468-lock-aspect-evidence/r3-11-clippy.log:419` (warnings are the three already in Round 2's run); designos-fig `plans/reports/agy-1468-lock-aspect-evidence/r3-12-test-fig.log:816`; designos-doc `plans/reports/agy-1468-lock-aspect-evidence/r3-13-test-doc.log:781`; workspace lib `plans/reports/agy-1468-lock-aspect-evidence/r3-14-test-workspace-lib.log:1786` |
+| 4 | Pushed without force; `out/cargo` deleted | see the final message for the push; `ls out/cargo` fails (`plans/reports/agy-1468-lock-aspect-evidence/r3-23-cleanup.log:3-5`) | nothing in `crates/` or `scripts/` changed after the gated commit (`plans/reports/agy-1468-lock-aspect-evidence/r3-23-cleanup.log:8`) |
+
+### R3.4 Corrections to Round 2
+
+- Round 2 R2.0 items 2 and 3 and R2.7 question 1 described the `.fig` importer not reading the override back. For the entry this repo's exporter writes, that is resolved here; Round 2's text is kept as written and marked in place.
+- Round 2's status line is marked superseded; this section's status is the last line of the report.
+
+### R3.5 Assumptions (confidence; what would flip it)
+
+1. The REST importer accepts both `preserveRatio` and `lockAspect` on an override entry, as it already does on a node (`crates/designos-fig/src/rest_import.rs:1194`). The `.fig` path only produces `preserveRatio`. High. Flips if `lockAspect` should stay node-only.
+2. Because `override_field` is shared, a REST file whose `overrides[].overriddenFields` lists `preserveRatio` now also records the `LockAspect` flag (the value comes from the node's own `preserveRatio`). I did not test this; it follows from the shared mapping. Medium. Flips if that is unwanted.
+3. An override entry carrying `proportionsConstrained` equal to its main's value still records the override flag: it is the instance's own recorded state, and the exporter writes the flag for any instance that has it set. High.
+
+### R3.6 Skills
+
+- `es-rust`: no new unsafe, no `unwrap` in the importer code (`as_bool` and `fbool` are `Option` reads); no allocation beyond one `Map` insert. `es-rust-gpu-canvas` and `es-designer`: not applicable, no canvas or UI code changed. `/es:dev`: not loaded, as in Round 2.
+
+### R3.7 Unresolved questions
+
+1. Does Figma itself write `proportionsConstrained` into `symbolOverrides` for an instance whose lock differs from its main? If not, real files still need a rule for the instance's own node-level lock (Round 2 item 3 remains for them).
+2. Should the REST exporter write instance overrides at all? Today it writes none, so only `.fig` files carry the lock override.
+
+### R3.8 Commands and verbatim output
+
+Every cargo command ran through the Round 2 harness (sandbox under `$TMPDIR`, HOME and TMPDIR siblings, `CARGO_TARGET_DIR=$PWD/out/cargo`). Where a log's cargo output went through `grep -v '^   Compiling'` (red, green, mutant), the `_rc=` line is grep's, not cargo's; the `test result` and `FAILED` lines are the evidence.
+**Red, the new tests on the d297959c production code**
+```text
+$ cargo test -p designos-fig --locked --test fig_instance_lock_aspect_override_roundtrip
+r3-01-red.log:1: d297959cb663e1cc225855df2cdde89a7e656c3c
+r3-01-red.log:2: RED: new tests on the d297959c production code (no importer change yet)
+r3-01-red.log:11: test an_instance_whose_lock_differs_from_its_main_keeps_both_the_lock_and_the_override_through_a_fig_reopen ... FAILED
+r3-01-red.log:12: test a_reopened_instance_keeps_its_own_lock_when_its_main_is_locked_or_unlocked_and_synced ... FAILED
+r3-01-red.log:18: thread 'an_instance_whose_lock_differs_from_its_main_keeps_both_the_lock_and_the_override_through_a_fig_reopen' (73274435) panicked at crates/designos-fig/tests/fig_instance_lock_aspect_override_roundtrip.rs:72:5:
+r3-01-red.log:19: the lock is recorded as the instance's own
+r3-01-red.log:24: thread 'a_reopened_instance_keeps_its_own_lock_when_its_main_is_locked_or_unlocked_and_synced' (73274434) panicked at crates/designos-fig/tests/fig_instance_lock_aspect_override_roundtrip.rs:102:5:
+r3-01-red.log:25: the own lock survives the main being unlocked and synced
+r3-01-red.log:32: test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+r3-01-red.log:35: r3_red_rc=101
+```
+**Green (null control)**
+```text
+$ cargo test -p designos-fig --locked --test fig_instance_lock_aspect_override_roundtrip
+r3-02-green.log:1: ed4d2e96123d39a033a018843ca74e9741ee3f29
+r3-02-green.log:10: test an_instance_whose_lock_differs_from_its_main_keeps_both_the_lock_and_the_override_through_a_fig_reopen ... ok
+r3-02-green.log:11: test a_reopened_instance_keeps_its_own_lock_when_its_main_is_locked_or_unlocked_and_synced ... ok
+r3-02-green.log:13: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+r3-02-green.log:15: green_rc=0
+```
+**Mutant: the importer drops the field**
+```text
+$ cargo test -p designos-fig --locked --test fig_instance_lock_aspect_override_roundtrip
+r3-03-mutant-importer-drops-field.log:1: ed4d2e96123d39a033a018843ca74e9741ee3f29
+r3-03-mutant-importer-drops-field.log:2: MUTANT: the .fig importer drops the instance's proportionsConstrained override (the whole arm in convert_override removed)
+r3-03-mutant-importer-drops-field.log:3: change (git diff -U0 crates/designos-fig/src/fig.rs, changed lines only):
+r3-03-mutant-importer-drops-field.log:4: -            "proportionsConstrained" => {
+r3-03-mutant-importer-drops-field.log:5: -                if let Some(locked) = val.as_bool() {
+r3-03-mutant-importer-drops-field.log:6: -                    m.insert("preserveRatio".into(), locked.into());
+r3-03-mutant-importer-drops-field.log:7: -                }
+r3-03-mutant-importer-drops-field.log:8: -            }
+r3-03-mutant-importer-drops-field.log:17: test an_instance_whose_lock_differs_from_its_main_keeps_both_the_lock_and_the_override_through_a_fig_reopen ... FAILED
+r3-03-mutant-importer-drops-field.log:18: test a_reopened_instance_keeps_its_own_lock_when_its_main_is_locked_or_unlocked_and_synced ... FAILED
+r3-03-mutant-importer-drops-field.log:38: test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+r3-03-mutant-importer-drops-field.log:41: mutant_done
+```
+**Mutant file restored**
+```text
+$ cmp <backup> crates/designos-fig/src/fig.rs; git diff --quiet HEAD -- crates/designos-fig/src/fig.rs
+r3-04-mutant-file-restored.log:1: crates/designos-fig/src/fig.rs restored: identical to HEAD (git diff HEAD is empty)
+```
+**fmt**
+```text
+$ cargo fmt --all -- --check; echo fmt_rc=$?
+r3-10-fmt.log:1: ed4d2e96123d39a033a018843ca74e9741ee3f29
+r3-10-fmt.log:2: fmt_rc=0
+```
+**clippy**
+```text
+$ cargo clippy --workspace --all-targets --locked
+r3-11-clippy.log:1: ed4d2e96123d39a033a018843ca74e9741ee3f29
+r3-11-clippy.log:379:     --> crates/designos-app/src/agent_permissions.rs:1176:9
+r3-11-clippy.log:393:     --> crates/designos-app/src/agent_permissions.rs:1194:9
+r3-11-clippy.log:408:     --> crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181:21
+r3-11-clippy.log:419: clippy_rc=0
+```
+**designos-fig, all targets**
+```text
+$ cargo test -p designos-fig --locked
+r3-12-test-fig.log:1: ed4d2e96123d39a033a018843ca74e9741ee3f29
+r3-12-test-fig.log:816: fig_rc=0
+```
+**designos-doc**
+```text
+$ cargo test -p designos-doc --locked
+r3-13-test-doc.log:1: ed4d2e96123d39a033a018843ca74e9741ee3f29
+r3-13-test-doc.log:745: test result: ok. 723 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.06s
+r3-13-test-doc.log:754: test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+r3-13-test-doc.log:765: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+r3-13-test-doc.log:773: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+r3-13-test-doc.log:779: test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+r3-13-test-doc.log:781: doc_rc=0
+```
+**workspace lib tests**
+```text
+$ cargo test --workspace --locked --lib
+r3-14-test-workspace-lib.log:1: ed4d2e96123d39a033a018843ca74e9741ee3f29
+r3-14-test-workspace-lib.log:227: test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+r3-14-test-workspace-lib.log:956: test result: ok. 723 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.43s
+r3-14-test-workspace-lib.log:963: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+r3-14-test-workspace-lib.log:1128: test result: ok. 158 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.19s
+r3-14-test-workspace-lib.log:1277: test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.44s
+r3-14-test-workspace-lib.log:1313: test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+r3-14-test-workspace-lib.log:1324: test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+r3-14-test-workspace-lib.log:1367: test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.21s
+r3-14-test-workspace-lib.log:1699: test result: ok. 326 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.77s
+r3-14-test-workspace-lib.log:1763: test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.93s
+r3-14-test-workspace-lib.log:1770: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+r3-14-test-workspace-lib.log:1784: test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+r3-14-test-workspace-lib.log:1786: workspace_lib_rc=0
+```
+**scope**
+```text
+$ git diff --name-only d297959c <gated sha> -- . ':!crates/designos-fig' ':!plans'   (files outside the Round 3 list; none), then the app and doc diff
+r3-21-scope.log:8: scope_rc=0  (1 = none outside the list)
+r3-21-scope.log:9: $ git diff --stat d297959c ed4d2e96 -- crates/designos-app crates/designos-doc   (app and doc code: empty)
+r3-21-scope.log:10: designos-app_diff_rc=0
+```
+**cleanup**
+```text
+$ rm -rf out/cargo; ls out/cargo; git diff --stat <gated sha> -- crates scripts
+r3-23-cleanup.log:2: gated code commit: ed4d2e96123d39a033a018843ca74e9741ee3f29
+r3-23-cleanup.log:5: ls: out/cargo: No such file or directory
+r3-23-cleanup.log:6: ls_out_cargo_rc=1
+r3-23-cleanup.log:8: code_diff_since_gated_rc=0
+```
+
+Status: DONE_WITH_CONCERNS
+Summary: The `.fig` importer now reads an instance's `proportionsConstrained` override as its lock value and records `LockAspect`, so a reopened instance keeps its own lock through a later lock or unlock of its main and a sync. Both new tests are red on the Round 2 head and green here; the importer-drops-the-field mutant is killed; the Round 3 gates are green. REST has no write side, so ruling 2(c) was not done.
+Concerns/Blockers: real Figma files may not carry the lock in `symbolOverrides` (not checked); the REST importer change has no test of its own beyond the `.fig` path.
