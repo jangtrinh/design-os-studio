@@ -1,0 +1,14 @@
+...............................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 207 tests in 54.155s
+
+OK
+Chrome colour literal gate PASSED (29 files with findings, 199/199 baseline chrome sites).
+Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  tabs.rs [chrome_sites]: 1 > baseline 0 (L2257:Color32::from_rgb(1,)
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.
+Chrome colour literal gate FAILED (new inline Color32 literals introduced):
+  unbaselined_chrome_surface.rs [chrome_sites]: 1 > baseline 0 (L2:Color32::from_rgb(1,)
+
+Use semantic colour constants from `crate::theme` instead of inline `Color32` literals.

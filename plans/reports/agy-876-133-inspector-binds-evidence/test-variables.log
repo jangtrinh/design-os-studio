@@ -1,0 +1,137 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.54s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 107 tests
+test live_canvas_scope::tests::scoped_canvas_carries_all_collections_variables_styles_and_meta ... ok
+test layout::solver_parity_tests::a_group_ignores_width_and_height_variables_because_it_always_fits_its_children ... ok
+test layout::solver_parity_tests::a_hugging_frame_ignores_width_and_height_variables_so_siblings_sit_behind_the_hugged_size ... ok
+test check_designs::tests::a_stroke_is_matched_against_stroke_variables_and_stroke_styles ... ok
+test check_designs::tests::safety::two_variables_that_both_change_with_the_mode_are_also_ambiguous ... ok
+test check_designs::tests::numbers::text_linked_to_a_style_or_with_mixed_run_sizes_is_not_flagged_for_number_variables ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_says_so_and_starts_no_import ... ok
+test check_designs::tests::safety::two_equally_good_variables_report_the_match_without_a_fix ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_export_says_so_and_starts_no_export ... ok
+test io::file_dialog_flow_tests::other_dialog_sites::variables_import_and_export_are_silent_on_cancel ... ok
+test check_designs::tests::numbers::uniform_and_per_corner_radius_match_number_variables_and_bind_cleanly ... ok
+test proto::player::tests::bound_text_and_visibility_follow_the_variables ... ok
+test shell::tests::assets_variables_libraries_chrome::asset_variable_library_surfaces_draw_no_shadow ... ok
+test shell::tests::assets_variables_libraries_chrome::check_designs_rules_checkboxes_use_the_kit_checkbox ... ok
+test shell::tests::assets_variables_libraries_chrome::check_designs_uses_contract_roles ... ok
+test shell::tests::assets_variables_libraries_chrome::check_designs_contrast_choice_is_segmented ... ok
+test shell::tests::assets_variables_libraries_chrome::library_review_banner_uses_the_kit_button ... ok
+test shell::tests::assets_variables_libraries_chrome::asset_variable_library_sources_paint_no_chrome_colour_literals ... ok
+test shell::tests::assets_variables_libraries_chrome::assets_search_has_no_blue_outline ... ok
+test shell::tests::assets_variables_libraries_chrome::libraries_description_hint_sits_inside_the_field ... ok
+test shell::tests::assets_variables_libraries_chrome::libraries_dialog_follows_dialog_sizes ... ok
+test shell::tests::assets_variables_libraries_chrome::assets_filter_pills_sit_six_below_the_search_field ... ok
+test shell::tests::assets_variables_libraries_chrome::libraries_fields_draw_the_focus_ring_when_focused ... ok
+test shell::tests::assets_variables_libraries_chrome::asset_group_rows_draw_no_chevron ... ok
+test shell::tests::assets_variables_libraries_chrome::libraries_this_file_controls_do_not_overlap ... ok
+test shell::tests::assets_variables_libraries_chrome::assets_search_draws_the_focus_ring_when_focused ... ok
+test shell::tests::assets_variables_libraries_chrome::plugin_url_field_draws_the_focus_ring_when_focused ... ok
+test shell::tests::assets_variables_libraries_chrome::variable_picker_rows_are_menu_rows ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_create_button_is_centred_in_the_bottom_bar ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_cell_colour_picker_keeps_the_field_outline ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_group_header_hover_is_visible ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_edit_popover_closes_with_a_cross ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_popover_checkboxes_use_the_kit_checkbox ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_rows_keep_geometry ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_search_draws_the_focus_ring_when_focused ... ok
+test shell::tests::variables::a_library_collection_new_to_the_file_is_imported_and_stays_read_only ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_value_cells_draw_nothing_at_rest_and_a_field_while_edited ... ok
+test shell::tests::dev::inspect_sections_for_variables_components_and_assets_have_data ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_alias_pills_keep_their_size ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_hscrollbar_still_drags ... ok
+test shell::tests::variables::an_imported_library_collection_reusing_a_local_collection_id_does_not_replace_it ... ok
+test shell::tests::variables::an_imported_variable_reusing_a_library_variable_id_neither_replaces_it_nor_stays_listed ... ok
+test shell::tests::variables::an_imported_library_variable_reusing_a_local_variable_id_does_not_replace_it ... ok
+test shell::tests::proto_vars::the_variables_panel_shows_live_values_and_never_touches_the_document ... ok
+test shell::tests::variables::a_plain_toast_does_not_take_clicks_from_the_canvas ... ok
+test shell::tests::variables::committing_a_variable_edit_leaves_library_collections_untouched ... ok
+test shell::tests::assets_variables_libraries_chrome::variables_boolean_cell_uses_the_kit_toggle ... ok
+test shell::tests::variables::a_library_collection_cannot_be_edited_from_the_panel ... ok
+test shell::tests::variables::demo_has_a_theme_collection_bound_to_the_card ... ok
+test shell::tests::variables::create_variable_menu_adds_a_typed_variable ... ok
+test shell::tests::assets_variables_libraries_chrome::libraries_toggle_uses_the_kit_toggle ... ok
+test shell::tests::assets_variables_libraries_chrome::libraries_search_sits_centred_on_its_label_with_the_list_below ... ok
+test shell::tests::variables::file_import_protects_local_records_and_does_not_count_existing_library_variables_as_skipped ... ok
+test shell::tests::assets_variables_libraries_chrome::libraries_update_button_fits_its_label ... ok
+test shell::tests::assets_variables_libraries_chrome::review_checkbox_uses_dark_tick ... ok
+test shell::tests::variables::importing_into_an_empty_selection_selects_a_collection_the_file_owns ... ok
+test shell::tests::variables::alias_button_picks_another_variable ... ok
+test shell::tests::assets_variables_libraries_chrome::review_change_labels_are_status_chips ... ok
+test shell::tests::variables::bind_button_opens_picker_and_binds_a_fill ... ok
+test shell::tests::variables::floating_panel_drags_by_its_header ... ok
+test shell::tests::variables::groups_come_from_slashes_and_filter_the_table ... ok
+test shell::tests::variables::importing_variables_leaves_library_collections_alone_and_does_not_count_them ... ok
+test shell::tests::variables::opening_the_view_selects_a_collection_the_file_owns_whatever_the_id_order ... ok
+test shell::tests::assets_variables_libraries_chrome::library_names_stop_short_of_the_update_button ... ok
+test shell::tests::variables::importing_variables_without_library_collections_reports_no_skips ... ok
+test shell::tests::variables::add_collection_and_mode ... ok
+test shell::tests::variables::deleting_a_collection_selects_one_the_file_owns_not_a_library_one ... ok
+test shell::tests::variables::no_heading_without_library_collections ... ok
+test shell::tests::variables::rail_opens_floating_panel_then_full_view_and_back ... ok
+test shell::tests::variables::shift_and_ctrl_click_multi_select ... ok
+test shell::tests::variables::delete_and_ctrl_d_work_on_the_selection_in_single_undo_steps ... ok
+test shell::tests::variables::new_group_with_selection_prefixes_the_names ... ok
+test shell::tests::variables::library_collections_are_listed_under_a_from_library_heading ... ok
+test shell::tests::libraries::library_variables_bind_through_the_picker_in_one_undo_step ... ok
+test shell::tests::variables::enter_renames_the_selected_row_keeping_its_group ... ok
+test shell::tests::libraries::library_variables_bind_to_a_style_through_the_picker_in_one_undo_step ... ok
+test variables::library::tests::a_library_record_never_takes_the_id_of_one_the_file_owns ... ok
+test variables::library::tests::a_local_record_still_replaces_a_local_record_of_the_same_id ... ok
+test variables::library::tests::an_incoming_payload_loses_whatever_would_land_in_an_existing_library_collection ... ok
+test variables::library::tests::own_collections_come_before_library_ones_and_open_first ... ok
+test variables::popover::tests::scope_toggles_keep_a_valid_list ... ok
+test variables::tests::aliased_variables_reflow_their_bound_nodes ... ok
+test variables::tests::bind_detach_and_delete_are_single_undo_steps ... ok
+test variables::tests::bound_fill_opacity_follows_each_edit_without_compounding ... ok
+test variables::tests::changing_a_variable_reflows_auto_layout_in_the_same_undo_step ... ok
+test variables::tests::export_toast_keeps_counts_out_of_parentheses_and_agrees_in_number ... ok
+test shell::tests::variables::dragging_a_row_reorders_and_drops_into_groups ... ok
+test variables::tests::node_modes_and_import_merge ... ok
+test variables::tests::variable_driven_text_size_refits_auto_resize_text_and_the_frame_around_it ... ok
+test variables::view::tests::scope_filter_matches_variable_scopes ... ok
+test showcase::tests::theme_variables_have_both_modes_and_are_bound ... ok
+test variables::view::tests::skipped_details_popover_renders_beyond_eight_items ... ok
+test variables_cli_tests::dtcg_to_a_json_path_without_mode_is_an_error ... ok
+test variables_cli_tests::cli_directory_export_never_overwrites_within_one_run ... ok
+test shell::tests::variables::right_clicking_a_group_of_a_library_collection_opens_no_menu ... ok
+test shell::tests::variables::row_menu_has_figmas_items_and_deletes ... ok
+test shell::tests::variables::the_details_toast_opens_its_report_in_the_full_variables_view ... ok
+test shell::tests::variables::the_details_toast_opens_its_report_on_the_canvas ... ok
+test shell::tests::variables::edit_variable_popover_edits_scoping_and_publishing ... ok
+test shell::tests::variables::the_toast_paints_on_the_home_screen ... ok
+test shell::tests::variables::editing_a_number_cell_is_one_undo_step ... ok
+test shell::tests::variables::the_import_toast_paints_above_the_full_variables_view ... ok
+test shell::tests::variables::the_import_toast_still_paints_above_the_floating_variables_panel ... ok
+test shell::tests::variables::numeric_fields_bind_and_unbind ... ok
+test shell::tests::variables::single_default_mode_header_reads_value_and_modes_rename ... ok
+test shell::tests::variables::switching_the_card_to_dark_changes_rendered_pixels ... ok
+test shell::tests::variables::text_fill_edits_only_the_selected_range_and_binds_the_layer ... ok
+
+test result: ok. 107 passed; 0 failed; 0 ignored; 0 measured; 3879 filtered out; finished in 8.05s
+

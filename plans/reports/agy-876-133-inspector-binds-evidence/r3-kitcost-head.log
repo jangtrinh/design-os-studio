@@ -1,0 +1,23 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.96s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-c78d4c33a509c535)
+
+running 1 test
+KIT_COST target=Welcome back vars=kit697 allocs min=1973 med=1974 time_us min=245 med=273
+KIT_COST target=Welcome vars=kit697 allocs min=3151 med=3151 time_us min=283 med=301
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+KIT_COST target=Hero vars=kit697 allocs min=1657 med=1657 time_us min=255 med=271
+BASE_COST target=Welcome back vars=none allocs min=1943 med=1943 time_us min=213 med=226
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+BASE_COST target=Hero vars=none allocs min=1642 med=1642 time_us min=196 med=203
+LIB700_COST target=Welcome back vars=lib700 allocs min=2090 med=2090 time_us min=225 med=243
+designos: --select "Hero" matched 2 layers; selected id 5 (first in page order; use id:<n> for another)
+LIB700_COST target=Hero vars=lib700 allocs min=1749 med=1749 time_us min=202 med=234
+test shell::tests::inspector_var_binds::kit_cost_and_alloc_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 0.84s
+
