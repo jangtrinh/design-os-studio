@@ -67,6 +67,12 @@ pub struct CompileOptions {
     /// Lifts the offscreen-program caps of interactive mode, for the one
     /// full-quality compile of an idle view. Headless compiles never cap.
     pub uncap_programs: bool,
+    /// Turns off the zoom-out level of detail of interactive compiles (sub-pixel
+    /// culling, text greeking, leaf and small-container shortcuts, tiny-effect
+    /// skips), for the one compile of a view that is still: only a moving view
+    /// may simplify for speed. Independent of `uncap_programs`, and changes
+    /// nothing for headless compiles, which never simplify.
+    pub full_detail: bool,
     /// With `uncap_programs`: offscreen programs are only opened while the
     /// accounted GPU bytes of all targets of the frame (including the root
     /// output target) stay within this budget (see `program_bytes`); past it
@@ -89,6 +95,7 @@ impl Default for CompileOptions {
             force_fallback: None,
             supersample: 0,
             uncap_programs: false,
+            full_detail: false,
             refine_vram_budget_bytes: DEFAULT_REFINE_VRAM_BUDGET_BYTES,
             refine_max_programs: DEFAULT_REFINE_MAX_PROGRAMS,
             runtime_node_opacities: Vec::new(),
@@ -113,13 +120,65 @@ impl SceneCompiler {
         Self::default()
     }
 
+    /// Builds the geometry the last compile left deferred (uncached text, vectors and
+    /// boolean operations, and nodes still on the previous zoom's flattening), newest
+    /// first, until this frame's `geom.budget` of wall time is spent (at least one node a
+    /// call: the budget is counted from the call, so it covers resolving the node and
+    /// hashing its shape as well as the tessellation). Returns how many are left. Walks no
+    /// scene: the next compile finds what it needs in the cache.
+    pub fn warm_deferred(&mut self, doc: &Document, rev: u64) -> usize {
+        let start = std::time::Instant::now();
+        // the wall clock below is the budget: the cache must not defer what it is asked to build
+        let budget = self.geom.budget.take();
+        let mut first = true;
+        self.geom.begin_warm();
+        while let Some(&(id, bucket)) = self.geom.deferred.last() {
+            if !first && budget.is_some_and(|b| start.elapsed() >= b) {
+                break;
+            }
+            first = false;
+            self.geom.deferred.pop();
+            let Some(node) = board::get(doc, id) else { continue };
+            let node = resolve_node(doc, &node);
+            let _ = self.geom.get(doc, &node, bucket, rev);
+        }
+        self.geom.budget = budget;
+        self.geom.deferred.len()
+    }
+
+    /// The top-level nodes of `page` that `compile` would draw for this view, in paint
+    /// order, when the page is drawn from the spatial index; `None` when it is not (a
+    /// small page, a mask among the top-level nodes, a rotated view). Cut into slices
+    /// (`slice_top_level`), compiled one by one (`compile_slice`) and drawn in order they
+    /// paint the page `compile` paints.
+    pub fn visible_top_level(&mut self, doc: &Document, page: NodeId, rev: u64, vp: &Viewport, size: (u32, u32)) -> Option<Vec<NodeId>> {
+        self.index.ensure(doc, page, rev);
+        let s = vp.zoom * vp.dpr;
+        let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
+        let ss = self.opts.supersample.clamp(1, 4);
+        let root_ts = ts.post_scale(ss as f32, ss as f32);
+        let root_rect = IRect::new(0, 0, (size.0 * ss) as i32, (size.1 * ss) as i32);
+        let n = doc.get(page)?;
+        top_level_in_view(&self.index, n, &root_ts, root_rect)
+    }
+
+    /// Compiles only `children` (a slice of `visible_top_level`) of `page` over the page
+    /// background: a frame whose root program holds just their ops. Rendered with
+    /// `Renderer::render_chunk` after the slices before it, the slices make up the page.
+    pub fn compile_slice(&mut self, doc: &Document, page: NodeId, rev: u64, vp: &Viewport, size: (u32, u32), children: &[NodeId]) -> Frame {
+        self.index.ensure(doc, page, rev);
+        let s = vp.zoom * vp.dpr;
+        let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
+        self.compile_with(doc, page, rev, ts, size, false, Some(children))
+    }
+
     /// Compiles the visible part of `page` seen through `vp` into a frame of
     /// `size` device pixels. `rev` must change whenever the document does.
     pub fn compile(&mut self, doc: &Document, page: NodeId, rev: u64, vp: &Viewport, size: (u32, u32)) -> Frame {
         self.index.ensure(doc, page, rev);
         let s = vp.zoom * vp.dpr;
         let ts = sk::Transform::from_row(s, 0.0, 0.0, s, -vp.offset.x * s, -vp.offset.y * s);
-        self.compile_with(doc, page, rev, ts, size, false)
+        self.compile_with(doc, page, rev, ts, size, false, None)
     }
 
     /// Compiles one node (a page: its children over the page background) with
@@ -127,10 +186,20 @@ impl SceneCompiler {
     /// `designos_render::render_node` (used for Present frames and exports).
     pub fn compile_node(&mut self, doc: &Document, node: NodeId, rev: u64, scale: f32, size: (u32, u32)) -> Frame {
         let ts = sk::Transform::from_scale(scale, scale);
-        self.compile_with(doc, node, rev, ts, size, true)
+        self.compile_with(doc, node, rev, ts, size, true, None)
     }
 
-    fn compile_with(&mut self, doc: &Document, root_node: NodeId, rev: u64, logical_ts: sk::Transform, size: (u32, u32), single: bool) -> Frame {
+    #[allow(clippy::too_many_arguments)]
+    fn compile_with(
+        &mut self,
+        doc: &Document,
+        root_node: NodeId,
+        rev: u64,
+        logical_ts: sk::Transform,
+        size: (u32, u32),
+        single: bool,
+        only: Option<&[NodeId]>,
+    ) -> Frame {
         self.geom.trim(rev);
         self.geom.begin_frame();
         let unit = self.unit_rect.get_or_insert_with(|| Arc::new(Mesh::rect(0.0, 0.0, 1.0, 1.0))).clone();
@@ -177,22 +246,11 @@ impl SceneCompiler {
         cx.stack.push(0);
         let full = cx.clip_for(ClipDesc { scissor: root_rect, mask: None });
         if let Some(n) = node.as_deref() {
-            if single && !matches!(n.kind, NodeKind::Page { .. }) {
+            if let Some(children) = only {
+                cx.draw_children(children, root_ts, full);
+            } else if single && !matches!(n.kind, NodeKind::Page { .. }) {
                 cx.draw_node(n, root_ts, full);
-            } else if cx.cull
-                && n.children.len() > 8
-                && !cx.index.has_top_mask()
-                && root_ts.kx == 0.0
-                && root_ts.ky == 0.0
-                && root_ts.sx > 0.0
-                && root_ts.sy > 0.0
-            {
-                let wx0 = -root_ts.tx / root_ts.sx - 64.0;
-                let wy0 = -root_ts.ty / root_ts.sy - 64.0;
-                let wx1 = (root_rect.w() as f32 - root_ts.tx) / root_ts.sx + 64.0;
-                let wy1 = (root_rect.h() as f32 - root_ts.ty) / root_ts.sy + 64.0;
-                let mut children = Vec::new();
-                cx.index.query_top_level((wx0, wy0, wx1, wy1), &mut children);
+            } else if let Some(children) = cx.cull.then(|| top_level_in_view(cx.index, n, &root_ts, root_rect)).flatten() {
                 cx.draw_children(&children, root_ts, full);
             } else {
                 cx.draw_children(&n.children, root_ts, full);
@@ -202,6 +260,63 @@ impl SceneCompiler {
         let frame = Frame { size, out_size, ss, root: 0, programs: cx.progs, clips: cx.clips };
         self.last_vram_bytes = vram;
         frame
+    }
+}
+
+/// The top-level nodes of the page `n` in view, in paint order, when the page is drawn from the
+/// spatial index: more than 8 of them, none a mask, an axis-aligned view.
+fn top_level_in_view(index: &SceneIndex, n: &Node, root_ts: &sk::Transform, root_rect: IRect) -> Option<Vec<NodeId>> {
+    if n.children.len() <= 8 || index.has_top_mask() || root_ts.kx != 0.0 || root_ts.ky != 0.0 || root_ts.sx <= 0.0 || root_ts.sy <= 0.0 {
+        return None;
+    }
+    let wx0 = -root_ts.tx / root_ts.sx - 64.0;
+    let wy0 = -root_ts.ty / root_ts.sy - 64.0;
+    let wx1 = (root_rect.w() as f32 - root_ts.tx) / root_ts.sx + 64.0;
+    let wy1 = (root_rect.h() as f32 - root_ts.ty) / root_ts.sy + 64.0;
+    let mut children = Vec::new();
+    index.query_top_level((wx0, wy0, wx1, wy1), &mut children);
+    Some(children)
+}
+
+/// One slice of a page's top-level nodes (see [`next_slice`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SliceCut {
+    /// The slice: indices into the top-level nodes.
+    pub range: std::ops::Range<usize>,
+    /// Document nodes counted to find it: its own, plus those of the node that did not fit.
+    pub counted: usize,
+}
+
+/// The slice of `top` (from `SceneCompiler::visible_top_level`) that starts at `start`: as many
+/// consecutive nodes as fit `max_nodes` document nodes, at least one (a node with more than
+/// that is a slice of its own). Counts nodes only until the slice is full, so the first slice
+/// of a page costs the nodes of that slice, not of the page.
+pub fn next_slice(doc: &Document, top: &[NodeId], start: usize, max_nodes: usize) -> SliceCut {
+    let (mut acc, mut counted, mut end) = (0usize, 0usize, start);
+    for id in &top[start.min(top.len())..] {
+        let w = doc.page_node_count(*id);
+        counted += w;
+        if acc > 0 && acc + w > max_nodes {
+            break;
+        }
+        acc += w;
+        end += 1;
+    }
+    SliceCut { range: start..end, counted }
+}
+
+/// Cuts all of `top` into consecutive slices of at most `max_nodes` document nodes each (the
+/// repeated [`next_slice`]).
+pub fn slice_top_level(doc: &Document, top: &[NodeId], max_nodes: usize) -> Vec<std::ops::Range<usize>> {
+    let mut slices = Vec::new();
+    let mut start = 0;
+    loop {
+        let cut = next_slice(doc, top, start, max_nodes);
+        start = cut.range.end;
+        slices.push(cut.range);
+        if start >= top.len() {
+            return slices;
+        }
     }
 }
 
@@ -534,11 +649,13 @@ impl Ctx<'_> {
     // ----- tree -------------------------------------------------------------
 
     /// Interactive approximations (greeking, sub-pixel culling, effect skips)
-    /// apply to index-culled drawing only: a silhouette draws its children at
-    /// full detail. The offscreen-program and VRAM limits do not follow this
-    /// switch: they follow `live` (see `prog_cap_hit` and `over_budget`).
+    /// apply to index-culled drawing of a moving view only: a silhouette draws
+    /// its children at full detail, and so does the compile of a still view
+    /// (`CompileOptions::full_detail`). The offscreen-program and VRAM limits do
+    /// not follow this switch: they follow `live` (see `prog_cap_hit` and
+    /// `over_budget`).
     fn interactive(&self) -> bool {
-        self.cull && self.geom.budget.is_some()
+        self.cull && self.geom.budget.is_some() && !self.opts.full_detail
     }
 
     /// The idle refine compile: interactive mode with its program cap lifted
