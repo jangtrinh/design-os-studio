@@ -6,7 +6,7 @@
 
 use designos_doc::Document;
 use designos_fonts::{ensure_font_requests_with, FontCache, FontReport, FontRequest, LoadedFont};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
 
@@ -26,8 +26,8 @@ pub struct FontLoader {
     open_cache: Arc<dyn Fn() -> FontCache + Send + Sync>,
     /// The texts waiting to be re-measured with the faces that arrived.
     pub(crate) refit: crate::font_refit::TextRefit,
-    /// A Flatten or Outline stroke waiting for missing text faces to arrive in `poll_fonts`.
-    pub(crate) pending_vecop: Option<(u64, crate::vecops::PendingVecOp, BTreeSet<FontRequest>)>,
+    /// Flatten or Outline stroke commands waiting for missing text faces to arrive in `poll_fonts`.
+    pub(crate) pending_vecop: VecDeque<crate::vecops::QueuedVecOp>,
     /// The faces the latest `load_for` asked for (tests read it instead of waiting for a fetch).
     #[cfg(test)]
     requested: BTreeSet<FontRequest>,
@@ -45,7 +45,7 @@ impl Default for FontLoader {
             failed: HashMap::new(),
             open_cache: Arc::new(default_cache),
             refit: Default::default(),
-            pending_vecop: None,
+            pending_vecop: VecDeque::new(),
             #[cfg(test)]
             requested: Default::default(),
             #[cfg(test)]

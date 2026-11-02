@@ -89,6 +89,14 @@ pub(crate) enum PendingVecOp {
     OutlineStroke,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct QueuedVecOp {
+    pub doc_id: u64,
+    pub op: PendingVecOp,
+    pub ids: Vec<NodeId>,
+    pub requests: BTreeSet<designos_fonts::FontRequest>,
+}
+
 fn collect_text_font_requests(doc: &Document, ids: &[NodeId], walk_subtree: bool) -> BTreeSet<designos_fonts::FontRequest> {
     let mut out = BTreeSet::new();
     let mut add_node = |raw: &Node| {
@@ -151,10 +159,9 @@ fn set_fixed_layout_child(lc: &mut LayoutChild, counter: Option<bool>) {
 
 impl App {
     fn ensure_text_fonts(&mut self, ids: &[NodeId], walk_subtree: bool, op: PendingVecOp) -> bool {
+        let doc_id = self.doc.runtime_id();
+        self.fonts.pending_vecop.retain(|q| q.doc_id == doc_id);
         let requests = collect_text_font_requests(&self.doc, ids, walk_subtree);
-        if requests.is_empty() {
-            return true;
-        }
         let (missing, failed) = self.fonts.check_requests(&requests);
         if let Some(first) = failed.first() {
             let more = failed.len() - 1;
@@ -162,26 +169,42 @@ impl App {
             self.show_toast(format!("Font unavailable: {first}{suffix}"), true);
             return false;
         }
-        if missing.is_empty() {
+        if missing.is_empty() && self.fonts.pending_vecop.is_empty() {
             return true;
         }
-        self.fonts.pending_vecop = Some((self.doc.runtime_id(), op, requests));
-        self.fonts.request_new_faces(&self.doc, missing);
+        self.fonts.pending_vecop.push_back(QueuedVecOp { doc_id, op, ids: ids.to_vec(), requests });
+        if !missing.is_empty() {
+            self.fonts.request_new_faces(&self.doc, missing);
+        }
         false
     }
 
     pub(crate) fn finish_pending_vecop(&mut self) {
-        let Some((doc_id, op, reqs)) = self.fonts.pending_vecop.take() else { return };
-        if doc_id != self.doc.runtime_id() {
-            return;
-        }
-        let (missing, failed) = self.fonts.check_requests(&reqs);
-        if !missing.is_empty() || !failed.is_empty() {
-            return;
-        }
-        match op {
-            PendingVecOp::Flatten => self.flatten_selection(),
-            PendingVecOp::OutlineStroke => self.outline_stroke_selection(),
+        while let Some(queued) = self.fonts.pending_vecop.pop_front() {
+            if queued.doc_id != self.doc.runtime_id() {
+                continue;
+            }
+            let (missing, failed) = self.fonts.check_requests(&queued.requests);
+            if !failed.is_empty() {
+                continue;
+            }
+            if !missing.is_empty() {
+                self.fonts.pending_vecop.push_front(queued);
+                self.fonts.request_new_faces(&self.doc, missing);
+                break;
+            }
+            if self.canvas.vedit.is_some() {
+                let msg = match queued.op {
+                    PendingVecOp::Flatten => "Flatten cancelled",
+                    PendingVecOp::OutlineStroke => "Outline stroke cancelled",
+                };
+                self.show_toast(msg, true);
+                continue;
+            }
+            match queued.op {
+                PendingVecOp::Flatten => self.flatten_ids(&queued.ids, true),
+                PendingVecOp::OutlineStroke => self.outline_stroke_ids(&queued.ids, true),
+            }
         }
     }
 
@@ -272,6 +295,19 @@ impl App {
         if !self.ensure_text_fonts(&ids, true, PendingVecOp::Flatten) {
             return;
         }
+        self.flatten_ids(&ids, false);
+    }
+
+    fn flatten_ids(&mut self, raw_ids: &[NodeId], deferred: bool) {
+        let mut ids: Vec<NodeId> = raw_ids.iter().copied().filter(|i| can_flatten(self, *i) && !linked(self, *i)).collect();
+        if let Some(first_parent) = ids.first().and_then(|i| self.doc.get(*i)).and_then(|n| n.parent) {
+            ids.retain(|i| self.doc.get(*i).and_then(|n| n.parent) == Some(first_parent));
+        } else {
+            ids.clear();
+        }
+        if ids.is_empty() {
+            return;
+        }
         if ids.len() == 1 && self.doc.get(ids[0]).is_some_and(|n| matches!(n.kind, NodeKind::Text(_))) {
             let id = ids[0];
             let Some(n) = self.doc.get(id).cloned() else { return };
@@ -279,7 +315,9 @@ impl App {
             let Some(index) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)) else { return };
             let runs = text_flatten_runs(&self.doc, &n);
             if runs.is_empty() {
-                self.show_toast("Nothing to flatten", false);
+                if !deferred {
+                    self.show_toast("Nothing to flatten", false);
+                }
                 return;
             }
             let resolved = resolve_node(&self.doc, &n).into_owned();
@@ -301,7 +339,9 @@ impl App {
         }
         let Some(parent) = self.doc.get(ids[0]).and_then(|n| n.parent) else { return };
         let Some(flat) = flatten_nodes(&self.doc, &ids, &self.doc.world_transform(parent)) else {
-            self.show_toast("Nothing to flatten", false);
+            if !deferred {
+                self.show_toast("Nothing to flatten", false);
+            }
             return;
         };
         let Some(template) = self.doc.get(ids[flat.style_from]).cloned() else { return };
@@ -351,9 +391,13 @@ impl App {
         if !self.ensure_text_fonts(&tops, false, PendingVecOp::OutlineStroke) {
             return;
         }
+        self.outline_stroke_ids(&tops, false);
+    }
+
+    fn outline_stroke_ids(&mut self, raw_ids: &[NodeId], deferred: bool) {
         let mut tx = Tx::new();
         let mut made = vec![];
-        for id in tops {
+        for &id in raw_ids {
             let Some(n) = self.doc.get(id).cloned() else { continue };
             if matches!(n.kind, NodeKind::Text(_)) {
                 if linked(self, id) {
@@ -416,7 +460,9 @@ impl App {
             made.push(vid);
         }
         if made.is_empty() {
-            self.show_toast("Select a layer with a stroke to outline", false);
+            if !deferred {
+                self.show_toast("Select a layer with a stroke to outline", false);
+            }
             tx.cancel(&mut self.doc);
             return;
         }
@@ -1379,7 +1425,7 @@ mod tests {
         assert_eq!(app.doc.to_json().unwrap(), committed_json, "redo state matches committed state exactly");
 
         // Now verify Outline stroke on the same auto-layout text: group gets Fixed sizing, visible/locked,
-        // and its box is its children's union at commit (m2).
+        // and its box is its children's union at commit.
         app.undo();
         app.selection = vec![tid];
         app.outline_stroke_selection();
@@ -1451,7 +1497,7 @@ mod tests {
         assert!(app.doc.get(t_out).is_none(), "pending outline stroke ran once font arrived in poll_fonts");
         assert!(matches!(app.doc.get(app.selection[0]).unwrap().kind, NodeKind::Group));
 
-        // 3. M2: Outline stroke on a stroked frame + stroked rect is not blocked by a descendant text's missing font.
+        // 3. Outline stroke on a stroked frame + stroked rect is not blocked by a descendant text's missing font.
         let fid = app.doc.alloc_id();
         let mut frame = Node::frame(fid, Rect::new(0.0, 100.0, 200.0, 100.0));
         frame.stroke.paints = vec![Paint::solid(Color::BLACK)];
@@ -1496,7 +1542,7 @@ mod tests {
         let mut doc = Document::new("GradientAndRuns");
         let page = doc.add_page("Page 1");
 
-        // Part A (M3): gradient fill style link and fills/0/stops/1/color binding survive Flatten and Outline stroke.
+        // Part A: gradient fill style link and fills/0/stops/1/color binding survive Flatten and Outline stroke.
         let grad_tid = doc.alloc_id();
         let mut grad_style = TextStyle { font_family: "Inter".into(), font_weight: 700, font_size: 36.0, ..Default::default() };
         grad_style.fills = vec![Paint {
@@ -1531,7 +1577,7 @@ mod tests {
             assert_eq!(child.variables.bindings.get("fills/0/stops/1/color").map(String::as_str), Some("var_stop"));
         }
 
-        // Part B (N1 + N2): runs that share a paint set merge into one vector under Flatten, and
+        // Part B: runs that share a paint set merge into one vector under Flatten, and
         // base-fill bindings/style_refs do not leak to recoloured runs.
         let red = Color::rgb(200, 20, 20);
         let green = Color::rgb(20, 160, 60);
@@ -1539,7 +1585,7 @@ mod tests {
         let bold_red = TextStyle { font_weight: 700, ..base_red.clone() };
         let green_run = TextStyle { fills: vec![Paint::solid(green)], ..base_red.clone() };
 
-        // Two runs with the SAME paint set (normal red + bold red) flatten into a single Vector (kills N1).
+        // Two runs with the SAME paint set (normal red + bold red) flatten into a single Vector.
         let same_paint_tid = app.doc.alloc_id();
         let mut same_paint_node = Node::text(same_paint_tid, Rect::new(0.0, 60.0, 200.0, 40.0), "norm BOLD", base_red.clone());
         if let NodeKind::Text(tp) = &mut same_paint_node.kind {
@@ -1551,8 +1597,8 @@ mod tests {
         let merged_node = app.doc.get(app.selection[0]).unwrap();
         assert!(matches!(merged_node.kind, NodeKind::Vector { .. }), "shared paint set across runs merges into 1 vector");
 
-        // Three runs where run 0 and run 2 share red and run 1 is green produce 2 children (kills N1),
-        // and only the red child carries the base fill binding (kills N2).
+        // Three runs where run 0 and run 2 share red and run 1 is green produce 2 children,
+        // and only the red child carries the base fill binding.
         let mixed_tid = app.doc.alloc_id();
         let mut mixed_node = Node::text(mixed_tid, Rect::new(0.0, 120.0, 300.0, 40.0), "red GREEN boldred", base_red);
         if let NodeKind::Text(tp) = &mut mixed_node.kind {
@@ -1624,7 +1670,7 @@ mod tests {
 
     #[test]
     fn pixel_test_converted_text_vectors_match_original_text_render() {
-        // 1. Decorated (underline) + two-run text (L1: no issue number in fixture string; kills N5, N8, N12).
+        // 1. Decorated (underline) and two-run text preserve underline geometry, group transform, and glyph alignment.
         assert_text_scenario_pixels("decor_and_runs", |doc, fid| {
             let t1 = doc.alloc_id();
             let mut s1 = TextStyle {
@@ -1647,7 +1693,7 @@ mod tests {
             vec![t1, t2]
         });
 
-        // 2. Stroked text with default StrokeAlign::Inside (B2: vector strokes use Center so look matches text).
+        // 2. Stroked text with default StrokeAlign::Inside converts to centered vector strokes matching text rendering.
         assert_text_scenario_pixels("stroked_default_inside", |doc, fid| {
             let t = doc.alloc_id();
             let s = TextStyle {
@@ -1664,7 +1710,7 @@ mod tests {
             vec![t]
         });
 
-        // 3. Linear gradient text (kills N4: gradient handle remapping across per-glyph and single-run boxes).
+        // 3. Linear gradient text remaps gradient handles across per-glyph and single-run boxes.
         assert_text_scenario_pixels("linear_gradient", |doc, fid| {
             let t = doc.alloc_id();
             let mut s = TextStyle { font_family: "Inter".into(), font_weight: 800, font_size: 48.0, ..Default::default() };
@@ -1681,7 +1727,7 @@ mod tests {
             vec![t]
         });
 
-        // 4. Bulleted and numbered list text (kills N6: list markers in Outline stroke).
+        // 4. Bulleted and numbered list text includes list markers in both Flatten and Outline stroke.
         assert_text_scenario_pixels("lists", |doc, fid| {
             let t = doc.alloc_id();
             let content = "Bullet one\nNumber one";
@@ -1704,7 +1750,7 @@ mod tests {
             vec![t]
         });
 
-        // 5. Semi-transparent shadowed text (kills N10 and N13: no double shadow or double opacity on glyph vectors).
+        // 5. Semi-transparent shadowed text applies opacity and drop shadow once without doubling on glyph vectors.
         assert_text_scenario_pixels("opacity_shadow", |doc, fid| {
             let t = doc.alloc_id();
             let s = TextStyle {
@@ -1728,5 +1774,181 @@ mod tests {
             doc.insert(fid, n).unwrap();
             vec![t]
         });
+    }
+
+    #[test]
+    fn deferred_flatten_converts_invoked_text_not_later_selected_rectangle() {
+        let mut doc = Document::new("DeferredFlattenTarget");
+        let page = doc.add_page("Page 1");
+        let tid = doc.alloc_id();
+        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "Target Text", style)).unwrap();
+        let rid = doc.alloc_id();
+        doc.insert(page, Node::rectangle(rid, Rect::new(160.0, 0.0, 80.0, 60.0))).unwrap();
+        let rect = doc.get(rid).cloned().unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+
+        app.selection = vec![tid];
+        app.flatten_selection();
+        assert!(app.doc.get(tid).is_some(), "text stays while font is loading");
+
+        // User selects the rectangle while the font is still downloading.
+        app.selection = vec![rid];
+        settle_app_fonts(&mut app);
+
+        assert_eq!(app.doc.get(rid), Some(&rect), "later-selected rectangle must remain unchanged");
+        assert!(app.doc.get(tid).is_none(), "originally targeted text must be converted");
+        assert_eq!(app.selection.len(), 1);
+        assert_ne!(app.selection[0], rid, "selection must be the produced vector, not the rectangle");
+        assert!(matches!(app.doc.get(app.selection[0]).unwrap().kind, NodeKind::Vector { .. }));
+    }
+
+    #[test]
+    fn deferred_outline_stroke_converts_invoked_text_not_later_selected_rectangle() {
+        let mut doc = Document::new("DeferredOutlineTarget");
+        let page = doc.add_page("Page 1");
+        let tid = doc.alloc_id();
+        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "Target Outline", style)).unwrap();
+        let rid = doc.alloc_id();
+        let mut rect_node = Node::rectangle(rid, Rect::new(160.0, 0.0, 80.0, 60.0));
+        rect_node.fills.clear();
+        rect_node.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        rect_node.stroke.weight = 4.0;
+        doc.insert(page, rect_node).unwrap();
+        let rect = doc.get(rid).cloned().unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+
+        app.selection = vec![tid];
+        app.outline_stroke_selection();
+        assert!(app.doc.get(tid).is_some(), "text stays while font is loading");
+
+        // User selects the stroked rectangle while the font is still downloading.
+        app.selection = vec![rid];
+        settle_app_fonts(&mut app);
+
+        assert_eq!(app.doc.get(rid), Some(&rect), "later-selected stroked rectangle must remain unchanged");
+        assert!(app.doc.get(tid).is_none(), "originally targeted text must be converted");
+        assert_eq!(app.selection.len(), 1);
+        assert_ne!(app.selection[0], rid, "selection must be the produced group, not the rectangle");
+        assert!(matches!(app.doc.get(app.selection[0]).unwrap().kind, NodeKind::Group));
+    }
+
+    #[test]
+    fn two_deferred_text_commands_both_convert_in_order() {
+        let mut doc = Document::new("TwoDeferredCommands");
+        let page = doc.add_page("Page 1");
+        let t_fail = doc.alloc_id();
+        let s_fail = TextStyle { font_family: "MissingFont".into(), font_size: 20.0, ..Default::default() };
+        doc.insert(page, Node::text(t_fail, Rect::new(0.0, 0.0, 120.0, 32.0), "Fail", s_fail)).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1", "SlowvecFnt2"], std::time::Duration::from_millis(250));
+
+        // First mark MissingFont as already failed before introducing the slow-font text layers.
+        app.selection = vec![t_fail];
+        app.flatten_selection();
+        settle_app_fonts(&mut app);
+        assert!(app.doc.get(t_fail).is_some());
+
+        let t1 = app.doc.alloc_id();
+        let s1 = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        app.doc.insert(page, Node::text(t1, Rect::new(0.0, 40.0, 120.0, 32.0), "First", s1)).unwrap();
+
+        let t2 = app.doc.alloc_id();
+        let s2 = TextStyle { font_family: "SlowvecFnt2".into(), font_size: 20.0, ..Default::default() };
+        app.doc.insert(page, Node::text(t2, Rect::new(0.0, 80.0, 120.0, 32.0), "Second", s2)).unwrap();
+
+        // Queue command 1 (Flatten on t1) and command 2 (Outline stroke on t2) while fonts load.
+        app.selection = vec![t1];
+        app.flatten_selection();
+        app.selection = vec![t2];
+        app.outline_stroke_selection();
+
+        // A command on an already-failed face toasts immediately and leaves the waiting queue intact.
+        app.toast = None;
+        app.selection = vec![t_fail];
+        app.flatten_selection();
+        assert!(app.toast.as_ref().is_some_and(|t| t.error && t.text.starts_with("Font unavailable: MissingFont 400:")));
+
+        assert!(app.doc.get(t1).is_some() && app.doc.get(t2).is_some(), "both texts still waiting for slow fonts");
+        settle_app_fonts(&mut app);
+
+        assert!(app.doc.get(t1).is_none(), "first deferred text must be converted");
+        assert!(app.doc.get(t2).is_none(), "second deferred text must be converted");
+        assert_eq!(app.hist.undo_depth(), 2, "both deferred commands committed as separate undo steps");
+        let second_out = app.selection[0];
+        assert!(matches!(app.doc.get(second_out).unwrap().kind, NodeKind::Group), "second command (outline stroke) ran last and set selection");
+
+        // Undoing once undoes the second command (restoring t2) while keeping the first command's vector in place.
+        app.undo();
+        assert!(app.doc.get(t2).is_some(), "undoing once restores the second text");
+        assert!(app.doc.get(t1).is_none(), "first text remains converted after undoing only the second command");
+    }
+
+    #[test]
+    fn deferred_command_on_deleted_text_edits_nothing_without_panic() {
+        let mut doc = Document::new("DeletedTarget");
+        let page = doc.add_page("Page 1");
+        let tid = doc.alloc_id();
+        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "To Delete", style)).unwrap();
+        let rid = doc.alloc_id();
+        doc.insert(page, Node::rectangle(rid, Rect::new(160.0, 0.0, 80.0, 60.0))).unwrap();
+        let rect = doc.get(rid).cloned().unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+
+        app.selection = vec![tid];
+        app.flatten_selection();
+        assert!(app.doc.get(tid).is_some());
+
+        // Delete the stored text node and select the rectangle before the font finishes loading.
+        app.delete_selection();
+        assert!(app.doc.get(tid).is_none());
+        let undo_after_delete = app.hist.undo_depth();
+        app.selection = vec![rid];
+
+        settle_app_fonts(&mut app);
+
+        assert_eq!(app.hist.undo_depth(), undo_after_delete, "no edit may happen when stored ids were deleted");
+        assert_eq!(app.doc.get(rid), Some(&rect), "rectangle must not be touched");
+        assert_eq!(app.selection, vec![rid]);
+    }
+
+    #[test]
+    fn deferred_command_cancelled_when_pen_edit_is_open_at_arrival() {
+        let mut doc = Document::new("PenEditOpenAtArrival");
+        let page = doc.add_page("Page 1");
+        let tid = doc.alloc_id();
+        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "Pen Wait", style)).unwrap();
+        let rid = doc.alloc_id();
+        doc.insert(page, Node::rectangle(rid, Rect::new(160.0, 0.0, 80.0, 60.0))).unwrap();
+        let rect = doc.get(rid).cloned().unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+
+        app.selection = vec![tid];
+        app.flatten_selection();
+        assert!(app.doc.get(tid).is_some());
+
+        // Open vector pen edit on the rectangle before the font arrives.
+        assert!(crate::canvas::vector::enter(&mut app, rid));
+        assert_eq!(app.canvas.vedit.as_ref().map(|v| v.id), Some(rid));
+
+        settle_app_fonts(&mut app);
+
+        assert_eq!(app.canvas.vedit.as_ref().map(|v| v.id), Some(rid), "pen edit must stay open on the rectangle");
+        assert!(app.doc.get(tid).is_some(), "text must not be converted while pen edit is open");
+        assert_eq!(app.doc.get(rid), Some(&rect), "rectangle in pen edit must not be flattened");
+        assert_eq!(app.hist.undo_depth(), 0);
+        assert!(app.toast.as_ref().is_some_and(|t| t.text.contains("cancelled")), "cancellation toast shown");
     }
 }
