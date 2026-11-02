@@ -1,5 +1,7 @@
 # Phase 03 — Live frame embeds + pinned Screens/States
 
+UI: part 1 "Embed card" + [part 2](ui-spec-part-2-editor-dialogs-and-states.md) §5, §6. Mockups: ui-mockups/png/m03 (card), m07, m08, m09.
+
 Decisions: P7, P11. Size L · 3–4 d. Depends on 02.
 
 ## Goal

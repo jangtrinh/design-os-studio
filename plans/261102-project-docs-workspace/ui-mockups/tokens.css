@@ -1,0 +1,127 @@
+/* Studio tokens for the project docs workspace mockups.
+   Every value is copied from crates/designos-app/src/theme.rs (origin/main) or named in
+   ui-spec-ported-from-design-studio.md / ui-spec-part-2-editor-dialogs-and-states.md.
+   This is the ONLY file allowed to contain colour literals. */
+
+/* Fonts: local files only. Inter ships in the working tree. Roboto Mono is bundled on origin/main
+   (crates/designos-fonts/assets/roboto-mono) but absent from this older checkout, so the second
+   src is a byte copy extracted with `git show origin/main:...` into the scratch folder. */
+@font-face {
+  font-family: "Inter";
+  src: url("../../../crates/designos-fonts/assets/inter/Inter%5Bopsz,wght%5D.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Roboto Mono";
+  src: url("../../../crates/designos-fonts/assets/roboto-mono/RobotoMono%5Bwght%5D.ttf") format("truetype");
+  font-weight: 100 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --d: 0; /* tree depth, overridden inline per row */
+  /* colours (theme.rs "Studio dark chrome") */
+  --bg: #0A0A0A;
+  --bg-secondary: #171717;
+  --bg-tertiary: #262626;
+  --bg-hover: #171717;
+  --bg-pressed: #404040;
+  --bg-menu: #0A0A0A;
+  --bg-menu-hover: #171717;
+  --bg-selected: #262626;
+  --bg-text-selection: #431407;
+  --bg-brand: #E36323;
+  --bg-selected-area: rgba(53, 130, 255, 0.2);            /* BG_SELECTED_AREA 0x3582FF @ 0x33 */
+  --bg-tertiary-60: rgba(38, 38, 38, 0.6);                /* spec: embed header BG_TERTIARY at 60 % */
+  --scrim: rgba(0, 0, 0, 0.6);                            /* spec: modal scrim black 60 % */
+  --border: #262626;
+  --border-menu: #262626;
+  --border-strong: #404040;
+  --border-selected: #FB923C;
+  --border-translucent: rgba(255, 255, 255, 0.102);       /* BORDER_TRANSLUCENT 0xFFFFFF @ 0x1A */
+  --text: #FAFAFA;
+  --text-secondary: #D4D4D4;
+  --text-tertiary: #A3A3A3;
+  --text-on-brand: #0A0A0A;
+  --text-white: #FFFFFF;
+  --icon: #FFFFFF;
+  --icon-secondary: #D4D4D4;
+  --icon-tertiary: #A3A3A3;
+  --danger: #EF4444;
+  --info: #0D99FF;
+  --success: #22C55E;
+  --warning: #EAB308;
+  --focus-ring: #F97316;
+  --focus-ring-error: #EF4444;
+  --badge-neutral-bg: #171717;
+  --badge-neutral-border: #404040;
+  --badge-neutral-text: #D4D4D4;
+  --agent-1: #FFA629;
+  --agent-label-text: #0A0A0A;
+  --home-thumb-bg: #262626;
+  --tile-spec-bg: #431407;
+  --tile-spec-glyph: #FB923C;
+  --scroll-thumb: #737373;                                /* VAR_SCROLL_THUMB */
+
+  /* sample frame renders (READER_LIGHT_* + DEFAULT_FRAME_FILL values from theme.rs) */
+  --sample-sheet: #FFFFFF;
+  --sample-page: #FAFAFA;
+  --sample-surface: #F5F5F5;
+  --sample-border: #E5E5E5;
+  --sample-text: #171717;
+  --sample-muted: #525252;
+  --sample-ok: #16A34A;
+
+  /* type */
+  --font-ui: "Inter", sans-serif;
+  --font-mono: "Roboto Mono", monospace;
+  --fs-xs: 12px;  --lh-xs: 18px;
+  --fs-sm: 14px;  --lh-sm: 20px;
+  --fs-md: 16px;  --lh-md: 24px;
+  --fs-lg: 18px;  --lh-lg: 28px;
+  --fs-xl: 20px;  --lh-xl: 30px;
+  --w-regular: 400; --w-medium: 500; --w-strong: 600;
+
+  /* radii (P4) */
+  --radius-mark: 2px;
+  --radius-segment: 6px;
+  --radius-control: 8px;
+  --radius-xl: 12px;
+  --radius-frame: 16px;
+
+  /* spacing + sizes */
+  --space-fact: 4px;
+  --space-inline: 8px;
+  --space-group: 12px;
+  --space-block: 16px;
+  --space-section: 24px;
+  --space-region: 48px;
+  --inset-control: 8px;
+  --inset-frame: 8px;
+  --inset-button: 12px;
+  --inset-panel: 16px;
+  --inset-modal: 24px;
+  --control-dense: 24px;
+  --control-standard: 28px;
+  --control-xs: 32px;
+  --control-sm: 36px;
+  --control-md: 40px;
+  --badge-sm: 22px;
+  --target-min: 24px;
+  --rail-width: 48px;
+  --left-panel-width: 240px;
+  --left-header-height: 65px;
+  --layer-row-height: 32px;
+  --layer-indent: 16px;
+  --home-sidebar-w: 264px;
+  --home-pad: 32px;
+  --home-header-h: 64px;
+  --home-card-w: 224px;
+  --home-thumb-h: 140px;
+  --home-card-gap: 24px;
+  --toast-height: 40px;
+  --toast-bottom: 72px;
+}

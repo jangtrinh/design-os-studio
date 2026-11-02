@@ -1,5 +1,7 @@
 # Phase 05 — Mermaid diagrams
 
+UI: [part 2](ui-spec-part-2-editor-dialogs-and-states.md) §7. Mockup: ui-mockups/png/m09 (diagram cards).
+
 Decision: P8. Size M · 1 d spike + 3 d. Depends on 02.
 
 ## Spike first (1 d)

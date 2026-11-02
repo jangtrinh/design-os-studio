@@ -6,7 +6,7 @@ Date: 2026-11-02 · Status: brainstorm done, plan not written · Owner rounds: R
 A designer, PM or agent opens one **Project** tab and reads the whole story of a feature in one place: overview, spec, the real screens and their states, and the discovery behind them. Documents are plain Markdown next to the design files; frames inside them are live renders of the real canvas. This replaces the current Spec Reader, which is switched off on `main` (`crates/designos-app/src/shell.rs:1863`, `let specs_reader_open = false;`, since 7d4e911, 2026-10-16) and contains a fake "LIVE CANVAS EMBED" (`specs.rs:3288-3316`, five hard-coded labels, no render).
 
 Source of the idea: itspatmorgan/design-studio (MIT) document management — artifact tree grouped by purpose, centred reading page with "On this page" contents, live embeds of real screens, an "About this prototype" entry page. We port structure and behaviour; visuals use our own Operate tokens (D2). No TypeScript code is copied.
-Evidence: `plans/reports/design-studio-doc-ui-evidence/` (design-studio demo captured at 1440 on 2026-11-02), ruling `plans/reports/review-261102-design-studio-adoption-ruling.md`.
+Evidence: `plans/reports/design-studio-doc-ui-evidence/` (ds-*.jpg = their demo at 1440, studio-*.png = ours), ruling `plans/reports/review-261102-design-studio-adoption-ruling.md`.
 
 ## Owner decisions (2026-11-02)
 | # | Decision | Round |

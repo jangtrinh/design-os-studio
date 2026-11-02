@@ -1,5 +1,7 @@
 # Phase 04 — Notion-style block editor
 
+UI: [part 2](ui-spec-part-2-editor-dialogs-and-states.md) §3, §4, §8 (banners), §14, §15. Mockups: ui-mockups/png/m03 (handle + block menu), m04, m04b, m05, m06, m10. The spike reports against these mockups.
+
 Decisions: P5, P8. Size XL · 1 d spike + 8–10 d. Depends on 02.
 
 ## Spike first (1 d, report before building)

@@ -1,5 +1,7 @@
 # Phase 01 — Docs model + storage crate
 
+UI: none in this phase; it owns the save path behind UI spec part 2 §8 (auto-save 500 ms, conflict detection).
+
 Decisions: P3, P4, P11, P13 ([brainstorm.md](../261102-project-docs-workspace/brainstorm.md)). Size M · 3–4 d.
 
 ## Goal

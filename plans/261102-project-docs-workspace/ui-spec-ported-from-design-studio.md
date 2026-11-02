@@ -1,57 +1,84 @@
-# UI spec — Project tab, ported from design-studio
+# UI spec part 1 — Project tab shell and reading page
 
-Owner ruling 2026-11-02: "UI thì cứ bế từ bên design studio sang cho khỏi phải quan tâm nhiều." Copy their layout and behaviour; do not redesign.
+Owner ruling 2026-11-02: "UI thì cứ bế từ bên design studio sang cho khỏi phải quan tâm nhiều." Copy design-studio's layout and behaviour; do not redesign.
+Part 2 (editor, dialogs, states, agent co-editing, KPI, narrow windows): [ui-spec-part-2-editor-dialogs-and-states.md](ui-spec-part-2-editor-dialogs-and-states.md). Mockups for both parts: [ui-mockups/](ui-mockups/README.md).
 
-Source: live demo https://itspatmorgan.com/design-studio-demo/ (v0.1.3, MIT), measured at 1440×900 with computed styles on 2026-11-02. Reference captures: `plans/reports/design-studio-doc-ui-evidence/ds-*.jpg`. Every UI PR attaches a 1440 capture of the same screen next to the matching `ds-*.jpg`.
+Source: live demo https://itspatmorgan.com/design-studio-demo/ (v0.1.3, MIT), measured at 1440×900 with computed styles on 2026-11-02. Reference captures: `plans/reports/design-studio-doc-ui-evidence/ds-*.jpg`.
 
-## Layout (1440 wide)
-| Region | x | width | Notes |
+## How design-studio values were reconciled with Studio's design principles
+Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4 radii, P5 type) are earlier owner rulings and still bind. Rule used here:
+- **Chrome** (tree, tab, "On this page", card headers, menus, dialogs, buttons) uses Studio's existing constants. Where a design-studio value is off Studio's scale it snaps to the nearest Studio role.
+- **Document content** (what the Markdown says: titles, headings, paragraphs, tables, lists) keeps design-studio's type scale. P5 yields to document text.
+
+| design-studio value | Why it cannot stay | Studio value |
+|---|---|---|
+| Tree row 23 px | under `TARGET_MIN` 24 (P3); Studio rows are `CONTROL_XS` | `LAYER_ROW_HEIGHT` 32 |
+| Sidebar 219 px | Studio's left panel width | `LEFT_PANEL_WIDTH` 240 |
+| Card radius 10 | not a radius role (P4) | `RADIUS_XL` 12 |
+| Row radius 8 | — | `RADIUS_CONTROL` 8 (same) |
+| Chrome text 13 px (contents list) | not on the type scale (P5) | 12/18 |
+| Font Geist | Studio chrome font is Inter (P5) | Inter |
+
+## Layout at 1440 × 900
+| Region | x | width | Studio constant / rule |
 |---|---|---|---|
-| App rail (existing Studio rail) | 0 | 48 | theirs: bg #171717, 1 px right border white/10 %, padding 12 px 0 |
-| Doc tree sidebar | 48 | 219 | padding 12 px 8 px; header block 52 px tall, padding 0 10 px 0 12 px |
-| Reading column | 389 | 690 | starts 48 px from top; centred in the remaining space left of the contents column |
-| "On this page" column | 1127 | 192 | top 48 px; hidden below ~1200 px window width |
+| Tab strip (existing) | 0 | 1440 | 32 px bar, file tabs 26 (R10.1); the tab shows the Project tile icon + "<project> · Project" |
+| App rail (existing) | 0 | 48 | `RAIL_WIDTH` |
+| Doc tree | 48 | 240 | `LEFT_PANEL_WIDTH`, bg `BG`, 1 px `BORDER` right |
+| Main region | 288 | 1152 | bg `BG` |
+| Reading column | 399 | 690 | the 930 px block (690 + 48 gap + 192) is centred in the main region |
+| "On this page" | 1137 | 192 | top 48 below the tab strip; hidden under 1200 px window width (part 2 §11) |
+| Top padding of reading column | — | 48 | `SPACE_REGION` |
 
-## Sidebar (doc tree)
-- Header: project name 14 px / 600 / line 17.5; second line "Files · N" style meta 12 px tertiary; "…" menu at right.
-- Section label ("Artifacts" → ours "Documents"): 12 px / 600, with search and collapse-all icons at right.
-- Group label (Spec, Screens, States, Discovery): 12 px / 500, chevron left, indent 0.
-- Row: height 23 px, 12 px / 400, line 15, text TEXT at 80 % alpha, radius 8, padding 4 px 6 px 4 px (24 + 16 × depth) px, icon 14 px before label (doc / frame / state / diagram).
-- Selected row: bg white 10 % (`BG_TRANSPARENT_HOVER`), text TEXT, weight 500. Hover: same bg.
-- Rows are drag-reorderable within a group; F2 renames; context menu: Open, Rename, Move up/down, Delete (to Trash), Edit source.
+## Doc tree
+- **Header** (`LEFT_HEADER_HEIGHT` 65, inset `INSET_PANEL` 16): project name 14/20 600 `TEXT`; second line "N files" 12/18 400 `TEXT_TERTIARY`; a 24 px "…" icon button at right (menu: Link spec folder, Open in Home, Reveal in Finder).
+- **Panel title row** (`PANEL_TITLE_ROW_HEIGHT` 40): "Documents" 14/20 600 `TEXT`; right: search and collapse-all icon buttons (`PANEL_ACTION_BUTTON` 24) and "+" (new page menu).
+- **Group row** (Overview, Spec, Screens, States, Discovery): height 32, 12/18 500 `TEXT_SECONDARY`, 24 px chevron box left (`LAYER_CHEVRON_BOX`), count pill at right (`Badge/StatusCount`, never "(3)").
+- **Item row**: height 32, inset 8 from the panel edge (`PAGE_ROW_INSET`), radius `RADIUS_CONTROL` 8, 12/18 400 `TEXT_SECONDARY`, indent 16 per depth (`LAYER_INDENT`), 16 px icon + `SPACE_FACT` 4 + label. Icons: page, frame (screen), state, diagram, linked-spec file (page icon with a small link mark).
+- **States**: hover `BG_HOVER`; selected `BG_SELECTED`, text `TEXT`, weight 500; keyboard focus 1 px `FOCUS_RING` inside the row; drag in progress: 2 px `TEXT` insertion line between rows.
+- Overview group shows its pages without a chevron (it is never collapsed).
 
-## Reading page
-- Title H1: 30 px / 600 / line 36, TEXT.
-- Description line under title: 16 px / 400 / line 26, TEXT_TERTIARY, margin-top 12.
-- H2: 20 px / 700 / line 28, margins 32 top / 16 bottom (first H2: 0 top after intro).
-- H3: 16 px / 600 / line 24, margins 24 / 8.
-- Body: 14 px / 400 / line 24, TEXT_SECONDARY; lists indent 22 px, item gap 4 px.
-- Links: TEXT, underline.
-- Tables: header row BG_TERTIARY, 1 px BORDER_TRANSLUCENT grid, 13 px; wide tables scroll horizontally inside the column (owner rule: tables scroll horizontally).
-- Callout: bg BG_SECONDARY, radius 10, padding 12 16, icon left.
-- Checklist: 14 px box, radius 4, checked = TEXT fill.
+## Reading page (document content)
+| Element | Size / line / weight | Colour | Spacing |
+|---|---|---|---|
+| Page title (H1 or front-matter title) | 30/36 600 | `TEXT` | — |
+| Description (front matter `description`) | 16/26 400 | `TEXT_TERTIARY` | 12 above |
+| H2 | 20/28 700 | `TEXT` | 32 above (0 for the first block after the description: 32 instead of 48), 16 below |
+| H3 | 16/24 600 | `TEXT` | 24 above, 8 below |
+| Paragraph | 14/24 400 | `TEXT_SECONDARY` | 16 between blocks |
+| Bulleted / numbered list | 14/24 | `TEXT_SECONDARY` | indent 24, 4 between items |
+| Link | inherits | `TEXT`, underline | hover: `TEXT_SECONDARY` underline |
+| Inline code | 13/24 `Roboto Mono` | `TEXT` on `BG_TERTIARY`, radius 6 | inset 2 6 |
+| Code block | 13/20 `Roboto Mono` | `TEXT_SECONDARY` on `BG_SECONDARY` | radius 12, inset 16, horizontal scroll |
+| Table | header 12/18 600 `TEXT_SECONDARY` on `BG_SECONDARY`; cells 14/20 400 | 1 px `BORDER` grid, outer radius 12 | cell inset 8 12; wider than 690 → horizontal scroll inside the column |
+| Callout | 14/24 | bg `BG_SECONDARY`, radius 12, 16 px icon tinted by kind: note `INFO`, tip `SUCCESS`, warning `WARNING`, danger `DANGER` | inset 12 16, icon gap 8 |
+| Checklist item | 14/24 | box: Studio's checkbox widget 16 px in a 24 px hit area; checked text stays `TEXT_SECONDARY` (no strike-through) | 4 between items |
+| Divider (`---`) | 1 px `BORDER` | — | 24 above and below |
 
 ## Embed card (frame, state, diagram)
-- Card: radius 10, 1 px border white 10 % (`BORDER_TRANSLUCENT`), bg BG, full column width (690).
-- Header: 36 px, padding 0 12, bg BG_TERTIARY at 60 %, 12 px title "<frame> · <file>" left, open-in-canvas icon right.
-- Body: live render, fit-width, max height 420 px, centred; loading state "Rendering…" in TEXT_TERTIARY (theirs: "Opening canvas"); broken reference: "Frame not found — Relink" card, never blank.
+- Card: full column width, radius `RADIUS_XL` 12, 1 px `BORDER_TRANSLUCENT`, bg `BG`; 24 above and below.
+- Header: 36 tall (`CONTROL_SM`), inset 0 12, bg `BG_TERTIARY` at 60 %; left: 16 px kind icon + title 12/18 500 `TEXT` + " · " + file name 12/18 400 `TEXT_TERTIARY`; right: "Open in canvas" icon button 24 (tooltip "Open in canvas").
+- Body: inset 16; the render is fit to width, max height 420, centred on `BG`.
+- States are specified in part 2 §6.
 
 ## "On this page"
-- Title 12 px / 600 / line 16.
-- Items 13 px / 500 / line 19.5, padding 4 8 4 12, 1 px left rule BORDER_TRANSLUCENT; active item rule and text TEXT, others TEXT_TERTIARY. Indent H3 by 12 px. Scroll-spy.
+- Title "On this page" 12/18 600 `TEXT_SECONDARY`, 8 below.
+- Items: 12/18 500, inset 4 8 4 12 (row 26 ≥ `TARGET_MIN`), 1 px left rule `BORDER`; H3 items indent 12 more.
+- Active item (scroll-spy on the H2/H3 nearest the top): rule and text `TEXT`; others `TEXT_TERTIARY`; hover `TEXT_SECONDARY`. Click scrolls smoothly (200 ms, ease-out); reduced motion → jump.
+- Hidden when the page has fewer than 2 headings.
 
 ## Colour mapping (both apps use the same neutral scale)
 | design-studio (oklch) | hex | Studio token |
 |---|---|---|
 | 0.145 page bg | #0A0A0A | `BG` |
-| 0.205 rail/sidebar | #171717 | `BG_SECONDARY` |
+| 0.205 rail | #171717 | `BG_SECONDARY` |
 | 0.269 embed header | #262626 | `BG_TERTIARY` |
-| white / 10 % borders, selected row | — | `BORDER_TRANSLUCENT`, `BG_TRANSPARENT_HOVER` |
+| white 10 % borders, selected row | — | `BORDER_TRANSLUCENT`, `BG_SELECTED` |
 | 0.985 text | #FAFAFA | `TEXT` |
 | 0.87 body | #D4D4D4 | `TEXT_SECONDARY` |
 | 0.708 muted | #A3A3A3 | `TEXT_TERTIARY` |
 
-Font: design-studio uses Geist; Studio keeps Inter (bundled app chrome font). Sizes and weights above apply as is.
+The one accent per view is Studio Orange (`BG_BRAND`) for the primary button only. No purple anywhere (P2).
 
 ## Not ported
-Their global left nav (Prototypes / Systems / Manual), Team mode avatars, the source-code file tree, and any purple accent.
+Their global left nav (Prototypes / Systems / Manual), Team mode avatars, the source-code file tree, the Geist font.

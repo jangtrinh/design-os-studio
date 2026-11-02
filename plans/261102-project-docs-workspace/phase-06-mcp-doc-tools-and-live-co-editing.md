@@ -1,5 +1,7 @@
 # Phase 06 — MCP doc tools + live co-editing
 
+UI: [part 2](ui-spec-part-2-editor-dialogs-and-states.md) §9. Mockups: ui-mockups/png/m11, m11b.
+
 Decisions: P9, P12. Size L · 4–5 d. Read tools depend on 01; write tools and live editing depend on 04.
 
 ## Requirements
