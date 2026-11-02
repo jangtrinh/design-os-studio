@@ -1,0 +1,89 @@
+=== df -h / ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    71Gi    15%    459k  744M    0%   /
+=== git grep -n 'fn resize_to_fit' crates/designos-doc ===
+(no match, exit=1)
+=== cargo fmt --all -- --check ===
+fmt_exit=0
+=== cargo clippy --workspace --all-targets --locked -- -D warnings ===
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1176:9
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1194:9
+error: could not compile `designos-app` (bin "designos-studio") due to 2 previous errors
+error: could not compile `designos-app` (bin "designos") due to 2 previous errors
+error: could not compile `designos-app` (bin "designos-studio" test) due to 2 previous errors
+error: could not compile `designos-app` (bin "designos" test) due to 2 previous errors
+=== cargo clippy -p designos-doc -p designos-app --all-targets --locked -- -D warnings -A clippy::needless_return ===
+clippy_exit=0
+=== cargo test -p designos-doc --locked --lib ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    65Gi    16%    459k  680M    0%   /
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-6a14e6c7eed30945)
+running 708 tests
+test result: ok. 708 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 47.09s
+=== cargo test -p designos-app --bin designos --locked resize_to_fit ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    63Gi    16%    459k  664M    0%   /
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+running 17 tests
+test ops::tests::resize_to_fit_frame_inside_auto_layout_parent_reflows_parent_and_moves_child_on_page ... ok
+test ops::tests::resize_to_fit_ignores_hidden_children_and_disables_when_none_visible ... ok
+test ops::tests::resize_to_fit_nested_selection_fits_deepest_container_before_outer_container ... ok
+test ops::tests::resize_to_fit_does_not_apply_child_constraints ... ok
+test ops::tests::app_resize_to_fit_resizes_containers_skips_leaf_layers_and_undoes_in_one_step ... ok
+test ops::tests::resize_to_fit_one_undo_restores_entire_selection_and_skips_shapes_and_text ... ok
+test ops::tests::resize_to_fit_frame_smaller_than_children_grows_and_keeps_child_page_positions ... ok
+test ops::tests::resize_to_fit_rotated_child_and_rotated_container_use_container_space ... ok
+test ops::tests::resize_to_fit_frame_larger_than_children_shrinks_and_keeps_child_page_positions ... ok
+test ops::tests::resize_to_fit_fill_width_frame_in_auto_layout_parent_becomes_fixed_and_keeps_fitted_size ... ok
+test ops::tests::resize_to_fit_group_fits_visible_children ... ok
+test ops::tests::resize_to_fit_auto_layout_frame_turns_hug_on_both_axes ... ok
+test panels::menus::tests::resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state ... ok
+test ops::tests::resize_to_fit_component_and_component_set_fit_visible_children ... ok
+test ops::tests::resize_to_fit_frame_inside_group_refits_enclosing_group ... ok
+test ops::tests::resize_to_fit_cpu_render_preserves_child_pixels_and_trims_excess_frame_bounds ... ok
+test shell::tests::agent_a11y::shortcut_cmd_alt_shift_r_maps_to_resize_to_fit_and_cmd_shift_r_keeps_paste_to_replace ... ok
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 4037 filtered out; finished in 11.18s
+=== cargo test --workspace --locked --lib ===
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi    60Gi    17%    459k  625M    0%   /
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-97b5db69fdcd9c68)
+running 13 tests
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-18f4500351079eb1)
+running 708 tests
+test result: ok. 708 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.82s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-c2489b38bbcccff9)
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-18adcc4017a7a7af)
+running 154 tests
+test result: ok. 153 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.28s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-861945a6becd4004)
+running 143 tests
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.65s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-c2d586a1e5c886ba)
+running 30 tests
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-77666ce24b473797)
+running 4 tests
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-7534529c79ad779d)
+running 37 tests
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-db051a2df27fbe42)
+running 322 tests
+test result: ok. 322 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.65s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-59facfce9e95a574)
+running 58 tests
+test result: ok. 56 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 34.26s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-dd3732f70a143b29)
+running 1 test
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-2fa66b1349242d0a)
+running 8 tests
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+=== python3 scripts/zero_fake_ui_gate.py ===
+ Gate Verdict: PASS (17/17 invariants satisfied)
+=== python3 scripts/figma_parity_meter.py ===
