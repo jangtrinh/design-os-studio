@@ -1463,6 +1463,9 @@ fn convert_node(nc: &Value, id: &str, lk: &Lk) -> Option<Map<String, Value>> {
         || nc.get("targetAspectRatio").and_then(Value::as_object).is_some_and(|o| !o.is_empty())
     {
         m.insert("preserveRatio".into(), Value::Bool(true));
+    } else if let Some(locked) = nc.get("proportionsConstrained").and_then(Value::as_bool) {
+        // `false` is meaningful on an instance node: it can clear a locked main.
+        m.insert("preserveRatio".into(), Value::Bool(locked));
     } else {
         copy(&mut m, nc, "preserveRatio", "preserveRatio");
     }
