@@ -457,6 +457,9 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 };
                 json!({"horizontal": h, "vertical": v})
             });
+            if node.lock_aspect {
+                m.insert("preserveRatio".into(), true.into());
+            }
             if node.is_mask {
                 m.insert("isMask".into(), true.into());
             }

@@ -1489,7 +1489,8 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
             let ml = inv.apply(mouse);
             let is_text = matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Text(_)));
             let is_line = matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Line));
-            let lock_aspect = is_scale_tool || (inp.mods.shift && !is_line) || (is_text && r.handle.is_corner());
+            let node_locked = app.doc.get(*id).is_some_and(|n| n.lock_aspect);
+            let lock_aspect = is_scale_tool || ((inp.mods.shift || node_locked) && !is_line) || (is_text && r.handle.is_corner());
             let (mut ns, d) = handles::resize_local(*size0, r.handle, ml, lock_aspect, inp.mods.alt);
             if is_line {
                 ns.y = 0.0;
@@ -3383,5 +3384,90 @@ mod tests {
         app.run_tx(r.tx);
         assert_eq!(app.doc.get(frame).unwrap().size, v2(400.0, 400.0));
         assert_eq!(app.doc.get(child).unwrap().size, v2(100.0, 100.0), "Cmd+Resize on Frame must leave Scale-constrained child untouched");
+    }
+
+    #[test]
+    fn handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift() {
+        let (mut app, a, _b) = app_with_two();
+        app.doc.get_mut(a).unwrap().transform = Affine::translate(100.0, 100.0);
+        app.doc.get_mut(a).unwrap().size = v2(100.0, 50.0);
+        app.doc.get_mut(a).unwrap().lock_aspect = true;
+
+        let cases = [
+            (Handle::TL, v2(60.0, 90.0), v2(140.0, 70.0)),
+            (Handle::T, v2(150.0, 50.0), v2(200.0, 100.0)),
+            (Handle::TR, v2(300.0, 90.0), v2(200.0, 100.0)),
+            (Handle::L, v2(50.0, 125.0), v2(150.0, 75.0)),
+            (Handle::R, v2(300.0, 125.0), v2(200.0, 100.0)),
+            (Handle::BL, v2(50.0, 160.0), v2(150.0, 75.0)),
+            (Handle::B, v2(150.0, 200.0), v2(200.0, 100.0)),
+            (Handle::BR, v2(300.0, 160.0), v2(200.0, 100.0)),
+        ];
+
+        for shift in [false, true] {
+            let inp = Inp {
+                pos: None,
+                press_pos: None,
+                release_pos: None,
+                prior_release_pos: None,
+                release_mods: None,
+                prior_release_mods: None,
+                pressed: false,
+                down: true,
+                released: false,
+                mid_pressed: false,
+                mid_down: false,
+                mods: Modifiers { shift, ..Modifiers::NONE },
+                space: false,
+                z_down: false,
+            };
+            for (handle, target, expected_size) in cases {
+                app.doc.get_mut(a).unwrap().transform = Affine::translate(100.0, 100.0);
+                app.doc.get_mut(a).unwrap().size = v2(100.0, 50.0);
+                let world0 = app.doc.world_transform(a);
+                let mut r = ResizeState {
+                    tx: Tx::new(),
+                    handle,
+                    kind: ResizeKind::Single { id: a, world0, t0: app.doc.get(a).unwrap().transform, size0: v2(100.0, 50.0) },
+                    targets: vec![],
+                };
+                update_resize(&mut app, &mut r, target, &inp);
+                let sz = app.doc.get(a).unwrap().size;
+                assert!(
+                    (sz.x - expected_size.x).abs() < 1e-3 && (sz.y - expected_size.y).abs() < 1e-3,
+                    "handle {handle:?} (shift={shift}) on locked 100x50 node must resize to {expected_size:?}, got {sz:?}"
+                );
+            }
+        }
+
+        // Unlocked node without Shift changes only the dragged axis on edge handles and free-resizes on corners.
+        app.doc.get_mut(a).unwrap().lock_aspect = false;
+        app.doc.get_mut(a).unwrap().transform = Affine::translate(100.0, 100.0);
+        app.doc.get_mut(a).unwrap().size = v2(100.0, 50.0);
+        let world0 = app.doc.world_transform(a);
+        let mut r = ResizeState {
+            tx: Tx::new(),
+            handle: Handle::BR,
+            kind: ResizeKind::Single { id: a, world0, t0: app.doc.get(a).unwrap().transform, size0: v2(100.0, 50.0) },
+            targets: vec![],
+        };
+        let inp_plain = Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers::NONE,
+            space: false,
+            z_down: false,
+        };
+        update_resize(&mut app, &mut r, v2(300.0, 160.0), &inp_plain);
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 60.0), "unlocked node without Shift must free-resize");
     }
 }

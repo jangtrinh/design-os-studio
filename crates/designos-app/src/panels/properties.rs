@@ -1421,7 +1421,18 @@ fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32
     let mut tx = Tx::new();
     for id in sel {
         let Some(n) = app.doc.get(*id) else { continue };
-        let size = v2(w.unwrap_or(n.size.x).max(1.0), h.unwrap_or(n.size.y).max(if matches!(n.kind, NodeKind::Line) { 0.0 } else { 1.0 }));
+        let is_line = matches!(n.kind, NodeKind::Line);
+        let min_h = if is_line { 0.0 } else { 1.0 };
+        let counter_horiz = n.parent.and_then(|p| app.doc.get(p)).and_then(LayoutChild::counter_axis_is_horizontal);
+        let (mut nw, mut nh) = (w.unwrap_or(n.size.x).max(1.0), h.unwrap_or(n.size.y).max(min_h));
+        if n.lock_aspect && !is_line {
+            if w.is_some() && h.is_none() && sizing_of_with_parent(n, false, counter_horiz) == Sizing::Fixed {
+                nh = (nw * (n.size.y.max(1e-3) / n.size.x.max(1e-3))).max(1.0);
+            } else if h.is_some() && w.is_none() && sizing_of_with_parent(n, true, counter_horiz) == Sizing::Fixed {
+                nw = (nh * (n.size.x.max(1e-3) / n.size.y.max(1e-3))).max(1.0);
+            }
+        }
+        let size = v2(nw, nh);
         let t = n.transform;
         apply_resize(&mut app.doc, &mut tx.ed, *id, size, t, true);
     }
@@ -1448,6 +1459,18 @@ fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is
     let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui, r| field::num_field(ui, r, "h", Prefix::Text("H"), hs, "")) };
     if w_new.is_some() || h_new.is_some() {
         resize_selection(app, sel, w_new, h_new);
+    }
+    if is_line {
+        remove_test_rect(ui.ctx(), "lock-aspect");
+    } else {
+        let all_locked = !sel.is_empty() && sel.iter().all(|id| app.doc.get(*id).is_some_and(|n| n.lock_aspect));
+        let lock_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+        widgets::record(ui, "lock-aspect", lock_r);
+        let icon = if all_locked { Icon::Lock } else { Icon::Unlock };
+        if widgets::icon_button(ui, lock_r, "lock-aspect", icon, all_locked, "Lock aspect ratio").clicked() {
+            let next = !all_locked;
+            app.edit_nodes(sel, |n| n.lock_aspect = next);
+        }
     }
     row_end(pane);
 }
@@ -3383,5 +3406,424 @@ mod tests {
             !test_rect(&ctx, "mask-type").is_some_and(|r| r.is_positive()),
             "Mask section per-frame scan must be bounded to take(128) and not scan beyond index 127"
         );
+    }
+
+    fn has_rect_fill(shapes: &[egui::epaint::ClippedShape], rect: Rect, fill: Color32) -> bool {
+        fn walk(s: &egui::Shape, rect: Rect, fill: Color32) -> bool {
+            match s {
+                egui::Shape::Rect(r) => (r.rect.min - rect.min).length() < 0.5 && (r.rect.max - rect.max).length() < 0.5 && r.fill == fill,
+                egui::Shape::Vec(v) => v.iter().any(|c| walk(c, rect, fill)),
+                _ => false,
+            }
+        }
+        shapes.iter().any(|cs| walk(&cs.shape, rect, fill))
+    }
+
+    #[test]
+    fn lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step() {
+        let mut doc = designos_doc::Document::new("lock-aspect-toggle");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let r1_id = app.doc.alloc_id();
+        let r1 = app.doc.insert(page, Node::rectangle(r1_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
+        let r2_id = app.doc.alloc_id();
+        let r2 = app.doc.insert(page, Node::rectangle(r2_id, designos_doc::Rect::new(120.0, 0.0, 80.0, 40.0))).unwrap();
+        let ln_id = app.doc.alloc_id();
+        let mut ln_node = Node::new(ln_id, NodeKind::Line);
+        ln_node.size = DVec2::new(100.0, 0.0);
+        let ln = app.doc.insert(page, ln_node).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+        let step = |app: &mut App, events: Vec<egui::Event>| -> egui::FullOutput {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            ctx.run_ui(raw, |ui| show(app, ui, region))
+        };
+        let click = |app: &mut App, pos: Pos2| -> egui::FullOutput {
+            let _ = step(app, vec![egui::Event::PointerMoved(pos)]);
+            let _ = step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE }]);
+            step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE }])
+        };
+
+        // Lines show only W (no H field) and must not show the lock-aspect toggle.
+        app.selection = vec![ln];
+        let _ = step(&mut app, vec![]);
+        assert!(test_rect(&ctx, "lock-aspect").is_none(), "lines must not render lock-aspect toggle");
+
+        // Multi-selection [r1, r2]: both unlocked -> toggle renders off.
+        app.selection = vec![r1, r2];
+        let out_off = step(&mut app, vec![]);
+        let h_rect = field_rect(&ctx, "h").expect("H field rendered for rectangle selection");
+        let fallback_lock_r = Rect::from_min_size(
+            Pos2::new(crate::theme::SECTION_TRAILING_X, h_rect.min.y + crate::theme::SPACE_FACT),
+            Vec2::splat(crate::theme::PANEL_ACTION_BUTTON),
+        );
+        let lock_r = test_rect(&ctx, "lock-aspect").unwrap_or(fallback_lock_r);
+        assert!(!has_rect_fill(&out_off.shapes, lock_r, crate::theme::BG_SELECTED), "toggle must be off when both nodes are unlocked");
+
+        // Mixed [locked, unlocked] -> toggle still shows off.
+        app.doc.get_mut(r1).unwrap().lock_aspect = true;
+        app.doc.get_mut(r2).unwrap().lock_aspect = false;
+        let out_mixed = step(&mut app, vec![]);
+        assert!(!has_rect_fill(&out_mixed.shapes, lock_r, crate::theme::BG_SELECTED), "toggle must be off when selection mixes locked and unlocked nodes");
+
+        // Clicking when mixed (any off) writes lock_aspect = true to EVERY selected node in one undo step, and toggle shows on.
+        let _ = click(&mut app, lock_r.center());
+        assert!(
+            app.doc.get(r1).unwrap().lock_aspect && app.doc.get(r2).unwrap().lock_aspect,
+            "clicking lock-aspect when any selected node is unlocked must lock every selected node"
+        );
+        let out_on = step(&mut app, vec![egui::Event::PointerMoved(Pos2::new(1.0, 1.0))]);
+        assert!(has_rect_fill(&out_on.shapes, lock_r, crate::theme::BG_SELECTED), "toggle must show on when every selected node is locked");
+
+        // One undo step restores the mixed [true, false] state.
+        app.undo();
+        assert!(app.doc.get(r1).unwrap().lock_aspect && !app.doc.get(r2).unwrap().lock_aspect, "one undo step must restore both nodes");
+
+        // Lock all, then click again when all are locked -> writes lock_aspect = false to every selected node in one undo step.
+        let _ = click(&mut app, lock_r.center());
+        assert!(app.doc.get(r1).unwrap().lock_aspect && app.doc.get(r2).unwrap().lock_aspect);
+        let _ = click(&mut app, lock_r.center());
+        assert!(
+            !app.doc.get(r1).unwrap().lock_aspect && !app.doc.get(r2).unwrap().lock_aspect,
+            "clicking lock-aspect when all selected nodes are locked must unlock every selected node"
+        );
+        app.undo();
+        assert!(app.doc.get(r1).unwrap().lock_aspect && app.doc.get(r2).unwrap().lock_aspect);
+    }
+
+    #[test]
+    fn w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_axis() {
+        let mut doc = designos_doc::Document::new("lock-aspect-wh");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        // Locked node A: 100x50 (ratio 2:1)
+        let a_id = app.doc.alloc_id();
+        let mut na = Node::rectangle(a_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0));
+        na.lock_aspect = true;
+        let a = app.doc.insert(page, na).unwrap();
+
+        // Locked node B: 60x90 (ratio 2:3)
+        let b_id = app.doc.alloc_id();
+        let mut nb = Node::rectangle(b_id, designos_doc::Rect::new(120.0, 0.0, 60.0, 90.0));
+        nb.lock_aspect = true;
+        let b = app.doc.insert(page, nb).unwrap();
+
+        // Unlocked node C: 80x40
+        let c_id = app.doc.alloc_id();
+        let nc = Node::rectangle(c_id, designos_doc::Rect::new(220.0, 0.0, 80.0, 40.0));
+        let c = app.doc.insert(page, nc).unwrap();
+
+        // Commit W = 200 on multi-selection [a, b, c]: each locked node keeps its own ratio, unlocked changes only W.
+        resize_selection(&mut app, &[a, b, c], Some(200.0), None);
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 100.0), "locked node A (100x50) must scale H to 100 when W=200 is committed");
+        assert_eq!(app.doc.get(b).unwrap().size, v2(200.0, 300.0), "locked node B (60x90) must scale H to 300 when W=200 is committed");
+        assert_eq!(app.doc.get(c).unwrap().size, v2(200.0, 40.0), "unlocked node C (80x40) must change only W");
+
+        // One undo step restores all three nodes.
+        app.undo();
+        assert_eq!(app.doc.get(a).unwrap().size, v2(100.0, 50.0));
+        assert_eq!(app.doc.get(b).unwrap().size, v2(60.0, 90.0));
+        assert_eq!(app.doc.get(c).unwrap().size, v2(80.0, 40.0));
+
+        // Commit H = 150 on [a, c]: locked node A scales W to 300, unlocked node C changes only H.
+        resize_selection(&mut app, &[a, c], None, Some(150.0));
+        assert_eq!(app.doc.get(a).unwrap().size, v2(300.0, 150.0), "locked node A (100x50) must scale W to 300 when H=150 is committed");
+        assert_eq!(app.doc.get(c).unwrap().size, v2(80.0, 150.0), "unlocked node C must change only H");
+    }
+
+    #[test]
+    fn locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit() {
+        // 1. Horizontal auto-layout frame (200x100) with a child whose height is Fill (stretched to 100).
+        let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+        let fid = app.doc.get(cid).unwrap().parent.unwrap();
+        app.doc.relayout_subtree(fid);
+        app.doc.get_mut(cid).unwrap().lock_aspect = true;
+        assert_eq!(app.doc.get(cid).unwrap().size, v2(30.0, 100.0));
+
+        // While height is Fill, a W edit (W = 60) must keep height Fill (and 100.0) without converting height to Fixed.
+        resize_selection(&mut app, &[cid], Some(60.0), None);
+        let n_fill = app.doc.get(cid).unwrap();
+        assert_eq!(n_fill.layout_child.vertical, Sizing::Fill, "locked W edit must keep Fill height sizing mode");
+        assert_eq!(n_fill.layout_child.align_self, AlignSelf::Stretch, "locked W edit must keep AlignSelf::Stretch");
+        assert_eq!(n_fill.size, v2(60.0, 100.0), "locked W edit with Fill height must change only W");
+
+        // When height is switched to Fixed (60x30), a locked W edit (W = 120) scales H to 60.
+        set_sizing(&mut app, &[cid], false, Sizing::Fixed);
+        resize_selection(&mut app, &[cid], None, Some(30.0));
+        app.doc.get_mut(cid).unwrap().size = v2(60.0, 30.0);
+        resize_selection(&mut app, &[cid], Some(120.0), None);
+        assert_eq!(app.doc.get(cid).unwrap().size, v2(120.0, 60.0), "locked W edit with Fixed height must scale H to keep ratio");
+
+        // 2. Auto-layout frame whose own width is Fixed (200) and height is Hug: a locked W edit keeps Hug height.
+        app.doc.get_mut(fid).unwrap().lock_aspect = true;
+        if let Some(al) = app.doc.get_mut(fid).unwrap().kind.frame_props_mut().and_then(|f| f.auto_layout.as_mut()) {
+            al.primary_sizing = Sizing::Fixed;
+            al.counter_sizing = Sizing::Hug;
+        }
+        resize_selection(&mut app, &[fid], Some(300.0), None);
+        let f_al = app.doc.get(fid).unwrap().kind.frame_props().unwrap().auto_layout.as_ref().unwrap();
+        assert_eq!(f_al.counter_sizing, Sizing::Hug, "locked W edit on frame with Hug height must keep Hug height");
+    }
+
+    #[test]
+    fn lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio() {
+        let mut doc = designos_doc::Document::new("lock-aspect-roundtrip");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+
+        let card_id = app.doc.alloc_id();
+        let mut card = Node::rectangle(card_id, designos_doc::Rect::new(0.0, 0.0, 160.0, 90.0));
+        card.name = "LockedCard".into();
+        let card = app.doc.insert(page, card).unwrap();
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+        let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+        let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+        let step = |app: &mut App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| show(app, ui, region));
+        };
+
+        // Click lock-aspect in the inspector on LockedCard.
+        app.selection = vec![card];
+        step(&mut app, vec![]);
+        let h_rect = field_rect(&ctx, "h").expect("H field rendered");
+        let pos = test_rect(&ctx, "lock-aspect")
+            .map(|r| r.center())
+            .unwrap_or_else(|| Pos2::new(crate::theme::SECTION_TRAILING_X + crate::theme::PANEL_ACTION_BUTTON * 0.5, h_rect.center().y));
+        step(&mut app, vec![egui::Event::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            step(&mut app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+        }
+
+        // 1. Export to binary .fig and re-import: lock_aspect must remain true.
+        let fig_bytes = designos_fig::export_fig(&app.doc).expect("export_fig");
+        let fig_doc = designos_fig::import_fig(&fig_bytes).expect("import_fig");
+        let fig_card = fig_doc.nodes.values().find(|n| n.name == "LockedCard").expect("LockedCard in .fig import");
+        assert!(fig_card.lock_aspect, ".fig export then import must keep lock_aspect = true");
+
+        // 2. Export to REST JSON and re-import: preserveRatio must import as lock_aspect = true.
+        let rest_json = designos_fig::export_rest_json(&app.doc);
+        let rest_doc = designos_fig::import_rest_json(&rest_json.to_string()).expect("import_rest_json");
+        let rest_card = rest_doc.nodes.values().find(|n| n.name == "LockedCard").expect("LockedCard in REST import");
+        assert!(rest_card.lock_aspect, "REST preserveRatio must import as lock_aspect = true");
+    }
+
+    fn rasterize_egui_output(
+        ctx: &egui::Context,
+        out: egui::FullOutput,
+        textures: &mut std::collections::HashMap<egui::TextureId, egui::ColorImage>,
+        width_pt: u32,
+        height_pt: u32,
+    ) -> image::RgbaImage {
+        for (id, delta) in out.textures_delta.set {
+            let egui::ImageData::Color(cimg) = delta.image;
+            if let Some([ox, oy]) = delta.pos {
+                if let Some(existing) = textures.get_mut(&id) {
+                    for y in 0..cimg.size[1] {
+                        for x in 0..cimg.size[0] {
+                            let dx = ox + x;
+                            let dy = oy + y;
+                            if dx < existing.size[0] && dy < existing.size[1] {
+                                existing.pixels[dy * existing.size[0] + dx] = cimg.pixels[y * cimg.size[0] + x];
+                            }
+                        }
+                    }
+                }
+            } else {
+                textures.insert(id, (*cimg).clone());
+            }
+        }
+        let ppp = out.pixels_per_point;
+        let w_px = (width_pt as f32 * ppp).round() as u32;
+        let h_px = (height_pt as f32 * ppp).round() as u32;
+        let mut fb = vec![[0.1725_f32, 0.1725_f32, 0.1725_f32, 1.0_f32]; (w_px * h_px) as usize];
+        let prims = ctx.tessellate(out.shapes, ppp);
+
+        for egui::ClippedPrimitive { clip_rect, primitive } in prims {
+            let egui::epaint::Primitive::Mesh(mesh) = primitive else { continue };
+            let cx0 = (clip_rect.min.x * ppp).floor().max(0.0) as i32;
+            let cy0 = (clip_rect.min.y * ppp).floor().max(0.0) as i32;
+            let cx1 = (clip_rect.max.x * ppp).ceil().min(w_px as f32) as i32;
+            let cy1 = (clip_rect.max.y * ppp).ceil().min(h_px as f32) as i32;
+            let tex = textures.get(&mesh.texture_id);
+
+            for tri in mesh.indices.chunks_exact(3) {
+                let v0 = &mesh.vertices[tri[0] as usize];
+                let v1 = &mesh.vertices[tri[1] as usize];
+                let v2 = &mesh.vertices[tri[2] as usize];
+                let (p0x, p0y) = (v0.pos.x * ppp, v0.pos.y * ppp);
+                let (p1x, p1y) = (v1.pos.x * ppp, v1.pos.y * ppp);
+                let (p2x, p2y) = (v2.pos.x * ppp, v2.pos.y * ppp);
+                let denom = (p1y - p2y) * (p0x - p2x) + (p2x - p1x) * (p0y - p2y);
+                if denom.abs() < 1e-6 {
+                    continue;
+                }
+                let inv_d = 1.0 / denom;
+                let x0 = p0x.min(p1x).min(p2x).floor().max(cx0 as f32) as i32;
+                let y0 = p0y.min(p1y).min(p2y).floor().max(cy0 as f32) as i32;
+                let x1 = p0x.max(p1x).max(p2x).ceil().min(cx1 as f32) as i32;
+                let y1 = p0y.max(p1y).max(p2y).ceil().min(cy1 as f32) as i32;
+                let c0 = v0.color.to_normalized_gamma_f32();
+                let c1 = v1.color.to_normalized_gamma_f32();
+                let c2 = v2.color.to_normalized_gamma_f32();
+
+                for py in y0..y1 {
+                    for px in x0..x1 {
+                        let mut acc = [0.0_f32; 4];
+                        let mut hits = 0;
+                        for sy in [0.25_f32, 0.75_f32] {
+                            for sx in [0.25_f32, 0.75_f32] {
+                                let qx = px as f32 + sx;
+                                let qy = py as f32 + sy;
+                                let w0 = ((p1y - p2y) * (qx - p2x) + (p2x - p1x) * (qy - p2y)) * inv_d;
+                                let w1 = ((p2y - p0y) * (qx - p2x) + (p0x - p2x) * (qy - p2y)) * inv_d;
+                                let w2 = 1.0 - w0 - w1;
+                                if w0 >= -1e-4 && w1 >= -1e-4 && w2 >= -1e-4 {
+                                    hits += 1;
+                                    let mut col = [
+                                        w0 * c0[0] + w1 * c1[0] + w2 * c2[0],
+                                        w0 * c0[1] + w1 * c1[1] + w2 * c2[1],
+                                        w0 * c0[2] + w1 * c1[2] + w2 * c2[2],
+                                        w0 * c0[3] + w1 * c1[3] + w2 * c2[3],
+                                    ];
+                                    if let Some(t) = tex {
+                                        let u = (w0 * v0.uv.x + w1 * v1.uv.x + w2 * v2.uv.x).clamp(0.0, 1.0);
+                                        let v = (w0 * v0.uv.y + w1 * v1.uv.y + w2 * v2.uv.y).clamp(0.0, 1.0);
+                                        let tx = ((u * t.size[0] as f32).floor() as usize).min(t.size[0].saturating_sub(1));
+                                        let ty = ((v * t.size[1] as f32).floor() as usize).min(t.size[1].saturating_sub(1));
+                                        let tc = t.pixels[ty * t.size[0] + tx].to_normalized_gamma_f32();
+                                        for k in 0..4 {
+                                            col[k] *= tc[k];
+                                        }
+                                    }
+                                    for k in 0..4 {
+                                        acc[k] += col[k];
+                                    }
+                                }
+                            }
+                        }
+                        if hits > 0 {
+                            let src = [acc[0] * 0.25, acc[1] * 0.25, acc[2] * 0.25, acc[3] * 0.25];
+                            let dst = &mut fb[(py as u32 * w_px + px as u32) as usize];
+                            let inv_a = (1.0 - src[3]).clamp(0.0, 1.0);
+                            for k in 0..4 {
+                                dst[k] = (src[k] + dst[k] * inv_a).clamp(0.0, 1.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut img = image::RgbaImage::new(w_px, h_px);
+        for (i, p) in fb.into_iter().enumerate() {
+            let x = (i as u32) % w_px;
+            let y = (i as u32) / w_px;
+            img.put_pixel(x, y, image::Rgba([(p[0] * 255.0).round() as u8, (p[1] * 255.0).round() as u8, (p[2] * 255.0).round() as u8, 255]));
+        }
+        img
+    }
+
+    #[test]
+    fn render_headless_kit_panel_evidence_when_requested() {
+        let Ok(kit_path) = std::env::var("DESIGNOS_1468_KIT_COPY") else { return };
+        let bytes = std::fs::read(&kit_path).expect("read kit copy");
+        let (doc, _) = designos_fig::import_fig_with_budget(&bytes, 256).expect("import kit copy");
+        let mut app = App::new(doc);
+        // Find a card / frame node with fixed non-zero W and H in the kit.
+        let card_id = app
+            .doc
+            .pages
+            .iter()
+            .flat_map(|&pid| app.doc.get(pid).into_iter().flat_map(|p| p.children.iter().copied()))
+            .flat_map(|id| {
+                let mut v = vec![id];
+                if let Some(n) = app.doc.get(id) {
+                    v.extend(n.children.iter().copied());
+                }
+                v
+            })
+            .find(|&id| {
+                app.doc.get(id).is_some_and(|n| {
+                    matches!(n.kind, NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::Instance { .. })
+                        && sizing_of_with_parent(n, true, None) == Sizing::Fixed
+                        && sizing_of_with_parent(n, false, None) == Sizing::Fixed
+                        && n.size.x >= 200.0
+                        && n.size.y >= 100.0
+                        && !n.name.is_empty()
+                })
+            })
+            .expect("kit card node");
+        app.doc.relayout_subtree(card_id);
+        if let Some(page) = app.doc.page_of(card_id) {
+            app.page = page;
+        }
+        app.selection = vec![card_id];
+        app.doc.get_mut(card_id).unwrap().lock_aspect = false;
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let (w_pt, h_pt) = (241_u32, 560_u32);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(w_pt as f32, h_pt as f32));
+        let mut textures = std::collections::HashMap::new();
+        let run_pass = |app: &mut App, events: Vec<egui::Event>, textures: &mut std::collections::HashMap<egui::TextureId, egui::ColorImage>| {
+            let raw = egui::RawInput {
+                screen_rect: Some(region),
+                viewports: std::iter::once((egui::ViewportId::ROOT, egui::ViewportInfo { native_pixels_per_point: Some(2.0), ..Default::default() })).collect(),
+                events,
+                ..Default::default()
+            };
+            let out = ctx.run_ui(raw, |ui| show(app, ui, region));
+            rasterize_egui_output(&ctx, out, textures, w_pt, h_pt)
+        };
+
+        // Warm-up pass so fonts and icon textures are registered, then render OFF state.
+        let _ = run_pass(&mut app, vec![], &mut textures);
+        let img_off = run_pass(&mut app, vec![], &mut textures);
+
+        // Click the lock-aspect toggle button to turn it ON, then render ON state.
+        let lock_r = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "lock-aspect".to_string())))).expect("lock-aspect rect");
+        let pos = lock_r.center();
+        let _ = run_pass(&mut app, vec![egui::Event::PointerMoved(pos)], &mut textures);
+        for pressed in [true, false] {
+            let _ = run_pass(
+                &mut app,
+                vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }],
+                &mut textures,
+            );
+        }
+        assert!(app.doc.get(card_id).unwrap().lock_aspect, "card lock_aspect must be true after click");
+        let img_on = run_pass(&mut app, vec![egui::Event::PointerMoved(Pos2::new(1.0, 1.0))], &mut textures);
+
+        let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/evidence");
+        std::fs::create_dir_all(&out_dir).expect("create out/evidence");
+        img_off.save(out_dir.join("1468-lock-aspect-off.png")).expect("save off png");
+        img_on.save(out_dir.join("1468-lock-aspect-on.png")).expect("save on png");
+
+        // Side-by-side comparison image (off on left, 16px gap, on on right).
+        let gap = 32_u32;
+        let mut combined = image::RgbaImage::from_pixel(img_off.width() * 2 + gap, img_off.height(), image::Rgba([0x1E, 0x1E, 0x1E, 0xFF]));
+        for y in 0..img_off.height() {
+            for x in 0..img_off.width() {
+                combined.put_pixel(x, y, *img_off.get_pixel(x, y));
+                combined.put_pixel(img_off.width() + gap + x, y, *img_on.get_pixel(x, y));
+            }
+        }
+        combined.save(out_dir.join("1468-lock-aspect-panel.png")).expect("save combined png");
     }
 }

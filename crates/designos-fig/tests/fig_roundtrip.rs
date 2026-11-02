@@ -4271,3 +4271,33 @@ fn legacy_metadata_mask_types_survive_fig_export_and_rest_outline_flag_maps_to_v
     let fig_inst_mask = fig_inst.children.iter().filter_map(|id| fig_ov_doc.get(*id)).find(|n| n.name == "FigCompMask").expect("FigCompMask in .fig instance");
     assert_eq!(fig_inst_mask.mask_type, MaskType::Vector, ".fig symbolOverrides with isMaskOutline: true must map to MaskType::Vector");
 }
+
+#[test]
+fn lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest() {
+    let mut doc = Document::new("lock-aspect-rt");
+    let page = doc.add_page("Page 1");
+
+    let locked_id = doc.alloc_id();
+    let mut locked = Node::rectangle(locked_id, Rect::new(0.0, 0.0, 160.0, 90.0));
+    locked.name = "LockedRect".into();
+    locked.lock_aspect = true;
+    doc.insert(page, locked).unwrap();
+
+    let unlocked_id = doc.alloc_id();
+    let mut unlocked = Node::rectangle(unlocked_id, Rect::new(200.0, 0.0, 120.0, 80.0));
+    unlocked.name = "UnlockedRect".into();
+    unlocked.lock_aspect = false;
+    doc.insert(page, unlocked).unwrap();
+
+    // 1. Binary .fig export -> import preserves lock_aspect on both nodes.
+    let fig_bytes = export_fig(&doc).expect("export_fig");
+    let fig_rt = import_fig(&fig_bytes).expect("import_fig");
+    assert!(find(&fig_rt, "LockedRect").lock_aspect, ".fig round-trip must preserve lock_aspect = true");
+    assert!(!find(&fig_rt, "UnlockedRect").lock_aspect, ".fig round-trip must preserve lock_aspect = false");
+
+    // 2. REST JSON export -> import preserves preserveRatio / lock_aspect on both nodes.
+    let rest_val = designos_fig::export_rest_json(&doc);
+    let rest_rt = designos_fig::import_rest_json(&rest_val.to_string()).expect("import_rest_json");
+    assert!(find(&rest_rt, "LockedRect").lock_aspect, "REST export -> import must preserve preserveRatio / lock_aspect = true");
+    assert!(!find(&rest_rt, "UnlockedRect").lock_aspect, "REST export -> import must preserve lock_aspect = false");
+}
