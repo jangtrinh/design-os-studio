@@ -1056,6 +1056,63 @@ fn unbound_gradient_picker_session_with_flip_stays_one_undo_step() {
 }
 
 #[test]
+fn undo_with_pending_gradient_picker_edit_does_not_resurrect_an_older_edit() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+
+    // Leave one committed edit behind the picker. Undo must still target the pending picker edit first.
+    s.shell.app.edit_nodes(&[hero], |n| n.opacity = 0.7);
+    s.frame(vec![]);
+
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    let swatch = Pos2::new(picker.left() + 24.0, picker.top() + 504.0);
+
+    // Edit stop 0 while the picker transaction remains open.
+    s.click(swatch);
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_ne!(stops[0].color, Color::BLACK, "the swatch edit must change stop 0");
+
+    // Cmd+Z must commit-and-undo the pending picker edit, leaving the older opacity edit intact.
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    let node = s.app().doc.get(hero).unwrap();
+    assert_eq!(node.opacity, 0.7, "undo in the picker must not undo an older committed edit");
+    let PaintKind::LinearGradient { stops, .. } = &node.fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_eq!(stops[0].color, Color::BLACK, "undo must remove the pending stop edit");
+
+    // A later picker edit must start from the undone document state, not resurrect stop 0 or the old snapshot.
+    s.click(Pos2::new(picker.left() + 168.0, picker.top() + 100.0));
+    s.frame(vec![]);
+    s.click(swatch);
+    s.frame(vec![]);
+    let node = s.app().doc.get(hero).unwrap();
+    assert_eq!(node.opacity, 0.7, "the next picker edit must not resurrect the undone history state");
+    let PaintKind::LinearGradient { stops, .. } = &node.fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    assert_eq!(stops[0].color, Color::BLACK, "the next picker edit must preserve the undone stop");
+}
+
+#[test]
 fn canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step() {
     let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
     let hero = s.by_name("Hero");

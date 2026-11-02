@@ -46,7 +46,7 @@ fn picker_action_id() -> Id {
     Id::new("picker-stop-bind-action")
 }
 
-fn sync_picker_paint_from_doc(app: &mut App) {
+pub(crate) fn sync_picker_paint_from_doc(app: &mut App) {
     let Some(pk) = app.props.picker.as_mut() else { return };
     if !pk.tx.ed.touched().is_empty() {
         return;
@@ -402,13 +402,7 @@ pub(super) fn remap_indexed_bindings(bindings: &mut std::collections::BTreeMap<S
 }
 
 fn commit_picker_tx_before_bind(app: &mut App) {
-    if let Some(pk) = app.props.picker.as_mut() {
-        if !pk.tx.ed.touched().is_empty() {
-            let tx = std::mem::replace(&mut pk.tx, crate::edit::Tx::new());
-            pk.state.reset_stop_origins(&pk.paint);
-            app.run_tx(tx);
-        }
-    }
+    app.commit_pending_picker_tx();
 }
 
 fn draw_pill(
