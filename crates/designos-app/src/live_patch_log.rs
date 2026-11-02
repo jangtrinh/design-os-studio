@@ -615,7 +615,8 @@ mod tests {
         let mut log = LivePatchLog::bind(path.clone());
         let mut set = serde_json::Map::new();
         set.insert("name".into(), "Renamed".into());
-        let rename = serde_json::to_string(&LivePatch::new(vec![LiveOp::Update { id: NodeId(7), set, unset: Vec::new() }])).unwrap() + "\n";
+        let rename =
+            serde_json::to_string(&LivePatch::new(vec![LiveOp::Update { id: NodeId(7), set, unset: Vec::new(), list_deltas: Vec::new() }])).unwrap() + "\n";
         append(&path, &(newer_line() + &rename));
         assert_eq!(read(&mut log), [newer_message()]);
         assert!(log.pending.is_empty(), "the later edit is not held: {:?}", log.pending);

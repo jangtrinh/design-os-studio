@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Command, Comment, CommentAnchor, CommentThread, Document, History, Node, NodeId, Rect, Style, Vec2};
+use crate::{Color, Command, Comment, CommentAnchor, CommentThread, Document, Effect, History, Node, NodeId, Paint, Rect, Stroke, Style, Vec2};
 
 /// A page with `frames` top-level frames of `kids` rectangles each, one style, one comment.
 fn full_doc(frames: usize, kids: usize) -> (Document, NodeId, Vec<NodeId>) {
@@ -170,7 +170,14 @@ fn remapped_ids_stop_applying_once_the_agent_reloads_the_editor_canvas() {
     let on = |base: u64, ops: Vec<LiveOp>| LivePatch::new(ops).with_base(Some(base));
     let exec = &mut |d: &mut Document, c: Command| c.apply(d).map(|_| ());
     let fresh = replay_live_patch(&mut full, &on(1, ops), &mut state, exec).unwrap().inserted_roots[0];
-    let rename = |name: &str| vec![LiveOp::Update { id: taken, set: [("name".to_string(), serde_json::json!(name))].into_iter().collect(), unset: Vec::new() }];
+    let rename = |name: &str| {
+        vec![LiveOp::Update {
+            id: taken,
+            set: [("name".to_string(), serde_json::json!(name))].into_iter().collect(),
+            unset: Vec::new(),
+            list_deltas: Vec::new(),
+        }]
+    };
 
     // Same canvas: the agent's id still means its own frame.
     replay_live_patch(&mut full, &on(1, rename("agent frame")), &mut state, exec).unwrap();
@@ -200,6 +207,71 @@ fn removes_and_moves_replay_on_the_full_subtree() {
     assert_eq!(full.get(tops[2]).unwrap().children[0], kid);
     assert_eq!(full.get(tops[1]).unwrap().children.len(), 2);
     assert_eq!(full.get(page).unwrap().children, tops);
+}
+
+#[test]
+fn concurrent_fill_entries_survive_live_patch_replay() {
+    let (mut full, _page, tops) = full_doc(1, 0);
+    let id = tops[0];
+    let first = Paint::solid(Color::rgb(20, 40, 60));
+    let second = Paint::solid(Color::rgb(80, 100, 120));
+    full.get_mut(id).unwrap().fills = vec![first.clone(), second.clone()];
+    let mut agent = full.clone();
+
+    // The user changes the second paint while the agent edits the first from its older snapshot.
+    let user_second = Paint::solid(Color::rgb(200, 180, 160));
+    full.get_mut(id).unwrap().fills[1] = user_second.clone();
+    let mut agent_node = agent.get(id).unwrap().clone();
+    agent_node.fills[0] = Paint::solid(Color::rgb(220, 30, 40));
+    let mut ops = Vec::new();
+    agent_exec(&mut agent, &mut History::default(), &mut ops, Command::Update { node: Box::new(agent_node) });
+
+    let report = replay(&mut full, ops, &mut LivePatchState::default());
+    assert!(report.skipped.is_empty(), "unexpected replay skips: {:?}", report.skipped);
+    assert_eq!(full.get(id).unwrap().fills[0], agent.get(id).unwrap().fills[0]);
+    assert_eq!(full.get(id).unwrap().fills[1], user_second, "the user's concurrent list entry was overwritten");
+}
+
+#[test]
+fn concurrent_effect_and_stroke_entries_survive_live_patch_replay() {
+    let (mut full, _page, tops) = full_doc(1, 0);
+    let id = tops[0];
+    let effect_a = Effect::LayerBlur { radius: 4.0, visible: true };
+    let effect_b = Effect::BackgroundBlur { radius: 8.0, visible: true };
+    full.get_mut(id).unwrap().effects = vec![effect_a.clone(), effect_b.clone()];
+    full.get_mut(id).unwrap().stroke =
+        Stroke { paints: vec![Paint::solid(Color::rgb(20, 40, 60)), Paint::solid(Color::rgb(80, 100, 120))], ..Stroke::default() };
+    let mut agent = full.clone();
+
+    let user_effect = Effect::LayerBlur { radius: 12.0, visible: true };
+    let user_stroke = Paint::solid(Color::rgb(200, 180, 160));
+    full.get_mut(id).unwrap().effects[1] = user_effect.clone();
+    full.get_mut(id).unwrap().stroke.paints[1] = user_stroke.clone();
+    let mut agent_node = agent.get(id).unwrap().clone();
+    agent_node.effects[0] = Effect::LayerBlur { radius: 16.0, visible: true };
+    agent_node.stroke.paints[0] = Paint::solid(Color::rgb(220, 30, 40));
+    let mut ops = Vec::new();
+    agent_exec(&mut agent, &mut History::default(), &mut ops, Command::Update { node: Box::new(agent_node) });
+
+    let report = replay(&mut full, ops, &mut LivePatchState::default());
+    assert!(report.skipped.is_empty(), "unexpected replay skips: {:?}", report.skipped);
+    let node = full.get(id).unwrap();
+    assert_eq!(node.effects[0], agent.get(id).unwrap().effects[0]);
+    assert_eq!(node.effects[1], user_effect, "the user's concurrent effect entry was overwritten");
+    assert_eq!(node.stroke.paints[0], agent.get(id).unwrap().stroke.paints[0]);
+    assert_eq!(node.stroke.paints[1], user_stroke, "the user's concurrent stroke entry was overwritten");
+}
+
+#[test]
+fn list_delta_serialization_keeps_old_updates_readable() {
+    let mut set = serde_json::Map::new();
+    set.insert("name".into(), serde_json::json!("Renamed"));
+    let old_line = serde_json::json!({
+        "v": 2,
+        "ops": [{ "update": { "id": 7, "set": set, "unset": [] } }]
+    });
+    let patch: LivePatch = serde_json::from_value(old_line).expect("old Update payload remains readable");
+    assert!(matches!(patch.ops.as_slice(), [LiveOp::Update { list_deltas, .. }] if list_deltas.is_empty()));
 }
 
 fn hist_peek(h: &History) -> Command {
@@ -763,7 +835,7 @@ fn live_patch_update_flip() {
     let mut set = serde_json::Map::new();
     let serialized = serde_json::to_value(&flipped_frame).unwrap();
     set.insert("kind".into(), serialized["kind"].clone());
-    let report = replay(&mut replay_doc, vec![LiveOp::Update { id: r_fid, set, unset: Vec::new() }], &mut LivePatchState::default());
+    let report = replay(&mut replay_doc, vec![LiveOp::Update { id: r_fid, set, unset: Vec::new(), list_deltas: Vec::new() }], &mut LivePatchState::default());
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
     assert_eq!(report.needs_layout, vec![r_fid]);
     replay_doc.relayout_subtree(r_fid);

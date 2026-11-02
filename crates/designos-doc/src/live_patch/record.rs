@@ -1,6 +1,6 @@
 //! Agent side: turn a command about to be executed into the [`LiveOp`]s it performs.
 
-use super::{LiveOp, SiblingHint, ThreadChange, STRUCTURAL_FIELDS};
+use super::{ListDelta, ListDeltaEntry, LiveOp, SiblingHint, ThreadChange, STRUCTURAL_FIELDS};
 use crate::{Command, CommentThread, Document, LibraryState, Node, NodeId, Style, StyleMeta, Variable, VariableCollection};
 use serde_json::{Map, Value};
 use std::cell::Cell;
@@ -76,9 +76,9 @@ pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>
         }
         Command::Update { node } => {
             if let Some(before) = doc.get(node.id) {
-                let (set, unset) = field_changes(before, node)?;
-                if !set.is_empty() || !unset.is_empty() {
-                    out.push(LiveOp::Update { id: node.id, set, unset });
+                let (set, unset, list_deltas) = field_changes(before, node)?;
+                if !set.is_empty() || !unset.is_empty() || !list_deltas.is_empty() {
+                    out.push(LiveOp::Update { id: node.id, set, unset, list_deltas });
                 }
             }
         }
@@ -121,8 +121,10 @@ pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>
     Ok(out)
 }
 
+type FieldChanges = (Map<String, Value>, Vec<String>, Vec<ListDelta>);
+
 /// Serialized top-level fields that differ between `before` and `after`.
-fn field_changes(before: &Node, after: &Node) -> Result<(Map<String, Value>, Vec<String>), String> {
+fn field_changes(before: &Node, after: &Node) -> Result<FieldChanges, String> {
     let as_map = |n: &Node| match serde_json::to_value(n) {
         Ok(Value::Object(m)) => Ok(m),
         Ok(_) => Err("node did not serialize to an object".to_string()),
@@ -130,8 +132,54 @@ fn field_changes(before: &Node, after: &Node) -> Result<(Map<String, Value>, Vec
     };
     let (old, new) = (as_map(before)?, as_map(after)?);
     let mut set = Map::new();
+    let mut list_deltas = Vec::new();
     for (k, v) in &new {
         if !STRUCTURAL_FIELDS.contains(&k.as_str()) && old.get(k) != Some(v) {
+            if matches!(k.as_str(), "fills" | "effects") {
+                if let (Some(Value::Array(old_items)), Value::Array(new_items)) = (old.get(k), v) {
+                    if old_items.len() == new_items.len() {
+                        let entries = old_items
+                            .iter()
+                            .zip(new_items)
+                            .enumerate()
+                            .filter(|&(_, (old_item, new_item))| old_item != new_item)
+                            .map(|(index, (_, new_item))| ListDeltaEntry { index, value: new_item.clone() })
+                            .collect::<Vec<_>>();
+                        if !entries.is_empty() {
+                            list_deltas.push(ListDelta { path: k.clone(), base_len: old_items.len(), entries });
+                            continue;
+                        }
+                    }
+                }
+            }
+            if k == "stroke" {
+                if let (Some(Value::Object(old_stroke)), Value::Object(new_stroke)) = (old.get(k), v) {
+                    if let (Some(Value::Array(old_paints)), Some(Value::Array(new_paints))) = (old_stroke.get("paints"), new_stroke.get("paints")) {
+                        if old_paints.len() == new_paints.len() {
+                            let entries = old_paints
+                                .iter()
+                                .zip(new_paints)
+                                .enumerate()
+                                .filter(|&(_, (old_item, new_item))| old_item != new_item)
+                                .map(|(index, (_, new_item))| ListDeltaEntry { index, value: new_item.clone() })
+                                .collect::<Vec<_>>();
+                            if !entries.is_empty() {
+                                list_deltas.push(ListDelta { path: "stroke.paints".into(), base_len: old_paints.len(), entries });
+                            }
+                            let mut stroke_set = Map::new();
+                            for (stroke_key, stroke_value) in new_stroke {
+                                if stroke_key != "paints" && old_stroke.get(stroke_key) != Some(stroke_value) {
+                                    stroke_set.insert(stroke_key.clone(), stroke_value.clone());
+                                }
+                            }
+                            if !stroke_set.is_empty() {
+                                set.insert(k.clone(), Value::Object(stroke_set));
+                            }
+                            continue;
+                        }
+                    }
+                }
+            }
             if k == "layout_child" {
                 if let (Some(Value::Object(old_lc)), Value::Object(new_lc)) = (old.get("layout_child"), v) {
                     let lc_diff = layout_child_changes(old_lc, new_lc, &after.layout_child)?;
@@ -156,7 +204,7 @@ fn field_changes(before: &Node, after: &Node) -> Result<(Map<String, Value>, Vec
         }
     }
     let unset = old.keys().filter(|k| !STRUCTURAL_FIELDS.contains(&k.as_str()) && !new.contains_key(*k)).cloned().collect();
-    Ok((set, unset))
+    Ok((set, unset, list_deltas))
 }
 
 fn layout_child_changes(old_lc: &Map<String, Value>, new_lc: &Map<String, Value>, after: &crate::LayoutChild) -> Result<Map<String, Value>, String> {

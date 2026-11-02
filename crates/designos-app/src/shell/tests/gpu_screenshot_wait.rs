@@ -215,7 +215,7 @@ fn first_node(s: &Sim) -> designos_doc::NodeId {
 fn agent_edit_arrives(s: &mut Sim) {
     let id = first_node(s);
     let set = serde_json::Map::from_iter([("name".to_string(), serde_json::json!(AGENT_EDIT_NAME))]);
-    s.shell.app.terminal.live_patch.pending.push(LivePatch::new(vec![LiveOp::Update { id, set, unset: Vec::new() }]));
+    s.shell.app.terminal.live_patch.pending.push(LivePatch::new(vec![LiveOp::Update { id, set, unset: Vec::new(), list_deltas: Vec::new() }]));
 }
 
 fn agent_edit_landed(s: &Sim) -> bool {

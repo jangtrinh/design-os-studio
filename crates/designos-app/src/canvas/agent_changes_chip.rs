@@ -510,7 +510,7 @@ mod tests {
     fn update_name_op(id: NodeId, new_name: &str) -> LiveOp {
         let mut set = Map::new();
         set.insert("name".into(), Value::String(new_name.into()));
-        LiveOp::Update { id, set, unset: Vec::new() }
+        LiveOp::Update { id, set, unset: Vec::new(), list_deltas: Vec::new() }
     }
 
     fn make_doc_with_on_and_off_screen_layers() -> (Document, [NodeId; 2], [NodeId; 3]) {
