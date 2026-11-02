@@ -272,7 +272,7 @@ fn ending_a_viewport_gesture_for_the_question_leaves_the_render_revision_alone_a
     let page_pos = designos_doc::Vec2::new(30.0, 30.0);
     let viewport_gestures = [
         ("pan", Interaction::Pan),
-        ("marquee", Interaction::Marquee { start: page_pos, cur: page_pos, base: Vec::new() }),
+        ("marquee", Interaction::Marquee { start: page_pos, cur: page_pos, base: Vec::new(), matching: None }),
         ("zoom marquee", Interaction::ZoomMarquee { start: page_pos, cur: designos_doc::Vec2::new(230.0, 150.0), alt: false }),
         (
             "a pending click",

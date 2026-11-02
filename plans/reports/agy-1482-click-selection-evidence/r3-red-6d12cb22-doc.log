@@ -1,0 +1,57 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1482-click-selection/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.53s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-6a14e6c7eed30945)
+
+running 31 tests
+test find::tests::regex_error_message_is_short ... ok
+test find::tests::hidden_and_locked_layers_are_not_selected_and_scope_limits_the_search ... ok
+test find::tests::empty_and_invalid_queries_find_nothing ... ok
+test find::tests::layer_names_are_searched_but_default_text_names_are_not_doubled ... ok
+test find::tests::multibyte_and_emoji_ranges_sit_on_char_boundaries ... ok
+test find::tests::find_matching_layers_matches_hierarchy_and_unnamed_text_by_style_and_position ... ok
+test find::tests::plain_search_is_case_insensitive_by_default ... ok
+test find::tests::all_properties_needs_type_and_visuals ... ok
+test find::tests::regex_search_with_anchors_and_classes ... ok
+test find::tests::matching_layers_respects_sibling_index_nearest_text_override_names_and_symmetric_sections ... ok
+test find::tests::multiple_replacements_in_runs_keep_all_runs_aligned ... ok
+test find::tests::replace_with_multibyte_text_keeps_boundaries ... ok
+test find::tests::regex_replacement_expands_groups ... ok
+test find::tests::replace_is_one_batch_that_undoes_in_one_step ... ok
+test find::tests::replace_preserves_run_styles ... ok
+test find::tests::same_fill_across_types_and_frames ... ok
+test find::tests::find_matching_layers_equals_brute_force_oracle_across_top_level_instances_and_nested_component_sets ... FAILED
+test find::tests::same_fill_of_text_uses_the_text_color ... ok
+test find::tests::same_font_compares_family_weight_and_size ... ok
+test find::tests::same_instance_follows_the_main_component ... ok
+test find::tests::same_stroke_and_effect_need_a_stroke_or_effect ... ok
+test find::tests::replaced_range_takes_the_style_of_its_first_char ... ok
+test find::tests::same_type_and_same_name ... ok
+test find::tests::same_text_properties_and_variant ... ok
+test find::tests::scopes_page_nodes_and_document ... ok
+test find::tests::select_sibling_wraps_in_layer_order ... ok
+test find::tests::structural_selection_commands ... ok
+test find::tests::select_matching_all_unions_without_duplicates ... ok
+test find::tests::stale_matches_are_skipped ... ok
+test find::tests::whole_word_treats_unicode_letters_as_word_chars ... ok
+test find::tests::whole_word_rejects_glued_matches_but_keeps_later_ones ... ok
+
+failures:
+
+---- find::tests::find_matching_layers_equals_brute_force_oracle_across_top_level_instances_and_nested_component_sets stdout ----
+
+thread 'find::tests::find_matching_layers_equals_brute_force_oracle_across_top_level_instances_and_nested_component_sets' (63635465) panicked at crates/designos-doc/src/find.rs:1555:9:
+assertion `left == right` failed
+  left: None
+ right: Some((Page(NodeId(1)), NodeId(10)))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    find::tests::find_matching_layers_equals_brute_force_oracle_across_top_level_instances_and_nested_component_sets
+
+test result: FAILED. 30 passed; 1 failed; 0 ignored; 0 measured; 681 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
