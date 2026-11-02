@@ -180,12 +180,17 @@ impl App {
     }
 
     pub(crate) fn finish_pending_vecop(&mut self) {
-        while let Some(queued) = self.fonts.pending_vecop.pop_front() {
+        while let Some(mut queued) = self.fonts.pending_vecop.pop_front() {
             if queued.doc_id != self.doc.runtime_id() {
                 continue;
             }
+            let walk_subtree = matches!(queued.op, PendingVecOp::Flatten);
+            queued.requests = collect_text_font_requests(&self.doc, &queued.ids, walk_subtree);
             let (missing, failed) = self.fonts.check_requests(&queued.requests);
-            if !failed.is_empty() {
+            if let Some(first) = failed.first() {
+                let more = failed.len() - 1;
+                let suffix = if more > 0 { format!(" (+{more} more)") } else { String::new() };
+                self.show_toast(format!("Font unavailable: {first}{suffix}"), true);
                 continue;
             }
             if !missing.is_empty() {
@@ -299,13 +304,12 @@ impl App {
     }
 
     fn flatten_ids(&mut self, raw_ids: &[NodeId], deferred: bool) {
-        let mut ids: Vec<NodeId> = raw_ids.iter().copied().filter(|i| can_flatten(self, *i) && !linked(self, *i)).collect();
-        if let Some(first_parent) = ids.first().and_then(|i| self.doc.get(*i)).and_then(|n| n.parent) {
-            ids.retain(|i| self.doc.get(*i).and_then(|n| n.parent) == Some(first_parent));
-        } else {
-            ids.clear();
-        }
-        if ids.is_empty() {
+        let ids: Vec<NodeId> = raw_ids.iter().copied().filter(|i| can_flatten(self, *i) && !linked(self, *i)).collect();
+        let Some(first_parent) = ids.first().and_then(|i| self.doc.get(*i)).and_then(|n| n.parent) else {
+            return;
+        };
+        if ids.iter().any(|i| self.doc.get(*i).and_then(|n| n.parent) != Some(first_parent)) {
+            self.show_toast("Flatten cancelled", true);
             return;
         }
         if ids.len() == 1 && self.doc.get(ids[0]).is_some_and(|n| matches!(n.kind, NodeKind::Text(_))) {
@@ -1950,5 +1954,80 @@ mod tests {
         assert_eq!(app.doc.get(rid), Some(&rect), "rectangle in pen edit must not be flattened");
         assert_eq!(app.hist.undo_depth(), 0);
         assert!(app.toast.as_ref().is_some_and(|t| t.text.contains("cancelled")), "cancellation toast shown");
+    }
+
+    #[test]
+    fn deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival() {
+        let mut doc = Document::new("LiveFontRecheck");
+        let page = doc.add_page("Page 1");
+        let tid = doc.alloc_id();
+        let style_a = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        doc.insert(page, Node::text(tid, Rect::new(0.0, 0.0, 120.0, 32.0), "Font Switch", style_a)).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1", "SlowvecFnt2"], std::time::Duration::from_millis(250));
+
+        app.selection = vec![tid];
+        app.flatten_selection();
+        assert!(app.doc.get(tid).is_some(), "text stays while family A is loading");
+
+        // Before family A arrives, change the text to family B (not loaded).
+        app.edit_nodes(&[tid], |n| {
+            if let NodeKind::Text(tp) = &mut n.kind {
+                tp.style.font_family = "SlowvecFnt2".into();
+            }
+        });
+
+        let req_a = designos_fonts::FontRequest::new("SlowvecFnt1", 400, false);
+        let req_b = designos_fonts::FontRequest::new("SlowvecFnt2", 400, false);
+        for _ in 0..6000 {
+            app.poll_fonts();
+            if app.fonts.registered().contains(&req_a) && !app.text_refit_pending() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(app.fonts.registered().contains(&req_a), "family A arrived");
+        assert!(!app.fonts.registered().contains(&req_b), "family B has not arrived yet");
+        assert!(app.doc.get(tid).is_some(), "text must still exist when only family A has arrived");
+
+        settle_app_fonts(&mut app);
+        assert!(app.fonts.registered().contains(&req_b), "family B arrived");
+        assert!(app.doc.get(tid).is_none(), "text must be converted once family B arrives");
+        assert!(matches!(app.doc.get(app.selection[0]).unwrap().kind, NodeKind::Vector { .. }));
+    }
+
+    #[test]
+    fn deferred_flatten_cancelled_when_one_text_moves_under_another_parent() {
+        let mut doc = Document::new("ReparentedSibling");
+        let page = doc.add_page("Page 1");
+        let t1 = doc.alloc_id();
+        let style = TextStyle { font_family: "SlowvecFnt1".into(), font_size: 20.0, ..Default::default() };
+        doc.insert(page, Node::text(t1, Rect::new(0.0, 0.0, 120.0, 32.0), "Text One", style.clone())).unwrap();
+        let t2 = doc.alloc_id();
+        doc.insert(page, Node::text(t2, Rect::new(0.0, 40.0, 120.0, 32.0), "Text Two", style)).unwrap();
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(200.0, 0.0, 160.0, 100.0))).unwrap();
+
+        let mut app = app_on_new_page(doc, page);
+        app.fonts = crate::fonts::testkit::serving_with_delay(&["SlowvecFnt1"], std::time::Duration::from_millis(250));
+
+        app.selection = vec![t1, t2];
+        app.flatten_selection();
+        assert!(app.doc.get(t1).is_some() && app.doc.get(t2).is_some());
+
+        // Move one of the two texts under another parent before the font arrives.
+        app.toast = None;
+        app.move_to_parent(&[t2], fid, 0);
+        assert_eq!(app.doc.get(t1).and_then(|n| n.parent), Some(page));
+        assert_eq!(app.doc.get(t2).and_then(|n| n.parent), Some(fid));
+        let undo_after_move = app.hist.undo_depth();
+
+        settle_app_fonts(&mut app);
+
+        assert!(matches!(app.doc.get(t1).map(|n| &n.kind), Some(NodeKind::Text(_))), "first text must not be converted");
+        assert!(matches!(app.doc.get(t2).map(|n| &n.kind), Some(NodeKind::Text(_))), "reparented text must not be converted");
+        assert_eq!(app.hist.undo_depth(), undo_after_move, "no flatten commit may occur after reparenting");
+        assert!(app.toast.as_ref().is_some_and(|t| t.text.contains("cancelled")), "cancellation toast must be shown");
     }
 }

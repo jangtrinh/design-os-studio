@@ -95,8 +95,8 @@ designos-webcapture:   8 passed; 0 failed; 0 ignored
 ### 2. Round 2 Rulings & Code Changes (`B1, B2, M1, M2, M3, m1, m2, m3, L1, M4`)
 - **B1 — Preserve fixed glyph geometry inside Auto-Layout & run layout before `run_tx` (`crates/designos-app/src/vecops.rs:153-158, 228, 247, 270, 332-336, 370, 418-419`)**:
   - Added `set_fixed_layout_child(lc: &mut LayoutChild, counter: Option<bool>)` (`crates/designos-app/src/vecops.rs:153-158`), which calls `lc.set_axis_sizing(true, Sizing::Fixed, counter)` and `lc.set_axis_sizing(false, Sizing::Fixed, counter)` (`crates/designos-doc/src/layout_solver_types.rs:151-167`), `lc.align_self = AlignSelf::Auto`, and `lc.grow = 0.0`.
-  - Applied `set_fixed_layout_child` using `LayoutChild::counter_axis_is_horizontal` (`crates/designos-doc/src/layout_solver_types.rs:109-112`) to every vector and group produced from text in `text_run_to_single_vector` (`crates/designos-app/src/vecops.rs:213, 228`), `text_runs_to_group` (`crates/designos-app/src/vecops.rs:236, 247, 270`), and the mixed-flatten text branch in `flatten_ids` (`crates/designos-app/src/vecops.rs:369-370`), so `LayoutChild::sizing_for` (`crates/designos-doc/src/layout_solver_types.rs:117-149`) returns `Sizing::Fixed` on both axes regardless of parent Auto-Layout direction.
-  - Called `crate::layout::fit_group(&mut self.doc, &mut tx.ed, ...)` (`crates/designos-app/src/layout.rs:124-160`) and `crate::layout::relayout_up(&mut self.doc, &mut tx.ed, ...)` (`crates/designos-app/src/layout.rs:30-35`) before `self.run_tx(tx)` in `flatten_ids` (`crates/designos-app/src/vecops.rs:332-336`) and `outline_stroke_ids` (`crates/designos-app/src/vecops.rs:418-419`), so the initial commit and Undo -> Redo produce the exact same Auto-Layout state (`crates/designos-app/src/vecops.rs:1425, 1458`).
+  - Applied `set_fixed_layout_child` using `LayoutChild::counter_axis_is_horizontal` (`crates/designos-doc/src/layout_solver_types.rs:109-112`) to every vector and group produced from text in `text_run_to_single_vector` (`crates/designos-app/src/vecops.rs:213, 228`), `text_runs_to_group` (`crates/designos-app/src/vecops.rs:236, 247, 270`), and the mixed-flatten text branch in `flatten_ids` (`crates/designos-app/src/vecops.rs:369-370`), so `LayoutChild::effective_sizing` (`crates/designos-doc/src/layout_solver_types.rs:118-125`) returns `Sizing::Fixed` on both axes regardless of parent Auto-Layout direction.
+  - Called `crate::layout::fit_group(&mut self.doc, &mut tx.ed, ...)` (`crates/designos-app/src/layout.rs:135-164`) and `crate::layout::relayout_up(&mut self.doc, &mut tx.ed, ...)` (`crates/designos-app/src/layout.rs:170-189`) before `self.run_tx(tx)` in `flatten_ids` (`crates/designos-app/src/vecops.rs:332-336`) and `outline_stroke_ids` (`crates/designos-app/src/vecops.rs:418-419`), so the initial commit and Undo -> Redo produce the exact same Auto-Layout state (`crates/designos-app/src/vecops.rs:1425, 1458`).
 - **B2 — Centered stroke alignment on converted text vectors (`crates/designos-app/src/vecops.rs:219, 258, 358`)**:
   - CPU text rendering strokes glyph paths with `self.make_stroke(n, n.stroke.weight)` without reading `stroke.align` (`crates/designos-render/src/lib.rs:795-801`), and GPU text rendering fills a prebuilt stroke mesh (`crates/designos-gpu/src/compile.rs:1102-1108`), whereas `NodeKind::Vector` masks `StrokeAlign::Inside` and `StrokeAlign::Outside` (`crates/designos-render/src/lib.rs:894-914`).
   - Set `stroke.align = StrokeAlign::Center` on every vector produced from text (`template.stroke.align = StrokeAlign::Center` at `crates/designos-app/src/vecops.rs:219`, `child_template.stroke.align = StrokeAlign::Center` at `crates/designos-app/src/vecops.rs:258`, and `base.stroke.align = StrokeAlign::Center` at `crates/designos-app/src/vecops.rs:358`). On the default-Inside test (`r2-02-green-vecops.log:36-37`) and across `stroke_inside`, `stroke_outside`, and `stroke_center` (`r2-04-visual-and-kit.log:10-15`), Flatten renders with `max=15, mean_ink=0.001390, hard_px=0, non_edge_max=0, ink_px=44594` and Outline stroke renders with `max=43, mean_ink=0.002209, hard_px=0, non_edge_max=0, ink_px=44594`.
@@ -112,7 +112,7 @@ designos-webcapture:   8 passed; 0 failed; 0 ignored
 - **m1 — Preserve `visible` and `locked` flags (`crates/designos-app/src/vecops.rs:226-227, 241-242, 366-367`)**:
   - Copied `visible` and `locked` onto the single vector in `text_run_to_single_vector` (`crates/designos-app/src/vecops.rs:226-227`), the parent group in `text_runs_to_group` (`crates/designos-app/src/vecops.rs:241-242`), and the mixed-flatten vector in `flatten_ids` (`crates/designos-app/src/vecops.rs:366-367`).
 - **m2 — Fit Outline stroke and multi-run Flatten group to children's union at commit (`crates/designos-app/src/vecops.rs:332-334, 418`)**:
-  - `flatten_ids` (`crates/designos-app/src/vecops.rs:332-334`) and `outline_stroke_ids` (`crates/designos-app/src/vecops.rs:418`) call `crate::layout::fit_group(&mut self.doc, &mut tx.ed, ...)` (`crates/designos-app/src/layout.rs:124-160`) before `self.run_tx(tx)` so the group's bounding box tightly wraps its glyph children's union at commit (`crates/designos-app/src/vecops.rs:1442-1453`).
+  - `flatten_ids` (`crates/designos-app/src/vecops.rs:332-334`) and `outline_stroke_ids` (`crates/designos-app/src/vecops.rs:418`) call `crate::layout::fit_group(&mut self.doc, &mut tx.ed, ...)` (`crates/designos-app/src/layout.rs:135-164`) before `self.run_tx(tx)` so the group's bounding box tightly wraps its glyph children's union at commit (`crates/designos-app/src/vecops.rs:1442-1453`).
 - **m3 — Strengthened pixel & unit tests + mutation matrix (`crates/designos-app/src/vecops.rs:1297-1351, 1623-1777`)**:
   - `assert_text_scenario_pixels` (`crates/designos-app/src/vecops.rs:1623-1669`) asserts that original text `NodeId`s are removed from `app.doc` (`crates/designos-app/src/vecops.rs:1638, 1656`) and replaced by `NodeKind::Vector` / `NodeKind::Group` nodes (`crates/designos-app/src/vecops.rs:1640, 1660`), computes `mean_ink` over non-white pixels where `!is_white(b_data) || !is_white(a_data)` with `is_white = |d: &[u8]| d[idx] == 255 && d[idx + 1] == 255 && d[idx + 2] == 255 && d[idx + 3] == 255` (`crates/designos-app/src/vecops.rs:1311, 1321-1324, 1349`), asserts `mean_ink < 1.0`, `hard_px == 0`, and `non_edge_max == 0` (`crates/designos-app/src/vecops.rs:1646-1648, 1666-1668`), and tests 5 scenarios in `pixel_test_converted_text_vectors_match_original_text_render` (`crates/designos-app/src/vecops.rs:1672-1777`):
     1. `decor_and_runs` (`crates/designos-app/src/vecops.rs:1674-1694`; `r2-02-green-vecops.log:34-35`: `max=59, mean_ink=0.478733, hard_px=0, non_edge_max=0, ink_px=9134`).
@@ -240,7 +240,7 @@ designos-webcapture (line 1633):  8 passed; 0 failed; 0 ignored
 ### 4. Epistemic Ledger, Weakest Link & Skills Loaded (Round 2)
 
 #### Epistemic Ledger
-- **`FACT`**: In `crates/designos-doc/src/layout_solver_types.rs:117-167` (`LayoutChild::sizing_for` and `LayoutChild::set_axis_sizing`), `LayoutChild` stores `horizontal`, `vertical`, and `stretched` axis overrides. Calling `set_axis_sizing(true, Sizing::Fixed, counter)` and `set_axis_sizing(false, Sizing::Fixed, counter)` alongside `align_self = AlignSelf::Auto` and `grow = 0.0` (`crates/designos-app/src/vecops.rs:153-158`) guarantees `Sizing::Fixed` on both axes regardless of parent Auto-Layout direction.
+- **`FACT`**: In `crates/designos-doc/src/layout_solver_types.rs:118-125, 151-167` (`LayoutChild::effective_sizing` and `LayoutChild::set_axis_sizing`), `LayoutChild` stores `horizontal`, `vertical`, and `stretched` axis overrides. Calling `set_axis_sizing(true, Sizing::Fixed, counter)` and `set_axis_sizing(false, Sizing::Fixed, counter)` alongside `align_self = AlignSelf::Auto` and `grow = 0.0` (`crates/designos-app/src/vecops.rs:153-158`) guarantees `Sizing::Fixed` on both axes regardless of parent Auto-Layout direction.
 - **`FACT`**: Both `designos-render` (`crates/designos-render/src/lib.rs:795-801`) and `designos-gpu` (`crates/designos-gpu/src/compile.rs:1102-1108`) stroke glyph paths with centered strokes; forcing `stroke.align = StrokeAlign::Center` on converted text vectors (`crates/designos-app/src/vecops.rs:219, 258, 358`) eliminates the `StrokeAlign::Inside` / `StrokeAlign::Outside` inset/outset discrepancy (`non_edge_max = 0`, `mean_ink = 0.001390` on Flatten and `0.002209` on Outline stroke at `r2-02-green-vecops.log:36-37` and `r2-04-visual-and-kit.log:10-15`).
 - **`FACT`**: `FontLoader::check_requests` (`crates/designos-app/src/fonts.rs:162-177`) + `pending_vecop` in `App::poll_fonts` (`crates/designos-app/src/app.rs:395-397`) runs `finish_pending_vecop()` only after `!self.fonts.is_loading() && !self.text_refit_pending()`, so Auto-Width/Auto-Height text nodes are refitted with the newly loaded font before glyph outlining runs, without blocking the UI thread.
 - **`INFERENCE`**: Keying queued entries by `self.doc.runtime_id()` (`crates/designos-app/src/vecops.rs:162-163, 184-185`) prevents a deferred Flatten or Outline stroke from firing on a different document if the user switches or closes documents while fonts are downloading.
@@ -251,7 +251,7 @@ designos-webcapture (line 1633):  8 passed; 0 failed; 0 ignored
 
 #### Skills Loaded & What Changed Because of Them
 - **`es:astra-work`**: Enforced strict RED-before-GREEN verification on `93c8e407` (`r2-01-red-on-93c8e407.log:73`), 19-mutant runtime kill verification (`r2-03-mutants.log:1-20`), synthetic and Untitled UI 36px heading renders (`r2-04-visual-and-kit.log:10-21`), and exact log citations.
-- **`es:fable-thinking`**: Guided root-cause verification of the 5 Round 1 defects (`LayoutChild::sizing_for` dual-axis sizing, text centered stroke parity, non-blocking `FontLoader` queue + refit ordering, subtree-scoped font collection, and gradient `uses_base_fill` preservation).
+- **`es:fable-thinking`**: Guided root-cause verification of the 5 Round 1 defects (`LayoutChild::effective_sizing` dual-axis sizing, text centered stroke parity, non-blocking `FontLoader` queue + refit ordering, subtree-scoped font collection, and gradient `uses_base_fill` preservation).
 - **`es:rust`**: Kept `FontLoader::check_requests` (`crates/designos-app/src/fonts.rs:162-177`) zero-I/O on the UI thread and preserved single-step `Command::Batch` undo/redo invariants across `fit_group` and `relayout_up` (`crates/designos-app/src/vecops.rs:332-336, 418-419`).
 - **`es:rust-gpu-canvas`**: Verified that `designos-gpu` (`crates/designos-gpu/src/compile.rs:1102-1108`) and `designos-render` (`crates/designos-render/src/lib.rs:795-801`) share centered text stroke semantics, ensuring `StrokeAlign::Center` on converted text vectors preserves CPU/GPU parity.
 
@@ -292,8 +292,8 @@ designos-webcapture (line 1633):  8 passed; 0 failed; 0 ignored
 | 1b | GREEN on Round 3 `HEAD`: all 31 `vecops` tests pass | `CARGO_TARGET_DIR="$PWD/out/cargo" TMPDIR=/tmp cargo test -p designos-app --bin designos --locked vecops` | `31 passed; 0 failed; 0 ignored; 0 measured; 4038 filtered out; finished in 1.46s` (`r3-02-green-vecops.log:42`) |
 | 1c | Mutant check: `R3-N0-null` (unmutated control) vs `R3-M1-selection-fallback` (`finish_pending_vecop` passes `&self.selection.clone()` instead of `&queued.ids`) | Full Cargo test transcript in `r3-03-mutants.log:1-145` | `R3-N0-null`: `31 passed; 0 failed` in `1.50s`, `exit=0 (SURVIVED)` (`r3-03-mutants.log:45, 47`); `R3-M1-selection-fallback`: `27 passed; 4 failed` in `1.48s`, `exit=101 (KILLED)` (`r3-03-mutants.log:137-142, 145`) |
 | 2a | Visual RED-to-GREEN terminal render (`plans/reports/agy-1469-text-to-vector-evidence/r3-red-to-green.png`) | Rendered `r3-01-red-on-bb0c2cea.log:35-86` and `r3-02-green-vecops.log:9-42` to `r3-red-to-green.png` and inspected | Shows 5 `FAILED` tests on `bb0c2cea` (`r3-01-red-on-bb0c2cea.log:80-86`) and `31 passed; 0 failed` on Round 3 `HEAD` (`r3-02-green-vecops.log:42`) |
-| 3a | Gate 1: Rustfmt | `cargo fmt --all -- --check` | Exit `0`, 0 bytes (`r3-04-fmt.log`) |
-| 3b | Gate 2: Clippy | `CARGO_TARGET_DIR="$PWD/out/cargo" cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::needless_return` (`r3-05-clippy.log:55-75`) | `CLEAN_CLIPPY_EXIT=0` in `24.40s` (`r3-05-clippy.log:74-75`; raw `-D warnings` exits `101` at `r3-05-clippy.log:53` on `crates/designos-app/src/agent_permissions.rs:1176:9, 1194:9` at `r3-05-clippy.log:20, 35`) |
+| 3a | Gate 1: Rustfmt | `cargo fmt --all -- --check` | Empty stdout (`r3-04-fmt.log`, 0 bytes; exit code not logged in `r3-04-fmt.log`, logged explicitly via `echo fmt_rc=$?` in `r4-04-fmt.log:1`) |
+| 3b | Gate 2: Clippy | `CARGO_TARGET_DIR="$PWD/out/cargo" cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::needless_return` (`r3-05-clippy.log:55-75`) | `CLEAN_CLIPPY_EXIT=0` in `24.40s` (`r3-05-clippy.log:74-75`; raw `-D warnings` exits `101` at `r3-05-clippy.log:53` on `crates/designos-app/src/agent_permissions.rs:1176:9, 1194:9` at `r3-05-clippy.log:21, 36`) |
 | 3c | Gate 3: Workspace `--lib` tests | `CARGO_TARGET_DIR="$PWD/out/cargo" TMPDIR=/tmp cargo test --workspace --locked --lib` | `13 + 714 + 1 + 158 + 143 + 30 + 4 + 37 + 322 + 56 + 1 + 8 = 1,487 passed; 0 failed; 3 ignored` across all 12 library crates (`r3-06-test-workspace-lib.log:101, 821, 828, 993, 1142, 1178, 1188, 1231, 1559, 1623, 1630, 1644`) |
 
 ### Pasted Round 3 Evidence Logs (`r3-01` .. `r3-06`)
@@ -339,7 +339,7 @@ test result: FAILED. 27 passed; 4 failed; 0 ignored; 0 measured; 4038 filtered o
 R3-M1-selection-fallback exit=101 (KILLED)
 
 === r3-04-fmt.log ===
-(exit 0, 0 diffs)
+(empty file, 0 bytes; exit code logged explicitly in Round 4 r4-04-fmt.log:1)
 
 === r3-05-clippy.log:55-75 ===
 === cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::needless_return ===
@@ -366,7 +366,7 @@ designos-webcapture (line 1644):  8 passed; 0 failed; 0 ignored
 #### Epistemic Ledger
 - **`FACT`**: Storing `ids: Vec<NodeId>` inside each `QueuedVecOp` (`crates/designos-app/src/vecops.rs:93-98, 175`) and dispatching `self.flatten_ids(&queued.ids, true)` / `self.outline_stroke_ids(&queued.ids, true)` (`crates/designos-app/src/vecops.rs:204-207`) ensures `finish_pending_vecop` never reads `self.selection` to decide which nodes to convert (`r3-03-mutants.log:137-145`).
 - **`FACT`**: Checking `if self.canvas.vedit.is_some()` in `finish_pending_vecop` (`crates/designos-app/src/vecops.rs:196-203`) before dispatching `flatten_ids` / `outline_stroke_ids` preserves an active vector pen edit session and shows `"Flatten cancelled"` / `"Outline stroke cancelled"` (`crates/designos-app/src/vecops.rs:1948-1952`).
-- **`FACT`**: `FontLoader::start` (`crates/designos-app/src/fonts.rs:105`) calls `designos_fonts::requests_for(doc)` across all nodes in the document (up to 8,192 nodes), so any load started after a text node is inserted into `doc` will also fetch that text node's fonts unless that face is already in `self.failed`.
+- **`FACT`**: `FontLoader::start` (`crates/designos-app/src/fonts.rs:106`) calls `designos_fonts::requests_for(doc)` across up to 8,192 nodes (`crates/designos-app/src/fonts.rs:73-76`) and copies the resulting `requests` set into the spawned worker thread (`crates/designos-app/src/fonts.rs:126-128`), so a `request_new_faces` load (`skip_failed = true` at `crates/designos-app/src/fonts.rs:92, 108-110`) fetches faces inside the 8,192-node cap that were already in the document when `start` copied the set unless those faces are in `self.failed` (whereas `load_for_with` calls `start(doc, false)` at `crates/designos-app/src/fonts.rs:76-78`, which retries `self.failed`).
 - **`INFERENCE`**: When two deferred commands are queued on the same document while fonts are loading (`crates/designos-app/src/vecops.rs:172-179`), draining `self.fonts.pending_vecop` with `pop_front()` in `finish_pending_vecop` (`crates/designos-app/src/vecops.rs:183`) executes them in FIFO invocation order and records one `Tx` undo step per command (`crates/designos-app/src/vecops.rs:1883-1890`).
 - **`ASSUMPTION`**: Suppressing `"Nothing to flatten"` / `"Select a layer with a stroke to outline"` toasts when `deferred == true` (`crates/designos-app/src/vecops.rs:318-320, 342-344, 463-465`) avoids noisy stale toasts if the user deleted or modified the target layer while the font was downloading.
 
@@ -375,7 +375,7 @@ designos-webcapture (line 1644):  8 passed; 0 failed; 0 ignored
 
 #### Skills Loaded & What Changed Because of Them
 - **`es:astra-work`**: Enforced reproducing the 5 failures on `bb0c2cea` (`r3-01-red-on-bb0c2cea.log:80-86`) before editing production code, running the full Cargo transcript for `R3-N0-null` and `R3-M1-selection-fallback` (`r3-03-mutants.log:1-145`), and auditing every `(file:line)` and `(log:line)` citation across Round 2 and Round 3.
-- **`es:fable-thinking`**: Falsified Round 2's selection-stability assumption (`crates/designos-app/src/vecops.rs:1780-1953`) and identified that `FontLoader::start` (`crates/designos-app/src/fonts.rs:105`) scans the whole document via `designos_fonts::requests_for(doc)`, shaping how `two_deferred_text_commands_both_convert_in_order` (`crates/designos-app/src/vecops.rs:1852-1865`) stages its `MissingFont` failure before inserting `SlowvecFnt1` and `SlowvecFnt2`.
+- **`es:fable-thinking`**: Falsified Round 2's selection-stability assumption (`crates/designos-app/src/vecops.rs:1780-1953`) and identified that `FontLoader::start` (`crates/designos-app/src/fonts.rs:106`) scans up to 8,192 nodes (`crates/designos-app/src/fonts.rs:73-76`) via `designos_fonts::requests_for(doc)` and copies that set into the worker (`crates/designos-app/src/fonts.rs:126-128`), shaping how `two_deferred_text_commands_both_convert_in_order` (`crates/designos-app/src/vecops.rs:1852-1865`) stages its `MissingFont` failure before inserting `SlowvecFnt1` and `SlowvecFnt2`.
 - **`es:rust`**: Used `VecDeque<QueuedVecOp>` (`crates/designos-app/src/fonts.rs:30, 48`) with shared slice-taking helpers `flatten_ids(&mut self, raw_ids: &[NodeId], deferred: bool)` and `outline_stroke_ids(&mut self, raw_ids: &[NodeId], deferred: bool)` (`crates/designos-app/src/vecops.rs:301, 397`) to avoid duplicate conversion logic.
 - **`es:rust-gpu-canvas`**: Preserved the `StrokeAlign::Center` and `set_fixed_layout_child` invariants inside `flatten_ids` (`crates/designos-app/src/vecops.rs:358, 370`) and `outline_stroke_ids` (`crates/designos-app/src/vecops.rs:413-419`).
 
@@ -394,3 +394,183 @@ af6c702f feat(vector): Flatten and Outline stroke convert text to vector paths (
 Status: DONE
 Summary: Stored the invoked node IDs in a FIFO `VecDeque<QueuedVecOp>` queue (`crates/designos-app/src/fonts.rs:30`, `crates/designos-app/src/vecops.rs:93-98, 161-209`) and refactored `flatten_selection`/`flatten_ids` (`vecops.rs:282-383`) and `outline_stroke_selection`/`outline_stroke_ids` (`vecops.rs:386-471`) so deferred conversions convert only the invoked IDs that still exist, cancel without exiting an open pen edit (`vecops.rs:196-203`), pass all 5 new Round 3 tests (`r3-01-red-on-bb0c2cea.log:80-86` -> `r3-02-green-vecops.log:42`) and kill the selection-fallback mutant (`r3-03-mutants.log:142, 145`), and re-anchored Round 2 + Round 3 report citations (`plans/reports/agy-1469-text-to-vector.md`).
 Concerns/Blockers: none
+
+---
+
+## Round 4
+
+### 1. What Could Not Be Verified First (Round 4)
+- **Live Figma comparison (`TO BE CONFIRMED AGAINST FIGMA`)**: Confirming how live Figma handles a font family edit or a layer reparent while a deferred Flatten / Outline stroke is waiting on a font download remains `TO BE CONFIRMED AGAINST FIGMA` because live Figma is outside the worker boundary.
+- **Interactive multi-second network stall in live desktop GUI**: Verified deterministically in headless `designos-app` tests using `crate::fonts::testkit::serving_with_delay(&[...], std::time::Duration::from_millis(250))` (`crates/designos-app/src/vecops.rs:1968, 2013`) rather than a live Fontsource HTTP stall or interactive GUI window.
+
+### 2. Pulled Branch Head & Round 4 Rulings (`MAJOR, MINOR, Tests, Report §C 1–6`)
+- **Pulled branch head before Round 4**: `git pull --no-rebase origin jangtrinh/agy-1469-text-to-vector` fast-forwarded to `40cdd986` (`Merge branch 'main' into jangtrinh/agy-1469-text-to-vector`, merging `origin/main` `52844830` into Round 3 `48551667` / `e03bc7b5`). Note that Round 4 adds 5 lines inside `finish_pending_vecop` (`crates/designos-app/src/vecops.rs:182-214`, vs `182-209` at `40cdd986`) and replaces 7 lines with 6 in `flatten_ids` (`crates/designos-app/src/vecops.rs:306-314`, vs `301-309` at `40cdd986`), shifting `vecops.rs` lines `216..305` by `+5` and lines `315..1957` by `+4` relative to Round 3 (`40cdd986`).
+- **Ruling 1 (MAJOR) — Re-collect live text font requests in `finish_pending_vecop` (`crates/designos-app/src/vecops.rs:182-214`)**:
+  - In `App::finish_pending_vecop` (`crates/designos-app/src/vecops.rs:182-214`), after the document runtime ID check (`if queued.doc_id != self.doc.runtime_id() { continue; }` at `crates/designos-app/src/vecops.rs:184-186`), `finish_pending_vecop` recomputes `let walk_subtree = matches!(queued.op, PendingVecOp::Flatten);` (`crates/designos-app/src/vecops.rs:187`), collects the live font request set from the stored IDs as they exist now via `queued.requests = collect_text_font_requests(&self.doc, &queued.ids, walk_subtree);` (`crates/designos-app/src/vecops.rs:188`), and runs `let (missing, failed) = self.fonts.check_requests(&queued.requests);` on that live set (`crates/designos-app/src/vecops.rs:189`).
+  - If any face in the live set is in `failed`, `finish_pending_vecop` shows `"Font unavailable: {first}{suffix}"` and drops the entry (`crates/designos-app/src/vecops.rs:190-195`).
+  - If any face in the live set is still `missing`, `queued.requests` holds the live set (`crates/designos-app/src/vecops.rs:188`), `finish_pending_vecop` puts the entry back at the front (`self.fonts.pending_vecop.push_front(queued)` at `crates/designos-app/src/vecops.rs:197`), calls `self.fonts.request_new_faces(&self.doc, missing)` (`crates/designos-app/src/vecops.rs:198`), and stops for this poll (`break` at `crates/designos-app/src/vecops.rs:199`). Conversion (`self.flatten_ids(&queued.ids, true)` / `self.outline_stroke_ids(&queued.ids, true)` at `crates/designos-app/src/vecops.rs:209-212`) runs only when every face of the live set is available.
+- **Ruling 2 (MINOR) — Cancel queued Flatten when surviving stored IDs no longer share one parent (`crates/designos-app/src/vecops.rs:306-314`)**:
+  - In `App::flatten_ids` (`crates/designos-app/src/vecops.rs:306-387`), after filtering `raw_ids` to surviving convertible IDs (`let ids: Vec<NodeId> = raw_ids.iter().copied().filter(|i| can_flatten(self, *i) && !linked(self, *i)).collect();` at `crates/designos-app/src/vecops.rs:307`) and reading the first survivor's parent (`let Some(first_parent) = ids.first().and_then(|i| self.doc.get(*i)).and_then(|n| n.parent) else { return; };` at `crates/designos-app/src/vecops.rs:308-310`), if any surviving stored ID does not share `first_parent` (`if ids.iter().any(|i| self.doc.get(*i).and_then(|n| n.parent) != Some(first_parent))` at `crates/designos-app/src/vecops.rs:311`), `flatten_ids` calls `self.show_toast("Flatten cancelled", true);` and returns without converting any subset (`crates/designos-app/src/vecops.rs:312-314`).
+- **Ruling 3 — Two new tests (RED on `40cdd986`, GREEN on Round 4 `HEAD`) and two mutant kills after green null control (`crates/designos-app/src/vecops.rs:1959-2032`, `r4-01-red-on-40cdd986.log`, `r4-02-green-vecops.log`, `r4-03-mutants.log`)**:
+  - Test (a) `deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival` (`crates/designos-app/src/vecops.rs:1960-1998`): queues `flatten_selection` on `tid` in family `SlowvecFnt1` (`crates/designos-app/src/vecops.rs:1964, 1970-1972`), changes `tid` to unloaded family `SlowvecFnt2` before `SlowvecFnt1` arrives (`crates/designos-app/src/vecops.rs:1975-1979`), polls until `SlowvecFnt1` (`req_a`) arrives and verifies `app.doc.get(tid).is_some()` and `!app.fonts.registered().contains(&req_b)` (`crates/designos-app/src/vecops.rs:1981-1992`), then settles `SlowvecFnt2` (`req_b`) via `settle_app_fonts(&mut app)` and verifies `app.doc.get(tid).is_none()` and `app.selection[0]` is a `NodeKind::Vector` (`crates/designos-app/src/vecops.rs:1994-1997`).
+  - Test (b) `deferred_flatten_cancelled_when_one_text_moves_under_another_parent` (`crates/designos-app/src/vecops.rs:2001-2032`): queues `flatten_selection` on two texts `t1` and `t2` under `page` (`crates/designos-app/src/vecops.rs:2004-2017`), moves `t2` under frame `fid` via `app.move_to_parent(&[t2], fid, 0)` before `SlowvecFnt1` arrives (`crates/designos-app/src/vecops.rs:2021-2024`), settles fonts (`crates/designos-app/src/vecops.rs:2026`), and verifies neither `t1` nor `t2` is converted (`NodeKind::Text(_)` at `crates/designos-app/src/vecops.rs:2028-2029`), `app.hist.undo_depth() == undo_after_move` (`crates/designos-app/src/vecops.rs:2030`), and a cancellation toast is shown (`crates/designos-app/src/vecops.rs:2031`).
+  - Killed both mutants after a green null control (`R4-N0-null` `33 passed; 0 failed`, `exit=0 (SURVIVED)` at `r4-03-mutants.log:47, 49`):
+    1. `R4-M1-stored-requests` (`finish_pending_vecop` uses the stored request set instead of the live one): `32 passed; 1 failed` (`deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival`), `exit=101 (KILLED)` (`r4-03-mutants.log:103, 118-120, 123`).
+    2. `R4-M2-no-parent-check` (the shared-parent check in `flatten_ids` is removed): `32 passed; 1 failed` (`deferred_flatten_cancelled_when_one_text_moves_under_another_parent`), `exit=101 (KILLED)` (`r4-03-mutants.log:163, 181-183, 186`).
+- **Ruling 4 — Replaced §C items 1–6 in Round 2 and Round 3 report sections above**:
+  - Replaced `LayoutChild::sizing_for` with `LayoutChild::effective_sizing` at `crates/designos-doc/src/layout_solver_types.rs:118-125` (`plans/reports/agy-1469-text-to-vector.md:98, 243, 254`).
+  - Replaced `relayout_up` definition cite with `crates/designos-app/src/layout.rs:170-189` (`plans/reports/agy-1469-text-to-vector.md:99`).
+  - Replaced `fit_group` definition cite with `crates/designos-app/src/layout.rs:135-164` (`plans/reports/agy-1469-text-to-vector.md:99, 115`).
+  - Replaced `requests_for` call cite in `FontLoader::start` with `crates/designos-app/src/fonts.rs:106`, noting the 8,192-node cap (`crates/designos-app/src/fonts.rs:73-76`), the worker request copy at `crates/designos-app/src/fonts.rs:126-128`, and `load_for_with` calling `start(doc, false)` at `crates/designos-app/src/fonts.rs:76-78` (`plans/reports/agy-1469-text-to-vector.md:369, 378`).
+  - Updated the Clippy diagnostic path lines to `r3-05-clippy.log:21, 36` (`plans/reports/agy-1469-text-to-vector.md:296`).
+  - Logged `fmt_rc=0` explicitly via `cargo fmt --all -- --check; echo "fmt_rc=$?"` in `r4-04-fmt.log:1` (`plans/reports/agy-1469-text-to-vector.md:295, 342`).
+
+---
+
+### 3. Round 4 Acceptance Criteria & Verification Table
+
+| # | Criterion | Command | Result / Output |
+|---|---|---|---|
+| 1a | RED on Round-3 `HEAD` (`40cdd986`): both new Round 4 tests fail on Round 3 production code | `env HOME="$S/home" TMPDIR="$S/tmp/" ... cargo test -p designos-app --bin designos --locked vecops` (with Round 4 tests on `40cdd986` production code) | `31 passed; 2 failed; 0 ignored; 0 measured; 4080 filtered out; finished in 1.56s`, `RED_EXIT=101` (`r4-01-red-on-40cdd986.log:39, 42, 60-64, 67`) |
+| 1b | GREEN on Round-4 `HEAD`: all 33 `vecops` tests pass | `env HOME="$S/home" TMPDIR="$S/tmp/" ... cargo test -p designos-app --bin designos --locked vecops` | `33 passed; 0 failed; 0 ignored; 0 measured; 4080 filtered out; finished in 1.51s`, `GREEN_EXIT=0` (`r4-02-green-vecops.log:37, 42, 46, 48`) |
+| 1c | Mutant kills after green null control (`R4-N0-null`, `R4-M1-stored-requests`, `R4-M2-no-parent-check`) | Full Cargo test transcript in `r4-03-mutants.log:1-186` | `R4-N0-null`: `33 passed; 0 failed` in `1.51s`, `exit=0 (SURVIVED)` (`r4-03-mutants.log:47, 49`); `R4-M1-stored-requests`: `32 passed; 1 failed` in `1.52s`, `exit=101 (KILLED)` (`r4-03-mutants.log:103, 118-120, 123`); `R4-M2-no-parent-check`: `32 passed; 1 failed` in `1.55s`, `exit=101 (KILLED)` (`r4-03-mutants.log:163, 181-183, 186`) |
+| 2a | Gate 1: Rustfmt | `cargo fmt --all -- --check; echo "fmt_rc=$?"` | `fmt_rc=0` (`r4-04-fmt.log:1`) |
+| 2b | Gate 2: Clippy | `cargo clippy --workspace --all-targets --locked -- -D warnings` and `cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::needless_return` (`r4-05-clippy.log:1-75`) | Raw `-D warnings` exits `101` (`RAW_CLIPPY_EXIT=101` at `r4-05-clippy.log:53`) only on `crates/designos-app/src/agent_permissions.rs:1176:9, 1194:9` (`r4-05-clippy.log:21, 36`); `-A clippy::needless_return` finishes in `20.73s` with `CLEAN_CLIPPY_EXIT=0` (`r4-05-clippy.log:74-75`) |
+| 2c | Gate 3: App `vecops` tests | `cargo test -p designos-app --bin designos --locked vecops` | `33 passed; 0 failed; 0 ignored; 0 measured; 4080 filtered out; finished in 1.51s`, `GREEN_EXIT=0` (`r4-02-green-vecops.log:46, 48`) |
+| 2d | Gate 4: Workspace `--lib` tests | `cargo test --workspace --locked --lib` | `13 + 714 + 1 + 158 + 143 + 30 + 4 + 37 + 322 + 56 + 1 + 8 = 1,487 passed; 0 failed; 3 ignored`, `WORKSPACE_LIB_EXIT=0` across all 12 library crates (`r4-06-test-workspace-lib.log:103, 823, 830, 995, 1144, 1180, 1190, 1233, 1561, 1625, 1632, 1646, 1648`) |
+| 3 | Terminal render PNG of red→green runs | `plans/reports/agy-1469-text-to-vector-evidence/r4-red-to-green.png` (`1280×2088`) | Shows `31 passed; 2 failed` (`RED_EXIT=101`, `r4-01-red-on-40cdd986.log:60-67`) on `40cdd986` followed by `33 passed; 0 failed` (`GREEN_EXIT=0`, `r4-02-green-vecops.log:46-48`) on Round 4 `HEAD` |
+| 4 | Delete `out/cargo` and verify `ls out/cargo` fails | `rm -rf out/cargo && ls out/cargo` | `ls: out/cargo: No such file or directory`, `ls_out_cargo_rc=1` (`r4-07-ls-out-cargo.log:1-2`) |
+
+### Pasted Round 4 Evidence Logs (`r4-01` .. `r4-07`)
+
+```text
+=== r4-01-red-on-40cdd986.log:37-67 (RED on Round-3 HEAD 40cdd986) ===
+test vecops::tests::deferred_command_on_deleted_text_edits_nothing_without_panic ... ok
+test vecops::tests::deferred_outline_stroke_converts_invoked_text_not_later_selected_rectangle ... ok
+test vecops::tests::deferred_flatten_cancelled_when_one_text_moves_under_another_parent ... FAILED
+test vecops::tests::deferred_command_cancelled_when_pen_edit_is_open_at_arrival ... ok
+test vecops::tests::deferred_flatten_converts_invoked_text_not_later_selected_rectangle ... ok
+test vecops::tests::deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival ... FAILED
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+
+failures:
+
+---- vecops::tests::deferred_flatten_cancelled_when_one_text_moves_under_another_parent stdout ----
+
+thread 'vecops::tests::deferred_flatten_cancelled_when_one_text_moves_under_another_parent' (66419133) panicked at crates/designos-app/src/vecops.rs:2024:9:
+first text must not be converted
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- vecops::tests::deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival stdout ----
+
+thread 'vecops::tests::deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival' (66419135) panicked at crates/designos-app/src/vecops.rs:1988:9:
+text must still exist when only family A has arrived
+
+
+failures:
+    vecops::tests::deferred_flatten_cancelled_when_one_text_moves_under_another_parent
+    vecops::tests::deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival
+
+test result: FAILED. 31 passed; 2 failed; 0 ignored; 0 measured; 4080 filtered out; finished in 1.56s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+RED_EXIT=101
+
+=== r4-02-green-vecops.log:37-48 (GREEN on Round-4 HEAD) ===
+test vecops::tests::deferred_flatten_cancelled_when_one_text_moves_under_another_parent ... ok
+test vecops::tests::deferred_command_cancelled_when_pen_edit_is_open_at_arrival ... ok
+test vecops::tests::deferred_command_on_deleted_text_edits_nothing_without_panic ... ok
+test vecops::tests::deferred_flatten_converts_invoked_text_not_later_selected_rectangle ... ok
+test vecops::tests::deferred_outline_stroke_converts_invoked_text_not_later_selected_rectangle ... ok
+test vecops::tests::deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival ... ok
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 4080 filtered out; finished in 1.51s
+
+GREEN_EXIT=0
+
+=== r4-03-mutants.log:1-49, 51-123, 125-186 (Null control + 2 mutant kills) ===
+=== R4-N0-null: null control (unmutated Round 4 HEAD) ===
+running 33 tests
+...
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 4080 filtered out; finished in 1.51s
+
+R4-N0-null exit=0 (SURVIVED)
+
+=== R4-M1-stored-requests: finish_pending_vecop uses stored request set instead of live one ===
+running 33 tests
+...
+failures:
+    vecops::tests::deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival
+
+test result: FAILED. 32 passed; 1 failed; 0 ignored; 0 measured; 4080 filtered out; finished in 1.52s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+R4-M1-stored-requests exit=101 (KILLED)
+
+=== R4-M2-no-parent-check: parent check in flatten_ids is removed ===
+running 33 tests
+...
+failures:
+    vecops::tests::deferred_flatten_cancelled_when_one_text_moves_under_another_parent
+
+test result: FAILED. 32 passed; 1 failed; 0 ignored; 0 measured; 4080 filtered out; finished in 1.55s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+R4-M2-no-parent-check exit=101 (KILLED)
+
+=== r4-04-fmt.log:1 ===
+fmt_rc=0
+
+=== r4-05-clippy.log:20-53, 55-75 ===
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1176:9
+error: unneeded `return` statement
+    --> crates/designos-app/src/agent_permissions.rs:1194:9
+RAW_CLIPPY_EXIT=101
+
+=== cargo clippy --workspace --all-targets --locked -- -D warnings -A clippy::needless_return ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.73s
+CLEAN_CLIPPY_EXIT=0
+
+=== r4-06-test-workspace-lib.log: cargo test --workspace --locked --lib ===
+designos-diff (line 103):        13 passed; 0 failed; 0 ignored
+designos-doc (line 823):        714 passed; 0 failed; 0 ignored
+designos-eval (line 830):         1 passed; 0 failed; 0 ignored
+designos-export (line 995):     158 passed; 0 failed; 1 ignored
+designos-fig (line 1144):       143 passed; 0 failed; 0 ignored
+designos-fonts (line 1180):      30 passed; 0 failed; 0 ignored
+designos-gpu (line 1190):         4 passed; 0 failed; 0 ignored
+designos-library (line 1233):    37 passed; 0 failed; 0 ignored
+designos-mcp (line 1561):       322 passed; 0 failed; 0 ignored
+designos-render (line 1625):     56 passed; 0 failed; 2 ignored
+designos-svg (line 1632):         1 passed; 0 failed; 0 ignored
+designos-webcapture (line 1646):  8 passed; 0 failed; 0 ignored
+WORKSPACE_LIB_EXIT=0 (line 1648)
+
+=== r4-07-ls-out-cargo.log:1-2 ===
+ls: out/cargo: No such file or directory
+ls_out_cargo_rc=1
+```
+
+### 4. Epistemic Ledger, Weakest Link & Skills Loaded (Round 4)
+
+#### Epistemic Ledger
+- **`FACT`**: Re-collecting `queued.requests = collect_text_font_requests(&self.doc, &queued.ids, walk_subtree)` in `App::finish_pending_vecop` (`crates/designos-app/src/vecops.rs:187-189`) ensures that when a queued text node's font family changes while its original font is downloading, `finish_pending_vecop` does not outline the live text with a stand-in font (`crates/designos-app/src/fonts.rs:153-157`) when the original load completes (`r4-01-red-on-40cdd986.log:42, 56-57` -> `r4-02-green-vecops.log:42`; `r4-03-mutants.log:103, 120, 123`).
+- **`FACT`**: Checking `if ids.iter().any(|i| self.doc.get(*i).and_then(|n| n.parent) != Some(first_parent))` in `App::flatten_ids` (`crates/designos-app/src/vecops.rs:311-314`) cancels the queued Flatten and shows `"Flatten cancelled"` instead of flattening only the subset that stayed under `first_parent` (`r4-01-red-on-40cdd986.log:39, 50-51` -> `r4-02-green-vecops.log:37`; `r4-03-mutants.log:163, 183, 186`).
+- **`INFERENCE`**: Because `finish_pending_vecop` (`crates/designos-app/src/vecops.rs:196-200`) pushes the updated `queued` entry back to the front of `self.fonts.pending_vecop`, requests the newly missing faces via `self.fonts.request_new_faces(&self.doc, missing)`, and `break`s out of the FIFO drain loop, later queued commands in `self.fonts.pending_vecop` remain ordered behind the head command until its newly required font arrives.
+- **`ASSUMPTION`**: When all stored IDs of a queued Flatten have been deleted (so `ids` is empty at `crates/designos-app/src/vecops.rs:307-310`), returning quietly without a toast remains the intended behavior (`deferred_command_on_deleted_text_edits_nothing_without_panic` at `crates/designos-app/src/vecops.rs:1898-1926`), whereas when two or more surviving stored IDs no longer share one parent (`crates/designos-app/src/vecops.rs:311-314`), `"Flatten cancelled"` is toasted (`crates/designos-app/src/vecops.rs:2001-2032`).
+
+#### Weakest Link (One Line)
+- If one of two texts in a queued Flatten is deleted while the font loads and the other remains under its original parent (`ids.len() == 1` at `crates/designos-app/src/vecops.rs:307-315`), the single surviving text still shares `first_parent` with itself and is converted rather than cancelling the multi-node Flatten.
+
+#### Skills Loaded & What Changed Because of Them
+- **`es:dev` -> `es:feature-dev`**: Followed the DEV phase directly from the controller's rulings without re-opening brainstorm/plan gates.
+- **`es:astra-work`**: Ran the RED test suite on `40cdd986` (`r4-01-red-on-40cdd986.log:60-67`) before editing production code, verified both mutant kills after a green null control (`r4-03-mutants.log:47-186`), rendered `r4-red-to-green.png`, and verified every `(file:line)` and `(log:line)` citation.
+- **`es:fable-thinking`**: Modeled how `FontLoader::start` (`crates/designos-app/src/fonts.rs:106, 126-128`) snapshots its `requests` set when spawning the worker thread so a subsequent `edit_nodes` font-family change is absent from the in-flight load, allowing `deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival` (`crates/designos-app/src/vecops.rs:1960-1998`) to deterministically observe the intermediate state after family A arrives and before family B arrives.
+- **`es:rust`**: Stored the recomputed live request set directly into `queued.requests` (`crates/designos-app/src/vecops.rs:188`) and passed `&queued.requests` to `self.fonts.check_requests` (`crates/designos-app/src/vecops.rs:189`), avoiding an extra `BTreeSet` clone and keeping `QueuedVecOp::requests` read in non-test builds with zero compiler/Clippy warnings (`r4-05-clippy.log:74-75`).
+- **`es:rust-gpu-canvas`**: Preserved all existing text vector conversion invariants (`StrokeAlign::Center` and `set_fixed_layout_child` at `crates/designos-app/src/vecops.rs:224, 233, 252, 263, 275, 362, 374`).
+
+Status: DONE
