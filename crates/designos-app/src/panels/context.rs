@@ -43,7 +43,7 @@ fn copy_paste_submenu(has: bool, has_clip: bool) -> Entry {
         (MenuItem::new("Copy properties").shortcut("Ctrl+Alt+C").disabled(!has), Action::CopyProperties),
         (MenuItem::new("Paste properties").shortcut("Ctrl+Alt+V").disabled(!has).sep(), Action::PasteProperties),
         (MenuItem::new("Paste over selection").shortcut("Ctrl+Shift+V").disabled(!has_clip), Action::PasteOverSelection),
-        (MenuItem::new("Paste to replace").shortcut("Ctrl+Alt+Shift+R").disabled(!has || !has_clip), Action::PasteToReplace),
+        (MenuItem::new("Paste to replace").shortcut("Ctrl+Shift+R").disabled(!has || !has_clip), Action::PasteToReplace),
     ];
     Entry { item: MenuItem::new("Copy/Paste").sep(), act: None, kids }
 }
