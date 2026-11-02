@@ -14,6 +14,7 @@ members = [
     "crates/designos-gpu",
     "crates/designos-mcp",
     "crates/designos-webcapture",
+    "crates/designos-docs",
 ]
 
 [workspace.package]
@@ -35,6 +36,7 @@ designos-svg = { path = "crates/designos-svg" }
 designos-gpu = { path = "crates/designos-gpu" }
 designos-mcp = { path = "crates/designos-mcp" }
 designos-webcapture = { path = "crates/designos-webcapture" }
+designos-docs = { path = "crates/designos-docs" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
