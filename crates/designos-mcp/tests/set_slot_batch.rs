@@ -1,6 +1,6 @@
 //! `designos_apply_batch` `set_slot` fills the real instance slot.
 
-use designos_doc::{NodeId, NodeKind, OverrideField, PropValue};
+use designos_doc::{ComponentPropDef, NodeId, NodeKind, OverrideField, PropKind, PropValue};
 use designos_mcp::engine::Engine;
 use serde_json::{json, Value};
 
@@ -192,12 +192,13 @@ fn set_slot_body_fill_matches_apply_spec_and_records_slot_value() {
     let body = slot_node(&e, inst, "body");
     let placeholder = child_named(&e, body, "DefaultBodyPlaceholder").expect("default body content");
 
-    batch(&mut e, json!([{"op": "set_slot", "node": inst, "slot": "body", "fill": fill}])).expect("set_slot");
+    let reply = batch(&mut e, json!([{"op": "set_slot", "node": inst, "slot": "body", "fill": fill}])).expect("set_slot");
 
     assert_eq!(child_names(&e, body), vec!["Hello".to_string(), "Box".to_string()]);
     assert!(e.doc.get(placeholder).is_none(), "DefaultBodyPlaceholder is gone from the doc");
     assert!(e.doc.get(body).unwrap().component.overrides.contains(&OverrideField::SlotContent));
     let hello_id = e.doc.get(body).unwrap().children[0];
+    assert_eq!(reply["name_to_id"]["Hello"].as_u64(), Some(hello_id.0), "name_to_id maps Hello to the created text");
     let box_id = e.doc.get(body).unwrap().children[1];
     assert_eq!(e.doc.get(NodeId(inst)).unwrap().component.values.get("body"), Some(&PropValue::Slot(vec![hello_id, box_id])));
     assert_eq!(subtree(&e.doc, slot_node(&e, spec_inst, "body")), subtree(&e.doc, body), "set_slot body must equal apply_spec slots body");
@@ -212,7 +213,7 @@ fn set_slot_token_fill_commits_variables_and_one_undo_removes_them() {
     let mut e = engine();
     let inst = place_instance(&mut e, "B", None);
     let vars_before = e.doc.variables.len();
-    batch(
+    let reply = batch(
         &mut e,
         json!([{
             "op": "set_slot",
@@ -222,6 +223,9 @@ fn set_slot_token_fill_commits_variables_and_one_undo_removes_them() {
         }]),
     )
     .expect("token fill");
+    let deprecated: Vec<&Value> = reply["warnings"].as_array().into_iter().flatten().filter(|w| w["code"] == "DEPRECATED_EASEUI_TOKEN").collect();
+    assert_eq!(deprecated.len(), 1, "exactly one deprecated-token warning: {}", reply["warnings"]);
+    assert_eq!(deprecated[0]["token"], "$easeui.text.primary");
 
     let body = slot_node(&e, inst, "body");
     let tok = e.doc.get(body).unwrap().children[0];
@@ -301,19 +305,83 @@ fn set_slot_dry_run_matches_commit() {
 }
 
 #[test]
-fn set_slot_hidden_header_becomes_visible_when_filled() {
+fn set_slot_fill_after_false_shows_the_slot() {
     let mut e = engine();
     let inst = place_instance(&mut e, "B", None);
     let header = slot_node(&e, inst, "header");
 
     batch(&mut e, json!([{"op": "set_slot", "node": inst, "slot": "header", "fill": false}])).expect("hide header");
     assert!(!e.doc.get(header).unwrap().visible);
+    assert!(e.doc.get(header).unwrap().component.overrides.contains(&OverrideField::Visible));
 
     let fill = json!([{"kind": "instance", "name": "FilledHeader", "component": "CardHeader"}]);
     batch(&mut e, json!([{"op": "set_slot", "node": inst, "slot": "header", "fill": fill}])).expect("fill header");
 
     assert!(e.doc.get(header).unwrap().visible, "a filled header is visible");
+    assert!(!e.doc.get(header).unwrap().component.overrides.contains(&OverrideField::Visible), "a fill removes the Visible override this instance set");
     assert_eq!(child_names(&e, header), vec!["FilledHeader".to_string()]);
+}
+
+#[test]
+fn set_slot_keeps_a_shown_header_visible_when_the_main_slot_is_hidden() {
+    let mut e = engine();
+    let card = main_card(&e);
+    let main_header = slot_node(&e, card.0, "header");
+    e.call("designos_update_node", json!({"node_id": main_header.0, "visible": false})).expect("hide main header");
+    assert!(!e.doc.get(main_header).unwrap().visible);
+
+    let inst = place_instance(&mut e, "B", None);
+    let header = slot_node(&e, inst, "header");
+    assert!(!e.doc.get(header).unwrap().visible, "a new instance inherits the hidden main slot");
+    e.call("designos_update_node", json!({"node_id": header.0, "visible": true})).expect("show instance header");
+    assert!(e.doc.get(header).unwrap().visible);
+
+    let fill = json!([{"kind": "instance", "name": "H", "component": "CardHeader"}]);
+    batch(&mut e, json!([{"op": "set_slot", "node": inst, "slot": "header", "fill": fill}])).expect("fill header");
+
+    assert!(e.doc.get(header).unwrap().visible, "a slot shown on this instance stays shown after a fill");
+    assert_eq!(child_names(&e, header), vec!["H".to_string()]);
+}
+
+#[test]
+fn set_slot_keeps_a_prop_hidden_header_hidden() {
+    let mut e = engine();
+    let card = main_card(&e);
+    let main_header = slot_node(&e, card.0, "header");
+    let added =
+        designos_doc::add_prop(&mut e.doc, card, ComponentPropDef { name: "Show header".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) });
+    added.apply(&mut e.doc).expect("add prop");
+    let bound = designos_doc::bind_prop(&mut e.doc, main_header, OverrideField::Visible, Some("Show header"));
+    bound.apply(&mut e.doc).expect("bind visibility");
+
+    let inst = place_instance(&mut e, "B", None);
+    let header = slot_node(&e, inst, "header");
+    let hidden = designos_doc::set_instance_prop(&mut e.doc, NodeId(inst), "Show header", Some(PropValue::Bool(false)));
+    hidden.apply(&mut e.doc).expect("set prop");
+    let before = e.doc.get(header).unwrap().clone();
+    assert!(!before.visible, "the Boolean property hides the header");
+
+    let fill = json!([{"kind": "instance", "name": "H", "component": "CardHeader"}]);
+    batch(&mut e, json!([{"op": "set_slot", "node": inst, "slot": "header", "fill": fill.clone()}])).expect("fill header");
+    assert_eq!(e.doc.get(header).unwrap().visible, before.visible, "a fill keeps the visibility its Boolean property gives");
+
+    let reference = e
+        .call(
+            "designos_apply_spec",
+            json!({
+                "parent_id": page_id(&e),
+                "spec": {
+                    "kind": "instance",
+                    "component": "Card",
+                    "props": {"Show header": false},
+                    "slots": {"header": fill}
+                }
+            }),
+        )
+        .expect("apply_spec")["root_node_id"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(subtree(&e.doc, header), subtree(&e.doc, slot_node(&e, reference, "header")), "set_slot matches apply_spec for the same property and fill");
 }
 
 #[test]
@@ -346,4 +414,36 @@ fn set_slot_unknown_slot_errors_and_changes_nothing() {
     assert!(kind_err["cause"]["message"].as_str().unwrap_or("").contains("not a component instance"), "{kind_err}");
     assert_eq!(e.doc.to_json().unwrap(), before_frame);
     assert_eq!(e.history.undo_depth(), depth_frame);
+}
+
+#[test]
+fn set_slot_missing_header_frame_errors_and_changes_nothing() {
+    let mut e = engine();
+    let inst = place_instance(&mut e, "B", None);
+    let header = slot_node(&e, inst, "header");
+    e.doc.remove(header).expect("remove header frame");
+    let before = e.doc.to_json().unwrap();
+    let depth = e.history.undo_depth();
+
+    let err = batch(&mut e, json!([{"op": "set_slot", "node": inst, "slot": "header", "fill": [{"kind": "instance", "component": "CardHeader"}]}]))
+        .expect_err("a deleted slot frame must fail the batch");
+
+    assert_eq!(err["code"], "BATCH_OP_FAILED", "{err}");
+    assert_eq!(err["cause"]["code"], "SLOT_CONTAINER_NOT_FOUND", "{err}");
+    assert_eq!(err["cause"]["path"], "/ops/0/slot", "{err}");
+    assert_eq!(e.doc.to_json().unwrap(), before, "a missing slot frame leaves the document unchanged");
+    assert_eq!(e.history.undo_depth(), depth);
+}
+
+#[test]
+fn set_slot_body_name_is_case_insensitive() {
+    let mut e = engine();
+    let inst = place_instance(&mut e, "B", None);
+    batch(&mut e, json!([{"op": "set_slot", "node": inst, "slot": "BODY", "fill": hello_fill()}])).expect("set_slot");
+
+    let body = slot_node(&e, inst, "body");
+    assert_eq!(child_names(&e, body), vec!["Hello".to_string()]);
+    let values = &e.doc.get(NodeId(inst)).unwrap().component.values;
+    assert!(values.contains_key("body"), "the instance value key is the slot's own name, got {:?}", values.keys().collect::<Vec<_>>());
+    assert!(!values.contains_key("BODY"));
 }

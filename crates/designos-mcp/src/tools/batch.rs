@@ -2112,7 +2112,11 @@ pub fn apply(engine: &mut Engine, args: Value) -> Result<Value, ToolError> {
                             op_failed_error(op_idx, op_name, ErrorCode::NodeNotFound, &op_path, format!("slot node {} not found", target_slot.0))
                         })?;
                         slot.component.overrides.insert(designos_doc::OverrideField::SlotContent);
-                        if let Some(generated_slot) = temp_doc.get(built_slot) {
+                        // A fill undoes a hide set on this instance (`fill: false` or a Visible
+                        // override). A visibility that the main component or a Boolean property
+                        // gives the slot is kept.
+                        let hidden_here = !slot.visible && slot.component.overrides.contains(&designos_doc::OverrideField::Visible);
+                        if let Some(generated_slot) = temp_doc.get(built_slot).filter(|_| hidden_here) {
                             slot.visible = generated_slot.visible;
                             if generated_slot.component.overrides.contains(&designos_doc::OverrideField::Visible) {
                                 slot.component.overrides.insert(designos_doc::OverrideField::Visible);
