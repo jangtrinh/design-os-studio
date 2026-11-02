@@ -1,4 +1,4 @@
-# Project docs workspace: UI mockups (M01 to M13b)
+# Project docs workspace: UI mockups (M01 to M13b, 22 screens)
 
 Open **[index.html](index.html)** first: left list of every mockup with its spec section, the selected mockup in an iframe scaled to fit (CSS transform), Prev / Next buttons, Left / Right arrow keys, `#m07`-style deep links (`#m09full` is the tall M09 page), and an "Open full size" link. Works from `file://`, no server, no network. Capture: [png/index.png](png/index.png).
 
@@ -20,6 +20,7 @@ Shared files: [tokens.css](tokens.css) (the only file with colour literals; ever
 | M04b Slash menu unfiltered (top, scrolled to end) | [m04b-slash-menu-unfiltered.html](m04b-slash-menu-unfiltered.html) | [png](png/m04b-slash-menu-unfiltered.png) | part 2 §3.2 |
 | M05 Inline toolbar, link popover, existing link | [m05-inline-toolbar-link-popover.html](m05-inline-toolbar-link-popover.html) | [png](png/m05-inline-toolbar-link-popover.png) | part 2 §3.3 |
 | M06 Table editing | [m06-table-editing.html](m06-table-editing.html) | [png](png/m06-table-editing.png) | part 2 §4 |
+| M06b Table scrolled to the end, add-column + (ruling S4) | [m06b-table-scrolled-to-end.html](m06b-table-scrolled-to-end.html) | [png](png/m06b-table-scrolled-to-end.png) | part 2 §4 |
 | M07 Pin frame modal | [m07-pin-frame-modal.html](m07-pin-frame-modal.html) | [png](png/m07-pin-frame-modal.png) | part 2 §5 |
 | M08 Suggest from canvas | [m08-suggest-from-canvas.html](m08-suggest-from-canvas.html) | [png](png/m08-suggest-from-canvas.png) | part 2 §5 |
 | M09 Embed + diagram states (first 900 px) | [m09-embed-and-diagram-states.html](m09-embed-and-diagram-states.html) | [png](png/m09-embed-and-diagram-states.png) | part 2 §6, §7 |
@@ -34,7 +35,126 @@ Shared files: [tokens.css](tokens.css) (the only file with colour literals; ever
 | M13 Tree interactions (rename, drag, context menu, search) | [m13-tree-interactions.html](m13-tree-interactions.html) | [png](png/m13-tree-interactions.png) | part 2 §12 |
 | M13b Delete page dialog | [m13b-delete-page-modal.html](m13b-delete-page-modal.html) | [png](png/m13b-delete-page-modal.png) | part 2 §12 |
 
-21 mockups + index = 22 PNGs. 20 mockup PNGs plus `index.png` are 1440 x 900 (checked with `sips`); `m09-full.png` is 1440 x 2630 because the Rendering and Ready cards are 410 px tall under the spec's 420 px render cap (the first brief said 1600; that does not fit all states). Responsive captures (375/768) are SKIPPED by owner default.
+22 mockups + index = 23 PNGs. 21 mockup PNGs plus `index.png` are 1440 x 900 (checked with `sips`); `m09-full.png` is 1440 x 2630 because the Rendering and Ready cards are 410 px tall under the spec's 420 px render cap (the first brief said 1600; that does not fit all states). Responsive captures (375/768) are SKIPPED by owner default.
+
+## Round 3 fixes (critique r2, 1 HIGH + 11 MED + 14 LOW, rulings S1 to S4)
+
+Source: [critique-261102-project-docs-mockups-r2.md](../../reports/critique-261102-project-docs-mockups-r2.md). Rulings: [ui-polish-rulings-r2.md](../ui-polish-rulings-r2.md) (S1 to S4, sample-data rule) over [ui-polish-rulings-r1.md](../ui-polish-rulings-r1.md) (R0 and addendum, still binding). Line numbers are `shell.css` lines after this round. The critique already carries IDs for all 14 LOW findings (M13b-1 ... M07-1); they get the aliases L1 to L14 in the critique's order. Edits were made to both specs in the same change (R0).
+
+### ID ledger (acceptance 1)
+
+| ID | Change (file and selector or value) | Status |
+|---|---|---|
+| G1 | Spec part 1 "Count pill" (doc tree section) now states the kit `count_badge` neutral triple: `BADGE_NEUTRAL_BG` fill, 1 px `BADGE_NEUTRAL_BORDER`, `BADGE_NEUTRAL_TEXT` Inter 12/18 500, `BADGE_SM` 22 tall, full radius (`badge.rs:31-33, 75-79`). Mockups unchanged (already kit). Agent-chip count pill stays 16 / `BG_TERTIARY` / mono (spec 2 §9). | FIXED |
+| G2 | `.pk-file` gap 8 to 0, `.pk-file .nm` margin-left 4, deleted `.pk-file .ch + .i { margin-left:-4px }`, added `.pk-file .pill` margin-left 8 (l.291-295). Picker rows now follow the doc-tree parent row (chevron 24, icon, 4, label at +44); pages +16. The critique's literal CSS (gap 4) would have left file labels at +48 vs +44 on "All files"; measured instead. | FIXED |
+| M05-1 | `.menu { font-size: var(--fs-xs); line-height: var(--lh-xs) }` (l.215): popover rows no longer inherit the 14/24 paragraph type. Spec 2 section 3.3 states it. | FIXED |
+| M11-1 | `.agent-tag { font-size: var(--fs-xs); line-height: var(--lh-xs) }` (l.282), height stays `BADGE_MD` 24. Spec 2 section 9 already said 12/18. | FIXED |
+| M10-1 | `.banner > .ico { display:grid; place-items:center; height:20px; align-self:center }` (l.274); wrapper `<span class="ico">` in M10 and M10c. | FIXED |
+| G3 | M04, M04b, M10, M10b, M10c: appended the shared "Fees and limits" table and "Before release" checklist (byte-identical block to M11b). M04 and M04b captions moved onto the empty `/` line so they do not land on page text. | FIXED |
+| M04b-1 | Ruling S1: `.menu.scr` 360 to 344, `.mclip` 344 to 328 (l.455-456); thumb 227.6 to 206.9 (328 squared / 520); scrolled-to-end offset -176 to -192, thumb top 123.4 to 128.1. Spec 2 section 3.2 carries the number. See "Needs owner" 1. | RULED (S1) |
+| M06-1 | M06: `hov` removed from Row handle, Add row (and Add column); only the open Column handle keeps its `on` look. | FIXED |
+| M06-2 | Ruling S4: table frame (1 px border, radius 12) is now `.tbl` itself and scrolls with its cells inside `.tbl-scroll` (l.201-204); width 960 to 922; columns 160/150/130/140/150/190 so Limit is cut mid-column (109 of 150 visible) instead of 11 px; thumb 496 to 499 (l.212). Add-column + lives in `.tbl-end` after the last column (out of view at scroll start). New screen M06b shows the scrolled-to-end state with the + 8 px right of the last column. Spec 2 section 4 rewritten. | RULED (S4) |
+| M09-1 | M09 and M09 full: "Order confirmed . Checkout-web" (Frame not found) to "Promo banner . Checkout-web"; "Cart . Checkout-mobile" (File not found) to "Cart . Checkout-tablet". Neither name exists in the sample world. | FIXED |
+| M08-1 | Ruling S3: spec 2 section 5 wording "frame count pill" to "count of the rows listed under the file (all frames in Pin and Embed modes, unpinned frames in Suggest mode)". Mockups unchanged (M07 6, M08 1 are both right). | RULED (S3) |
+| M03-1 | M03 `.handles` left -48 to -52; M04 and M04b -56 to -60 (same hover handle everywhere): pair ends 12 px left of the column, 4 px clear of the selected fill. Spec 2 section 3.1. | FIXED |
+| L1 (M13b-1) | M13b `.mfoot` margin-top 20 to 8: modal 192 to 180, buttons top 464 to 452, modal centre 426 = window centre - 24 (`home/dialog.rs:254-265`). Spec 2 section 12 states 440 x 180. | FIXED |
+| L2 (M04-1) | `.mi.dis { color: var(--text-secondary); opacity: .5 }` (l.225) = kit `menu_item_look(Disabled)`. | FIXED |
+| L3 (M02-1) | `.tbtn` 12/18 to 14/20 600 (l.107). | FIXED |
+| L4 (M05-2) | `.ftb .fb.txt { font-weight: var(--w-strong) }` (l.237); spec 2 section 3.3 says "Turn into" is 14/20 600. | FIXED |
+| L5 (M12-1) | `.kpi .v { height: var(--lh-xl) }`, `.kpi .v .sep { line-height: 0 }` (l.193-194): all four labels at y224, value rows 30 tall. | FIXED |
+| L6 (G4) | `.tabstrip` align-items flex-start; `.tab.home` margin-top 4, `.tab.proj` 3, `.tab.plus` 4, `.tdiv` 8 (l.26-43). All integer y. Spec 1 tab-strip row cites `tabs.rs:983, 1027`. | FIXED |
+| L7 (M01-1) | `.pcard .pf .btn { width:66px; padding:0 }` (l.375): "+ Folder" 66 x 24 at card right - 8. Spec 2 section 1. | FIXED |
+| L8 (M01-2) | `.pgrid` margin-bottom 12 to 28 (l.365): Folders heading y567 to 583. Spec 2 section 1. | FIXED |
+| L9 (M01-3) | `.pcard .po` top 111 to 103: "Open project" centre y327 to 319 = name line centre. Spec 2 section 1 says "centred on the name line". | FIXED |
+| L10 (M13b-2) | Ruling S2: M13b "moves to the trash."; spec 2 section 12 and copy deck row. | RULED (S2) |
+| L11 (M02-2) | M02 placeholder starts x399 (was 402) with the caret drawn over its first letter (`position:absolute` caret). Spec 2 empty page body line. | FIXED |
+| L12 (M13-1) | M13 caption "Left tree is a composite specimen: ..." at x304, y52. | FIXED |
+| L13 (G5) | `.r.foc` outline-offset 2 to -2 (l.92) = band drawn inside the row; M13 "Processing" row carries `foc`. | FIXED |
+| L14 (M07-1) | `.pk-foot .dd { height: var(--control-xs) }` (l.325): footer dropdown 36 to 32, same row as the 32 segmented control. | FIXED |
+
+BLOCKED: none. Needs owner: see below.
+
+**ID proof** (`id-proof.py` reads the ID column of critique r2 and of the ledger above; red probe = same script on a copy with one ledger row deleted):
+
+```
+ledger: critique IDs 26 (HIGH 1, rows with a status 26), missing: none
+LOW order in critique: ['M13b-1', 'M04-1', 'M02-1', 'M05-2', 'M12-1', 'G4', 'M01-1', 'M01-2', 'M01-3', 'M13b-2', 'M02-2', 'M13-1', 'G5', 'M07-1']
+aliases in ledger   : ['M13b-1', 'M04-1', 'M02-1', 'M05-2', 'M12-1', 'G4', 'M01-1', 'M01-2', 'M01-3', 'M13b-2', 'M02-2', 'M13-1', 'G5', 'M07-1']
+alias order matches: True L-numbers: True
+status counts (over critique IDs): {'FIXED': 22, 'RULED (S1)': 1, 'RULED (S4)': 1, 'RULED (S3)': 1, 'RULED (S2)': 1}
+red probe (M06-2 row deleted): critique IDs 26 (HIGH 1, rows with a status 25), missing: ['M06-2']
+```
+
+### Before and after, every HIGH and MED (acceptance 2)
+
+Headless Chrome 1440 x 900, `getBoundingClientRect()` after fonts loaded (`metrics.cjs` for round 3, the critique's `measure.cjs` method). Before = `b91395f3` files, after = this tree.
+
+| ID | Measurement | Before | After |
+|---|---|---|---|
+| G1 | M03 `.g .pill` | 22 x 22, `#171717`, 1 px `#404040`, Inter 12/18/500, r11 (mockup); spec text "BG_TERTIARY mono 12, 16 tall" | same mockup; spec text = kit triple, 22 tall |
+| G2 | M07 file row icon x / label x | 332 / 356 | 328 / 348 |
+| G2 | M07 page row icon x / label x | 344 / 364 | 344 / 364 (= file icon +16, label +16) |
+| G2 | M08 "All files" icon x / label x | 328 / 352 | 328 / 348 (same column as file rows) |
+| M05-1 | M05 result rows | 14px/24px/500 x 3 | 12px/18px/500 x 3, height 32 |
+| M11-1 | M11 `.agent-tag` | 14px/24px/500, 60.4 x 24 | 12px/18px/500, 56.3 x 24 |
+| M10-1 | M10 and M10c icon box centre y / text centre / buttons centre | 106.5 / 109 / 109 | 109 / 109 / 109 |
+| G3 | h2 count, tables, checklists, column bottom (M04 / M04b / M10 / M10b / M10c) | 1, 0, 0; 390 / 390 / 520 / 438 / 520 | 3, 1, 1; 805 / 805 / 935 / 853 / 935 (matches "On this page": 3 headings) |
+| M04b-1 | menu height / clip / partial rows / thumb | 360 / 344 / none / 227.6 | 344 / 328 / "Code: 16/32 visible" / 206.9 |
+| M06-1 | M06 revealed controls | Row handle, Add row, Add column all `hov` (bg `#171717`, fg `#A3A3A3`) | all rest (bg transparent, fg `#737373`); only Column handle `on` |
+| M06-2 | M06 table / viewport right / cut column / thumb | 400..1360 (960) / 1089 / Limit 980..1100 cut 11 px; Notes never visible / 496 | 399..1321 (922) / 1089 / Limit 980..1130 shows 109 of 150, cut mid-column / 499 |
+| M06-2 | Add-column + | x1097 (8 px right of the viewport) | M06: x1329 (8 px right of the last column, clipped); M06b: x1065 = last column right 1057 + 8 |
+| M09-1 | Frame not found / File not found card titles | "Order confirmed . Checkout-web" / "Cart . Checkout-mobile" | "Promo banner . Checkout-web" / "Cart . Checkout-tablet" |
+| M08-1 | spec wording | "frame count pill" | "count of the rows listed under the file" (mockups unchanged: M07 pill 6, M08 pill 1) |
+| M03-1 | handle pair x / gap to selected fill / gap to column | 343..391 / 0 / 8 | 339..387 / 4 / 12 |
+
+LOW re-measures (`verify.cjs`): L1 modal y336 h180 centre 426, buttons top 452; L2 colour `rgb(212,212,212)` opacity .5; L3 14px/20px/600 on a 24 tall button; L4 "Turn into" 14px/24px/600; L5 four value rows 30, four labels y224; L6 tab y 4 / 3 / 4, divider y8; L7 +Folder 66 x 24 at x482 (card right 556 - 8 - 66); L8 Folders heading y583 (last card bottom 555 + 28); L9 Open project centre 319 = name centre 319; L11 caret x399, placeholder x399, column x399; L13 `outline: 2px solid rgb(249,115,22)`, offset -2px on row x56 w223; L14 footer seg 32, dd 32, buttons 40.
+
+### Spec and mockups agree (acceptance 3)
+
+| Value | Spec (changed text) | Mockup |
+|---|---|---|
+| Count pill | spec 1 doc tree "Count pill" | 22 tall, `BADGE_NEUTRAL_*`, Inter 12/18 500 (M03 etc.) |
+| Slash cap | spec 2 section 3.2: 344 = 8 + 328 + 8, thumb 206.9, end offset 192 | `.menu.scr` 344, `.mclip` 328, thumb 206.9, margin-top -192 |
+| Wide table | spec 2 section 4 (S4) | M06 start state, M06b end state |
+| Per-file pill | spec 2 section 5 (S3) | M07 6, M08 1 |
+| Trash wording | spec 2 section 12 and copy deck (S2) | M13b "moves to the trash." |
+| Agent tag | spec 2 section 9 12/18 500 | `.agent-tag` 12px/18px/500 |
+| Link popover rows | spec 2 section 3.3 12/18 500, 32 tall | M05 result rows 12px/18px/500, 32 |
+| Handle pair | spec 2 section 3.1: ends 12 left of the column | M03 339..387, M04 / M04b same |
+| Picker rows | spec 2 section 5: label +44, pages +16 | M07 / M08 table above |
+| Delete dialog | spec 2 section 12: 440 x 180, 8 before buttons | M13b 440 x 180, buttons top 452 |
+| Home card | spec 2 section 1: + Folder 66 x 24, Open project on the name line, heading 28 below | M01 table above |
+| Tab strip | spec 1: Home y4, project tabs y3, + tab y4 | all 20 shell screens |
+| KPI / placeholder | spec 2 sections 10 and 2 | M12 / M02 |
+
+### Sample world (acceptance 4) and geometry (acceptance 5)
+
+`verify.cjs` over all 22 mockups: the doc tree lists the same 18 labels and pills 1,4,3,2,2 on M03, M04, M04b, M05, M06, M06b, M07, M08, M09 x 2, M10, M10c, M11, M11b, M11c, M13b; deliberate variants only: M02 (empty tree), M10b ("Saving..." instead of "2 files"), M12 (linked package row, pill 2), M13 (rename row). Page titles: H1 = tab = selected tree row on every Payment methods screen (M03 to M06b, M10 to M11c), "Payment flow" on M09, "Checkout" on M02, M07, M08, M12, "Cart rules" on M13b. Frame and file names: the Frame not found card names a frame outside the inventory ("Promo banner"), the File not found card a file outside the project ("Checkout-tablet"); "Payment . Checkout-mobile" (Can't render) is in the inventory.
+
+Layout geometry, every screen that has the region (M02 to M13b; Home screens have no tree or column): rail `[0, 48]`, tree `[48, 240]`, column `[399, 690]`, contents `[1137, 192]` (absent only on M02 and M13 as before). Unchanged from round 2.
+
+### Captures and index (acceptance 6, 7)
+
+All 23 PNGs regenerated with headless Chrome from the worktree (`--headless=new --hide-scrollbars --window-size=1440,900`; `m09-full.png` 1440 x 2630; `index.png` from `index.html#m07`); `sips` reports 1440 x 900 for 21 mockups plus index and 1440 x 2630 for m09-full. Changed screens were inspected at 2x and 3x crops: M06, M06b, M04, M04b, M10, M13, M13b, M02, M09, M01, M07, M05, M11 (full 2x frames for M06, M06b, M04, M04b, M13; the final PNGs of M01 inspected directly).
+
+Index (`index-test.cjs`, Playwright, 0 page errors): list has 22 entries incl. "M06b Table scrolled to the end"; `#m06` loads m06; Next goes to `#m06b` (m06b-table-scrolled-to-end.html); Prev back to `#m06`; ArrowRight to `#m06b` then `#m07`; ArrowLeft twice back to `#m06`; deep links `#m06b` and `#m09full` load the right file.
+
+### Gates (acceptance 8), 23 files, before = `b91395f3` copies, after = this tree
+
+- `ui gate`: exit 1 on all, as before. Errors: only `low-contrast` for `#737373` (kit token, settled): 40 before (22 files), 42 after (23 files; the 2 extra are M06b). Per-file finding-class counts (errors and warnings excluding `off-system-token`): 0 of 22 existing files changed; M06b shows the same classes as every other shell screen. A first M06b draft used a third wrapper (`.tbl-box`) and tripped `container-nesting-depth`; the table frame is now the `<table>` itself.
+- `slop-detect`: 207 findings (before 208 on 22 files), same four classes (`cramped-padding` 180, `clipped-overflow-container` 19, `overused-font` 7, `gray-on-color` 1), no new class.
+- axe: 17 of 23 files exit 0; 6 exit 1 with the single settled `color-contrast` of `TEXT_PLACEHOLDER` (`.ph` on M05, M07, M08; `.hs-search > span` on M01, M01b; the index iframe). Same six as before; no new rule.
+- Running `ui gate` appended to `design/memory.events.*`; both files were restored with `git checkout`.
+
+### Needs owner
+
+1. **Slash cap value (ruling S1).** Taken literally, "8 + 10.5 x 32 + 8" is 352, but the first entry in the list is the 24 px "Basic" label, so 352 would show Code at 24 of 32 px (75 %). 344 counts the label as the first of the 10.5 entries and shows exactly half of the eleventh entry (Code), which is what the ruling says it wants ("half of row 11 shows"). If 352 was meant, change `.menu.scr` to 352, `.mclip` 336, thumb 336 squared / 520 = 217.1, end offset 184 and the spec number.
+2. **`phase-02-project-tab-tree-and-reader.md`** still says "Delete to Trash" (outside the two spec files and this folder, not edited). Lowercase "trash" per S2.
+3. **Overlays over page text.** M04 and M04b now show the real page under the slash menus; the M04 filtered menu cuts the "Card" row of the table at its bottom edge and a table sliver shows between the two M04b menus. That is true overlay behaviour; say so if you want a quieter backdrop.
+
+### NOT verified in round 3
+
+Motion, drag-ghost offset, tree-row keyboard focus beyond the one specimen drawn, screen-reader names, egui text metrics; responsive captures skipped by owner default.
 
 ## Round 2 fixes (critique r1, 102 IDs)
 
@@ -100,7 +220,7 @@ red probe (README copy without the M09-06 row):
 | M04-01 | M04 third specimen: disabled row "No blocks match" (`aria-disabled`). Spec 2 §3.2. | FIXED |
 | M04-02 | Slash menu opens 4 below the line box (G13). | FIXED |
 | M04b-01 | `.mi .hint` (l.216): Roboto Mono 12/18 `--text-quaternary`; "```" is a monospace backtick run. Spec 2 §3.2. | FIXED |
-| M04b-02 | Max height 360 cuts a row (`.menu.scr`, l.448), 4 px `--text-tertiary` thumb (`.mscroll`, l.227) 1 px from the right edge. Spec 2 "Menu". | FIXED |
+| M04b-02 | Max height cuts a row (`.menu.scr`; value 360 in round 2, 344 since round 3 ruling S1), 4 px `--text-tertiary` thumb (`.mscroll`, l.227) 1 px from the right edge. Spec 2 "Menu". | FIXED |
 | M04b-03 | `.mclip { height: 344px; overflow: hidden }` (l.449): rows clip at the 8 px inset, not under the radius. | FIXED |
 | M04b-04 | Captions "Top" / "Scrolled to end" under the two menus. | FIXED |
 | M05-01 | Link field = kit field (G06). | FIXED |
@@ -156,7 +276,7 @@ red probe (README copy without the M09-06 row):
 | M13-05 | Caption "Search active: filtered by “ca”, the open page stays selected" explains the selected fill. | FIXED |
 | M13b-01 | Delete button = kit destructive (G02). | FIXED |
 | M13b-02 | Initial focus ring on **Cancel**; Delete gets the ring only when tabbed to. Spec 2 §12. | FIXED |
-| M13b-03 | Two body lines, one sentence each: "“Cart rules” moves to the Trash." / "Links to it will break." | FIXED |
+| M13b-03 | Two body lines, one sentence each: "“Cart rules” moves to the trash." (round 3, ruling S2) / "Links to it will break." | FIXED |
 | M13b-04 | Modal is centred 24 px above the window centre because `home/dialog.rs` (W 440, PAD 24) does it; the picker (M07/M08) stays exactly centred. The critique asked for exact centre; the kit wins. | RULED-OUT (R0, dialog.rs) |
 | IDX-01 | `index.html` has an "M09 full" entry (`m09full`, 1440 x 2630, per-entry height in `fit()`), plus entries for the five new screens. | FIXED |
 | IDX-02 | Index Prev / Next / Open full size use the kit secondary look (`.btn`), 2 px focus outlines. | FIXED |
@@ -274,7 +394,7 @@ Doc pages are identical on every screen: Overview (Checkout), Spec (Payment meth
 
 ## Layout geometry, re-measured (acceptance 5)
 
-Headless Chrome, `getBoundingClientRect()` after fonts loaded (`measure-geom.mjs` over all 21 mockups; `geom-m03.mjs` for the table). Rail 48, tree x48 w240, column x399 w690, contents x1137 w192 are unchanged on every screen that has the region:
+Headless Chrome, `getBoundingClientRect()` after fonts loaded (`measure-geom.mjs` over all 21 mockups (round 3 re-measure: 22 mockups, section "Round 3 fixes"); `geom-m03.mjs` for the table). Rail 48, tree x48 w240, column x399 w690, contents x1137 w192 are unchanged on every screen that has the region:
 
 ```
 rail
@@ -366,13 +486,13 @@ Index behaviour (`index-test.mjs`, Playwright, 0 page errors): list has 21 entri
 7. **Agent tag position.** Right of the caret on the caret's line, 24 tall (`BADGE_MD`), so it never covers text above.
 8. **Held chip.** M11c uses the canvas chip anatomy with the text "Claude is waiting [2] changes".
 9. **KPI.** Strip sits under the title and description, tiles content-top-aligned; fourth tile gets a third line "Open: G5 Release". Package name "checkout-spec · spec v2".
-10. **Slash menu filter "ta".** Substring match on labels gives State (Design) and Table (Data); Table highlighted. M04b shows the unfiltered menu twice (top, scrolled to end) because max height 360 cannot show all rows.
-11. **Table.** The hide-scrollbars capture flag removes native bars, so the horizontal scrollbar is drawn (track 11 px = `VAR_SCROLL_H`, thumb `VAR_SCROLL_THUMB`, width 690 / 960). Column handle inside its header cell, row handle outside the table, cell focus 2 px inside.
+10. **Slash menu filter "ta".** Substring match on labels gives State (Design) and Table (Data); Table highlighted. M04b shows the unfiltered menu twice (top, scrolled to end) because the 344 px cap cannot show all rows (round 3, ruling S1: it cuts the tenth Basic row at half height).
+11. **Table.** The hide-scrollbars capture flag removes native bars, so the horizontal scrollbar is drawn (track 11 px = `VAR_SCROLL_H`, thumb `VAR_SCROLL_THUMB`, thumb length 690 x 688 / content width; round 3: content 954 = 922 table + 32 add-column strip, thumb 499; ruling S4). Column handle inside its header cell, row handle outside the table, cell focus 2 px inside.
 12. **Picker sizes.** Head 60, footer 76, left column padding 16 / 24, right column padding 16 / 24, tile thumbnail 144, name 8 below, 3 columns gap 16. Spec 2 §5 carries these values now.
 13. **M03 selection.** The block with the open menu shows `BG_SELECTED_AREA` and its handle button is pressed.
 14. **M12.** Tooltip opens 4 px to the right of the "Copy cho AI" button (so it does not touch the KPI strip above); toast follows the kit toast.
 15. **M13.** The search state cannot coexist with rename / drag / context menu in one list, so a second specimen panel shows the same tree in search state for "ca" with a caption. The context menu opens at the pointer inside the "Checkout research" row.
-16. **Values outside spec and theme.rs** (derived or sample only): 5 / 10 px link mark on linked-spec icons; 7 px scrollbar thumb inside the 11 px track; 20 px check circle and caret height; 38 px picker badge band; 560 px specimen height; 960 px table width; sizes inside the sample frame renders (scaled by CSS transform).
+16. **Values outside spec and theme.rs** (derived or sample only): 5 / 10 px link mark on linked-spec icons; 7 px scrollbar thumb inside the 11 px track; 20 px check circle and caret height; 38 px picker badge band; 560 px specimen height; 922 px table width (920 + 1 px frame each side; round 3); sizes inside the sample frame renders (scaled by CSS transform).
 17. **Sample content.** Strings not in §15 are sample content: page titles, list items, table cells, file and frame names, error lines ("Out of memory while drawing 1 of 41 layers.", "The disk is full."), Home menu extras, captions that annotate a mockup ("Top", "Scrolled to end", "Existing link").
 
 ## Needs owner

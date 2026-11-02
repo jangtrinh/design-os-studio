@@ -10,7 +10,7 @@ Open a library project as its own tab and read its docs exactly as design-studio
 ## Requirements
 1. New `ProjectTabKind::Project` (`crates/designos-app/src/tabs.rs:28`) opened from Home: project row/tile "Open project" and context menu; tab title "<project> · Project". Per-tab state (selected page, scroll, tree expansion) isolated like other tabs.
 2. Layout, sizes, colours per the UI spec: rail 48 · tree 240 (`LEFT_PANEL_WIDTH`) · reading column 690 · contents 192 (hidden < 1200 px); tree rows 32 (`LAYER_ROW_HEIGHT`).
-3. Tree: five groups, pages from phase 01 manifest, pinned frames listed under Screens/States (labels only in this phase; render comes in 03). Search filter, collapse all, drag reorder within a group, F2 rename, Move up/down, Delete to Trash — each writes the manifest / file through `designos-docs`.
+3. Tree: five groups, pages from phase 01 manifest, pinned frames listed under Screens/States (labels only in this phase; render comes in 03). Search filter, collapse all, drag reorder within a group, F2 rename, Move up/down, Delete page (moves to Studio's trash) — each writes the manifest / file through `designos-docs`.
 4. Reader renders all v1 blocks read-only (embeds show the "Rendering…" placeholder card until 03; Mermaid shows its source in a code card until 05).
 5. "On this page" lists H2/H3 with scroll-spy; clicking scrolls smoothly.
 6. New project with no docs: Overview page "About this project" created from a template on first open (title + one-line description), written as a real file.

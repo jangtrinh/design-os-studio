@@ -22,7 +22,7 @@ Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4
 ## Layout at 1440 × 900
 | Region | x | width | Studio constant / rule |
 |---|---|---|---|
-| Tab strip (existing, `tabs.rs`) | 0 | 1440 | 32 px bar; Home tab 72 × 24 at x 8, then a divider; project tabs 240 wide, 26 tall, radius 8, 14 px kind tile (radius 2) with an 11 px glyph, label 12/18, 18 px close plate, a separator between inactive tabs, "+" button 24. The Project tab uses `TILE_SPEC_BG` / `TILE_SPEC_GLYPH` with the book glyph (ruling Q3) and the label "<project> · Project" |
+| Tab strip (existing, `tabs.rs`) | 0 | 1440 | 32 px bar; Home tab 72 × 24 at x 8, y 4 (`tabs.rs:983`), then a divider; project tabs 240 wide, 26 tall at y 3 (`tabs.rs:1027`), the + tab 24 × 24 at y 4, radius 8, 14 px kind tile (radius 2) with an 11 px glyph, label 12/18, 18 px close plate, a separator between inactive tabs, "+" button 24. The Project tab uses `TILE_SPEC_BG` / `TILE_SPEC_GLYPH` with the book glyph (ruling Q3) and the label "<project> · Project" |
 | App rail (existing, `panels/rail.rs`) | 0 | 48 | `RAIL_WIDTH`; menu button, separator, File / Agents / Assets / Tools tiles, separator, Variables / Plugins, help at the bottom. File is the selected tile while the doc tree is open; the rail gets no new item |
 | Doc tree | 48 | 240 | `LEFT_PANEL_WIDTH`, bg `BG`, 1 px `BORDER` right |
 | Main region | 288 | 1152 | bg `BG` |
@@ -37,7 +37,7 @@ Studio's own principles (`design/principles.md` P3 spacing and pointer floor, P4
 - **Item row**: height 32, inset 8 from the panel edge (`PAGE_ROW_INSET`), radius `RADIUS_CONTROL` 8, 12/18 400 `TEXT_SECONDARY`, indent 16 per depth (`LAYER_INDENT`), 16 px icon + `SPACE_FACT` 4 + label. Icons: page, frame (screen), state, diagram, linked-spec file (page icon with a small link mark).
 - **States** (kit Pages row, ruling Q2): rest text `TEXT_SECONDARY`, icon `ICON_QUATERNARY`; hover `BG_HOVER` + `TEXT_SECONDARY_HOVER`; selected `BG_SELECTED` + `TEXT_SECONDARY_HOVER`, weight 600; keyboard focus: the kit 2 px `FOCUS_RING` band drawn inside the row (no room outside a full-width row); drag in progress: 2 px `TEXT` insertion line between rows.
 - **Icon buttons** in the tree header and title row (24 px, radius 8): rest `ICON_QUATERNARY`, hover `BG_HOVER` + `ICON_QUATERNARY_HOVER`, pressed or menu open `BG_SELECTED` + `ICON_SECONDARY_HOVER`.
-- **Count pill**: `Badge/StatusCount` neutral (`BG_TERTIARY` fill, `TEXT_SECONDARY` mono 12), 16 tall.
+- **Count pill**: the kit `count_badge` neutral (`widgets/kit/badge.rs`, `count_badge_look(Neutral)`): `BADGE_NEUTRAL_BG` fill, 1 px `BADGE_NEUTRAL_BORDER`, label `BADGE_NEUTRAL_TEXT` in Inter 12/18 500 (`text-xs` Medium), `BADGE_SM` 22 tall, minimum width 22, 6 px side padding, full radius. The agent-chip count pill (part 2 §9) is a different component (16 tall, `BG_TERTIARY`, mono).
 - Overview group shows its pages without a chevron (it is never collapsed).
 
 ## Reading page (document content)
