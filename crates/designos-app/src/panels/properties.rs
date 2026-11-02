@@ -1008,7 +1008,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     title(ui, pane, "Appearance", None, false);
     let op = common(app, sel, |n| (n.opacity * 100.0).round());
     let op_r = pane.col(0, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, op_r, sel, &["opacity"], |ui| field::num_field(ui, op_r, "opacity", Prefix::Icon(Icon::Opacity), op, "%")) {
+    if let Some(v) = var_bind::numeric(app, ui, op_r, sel, &["opacity"], |ui, r| field::num_field(ui, r, "opacity", Prefix::Icon(Icon::Opacity), op, "%")) {
         let o = (v / 100.0).clamp(0.0, 1.0);
         app.edit_nodes(sel, |n| n.opacity = o);
     }
@@ -1017,7 +1017,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         let rad = common(app, sel, |n| n.corner_radii[0]);
         let rad_r = pane.col(1, 0.0);
         let radius_keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
-        if let Some(v) = var_bind::numeric(app, ui, rad_r, sel, &radius_keys, |ui| field::num_field(ui, rad_r, "radius", Prefix::Icon(Icon::Radius), rad, "")) {
+        if let Some(v) = var_bind::numeric(app, ui, rad_r, sel, &radius_keys, |ui, r| field::num_field(ui, r, "radius", Prefix::Icon(Icon::Radius), rad, "")) {
             let v = v.max(0.0);
             app.edit_nodes(sel, |n| n.corner_radii = [v; 4]);
         }
@@ -1155,8 +1155,8 @@ fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is
     let ws = common(app, sel, |n| n.size.x);
     let hs = common(app, sel, inspector_height);
     let (wr, hr) = (pane.col(0, 0.0), pane.col(1, 0.0));
-    let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui| field::num_field(ui, wr, "w", Prefix::Text("W"), ws, ""));
-    let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui| field::num_field(ui, hr, "h", Prefix::Text("H"), hs, "")) };
+    let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui, r| field::num_field(ui, r, "w", Prefix::Text("W"), ws, ""));
+    let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui, r| field::num_field(ui, r, "h", Prefix::Text("H"), hs, "")) };
     if w_new.is_some() || h_new.is_some() {
         resize_selection(app, sel, w_new, h_new);
     }
@@ -1255,8 +1255,8 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         });
     }
     let gap_r = pane.col(1, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, gap_r, sel, &["itemSpacing"], |ui| {
-        field::num_field(ui, gap_r, "al-gap", Prefix::Icon(Icon::Spacing), Some(a.item_spacing), "")
+    if let Some(v) = var_bind::numeric(app, ui, gap_r, sel, &["itemSpacing"], |ui, r| {
+        field::num_field(ui, r, "al-gap", Prefix::Icon(Icon::Spacing), Some(a.item_spacing), "")
     }) {
         update_al(app, sel, |al| al.item_spacing = v);
     }
@@ -1288,8 +1288,8 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
     let ph = a.padding[1].max(a.padding[3]);
     let pv = a.padding[0].max(a.padding[2]);
     let ph_r = pane.col(0, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, ph_r, sel, &["paddingLeft", "paddingRight"], |ui| {
-        field::num_field(ui, ph_r, "al-ph", Prefix::Icon(Icon::PaddingH), Some(ph), "")
+    if let Some(v) = var_bind::numeric(app, ui, ph_r, sel, &["paddingLeft", "paddingRight"], |ui, r| {
+        field::num_field(ui, r, "al-ph", Prefix::Icon(Icon::PaddingH), Some(ph), "")
     }) {
         update_al(app, sel, |al| {
             al.padding[1] = v;
@@ -1297,8 +1297,8 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
         });
     }
     let pv_r = pane.col(1, 0.0);
-    if let Some(v) = var_bind::numeric(app, ui, pv_r, sel, &["paddingTop", "paddingBottom"], |ui| {
-        field::num_field(ui, pv_r, "al-pv", Prefix::Icon(Icon::PaddingV), Some(pv), "")
+    if let Some(v) = var_bind::numeric(app, ui, pv_r, sel, &["paddingTop", "paddingBottom"], |ui, r| {
+        field::num_field(ui, r, "al-pv", Prefix::Icon(Icon::PaddingV), Some(pv), "")
     }) {
         update_al(app, sel, |al| {
             al.padding[0] = v;
@@ -1362,7 +1362,10 @@ fn wrap_lines_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a:
     sublabel(ui, pane, "Wrap");
     // horizontal wrap stacks rows (a vertical gap), vertical wrap stacks columns (a horizontal gap)
     let icon = if a.direction == LayoutDirection::Horizontal { Icon::PaddingV } else { Icon::PaddingH };
-    if let Some(v) = field::num_field(ui, pane.col(0, 0.0), "al-counter-gap", Prefix::Icon(icon), Some(a.counter_spacing), "") {
+    let cgap_r = pane.col(0, 0.0);
+    if let Some(v) = var_bind::numeric(app, ui, cgap_r, sel, &["counterAxisSpacing"], |ui, r| {
+        field::num_field(ui, r, "al-counter-gap", Prefix::Icon(icon), Some(a.counter_spacing), "")
+    }) {
         update_al(app, sel, |al| al.counter_spacing = v);
     }
     let between = a.counter_align_content == CounterAlignContent::SpaceBetween;
@@ -1670,10 +1673,16 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
         match &p.kind {
             _ if bound => {}
             _ if linked.is_some() => {
-                widgets::field_text(ui.painter(), hex_r, 0.0, 4.0, linked.as_deref().unwrap_or(""), font.clone(), theme::TEXT);
+                let val_hex_r = if matches!(p.kind, PaintKind::Solid(_)) {
+                    var_bind::value_rect(app, ui, hex_r, sel, &[var_key.as_str()], VariableKind::Color)
+                } else {
+                    hex_r
+                };
+                widgets::field_text(ui.painter(), val_hex_r, 0.0, 4.0, linked.as_deref().unwrap_or(""), font.clone(), theme::TEXT);
             }
             PaintKind::Solid(c) => {
-                if let Some(s) = field::edit_hex_text(ui, hex_r, hex_id, &c.to_hex(), font.clone(), theme::TEXT, 0.0) {
+                let val_hex_r = var_bind::value_rect(app, ui, hex_r, sel, &[var_key.as_str()], VariableKind::Color);
+                if let Some(s) = field::edit_hex_text(ui, val_hex_r, hex_id, &c.to_hex(), font.clone(), theme::TEXT, 0.0) {
                     if let Some(nc) = Color::from_hex(&s) {
                         edit_paint_list(app, sel, stroke, |ps| {
                             if let Some(p) = ps.get_mut(i) {
