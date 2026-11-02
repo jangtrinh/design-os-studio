@@ -1,0 +1,4 @@
+HEAD:crates/designos-app/src/canvas/interact.rs == tree at mutant time (interact.rs.bak)
+HEAD:crates/designos-doc/src/components.rs == tree at mutant time (components.rs.bak)
+HEAD:crates/designos-fig/src/fig_export.rs == tree at mutant time (fig_export.rs.bak)
+(mutant runs r2-03..r2-06 mutated these three files and restored them byte-for-byte; the committed copies equal the restored ones)

@@ -1,0 +1,12 @@
+$ git rev-parse HEAD origin/main
+7cc90b292d8c6e0b675184a6db7cdfb6ddfb1317
+a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+$ git log --oneline origin/main..HEAD   (at the gated code commit; the commit carrying this report follows it)
+7cc90b29 feat(inspector): carry the aspect lock through multi-selection drags, instances, snapping and a link glyph
+81a197c5 feat(inspector): lock aspect ratio toggle next to W and H (#1468)
+$ git log --oneline HEAD..origin/main | wc -l   (commits on main not in the branch)
+       0
+$ gh pr view 1540 --json url,state,isDraft,headRefOid
+{"headRefOid":"81a197c5064d7aa019a2e12c3cd27c904e494332","isDraft":true,"state":"OPEN","url":"https://github.com/jangtrinh/design-os-studio/pull/1540"}
+$ git branch --show-current
+jangtrinh/agy-1468-lock-aspect

@@ -1,0 +1,453 @@
+81a197c5064d7aa019a2e12c3cd27c904e494332
+/dev/disk3s1s1   926Gi    12Gi   132Gi     9%    459k  1.4G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling libc v0.2.191
+   Compiling libm v0.2.16
+   Compiling cfg-if v1.0.5
+   Compiling bitflags v2.13.2
+   Compiling autocfg v1.5.1
+   Compiling log v0.4.34
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling objc2-encode v4.1.0
+   Compiling simd-adler32 v0.3.10
+   Compiling zerocopy v0.8.62
+   Compiling stable_deref_trait v1.2.1
+   Compiling thiserror v2.0.21
+   Compiling crc32fast v1.5.2
+   Compiling version_check v0.9.5
+   Compiling adler2 v2.0.1
+   Compiling foldhash v0.2.0
+   Compiling zlib-rs v0.6.8
+   Compiling objc2 v0.6.5
+   Compiling miniz_oxide v0.9.1
+   Compiling memchr v2.8.3
+   Compiling hashbrown v0.17.1
+   Compiling bitflags v1.3.2
+   Compiling writeable v0.6.4
+   Compiling litemap v0.8.3
+   Compiling icu_properties_data v2.3.0
+   Compiling utf8_iter v1.0.4
+   Compiling num-traits v0.2.19
+   Compiling icu_normalizer_data v2.3.0
+   Compiling miniz_oxide v0.8.9
+   Compiling fdeflate v0.3.7
+   Compiling linebender_resource_handle v0.1.1
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.14
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling cc v1.7.0
+   Compiling percent-encoding v2.3.2
+   Compiling itoa v1.0.18
+   Compiling serde_json v1.0.154
+   Compiling zune-core v0.5.3
+   Compiling weezl v0.1.12
+   Compiling equivalent v1.0.3
+   Compiling zeroize v1.9.1
+   Compiling quick-error v2.0.1
+   Compiling rustls-pki-types v1.15.1
+   Compiling zune-jpeg v0.5.15
+   Compiling flate2 v1.1.10
+   Compiling block2 v0.6.2
+   Compiling objc2-core-foundation v0.3.2
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling indexmap v2.14.2
+   Compiling core_maths v0.1.1
+   Compiling objc2-foundation v0.3.2
+   Compiling form_urlencoded v1.2.2
+   Compiling slotmap v1.1.1
+   Compiling either v1.19.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling fax v0.2.7
+   Compiling byteorder-lite v0.1.0
+   Compiling pxfm v0.1.30
+   Compiling ref-cast v1.0.27
+   Compiling crossbeam-utils v0.8.23
+   Compiling self_cell v1.3.0
+   Compiling color_quant v1.1.0
+   Compiling image-webp v0.2.4
+   Compiling gif v0.14.1
+   Compiling getrandom v0.2.17
+   Compiling ttf-parser v0.25.1
+   Compiling synstructure v0.14.0
+   Compiling moxcms v0.8.1
+   Compiling ring v0.17.14
+   Compiling serde_derive_internals v0.30.0
+   Compiling png v0.18.1
+   Compiling hashbrown v0.16.1
+   Compiling float-cmp v0.9.0
+   Compiling untrusted v0.9.0
+   Compiling pin-project-lite v0.2.17
+   Compiling getrandom v0.4.3
+   Compiling parking_lot_core v0.9.12
+   Compiling raw-window-handle v0.6.2
+   Compiling crossbeam-epoch v0.9.21
+   Compiling strict-num v0.1.1
+   Compiling euclid v0.22.14
+   Compiling memmap2 v0.9.11
+   Compiling aho-corasick v1.1.5
+   Compiling arrayref v0.3.9
+   Compiling scopeguard v1.2.0
+   Compiling rustc-hash v2.1.3
+   Compiling unicode-script v0.5.8
+   Compiling objc-sys v0.3.5
+   Compiling tinyvec v1.13.3
+   Compiling base64 v0.22.1
+   Compiling rustls v0.23.45
+   Compiling crossbeam-deque v0.8.8
+   Compiling regex-syntax v0.8.11
+   Compiling dyn-clone v1.0.20
+   Compiling fontdb v0.23.0
+   Compiling lock_api v0.4.14
+   Compiling webpki-roots v1.0.9
+   Compiling option-ext v0.2.0
+   Compiling unicode-bidi v0.3.18
+   Compiling rayon-core v1.13.0
+   Compiling subtle v2.6.1
+   Compiling dirs-sys v0.4.1
+   Compiling webpki-roots v0.26.11
+   Compiling parking_lot v0.12.5
+   Compiling regex-automata v0.4.18
+   Compiling uuid v1.28.0
+   Compiling i_float v5.0.0
+   Compiling png v0.17.16
+   Compiling naga v29.0.4
+   Compiling bit-vec v0.9.1
+   Compiling profiling v1.0.18
+   Compiling yazi v0.2.1
+   Compiling zeno v0.3.3
+   Compiling unicode-width v0.2.2
+   Compiling bit-set v0.9.1
+   Compiling i_shape v5.0.0
+   Compiling codespan-reporting v0.13.1
+   Compiling objc2 v0.5.3
+   Compiling regex v1.13.1
+   Compiling dirs v5.0.1
+   Compiling objc2-metal v0.3.2
+   Compiling polycool v0.4.0
+   Compiling sys-locale v0.3.2
+   Compiling hexf-parse v0.2.1
+   Compiling rustc-hash v1.1.0
+   Compiling i_tree v0.20.0
+   Compiling i_key_sort v0.12.0
+   Compiling unicode-linebreak v0.1.5
+   Compiling smol_str v0.3.6
+   Compiling rangemap v1.8.0
+   Compiling kurbo v0.13.1
+   Compiling block2 v0.5.1
+   Compiling i_overlay v9.1.0
+   Compiling rustls-webpki v0.103.15
+   Compiling rayon v1.12.0
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling unicode-properties v0.1.4
+   Compiling objc2-quartz-core v0.3.2
+   Compiling utf8parse v0.2.2
+   Compiling unicode-bidi-mirroring v0.4.0
+   Compiling unicode-ccc v0.4.0
+   Compiling dispatch v0.2.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling siphasher v1.0.4
+   Compiling core-foundation v0.9.4
+   Compiling svgtypes v0.15.3
+   Compiling objc2-foundation v0.2.2
+   Compiling raw-window-metal v1.1.0
+   Compiling accesskit v0.24.1
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling simplecss v0.2.2
+   Compiling futures-core v0.3.34
+   Compiling imagesize v0.13.0
+   Compiling unicode-general-category v1.1.0
+   Compiling foreign-types-shared v0.3.1
+   Compiling roxmltree v0.20.0
+   Compiling futures-sink v0.3.34
+   Compiling data-url v0.3.2
+   Compiling fearless_simd v0.4.1
+   Compiling pico-args v0.5.0
+   Compiling unicode-vo v0.1.0
+   Compiling xmlwriter v0.1.0
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-app-kit v0.2.2
+   Compiling objc2-core-graphics v0.3.2
+   Compiling winit v0.30.13
+   Compiling wgpu-core v29.0.4
+   Compiling nix v0.31.3
+   Compiling winnow v1.0.4
+   Compiling litrs v1.0.0
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling cursor-icon v1.2.0
+   Compiling futures-io v0.3.34
+   Compiling colorchoice v1.0.5
+   Compiling smol_str v0.2.2
+   Compiling document-features v0.2.12
+   Compiling bumpalo v3.20.3
+   Compiling futures-task v0.3.34
+   Compiling dpi v0.1.2
+   Compiling anstyle v1.0.14
+   Compiling anstyle-query v1.1.5
+   Compiling epaint_default_fonts v0.35.0
+   Compiling nohash-hasher v0.2.0
+   Compiling slab v0.4.12
+   Compiling anstream v1.0.0
+   Compiling zopfli v0.8.4
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling memoffset v0.6.5
+   Compiling heck v0.5.0
+   Compiling thiserror v1.0.69
+   Compiling typed-path v0.12.3
+   Compiling twox-hash v2.1.5
+   Compiling clap_lex v1.1.1
+   Compiling bytes v1.12.1
+   Compiling strsim v0.11.1
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling static_assertions v1.1.0
+   Compiling zip v9.0.4
+   Compiling clap_builder v4.6.7
+   Compiling thiserror-impl v1.0.69
+   Compiling ruzstd v0.9.1
+   Compiling accesskit_macos v0.26.3
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling futures-macro v0.3.34
+   Compiling foreign-types v0.5.0
+   Compiling tokio-macros v2.7.2
+   Compiling clap_derive v4.6.7
+   Compiling lyon_geom v1.0.19
+   Compiling core-graphics v0.23.2
+   Compiling termios v0.2.2
+   Compiling ioctl-rs v0.1.6
+   Compiling serial-core v0.4.0
+   Compiling rmcp v3.5.1
+   Compiling anyhow v1.0.104
+   Compiling web-time v1.1.0
+   Compiling serial-unix v0.4.0
+   Compiling lyon_path v1.0.19
+   Compiling tracing v0.1.44
+   Compiling winresource v0.1.34
+   Compiling type-map v0.5.1
+   Compiling bytemuck v1.25.2
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling float_next_after v1.0.0
+   Compiling pin-utils v0.1.1
+   Compiling pollster v0.4.0
+   Compiling pastey v0.2.3
+   Compiling futures-util v0.3.34
+   Compiling rfd v0.17.2
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-mcp)
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia-path v0.11.4
+   Compiling color v0.3.3
+   Compiling wgpu-types v29.0.4
+   Compiling tiny-skia v0.11.4
+   Compiling peniko v0.6.1
+   Compiling read-fonts v0.39.2
+   Compiling rustybuzz v0.20.1
+   Compiling vello_common v0.0.9
+   Compiling emath v0.35.0
+   Compiling futures-executor v0.3.34
+   Compiling ecolor v0.35.0
+   Compiling tokio v1.53.2
+   Compiling vello_cpu v0.0.9
+   Compiling zerofrom v0.1.8
+   Compiling usvg v0.45.1
+   Compiling futures v0.3.34
+   Compiling accesskit_winit v0.32.2
+   Compiling yoke v0.8.3
+   Compiling half v2.7.1
+   Compiling skrifa v0.40.0
+   Compiling tiff v0.11.3
+   Compiling chrono v0.4.45
+   Compiling harfrust v0.5.2
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling schemars v1.2.3
+   Compiling image v0.25.10
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling skrifa v0.44.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-doc)
+   Compiling url v2.5.8
+   Compiling ureq v2.12.1
+   Compiling swash v0.2.10
+   Compiling harfrust v0.7.0
+   Compiling skrifa v0.42.1
+   Compiling webbrowser v1.2.4
+   Compiling arboard v3.6.1
+   Compiling clap v4.6.7
+   Compiling cosmic-text v0.19.0
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling epaint v0.35.0
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling egui v0.35.0
+   Compiling tokio-util v0.7.20
+   Compiling designos-diff v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-diff)
+   Compiling rgb v0.8.53
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-fonts)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-render)
+   Compiling egui-winit v0.35.0
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-webcapture)
+   Compiling egui-wgpu v0.35.0
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-export)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-fig)
+   Compiling lyon_tessellation v1.0.22
+   Compiling nix v0.25.1
+   Compiling vte v0.11.1
+   Compiling filedescriptor v0.8.3
+   Compiling serial v0.4.0
+   Compiling dispatch2 v0.3.1
+   Compiling unicode-width v0.1.14
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling shell-words v1.1.1
+   Compiling downcast-rs v1.2.1
+   Compiling portable-pty v0.8.1
+   Compiling vt100 v0.15.2
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-gpu)
+   Compiling eframe v0.35.0
+   Compiling designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-library)
+   Compiling resvg v0.45.1
+   Compiling open v5.4.4
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 41s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 40 tests
+test check_designs::tests::an_ordinary_frame_and_an_instance_are_not_detached ... ok
+test check_designs::tests::instances::an_instance_mirroring_an_unstyled_main_text_reports_no_text_style_once_on_the_main_component ... ok
+test check_designs::tests::instances::a_disabled_library_style_applied_inside_an_instance_is_reported_on_that_layer ... ok
+test clipboard::tests::a_main_copied_in_its_own_file_becomes_an_instance_where_the_original_stood ... ok
+test proto::player::tests::change_to_on_something_that_is_not_an_instance_does_nothing ... ok
+test proto::player::tests::click_on_an_instance_swaps_it_and_stays_swapped ... ok
+test check_designs::tests::instances::a_reconnect_aimed_at_a_mirror_inside_an_instance_is_refused ... ok
+test canvas::interact::tests::alt_drag_of_a_main_and_a_plain_frame_makes_an_instance_of_the_main_and_a_copy_of_the_frame ... ok
+test check_designs::tests::reconnecting_swaps_the_frame_for_an_instance_in_place_and_undoes_in_one_step ... ok
+test canvas::interact::tests::a_main_holding_an_instance_of_b_alt_dragged_onto_b_lands_beside_b ... ok
+test canvas::interact::tests::a_main_alt_dragged_into_a_component_set_is_a_new_variant_not_an_instance_in_the_set ... ok
+test canvas::interact::tests::a_variant_alt_dragged_out_of_its_set_becomes_an_instance_of_that_variant ... ok
+test canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked ... FAILED
+test comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock ... FAILED
+test comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main ... FAILED
+test comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main ... FAILED
+test canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target ... FAILED
+test canvas::interact::tests::locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag ... FAILED
+test check_designs::tests::instances::fixing_an_instance_child_records_override_without_mutating_main_component_and_undoes_cleanly ... ok
+test panels::properties::tests::lock_aspect_toggle_in_a_selection_with_a_line_acts_on_the_nodes_that_have_width_and_height_in_either_order ... FAILED
+test shell::tests::components::editing_inside_an_instance_records_overrides ... ok
+test shell::tests::dev_code_panel::colors_of_an_instance_list_what_its_component_paints ... ok
+test shell::tests::components_main_copies::pasting_a_main_that_holds_an_instance_of_b_with_a_layer_of_b_selected_does_not_make_b_hold_itself ... ok
+test shell::tests::components_main_copies::pasting_a_plain_frame_that_holds_an_instance_of_b_with_b_selected_does_not_make_b_hold_itself ... ok
+test shell::tests::components_main_copies::pasting_a_main_that_holds_an_instance_of_b_with_b_selected_does_not_make_b_hold_itself ... ok
+test shell::tests::components_cycles::an_instance_swap_property_that_would_make_a_main_hold_itself_changes_nothing ... ok
+test styles::instance_refit_tests::a_style_edit_on_an_instance_label_is_one_undo_step ... ok
+test shell::tests::components::alt_drag_duplicate_of_an_instance_stays_an_instance ... ok
+test shell::tests::components_main_copies::a_layers_panel_drop_of_an_instance_of_a_into_b_is_refused_when_a_holds_b ... ok
+test shell::tests::components_main_copies::swapping_an_instance_in_b_to_a_main_that_holds_b_changes_nothing ... ok
+test shell::tests::slot_canvas_edits::an_instance_goes_into_the_selected_slot_only_when_dropped_on_it ... ok
+test shell::tests::components_main_copies::a_plain_layer_and_an_instance_copy_as_before ... ok
+test shell::tests::components_main_copies::dropping_an_instance_on_its_own_main_leaves_it_beside_the_main ... ok
+test shell::tests::components::layers_inside_an_instance_are_hidden_not_deleted ... ok
+test shell::tests::components_main_copies::pasting_a_main_with_the_main_still_selected_makes_an_instance_beside_it ... ok
+test shell::tests::components_main_copies::pasting_a_set_makes_an_instance_of_its_default_variant ... ok
+test shell::tests::components_main_copies::alt_drag_of_a_set_makes_an_instance_of_its_default_variant ... ok
+test shell::tests::components_main_copies::ctrl_d_on_a_set_makes_an_instance_of_its_default_variant ... ok
+test shell::tests::layer_drag_fast::a_fast_multi_selection_drag_moves_the_same_layers_as_a_slow_one ... ok
+test shell::tests::deferred_page_instances::select_by_id_of_an_instance_on_a_deferred_page_shows_that_page_expanded ... ok
+
+failures:
+
+---- canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked stdout ----
+
+thread 'canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked' (71389308) panicked at crates/designos-app/src/canvas/interact.rs:3521:9:
+assertion `left == right` failed: the locked node must keep its 2:1 ratio in a multi-selection drag
+  left: Vec2 { x: 200.0, y: 50.0 }
+ right: Vec2 { x: 200.0, y: 100.0 }
+
+---- comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock stdout ----
+
+thread 'comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock' (71389317) panicked at crates/designos-app/src/comp_ops.rs:744:9:
+locking the main must lock an instance that did not set its own lock
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main stdout ----
+
+thread 'comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main' (71389318) panicked at crates/designos-app/src/comp_ops.rs:760:9:
+the main's lock must reach the instance that has no lock of its own
+
+---- comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main stdout ----
+
+thread 'comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main' (71389319) panicked at crates/designos-app/src/comp_ops.rs:784:9:
+reset must give an instance the lock of an unlocked main
+
+---- canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target stdout ----
+
+thread 'canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target' (71389309) panicked at crates/designos-app/src/canvas/interact.rs:3555:9:
+assertion `left == right` failed: a locked multi-selection drag must give the Shift size
+  left: (Vec2 { x: 200.0, y: 50.0 }, Vec2 { x: 200.0, y: 100.0 })
+ right: (Vec2 { x: 198.63637, y: 99.31818 }, Vec2 { x: 198.63637, y: 198.63635 })
+
+---- canvas::interact::tests::locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag stdout ----
+
+thread 'canvas::interact::tests::locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag' (71389307) panicked at crates/designos-app/src/canvas/interact.rs:3574:9:
+assertion `left == right` failed: a locked drag must give the Shift size, not a snapped one
+  left: Vec2 { x: 200.0, y: 100.0 }
+ right: Vec2 { x: 198.0, y: 99.0 }
+
+---- panels::properties::tests::lock_aspect_toggle_in_a_selection_with_a_line_acts_on_the_nodes_that_have_width_and_height_in_either_order stdout ----
+
+thread 'panels::properties::tests::lock_aspect_toggle_in_a_selection_with_a_line_acts_on_the_nodes_that_have_width_and_height_in_either_order' (71389320) panicked at crates/designos-app/src/panels/properties.rs:3540:13:
+a line must never get an aspect lock (rectangle first)
+
+
+failures:
+    canvas::interact::tests::locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag
+    canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked
+    canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target
+    comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock
+    comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main
+    comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main
+    panels::properties::tests::lock_aspect_toggle_in_a_selection_with_a_line_acts_on_the_nodes_that_have_width_and_height_in_either_order
+
+test result: FAILED. 33 passed; 7 failed; 0 ignored; 0 measured; 4168 filtered out; finished in 4.22s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+red_rc=101
