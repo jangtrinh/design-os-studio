@@ -21,7 +21,7 @@
 - `crates/designos-app/src/agent_composer_text.rs`
 - `crates/designos-app/src/agent_open_flow.rs`
 - `crates/designos-app/src/layout_snapshot.rs`
-- `crates/designos-app/src/shell.rs` — Added `--panel agents-chat:two-waiting` CLI screenshot fixture (lines 443–449) so `--screenshot ... --panel agents-chat:two-waiting` opens the Agents panel, sets `active_runtime` to `Claude`, and calls `submit_chat_prompt` twice (`"First queued prompt"`, `"Second queued prompt"`) to capture the `"2 messages waiting to send"` state (`1437-two-waiting.png`).
+- `crates/designos-app/src/shell.rs` — Added `--panel agents-chat:two-waiting` CLI screenshot fixture (`crates/designos-app/src/shell.rs:443-449`) so `--screenshot ... --panel agents-chat:two-waiting` opens the Agents panel, sets `active_runtime` to `Claude`, and calls `submit_chat_prompt` twice (`"Create a SaaS analytics card in Claude Code"`, `"Also add a quarterly revenue sparkline"`, `crates/designos-app/src/shell.rs:447-448`) to capture the `"2 messages waiting to send"` state (`1437-two-waiting.png`).
 - `crates/designos-app/src/shell/tests/agent_new_chat_composer.rs`
 - `crates/designos-app/src/shell/tests/agent_simplified_panel.rs`
 - `crates/designos-app/src/shell/tests/home.rs`
@@ -415,16 +415,16 @@ Log: `plans/reports/agy-1437-queue-prompts-evidence/r3-mutants.log`
 | **AC 5** | Pushed to `origin/jangtrinh/agy-1437-queue-prompts`; PR body updated; `git log --oneline origin/main..HEAD` pasted; `out/cargo` deleted | **PASS** | See Section 8 below |
 
 ### 7. Assumptions Held (Epistemic Ledger) & Weakest Link (Round 3)
-- **[FACT]** `tab.composer.flush_paused` is the sole gate for the held-Enter pause: `write_delayed_enter` sets `flush_paused = true` and `awaiting_turn_end = false` on hold, `is_tab_ready_for_queued_send` returns `false` while `flush_paused` is `true` without clearing it on `Working`, and `poll_live_agent_bridge` clears `flush_paused = false` (and arms `awaiting_turn_end = true, turn_started_since_send = true`) only when `is_turn_start` (`UserPromptSubmit` / `PreInvocation`) is true and `pending_enter_deadline.is_none()`.
-- **[FACT]** `submit_system_image_prompt` records its 64-char label on `tab.composer.premark` rather than mutating `tab.agent_status`, so queued user prompts ahead of an image job flush on the first ready tick and a running turn's `Working` status is never overwritten (`image_job_queued_behind_user_prompt_at_start_flushes_both_in_order`, `image_job_submitted_during_running_turn_waits_for_turn_end`).
-- **[INFERENCE]** For a hookless CLI tab where a permission hold is impossible (since `holds_the_enter` requires either `tab.gemini_dialog_open()` or a hook-driven `WaitingForInput` status), turn completion continues to be detected via post-`\r` PTY output settling for `>= READY_QUIET_OUTPUT` (`180 ms`).
+- **[FACT]** `tab.composer.flush_paused` is the sole gate for the held-Enter pause: `write_delayed_enter` sets `flush_paused = true` and `awaiting_turn_end = false` on hold (`crates/designos-app/src/agent_composer.rs:503-504`), `is_tab_ready_for_queued_send` returns `false` while `flush_paused` is `true` without clearing it on `Working` (`crates/designos-app/src/agent_composer.rs:435-444`), and after Round 4 removes the Gemini non-box clear at `agent_composer.rs:901-902`, a hold is unpaused only by the `is_turn_start && self.tabs[tab_idx].composer.pending_enter_deadline.is_none()` arm (`UserPromptSubmit` / `PreInvocation`) in `poll_live_agent_bridge` (`crates/designos-app/src/terminal.rs:3880-3884`), while `write_prompt_to_live_tab` (`crates/designos-app/src/agent_composer.rs:563`) resets `flush_paused = false` only as part of initializing a newly written prompt's own enter delay after readiness already permitted the paste.
+- **[FACT]** `submit_system_image_prompt` records its 64-char label on `tab.composer.premark` (`crates/designos-app/src/terminal.rs:3370`) rather than mutating `tab.agent_status`, so queued user prompts ahead of an image job flush on the first ready tick and a running turn's `Working` status is never overwritten (`image_job_queued_behind_user_prompt_at_start_flushes_both_in_order`, `image_job_submitted_during_running_turn_waits_for_turn_end`).
+- **[INFERENCE]** For a hookless CLI tab where a permission hold is impossible (since `holds_the_enter` requires either `tab.gemini_dialog_open()` or a hook-driven `WaitingForInput` status), turn completion continues to be detected via post-`\r` PTY output settling for `>= READY_QUIET_OUTPUT` (`180 ms`, `crates/designos-app/src/agent_composer.rs:42`).
 - **Weakest Link:** If a user manually edits or deletes the held text in the terminal instead of pressing Enter (cancelling the held prompt without ever triggering `UserPromptSubmit` / `PreInvocation`), `flush_paused` remains `true` until the user submits a turn in the terminal or starts a new tab.
 
 ### 8. Pasted Commands & Exact Outputs (Round 3)
 
 ```bash
 cargo fmt --all -- --check
-# fmt_rc=0 (logged in r3-fmt.log)
+# Exit 0 with empty stdout in r3-fmt.log (explicit fmt_rc=0 logged in r4-fmt.log:1)
 
 HOME="$S/home" TMPDIR="$S/tmp/" CARGO_TARGET_DIR="$PWD/out/cargo" \
   cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -442,6 +442,222 @@ HOME="$S/home" TMPDIR="$S/tmp/" CARGO_TARGET_DIR="$PWD/out/cargo" \
 
 ```bash
 git log --oneline origin/main..HEAD
+d7dc4258 fix(agents): gate held-enter unpause on turn start and move image premark to composer (#1437)
+f53533fb fix(agents): wait for turn end on queued sends and preserve start-window prompts (#1437)
+2b61c790 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1437-queue-prompts
+b91f561a docs(reports): add round 1 report and evidence for #1437
+22d129ea fix(agents): queue a second send behind the waiting prompt instead of replacing it (#1437)
+```
+
+---
+
+## Round 4
+
+### 1. What Could Not Be Verified (and Why)
+- **Live external agent CLIs (`claude`, `codex`, `gemini`, `grok`, `agy`):** Not spawned against live network/CLI endpoints per the hard rule in `/Users/jangtrinh/Products/design-os-studio/plans/261030-2041-e1-wave-1/brief-common-argon.txt:15` ("Never run `claude`, `codex`, `gemini`, `grok`, or `agy`"). All Gemini and hookless-Idle PTY behaviors were verified through deterministic local `#!/bin/sh` PTY stubs and `send_gemini_hook_record` (`crates/designos-app/src/agent_composer.rs:3611-3801`, `crates/designos-app/src/terminal/gemini_composer_tests.rs:43-63`).
+- **Cross-OS Windows / Ubuntu runtime execution:** Verified locally on macOS (`aarch64-apple-darwin`); Windows and Ubuntu targets are exercised in GitHub Actions CI.
+
+### 2. Skills Loaded (Round 4)
+- `es-astra-work` (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`): Applied outcome-first execution and post-mutation verification on the final tree state (`r4-fmt.log:1`, `r4-clippy.log:374-390`, `r4-gate-composer.log:9,104`, `r4-gate-workspace-lib.log:101-1644`).
+- `es:fable-thinking` (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`): Applied falsification-first RED checks on base commit `cda82e17` (`r4-red-tests.log:1-59`), null-control + single-mutant kills (`r4-mutants.log:1-33`), and the Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`).
+- `es:rust` (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`): Maintained lock-free state transitions in `deliver_to_agent` (`crates/designos-app/src/agent_composer.rs:886-937`) and `submit_system_image_prompt` (`crates/designos-app/src/terminal.rs:3357-3373`).
+- `es:rust-gpu-canvas` (`/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`): Preserved shell/canvas fixture compatibility (`crates/designos-app/src/shell.rs:443-449`).
+- `es:dev` (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`) & `es:feature-dev` (`/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`): Followed the feature verification and review-gate checklist.
+
+### 3. Summary of Round-4 Rulings Implemented (`B1`, `B2`, `Mutants`, `C1–C4`)
+1. **B1 — Delete the Gemini non-box clear of `flush_paused` (`crates/designos-app/src/agent_composer.rs:900-901`):**
+   - Deleted the `if !from_box && tab.spawn_preset == AgentCliPreset::Gemini && !tab.gemini_dialog_open() && !status_waits(tab) { tab.composer.flush_paused = false; }` block that had been added at `crates/designos-app/src/agent_composer.rs:901-903` in `cda82e17`.
+   - `flush_paused` is now cleared only by the `is_turn_start && self.tabs[tab_idx].composer.pending_enter_deadline.is_none()` arm in `poll_live_agent_bridge` (`crates/designos-app/src/terminal.rs:3880-3884`), plus the new prompt's own enter-delay reset inside `write_prompt_to_live_tab` (`crates/designos-app/src/agent_composer.rs:563`), which initializes a freshly written prompt rather than unpausing a hold.
+   - Updated `terminal::gemini_composer_tests::the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste` (`crates/designos-app/src/terminal/gemini_composer_tests.rs:52-56`) to send a `PreInvocation` turn-start record (`send_record(&mut st, id, "PreInvocation", r#"{"session_id":"g"}"#)`) after clearing the dialog from the first sub-test so the held state ends via the turn-start record arm (`crates/designos-app/src/terminal.rs:3880-3884`) before the second sub-test begins (`r4-green-tests.log:46-60`).
+   - Added `agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation` (`crates/designos-app/src/agent_composer.rs:3619-3737`, using helper `send_gemini_hook_record` at `crates/designos-app/src/agent_composer.rs:3611-3616`): verifies on a Gemini tab that after a paste is held by a dialog (`flush_paused == true` at `crates/designos-app/src/agent_composer.rs:3640`) and the dialog closes with status `Idle` (`crates/designos-app/src/agent_composer.rs:3644-3646`), both `dispatch_figma_ai_prompt` (`crates/designos-app/src/agent_composer.rs:3648-3672`) and, separately, `submit_system_image_prompt` (`crates/designos-app/src/agent_composer.rs:3698-3715`) keep the new text queued (`queued_prompts == ["figma follow-up after dialog hold"]` and `["Image task 9: Upscale hero."]`) and write nothing new to the PTY until a `PreInvocation` record arrives (`crates/designos-app/src/agent_composer.rs:3675, 3717`), after which the queue flushes in order on `PostInvocation` (`crates/designos-app/src/agent_composer.rs:3681-3694, 3722-3733`).
+2. **B2 (also closes r2-LOW-2) — Stop writing `last_output_at` in `submit_system_image_prompt` (`crates/designos-app/src/terminal.rs:3357-3373`):**
+   - Deleted the `if let Ok(mut last_out) = tab.last_output_at.lock() { *last_out = Some(std::time::Instant::now()); }` write from `submit_system_image_prompt` (`crates/designos-app/src/terminal.rs:3369-3371`); only the PTY reader moves `last_output_at`.
+   - Added `agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end` (`crates/designos-app/src/agent_composer.rs:3740-3801`): after a successful Enter (`flush_pending_enter_now` at `crates/designos-app/src/agent_composer.rs:3751`) with status left `Idle` (`crates/designos-app/src/agent_composer.rs:3752`), submits an image job via `submit_system_image_prompt` (`crates/designos-app/src/agent_composer.rs:3758-3759`), advances past `READY_QUIET_OUTPUT` (`crates/designos-app/src/agent_composer.rs:3762-3763`), and verifies the image text is still absent from the PTY and remains queued (`crates/designos-app/src/agent_composer.rs:3764-3771`); it is written only after a real later PTY output timestamp goes quiet (`crates/designos-app/src/agent_composer.rs:3775-3780`) or a turn-end status (`Done`) arrives (`crates/designos-app/src/agent_composer.rs:3781-3797`).
+   - Preserved `agent_composer::tests::image_job_submitted_during_running_turn_waits_for_turn_end` (`crates/designos-app/src/agent_composer.rs:3505-3542`, `r4-green-tests.log:31-45`).
+3. **C1–C4 Report Corrections:**
+   - **C1:** Updated `plans/reports/agy-1437-queue-prompts.md:418` so the `flush_paused` description matches `crates/designos-app/src/terminal.rs:3880-3884` and `crates/designos-app/src/agent_composer.rs:563, 900-901`.
+   - **C2:** Logged the explicit `cargo fmt --all -- --check; echo fmt_rc=$?` exit code (`fmt_rc=0` in `r4-fmt.log:1`, cited at `plans/reports/agy-1437-queue-prompts.md:427` and below).
+   - **C3:** Quoted the exact fixture prompt strings from `crates/designos-app/src/shell.rs:447-448` (`"Create a SaaS analytics card in Claude Code"` and `"Also add a quarterly revenue sparkline"`) at `plans/reports/agy-1437-queue-prompts.md:24`.
+   - **C4:** Pasted the full red runs, green runs, and mutation strings with `(r4-*:line)` and `(file:line)` citations below.
+
+### 4. Acceptance 1 — Red -> Green & Mutation Test Output (Round 4)
+
+#### RED on `cda82e17` (`plans/reports/agy-1437-queue-prompts-evidence/r4-red-tests.log:1-59`)
+- `agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation` (`crates/designos-app/src/agent_composer.rs:3619-3737`) failed on `cda82e17` (`r4-red-tests.log:5, 21, 31`) at `crates/designos-app/src/agent_composer.rs:3651:9` (`r4-red-tests.log:11-14`: `left: Some(Written)`, `right: Some(Queued)`).
+- `agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end` (`crates/designos-app/src/agent_composer.rs:3740-3801`) failed on `cda82e17` (`r4-red-tests.log:35, 49, 59`) at `crates/designos-app/src/agent_composer.rs:3767:9` (`r4-red-tests.log:41-42`).
+
+```text
+=== RED BASE COMMIT: cda82e17 (production code at cda82e17) ===
+=== RED CHECK on cda82e17: agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ===
+
+running 1 test
+test agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ... FAILED
+
+failures:
+
+---- agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation stdout ----
+
+thread 'agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation' (65827337) panicked at crates/designos-app/src/agent_composer.rs:3651:9:
+assertion `left == right` failed: dispatch_figma_ai_prompt after a Gemini dialog hold must stay queued while flush_paused is set
+  left: Some(Written)
+ right: Some(Queued)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.13s
+exit_code=101
+=== RED CHECK on cda82e17: agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ===
+
+running 1 test
+test agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ... FAILED
+
+failures:
+
+---- agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end stdout ----
+
+thread 'agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end' (65828147) panicked at crates/designos-app/src/agent_composer.rs:3767:9:
+image text must stay absent after READY_QUIET_OUTPUT when no real PTY output or turn-end arrived: "\u{1b}[200~hookless turn one\u{1b}[201~\r\u{1b}[200~Image task 10: Remove background.\u{1b}[201~\r"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.37s
+exit_code=101
+```
+
+#### GREEN on Round-4 Code (`plans/reports/agy-1437-queue-prompts-evidence/r4-green-tests.log:1-60`)
+- All 4 targeted tests pass with `exit_code=0` (`r4-green-tests.log:4-6, 15, 19-21, 30, 34-36, 45, 49-51, 60`).
+- Rendered terminal screenshot of the RED -> GREEN runs saved to `plans/reports/agy-1437-queue-prompts-evidence/r4-red-green.png` (`1480x1806` PNG, rendering `r4-red-tests.log:1-59` and `r4-green-tests.log:1-60`).
+
+```text
+=== GREEN CHECK: agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ===
+
+running 1 test
+test agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.52s
+exit_code=0
+=== GREEN CHECK: agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ===
+
+running 1 test
+test agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.73s
+exit_code=0
+=== GREEN CHECK: agent_composer::tests::image_job_submitted_during_running_turn_waits_for_turn_end ===
+
+running 1 test
+test agent_composer::tests::image_job_submitted_during_running_turn_waits_for_turn_end ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.20s
+exit_code=0
+=== GREEN CHECK: terminal::gemini_composer_tests::the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste ===
+
+running 1 test
+test terminal::gemini_composer_tests::the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.81s
+exit_code=0
+```
+
+#### Mutation Checks (`plans/reports/agy-1437-queue-prompts-evidence/r4-mutants.log:1-33`)
+- **Null Control (`M0_null`, `r4-mutants.log:1-9`):** Unmutated tree passes both `gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation` (`1 passed; 0 failed`, `rc=0` at `r4-mutants.log:3-5`) and `image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end` (`1 passed; 0 failed`, `rc=0` at `r4-mutants.log:7-9`).
+- **Mutant 1 (`M1_restore_gemini_non_box_flush_paused_clear`, `r4-mutants.log:10-22`):** Restoring the Gemini non-box clear at `crates/designos-app/src/agent_composer.rs:901` (`r4-mutants.log:11-14`) is **KILLED** (`rc=101` at `r4-mutants.log:22`) by `gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation` (`FAILED` at `crates/designos-app/src/agent_composer.rs:3651:9`, `r4-mutants.log:16-21`).
+- **Mutant 2 (`M2_restore_image_prompt_last_output_at_write`, `r4-mutants.log:23-33`):** Restoring the `last_output_at` write in `submit_system_image_prompt` at `crates/designos-app/src/terminal.rs:3370` (`r4-mutants.log:24-27`) is **KILLED** (`rc=101` at `r4-mutants.log:33`) by `image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end` (`FAILED` at `crates/designos-app/src/agent_composer.rs:3764:9`, `r4-mutants.log:29-32`).
+
+```text
+=== M0_null (null control: no mutation applied) ===
+   running 1 test
+   test agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ... ok
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.60s
+   rc=0
+   running 1 test
+   test agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ... ok
+   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.69s
+   rc=0
+=== M1_restore_gemini_non_box_flush_paused_clear (KILLED) ===
+Mutation applied in crates/designos-app/src/agent_composer.rs (deliver_to_agent):
++                    if !from_box && tab.spawn_preset == AgentCliPreset::Gemini && !tab.gemini_dialog_open() && !status_waits(tab) {
++                        tab.composer.flush_paused = false;
++                    }
+   running 1 test
+   test agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation ... FAILED
+   thread 'agent_composer::tests::gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation' (65836672) panicked at crates/designos-app/src/agent_composer.rs:3651:9:
+   assertion `left == right` failed: dispatch_figma_ai_prompt after a Gemini dialog hold must stay queued while flush_paused is set
+     left: Some(Written)
+    right: Some(Queued)
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.15s
+   rc=101
+=== M2_restore_image_prompt_last_output_at_write (KILLED) ===
+Mutation applied in crates/designos-app/src/terminal.rs (submit_system_image_prompt):
++            if let Ok(mut last_out) = tab.last_output_at.lock() {
++                *last_out = Some(std::time::Instant::now());
++            }
+   running 1 test
+   test agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end ... FAILED
+   thread 'agent_composer::tests::image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end' (65837727) panicked at crates/designos-app/src/agent_composer.rs:3764:9:
+   image text must stay absent after READY_QUIET_OUTPUT when no real PTY output or turn-end arrived: "\u{1b}[200~hookless turn one\u{1b}[201~\r\u{1b}[200~Image task 10: Remove background.\u{1b}[201~\r"
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4073 filtered out; finished in 0.41s
+   rc=101
+```
+
+### 5. Acceptance 2, 3 & 4 — Re-Anchor Table, Epistemic Ledger & Gate Outputs (Round 4)
+
+| Anchor (`brief-agy-1437-r4.txt`) | Code / Evidence Citation | Verification |
+|---|---|---|
+| **B1:** Delete Gemini non-box clear of `flush_paused`; cleared only by `is_turn_start && pending_enter_deadline.is_none()` (`terminal.rs:3880-3884`) | `crates/designos-app/src/agent_composer.rs:900-901`, `crates/designos-app/src/terminal.rs:3880-3884`, `crates/designos-app/src/agent_composer.rs:563`, `crates/designos-app/src/terminal/gemini_composer_tests.rs:52-56` | Verified in `gemini_entry_points_after_dialog_hold_stay_queued_until_pre_invocation` (`crates/designos-app/src/agent_composer.rs:3619-3737`, `r4-green-tests.log:1-15`) and `the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste` (`r4-green-tests.log:46-60`) |
+| **B2 (closes r2-LOW-2):** `submit_system_image_prompt` no longer writes `last_output_at`; only the PTY reader moves that clock | `crates/designos-app/src/terminal.rs:3357-3373`, `crates/designos-app/src/agent_composer.rs:435-467, 501-515` | Verified in `image_job_submitted_during_hookless_idle_turn_waits_for_real_output_or_turn_end` (`crates/designos-app/src/agent_composer.rs:3740-3801`, `r4-green-tests.log:16-30`) and `image_job_submitted_during_running_turn_waits_for_turn_end` (`crates/designos-app/src/agent_composer.rs:3505-3542`, `r4-green-tests.log:31-45`) |
+| **Mutants:** Null control green, then restore `:901-902` clear and restore `last_output_at` write each alone | `plans/reports/agy-1437-queue-prompts-evidence/r4-mutants.log:1-33` | `M0_null` (`rc=0`, `r4-mutants.log:5,9`), `M1` killed (`rc=101`, `r4-mutants.log:22`), `M2` killed (`rc=101`, `r4-mutants.log:33`) |
+| **C1–C4:** Report wording, `fmt_rc`, fixture quotes, and cited red/mutant strings | `plans/reports/agy-1437-queue-prompts.md:24, 418-427`, `crates/designos-app/src/shell.rs:447-448`, `r4-fmt.log:1`, `r4-red-tests.log:1-59`, `r4-mutants.log:1-33` | Verified across `plans/reports/agy-1437-queue-prompts.md` |
+
+#### Epistemic Ledger (`FACT` / `INFERENCE` / `ASSUMPTION`) & Weakest Link
+- **`FACT`:** With `crates/designos-app/src/agent_composer.rs:901-903` removed, `tab.composer.flush_paused` is set to `true` when `flush_pending_enter_now` holds an Enter (`crates/designos-app/src/agent_composer.rs:765, 811`) and is cleared to `false` only in `poll_live_agent_bridge` when `is_turn_start && self.tabs[tab_idx].composer.pending_enter_deadline.is_none()` (`crates/designos-app/src/terminal.rs:3880-3884`), or when `write_prompt_to_live_tab` resets state for a newly written prompt (`crates/designos-app/src/agent_composer.rs:563`).
+- **`FACT`:** With the `last_output_at` write removed from `submit_system_image_prompt` (`crates/designos-app/src/terminal.rs:3369-3371`), submitting a background image job while a hookless turn is `Idle` after `write_delayed_enter` (`enter_written_at.is_some()` at `crates/designos-app/src/agent_composer.rs:758`) does not advance `last_output_at` beyond `enter_written_at`, so `has_output_since_enter` (`crates/designos-app/src/agent_composer.rs:451-457`) stays `false` until real PTY reader output arrives (`r4-green-tests.log:19-21`, `r4-mutants.log:29-33`).
+- **`INFERENCE`:** Requiring `PreInvocation` (`is_turn_start` at `crates/designos-app/src/terminal.rs:3867`) to clear a dialog-held `flush_paused` on Gemini guarantees that neither composer-box sends nor programmatic sends (`dispatch_figma_ai_prompt`, `submit_system_image_prompt`) can bypass a held prompt while the user has not yet pressed Enter in the terminal to start the held turn (`crates/designos-app/src/agent_composer.rs:901, 3648-3733`).
+- **`ASSUMPTION`:** Gemini CLI sessions with hooks enabled emit `PreInvocation` (`crates/designos-app/src/terminal.rs:3867`) when the user manually submits the held prompt in the terminal.
+- **Weakest Link:** If a Gemini session has hooks disabled or fails to emit `PreInvocation` when the user manually confirms a dialog-held prompt in the terminal, `flush_paused` remains `true` until a turn-start record arrives; this is intentional per `brief-agy-1437-r4.txt:5-7` so programmatic prompts never overwrite an unsubmitted held prompt in the PTY input buffer.
+
+#### Gate Runs (Round 4)
+```bash
+cargo fmt --all -- --check; echo fmt_rc=$?
+# fmt_rc=0 (r4-fmt.log:1)
+
+HOME="$S/home" TMPDIR="$S/tmp/" CARGO_TARGET_DIR="$PWD/out/cargo" \
+  cargo clippy --workspace --all-targets --locked -- -D warnings
+# Zero warnings in modified files; only main's 2 pre-existing needless_return errors at crates/designos-app/src/agent_permissions.rs:1176:9 (r4-clippy.log:374-375) and crates/designos-app/src/agent_permissions.rs:1194:9 (r4-clippy.log:389-390)
+
+HOME="$S/home" TMPDIR="$S/tmp/" CARGO_TARGET_DIR="$PWD/out/cargo" \
+  cargo test -p designos-app --bin designos --locked composer
+# running 93 tests (r4-gate-composer.log:9)
+# test result: ok. 93 passed; 0 failed; 0 ignored; 0 measured; 3981 filtered out; finished in 25.84s (r4-gate-composer.log:104)
+
+HOME="$S/home" TMPDIR="$S/tmp/" CARGO_TARGET_DIR="$PWD/out/cargo" \
+  cargo test --workspace --locked --lib
+# 1,487 passed; 0 failed; 3 ignored across 12 test suites:
+#   13 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:101)
+#   714 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:821)
+#   1 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:828)
+#   158 passed; 0 failed; 1 ignored (r4-gate-workspace-lib.log:993)
+#   143 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:1142)
+#   30 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:1178)
+#   4 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:1188)
+#   37 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:1231)
+#   322 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:1559)
+#   56 passed; 0 failed; 2 ignored (r4-gate-workspace-lib.log:1623)
+#   1 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:1630)
+#   8 passed; 0 failed; 0 ignored (r4-gate-workspace-lib.log:1644)
+```
+
+```bash
+git log --oneline origin/main..HEAD
+bafb32ab fix(agents): keep held-enter pause until turn start on gemini and stop stamping output clock on image jobs (#1437)
+cda82e17 Merge branch 'main' into jangtrinh/agy-1437-queue-prompts
+47aa38d4 docs(reports): add round 3 report and evidence for #1437
 d7dc4258 fix(agents): gate held-enter unpause on turn start and move image premark to composer (#1437)
 f53533fb fix(agents): wait for turn end on queued sends and preserve start-window prompts (#1437)
 2b61c790 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1437-queue-prompts
