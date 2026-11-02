@@ -1460,6 +1460,11 @@ fn update_rotate(app: &mut App, r: &mut RotateState, cur: DV, inp: &Inp) {
     app.changed();
 }
 
+/// Whether `id` keeps the ratio of a resize drag through its own aspect lock. A line has no ratio to keep.
+fn keeps_aspect_in_drag(doc: &Document, id: NodeId) -> bool {
+    doc.get(id).is_some_and(|n| n.lock_aspect && !matches!(n.kind, NodeKind::Line))
+}
+
 fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
     r.tx.ed.revert(&mut app.doc);
     let mut mouse = cur;
@@ -1469,7 +1474,13 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
         ResizeKind::Single { world0, .. } => world0.b.abs() < 1e-4 && world0.c.abs() < 1e-4,
         ResizeKind::Multi { .. } => true,
     };
-    if axis_aligned && !inp.mods.command && !inp.mods.shift {
+    // A locked node keeps the ratio from every handle, as Shift does, and then the pointer is not snapped either:
+    // snapping one axis would move the other off the size the same drag gives with Shift held.
+    let locked_ratio = match &r.kind {
+        ResizeKind::Single { id, .. } => keeps_aspect_in_drag(&app.doc, *id),
+        ResizeKind::Multi { nodes, .. } => nodes.iter().any(|(id, ..)| keeps_aspect_in_drag(&app.doc, *id)),
+    };
+    if axis_aligned && !inp.mods.command && !inp.mods.shift && !locked_ratio {
         let xe: Vec<f32> = if r.handle.affects_x() { vec![mouse.x] } else { vec![] };
         let ye: Vec<f32> = if r.handle.affects_y() { vec![mouse.y] } else { vec![] };
         let s = snap::snap_edges(&Rect::new(mouse.x, mouse.y, 0.0, 0.0), &xe, &ye, &r.targets, theme::SNAP_THRESHOLD_PX / app.view.zoom);
@@ -1489,8 +1500,7 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
             let ml = inv.apply(mouse);
             let is_text = matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Text(_)));
             let is_line = matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Line));
-            let node_locked = app.doc.get(*id).is_some_and(|n| n.lock_aspect);
-            let lock_aspect = is_scale_tool || ((inp.mods.shift || node_locked) && !is_line) || (is_text && r.handle.is_corner());
+            let lock_aspect = is_scale_tool || (inp.mods.shift && !is_line) || locked_ratio || (is_text && r.handle.is_corner());
             let (mut ns, d) = handles::resize_local(*size0, r.handle, ml, lock_aspect, inp.mods.alt);
             if is_line {
                 ns.y = 0.0;
@@ -1513,7 +1523,7 @@ fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
         }
         ResizeKind::Multi { bbox0, nodes } => {
             let ml = sub(mouse, v2(bbox0.x, bbox0.y));
-            let (ns, d) = handles::resize_local(v2(bbox0.w, bbox0.h), r.handle, ml, inp.mods.shift || is_scale_tool, inp.mods.alt);
+            let (ns, d) = handles::resize_local(v2(bbox0.w, bbox0.h), r.handle, ml, inp.mods.shift || is_scale_tool || locked_ratio, inp.mods.alt);
             let nb = Rect::new(bbox0.x + d.x, bbox0.y + d.y, ns.x, ns.y);
             let (sx, sy) = (ns.x / bbox0.w.max(1e-3), ns.y / bbox0.h.max(1e-3));
             let mut relayout_roots = Vec::new();
@@ -3469,5 +3479,109 @@ mod tests {
         };
         update_resize(&mut app, &mut r, v2(300.0, 160.0), &inp_plain);
         assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 60.0), "unlocked node without Shift must free-resize");
+    }
+
+    fn drag_inp(shift: bool) -> Inp {
+        Inp {
+            pos: None,
+            press_pos: None,
+            release_pos: None,
+            prior_release_pos: None,
+            release_mods: None,
+            prior_release_mods: None,
+            pressed: false,
+            down: true,
+            released: false,
+            mid_pressed: false,
+            mid_down: false,
+            mods: Modifiers { shift, ..Modifiers::NONE },
+            space: false,
+            z_down: false,
+        }
+    }
+
+    /// Selects `ids`, grabs `handle` through the real resize start and returns the drag state.
+    fn grab_handle(app: &mut App, ids: &[NodeId], handle: Handle, at: DV, targets: Vec<Rect>) -> ResizeState {
+        app.selection = ids.to_vec();
+        start_resize(app, handle, at);
+        let Interaction::Resize(mut r) = std::mem::take(&mut app.canvas.inter) else { panic!("grabbing a handle must start a resize") };
+        r.targets = targets;
+        r
+    }
+
+    /// Locked 100x50 rectangle at the origin next to an unlocked 100x100 one, in one selection.
+    fn mixed_lock_pair() -> (App, NodeId, NodeId) {
+        let (mut app, a, b) = app_with_two();
+        let na = app.doc.get_mut(a).unwrap();
+        na.transform = Affine::translate(0.0, 0.0);
+        na.size = v2(100.0, 50.0);
+        na.lock_aspect = true;
+        let nb = app.doc.get_mut(b).unwrap();
+        nb.transform = Affine::translate(120.0, 0.0);
+        nb.size = v2(100.0, 100.0);
+        (app, a, b)
+    }
+
+    #[test]
+    fn multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked() {
+        // Right edge to twice the box width, no Shift.
+        let (mut app, a, b) = mixed_lock_pair();
+        let mut r = grab_handle(&mut app, &[a, b], Handle::R, v2(220.0, 50.0), vec![]);
+        update_resize(&mut app, &mut r, v2(440.0, 50.0), &drag_inp(false));
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 100.0), "the locked node must keep its 2:1 ratio in a multi-selection drag");
+        assert_eq!(app.doc.get(b).unwrap().size, v2(200.0, 200.0), "the unlocked node scales with the selection box");
+
+        // A selection with no locked node still resizes freely on an edge handle.
+        let (mut app, a, b) = mixed_lock_pair();
+        app.doc.get_mut(a).unwrap().lock_aspect = false;
+        let mut r = grab_handle(&mut app, &[a, b], Handle::R, v2(220.0, 50.0), vec![]);
+        update_resize(&mut app, &mut r, v2(440.0, 50.0), &drag_inp(false));
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 50.0), "an unlocked-only selection keeps its height on a right-edge drag");
+        assert_eq!(app.doc.get(b).unwrap().size, v2(200.0, 100.0));
+
+        // The bottom-edge handle keeps the ratio too.
+        let (mut app, a, b) = mixed_lock_pair();
+        let mut r = grab_handle(&mut app, &[a, b], Handle::B, v2(110.0, 100.0), vec![]);
+        update_resize(&mut app, &mut r, v2(110.0, 200.0), &drag_inp(false));
+        assert_eq!(app.doc.get(a).unwrap().size, v2(200.0, 100.0), "the locked node keeps its ratio from the bottom edge");
+        assert_eq!(app.doc.get(b).unwrap().size, v2(200.0, 200.0));
+    }
+
+    #[test]
+    fn multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target() {
+        let target = Rect::new(440.0, 400.0, 10.0, 10.0);
+        let drag_to = v2(437.0, 50.0);
+        let sizes = |shift: bool, lock: bool| {
+            let (mut app, a, b) = mixed_lock_pair();
+            app.doc.get_mut(a).unwrap().lock_aspect = lock;
+            let mut r = grab_handle(&mut app, &[a, b], Handle::R, v2(220.0, 50.0), vec![target]);
+            update_resize(&mut app, &mut r, drag_to, &drag_inp(shift));
+            (app.doc.get(a).unwrap().size, app.doc.get(b).unwrap().size)
+        };
+        let (free_a, _) = sizes(false, false);
+        assert_eq!(free_a.x, 200.0, "control: an unlocked drag three units from the target snaps onto it");
+        let shift = sizes(true, false);
+        assert_ne!(shift.0.x, 200.0, "control: Shift skips the snap");
+        assert_eq!(sizes(false, true), shift, "a locked multi-selection drag must give the Shift size");
+    }
+
+    #[test]
+    fn locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag() {
+        let target = Rect::new(300.0, 400.0, 10.0, 10.0);
+        let drag_to = v2(298.0, 125.0);
+        let size_after = |shift: bool, lock: bool| {
+            let (mut app, a, _b) = app_with_two();
+            let n = app.doc.get_mut(a).unwrap();
+            n.transform = Affine::translate(100.0, 100.0);
+            n.size = v2(100.0, 50.0);
+            n.lock_aspect = lock;
+            let mut r = grab_handle(&mut app, &[a], Handle::R, v2(200.0, 125.0), vec![target]);
+            update_resize(&mut app, &mut r, drag_to, &drag_inp(shift));
+            app.doc.get(a).unwrap().size
+        };
+        assert_eq!(size_after(false, false), v2(200.0, 50.0), "control: an unlocked drag two units from the target snaps onto it");
+        assert_eq!(size_after(true, false), v2(198.0, 99.0), "control: a Shift drag skips the snap and keeps the ratio");
+        assert_eq!(size_after(false, true), size_after(true, false), "a locked drag must give the Shift size, not a snapped one");
+        assert_eq!(size_after(true, true), size_after(true, false));
     }
 }

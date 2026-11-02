@@ -1460,17 +1460,19 @@ fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is
     if w_new.is_some() || h_new.is_some() {
         resize_selection(app, sel, w_new, h_new);
     }
-    if is_line {
-        remove_test_rect(ui.ctx(), "lock-aspect");
-    } else {
-        let all_locked = !sel.is_empty() && sel.iter().all(|id| app.doc.get(*id).is_some_and(|n| n.lock_aspect));
+    // The aspect lock covers the nodes that have both a width and a height. A line has only a width and never gets one.
+    let lockable = |app: &App, id: NodeId| app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Line));
+    if sel.iter().any(|id| lockable(app, *id)) {
+        let all_locked = sel.iter().filter(|id| lockable(app, **id)).all(|id| app.doc.get(*id).is_some_and(|n| n.lock_aspect));
         let lock_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         widgets::record(ui, "lock-aspect", lock_r);
-        let icon = if all_locked { Icon::Lock } else { Icon::Unlock };
-        if widgets::icon_button(ui, lock_r, "lock-aspect", icon, all_locked, "Lock aspect ratio").clicked() {
+        if widgets::icon_button(ui, lock_r, "lock-aspect", Icon::Link, all_locked, "Lock aspect ratio").clicked() {
             let next = !all_locked;
-            app.edit_nodes(sel, |n| n.lock_aspect = next);
+            let ids: Vec<NodeId> = sel.iter().copied().filter(|id| lockable(app, *id)).collect();
+            app.edit_nodes(&ids, |n| n.lock_aspect = next);
         }
+    } else {
+        remove_test_rect(ui.ctx(), "lock-aspect");
     }
     row_end(pane);
 }
@@ -3499,6 +3501,59 @@ mod tests {
     }
 
     #[test]
+    fn lock_aspect_toggle_in_a_selection_with_a_line_acts_on_the_nodes_that_have_width_and_height_in_either_order() {
+        for line_first in [false, true] {
+            let mut doc = designos_doc::Document::new("lock-aspect-line-mix");
+            let page = doc.add_page("Page 1");
+            let mut app = App::new(doc);
+            app.page = page;
+            let rect_id = app.doc.alloc_id();
+            let rect = app.doc.insert(page, Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
+            let line_id = app.doc.alloc_id();
+            let mut line_node = Node::new(line_id, NodeKind::Line);
+            line_node.size = DVec2::new(100.0, 0.0);
+            let line = app.doc.insert(page, line_node).unwrap();
+            app.selection = if line_first { vec![line, rect] } else { vec![rect, line] };
+
+            let ctx = egui::Context::default();
+            crate::theme::apply(&ctx);
+            crate::theme::install_fonts(&ctx);
+            let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(240.0, 900.0));
+            let test_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", key.to_string()))));
+            let field_rect = |ctx: &egui::Context, key: &str| ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}")))));
+            let step = |app: &mut App, events: Vec<egui::Event>| -> egui::FullOutput {
+                let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+                ctx.run_ui(raw, |ui| show(app, ui, region))
+            };
+            let click = |app: &mut App, pos: Pos2| {
+                let _ = step(app, vec![egui::Event::PointerMoved(pos)]);
+                for pressed in [true, false] {
+                    let _ =
+                        step(app, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+                }
+            };
+
+            let order = if line_first { "line first" } else { "rectangle first" };
+            let _ = step(&mut app, vec![]);
+            assert_eq!(field_rect(&ctx, "h").is_some(), !line_first, "the H field follows the first selected node ({order})");
+            let lock_r = test_rect(&ctx, "lock-aspect").unwrap_or_else(|| panic!("the toggle must show when any selected node has width and height ({order})"));
+
+            click(&mut app, lock_r.center());
+            assert!(app.doc.get(rect).unwrap().lock_aspect, "a click must lock the rectangle ({order})");
+            assert!(!app.doc.get(line).unwrap().lock_aspect, "a line must never get an aspect lock ({order})");
+            let out_on = step(&mut app, vec![egui::Event::PointerMoved(Pos2::new(1.0, 1.0))]);
+            assert!(
+                has_rect_fill(&out_on.shapes, lock_r, crate::theme::BG_SELECTED),
+                "the toggle shows on once every node with width and height is locked ({order})"
+            );
+
+            click(&mut app, lock_r.center());
+            assert!(!app.doc.get(rect).unwrap().lock_aspect, "a second click must unlock the rectangle ({order})");
+            assert!(!app.doc.get(line).unwrap().lock_aspect, "a line must never get an aspect lock ({order})");
+        }
+    }
+
+    #[test]
     fn w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_axis() {
         let mut doc = designos_doc::Document::new("lock-aspect-wh");
         let page = doc.add_page("Page 1");
@@ -3740,7 +3795,7 @@ mod tests {
 
     #[test]
     fn render_headless_kit_panel_evidence_when_requested() {
-        let Ok(kit_path) = std::env::var("DESIGNOS_1468_KIT_COPY") else { return };
+        let Ok(kit_path) = std::env::var("DESIGNOS_KIT_PANEL_COPY") else { return };
         let bytes = std::fs::read(&kit_path).expect("read kit copy");
         let (doc, _) = designos_fig::import_fig_with_budget(&bytes, 256).expect("import kit copy");
         let mut app = App::new(doc);
@@ -3812,8 +3867,8 @@ mod tests {
 
         let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/evidence");
         std::fs::create_dir_all(&out_dir).expect("create out/evidence");
-        img_off.save(out_dir.join("1468-lock-aspect-off.png")).expect("save off png");
-        img_on.save(out_dir.join("1468-lock-aspect-on.png")).expect("save on png");
+        img_off.save(out_dir.join("lock-aspect-off.png")).expect("save off png");
+        img_on.save(out_dir.join("lock-aspect-on.png")).expect("save on png");
 
         // Side-by-side comparison image (off on left, 16px gap, on on right).
         let gap = 32_u32;
@@ -3824,6 +3879,6 @@ mod tests {
                 combined.put_pixel(img_off.width() + gap + x, y, *img_on.get_pixel(x, y));
             }
         }
-        combined.save(out_dir.join("1468-lock-aspect-panel.png")).expect("save combined png");
+        combined.save(out_dir.join("lock-aspect-panel.png")).expect("save combined png");
     }
 }

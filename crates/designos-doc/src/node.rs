@@ -219,6 +219,8 @@ pub enum OverrideField {
     MainComponent,
     /// Custom children inside a component slot container.
     SlotContent,
+    /// Whether the aspect ratio of width and height is locked.
+    LockAspect,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
