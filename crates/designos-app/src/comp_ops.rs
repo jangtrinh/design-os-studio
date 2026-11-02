@@ -714,4 +714,83 @@ mod tests {
         assert!(node.component.overrides.contains(&OverrideField::Stroke));
         assert!(node.component.overrides.contains(&OverrideField::Size));
     }
+
+    /// An app holding a 100x50 main component and `count` instances of it, none locked.
+    fn app_with_main_and_instances(count: usize) -> (App, NodeId, Vec<NodeId>) {
+        let mut doc = Document::new("aspect-lock");
+        let page = doc.add_page("Page 1");
+        let frame_id = doc.alloc_id();
+        let main = doc.insert(page, Node::frame(frame_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
+        create_component(&mut doc, main).apply(&mut doc).unwrap();
+        let mut instances = Vec::new();
+        for i in 0..count {
+            create_instance(&mut doc, main, page, Vec2::new(200.0 + 150.0 * i as f32, 0.0)).apply(&mut doc).unwrap();
+            instances.push(*doc.get(page).unwrap().children.last().unwrap());
+        }
+        (App::new(doc), main, instances)
+    }
+
+    fn aspect_locked(app: &App, id: NodeId) -> bool {
+        app.doc.get(id).unwrap().lock_aspect
+    }
+
+    #[test]
+    fn an_instance_follows_a_change_of_its_main_aspect_lock() {
+        let (mut app, main, instances) = app_with_main_and_instances(1);
+        let inst = instances[0];
+        assert!(!aspect_locked(&app, inst));
+
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, inst), "locking the main must lock an instance that did not set its own lock");
+
+        app.edit_nodes(&[main], |n| n.lock_aspect = false);
+        assert!(!aspect_locked(&app, inst), "unlocking the main must unlock an instance that did not set its own lock");
+    }
+
+    #[test]
+    fn an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main() {
+        let (mut app, main, instances) = app_with_main_and_instances(2);
+        let (own, follower) = (instances[0], instances[1]);
+
+        app.edit_nodes(&[own], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, own));
+        assert!(!aspect_locked(&app, follower));
+
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, follower), "the main's lock must reach the instance that has no lock of its own");
+        assert!(aspect_locked(&app, own));
+
+        app.edit_nodes(&[main], |n| n.lock_aspect = false);
+        assert!(!aspect_locked(&app, follower), "the main's unlock must reach the instance that has no lock of its own");
+        assert!(aspect_locked(&app, own), "an instance that set its own lock must keep it when the main is unlocked");
+
+        // The other direction: an instance that unlocked itself stays unlocked under a locked main.
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        app.edit_nodes(&[own], |n| n.lock_aspect = false);
+        app.edit_nodes(&[main], |n| n.lock_aspect = false);
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        assert!(!aspect_locked(&app, own), "an instance that unlocked itself must stay unlocked when the main is locked again");
+        assert!(aspect_locked(&app, follower));
+    }
+
+    #[test]
+    fn resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main() {
+        let (mut app, main, instances) = app_with_main_and_instances(1);
+        let inst = instances[0];
+
+        app.edit_nodes(&[inst], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, inst) && !aspect_locked(&app, main));
+        app.reset_node_overrides(inst, &OverrideField::ALL);
+        assert!(!aspect_locked(&app, inst), "reset must give an instance the lock of an unlocked main");
+
+        // Once reset, the instance follows the main again.
+        app.edit_nodes(&[main], |n| n.lock_aspect = true);
+        assert!(aspect_locked(&app, inst), "a reset instance follows the main's lock again");
+
+        // Reset also restores a locked main's value over an instance that unlocked itself.
+        app.edit_nodes(&[inst], |n| n.lock_aspect = false);
+        assert!(!aspect_locked(&app, inst));
+        app.reset_node_overrides(inst, &OverrideField::ALL);
+        assert!(aspect_locked(&app, inst), "reset must give an instance the lock of a locked main");
+    }
 }

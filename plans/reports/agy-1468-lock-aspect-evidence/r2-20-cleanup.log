@@ -1,0 +1,10 @@
+# cleanup
+gated code commit: 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+$ rm -rf out/cargo out/kit-clone  (the kit clone was a fresh APFS copy of the Untitled kit, used only by the headless render)
+$ ls out/cargo
+ls: out/cargo: No such file or directory
+ls_out_cargo_rc=1
+$ ls out/kit-clone
+ls: out/kit-clone: No such file or directory
+$ git diff --stat 1462d2db -- crates scripts   (empty: nothing in crates/ or scripts/ differs from the gated commit)
+code_diff_since_gated_rc=0

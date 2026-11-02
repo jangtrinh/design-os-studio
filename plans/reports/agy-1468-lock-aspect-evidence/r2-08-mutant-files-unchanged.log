@@ -1,0 +1,7 @@
+crates/designos-app/src/canvas/interact.rs: identical to HEAD after the mutant runs (git diff HEAD is empty)
+crates/designos-doc/src/components.rs: identical to HEAD after the mutant runs (git diff HEAD is empty)
+crates/designos-fig/src/fig_export.rs: identical to HEAD after the mutant runs (git diff HEAD is empty)
+mutant 1 restored: crates/designos-app/src/canvas/interact.rs
+mutant 2 restored: crates/designos-doc/src/components.rs
+mutant 3 restored: crates/designos-doc/src/components.rs
+mutant 4 restored: crates/designos-fig/src/fig_export.rs

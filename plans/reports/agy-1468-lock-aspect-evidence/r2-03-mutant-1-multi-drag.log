@@ -1,0 +1,43 @@
+1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+MUTANT 1: multi-selection drag ignores aspect locks
+change (git diff -U0 crates/designos-app/src/canvas/interact.rs, changed lines only):
+-        ResizeKind::Multi { nodes, .. } => nodes.iter().any(|(id, ..)| keeps_aspect_in_drag(&app.doc, *id)),
++        ResizeKind::Multi { nodes, .. } => false && nodes.iter().any(|(id, ..)| keeps_aspect_in_drag(&app.doc, *id)),
+/dev/disk3s1s1   926Gi    12Gi   122Gi     9%    459k  1.3G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.71s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 3 tests
+test canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked ... FAILED
+test canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target ... FAILED
+test shell::tests::layer_drag_fast::a_fast_multi_selection_drag_moves_the_same_layers_as_a_slow_one ... ok
+
+failures:
+
+---- canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked stdout ----
+
+thread 'canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked' (73086124) panicked at crates/designos-app/src/canvas/interact.rs:3531:9:
+assertion `left == right` failed: the locked node must keep its 2:1 ratio in a multi-selection drag
+  left: Vec2 { x: 200.0, y: 50.0 }
+ right: Vec2 { x: 200.0, y: 100.0 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target stdout ----
+
+thread 'canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target' (73086125) panicked at crates/designos-app/src/canvas/interact.rs:3565:9:
+assertion `left == right` failed: a locked multi-selection drag must give the Shift size
+  left: (Vec2 { x: 200.0, y: 50.0 }, Vec2 { x: 200.0, y: 100.0 })
+ right: (Vec2 { x: 198.63637, y: 99.31818 }, Vec2 { x: 198.63637, y: 198.63635 })
+
+
+failures:
+    canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked
+    canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.71s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant1_done

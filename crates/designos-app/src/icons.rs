@@ -28,6 +28,7 @@ pub enum Icon {
     EyeOff,
     Lock,
     Unlock,
+    Link,
     Sidebar,
     Page,
     Check,
@@ -169,6 +170,7 @@ impl Icon {
         Icon::EyeOff,
         Icon::Lock,
         Icon::Unlock,
+        Icon::Link,
         Icon::Sidebar,
         Icon::Page,
         Icon::Check,
@@ -293,6 +295,7 @@ impl Icon {
             Icon::EyeOff => "eye-slash",
             Icon::Lock => "lock",
             Icon::Unlock => "lock-open",
+            Icon::Link => "link",
             Icon::Sidebar => "sidebar-simple",
             Icon::Page => "file-text",
             Icon::Check => "check",
@@ -475,6 +478,7 @@ phosphor!(
     "intersect-three",
     "knife",
     "line-segment",
+    "link",
     "list",
     "lock",
     "lock-open",
@@ -641,7 +645,12 @@ mod tests {
         for i in Icon::ALL {
             assert!(seen.insert(*i), "{i:?} listed twice");
         }
-        assert_eq!(seen.len(), 119);
+        assert_eq!(seen.len(), 120);
+    }
+
+    #[test]
+    fn link_maps_to_the_phosphor_chain_link() {
+        assert_eq!(Icon::Link.phosphor_name(), Some("link"));
     }
 
     #[test]

@@ -1,0 +1,7 @@
+1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+literal geometry outside theme.rs: offset_literals=1521, inset_literals=41, radius_literals=171, font_literals=23, nonconcentric_pairs=2, legacy_control_refs=6
+note: 2 entries are below baseline; run --write-baseline to lock the gain in
+PASS: no count rose above the baseline
+spacing_rc=0
+Chrome colour literal gate PASSED (29 files with findings, 199/199 baseline chrome sites).
+chrome_colour_rc=0

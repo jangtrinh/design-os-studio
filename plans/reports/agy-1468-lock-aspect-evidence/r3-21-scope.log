@@ -1,0 +1,10 @@
+# scope of Round 3 at ed4d2e96123d39a033a018843ca74e9741ee3f29: files changed since the Round 2 head d297959c
+$ git diff --stat d297959c ed4d2e96 -- . (everything)
+ crates/designos-fig/src/fig.rs                     |   5 +
+ crates/designos-fig/src/rest_import.rs             |   4 +
+ .../fig_instance_lock_aspect_override_roundtrip.rs | 105 +++++++++++++++++++++
+ 3 files changed, 114 insertions(+)
+$ git diff --name-only d297959c ed4d2e96 -- . ":!crates/designos-fig" ":!plans"   (files outside the Round 3 list)
+scope_rc=0  (1 = none outside the list)
+$ git diff --stat d297959c ed4d2e96 -- crates/designos-app crates/designos-doc   (app and doc code: empty)
+designos-app_diff_rc=0

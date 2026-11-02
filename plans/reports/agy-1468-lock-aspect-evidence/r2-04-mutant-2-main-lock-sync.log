@@ -1,0 +1,72 @@
+1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+MUTANT 2: the main's lock change does not reach a non-overridden instance
+change (git diff -U0 crates/designos-doc/src/components.rs, changed lines only):
+-        OverrideField::LockAspect => to.lock_aspect = from.lock_aspect,
++        OverrideField::LockAspect => {}
+/dev/disk3s1s1   926Gi    12Gi   122Gi     9%    459k  1.3G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.65s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 3 tests
+test components::tests::an_aspect_lock_set_on_the_main_before_an_instance_is_made_reaches_the_new_instance ... ok
+test components::tests::record_override_flags_an_aspect_lock_change_and_nothing_else ... ok
+test components::tests::sync_gives_every_mirrored_node_the_main_aspect_lock_unless_it_overrides_it ... FAILED
+
+failures:
+
+---- components::tests::sync_gives_every_mirrored_node_the_main_aspect_lock_unless_it_overrides_it stdout ----
+
+thread 'components::tests::sync_gives_every_mirrored_node_the_main_aspect_lock_unless_it_overrides_it' (73086856) panicked at crates/designos-doc/src/components.rs:3263:9:
+the instance root follows its main
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    components::tests::sync_gives_every_mirrored_node_the_main_aspect_lock_unless_it_overrides_it
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 720 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+/dev/disk3s1s1   926Gi    12Gi   122Gi     9%    459k  1.3G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.66s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 3 tests
+test comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock ... FAILED
+test comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main ... FAILED
+test comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main ... FAILED
+
+failures:
+
+---- comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock stdout ----
+
+thread 'comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock' (73090857) panicked at crates/designos-app/src/comp_ops.rs:744:9:
+locking the main must lock an instance that did not set its own lock
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main stdout ----
+
+thread 'comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main' (73090858) panicked at crates/designos-app/src/comp_ops.rs:760:9:
+the main's lock must reach the instance that has no lock of its own
+
+---- comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main stdout ----
+
+thread 'comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main' (73090859) panicked at crates/designos-app/src/comp_ops.rs:784:9:
+reset must give an instance the lock of an unlocked main
+
+
+failures:
+    comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock
+    comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main
+    comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant2_done
