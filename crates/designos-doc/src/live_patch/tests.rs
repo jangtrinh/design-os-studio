@@ -263,6 +263,43 @@ fn concurrent_effect_and_stroke_entries_survive_live_patch_replay() {
 }
 
 #[test]
+fn reordered_list_uses_full_field_fallback() {
+    let (mut full, _page, tops) = full_doc(1, 0);
+    let id = tops[0];
+    let first = Paint::solid(Color::rgb(20, 40, 60));
+    let second = Paint::solid(Color::rgb(80, 100, 120));
+    full.get_mut(id).unwrap().fills = vec![first.clone(), second.clone()];
+    let mut agent = full.clone();
+    agent.get_mut(id).unwrap().fills.swap(0, 1);
+
+    let ops = live_ops_for_command(&full, &Command::Update { node: Box::new(agent.get(id).unwrap().clone()) }).unwrap();
+    let LiveOp::Update { set, list_deltas, .. } = &ops[0] else { panic!("expected update") };
+    assert!(list_deltas.is_empty(), "reordered lists must not use positional deltas");
+    assert_eq!(set.get("fills"), Some(&serde_json::to_value(&agent.get(id).unwrap().fills).unwrap()));
+}
+
+#[test]
+fn zero_base_len_delta_is_rejected_for_nonempty_editor_list() {
+    let (mut full, _page, tops) = full_doc(1, 0);
+    let id = tops[0];
+    full.get_mut(id).unwrap().fills = vec![Paint::solid(Color::rgb(20, 40, 60))];
+    let before = full.get(id).unwrap().fills.clone();
+    let report = replay(
+        &mut full,
+        vec![LiveOp::Update {
+            id,
+            set: serde_json::Map::new(),
+            unset: Vec::new(),
+            list_deltas: vec![ListDelta { path: "fills".into(), base_len: 0, entries: Vec::new() }],
+        }],
+        &mut LivePatchState::default(),
+    );
+    assert_eq!(full.get(id).unwrap().fills, before);
+    assert_eq!(report.applied, 0);
+    assert!(report.skipped.iter().any(|reason| reason.contains("zero base length")), "{report:?}");
+}
+
+#[test]
 fn list_delta_serialization_keeps_old_updates_readable() {
     let mut set = serde_json::Map::new();
     set.insert("name".into(), serde_json::json!("Renamed"));

@@ -781,7 +781,11 @@ fn apply_list_deltas(fields: &mut Map<String, Value>, deltas: &[ListDelta]) -> R
         let Value::Array(items) = list else {
             return Err(format!("list delta path '{}' is not an array", delta.path));
         };
-        if delta.base_len != 0 && items.len() != delta.base_len {
+        if delta.base_len == 0 {
+            if !items.is_empty() || !delta.entries.is_empty() {
+                return Err(format!("list delta path '{}' has an invalid zero base length", delta.path));
+            }
+        } else if items.len() != delta.base_len {
             return Err(format!("list delta path '{}' changed length (agent {}, editor {})", delta.path, delta.base_len, items.len()));
         }
         for entry in &delta.entries {

@@ -334,8 +334,9 @@ pub enum LiveOp {
 pub struct ListDelta {
     /// A top-level node field (`fills` or `effects`) or a supported nested path (`stroke.paints`).
     pub path: String,
-    /// Length of the list in the agent's base snapshot.  Replay refuses a positional delta when
-    /// the editor inserted or removed entries in the meantime.
+    /// Length of the list in the agent's base snapshot. Replay refuses a positional delta when
+    /// the editor inserted or removed entries in the meantime. Zero is valid only for an empty,
+    /// no-op delta; it cannot describe a non-empty list.
     #[serde(default)]
     pub base_len: usize,
     pub entries: Vec<ListDeltaEntry>,

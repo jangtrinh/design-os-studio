@@ -123,6 +123,26 @@ pub fn live_ops_for_command(doc: &Document, cmd: &Command) -> Result<Vec<LiveOp>
 
 type FieldChanges = (Map<String, Value>, Vec<String>, Vec<ListDelta>);
 
+/// Returns positional entries only when every changed value is a new value at its original
+/// position. If a changed value came from another position, the list was reordered (or the
+/// change is otherwise ambiguous), so callers must fall back to replacing the whole field.
+fn list_delta_entries(old_items: &[Value], new_items: &[Value]) -> Option<Vec<ListDeltaEntry>> {
+    if old_items.len() != new_items.len() {
+        return None;
+    }
+    let mut entries = Vec::new();
+    for (index, (old_item, new_item)) in old_items.iter().zip(new_items).enumerate() {
+        if old_item == new_item {
+            continue;
+        }
+        if old_items.iter().enumerate().any(|(old_index, item)| old_index != index && item == new_item) {
+            return None;
+        }
+        entries.push(ListDeltaEntry { index, value: new_item.clone() });
+    }
+    Some(entries)
+}
+
 /// Serialized top-level fields that differ between `before` and `after`.
 fn field_changes(before: &Node, after: &Node) -> Result<FieldChanges, String> {
     let as_map = |n: &Node| match serde_json::to_value(n) {
@@ -137,14 +157,7 @@ fn field_changes(before: &Node, after: &Node) -> Result<FieldChanges, String> {
         if !STRUCTURAL_FIELDS.contains(&k.as_str()) && old.get(k) != Some(v) {
             if matches!(k.as_str(), "fills" | "effects") {
                 if let (Some(Value::Array(old_items)), Value::Array(new_items)) = (old.get(k), v) {
-                    if old_items.len() == new_items.len() {
-                        let entries = old_items
-                            .iter()
-                            .zip(new_items)
-                            .enumerate()
-                            .filter(|&(_, (old_item, new_item))| old_item != new_item)
-                            .map(|(index, (_, new_item))| ListDeltaEntry { index, value: new_item.clone() })
-                            .collect::<Vec<_>>();
+                    if let Some(entries) = list_delta_entries(old_items, new_items) {
                         if !entries.is_empty() {
                             list_deltas.push(ListDelta { path: k.clone(), base_len: old_items.len(), entries });
                             continue;
@@ -155,14 +168,7 @@ fn field_changes(before: &Node, after: &Node) -> Result<FieldChanges, String> {
             if k == "stroke" {
                 if let (Some(Value::Object(old_stroke)), Value::Object(new_stroke)) = (old.get(k), v) {
                     if let (Some(Value::Array(old_paints)), Some(Value::Array(new_paints))) = (old_stroke.get("paints"), new_stroke.get("paints")) {
-                        if old_paints.len() == new_paints.len() {
-                            let entries = old_paints
-                                .iter()
-                                .zip(new_paints)
-                                .enumerate()
-                                .filter(|&(_, (old_item, new_item))| old_item != new_item)
-                                .map(|(index, (_, new_item))| ListDeltaEntry { index, value: new_item.clone() })
-                                .collect::<Vec<_>>();
+                        if let Some(entries) = list_delta_entries(old_paints, new_paints) {
                             if !entries.is_empty() {
                                 list_deltas.push(ListDelta { path: "stroke.paints".into(), base_len: old_paints.len(), entries });
                             }
