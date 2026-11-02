@@ -977,7 +977,10 @@ pub fn check_stale_allow_entries_for_run(
             }
         }
         if !matched_indices.contains(&idx) {
-            return Err(format!("stale allow.json[{idx}] entry (case='{}', region='{}', spec='{}'): matched 0 widgets", e.case, e.region, e.spec));
+            return Err(format!(
+                "stale allow.json[{idx}] entry (case='{}', region='{}', spec='{}', name_prefix={:?}, h_base={:?}, reason='{}'): matched 0 widgets",
+                e.case, e.region, e.spec, e.name_prefix, e.h_base, e.reason
+            ));
         }
     }
     Ok(())
@@ -1605,9 +1608,9 @@ mod tests {
         assert!(err_count.contains("G4 unnamed widget count mismatch"), "expected G4 count mismatch error, got: {err_count}");
     }
 
-    /// Round 4 Major 4: An allow entry is counted as matched when it is the covering entry for a
-    /// widget that exists (even with 0 drift), and staleness is checked once over the union of a run
-    /// (`"*"` is stale only when no case in the run used it).
+    /// An allow entry is counted as matched when it is the covering entry for a
+    /// widget that exists (even with 0 drift), staleness is checked once over the union of a run
+    /// (`"*"` is stale only when no case in the run used it), and a stale error names which rule failed.
     #[test]
     fn stale_check_counts_covering_entries_and_runs_over_union_of_run() {
         // 1. Case-specific entry whose covered widgets stay within 0.5pt (0 drift) must count as matched.
@@ -1619,7 +1622,7 @@ mod tests {
             name_prefix: Some("prop-row-".into()),
             max_dh: Some(8.0),
             spec: "F".into(),
-            reason: "R5: row height 24->32".into(),
+            reason: "row height 24->32".into(),
             ..Default::default()
         }])
         .expect("valid allow list");
@@ -1645,7 +1648,7 @@ mod tests {
             name_prefix: Some("prop-row-".into()),
             max_dh: Some(8.0),
             spec: "F".into(),
-            reason: "R5: row height 24->32".into(),
+            reason: "row height 24->32".into(),
             ..Default::default()
         }])
         .expect("valid wildcard allow list");
@@ -1660,7 +1663,8 @@ mod tests {
         check_stale_allow_entries_for_run(&allow_wild, &union_matched, Some(&scope_cases), Some("F"))
             .expect("wildcard entry matched in at least one case of the run must not be stale");
 
-        // If no case in the run has any widget covered by the wildcard entry, the run-level stale check fails.
+        // If no case in the run has any widget covered by the wildcard entry, the run-level stale check fails
+        // and the error message names which rule failed.
         let mut empty_matched = BTreeSet::new();
         let mut home_only_scope = BTreeSet::new();
         let r_home = compare(&base_home, &cur_home, &allow_wild, &[]).expect("home compare");
@@ -1668,9 +1672,12 @@ mod tests {
         home_only_scope.insert("h-home".into());
         let err = check_stale_allow_entries_for_run(&allow_wild, &empty_matched, Some(&home_only_scope), Some("F"))
             .expect_err("wildcard entry unused by every case in the run must fail as stale");
-        assert!(err.contains("stale allow.json[0]"), "unexpected error: {err}");
+        assert!(
+            err.contains("stale allow.json[0]") && err.contains("prop-row-") && err.contains("row height 24->32") && err.contains("matched 0 widgets"),
+            "stale error must identify which rule failed, got: {err}"
+        );
 
-        // 3. Round 5 Major C (Grok's scenario): `{case:"*", spec:"D", region:"right_panel", name_prefix:"prop-row-", max_dh:8}`
+        // 3. `{case:"*", spec:"D", region:"right_panel", name_prefix:"prop-row-", max_dh:8}`
         //    whose only match is an F case, checked under `check_stale_allow_entries_for_run(..., Some("F"))`.
         let allow_d_wild = validate_allow_entries(vec![AllowEntry {
             case: "*".into(),
@@ -1678,7 +1685,7 @@ mod tests {
             name_prefix: Some("prop-row-".into()),
             max_dh: Some(8.0),
             spec: "D".into(),
-            reason: "R5: row height 24->32".into(),
+            reason: "row height 24->32".into(),
             ..Default::default()
         }])
         .expect("valid wildcard allow list with spec D");
@@ -1696,7 +1703,7 @@ mod tests {
         let rep_f_empty = compare(&base_f_no_match, &cur_f_no_match, &allow_d_wild, &[]).expect("compare with no matching widgets");
         let err_d_in_f = check_stale_allow_entries_for_run(&allow_d_wild, &rep_f_empty.matched_allow_indices, Some(&f_scope), Some("F"))
             .expect_err("spec D wildcard entry that compare can apply in Some(\"F\") run must fail as stale when unmatched");
-        assert!(err_d_in_f.contains("stale allow.json[0]"), "unexpected error: {err_d_in_f}");
+        assert!(err_d_in_f.contains("stale allow.json[0]") && err_d_in_f.contains("prop-row-"), "unexpected error: {err_d_in_f}");
     }
 
     /// Round 4 Minor 5: Overlay names are `overlay:{order}/{index}` in `areas().order()`,

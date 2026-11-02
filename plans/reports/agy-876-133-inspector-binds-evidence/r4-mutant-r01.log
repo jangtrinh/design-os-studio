@@ -1,0 +1,37 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 21.78s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 1 test
+test shell::tests::inspector_var_binds::inspector_var_binds_scope_oracle_and_per_target_fill_scopes ... FAILED
+
+failures:
+
+---- shell::tests::inspector_var_binds::inspector_var_binds_scope_oracle_and_per_target_fill_scopes stdout ----
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_scope_oracle_and_per_target_fill_scopes' (63536325) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:1256:5:
+has_matching_var disagreed with scope_allows in 145 cases (first 10: [
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Frame key=fills/0 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Frame key=fills/1 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Frame key=fills/0/stops/0 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Section key=fills/0 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Section key=fills/1 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Section key=fills/0/stops/0 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Component key=fills/0 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Component key=fills/1 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=Component key=fills/0/stops/0 (Color): has_matching_var=false != scope_allows=true",
+    "doc=two-vars [FRAME_FILL] then [SHAPE_FILL] target=ComponentSet key=fills/0 (Color): has_matching_var=false != scope_allows=true",
+])
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::inspector_var_binds::inspector_var_binds_scope_oracle_and_per_target_fill_scopes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4048 filtered out; finished in 1.24s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
