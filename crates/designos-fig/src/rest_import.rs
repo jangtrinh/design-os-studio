@@ -2850,6 +2850,9 @@ impl<'a> Ctx<'a> {
         if let Some(b) = fbool(set, "locked") {
             n.locked = b;
         }
+        if let Some(b) = fbool(set, "preserveRatio").or_else(|| fbool(set, "lockAspect")) {
+            n.lock_aspect = b;
+        }
         if let Some(o) = fnum(set, "opacity") {
             n.opacity = o;
         }
@@ -3574,6 +3577,7 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         "name" => OverrideField::Name,
         "visible" => OverrideField::Visible,
         "locked" => OverrideField::Locked,
+        "preserveRatio" | "lockAspect" => OverrideField::LockAspect,
         "opacity" => OverrideField::Opacity,
         "blendMode" => OverrideField::Blend,
         "size" => OverrideField::Size,

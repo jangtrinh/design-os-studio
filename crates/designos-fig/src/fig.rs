@@ -2194,6 +2194,11 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
             "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRadius" | "slotContent" => {
                 m.insert(k.clone(), val.clone());
             }
+            "proportionsConstrained" => {
+                if let Some(locked) = val.as_bool() {
+                    m.insert("preserveRatio".into(), locked.into());
+                }
+            }
             "mask" => {
                 m.insert("isMask".into(), val.clone());
             }
