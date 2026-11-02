@@ -271,7 +271,7 @@ fn plus_starts_new_chat_and_send_starts_the_pill_agent() {
     assert_eq!(s.shell.app.terminal.tabs.len(), 2, "Send starts the pill's agent in a new tab");
     assert_eq!(s.shell.app.terminal.tabs[1].spawn_preset, AgentCliPreset::Claude, "the pill's agent, not the resumable Grok session");
     assert!(!s.shell.app.terminal.tabs[1].is_resumed);
-    assert!(s.shell.app.terminal.tabs[1].composer.pending_send.is_some() || s.shell.app.terminal.tabs[1].composer.send_count > 0, "with the text queued");
+    assert!(!s.shell.app.terminal.tabs[1].composer.pending_send.is_empty() || s.shell.app.terminal.tabs[1].composer.send_count > 0, "with the text queued");
     assert_eq!(s.shell.app.terminal.tabs[0].written_bytes, before, "the old tab's PTY received no bytes");
     finish(s);
 }

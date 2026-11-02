@@ -1,0 +1,25 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 36.31s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 1 test
+
+thread 'agent_composer::tests::flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft' (58017235) panicked at crates/designos-app/src/agent_composer.rs:3520:9:
+assertion `left == right` failed: skill-limit refusal returns remaining queued entries and preserves the typed draft
+  left: "entry three\n\nentry four"
+ right: "entry three\n\nentry four\n\ntyped later"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test agent_composer::tests::flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft ... FAILED
+
+failures:
+
+failures:
+    agent_composer::tests::flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4051 filtered out; finished in 1.38s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

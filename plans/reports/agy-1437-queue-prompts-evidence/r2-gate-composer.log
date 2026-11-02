@@ -1,0 +1,99 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1437-queue-prompts/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 49.50s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 87 tests
+test agent_composer::tests::a_skills_reply_left_by_an_earlier_run_is_deleted_when_the_file_is_bound ... ok
+test agent_composer::tests::composer_box_is_66_with_one_line_and_nothing_else ... ok
+test agent_composer::tests::attached_prd_chip_sends_the_prd_tag_first ... ok
+test agent_composer::tests::all_entry_points_use_one_path ... ok
+test agent_composer::tests::a_claude_tab_whose_session_has_no_hook_folder_gets_its_skills_pasted_because_no_hook_can_carry_them ... ok
+test agent_composer::tests::a_chosen_skill_reaches_a_non_claude_cli_as_one_sanitized_paste ... ok
+test agent_composer::tests::enter_sends_shift_enter_adds_a_newline ... ok
+test agent_composer::tests::claude_gets_skills_from_its_hook_file_and_not_in_the_prompt ... ok
+test agent_composer::tests::each_tab_keeps_its_draft ... ok
+test agent_composer::tests::field_grows_to_eight_lines_then_scrolls ... ok
+test agent_composer::tests::a_written_send_records_the_attached_skills_and_a_system_send_attaches_none ... ok
+test agent_composer::tests::a_queued_send_attaches_the_skills_chosen_when_the_cli_is_ready ... ok
+test agent_composer::tests::a_skill_edited_after_the_last_scan_reaches_claude_through_the_hook_reply ... ok
+test agent_composer::tests::no_one_shot_call_remains_on_the_composer_path ... ok
+test agent_composer::tests::held_enter_pauses_flushing_until_next_turn_starts_and_ends ... ok
+test agent_composer::tests::failed_start_of_a_system_send_never_lands_in_the_draft ... ok
+test agent_composer::tests::a_set_the_hook_cannot_carry_is_pasted_into_claude_with_the_size_scaled_enter_delay ... ok
+test agent_composer::tests::flushing_updates_waiting_count_to_one_and_skill_limit_keeps_typed_draft ... ok
+test agent_composer::tests::failed_start_returns_the_text_to_the_draft ... ok
+test agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice ... ok
+test agent_composer::tests::entry_point_in_new_chat_over_a_shell_tab_starts_agent_and_sends ... ok
+test agent_composer::tests::not_running_starts_then_sends_when_ready ... ok
+test agent_composer::tests::pasting_copied_layers_makes_a_chip ... ok
+test agent_composer::tests::notice_reads_2_messages_waiting_to_send_with_two_entries ... ok
+test agent_composer::tests::skill_limit_refusal_on_entry_2_of_3_returns_entries_2_and_3_to_draft ... ok
+test agent_composer::tests::a_claude_send_queued_while_the_cli_starts_attaches_the_text_on_disk_at_the_flush ... ok
+test agent_composer::tests::held_prompt_with_trailing_space_and_refused_held_prompt_replay_once_in_order ... ok
+test agent_composer::tests::system_entry_queued_behind_user_entry_is_written_after_it ... ok
+test agent_composer::tests::three_sends_while_starting_are_written_in_order_one_per_ready_state ... ok
+test agent_composer::tests::send_on_an_exited_tab_beside_a_live_one_starts_a_new_agent ... ok
+test agent_composer::tests::the_send_button_is_disabled_not_just_red_over_the_skill_limit ... ok
+test agent_composer::tests::start_window_keeps_every_written_entry_when_start_fails ... ok
+test agent_composer::tests::system_image_prompt_with_no_tab_starts_the_agent_cli_never_a_shell ... ok
+test agent_composer::tests::system_send_keeps_the_users_draft_chips_mentions_and_history ... ok
+test agent_composer::tests::up_and_down_walk_history_and_restore_the_draft ... ok
+test agent_composer::tests::working_agent_waits_for_turn_end_before_flushing_next_entry ... ok
+test shell::tests::agent_a11y::shortcut_moves_focus_to_the_composer_and_back ... ok
+test agent_composer::tests::a_12_kb_skill_reaches_claude_whole_in_hook_replies_that_each_stay_under_the_cap ... ok
+test shell::tests::agent_new_chat_composer::a_disabled_send_changes_nothing_when_pressed ... ok
+test agent_composer::tests::too_many_skills_refuse_the_send_and_keep_the_draft ... ok
+test shell::tests::agent_new_chat_composer::a_covered_tabs_still_running_notice_stays_out_of_new_chat ... ok
+test agent_composer::tests::system_image_prompt_leaves_the_users_other_tabs_untouched ... ok
+test shell::tests::agent_new_chat_composer::an_attached_prd_alone_sends_the_prd_reference ... ok
+test shell::tests::agent_new_chat_composer::enter_with_no_startable_agent_keeps_the_draft_and_queues_nothing ... ok
+test shell::tests::agent_new_chat_composer::make_design_then_send_queues_both_and_writes_in_order ... ok
+test agent_composer::tests::two_messages_in_a_row_reach_one_session ... ok
+test agent_composer::tests::claude_hook_reply_carries_the_skills_until_the_first_prompt_is_submitted ... ok
+test shell::tests::agent_new_chat_composer::queued_first_message_then_spec_ask_queues_both_in_order ... ok
+test shell::tests::agent_new_chat_composer::send_in_new_chat_starts_the_pill_agent_and_never_resumes_an_old_session ... ok
+test shell::tests::agent_new_chat_composer::new_chat_state_has_its_own_composer ... ok
+test shell::tests::agent_new_chat_composer::spec_ask_on_a_live_tab_sends_its_own_text_and_keeps_the_draft_the_chips_and_the_prd_chip ... ok
+test shell::tests::agent_new_chat_composer::the_pill_and_placeholder_follow_a_cli_installed_after_the_menu_closed ... ok
+test shell::tests::agent_new_chat_composer::spec_ask_over_new_chat_leaves_the_new_chat_draft_and_prd_chip_alone ... ok
+test shell::tests::agent_new_chat_composer::spec_ask_then_send_queues_both_and_writes_in_order ... ok
+test shell::tests::agent_new_chat_composer::the_pill_repaints_on_its_own_while_probes_run_and_names_the_agent_when_they_end ... ok
+test shell::tests::agent_new_chat_composer::a_prompt_entry_point_leaves_the_composer_on_screen_alone ... ok
+test shell::tests::agent_new_chat_composer::send_is_enabled_only_when_something_can_be_sent ... ok
+test agent_composer::tests::a_send_without_skills_selected_records_no_run_until_a_skill_is_chosen ... ok
+test shell::tests::agent_simplified_panel::composer_toolbar_is_plus_pill_mode_send ... ok
+test shell::tests::agent_simplified_panel::agents_viewport_spans_header_to_composer ... ok
+test shell::tests::agent_simplified_panel::no_status_line_under_the_composer ... ok
+test shell::tests::comments::a_comment_tool_click_on_a_layer_opens_the_composer_and_shows_no_toast ... ok
+test shell::tests::comments::a_comment_tool_click_on_empty_canvas_opens_the_composer_and_shows_no_toast ... ok
+test shell::tests::comments::escape_cancels_the_composer_and_empty_text_cannot_be_posted ... ok
+test shell::tests::agent_panel_keyboard::dev_mode_shortcut::a_capital_d_typed_into_the_composer_does_not_toggle_dev_mode ... ok
+test shell::tests::agent_panel_keyboard::overlay_escape::esc_in_the_composer_never_stops_a_running_turn ... ok
+test shell::tests::agent_simplified_panel::a_composer_menu_closes_from_its_own_anchor ... ok
+test agent_composer::tests::a_custom_cli_tab_gets_the_skills_pasted_and_is_not_recorded_as_claude ... ok
+test shell::tests::agent_new_chat_composer::the_next_new_chat_after_a_send_starts_empty ... ok
+test terminal::gemini_composer_tests::a_dialog_that_draws_no_marker_holds_its_wait_until_a_hook_record ... ok
+test terminal::tests::agents_header_and_composer_buttons_mutate_real_state ... ok
+test terminal::tests::composer_has_no_microphone_control ... ok
+test shell::tests::agent_panel_keyboard::review_card_focus::keep_hands_the_keyboard_back_to_the_composer ... ok
+test shell::tests::agent_panel_keyboard::review_card_focus::revert_hands_the_keyboard_back_to_the_composer ... ok
+test terminal::gemini_composer_tests::the_delayed_enter_is_not_sent_when_a_dialog_opens_after_the_paste ... ok
+test terminal::gemini_composer_tests::the_dialog_is_found_on_an_80_by_20_screen_whatever_the_status_says ... ok
+test terminal::tests::a_composer_send_records_the_retry_prompt_and_dismisses_the_failure_banner ... ok
+test terminal::gemini_composer_tests::a_dialog_with_no_options_on_screen_keeps_a_wait_and_never_starts_one ... ok
+test terminal::gemini_composer_tests::a_tab_nobody_is_looking_at_keeps_its_queued_prompt_while_its_dialog_is_open ... ok
+test terminal::gemini_dialog_tests::a_hook_wait_ends_when_the_dialog_is_gone_and_the_composer_then_sends ... ok
+test terminal::gemini_dialog_tests::a_second_queued_dialog_keeps_the_wait_and_the_composer_closed ... ok
+test agent_composer::tests::another_claude_tab_never_receives_the_skills_armed_for_a_tab ... ok
+test agent_composer::tests::composer_plus_menu_holds_three_items ... ok
+test agent_composer::tests::skills_attach_on_the_first_send_and_again_only_when_the_set_changes ... ok
+test agent_composer::tests::skills_reply_files_are_deleted_when_the_terminal_shuts_down ... ok
+test agent_composer::tests::two_armed_claude_tabs_each_get_only_their_own_chunks_under_the_id_their_process_exports ... ok
+test terminal::gemini_range_tests::the_composer_refuses_a_dialog_on_screen_whatever_the_gemini_version ... ok
+
+test result: ok. 87 passed; 0 failed; 0 ignored; 0 measured; 3965 filtered out; finished in 40.68s
+
