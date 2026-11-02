@@ -138,6 +138,16 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 
 Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.7. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
 
+<a id="new-in-v077"></a>
+### 0.7.7
+
+- **Canvas.** A page viewed zoomed far out draws full detail once the view is still, a click selects from the outside in, and Shift-click or Shift-drag adds the matching layers.
+- **Colour and inspector.** The colour picker adds OKLCH and OKLAB modes, a variable bind icon is always visible on bindable fields, and Typography fields get bind entry points.
+- **Objects, vectors and masks.** `Resize to fit` shrinks or grows a frame to its visible content, `Paste to replace` keeps its own shortcut, `Flatten` and `Outline stroke` turn text into vector paths, and masks come in Alpha, Vector and Luminance types.
+- **`.fig` files.** An instance's fill and stroke overrides keep their own colour style, and saving to `.fig` keeps an instance's own size, opacity and other root overrides.
+- **Layout and export.** Wrapped Fill-width text re-measures its height after a width change, and native code export (SwiftUI, UIKit, Compose, Android XML) places grid children on the layout tracks.
+- **App, Agents and MCP.** A narrow window no longer crashes, the Auto-save OFF switch shows its track edge, a second send while a prompt waits is queued behind it, and a `set_slot` op in `designos_apply_batch` fills the instance's slot.
+
 <a id="new-in-v075"></a>
 ### 0.7.5
 
