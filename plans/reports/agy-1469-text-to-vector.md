@@ -573,4 +573,27 @@ ls_out_cargo_rc=1
 - **`es:rust`**: Stored the recomputed live request set directly into `queued.requests` (`crates/designos-app/src/vecops.rs:188`) and passed `&queued.requests` to `self.fonts.check_requests` (`crates/designos-app/src/vecops.rs:189`), avoiding an extra `BTreeSet` clone and keeping `QueuedVecOp::requests` read in non-test builds with zero compiler/Clippy warnings (`r4-05-clippy.log:74-75`).
 - **`es:rust-gpu-canvas`**: Preserved all existing text vector conversion invariants (`StrokeAlign::Center` and `set_fixed_layout_child` at `crates/designos-app/src/vecops.rs:224, 233, 252, 263, 275, 362, 374`).
 
+### 5. Git Log (`origin/main..HEAD`), Remote Branch Containment & `ls out/cargo`
+
+```text
+=== git log --oneline origin/main..HEAD ===
+cc53f709 fix(vector): recheck live text fonts and shared parent on deferred flatten (#1469)
+40cdd986 Merge branch 'main' into jangtrinh/agy-1469-text-to-vector
+48551667 docs(report): record Round 3 commit hash for #1469
+e03bc7b5 fix(vector): convert stored node ids in deferred text vector queue (#1469)
+bb0c2cea Merge branch 'main' into jangtrinh/agy-1469-text-to-vector
+60edc976 docs(report): record Round 2 commit hash for #1469
+33d7d0e6 fix(vector): preserve auto-layout sizing, centered text strokes, and async font loading (#1469)
+14188742 Merge remote-tracking branch 'origin/main' into jangtrinh/agy-1469-text-to-vector
+93c8e407 docs(report): record final commit hash for #1469
+af6c702f feat(vector): Flatten and Outline stroke convert text to vector paths (#1469)
+
+=== git branch -r --contains HEAD ===
+  origin/jangtrinh/agy-1469-text-to-vector
+
+=== ls out/cargo (r4-07-ls-out-cargo.log:1-2) ===
+ls: out/cargo: No such file or directory
+ls_out_cargo_rc=1
+```
+
 Status: DONE
