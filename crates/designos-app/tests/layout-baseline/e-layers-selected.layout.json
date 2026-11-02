@@ -45,6 +45,56 @@
   },
   "overlays": [],
   "named": {
+    "bind:fills/0": {
+      "region": "unknown",
+      "rect": [
+        1456.0,
+        1251.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:height": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        581.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:opacity": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        662.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:topLeftRadius": {
+      "region": "right_panel",
+      "rect": [
+        1536.0,
+        662.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
+    "bind:width": {
+      "region": "right_panel",
+      "rect": [
+        1440.0,
+        581.0,
+        24.0,
+        24.0
+      ],
+      "count": 1
+    },
     "copy-to-figma-slides-btn": {
       "region": "right_panel",
       "rect": [
@@ -1428,7 +1478,7 @@
       "rect": [
         1400.0,
         577.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1454,7 +1504,7 @@
       "rect": [
         1496.0,
         577.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
@@ -1480,7 +1530,7 @@
       "rect": [
         1400.0,
         658.0,
-        52.25,
+        27.25,
         32.0
       ],
       "sense": [
@@ -1506,7 +1556,7 @@
       "rect": [
         1496.0,
         658.0,
-        64.0,
+        39.0,
         32.0
       ],
       "sense": [
