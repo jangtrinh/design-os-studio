@@ -1,0 +1,7 @@
+=== Byte-identity comparison against reviewer round-3 dumps-merge ===
+cmp r2_overlap_centered_cell.txt: exit=0 bytes=6900 sha256=49633c0c5a9391e79f25fd52056f0174b679a28d2f8652c1160066648c733b56
+cmp r2_overlap_centered_primary_start_child.txt: exit=0 bytes=6948 sha256=7819439214293c36ed7c4e8cb93d7a250f41ea8a42abb847b899984140d69f71
+cmp r2_overlap_stacked_bigger.txt: exit=0 bytes=6887 sha256=14e06beda2c94d609fd75b10746242ac67085ae900d3f746d2fe5c8048e08fbb
+cmp r2_overlap_fill_child_in_span.txt: exit=0 bytes=6268 sha256=97643399044f60ae886917fee2cd76172f5be77a376bd32ee36e88aeb25d977a
+cmp r2_overlap_span_over_earlier_child.txt: exit=0 bytes=6474 sha256=11b557ad4eed97bc8ef05d7a426af39d7797edf8e9e7c28b2ce08d5cacc09c3a
+cmp r3_two_stacked_in_one_cell.txt: exit=0 bytes=8838 sha256=2f7001c07bcab7beefc3dd88487754235584dd504d75ec3c32a994ea7a09cce1
