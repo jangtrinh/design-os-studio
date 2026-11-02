@@ -1,7 +1,7 @@
-//! Unit tests for #1466: individual corner radius fields and corner smoothing slider.
+//! Unit tests for individual corner radius fields and corner smoothing slider.
 
 use super::*;
-use designos_doc::{VariableKind, VariableValue};
+use designos_doc::{FillRule, FrameProps, Node, NodeKind, Path, PathCmd, VariableKind, VariableValue, Vec2 as DocVec2};
 
 fn has_field(s: &Sim, key: &str) -> bool {
     s.ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("field-rect", format!("{key:?}"))))).is_some()
@@ -35,6 +35,42 @@ fn texts_in_rect(s: &Sim, rect: Rect) -> Vec<String> {
     out
 }
 
+fn collect_text_spans_in_rect(shape: &egui::epaint::Shape, rect: Rect, out: &mut Vec<(String, f32, f32)>) {
+    match shape {
+        egui::epaint::Shape::Text(t) => {
+            if rect.contains(t.pos) {
+                out.push((t.galley.text().to_string(), t.pos.x, t.pos.x + t.galley.size().x));
+            }
+        }
+        egui::epaint::Shape::Vec(shapes) => {
+            for s in shapes {
+                collect_text_spans_in_rect(s, rect, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn text_spans_in_rect(s: &Sim, rect: Rect) -> Vec<(String, f32, f32)> {
+    let mut out = Vec::new();
+    for cs in &s.shapes {
+        collect_text_spans_in_rect(&cs.shape, rect, &mut out);
+    }
+    out
+}
+
+fn shape_has_circle_in_rect(shape: &egui::epaint::Shape, rect: Rect) -> bool {
+    match shape {
+        egui::epaint::Shape::Circle(c) => rect.expand(2.0).contains(c.center),
+        egui::epaint::Shape::Vec(shapes) => shapes.iter().any(|s| shape_has_circle_in_rect(s, rect)),
+        _ => false,
+    }
+}
+
+fn has_circle_in_rect(s: &Sim, rect: Rect) -> bool {
+    s.shapes.iter().any(|cs| shape_has_circle_in_rect(&cs.shape, rect))
+}
+
 fn edit_num_field(s: &mut Sim, key: &str, val: &str) {
     let r = s.field_rect(key);
     s.click(Pos2::new(r.left() + 40.0, r.center().y));
@@ -55,19 +91,22 @@ fn toggle_on_shows_four_fields_in_figma_order() {
         assert!(!has_field(&s, key), "{key} should be hidden when toggle is off");
     }
 
-    // Toggle on: four fields appear in Figma's 2x2 order (top-left, top-right, bottom-right, bottom-left).
+    // Toggle on: each field sits on the corner it edits (top row TL then TR, bottom row BL then BR).
     let toggle = s.rect_of("corner-individual");
     s.click(toggle.center());
     assert!(!has_field(&s, "radius"));
     let tl = s.field_rect("radius-tl");
     let tr = s.field_rect("radius-tr");
-    let br = s.field_rect("radius-br");
     let bl = s.field_rect("radius-bl");
+    let br = s.field_rect("radius-br");
     assert!((tl.top() - tr.top()).abs() < 1.0, "top-left and top-right share top row: {tl:?} vs {tr:?}");
     assert!(tl.left() < tr.left(), "top-left is left of top-right: {tl:?} vs {tr:?}");
-    assert!((br.top() - bl.top()).abs() < 1.0, "bottom-right and bottom-left share bottom row: {br:?} vs {bl:?}");
-    assert!(br.top() > tl.bottom(), "bottom row is below top row: {tl:?} vs {br:?}");
-    assert!(br.left() < bl.left(), "bottom-right is left of bottom-left in Figma order: {br:?} vs {bl:?}");
+    assert!((bl.top() - br.top()).abs() < 1.0, "bottom-left and bottom-right share bottom row: {bl:?} vs {br:?}");
+    assert!(bl.left() < br.left(), "bottom-left is left of bottom-right: {bl:?} vs {br:?}");
+    assert!(tl.bottom() < bl.top(), "top-left is above bottom-left: {tl:?} vs {bl:?}");
+    assert!(tr.bottom() < br.top(), "top-right is above bottom-right: {tr:?} vs {br:?}");
+    assert!((tl.left() - bl.left()).abs() < 1.0, "top-left and bottom-left share left column: {tl:?} vs {bl:?}");
+    assert!((tr.left() - br.left()).abs() < 1.0, "top-right and bottom-right share right column: {tr:?} vs {br:?}");
 
     // Toggle state follows selection (on when corners differ, off when uniform) and is view state, not doc data.
     s.shell.app.edit_nodes(&[tile_b], |n| n.corner_radii = [4.0, 8.0, 12.0, 16.0]);
@@ -116,11 +155,15 @@ fn per_corner_edit_changes_only_that_corner() {
     edit_num_field(&mut s, "radius-bl", "20");
     assert_eq!(s.app().doc.get(tile_a).unwrap().corner_radii, [4.0, 8.0, 16.0, 20.0], "editing bottom-left must change only corner_radii[3]");
 
-    // Each field commit is one undo step.
+    // Each of the four field commits is one undo step.
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.get(tile_a).unwrap().corner_radii, [4.0, 8.0, 16.0, 12.0]);
     s.cmd_key(Key::Z);
     assert_eq!(s.app().doc.get(tile_a).unwrap().corner_radii, [4.0, 8.0, 12.0, 12.0]);
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().doc.get(tile_a).unwrap().corner_radii, [4.0, 12.0, 12.0, 12.0]);
+    s.cmd_key(Key::Z);
+    assert_eq!(s.app().doc.get(tile_a).unwrap().corner_radii, [12.0, 12.0, 12.0, 12.0]);
 }
 
 #[test]
@@ -243,4 +286,282 @@ fn binding_corner_field_to_variable_resolves_and_survives_save_and_reopen() {
     assert!(store.set_value(&md_id, &mode_id, VariableValue::Number(28.0)));
     s_reopened.shell.app.commit_store(store, &[], &[]);
     assert_eq!(s_reopened.app().doc.get(tile_a_reopened).unwrap().corner_radii, [12.0, 28.0, 12.0, 12.0]);
+}
+
+#[test]
+fn selection_of_129_rectangles_is_edited_by_one_commit_and_restored_by_one_undo() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let mut rect_ids = Vec::with_capacity(129);
+    for i in 0..129 {
+        let id = s.shell.app.doc.alloc_id();
+        let mut n = Node::new(id, NodeKind::Rectangle);
+        n.name = format!("BulkRect {i}");
+        n.size = DocVec2::new(40.0, 40.0);
+        n.corner_radii = [6.0; 4];
+        s.shell.app.doc.insert(page, n).unwrap();
+        rect_ids.push(id);
+    }
+    s.shell.app.selection = rect_ids.clone();
+    s.frame(vec![]);
+
+    assert!(has_field(&s, "radius"));
+    edit_num_field(&mut s, "radius", "18");
+
+    for (idx, &id) in rect_ids.iter().enumerate() {
+        assert_eq!(s.app().doc.get(id).unwrap().corner_radii, [18.0; 4], "rectangle at index {idx} must be updated by the uniform radius edit");
+    }
+
+    s.cmd_key(Key::Z);
+    for (idx, &id) in rect_ids.iter().enumerate() {
+        assert_eq!(s.app().doc.get(id).unwrap().corner_radii, [6.0; 4], "rectangle at index {idx} must be restored by a single undo step");
+    }
+}
+
+#[test]
+fn selection_of_128_text_layers_plus_one_frame_shows_radius_row_and_edits_frame() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let mut sel_ids = Vec::with_capacity(129);
+    for i in 0..128 {
+        let id = s.shell.app.doc.alloc_id();
+        let mut n = Node::new(id, NodeKind::Text(Default::default()));
+        n.name = format!("BulkText {i}");
+        n.size = DocVec2::new(60.0, 20.0);
+        s.shell.app.doc.insert(page, n).unwrap();
+        sel_ids.push(id);
+    }
+    let frame_id = s.shell.app.doc.alloc_id();
+    let mut frame_node = Node::new(frame_id, NodeKind::Frame(FrameProps::default()));
+    frame_node.name = "TrailingFrame".into();
+    frame_node.size = DocVec2::new(120.0, 80.0);
+    frame_node.corner_radii = [8.0; 4];
+    s.shell.app.doc.insert(page, frame_node).unwrap();
+    sel_ids.push(frame_id);
+
+    s.shell.app.selection = sel_ids.clone();
+    s.frame(vec![]);
+
+    assert!(has_field(&s, "radius"), "selection of 128 text layers plus one frame must show the radius row");
+    assert!(texts_in_rect(&s, s.field_rect("radius")).contains(&"8".to_string()));
+
+    edit_num_field(&mut s, "radius", "22");
+    assert_eq!(s.app().doc.get(frame_id).unwrap().corner_radii, [22.0; 4]);
+    for &tid in &sel_ids[..128] {
+        assert_eq!(s.app().doc.get(tid).unwrap().corner_radii, [0.0; 4]);
+    }
+}
+
+#[test]
+fn star_shows_single_field_only_and_ellipse_and_section_show_no_row() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+
+    let star_id = s.shell.app.doc.alloc_id();
+    let mut star = Node::new(star_id, NodeKind::Star { count: 5, inner_ratio: 0.5 });
+    star.name = "TestStar".into();
+    star.size = DocVec2::new(80.0, 80.0);
+    star.corner_radii = [6.0, 10.0, 14.0, 18.0];
+    s.shell.app.doc.insert(page, star).unwrap();
+
+    let poly_id = s.shell.app.doc.alloc_id();
+    let mut poly = Node::new(poly_id, NodeKind::Polygon { count: 6 });
+    poly.name = "TestPoly".into();
+    poly.size = DocVec2::new(80.0, 80.0);
+    poly.corner_radii = [4.0; 4];
+    s.shell.app.doc.insert(page, poly).unwrap();
+
+    let ellipse_id = s.shell.app.doc.alloc_id();
+    let mut ellipse = Node::new(ellipse_id, NodeKind::Ellipse(Default::default()));
+    ellipse.name = "TestEllipse".into();
+    ellipse.size = DocVec2::new(80.0, 80.0);
+    s.shell.app.doc.insert(page, ellipse).unwrap();
+
+    let section_id = s.shell.app.doc.alloc_id();
+    let mut section = Node::new(section_id, NodeKind::Section);
+    section.name = "TestSection".into();
+    section.size = DocVec2::new(200.0, 200.0);
+    s.shell.app.doc.insert(page, section).unwrap();
+
+    // Star shows the single radius field only: no Individual corners toggle, no four corner fields, no smoothing row.
+    s.shell.app.selection = vec![star_id];
+    s.shell.app.props.individual_corners = true;
+    s.frame(vec![]);
+    assert!(has_field(&s, "radius"), "star must show the single radius field");
+    assert!(!has_test_rect(&s, "corner-individual"), "star must not show the Individual corners toggle");
+    for key in ["radius-tl", "radius-tr", "radius-bl", "radius-br"] {
+        assert!(!has_field(&s, key), "star must not show per-corner field {key}");
+    }
+    assert!(!has_test_rect(&s, "corner-smoothing-slider"), "star must not show smoothing slider");
+    assert!(!has_field(&s, "corner-smoothing"), "star must not show smoothing field");
+    assert!(!has_test_rect(&s, "corner-smoothing-ios"), "star must not show smoothing iOS button");
+    edit_num_field(&mut s, "radius", "10");
+    assert_eq!(s.app().doc.get(star_id).unwrap().corner_radii[0], 10.0);
+
+    // Polygon also shows the single radius field only.
+    s.shell.app.selection = vec![poly_id];
+    s.frame(vec![]);
+    assert!(has_field(&s, "radius"), "polygon must show the single radius field");
+    assert!(!has_test_rect(&s, "corner-individual"), "polygon must not show the Individual corners toggle");
+    for key in ["radius-tl", "radius-tr", "radius-bl", "radius-br"] {
+        assert!(!has_field(&s, key), "polygon must not show per-corner field {key}");
+    }
+    assert!(!has_test_rect(&s, "corner-smoothing-slider"), "polygon must not show smoothing slider");
+    assert!(!has_field(&s, "corner-smoothing"), "polygon must not show smoothing field");
+
+    // Ellipse shows no radius row at all.
+    s.shell.app.selection = vec![ellipse_id];
+    s.frame(vec![]);
+    assert!(!has_field(&s, "radius"), "ellipse must not show radius field");
+    assert!(!has_test_rect(&s, "corner-individual"), "ellipse must not show Individual corners toggle");
+    assert!(!has_field(&s, "radius-tl"), "ellipse must not show per-corner fields");
+    assert!(!has_field(&s, "corner-smoothing"), "ellipse must not show smoothing field");
+
+    // Section shows no radius row at all.
+    s.shell.app.selection = vec![section_id];
+    s.frame(vec![]);
+    assert!(!has_field(&s, "radius"), "section must not show radius field");
+    assert!(!has_test_rect(&s, "corner-individual"), "section must not show Individual corners toggle");
+    assert!(!has_field(&s, "radius-tl"), "section must not show per-corner fields");
+    assert!(!has_field(&s, "corner-smoothing"), "section must not show smoothing field");
+}
+
+#[test]
+fn bind_only_top_right_turn_toggle_off_and_type_value_detaches_all_four_keys() {
+    let mut s = Sim::with(Options { select: Some("Tile A".into()), ..Default::default() });
+    let tile_a = s.by_name("Tile A");
+
+    let coll_id = s.app().doc.variable_collections.values().find(|c| c.name == "Theme").unwrap().id.clone();
+    let mode_id = s.app().doc.variable_collections[&coll_id].default_mode.clone();
+    let mut store = designos_doc::VariableStore::from_doc(&s.app().doc);
+    let md_id = store.add_variable(&coll_id, "Radius/md", VariableKind::Number).unwrap();
+    store.set_value(&md_id, &mode_id, VariableValue::Number(20.0));
+    s.shell.app.commit_store(store, &[], &[]);
+    s.frame(vec![]);
+
+    // Bind only top-right while Individual corners is on.
+    let toggle = s.rect_of("corner-individual");
+    s.click(toggle.center());
+    let bind_tr = s.rect_of("bind:topRightRadius");
+    s.click(bind_tr.center());
+    s.frame(vec![]);
+    let pick_row = s.rect_of("pick:Radius/md");
+    s.click(pick_row.center());
+    assert_eq!(s.app().doc.get(tile_a).unwrap().variables.bindings.get("topRightRadius").map(String::as_str), Some(md_id.as_str()));
+
+    // Turn the toggle off: the uniform field shows the bound pill when any of the four corner keys is bound,
+    // and typing a value detaches all four corner keys.
+    let toggle = s.rect_of("corner-individual");
+    s.click(toggle.center());
+    let pill_shown = has_test_rect(&s, "bound:topLeftRadius");
+    edit_num_field(&mut s, "radius", "10");
+
+    let n = s.app().doc.get(tile_a).unwrap();
+    for key in ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"] {
+        assert!(!n.variables.bindings.contains_key(key), "{key} must be detached after typing a uniform radius value");
+    }
+    assert_eq!(n.corner_radii, [10.0; 4]);
+    assert!(pill_shown, "uniform field must show the bound pill when topRightRadius is bound");
+
+    // Also verify when all four corner keys are bound: typing a uniform value detaches all four keys.
+    s.shell.app.bind_variable(&[tile_a], &["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"], &md_id);
+    s.frame(vec![]);
+    assert!(has_test_rect(&s, "bound:topLeftRadius"));
+    edit_num_field(&mut s, "radius", "14");
+    let n = s.app().doc.get(tile_a).unwrap();
+    for key in ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"] {
+        assert!(!n.variables.bindings.contains_key(key), "{key} must be detached after typing a uniform radius value");
+    }
+    assert_eq!(n.corner_radii, [14.0; 4]);
+}
+
+#[test]
+fn mixed_smoothing_draws_no_thumb_and_drag_writes_every_corner_node_in_one_undo_step() {
+    let mut s = Sim::new();
+    let tile_a = s.by_name("Tile A");
+    let tile_b = s.by_name("Tile B");
+    s.shell.app.edit_nodes(&[tile_a], |n| n.corner_smoothing = 0.0);
+    s.shell.app.edit_nodes(&[tile_b], |n| n.corner_smoothing = 0.6);
+    s.shell.app.selection = vec![tile_a, tile_b];
+    s.frame(vec![]);
+
+    assert!(texts_in_rect(&s, s.field_rect("corner-smoothing")).contains(&"Mixed".to_string()));
+    let slider = s.rect_of("corner-smoothing-slider");
+    assert!(!has_circle_in_rect(&s, slider), "mixed smoothing must not draw a slider thumb");
+
+    let from = Pos2::new(slider.left() + slider.width() * 0.2, slider.center().y);
+    let to = Pos2::new(slider.left() + slider.width() * 0.7, slider.center().y);
+    s.drag(from, to);
+
+    let sa = s.app().doc.get(tile_a).unwrap().corner_smoothing;
+    let sb = s.app().doc.get(tile_b).unwrap().corner_smoothing;
+    assert!((sa - sb).abs() < 1e-6, "drag must write the same smoothing to every corner node: {sa} vs {sb}");
+    assert!((sa - 0.7).abs() < 0.08, "expected smoothing near 0.7 after drag, got {sa}");
+    assert!(has_circle_in_rect(&s, s.rect_of("corner-smoothing-slider")), "uniform smoothing after drag draws the thumb");
+
+    s.cmd_key(Key::Z);
+    assert!((s.app().doc.get(tile_a).unwrap().corner_smoothing - 0.0).abs() < 1e-6);
+    assert!((s.app().doc.get(tile_b).unwrap().corner_smoothing - 0.6).abs() < 1e-6);
+}
+
+#[test]
+fn component_set_with_imported_geometry_clears_it_on_radius_edit() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let cs_id = s.shell.app.doc.alloc_id();
+    let mut cs = Node::new(cs_id, NodeKind::ComponentSet(FrameProps::default()));
+    cs.name = "ButtonSet".into();
+    cs.size = DocVec2::new(200.0, 100.0);
+    cs.corner_radii = [8.0; 4];
+    let dummy_path = Path {
+        cmds: vec![
+            PathCmd::MoveTo(DocVec2::new(0.0, 0.0)),
+            PathCmd::LineTo(DocVec2::new(200.0, 0.0)),
+            PathCmd::LineTo(DocVec2::new(200.0, 100.0)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    cs.fill_geometry = Some(vec![dummy_path.clone()]);
+    cs.stroke_geometry = Some(vec![dummy_path]);
+    s.shell.app.doc.insert(page, cs).unwrap();
+
+    s.shell.app.selection = vec![cs_id];
+    s.frame(vec![]);
+
+    assert!(has_field(&s, "radius"));
+    assert!(has_test_rect(&s, "corner-individual"));
+    assert!(has_field(&s, "corner-smoothing"));
+
+    edit_num_field(&mut s, "radius", "16");
+    let updated = s.app().doc.get(cs_id).unwrap();
+    assert_eq!(updated.corner_radii, [16.0; 4]);
+    assert!(updated.fill_geometry.is_none(), "editing radius on a ComponentSet must clear imported fill_geometry");
+    assert!(updated.stroke_geometry.is_none(), "editing radius on a ComponentSet must clear imported stroke_geometry");
+}
+
+#[test]
+fn all_four_corner_fields_have_equal_label_to_value_gaps() {
+    let mut s = Sim::with(Options { select: Some("Tile A".into()), ..Default::default() });
+    let tile_a = s.by_name("Tile A");
+    s.shell.app.edit_nodes(&[tile_a], |n| n.corner_radii = [24.0, 4.0, 16.0, 8.0]);
+    s.frame(vec![]);
+
+    let mut gaps = Vec::new();
+    for (field_key, label, val_str) in [("radius-tl", "TL", "24"), ("radius-tr", "TR", "4"), ("radius-bl", "BL", "8"), ("radius-br", "BR", "16")] {
+        let r = s.field_rect(field_key);
+        let spans = text_spans_in_rect(&s, r);
+        let (_, _, label_right) = spans.iter().find(|(t, _, _)| t == label).unwrap_or_else(|| panic!("missing label {label} in {field_key}: {spans:?}"));
+        let (_, val_left, _) = spans.iter().find(|(t, _, _)| t == val_str).unwrap_or_else(|| panic!("missing value {val_str} in {field_key}: {spans:?}"));
+        let gap = *val_left - *label_right;
+        assert!(
+            (gap - crate::theme::SPACE_FACT).abs() < 1e-2,
+            "{field_key} ({label} -> {val_str}) gap was {gap} px, expected SPACE_FACT ({} px)",
+            crate::theme::SPACE_FACT
+        );
+        gaps.push((field_key, gap));
+    }
+    for &(field_key, gap) in &gaps[1..] {
+        assert!((gap - gaps[0].1).abs() < 1e-2, "gap for {field_key} ({gap}) differs from {} ({})", gaps[0].0, gaps[0].1);
+    }
 }

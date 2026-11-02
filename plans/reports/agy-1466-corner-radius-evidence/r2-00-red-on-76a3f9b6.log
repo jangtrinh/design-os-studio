@@ -1,0 +1,87 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1466-corner-radius/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1466-corner-radius/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1466-corner-radius/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1466-corner-radius/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.05s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 18 tests
+test canvas::handles::tests::corner_radius_handle_positions_and_hit_testing ... ok
+test check_designs::tests::numbers::uniform_and_per_corner_radius_match_number_variables_and_bind_cleanly ... ok
+test canvas::vector::tests::corner_radius_is_one_undo_step_and_rounds_the_derived_path ... ok
+test check_designs::tests::under_an_opaque_fill::text_inside_a_rounded_opaque_card_inset_by_corner_radius_is_checked_while_corner_cutout_text_is_skipped ... ok
+test shell::tests::vector::the_vector_edit_fixture_shows_the_corner_radius_field ... ok
+test shell::tests::corner_radius::toggle_on_shows_four_fields_in_figma_order ... FAILED
+test shell::tests::corner_radius::star_shows_single_field_only_and_ellipse_and_section_show_no_row ... FAILED
+test shell::tests::corner_radius::mixed_smoothing_draws_no_thumb_and_drag_writes_every_corner_node_in_one_undo_step ... FAILED
+test shell::tests::corner_radius::selection_of_128_text_layers_plus_one_frame_shows_radius_row_and_edits_frame ... FAILED
+test shell::tests::corner_radius::all_four_corner_fields_have_equal_label_to_value_gaps ... FAILED
+test shell::tests::corner_radius::selection_of_129_rectangles_is_edited_by_one_commit_and_restored_by_one_undo ... FAILED
+test shell::tests::corner_radius::component_set_with_imported_geometry_clears_it_on_radius_edit ... FAILED
+test shell::tests::corner_radius::binding_corner_field_to_variable_resolves_and_survives_save_and_reopen ... ok
+test shell::tests::corner_radius::bind_only_top_right_turn_toggle_off_and_type_value_detaches_all_four_keys ... FAILED
+test shell::tests::vector::the_vertex_inspector_edits_the_corner_radius_as_one_undo_step ... ok
+test shell::tests::corner_radius::mixed_selection_shows_mixed_and_edit_writes_every_node ... ok
+test shell::tests::corner_radius::smoothing_slider_writes_0_6_at_ios_preset_and_one_drag_is_one_undo_step ... ok
+test shell::tests::corner_radius::per_corner_edit_changes_only_that_corner ... ok
+
+failures:
+
+---- shell::tests::corner_radius::toggle_on_shows_four_fields_in_figma_order stdout ----
+
+thread 'shell::tests::corner_radius::toggle_on_shows_four_fields_in_figma_order' (69232617) panicked at crates/designos-app/src/shell/tests/corner_radius.rs:105:5:
+bottom-left is left of bottom-right: [[1472.0 650.0] - [1535.0 682.0]] vs [[1376.0 650.0] - [1439.0 682.0]]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::corner_radius::star_shows_single_field_only_and_ellipse_and_section_show_no_row stdout ----
+
+thread 'shell::tests::corner_radius::star_shows_single_field_only_and_ellipse_and_section_show_no_row' (69232616) panicked at crates/designos-app/src/shell/tests/corner_radius.rs:398:5:
+star must show the single radius field
+
+---- shell::tests::corner_radius::mixed_smoothing_draws_no_thumb_and_drag_writes_every_corner_node_in_one_undo_step stdout ----
+
+thread 'shell::tests::corner_radius::mixed_smoothing_draws_no_thumb_and_drag_writes_every_corner_node_in_one_undo_step' (69232611) panicked at crates/designos-app/src/shell/tests/corner_radius.rs:502:5:
+mixed smoothing must not draw a slider thumb
+
+---- shell::tests::corner_radius::selection_of_128_text_layers_plus_one_frame_shows_radius_row_and_edits_frame stdout ----
+
+thread 'shell::tests::corner_radius::selection_of_128_text_layers_plus_one_frame_shows_radius_row_and_edits_frame' (69232613) panicked at crates/designos-app/src/shell/tests/corner_radius.rs:353:5:
+selection of 128 text layers plus one frame must show the radius row
+
+---- shell::tests::corner_radius::all_four_corner_fields_have_equal_label_to_value_gaps stdout ----
+
+thread 'shell::tests::corner_radius::all_four_corner_fields_have_equal_label_to_value_gaps' (69232606) panicked at crates/designos-app/src/shell/tests/corner_radius.rs:569:9:
+radius-tl (TL -> 24) gap was 1.46875 px, expected SPACE_FACT (4 px)
+
+---- shell::tests::corner_radius::selection_of_129_rectangles_is_edited_by_one_commit_and_restored_by_one_undo stdout ----
+
+thread 'shell::tests::corner_radius::selection_of_129_rectangles_is_edited_by_one_commit_and_restored_by_one_undo' (69232614) panicked at crates/designos-app/src/shell/tests/corner_radius.rs:312:9:
+assertion `left == right` failed: rectangle at index 128 must be updated by the uniform radius edit
+  left: [6.0, 6.0, 6.0, 6.0]
+ right: [18.0, 18.0, 18.0, 18.0]
+
+---- shell::tests::corner_radius::component_set_with_imported_geometry_clears_it_on_radius_edit stdout ----
+
+thread 'shell::tests::corner_radius::component_set_with_imported_geometry_clears_it_on_radius_edit' (69232609) panicked at crates/designos-app/src/shell/tests/corner_radius.rs:551:5:
+editing radius on a ComponentSet must clear imported fill_geometry
+
+---- shell::tests::corner_radius::bind_only_top_right_turn_toggle_off_and_type_value_detaches_all_four_keys stdout ----
+
+thread 'shell::tests::corner_radius::bind_only_top_right_turn_toggle_off_and_type_value_detaches_all_four_keys' (69232607) panicked at crates/designos-app/src/shell/tests/corner_radius.rs:469:9:
+topRightRadius must be detached after typing a uniform radius value
+
+
+failures:
+    shell::tests::corner_radius::all_four_corner_fields_have_equal_label_to_value_gaps
+    shell::tests::corner_radius::bind_only_top_right_turn_toggle_off_and_type_value_detaches_all_four_keys
+    shell::tests::corner_radius::component_set_with_imported_geometry_clears_it_on_radius_edit
+    shell::tests::corner_radius::mixed_smoothing_draws_no_thumb_and_drag_writes_every_corner_node_in_one_undo_step
+    shell::tests::corner_radius::selection_of_128_text_layers_plus_one_frame_shows_radius_row_and_edits_frame
+    shell::tests::corner_radius::selection_of_129_rectangles_is_edited_by_one_commit_and_restored_by_one_undo
+    shell::tests::corner_radius::star_shows_single_field_only_and_ellipse_and_section_show_no_row
+    shell::tests::corner_radius::toggle_on_shows_four_fields_in_figma_order
+
+test result: FAILED. 10 passed; 8 failed; 0 ignored; 0 measured; 4156 filtered out; finished in 2.74s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

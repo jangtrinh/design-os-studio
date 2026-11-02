@@ -1,0 +1,103 @@
+crates/designos-doc/src/node.rs:95:    /// Corner radii (top-left, top-right, bottom-right, bottom-left).
+crates/designos-doc/src/node.rs:97:    pub corner_radii: [f32; 4],
+crates/designos-doc/src/node.rs:98:    /// iOS-style corner smoothing 0..1.
+crates/designos-doc/src/node.rs:99:    #[serde(default, skip_serializing_if = "is_zero")]
+crates/designos-doc/src/node.rs:100:    pub corner_smoothing: f32,
+crates/designos-doc/src/node.rs:389:            corner_radii: [0.0; 4],
+crates/designos-doc/src/node.rs:390:            corner_smoothing: 0.0,
+crates/designos-app/src/panels/properties.rs:167:    pub individual_corners: bool,
+crates/designos-app/src/panels/properties.rs:169:    pub individual_corners_sel: Option<Vec<NodeId>>,
+crates/designos-app/src/panels/properties.rs:173:    pub corner_nodes: Vec<NodeId>,
+crates/designos-app/src/panels/properties.rs:175:    pub four_corner_nodes: Vec<NodeId>,
+crates/designos-app/src/panels/properties.rs:386:fn node_has_four_corners(n: &Node) -> bool {
+crates/designos-app/src/panels/properties.rs:390:fn node_has_corners(n: &Node) -> bool {
+crates/designos-app/src/panels/properties.rs:399:fn uniform_corner_radius(n: &Node) -> Option<f32> {
+crates/designos-app/src/panels/properties.rs:407:fn common_corners<T: PartialEq>(doc: &Document, ids: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+crates/designos-app/src/panels/properties.rs:413:fn clear_rect_geom(n: &mut Node) {
+crates/designos-app/src/panels/properties.rs:423:fn remove_field_rect(ctx: &egui::Context, key: &str) {
+crates/designos-app/src/panels/properties.rs:430:fn remove_test_rect(ctx: &egui::Context, name: &str) {
+crates/designos-app/src/panels/properties.rs:1079:    corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_corners)));
+crates/designos-app/src/panels/properties.rs:1082:    four_corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_four_corners)));
+crates/designos-app/src/panels/properties.rs:1082:    four_corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_four_corners)));
+crates/designos-app/src/panels/properties.rs:1159:            widgets::record(ui, "corner-individual", toggle_r);
+crates/designos-app/src/panels/properties.rs:1160:            if widgets::icon_button(ui, toggle_r, "corner-individual", Icon::Grid2x2, app.props.individual_corners, "Individual corners").clicked() {
+crates/designos-app/src/panels/properties.rs:1164:            remove_test_rect(ui.ctx(), "corner-individual");
+crates/designos-app/src/panels/properties.rs:1170:        for name in ["corner-individual", "corner-smoothing-slider", "corner-smoothing", "corner-smoothing-ios"] {
+crates/designos-app/src/panels/properties.rs:1101:            for key in ["radius-tl", "radius-tr", "radius-br", "radius-bl"] {
+crates/designos-app/src/panels/properties.rs:1167:        for key in ["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl", "corner-smoothing"] {
+crates/designos-app/src/panels/properties.rs:1178:            (0, 0, "radius-tl", "topLeftRadius", "TL"),
+crates/designos-app/src/panels/properties.rs:1101:            for key in ["radius-tl", "radius-tr", "radius-br", "radius-bl"] {
+crates/designos-app/src/panels/properties.rs:1167:        for key in ["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl", "corner-smoothing"] {
+crates/designos-app/src/panels/properties.rs:1179:            (1, 1, "radius-tr", "topRightRadius", "TR"),
+crates/designos-app/src/panels/properties.rs:1101:            for key in ["radius-tl", "radius-tr", "radius-br", "radius-bl"] {
+crates/designos-app/src/panels/properties.rs:1167:        for key in ["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl", "corner-smoothing"] {
+crates/designos-app/src/panels/properties.rs:1180:            (0, 3, "radius-bl", "bottomLeftRadius", "BL"),
+crates/designos-app/src/panels/properties.rs:1101:            for key in ["radius-tl", "radius-tr", "radius-br", "radius-bl"] {
+crates/designos-app/src/panels/properties.rs:1167:        for key in ["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl", "corner-smoothing"] {
+crates/designos-app/src/panels/properties.rs:1181:            (1, 2, "radius-br", "bottomRightRadius", "BR"),
+crates/designos-app/src/panels/properties.rs:1188:                var_bind::numeric(app, ui, r, &four_corner_nodes, &keys, |ui, r| field::num_field_prefix_gap(ui, r, field_key, Prefix::Text(label), val, ""))
+crates/designos-app/src/panels/properties.rs:1158:        if has_four_corners {
+crates/designos-app/src/panels/properties.rs:1176:    if has_four_corners && app.props.individual_corners {
+crates/designos-app/src/panels/properties.rs:1203:    if has_four_corners {
+crates/designos-app/src/panels/properties.rs:1218:        if let Some(sv) = smooth_val {
+crates/designos-app/src/panels/properties.rs:1231:                app.ensure_scrub(ui.ctx());
+crates/designos-app/src/panels/properties.rs:1167:        for key in ["radius", "radius-tl", "radius-tr", "radius-br", "radius-bl", "corner-smoothing"] {
+crates/designos-app/src/panels/properties.rs:1170:        for name in ["corner-individual", "corner-smoothing-slider", "corner-smoothing", "corner-smoothing-ios"] {
+crates/designos-app/src/panels/properties.rs:1250:        widgets::record(ui, "corner-smoothing", smooth_text_r);
+crates/designos-app/src/panels/properties.rs:1251:        if let Some(pct) = field::num_field(ui, smooth_field_r, "corner-smoothing", Prefix::None, smooth_pct, "%") {
+crates/designos-app/src/panels/properties.rs:1286:        remove_field_rect(ui.ctx(), "corner-smoothing");
+crates/designos-app/src/panels/properties.rs:1287:        for name in ["corner-smoothing-slider", "corner-smoothing", "corner-smoothing-ios"] {
+crates/designos-app/src/panels/properties.rs:1170:        for name in ["corner-individual", "corner-smoothing-slider", "corner-smoothing", "corner-smoothing-ios"] {
+crates/designos-app/src/panels/properties.rs:1260:        widgets::record(ui, "corner-smoothing-ios", ios_r);
+crates/designos-app/src/panels/properties.rs:1261:        let ios_resp = ui.interact(ios_r, ui.id().with("corner-smoothing-ios"), Sense::click());
+crates/designos-app/src/panels/properties.rs:1287:        for name in ["corner-smoothing-slider", "corner-smoothing", "corner-smoothing-ios"] {
+crates/designos-app/src/widgets/field.rs:563:pub fn num_field(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
+crates/designos-app/src/widgets/field.rs:568:pub fn num_field_prefix_gap(ui: &mut Ui, rect: Rect, key: impl crate::widgets::Key, prefix: Prefix, value: Option<f32>, suffix: &str) -> Option<f32> {
+crates/designos-app/src/widgets/field.rs:572:fn num_field_inner(
+crates/designos-app/src/widgets/field.rs:615:                pw = prefix_right + theme::SPACE_FACT;
+crates/designos-app/src/ops.rs:298:    pub(crate) fn ensure_scrub(&mut self, ctx: &egui::Context) {
+crates/designos-app/src/canvas/handles.rs:25:pub fn supports_corner_radius_handles(kind: &NodeKind) -> bool {
+crates/designos-app/src/canvas/handles.rs:41:pub fn corner_radius_handle_positions(corners: &[Vec2; 4], radii: [f32; 4], zoom: f32) -> Option<[Vec2; 4]> {
+crates/designos-app/src/canvas/handles.rs:67:pub fn hit_corner_radius_handle(corners: &[Vec2; 4], radii: [f32; 4], zoom: f32, p: Vec2, hit_radius: f32) -> Option<usize> {
+crates/designos-app/src/canvas/interact.rs:843:    if handles::supports_corner_radius_handles(&n.kind) {
+crates/designos-app/src/canvas/interact.rs:898:    if handles::supports_corner_radius_handles(&n.kind) && handles::hit_corner_radius_handle(&corners, n.corner_radii, z, dv(pos), 4.5).is_some() {
+crates/designos-app/src/canvas/interact.rs:1148:        Interaction::CornerRadius(cr) => {
+crates/designos-app/src/canvas/interact.rs:1157:                if inp.mods.alt {
+crates/designos-app/src/canvas/interact.rs:1205:                            } else if inp.mods.alt {
+crates/designos-app/src/canvas/interact.rs:2501:            cursor = if inp.mods.alt { egui::CursorIcon::ZoomOut } else { egui::CursorIcon::ZoomIn };
+crates/designos-app/src/canvas/interact.rs:1159:                    r[cr.corner] = new_r;
+crates/designos-app/src/canvas/interact.rs:1162:                    n.corner_radii = [new_r; 4];
+crates/designos-app/src/canvas/interact.rs:1617:        Interaction::CornerRadius(c) => {
+crates/designos-app/src/canvas/interact.rs:1618:            app.run_tx(c.tx);
+crates/designos-fig/src/fig.rs:929:    "cornerSmoothing",
+crates/designos-fig/src/fig.rs:1576:    copy(&mut m, nc, "cornerSmoothing", "cornerSmoothing");
+crates/designos-fig/src/fig.rs:1576:    copy(&mut m, nc, "cornerSmoothing", "cornerSmoothing");
+crates/designos-fig/src/fig.rs:1577:    if nc.get("rectangleCornerRadiiIndependent").and_then(Value::as_bool) == Some(true)
+crates/designos-fig/src/fig_export.rs:965:        fields.push(("cornerSmoothing", fl(node.corner_smoothing)));
+crates/designos-fig/src/rest_import.rs:1313:                n.corner_radii[i] = num(x).unwrap_or(0.0);
+crates/designos-fig/src/rest_import.rs:2934:                n.corner_radii[i] = num(x).unwrap_or(0.0);
+crates/designos-fig/src/rest_import.rs:1318:        n.corner_smoothing = fnum(v, "cornerSmoothing").unwrap_or(0.0);
+crates/designos-fig/src/export.rs:523:                m.insert("cornerSmoothing".into(), n(node.corner_smoothing));
+crates/designos-render/src/geom.rs:109:struct SmoothCorner {
+crates/designos-render/src/geom.rs:121:impl SmoothCorner {
+crates/designos-render/src/geom.rs:178:pub fn smooth_rounded_rect(w: f32, h: f32, radii: [f32; 4], smoothing: f32) -> Option<sk::Path> {
+crates/designos-render/src/geom.rs:418:pub fn node_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
+crates/designos-render/src/geom.rs:441:            let mut s = Shape::single(smooth_rounded_rect(w, h, radii, n.corner_smoothing)?, sk::FillRule::Winding, true);
+crates/designos-render/src/lib.rs:564:        if radii.iter().any(|r| (r - radii[0]).abs() > 1e-4) || (radii[0] > 0.0 && n.corner_smoothing > 0.0) {
+crates/designos-render/src/lib.rs:893:                let mask = if rounded && n.corner_smoothing > 0.0 && align == designos_doc::StrokeAlign::Inside {
+crates/designos-render/src/outline.rs:224:        let clip = if rounded && n.corner_smoothing > 0.0 && align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::None };
+crates/designos-gpu/src/geom.rs:158:        (bucket, font_gen, fbits(n.size.x), fbits(n.size.y), n.corner_radii.map(fbits), fbits(n.corner_smoothing), fbits(n.stroke.weight), disc).hash(&mut h);
+crates/designos-gpu/src/geom.rs:201:            smoothing: n.corner_smoothing,
+crates/designos-gpu/src/geom.rs:214:            || self.smoothing != n.corner_smoothing
+crates/designos-gpu/src/compile.rs:1418:        if radii.iter().any(|r| (r - radii[0]).abs() > 1e-4) || (radii[0] > 0.0 && n.corner_smoothing > 0.0) {
+crates/designos-app/src/panels/var_bind.rs:262:fn narrow_for_bind(rect: Rect, reserve: bool) -> Rect {
+crates/designos-app/src/panels/var_bind.rs:273:pub fn value_rect(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) -> Rect {
+crates/designos-app/src/panels/var_bind.rs:514:pub fn pill_field(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str]) -> bool {
+crates/designos-app/src/panels/var_bind.rs:532:pub fn hover_button(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], kind: VariableKind) {
+crates/designos-app/src/panels/var_bind.rs:544:pub fn numeric(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: &[&str], field: impl FnOnce(&mut Ui, Rect) -> Option<f32>) -> Option<f32> {
+crates/designos-app/src/panels/var_bind.rs:613:pub fn bind_picker(app: &mut App, ctx: &Context) {
+crates/designos-app/src/panels/var_bind.rs:721:                            app.bind_variable(&bp.nodes, &key_refs, &id);
+crates/designos-doc/src/variables_apply.rs:35:        "width" | "height" | "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" | "itemSpacing" | "counterAxisSpacing"
+crates/designos-doc/src/variables_apply.rs:70:        "topLeftRadius" | "topRightRadius" | "bottomLeftRadius" | "bottomRightRadius" => has(&["CORNER_RADIUS"]),
+crates/designos-doc/src/variables_apply.rs:388:        NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::ComponentSet(_) | NodeKind::Instance { .. } | NodeKind::Section | NodeKind::Rectangle
+crates/designos-doc/src/variables_apply.rs:406:        "topLeftRadius" | "topRightRadius" | "bottomRightRadius" | "bottomLeftRadius" => {

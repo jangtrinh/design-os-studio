@@ -1,0 +1,13 @@
+HIDIdleTime=835
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi   125Gi     9%    459k  1.3G    0%   /
+apply_spec_rc=0
+{
+  "root_node_id": 210250,
+  "saved": true
+}
+root_node_id=210250
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   926Gi    12Gi   123Gi     9%    459k  1.3G    0%   /
+gui_capture_rc=0
+-rw-r--r--@ 1 jangtrinh  staff  238246 Nov  2 19:39 out/evidence/1466-r2-individual-corners-on.png
