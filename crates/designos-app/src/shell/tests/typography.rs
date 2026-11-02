@@ -341,6 +341,138 @@ fn setting_max_lines_clears_max_height_on_text_layer_in_same_undo_step() {
     assert_eq!(s.app().doc.get(id).unwrap().variables.bindings.get("maxHeight").map(String::as_str), Some("var/max-h"));
 }
 
+/// Marks `ids` as truncating text layers with the given `max_lines` and selects them in the open popover.
+fn select_truncating(s: &mut Sim, ids: &[(NodeId, Option<u32>)]) {
+    for (id, max_lines) in ids {
+        if let Some(NodeKind::Text(t)) = s.shell.app.doc.get_mut(*id).map(|n| &mut n.kind) {
+            t.auto_resize = TextAutoResize::Truncate;
+            t.max_lines = *max_lines;
+        }
+    }
+    let selection: Vec<NodeId> = ids.iter().map(|(id, _)| *id).collect();
+    s.shell.app.selection = selection.clone();
+    if let Some(pop) = s.shell.app.props.pop.as_mut() {
+        pop.ids = selection;
+    }
+    s.frame(vec![]);
+    s.frame(vec![]);
+}
+
+#[test]
+fn truncate_text_leaves_non_text_layers_in_the_selection_alone() {
+    use designos_doc::{AutoLayout, FrameProps, LayoutDirection, Node, Sizing};
+    let mut s = popover_sim();
+    let text_id = s.by_name("Continue");
+    let card = s.by_name("Card");
+    let group = {
+        let doc = &mut s.shell.app.doc;
+        let hugging = AutoLayout { direction: LayoutDirection::Horizontal, primary_sizing: Sizing::Hug, counter_sizing: Sizing::Hug, ..AutoLayout::default() };
+        let gid = doc.alloc_id();
+        let mut g = Node::frame(gid, designos_doc::Rect::new(0.0, 0.0, 40.0, 20.0));
+        g.name = "Hug group".into();
+        g.kind = NodeKind::Frame(FrameProps { auto_layout: Some(hugging), ..FrameProps::default() });
+        g.layout_child.horizontal = Sizing::Hug;
+        g.layout_child.vertical = Sizing::Hug;
+        let gid = doc.insert(card, g).expect("the card takes the hug group");
+        let rid = doc.alloc_id();
+        doc.insert(gid, Node::rectangle(rid, designos_doc::Rect::new(0.0, 0.0, 40.0, 20.0))).expect("the group takes its rectangle");
+        doc.relayout_subtree(card);
+        let t = doc.get_mut(text_id).unwrap();
+        t.layout_child.horizontal = Sizing::Hug;
+        t.layout_child.vertical = Sizing::Hug;
+        gid
+    };
+    s.shell.app.selection = vec![text_id, group];
+    if let Some(pop) = s.shell.app.props.pop.as_mut() {
+        pop.ids = vec![text_id, group];
+    }
+    s.frame(vec![]);
+    s.frame(vec![]);
+
+    let hug_axes = |s: &Sim, id: NodeId| {
+        let n = s.app().doc.get(id).unwrap();
+        let al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|a| (a.primary_sizing, a.counter_sizing));
+        (n.layout_child, al, n.size)
+    };
+    let (group_child_before, group_flow_before, group_size_before) = hug_axes(&s, group);
+    assert_eq!((group_child_before.horizontal, group_child_before.vertical), (Sizing::Hug, Sizing::Hug), "the sibling starts hugging on both axes");
+    assert_eq!(group_flow_before, Some((Sizing::Hug, Sizing::Hug)), "the sibling's own auto layout starts hugging on both axes");
+    let text_child_before = s.app().doc.get(text_id).unwrap().layout_child;
+    assert_eq!((text_child_before.horizontal, text_child_before.vertical), (Sizing::Hug, Sizing::Hug), "the text layer starts hugging on both axes");
+
+    let undo_before = s.app().hist.undo_depth();
+    let trunc_r = s.rect_of("det-truncate");
+    click_rect(&mut s, trunc_r);
+
+    assert_eq!(text_of(&s, text_id).auto_resize, TextAutoResize::Truncate, "the text layer truncates");
+    let text_child = s.app().doc.get(text_id).unwrap().layout_child;
+    assert_eq!((text_child.horizontal, text_child.vertical), (Sizing::Fixed, Sizing::Fixed), "the text layer keeps its box by freezing hug sizing");
+    assert_eq!(hug_axes(&s, group), (group_child_before, group_flow_before, group_size_before), "a non-text layer in the selection keeps its sizing");
+    assert_eq!(s.app().hist.undo_depth(), undo_before + 1, "one undo step per click");
+}
+
+#[test]
+fn max_lines_keeps_its_value_when_the_field_is_emptied_and_the_same_digits_are_typed_again() {
+    let mut s = popover_sim();
+    let id = s.by_name("Continue");
+    select_truncating(&mut s, &[(id, Some(12))]);
+
+    let undo_before = s.app().hist.undo_depth();
+    let r = s.field_rect("det-max-lines");
+    s.click(Pos2::new(r.left() + 30.0, r.center().y));
+    s.key(Key::Backspace);
+    s.type_text("12");
+    s.key(Key::Enter);
+
+    assert_eq!(text_of(&s, id).max_lines, Some(12), "retyping the same digits leaves the limit alone");
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "an unchanged commit adds no undo step");
+}
+
+#[test]
+fn mixed_max_lines_is_not_written_when_backspace_is_followed_by_leaving_the_field() {
+    let mut s = popover_sim();
+    let id1 = s.by_name("Continue");
+    let id2 = s.by_name("Welcome back");
+    select_truncating(&mut s, &[(id1, Some(2)), (id2, Some(4))]);
+    let r = s.field_rect("det-max-lines");
+    assert!(texts_in_rect(&s, r).iter().any(|t| t == "Mixed"), "differing limits show Mixed");
+
+    let undo_before = s.app().hist.undo_depth();
+    s.click(Pos2::new(r.left() + 30.0, r.center().y));
+    s.key(Key::Backspace);
+    // a click on the empty part of the row, left of the field, takes focus away while the popover stays open
+    s.click(Pos2::new(r.left() - 40.0, r.center().y));
+    s.frame(vec![]);
+
+    assert!(s.app().props.pop.is_some(), "the popover is still open after leaving the field");
+    assert_eq!(text_of(&s, id1).max_lines, Some(2));
+    assert_eq!(text_of(&s, id2).max_lines, Some(4));
+    assert_eq!(s.app().hist.undo_depth(), undo_before, "leaving the field adds no undo step");
+    assert!(texts_in_rect(&s, s.field_rect("det-max-lines")).iter().any(|t| t == "Mixed"), "the field still shows Mixed");
+}
+
+#[test]
+fn turning_truncation_off_keeps_max_lines_and_turning_it_on_shows_the_old_limit() {
+    let mut s = popover_sim();
+    let id = s.by_name("Continue");
+    select_truncating(&mut s, &[(id, Some(3))]);
+    let r = s.field_rect("det-max-lines");
+    assert!(texts_in_rect(&s, r).iter().any(|t| t == "3"), "the field shows the stored limit while truncating");
+
+    let trunc_r = s.rect_of("det-truncate");
+    click_rect(&mut s, trunc_r);
+    assert_eq!(text_of(&s, id).auto_resize, TextAutoResize::None);
+    assert_eq!(text_of(&s, id).max_lines, Some(3), "turning truncation off keeps the stored limit");
+    assert!(has_no_rect(&s, "det-max-lines"), "Max lines is hidden while truncation is off");
+
+    let trunc_r = s.rect_of("det-truncate");
+    click_rect(&mut s, trunc_r);
+    assert_eq!(text_of(&s, id).auto_resize, TextAutoResize::Truncate);
+    assert_eq!(text_of(&s, id).max_lines, Some(3), "turning truncation back on keeps the stored limit");
+    let r = s.field_rect("det-max-lines");
+    assert!(texts_in_rect(&s, r).iter().any(|t| t == "3"), "the field shows the old limit again");
+}
+
 fn apply_textures_delta(atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>, delta: &egui::TexturesDelta) {
     for (tid, d) in &delta.set {
         let [w, h] = d.image.size();

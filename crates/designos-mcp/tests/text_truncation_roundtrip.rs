@@ -1,4 +1,7 @@
-//! Round-trip and lint regression tests for text truncation (`TextAutoResize::Truncate` and `max_lines`, #1467).
+//! Round-trip and lint regression tests for text truncation (`TextAutoResize::Truncate` and `max_lines`).
+//!
+//! `designos-mcp` has no setter for either field, so these tests set truncation directly on the document
+//! and check that the tools preserve it and that the lint findings do not change.
 #![allow(clippy::result_large_err)]
 
 use designos_doc::{NodeId, NodeKind, TextAutoResize};

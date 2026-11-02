@@ -650,17 +650,19 @@ fn max_lines_state(app: &App, sel: &[NodeId]) -> Option<Option<u32>> {
 }
 
 /// Sets `auto_resize` on every selected text layer (`Truncate` when `on`, `None` when off)
-/// while keeping each layer's current `size` in one undo step.
+/// while keeping each layer's current `size` in one undo step. A text layer that hugs in its
+/// auto-layout parent is switched to fixed sizing so its box does not collapse; layers of any
+/// other kind in the selection are left untouched.
 fn set_truncate_text(app: &mut App, sel: &[NodeId], on: bool) {
     app.edit_nodes(sel, |n| {
         if let NodeKind::Text(t) = &mut n.kind {
             t.auto_resize = if on { TextAutoResize::Truncate } else { TextAutoResize::None };
-        }
-        if n.layout_child.horizontal == Sizing::Hug {
-            n.layout_child.horizontal = Sizing::Fixed;
-        }
-        if n.layout_child.vertical == Sizing::Hug {
-            n.layout_child.vertical = Sizing::Fixed;
+            if n.layout_child.horizontal == Sizing::Hug {
+                n.layout_child.horizontal = Sizing::Fixed;
+            }
+            if n.layout_child.vertical == Sizing::Hug {
+                n.layout_child.vertical = Sizing::Fixed;
+            }
         }
     });
 }
@@ -681,8 +683,9 @@ fn set_max_lines(app: &mut App, sel: &[NodeId], max_lines: Option<u32>) {
     });
 }
 
-/// Optional positive integer field for `Max lines`: clearing stores `None`, mixed shows `"Mixed"`,
-/// and committing a number clamps it to an integer `>= 1`.
+/// Optional positive integer field for `Max lines`: committing an empty or blank text stores `None`,
+/// committing a number clamps it to an integer `>= 1`, and a field left as it was (including a mixed
+/// selection that shows `"Mixed"`) writes nothing.
 fn max_lines_field(ui: &mut Ui, rect: Rect, key: &str, state: Option<Option<u32>>) -> Option<Option<u32>> {
     widgets::record(ui, key, rect);
     #[cfg(test)]
@@ -702,29 +705,13 @@ fn max_lines_field(ui: &mut Ui, rect: Rect, key: &str, state: Option<Option<u32>
         _ => String::new(),
     };
     let hint = state.is_none().then_some(("Mixed", theme::TEXT_TERTIARY));
-    let clear_id = id.with("cleared");
-    if ui.memory(|m| m.has_focus(id)) && ui.input(|i| i.key_pressed(egui::Key::Backspace) || i.key_pressed(egui::Key::Delete)) {
-        ui.data_mut(|d| d.insert_temp(clear_id, true));
-    }
-    let committed = field::edit_text_hint(ui, rect, id, &display, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X, hint);
-    let lost_focus = !ui.memory(|m| m.has_focus(id)) && ui.memory(|m| m.had_focus_last_frame(id));
-    let was_cleared = lost_focus && ui.data_mut(|d| d.remove_temp::<bool>(clear_id)).unwrap_or(false);
-    if let Some(s) = committed {
-        let trimmed = s.trim();
-        if trimmed.is_empty() {
-            return Some(None);
-        }
-        if let Ok(v) = trimmed.parse::<f32>() {
-            if v.is_finite() {
-                return Some(Some(v.round().max(1.0) as u32));
-            }
-        }
-        return None;
-    }
-    if was_cleared && !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    let committed = field::edit_text_hint(ui, rect, id, &display, theme::font_body(), theme::TEXT, theme::FIELD_PLAIN_X, hint)?;
+    let trimmed = committed.trim();
+    if trimmed.is_empty() {
         return Some(None);
     }
-    None
+    let v = trimmed.parse::<f32>().ok().filter(|v| v.is_finite())?;
+    Some(Some(v.round().max(1.0) as u32))
 }
 
 fn clear_max_lines_test_rects(ctx: &egui::Context) {
