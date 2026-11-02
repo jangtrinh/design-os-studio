@@ -1,0 +1,17 @@
+# r2 rerun alone: vecops::tests::two_deferred_text_commands_both_convert_in_order
+head=b4a7470b7ed6fbd5ea56f1c9c56bf44e6e5bec0b
+cmd: cargo test -p designos-app --bin designos --locked vecops::tests::two_deferred_text_commands_both_convert_in_order -- --exact
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1467-truncate-text/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.26s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4203 filtered out; finished in 1.45s
+
+rc=0
