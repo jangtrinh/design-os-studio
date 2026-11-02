@@ -141,12 +141,12 @@ Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.
 <a id="new-in-v077"></a>
 ### 0.7.7
 
-- **Colour picker and Inspector.** The colour picker has `OKLCH` and `OKLAB` modes. A variable bind icon is always visible on bindable fields, and Typography fields get bind entry points.
-- **Canvas selection and the Object menu.** A click selects from the outside in like Figma, and Shift-click or Shift-drag adds the matching layers. `Resize to fit` shrinks or grows a frame to its visible content, and `Paste to replace` keeps its own shortcut.
-- **Vector and masks.** `Flatten` and `Outline stroke` convert text to vector paths, and masks come in Alpha, Vector and Luminance types.
-- **GPU canvas and `.fig` round trip.** A page viewed zoomed far out draws full detail once the view is still, where frames used to lose most of their text and small content. An instance's fill and stroke overrides keep their own colour style, so gradient swatches in the Untitled UI kit are no longer drawn purple, and saving to `.fig` keeps an instance's own size, opacity and other root overrides.
-- **Export, layout, window and Agents.** Native code export (SwiftUI, UIKit, Compose, Android XML) places grid children on the layout solver's tracks, wrapped Fill-width text re-measures its height after a width change, a narrow window no longer panics, and the Auto-save OFF switch shows its track edge. In the Agents panel, a second send while a prompt waits is queued behind it instead of replacing it.
-- **`designos-mcp`.** A `set_slot` op in `designos_apply_batch` fills the instance's slot instead of answering ok and changing nothing.
+- **Canvas.** A page viewed zoomed far out draws full detail once the view is still, a click selects from the outside in, and Shift-click or Shift-drag adds the matching layers.
+- **Colour and inspector.** The colour picker adds OKLCH and OKLAB modes, a variable bind icon is always visible on bindable fields, and Typography fields get bind entry points.
+- **Objects, vectors and masks.** `Resize to fit` shrinks or grows a frame to its visible content, `Paste to replace` keeps its own shortcut, `Flatten` and `Outline stroke` turn text into vector paths, and masks come in Alpha, Vector and Luminance types.
+- **`.fig` files.** An instance's fill and stroke overrides keep their own colour style, and saving to `.fig` keeps an instance's own size, opacity and other root overrides.
+- **Layout and export.** Wrapped Fill-width text re-measures its height after a width change, and native code export (SwiftUI, UIKit, Compose, Android XML) places grid children on the layout tracks.
+- **App, Agents and MCP.** A narrow window no longer crashes, the Auto-save OFF switch shows its track edge, a second send while a prompt waits is queued behind it, and a `set_slot` op in `designos_apply_batch` fills the instance's slot.
 
 <a id="new-in-v076"></a>
 ### 0.7.6
@@ -656,7 +656,7 @@ design-os-studio/
 - A drop or inner shadow's blend mode is lost when saving or exporting to `.pen` or SVG ([#1278](https://github.com/jangtrinh/design-os-studio/issues/1278)).
 - Editing a text style in a file imported before 0.7.0 resets its linked layers' paragraph indent and list spacing to 0 ([#1279](https://github.com/jangtrinh/design-os-studio/issues/1279)).
 - On macOS, Quit from the Dock, logout and shutdown still skip the Save changes question ([#977](https://github.com/jangtrinh/design-os-studio/issues/977)). Cmd+Q and Quit in the app menu ask.
-- The Windows test suite is advisory for 0.7.5. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
+- The Windows test suite is advisory for 0.7.7. Releases are verified on macOS, and known Windows test failures are tracked in [#1158](https://github.com/jangtrinh/design-os-studio/issues/1158).
 - The macOS app is ad-hoc signed, so the first launch asks for a one-time Open Anyway in System Settings > Privacy & Security.
 
 ### When not to use
