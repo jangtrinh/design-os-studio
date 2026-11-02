@@ -397,7 +397,7 @@ dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
    - **`N15` (`⌃⌥⌘M` does not toggle):** In `use_as_mask_shortcut_accepts_only_ctrl_cmd_m_on_macos` in [`crates/designos-app/src/shell/tests.rs`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/shell/tests.rs#L1943-L1953), dispatched `Key::M` with `Modifiers { alt: true, ctrl: true, mac_cmd: true, command: true, .. }` (`⌃⌥⌘M`) and asserted `!app.doc.get(r).unwrap().is_mask`.
 
 3. **Ruling 3 (`m5` — Bound Per-Frame Inspector Scan in `crates/designos-app/src/panels/properties.rs`):**
-   - Bounded the header `all_mask` check at [`properties.rs:854`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L854) to `sel.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask))`.
+   - Bounded the header `all_mask` check at [`properties.rs:854`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L854) to `sel.iter().take(128).all(|id| app.doc.get(*id).is_some_and(|n| n.is_mask))`. (Round 4 replaced this expression with `super::menus::selection_shows_all_mask(app)`.)
    - Bounded the per-frame `Mask` section filter at [`properties.rs:1043`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/properties.rs#L1043) to `let masks: Vec<NodeId> = sel.iter().take(128).copied().filter(|id| app.doc.get(*id).is_some_and(|n| n.is_mask)).collect();`, and collected the full `masks` list (`sel.iter().copied().filter(...)`) only inside `if let Some(i) = dropdown(...)` when the user selects a mask type.
    - Added a 129-node selection assertion (`128` non-masks followed by `m1` at index `128`) in `mask_section_filters_to_masks_and_clears_legacy_metadata_and_header_matches_menu_toggle` (`properties.rs:3091-3108`) verifying that the `Mask` section does not scan beyond index `127` per frame (kills `N17`).
 
@@ -557,6 +557,7 @@ test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
      (... 24 integration test binaries total in designos-render ...)
 Total across designos-render: 279 passed; 0 failed; 5 ignored.
 ```
+Controller note (2026-11-02, `grok-261102-1000-pr-1492-r4.md` LOW 4): the `11 passed` and `279` figures in this paste are not on the cited lines `:300` and `:316`; treat them as uncited. `:5` and `:67` hold the hash and `34.30s`.
 
 5. **`cargo test -p designos-fig --locked` ([`r3-cargo-test-fig.log:6,153,365,410`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r3-cargo-test-fig.log#L6)):**
 ```text
@@ -695,7 +696,7 @@ dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
 
 2. **Ruling 2 (Tests — Red on `4d288316`, Green on `HEAD`, Mutant Killed After Null Control):**
    - Added `selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask` at [`crates/designos-app/src/panels/menus.rs:1295-1324`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L1295-L1324): selects `128` masks (`0..128`) followed by `1` non-mask (`128`), asserts `selection_shows_all_mask(&app)` is `true` (`:1316`), asserts `mask_row(&app).checked == selection_shows_all_mask(&app)` (`:1317`), calls `toggle_mask_selection(&mut app)` (`:1319`), and asserts `!app.doc.get(ids[0]).unwrap().is_mask` (`:1320`) and `!app.doc.get(ids[128]).unwrap().is_mask` (`:1321`).
-   - Added `selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected` at [`crates/designos-app/src/panels/menus.rs:1327-1360`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L1327-L1360): selects `129` non-masks (`:1346`), asserts `!selection_shows_all_mask(&app)` (`:1347`), calls `toggle_mask_selection(&mut app)` (`:1350`), asserts all `129` nodes become masks (`:1351`), then clears the selection (`:1355`), asserts `!selection_shows_all_mask(&app)` (`:1356`) and `mask_row(&app).checked == false` (`:1357`), calls `toggle_mask_selection(&mut app)` (`:1358`), and asserts all `129` nodes remain masks (`:1359`).
+   - Added `selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected` at [`crates/designos-app/src/panels/menus.rs:1327-1360`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/crates/designos-app/src/panels/menus.rs#L1327-L1360): selects `129` non-masks (`:1346`), asserts `!selection_shows_all_mask(&app)` (`:1347`), calls `toggle_mask_selection(&mut app)` (`:1350`), asserts all `129` nodes become masks (`:1351`), then clears the selection (`:1355`), asserts `!selection_shows_all_mask(&app)` (`:1356`) and that the Object menu row's `checked` equals that predicate, so it is false here (`:1357`), calls `toggle_mask_selection(&mut app)` (`:1358`), and asserts all `129` nodes remain masks (`:1359`).
 
 3. **Ruling 3 (MINOR — Round 3 Report Corrections & `r4-proof-sheet-diff.log`):**
    - Corrected all 7 Round 3 citations in `plans/reports/agy-1465-mask-types.md`:
@@ -885,7 +886,7 @@ Total across workspace --lib (sum of lines :101,:823,:830,:995,:1144,:1180,:1191
 ```
 
 3. **Acceptance 3 — Terminal Render PNG of Red → Green Runs:**
-   - [`plans/reports/agy-1465-mask-types-evidence/r4-red-to-green-terminal.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-red-to-green-terminal.png) (`1520 × 1822` px, rendered from `r4-red-on-4d288316.log:349-384`, `r4-green-on-head.log:6-19`, and `r4-mutants.log:4-47`).
+   - [`plans/reports/agy-1465-mask-types-evidence/r4-red-to-green-terminal.png`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-red-to-green-terminal.png) (`1520 × 1822` px per `sips -g pixelWidth -g pixelHeight`, checked by the controller 2026-11-02; rendered from `r4-red-on-4d288316.log:349-384`, `r4-green-on-head.log:6-19`, and `r4-mutants.log:4-47`).
 
 4. **Acceptance 4 — `git log --oneline origin/main..HEAD` ([`r4-git-log.log:1-8`](file:///Users/jangtrinh/orca/workspaces/design-os-studio/agy-1465-mask-types/plans/reports/agy-1465-mask-types-evidence/r4-git-log.log#L1-L8), plus the Round 4 report commit on top):**
 ```text
@@ -906,7 +907,7 @@ dd017308 feat(mask): Alpha, Vector and Luminance mask types (#1465)
 | 1 | Both new tests red on `4d288316`, green on `HEAD`; the mutant killed after a green null control | `r4-red-on-4d288316.log:350-384` (`6 passed; 2 failed`), `r4-green-on-head.log:6-19` (`8 passed; 0 failed`), `r4-mutants.log:4-47` (`M0-null-control exit=0`, `N18-toggle-full-any-unmasked exit=101 (KILLED=True)`) | **PASS** |
 | 2 | Gates: `cargo fmt --all -- --check`; workspace clippy `--all-targets --locked -- -D warnings` with only main's known lints; `cargo test -p designos-app --bin designos --locked mask`; `cargo test --workspace --locked --lib`; `python3 scripts/zero_fake_ui_gate.py` | `r4-cargo-fmt.log:1` (`cargo fmt exit=0`), `r4-cargo-clippy.log:374-390` (only `agent_permissions.rs:1176:9` and `:1194:9`), `r4-cargo-test-app-mask.log:19` (`8 passed; 0 failed`), `r4-cargo-test-workspace-lib.log:101,823,830,995,1144,1180,1191,1234,1562,1626,1633,1647` (`1,490 passed; 0 failed; 3 ignored`), `r4-zero-fake-ui.log:24` (`PASS (17/17 invariants satisfied)`) | **PASS** |
 | 3 | Terminal render PNG of the red→green runs in the evidence folder | `plans/reports/agy-1465-mask-types-evidence/r4-red-to-green-terminal.png` (`1520 × 1822` px) | **PASS** |
-| 4 | Pushed (no force); paste `git log --oneline origin/main..HEAD`; delete `out/cargo` at the end | `r4-git-log.log:1-8` (`155e9209` on top of `4d288316`); `out/cargo` deleted | **PASS** |
+| 4 | Pushed (no force); paste `git log --oneline origin/main..HEAD`; delete `out/cargo` at the end | `r4-git-log.log:1-8` (`155e9209` on top of `4d288316`); controller check 2026-11-02: `git branch -r --contains 155e9209` lists `origin/jangtrinh/agy-1465-mask-types`, and `out/cargo` is absent in the worktree | **PASS** |
 
 ### 7. Assumptions & Unresolved Questions
 
