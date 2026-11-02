@@ -422,7 +422,7 @@ def evaluate_pillar_2() -> Dict[str, Any]:
         ("M20", "Edit", "Copy as SVG / CSS / PNG (copy_as)", [r"pub fn copy_as\b", r"COPY_ITEMS"], "crates/designos-app/src/panels/export.rs"),
         ("M21", "Edit", "Paste (Cmd+V)", [r"Action::Paste\b"], "crates/designos-app/src/panels/menus.rs"),
         ("M22", "Edit", "Paste over selection (Cmd+Shift+V)", [r"PasteOverSelection|paste_over_selection"], "crates/designos-app/src/panels/menus.rs"),
-        ("M23", "Edit", "Paste to replace (Cmd+Alt+Shift+R)", [r"PasteToReplace|paste_to_replace"], "crates/designos-app/src/panels/menus.rs"),
+        ("M23", "Edit", "Paste to replace (Cmd+Shift+R)", [r"PasteToReplace|paste_to_replace"], "crates/designos-app/src/panels/menus.rs"),
         ("M24", "Edit", "Duplicate (Cmd+D)", [r"Action::Duplicate"], "crates/designos-app/src/panels/menus.rs"),
         ("M25", "Edit", "Delete (Backspace / Del)", [r"Action::Delete"], "crates/designos-app/src/panels/menus.rs"),
         ("M26", "Edit", "Copy / Paste properties (Cmd+Alt+C / Cmd+Alt+V)", [r"CopyProperties|copy_properties"], "crates/designos-app/src/panels/menus.rs"),
