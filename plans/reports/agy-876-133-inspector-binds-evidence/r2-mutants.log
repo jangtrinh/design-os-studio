@@ -1,0 +1,265 @@
+=== M1_predicate_local_drop_kind ===
+M1_predicate_local_drop_kind: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.23s']
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists' (53167934) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:258:9:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.23s
+=== M2_predicate_local_drop_scope ===
+M2_predicate_local_drop_scope: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.18s']
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists' (53181242) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:275:9:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.18s
+=== M3_predicate_library_drop_scope ===
+M3_predicate_library_drop_scope: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 8.31s']
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists' (53190342) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:341:5:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 8.31s
+=== M4_reserve_zero_width ===
+M4_reserve_zero_width: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists', 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox'] ['test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.97s']
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox' (53218525) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:801:9:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists' (53218524) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:278:5:
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.97s
+=== M5_reserve_even_without_icon ===
+M5_reserve_even_without_icon: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.33s']
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists' (53230681) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:246:5:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.33s
+=== M6_hitbox_20px ===
+M6_hitbox_20px: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click', 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox'] ['test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 5.67s']
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click' (53245002) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:150:9:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox' (53245005) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:781:13:
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 5.67s
+=== M7_detach_separate_tx_local ===
+M7_detach_separate_tx_local: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 7.35s']
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library' (53254939) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:527:9:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 7.35s
+=== M8_detach_separate_tx_library ===
+M8_detach_separate_tx_library: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.86s']
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library' (53262845) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:578:5:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.86s
+=== M9_fontstyle_key_to_fontweight ===
+M9_fontstyle_key_to_fontweight: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library', 'shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load'] ['test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 4.09s']
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library' (53272897) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:520:9:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load' (53272899) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:400:5:
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 4.09s
+=== M10_stroke_side_order_R_L_swapped ===
+M10_stroke_side_order_R_L_swapped: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 34.28s']
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach' (53413347) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:714:5:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 34.28s
+=== M11_stop_row_always_visible ===
+M11_stop_row_always_visible: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 40.47s']
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click' (53445506) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:225:5:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 40.47s
+=== M12_rest_colour_secondary ===
+M12_rest_colour_secondary: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 44.42s']
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click' (53481083) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:164:5:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 44.42s
+=== M13_paragraph_rows_ignore_session ===
+M13_paragraph_rows_ignore_session: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 23.15s']
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session' (53515775) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:614:9:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 23.15s
+=== M14_effect_rows_ignore_reserved_rect ===
+M14_effect_rows_ignore_reserved_rect: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 44.96s']
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox' (53541981) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:834:9:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 44.96s
+=== M15_style_editor_ignores_reserved_rect ===
+M15_style_editor_ignores_reserved_rect: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 47.56s']
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox' (53727690) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:884:9:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 47.56s
+=== M16_no_explicit_font_load ===
+M16_no_explicit_font_load: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.58s']
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load' (53751387) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:378:5:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 6.58s
+=== M17_hover_button_hover_only ===
+M17_hover_button_hover_only: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click', 'shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists', 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox', 'shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach', 'shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library', 'shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load', 'shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches'] ['test result: FAILED. 2 passed; 7 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 2.35s']
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches' (53757745) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:672:5:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click' (53757737) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:148:9:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load' (53757744) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:355:9:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists' (53757739) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:256:5:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library' (53757742) panicked at crates/designos-app/src/shell/tests.rs:228:113:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach' (53757741) panicked at crates/designos-app/src/shell/tests.rs:228:113:
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox' (53757740) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:778:9:
+test result: FAILED. 2 passed; 7 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 2.35s
+=== M18_fontstyle_not_style_owned ===
+M18_fontstyle_not_style_owned: KILLED failed=['shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library'] ['test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 4.91s']
+test shell::tests::inspector_var_binds::inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_suppressed_during_active_text_edit_session ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_frame_allocations_with_700_library_variables_within_ten_percent ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library ... FAILED
+test shell::tests::inspector_var_binds::inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_per_side_stroke_weights_bind_and_detach ... ok
+test shell::tests::inspector_var_binds::inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load ... ok
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library' (53766347) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:519:9:
+test result: FAILED. 8 passed; 1 failed; 0 ignored; 0 measured; 3982 filtered out; finished in 4.91s
+
+=== SUMMARY TABLE ===
+| Mutant | Verdict | Killed by (`inspector_var_binds`) |
+|---|---|---|
+| `M1_predicate_local_drop_kind` | **KILLED** | `inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists` |
+| `M2_predicate_local_drop_scope` | **KILLED** | `inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists` |
+| `M3_predicate_library_drop_scope` | **KILLED** | `inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists` |
+| `M4_reserve_zero_width` | **KILLED** | `inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists, inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox` |
+| `M5_reserve_even_without_icon` | **KILLED** | `inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists` |
+| `M6_hitbox_20px` | **KILLED** | `inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click, inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox` |
+| `M7_detach_separate_tx_local` | **KILLED** | `inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library` |
+| `M8_detach_separate_tx_library` | **KILLED** | `inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library` |
+| `M9_fontstyle_key_to_fontweight` | **KILLED** | `inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library, inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load` |
+| `M10_stroke_side_order_R_L_swapped` | **KILLED** | `inspector_var_binds_per_side_stroke_weights_bind_and_detach` |
+| `M11_stop_row_always_visible` | **KILLED** | `inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click` |
+| `M12_rest_colour_secondary` | **KILLED** | `inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click` |
+| `M13_paragraph_rows_ignore_session` | **KILLED** | `inspector_var_binds_suppressed_during_active_text_edit_session` |
+| `M14_effect_rows_ignore_reserved_rect` | **KILLED** | `inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox` |
+| `M15_style_editor_ignores_reserved_rect` | **KILLED** | `inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox` |
+| `M16_no_explicit_font_load` | **KILLED** | `inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load (redundant `if key0 == "fontFamily"` block removed per Ruling 8; mutant bypasses `requesting_new_faces`)` |
+| `M17_hover_button_hover_only` | **KILLED** | `inspector_var_binds_always_visible_at_rest_and_opens_picker_on_single_click, inspector_var_binds_hidden_when_no_matching_local_or_library_variable_exists, inspector_var_binds_no_overlap_between_value_field_and_bind_hitbox, inspector_var_binds_per_side_stroke_weights_bind_and_detach, inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library, inspector_var_binds_typography_fields_bind_detach_legacy_weight_and_font_load, inspector_var_binds_wrap_counter_axis_spacing_binds_and_detaches` |
+| `M18_fontstyle_not_style_owned` | **KILLED** | `inspector_var_binds_style_linked_text_detaches_in_same_undo_step_local_and_library` |

@@ -237,16 +237,6 @@
     "reason": "rule 3: number value fields on the canvas side of the window are 32 high, up from 24, and stay centred in the 40 row"
   },
   {
-    "case": "k-variables-floating",
-    "region": "canvas",
-    "h_base": 24,
-    "anchor_y": "centre",
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "rule 3: value-field text inputs on the canvas side of the window are 32 high, up from 24, and stay centred on their field"
-  },
-  {
     "case": "micro-components-variables",
     "region": "overlay:Middle/0",
     "name_prefix": "vars-create",
@@ -317,16 +307,6 @@
     "max_dh": 8,
     "spec": "K",
     "reason": "rule 3: number value fields on the canvas side of the window are 32 high, up from 24, and stay centred in the 40 row"
-  },
-  {
-    "case": "micro-components-variables",
-    "region": "canvas",
-    "h_base": 24,
-    "anchor_y": "centre",
-    "min_dh": 8,
-    "max_dh": 8,
-    "spec": "K",
-    "reason": "rule 3: value-field text inputs on the canvas side of the window are 32 high, up from 24, and stay centred on their field"
   },
   {
     "case": "k-libraries",
@@ -1203,83 +1183,6 @@
   },
   {
     "case": "fill-d9",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "micro-autolayout",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "micro-css-grid",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "micro-inspector-math",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "micro-selection-corner",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "micro-shape-controls",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "micro-smart-selection",
-    "region": "tab_bar",
-    "h_base": 26,
-    "anchor_x": "left",
-    "anchor_y": "top",
-    "min_dw": -3,
-    "max_dw": 0,
-    "spec": "D",
-    "reason": "File tab body stops 3px short of the 24px close target (R5)."
-  },
-  {
-    "case": "micro-typography-multiedit",
     "region": "tab_bar",
     "h_base": 26,
     "anchor_x": "left",
@@ -2789,29 +2692,6 @@
     "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
   },
   {
-    "case": "micro-autolayout",
-    "region": "left_panel",
-    "h_base": 24,
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "max_dh": 8,
-    "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
-  },
-  {
-    "case": "micro-autolayout",
-    "region": "left_panel",
-    "name_prefix": "file-header",
-    "min_dw": -9.0,
-    "max_dw": -9.0,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "E",
-    "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
-  },
-  {
     "case": "micro-components-variables",
     "region": "overlay:Middle/0",
     "h_base": 24,
@@ -2830,29 +2710,6 @@
   {
     "case": "micro-components-variables",
     "region": "overlay:Middle/0",
-    "name_prefix": "file-header",
-    "min_dw": -9.0,
-    "max_dw": -9.0,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "E",
-    "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
-  },
-  {
-    "case": "micro-css-grid",
-    "region": "left_panel",
-    "h_base": 24,
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "max_dh": 8,
-    "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
-  },
-  {
-    "case": "micro-css-grid",
-    "region": "left_panel",
     "name_prefix": "file-header",
     "min_dw": -9.0,
     "max_dw": -9.0,
@@ -2903,29 +2760,6 @@
     "reason": "rule 5 (R5), edge case 10: the layers tab keeps its 55 px width and follows the ready tab 38 px left (derived shift); named so the 24 px button entry does not match it"
   },
   {
-    "case": "micro-inspector-math",
-    "region": "left_panel",
-    "h_base": 24,
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "max_dh": 8,
-    "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
-  },
-  {
-    "case": "micro-inspector-math",
-    "region": "left_panel",
-    "name_prefix": "file-header",
-    "min_dw": -9.0,
-    "max_dw": -9.0,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "E",
-    "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
-  },
-  {
     "case": "micro-layer-picker",
     "region": "left_panel",
     "h_base": 24,
@@ -2962,98 +2796,6 @@
   },
   {
     "case": "micro-scale-tool",
-    "region": "left_panel",
-    "name_prefix": "file-header",
-    "min_dw": -9.0,
-    "max_dw": -9.0,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "E",
-    "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
-  },
-  {
-    "case": "micro-selection-corner",
-    "region": "left_panel",
-    "h_base": 24,
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "max_dh": 8,
-    "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
-  },
-  {
-    "case": "micro-selection-corner",
-    "region": "left_panel",
-    "name_prefix": "file-header",
-    "min_dw": -9.0,
-    "max_dw": -9.0,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "E",
-    "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
-  },
-  {
-    "case": "micro-shape-controls",
-    "region": "left_panel",
-    "h_base": 24,
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "max_dh": 8,
-    "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
-  },
-  {
-    "case": "micro-shape-controls",
-    "region": "left_panel",
-    "name_prefix": "file-header",
-    "min_dw": -9.0,
-    "max_dw": -9.0,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "E",
-    "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
-  },
-  {
-    "case": "micro-smart-selection",
-    "region": "left_panel",
-    "h_base": 24,
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "max_dh": 8,
-    "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
-  },
-  {
-    "case": "micro-smart-selection",
-    "region": "left_panel",
-    "name_prefix": "file-header",
-    "min_dw": -9.0,
-    "max_dw": -9.0,
-    "min_dh": 4,
-    "max_dh": 4,
-    "spec": "E",
-    "reason": "rule 5 (R5): the file name hit stops short of the 32 px sidebar button (9 px narrower here); its own height holds, the 4 px is the header row growing around the centred button"
-  },
-  {
-    "case": "micro-typography-multiedit",
-    "region": "left_panel",
-    "h_base": 24,
-    "anchor_x": "right",
-    "anchor_y": "centre",
-    "min_dw": 8,
-    "max_dw": 8,
-    "max_dh": 8,
-    "spec": "E",
-    "reason": "rule 5 (R5): panel header icon buttons grow 24 to 32 (dw 8, dh 8), right edge and centre held"
-  },
-  {
-    "case": "micro-typography-multiedit",
     "region": "left_panel",
     "name_prefix": "file-header",
     "min_dw": -9.0,

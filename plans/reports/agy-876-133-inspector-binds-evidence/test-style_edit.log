@@ -1,0 +1,48 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.5 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app)
+warning: unused return value of `egui::Context::run_ui` that must be used
+   --> crates/designos-app/src/panels/components.rs:363:9
+    |
+363 | / ...   ctx.run_ui(egui::RawInput::default(), |ui| {
+364 | | ...       let response = ui.push_id("tab-before-instance-bool", |ui| ...
+365 | | ...       first_id.set(response.id);
+366 | | ...       response.request_focus();
+367 | | ...       toggle_id.set(instance_boolean_toggle(ui, rect, "instance-b...
+368 | | ...   });
+    | |________^
+    |
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+363 |         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+    |         +++++++
+
+warning: `designos-app` (bin "designos" test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.60s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-2d905839eaba8cb2)
+
+running 18 tests
+test canvas::textsession::tests::inspector_style_edits_request_the_new_face_with_or_without_a_session ... ok
+test canvas::textsession::tests::undoing_a_second_quick_style_edit_finds_the_face_of_the_first ... ok
+test styles::instance_refit_tests::a_style_edit_on_an_instance_label_is_one_undo_step ... ok
+test shell::tests::style_edit::a_library_style_cannot_be_renamed_from_the_style_menu_or_linked_row ... ok
+test shell::tests::style_edit::a_library_style_cannot_be_edited_from_the_list ... ok
+test shell::tests::style_edit::deleted_variable_bound_on_a_style_renders_detachable_pill_and_emits_broken_style_binding_lint ... ok
+test shell::tests::style_edit::a_grid_style_count_field_never_leaves_a_guide_that_draws_nothing ... ok
+test shell::tests::style_edit::a_library_style_cannot_be_edited_from_its_linked_row_or_the_style_menu ... ok
+test shell::tests::text_styles::the_linked_row_opens_the_style_editor ... ok
+test shell::tests::style_edit::editing_an_effect_style_from_its_linked_row_updates_every_linked_layer_in_one_undo_step ... ok
+test shell::tests::style_edit::editing_a_style_description_in_the_popover_survives_native_save_and_load ... ok
+test shell::tests::style_edit::editing_a_color_style_from_the_list_updates_every_linked_layer_in_one_undo_step ... ok
+test shell::tests::style_edit::editing_a_grid_style_from_the_style_menu_updates_the_linked_frame ... ok
+test shell::tests::style_edit::a_drag_is_recorded_once_when_the_pointer_is_released ... ok
+test shell::tests::style_edit::editing_a_text_style_from_the_list_restyles_every_linked_text_layer ... ok
+test shell::tests::style_edit::style_picker_and_styles_list_show_description_tooltip_only_when_non_empty ... ok
+test shell::tests::style_edit::scrubbing_text_and_grid_style_fields_updates_linked_layers_in_one_undo_step ... ok
+test shell::tests::style_edit::popover_number_fields_use_distinct_non_duplicate_prefixes ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 3968 filtered out; finished in 3.63s
+

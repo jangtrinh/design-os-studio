@@ -1,0 +1,42 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-mcp)
+   Compiling designos-app v0.7.6 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-876-133-inspector-binds/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 50.69s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-0146e1a2c129c956)
+
+running 4 tests
+
+thread 'layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run' (59896963) panicked at crates/designos-app/src/layout_snapshot.rs:1662:14:
+covering entry for existing widgets with 0 drift must not be flagged as stale: "stale allow.json[0] entry (case='d-editor-default', region='right_panel', spec='F'): matched 0 widgets"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... FAILED
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_weight_menu_checks_current_weight_and_guards_apply_variable' (59896966) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:1201:5:
+weight menu must check the current weight Semi Bold at menu-check-0-5
+test shell::tests::inspector_var_binds::inspector_var_binds_weight_menu_checks_current_weight_and_guards_apply_variable ... FAILED
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_scope_oracle_and_per_target_fill_scopes' (59896965) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:1030:13:
+assertion `left == right` failed: scope FRAME_FILL on Frame(Welcome): expected bind:fills/0 visible=true
+  left: false
+ right: true
+test shell::tests::inspector_var_binds::inspector_var_binds_scope_oracle_and_per_target_fill_scopes ... FAILED
+
+thread 'shell::tests::inspector_var_binds::inspector_var_binds_scope_census_visits_once_per_pass_and_refreshes_on_local_or_library_update' (59896964) panicked at crates/designos-app/src/shell/tests/inspector_var_binds.rs:945:5:
+assertion `left == right` failed: scope census must visit each local (4) and enabled library (2) variable exactly once per pass
+  left: None
+ right: Some(6)
+test shell::tests::inspector_var_binds::inspector_var_binds_scope_census_visits_once_per_pass_and_refreshes_on_local_or_library_update ... FAILED
+
+failures:
+
+failures:
+    layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run
+    shell::tests::inspector_var_binds::inspector_var_binds_scope_census_visits_once_per_pass_and_refreshes_on_local_or_library_update
+    shell::tests::inspector_var_binds::inspector_var_binds_scope_oracle_and_per_target_fill_scopes
+    shell::tests::inspector_var_binds::inspector_var_binds_weight_menu_checks_current_weight_and_guards_apply_variable
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4045 filtered out; finished in 1.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
