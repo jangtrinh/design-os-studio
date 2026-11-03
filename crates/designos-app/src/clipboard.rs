@@ -38,10 +38,12 @@ pub fn system_figma_html() -> Option<String> {
 /// when the clipboard has plain text and into nothing at all otherwise, and never forwards that press as an
 /// `Event::Key`. A Figma copy can carry HTML alone, so the only trace of such a paste is the V *release*
 /// (`lib.rs:1018`; winit still delivers a keyUp while Cmd is held, `platform_impl/macos/app.rs:25-34`).
-/// Shift or Alt change nothing: egui-winit ignores them for paste, so Shift+Cmd+V is the normal paste too.
+/// Shift or Alt are not represented on `Event::Paste`; the shell supplies the frame modifiers when it routes the
+/// event. The V release below carries its own modifiers, or falls back to the previous frame when Cmd was released
+/// before V.
 ///
 /// Feed every key event of a frame through [`PasteChord::on_event`] and call [`PasteChord::begin_frame`] once
-/// per frame; `on_event` returns true when the clipboard HTML must be read now.
+/// per frame; `on_event` returns the modifiers when the clipboard HTML-only paste must be handled now.
 #[derive(Default, Debug)]
 pub struct PasteChord {
     /// A plain V press arrived (a tool shortcut), so its release is not the end of a paste chord.
@@ -49,38 +51,48 @@ pub struct PasteChord {
     /// An `Event::Paste` already handled the chord, so its release must not paste again.
     text_paste_seen: bool,
     /// Whether the command modifier was down in the previous frame; Cmd may be let go before V.
-    command_last_frame: bool,
-    command_now: bool,
+    modifiers_last_frame: egui::Modifiers,
+    modifiers_now: egui::Modifiers,
 }
 
 impl PasteChord {
-    pub fn begin_frame(&mut self, command_down: bool) {
-        self.command_last_frame = self.command_now;
-        self.command_now = command_down;
+    pub fn begin_frame(&mut self, modifiers: egui::Modifiers) {
+        self.modifiers_last_frame = self.modifiers_now;
+        self.modifiers_now = modifiers;
     }
 
-    pub fn on_event(&mut self, ev: &egui::Event) -> bool {
+    /// Returns the modifiers for a paste chord whose V release carries no text event.
+    pub fn on_event(&mut self, ev: &egui::Event) -> Option<egui::Modifiers> {
         match ev {
             egui::Event::Paste(_) => {
                 self.text_paste_seen = true;
-                false
+                None
             }
             egui::Event::WindowFocused(false) => {
                 // a release that happens while unfocused never arrives
                 self.plain_v_down = false;
                 self.text_paste_seen = false;
-                false
+                None
             }
             egui::Event::Key { key: egui::Key::V, pressed: true, .. } => {
                 self.plain_v_down = true;
-                false
+                None
             }
             egui::Event::Key { key: egui::Key::V, pressed: false, modifiers, .. } => {
                 let plain = std::mem::take(&mut self.plain_v_down);
                 let handled = std::mem::take(&mut self.text_paste_seen);
-                !plain && !handled && (modifiers.command || self.command_last_frame)
+                if plain || handled {
+                    return None;
+                }
+                if modifiers.command {
+                    Some(*modifiers)
+                } else if self.modifiers_last_frame.command {
+                    Some(self.modifiers_last_frame)
+                } else {
+                    None
+                }
             }
-            _ => false,
+            _ => None,
         }
     }
 }

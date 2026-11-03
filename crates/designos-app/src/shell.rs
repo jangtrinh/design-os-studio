@@ -757,7 +757,8 @@ impl Shell {
     }
 
     fn handle_keys(&mut self, ctx: &Context) {
-        self.paste_chord.begin_frame(ctx.input(|i| i.modifiers.command));
+        let frame_modifiers = ctx.input(|i| i.modifiers);
+        self.paste_chord.begin_frame(frame_modifiers);
         if self.app.plugins.open
             || self.app.dialog.is_some()
             || self.app.history.save_modal.is_some()
@@ -795,15 +796,15 @@ impl Shell {
         for ev in events {
             // egui-winit emits `Event::Paste` only for a non-empty `text/plain` and never a V press for a paste chord;
             // a Figma copy can carry HTML alone, which only the V release reveals (see `PasteChord`).
-            if self.paste_chord.on_event(&ev) && !editing_text {
-                self.app.paste_from_system(None);
+            if let Some(modifiers) = self.paste_chord.on_event(&ev) {
+                if !editing_text {
+                    self.route_system_paste(ctx, modifiers, None);
+                }
                 continue;
             }
             match ev {
                 Event::Copy if !editing_text => {
-                    if let Some(s) = self.app.copy_selection() {
-                        ctx.copy_text(s);
-                    }
+                    self.route_system_copy(ctx, frame_modifiers);
                 }
                 Event::Cut if !editing_text => {
                     if let Some(s) = self.app.cut_selection() {
@@ -811,7 +812,7 @@ impl Shell {
                     }
                 }
                 Event::Paste(s) if !editing_text => {
-                    self.app.paste_from_system(Some(&s));
+                    self.route_system_paste(ctx, frame_modifiers, Some(&s));
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => {
                     if self.try_typography_shortcut(key, modifiers) {
@@ -824,6 +825,24 @@ impl Shell {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn route_system_copy(&mut self, ctx: &Context, modifiers: egui::Modifiers) {
+        if modifiers.command && modifiers.alt {
+            self.app.copy_properties();
+        } else if let Some(s) = self.app.copy_selection() {
+            ctx.copy_text(s);
+        }
+    }
+
+    fn route_system_paste(&mut self, _ctx: &Context, modifiers: egui::Modifiers, text: Option<&str>) {
+        if modifiers.command && modifiers.alt && !modifiers.shift {
+            self.app.paste_properties();
+        } else if modifiers.command && modifiers.shift && !modifiers.alt {
+            self.app.paste_over_selection();
+        } else {
+            self.app.paste_from_system(text);
         }
     }
 
