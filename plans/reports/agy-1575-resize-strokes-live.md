@@ -454,6 +454,12 @@ zero_fake_ui_rc=0
 
 ### Acceptance 5 — Draft PR, Commit Log & `out/cargo` Cleanup (`brief-agy-1575-resize-strokes-live.txt:41`)
 
+- **Draft PR URL:** `https://github.com/jangtrinh/design-os-studio/pull/1588`
+- **`git log --oneline origin/main..HEAD`:**
+```text
+$ git log --oneline origin/main..HEAD
+138d01f8 fix(vector): resized vectors keep their stroke weight when the stroke mixes alignments or joins (#1575)
+```
 - **`ls out/cargo` failing after cleanup (`plans/reports/agy-1575-resize-strokes-live-evidence/cleanup-out-cargo.log:1-2`):**
 ```text
 $ ls out/cargo
