@@ -35,6 +35,11 @@ pub const FS_CALLS: &[Allowed] = &[
     Allowed { file: "src/tools/guidelines.rs", func: Some("list_topics_value"), why: GUIDELINES },
     Allowed { file: "src/tools/guidelines.rs", func: Some("has_toml_files"), why: GUIDELINES },
     Allowed { file: "src/tools/guidelines.rs", func: Some("validate_archetypes_dir"), why: GUIDELINES },
+    Allowed {
+        file: "src/tools/docs_project.rs",
+        func: Some("projects_of"),
+        why: "asks whether the library root exists before listing its projects; Studio's library root, not a session folder",
+    },
     Allowed { file: "src/tools/libraries.rs", func: Some("get_libraries_at"), why: LIBRARY_ROOT },
     Allowed { file: "src/tools/library_source.rs", func: Some("load_cached_snapshot_at"), why: LIBRARY_ROOT },
     Allowed { file: "src/tools/library_source.rs", func: Some("enabled_snapshots"), why: LIBRARY_ROOT },

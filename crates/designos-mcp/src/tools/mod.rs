@@ -4,6 +4,11 @@
 pub mod batch;
 pub mod bootstrap;
 pub mod design_context;
+pub mod docs;
+pub mod docs_fence;
+pub mod docs_project;
+#[cfg(test)]
+mod docs_tests;
 pub mod errors;
 pub mod fill_write;
 pub mod guidelines;
