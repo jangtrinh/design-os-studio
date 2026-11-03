@@ -860,3 +860,50 @@ fn singular_crop_transform_draws_nothing() {
     assert_eq!(c.report.mismatched, 0);
     assert_eq!(px(&c.gpu, 20, 20), [255, 255, 255, 255]);
 }
+
+fn tiled_halves_scene(tile_scale: f32) -> T {
+    let mut t = T::new();
+    t.doc.images.insert("halves".into(), png_bytes(2000, 1000, |x, _| if x < 1000 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), Color::WHITE);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: "halves".into(), scale_mode: ImageScaleMode::Tile, params: ImageParams { tile_scale, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    t
+}
+
+#[test]
+fn tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let t = tiled_halves_scene(0.01);
+    let minimum = compare(&mut g, "tile_scale_minimum", &t.doc, t.page, vp, (40, 20), 8);
+    // The CPU averages the 2000x1000 picture down to the 20x10 tile and the GPU point-samples it, so the pixels
+    // on the red/blue seams differ; with those forgiven the two renders agree.
+    assert!(minimum.report_aa.ratio < 0.02, "CPU/GPU mismatch with seams forgiven {:.3}%", minimum.report_aa.ratio * 100.0);
+    assert_eq!(px(&minimum.gpu, 5, 5), [255, 0, 0, 255], "first tile red half");
+    assert_eq!(px(&minimum.gpu, 15, 5), [0, 0, 255, 255], "first tile blue half");
+    assert_eq!(px(&minimum.gpu, 25, 5), [255, 0, 0, 255], "second tile red half");
+    for raw in [0.0, -0.0, -3.0] {
+        let t = tiled_halves_scene(raw);
+        let c = compare(&mut g, "tile_scale_clamped", &t.doc, t.page, vp, (40, 20), 8);
+        assert!(c.gpu.data() == minimum.gpu.data(), "GPU: tile scale {raw} renders as 0.01");
+        assert!(c.cpu.data() == minimum.cpu.data(), "CPU: tile scale {raw} renders as 0.01");
+    }
+}
+
+#[test]
+fn non_finite_tile_scale_renders_at_native_size_on_cpu_and_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let t = tiled_halves_scene(1.0);
+    let native = compare(&mut g, "tile_scale_native", &t.doc, t.page, vp, (40, 20), 8);
+    for raw in [f32::NAN, f32::INFINITY] {
+        let t = tiled_halves_scene(raw);
+        let c = compare(&mut g, "tile_scale_non_finite", &t.doc, t.page, vp, (40, 20), 8);
+        assert!(c.gpu.data() == native.gpu.data(), "GPU: tile scale {raw} renders at native size");
+        assert!(c.cpu.data() == native.cpu.data(), "CPU: tile scale {raw} renders at native size");
+    }
+}

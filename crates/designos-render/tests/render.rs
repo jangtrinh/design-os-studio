@@ -939,3 +939,37 @@ fn singular_crop_transform_draws_nothing() {
     let pm = t.render(40, 40);
     assert_eq!(px(&pm, 20, 20), WHITE, "singular crop transform draws nothing");
 }
+
+/// A 2000x1000 picture whose left half is red and right half is blue, tiled on a 40x20 node.
+fn tiled_halves_scene(tile_scale: f32) -> Pixmap {
+    let mut t = T::new();
+    t.doc.images.insert("halves".into(), png_bytes(2000, 1000, |x, _| if x < 1000 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), Color::TRANSPARENT);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "halves".into(),
+        scale_mode: ImageScaleMode::Tile,
+        params: ImageParams { tile_scale, ..Default::default() },
+    })];
+    t.render(40, 20)
+}
+
+#[test]
+fn tile_scale_zero_and_negative_render_at_the_minimum() {
+    let minimum = tiled_halves_scene(0.01);
+    // 0.01 of a 2000x1000 picture is a 20x10 tile: red on the left half, blue on the right half, twice across.
+    assert!(near(px(&minimum, 5, 5), [255, 0, 0, 255], 8), "first tile red half: {:?}", px(&minimum, 5, 5));
+    assert!(near(px(&minimum, 15, 5), [0, 0, 255, 255], 8), "first tile blue half: {:?}", px(&minimum, 15, 5));
+    assert!(near(px(&minimum, 25, 5), [255, 0, 0, 255], 8), "second tile red half: {:?}", px(&minimum, 25, 5));
+    for raw in [0.0, -0.0, -3.0, 0.001] {
+        assert!(tiled_halves_scene(raw).data() == minimum.data(), "tile scale {raw} renders as 0.01");
+    }
+}
+
+#[test]
+fn tile_scale_above_the_maximum_and_non_finite_values_clamp() {
+    assert!(tiled_halves_scene(1000.0).data() == tiled_halves_scene(100.0).data(), "tile scale above 100 renders as 100");
+    let native = tiled_halves_scene(1.0);
+    for raw in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(tiled_halves_scene(raw).data() == native.data(), "tile scale {raw} renders at native size");
+    }
+}

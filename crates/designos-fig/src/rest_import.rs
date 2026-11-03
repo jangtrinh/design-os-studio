@@ -102,7 +102,7 @@ fn parse_image_params(v: &Value) -> ImageParams {
         m.iter().all(|x| x.is_finite()).then_some(m)
     });
     let rotation = fnum(v, "rotation").filter(|r| r.is_finite()).unwrap_or(0.0);
-    let tile_scale = fnum(v, "scalingFactor").filter(|s| s.is_finite() && *s > 0.0).unwrap_or(1.0);
+    let tile_scale = fnum(v, "scalingFactor").map(clamp_tile_scale).unwrap_or(1.0);
     let adjust = if let Some(flt) = v.get("filters") {
         let f = |k: &str| fnum(flt, k).filter(|x| x.is_finite()).unwrap_or(0.0);
         ImageAdjust {

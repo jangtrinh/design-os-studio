@@ -284,6 +284,119 @@ impl ImageParams {
     }
 }
 
+/// Smallest tile scale an image fill renders at.
+pub const TILE_SCALE_MIN: f32 = 0.01;
+/// Largest tile scale an image fill renders at.
+pub const TILE_SCALE_MAX: f32 = 100.0;
+
+/// Clamps a tile scale into `TILE_SCALE_MIN..=TILE_SCALE_MAX`. Zero and negative
+/// values land on the minimum; a non-finite value falls back to `1.0` (native size).
+pub fn clamp_tile_scale(raw: f32) -> f32 {
+    if raw.is_finite() {
+        raw.clamp(TILE_SCALE_MIN, TILE_SCALE_MAX)
+    } else {
+        1.0
+    }
+}
+
+/// Clockwise quarter turns (`0..4`) an image fill rotation renders at: the nearest
+/// multiple of 90 degrees, modulo 360. A non-finite rotation is `0`.
+pub fn image_quarter_turns(rotation: f32) -> u8 {
+    const ROTATION_STEP_DEG: f32 = 90.0;
+    if rotation.is_finite() {
+        ((rotation / ROTATION_STEP_DEG).round() as i32).rem_euclid(4) as u8
+    } else {
+        0
+    }
+}
+
+/// Maps a node-local point `(x, y)` to image UV `(u, v)` (`0..1` over the decoded
+/// picture, before any quarter turn): `u = u.0 * x + u.1 * y + u.2` and likewise
+/// for `v`. The CPU and GPU renderers and the image jobs all read this one mapping.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImageUvMap {
+    pub u: (f32, f32, f32),
+    pub v: (f32, f32, f32),
+    /// Node units per image pixel, used to pick a mip level.
+    pub scale: f32,
+    /// Clockwise quarter turns baked into `u` and `v`. Always `0` for Crop.
+    pub quarter_turns: u8,
+}
+
+impl ImageUvMap {
+    /// Image UV of the node-local point `(x, y)`.
+    pub fn apply(&self, x: f32, y: f32) -> (f32, f32) {
+        (self.u.0 * x + self.u.1 * y + self.u.2, self.v.0 * x + self.v.1 * y + self.v.2)
+    }
+}
+
+/// Rotates an unrotated `(x, y) -> (u, v)` affine clockwise by `q` quarter turns around `(0.5, 0.5)`.
+fn rotate_uv_quarter_turns(q: u8, u: (f32, f32, f32), v: (f32, f32, f32)) -> ((f32, f32, f32), (f32, f32, f32)) {
+    match q {
+        1 => (v, (-u.0, -u.1, 1.0 - u.2)),
+        2 => ((-u.0, -u.1, 1.0 - u.2), (-v.0, -v.1, 1.0 - v.2)),
+        3 => ((-v.0, -v.1, 1.0 - v.2), u),
+        _ => (u, v),
+    }
+}
+
+/// Node-local to image-UV mapping of an image fill on a node of `size` showing an
+/// `iw` x `ih` picture. Fill, Fit and Tile rotate by `params.rotation` (odd quarter
+/// turns swap the picture's width and height before scaling); Tile scales by the
+/// clamped `tile_scale`; Crop maps node UV through `params.transform` (identity when
+/// absent) and ignores rotation. `None` when nothing is drawn: a degenerate size or
+/// picture, or a singular or non-finite Crop transform.
+pub fn image_uv_map(size: Vec2, iw: f32, ih: f32, scale_mode: ImageScaleMode, params: &ImageParams) -> Option<ImageUvMap> {
+    if !iw.is_finite() || !ih.is_finite() || iw <= 0.0 || ih <= 0.0 || !size.x.is_finite() || !size.y.is_finite() {
+        return None;
+    }
+    let q = image_quarter_turns(params.rotation);
+    let (rw, rh) = if q % 2 != 0 { (ih, iw) } else { (iw, ih) };
+    match scale_mode {
+        ImageScaleMode::Fill | ImageScaleMode::Fit => {
+            let s = if matches!(scale_mode, ImageScaleMode::Fill) { (size.x / rw).max(size.y / rh) } else { (size.x / rw).min(size.y / rh) };
+            if !s.is_finite() || s <= 0.0 {
+                return None;
+            }
+            let tx = (size.x - rw * s) * 0.5;
+            let ty = (size.y - rh * s) * 0.5;
+            let u0 = (1.0 / (rw * s), 0.0, -tx / (rw * s));
+            let v0 = (0.0, 1.0 / (rh * s), -ty / (rh * s));
+            let (u, v) = rotate_uv_quarter_turns(q, u0, v0);
+            Some(ImageUvMap { u, v, scale: s, quarter_turns: q })
+        }
+        ImageScaleMode::Tile => {
+            let ts_factor = clamp_tile_scale(params.tile_scale);
+            let u0 = (1.0 / (rw * ts_factor), 0.0, 0.0);
+            let v0 = (0.0, 1.0 / (rh * ts_factor), 0.0);
+            let (u, v) = rotate_uv_quarter_turns(q, u0, v0);
+            Some(ImageUvMap { u, v, scale: ts_factor, quarter_turns: q })
+        }
+        ImageScaleMode::Crop => {
+            if size.x <= 0.0 || size.y <= 0.0 {
+                return None;
+            }
+            let m = params.transform.unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+            if !m.iter().all(|v| v.is_finite()) {
+                return None;
+            }
+            let det = m[0] * m[4] - m[1] * m[3];
+            if !det.is_finite() || det.abs() <= 1e-12 {
+                return None;
+            }
+            let u = (m[0] / size.x, m[1] / size.y, m[2]);
+            let v = (m[3] / size.x, m[4] / size.y, m[5]);
+            let sx = (u.0 * iw).hypot(v.0 * ih).max(1e-6);
+            let sy = (u.1 * iw).hypot(v.1 * ih).max(1e-6);
+            let s = (1.0 / sx).max(1.0 / sy);
+            if !s.is_finite() || s <= 0.0 {
+                return None;
+            }
+            Some(ImageUvMap { u, v, scale: s, quarter_turns: 0 })
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PaintKind {
     Solid(Color),
@@ -786,5 +899,54 @@ mod tests {
         assert_eq!(kind, PaintKind::Image { image_ref: "hash123".into(), scale_mode: ImageScaleMode::Fill, params: ImageParams::default() });
         let saved = serde_json::to_string(&kind).unwrap();
         assert_eq!(saved, json);
+    }
+    #[test]
+    fn tile_scale_clamps_into_range_and_non_finite_falls_back_to_native() {
+        assert_eq!(clamp_tile_scale(0.0), TILE_SCALE_MIN);
+        assert_eq!(clamp_tile_scale(-4.0), TILE_SCALE_MIN);
+        assert_eq!(clamp_tile_scale(0.001), TILE_SCALE_MIN);
+        assert_eq!(clamp_tile_scale(2.5), 2.5);
+        assert_eq!(clamp_tile_scale(1.0e6), TILE_SCALE_MAX);
+        for raw in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(clamp_tile_scale(raw), 1.0, "{raw}");
+        }
+    }
+
+    #[test]
+    fn quarter_turns_round_to_the_nearest_right_angle_modulo_a_full_turn() {
+        for (degrees, turns) in [(0.0, 0), (89.0, 1), (90.0, 1), (180.0, 2), (270.0, 3), (360.0, 0), (450.0, 1), (-90.0, 3), (44.0, 0), (f32::NAN, 0)] {
+            assert_eq!(image_quarter_turns(degrees), turns, "{degrees}");
+        }
+    }
+
+    #[test]
+    fn image_uv_map_places_the_picture_like_each_scale_mode() {
+        let params = ImageParams::default();
+        // Fill: a 400x200 picture covers a 100x100 node, centred: the node shows u in 0.25..0.75.
+        let fill = image_uv_map(Vec2::new(100.0, 100.0), 400.0, 200.0, ImageScaleMode::Fill, &params).unwrap();
+        assert_eq!((fill.apply(0.0, 0.0), fill.apply(100.0, 100.0)), ((0.25, 0.0), (0.75, 1.0)));
+        // Fit: the whole picture sits in the middle of the node.
+        let fit = image_uv_map(Vec2::new(100.0, 100.0), 400.0, 200.0, ImageScaleMode::Fit, &params).unwrap();
+        assert_eq!((fit.apply(0.0, 25.0), fit.apply(100.0, 75.0)), ((0.0, 0.0), (1.0, 1.0)));
+        // A quarter turn clockwise: the top-left of the node shows the bottom-left of the picture.
+        let turned = image_uv_map(Vec2::new(100.0, 100.0), 400.0, 200.0, ImageScaleMode::Fit, &ImageParams { rotation: 90.0, ..params }).unwrap();
+        assert_eq!(turned.quarter_turns, 1);
+        let (u, v) = turned.apply(25.0, 0.0);
+        assert!((u - 0.0).abs() < 1e-6 && (v - 1.0).abs() < 1e-6, "({u}, {v})");
+        // Crop ignores rotation and maps node UV through the transform.
+        let crop = ImageParams { transform: Some([0.5, 0.0, 0.25, 0.0, 0.5, 0.25]), rotation: 90.0, ..params };
+        let crop = image_uv_map(Vec2::new(100.0, 100.0), 400.0, 200.0, ImageScaleMode::Crop, &crop).unwrap();
+        assert_eq!((crop.quarter_turns, crop.apply(0.0, 0.0), crop.apply(100.0, 100.0)), (0, (0.25, 0.25), (0.75, 0.75)));
+    }
+
+    #[test]
+    fn image_uv_map_draws_nothing_for_degenerate_input() {
+        let size = Vec2::new(100.0, 100.0);
+        let singular = ImageParams { transform: Some([1.0, 2.0, 0.0, 2.0, 4.0, 0.0]), ..Default::default() };
+        assert_eq!(image_uv_map(size, 10.0, 10.0, ImageScaleMode::Crop, &singular), None);
+        assert_eq!(image_uv_map(size, 0.0, 10.0, ImageScaleMode::Fill, &ImageParams::default()), None);
+        assert_eq!(image_uv_map(Vec2::new(f32::NAN, 10.0), 10.0, 10.0, ImageScaleMode::Fit, &ImageParams::default()), None);
+        let tile = image_uv_map(size, 10.0, 10.0, ImageScaleMode::Tile, &ImageParams { tile_scale: 0.0, ..Default::default() }).unwrap();
+        assert_eq!(tile.scale, TILE_SCALE_MIN, "tile scale 0 is drawn at the minimum");
     }
 }

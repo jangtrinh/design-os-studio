@@ -4995,3 +4995,56 @@ fn rest_round_trip_keeps_image_transform_scaling_factor_and_filters() {
     assert_eq!(node.fills[0].kind, PaintKind::Image { image_ref: "crop_hash".into(), scale_mode: ImageScaleMode::Crop, params: crop_params });
     assert_eq!(node.fills[1].kind, PaintKind::Image { image_ref: "tile_hash".into(), scale_mode: ImageScaleMode::Tile, params: tile_params });
 }
+
+fn tiled_image_doc(tile_scale: f32) -> Document {
+    let mut doc = Document::new("TileScaleClamp");
+    let page = doc.add_page("Page 1");
+    let id = doc.alloc_id();
+    let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    rect.name = "TiledNode".into();
+    rect.fills = vec![Paint {
+        kind: PaintKind::Image {
+            image_ref: "deadbeef01020304".into(),
+            scale_mode: ImageScaleMode::Tile,
+            params: ImageParams { tile_scale, ..Default::default() },
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    doc.insert(page, rect).unwrap();
+    doc
+}
+
+fn imported_tile_scale(doc: &Document) -> f32 {
+    let PaintKind::Image { params, .. } = &find(doc, "TiledNode").fills[0].kind else {
+        panic!("expected PaintKind::Image");
+    };
+    params.tile_scale
+}
+
+#[test]
+fn rest_import_clamps_scaling_factor_into_the_tile_scale_range() {
+    let exported = designos_fig::export_rest_json(&tiled_image_doc(2.0));
+    for (raw, expected) in [(json!(0), 0.01), (json!(0.0), 0.01), (json!(-3.0), 0.01), (json!(0.001), 0.01), (json!(1000.0), 100.0), (json!(2.5), 2.5)] {
+        let mut patched = exported.clone();
+        let fill = &mut patched["document"]["children"][0]["children"][0]["fills"][0];
+        assert_eq!(fill["scaleMode"], "TILE");
+        fill["scalingFactor"] = raw.clone();
+        let reimported = designos_fig::import_rest_json(&serde_json::to_string(&patched).unwrap()).expect("import_rest_json");
+        assert_eq!(imported_tile_scale(&reimported), expected, "REST scalingFactor {raw} imports as {expected}");
+    }
+}
+
+#[test]
+fn fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value() {
+    for (stored, expected) in [(0.0, 0.01), (-2.0, 0.01), (1000.0, 100.0), (0.5, 0.5)] {
+        let bytes = export_fig(&tiled_image_doc(stored)).expect("export_fig");
+        let raw = decode_fig_to_json(&bytes).expect("decode_fig_to_json");
+        let ncs = raw["message"]["nodeChanges"].as_array().expect("nodeChanges");
+        let raw_node = ncs.iter().find(|n| n["name"] == "TiledNode").expect("TiledNode in nodeChanges");
+        assert_eq!(raw_node["fillPaints"][0]["scale"], json!(stored), "export writes the stored tile scale {stored}");
+        let back = import_fig(&bytes).expect("import_fig");
+        assert_eq!(imported_tile_scale(&back), expected, ".fig scale {stored} imports as {expected}");
+    }
+}

@@ -321,7 +321,8 @@ pub fn with_paint<R>(
             // first decode at full size to learn dimensions
             let full = load_image(env.doc, image_ref, None)?;
             let (iw, ih) = (full.width() as f32, full.height() as f32);
-            let (u, v, s) = image_uv_affine(size, iw, ih, *scale_mode, params)?;
+            let map = d::image_uv_map(size, iw, ih, *scale_mode, params)?;
+            let (u, v, s) = (map.u, map.v, map.scale);
             let dev_scale = (ts.sx * ts.sy - ts.kx * ts.ky).abs().sqrt().max(1e-6);
             let eff = s * dev_scale;
             let img = if eff < 0.6 {
@@ -355,80 +356,6 @@ pub fn with_paint<R>(
             }
             paint.shader = sk::Pattern::new(img.as_ref().as_ref(), spread, quality, a, shader_ts);
             Some(f(&paint))
-        }
-    }
-}
-
-/// Maps `rotation` to a quarter-turn count in `0..4` using one constant pair
-/// (`ROTATION_STEP_DEG = 90.0`, `ROTATION_SIGN = 1.0` for clockwise on screen)
-/// and rotates an unrotated `(x, y) -> (u, v)` affine around `(0.5, 0.5)`.
-fn rotate_uv_quarter_turns(rotation: f32, u: (f32, f32, f32), v: (f32, f32, f32)) -> ((f32, f32, f32), (f32, f32, f32)) {
-    let q = image_quarter_turns(rotation);
-    match q {
-        1 => (v, (-u.0, -u.1, 1.0 - u.2)),
-        2 => ((-u.0, -u.1, 1.0 - u.2), (-v.0, -v.1, 1.0 - v.2)),
-        3 => ((-v.0, -v.1, 1.0 - v.2), u),
-        _ => (u, v),
-    }
-}
-
-fn image_quarter_turns(rotation: f32) -> i32 {
-    const ROTATION_STEP_DEG: f32 = 90.0;
-    const ROTATION_SIGN: f32 = 1.0;
-    if rotation.is_finite() {
-        (((rotation * ROTATION_SIGN) / ROTATION_STEP_DEG).round() as i32).rem_euclid(4)
-    } else {
-        0
-    }
-}
-
-fn image_uv_affine(size: Vec2, iw: f32, ih: f32, scale_mode: d::ImageScaleMode, params: &d::ImageParams) -> Option<((f32, f32, f32), (f32, f32, f32), f32)> {
-    if !iw.is_finite() || !ih.is_finite() || iw <= 0.0 || ih <= 0.0 || !size.x.is_finite() || !size.y.is_finite() {
-        return None;
-    }
-    let q = image_quarter_turns(params.rotation);
-    let (rw, rh) = if q % 2 != 0 { (ih, iw) } else { (iw, ih) };
-    match scale_mode {
-        d::ImageScaleMode::Fill | d::ImageScaleMode::Fit => {
-            let s = if matches!(scale_mode, d::ImageScaleMode::Fill) { (size.x / rw).max(size.y / rh) } else { (size.x / rw).min(size.y / rh) };
-            if !s.is_finite() || s <= 0.0 {
-                return None;
-            }
-            let tx = (size.x - rw * s) * 0.5;
-            let ty = (size.y - rh * s) * 0.5;
-            let u0 = (1.0 / (rw * s), 0.0, -tx / (rw * s));
-            let v0 = (0.0, 1.0 / (rh * s), -ty / (rh * s));
-            let (u, v) = rotate_uv_quarter_turns(params.rotation, u0, v0);
-            Some((u, v, s))
-        }
-        d::ImageScaleMode::Tile => {
-            let ts_factor = if params.tile_scale.is_finite() && params.tile_scale > 0.0 { params.tile_scale.clamp(0.01, 100.0) } else { 1.0 };
-            let u0 = (1.0 / (rw * ts_factor), 0.0, 0.0);
-            let v0 = (0.0, 1.0 / (rh * ts_factor), 0.0);
-            let (u, v) = rotate_uv_quarter_turns(params.rotation, u0, v0);
-            Some((u, v, ts_factor))
-        }
-        d::ImageScaleMode::Crop => {
-            if size.x <= 0.0 || size.y <= 0.0 {
-                return None;
-            }
-            let m = params.transform.unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
-            if !m.iter().all(|v| v.is_finite()) {
-                return None;
-            }
-            let det = m[0] * m[4] - m[1] * m[3];
-            if !det.is_finite() || det.abs() <= 1e-12 {
-                return None;
-            }
-            let u = (m[0] / size.x, m[1] / size.y, m[2]);
-            let v = (m[3] / size.x, m[4] / size.y, m[5]);
-            let sx = (u.0 * iw).hypot(v.0 * ih).max(1e-6);
-            let sy = (u.1 * iw).hypot(v.1 * ih).max(1e-6);
-            let s = (1.0 / sx).max(1.0 / sy);
-            if !s.is_finite() || s <= 0.0 {
-                return None;
-            }
-            Some((u, v, s))
         }
     }
 }
