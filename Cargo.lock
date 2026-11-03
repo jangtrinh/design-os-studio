@@ -974,6 +974,7 @@ dependencies = [
  "base64",
  "cosmic-text",
  "designos-doc",
+ "designos-docs",
  "designos-export",
  "designos-fig",
  "designos-fonts",

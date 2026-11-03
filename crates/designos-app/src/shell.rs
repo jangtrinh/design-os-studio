@@ -139,7 +139,22 @@ impl Shell {
         shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
         shell.apply_launch_defaults(screenshot);
+        shell.open_project_tab_from_env();
         shell
+    }
+
+    /// A run with `DESIGNOS_PROJECT_TAB_SHOT` set starts on a Project tab (see `project_tab::shot`): screenshots and idle-CPU runs.
+    fn open_project_tab_from_env(&mut self) {
+        let Some(spec) = crate::tabs::project_tab::shot::ShotSpec::from_env() else { return };
+        match spec {
+            Ok(spec) => {
+                let project = spec.project.clone();
+                let mut tabs = std::mem::take(&mut self.app.tabs);
+                tabs.open_project_tab(&mut self.app, &project, Some(spec));
+                self.app.tabs = tabs;
+            }
+            Err(e) => self.app.show_toast(e, true),
+        }
     }
 
     pub fn apply_launch_defaults(&mut self, screenshot: bool) {
@@ -1853,10 +1868,14 @@ impl Shell {
         let notes_rect = Rect::from_min_max(Pos2::new(canvas_left, canvas_rect.bottom()), Pos2::new(right_rect.left(), full.bottom()));
 
         let full_vars = self.app.vars.open && self.app.vars.full;
+        // A Project tab draws its own regions (rail, doc tree, reading column); the canvas workspace is not shown.
+        let project_active = !full_vars && self.app.tabs.active_is_project();
         regions.rail = Some(rail_rect);
         if full_vars {
             let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
             regions.variables_full = Some(content);
+        } else if project_active {
+            // No canvas, panels or inspector this frame.
         } else {
             if !left_hidden {
                 regions.left_panel = Some(left_rect);
@@ -1896,6 +1915,10 @@ impl Shell {
             rail::show(&mut self.app, ui, rail_rect);
             let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
             crate::variables::view::show(&mut self.app, ui, content);
+        } else if project_active {
+            crate::tabs::show_active_project(&mut self.app, ui, full);
+            // The rail's main menu.
+            menus::show(&mut self.app, &ctx);
         } else {
             let specs_reader_open = false;
             if specs_reader_open {

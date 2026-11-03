@@ -1228,6 +1228,7 @@ mod panel_export;
 mod panel_keys;
 mod picker_libraries_tooltip;
 mod picker_ok_escape;
+mod project_tab;
 mod proto;
 mod proto_vars;
 mod relayout_budget;
