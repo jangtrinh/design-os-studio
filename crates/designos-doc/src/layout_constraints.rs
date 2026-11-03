@@ -184,7 +184,8 @@ fn scale_paths(paths: &mut [Path], kx: f32, ky: f32) {
 /// chains stroke `Center`) and per-vertex joins. It cannot reproduce side weights, a brush, an
 /// arrow cap Figma draws but the stroke model has no name for (recorded at import in
 /// `fig_metadata["strokeCap"]`, on the node or on any vertex), a vertex with its own cap that
-/// differs from the node's, or dashes on an inside or outside stroke.
+/// differs from the node's, dashes on an inside or outside stroke, or dashes on a stroke with a
+/// vertex join that differs from the node's (dashes are stroked with the node's join alone).
 fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>, net: &VectorNetwork) -> bool {
     let centered = stroke.align == StrokeAlign::Center;
     !net.is_empty()
@@ -193,7 +194,7 @@ fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>,
         && !meta.contains_key("brushType")
         && !meta.contains_key("strokeCap")
         && net.vertices.iter().all(|v| v.cap.is_none_or(|c| c == stroke.cap))
-        && (stroke.dashes.is_empty() || centered)
+        && (stroke.dashes.is_empty() || (centered && net.vertices.iter().all(|v| v.join.is_none_or(|j| j == stroke.join))))
 }
 
 /// Applies `(new_transform, new_size)` from [`constrain_child`] / [`plan_constraint_pass`]
@@ -406,7 +407,7 @@ pub fn apply_resize_to_fit_one(doc: &mut Document, id: NodeId, mut touch: impl F
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Constraints, NodeKind, Rect};
+    use crate::{Constraints, NodeKind, Rect, StrokeJoin};
 
     #[test]
     fn half_away_from_zero_rounding_table() {
@@ -640,5 +641,54 @@ mod tests {
         apply_constrained_geometry(&mut outline_only, tf, Vec2::new(40.0, 40.0));
         let NodeKind::Vector { paths: outline_paths, .. } = &outline_only.kind else { panic!("expected Vector") };
         assert_eq!(outline_only.stroke_geometry.as_ref(), Some(outline_paths));
+    }
+
+    /// A centered, dashed stroke of the square outline icon with the join of its first vertex set to `vertex_join`;
+    /// the node's own join is Round.
+    fn dashed_icon(vertex_join: StrokeJoin) -> Node {
+        let ring = vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(1.0, 1.0)),
+                crate::PathCmd::LineTo(Vec2::new(19.0, 1.0)),
+                crate::PathCmd::LineTo(Vec2::new(19.0, 19.0)),
+                crate::PathCmd::LineTo(Vec2::new(1.0, 19.0)),
+                crate::PathCmd::Close,
+            ],
+            fill_rule: crate::FillRule::NonZero,
+        }];
+        let centerline = vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(2.0, 2.0)),
+                crate::PathCmd::LineTo(Vec2::new(18.0, 2.0)),
+                crate::PathCmd::LineTo(Vec2::new(18.0, 18.0)),
+                crate::PathCmd::LineTo(Vec2::new(2.0, 18.0)),
+                crate::PathCmd::Close,
+            ],
+            fill_rule: crate::FillRule::NonZero,
+        }];
+        let mut net = crate::VectorNetwork::from_paths(&centerline);
+        net.vertices[0].join = Some(vertex_join);
+        let mut v = Node::new(NodeId(12), NodeKind::Vector { paths: ring.clone(), network: Some(net) });
+        v.size = Vec2::new(20.0, 20.0);
+        v.stroke.weight = 2.0;
+        v.stroke.align = StrokeAlign::Center;
+        v.stroke.join = StrokeJoin::Round;
+        v.stroke.dashes = vec![4.0, 2.0];
+        v.stroke_geometry = Some(ring);
+        v
+    }
+
+    #[test]
+    fn a_dashed_stroke_with_a_vertex_join_of_its_own_keeps_its_bake_on_resize() {
+        let mut v = dashed_icon(StrokeJoin::Miter);
+        let tf = v.transform;
+        apply_constrained_geometry(&mut v, tf, Vec2::new(40.0, 40.0));
+        let bake = v.stroke_geometry.as_ref().expect("the baked outline is kept");
+        assert_eq!(bake[0].cmds[0], crate::PathCmd::MoveTo(Vec2::new(2.0, 2.0)), "the outline is scaled with the shape");
+
+        let mut equal = dashed_icon(StrokeJoin::Round);
+        let tf = equal.transform;
+        apply_constrained_geometry(&mut equal, tf, Vec2::new(40.0, 40.0));
+        assert!(equal.stroke_geometry.is_none(), "a vertex join equal to the node's leaves the dashes drawable live");
     }
 }
