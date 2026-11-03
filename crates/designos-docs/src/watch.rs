@@ -145,41 +145,68 @@ struct Job {
 /// The operating system's watch on the docs folder, or on its nearest existing parent while the folder is missing.
 struct Native {
     watcher: RecommendedWatcher,
-    /// Set while the docs folder does not exist yet and its parent is watched instead.
-    parent: Option<PathBuf>,
+    /// What is watched now: the docs folder itself, or the nearest folder above it that exists.
+    armed: PathBuf,
+    /// Which folder `armed` was when it was armed. A folder deleted and created again is a different folder whose
+    /// watch must be made again (inotify drops the old one without telling anybody).
+    identity: Option<FolderIdentity>,
 }
 
 impl Native {
     fn start(dir: &Path, ctl: Sender<Msg>) -> Option<Self> {
-        let mut watcher = notify::recommended_watcher(move |event| {
+        let watcher = notify::recommended_watcher(move |event| {
             let _ = ctl.send(Msg::Event(event));
         })
         .ok()?;
-        let parent = arm(&mut watcher, dir).ok()?;
-        Some(Self { watcher, parent })
+        let mut native = Self { watcher, armed: PathBuf::new(), identity: None };
+        native.arm(dir).ok()?;
+        Some(native)
     }
 
-    /// Once the docs folder exists, watch it itself instead of its parent.
-    fn follow_folder(&mut self, dir: &Path) {
-        let Some(parent) = &self.parent else { return };
-        if dir.is_dir() {
-            let _ = self.watcher.unwatch(parent);
-            if let Ok(parent) = arm(&mut self.watcher, dir) {
-                self.parent = parent;
-            }
+    /// Watches `dir` with everything below it, or, while it does not exist, its nearest existing parent.
+    fn arm(&mut self, dir: &Path) -> notify::Result<()> {
+        let (target, mode) = match nearest_folder(dir) {
+            Some(t) if t == dir => (t, RecursiveMode::Recursive),
+            Some(t) => (t, RecursiveMode::NonRecursive),
+            None => return Err(notify::Error::generic("no existing parent folder")),
+        };
+        self.watcher.watch(target, mode)?;
+        self.armed = target.to_path_buf();
+        self.identity = folder_identity(target);
+        Ok(())
+    }
+
+    /// Keeps the watch on the right folder as `dir` appears, disappears or is replaced. False when it cannot be
+    /// armed any more, so the caller falls back to the timer.
+    fn follow_folder(&mut self, dir: &Path) -> bool {
+        let Some(wanted) = nearest_folder(dir) else { return false };
+        if wanted == self.armed && folder_identity(wanted) == self.identity {
+            return true;
         }
+        let _ = self.watcher.unwatch(&self.armed); // already gone when the folder was deleted
+        self.arm(dir).is_ok()
     }
 }
 
-/// Watches `dir` (with everything below it) and returns `None`, or watches its nearest existing parent and returns it.
-fn arm(watcher: &mut RecommendedWatcher, dir: &Path) -> notify::Result<Option<PathBuf>> {
-    if dir.is_dir() {
-        watcher.watch(dir, RecursiveMode::Recursive)?;
-        return Ok(None);
-    }
-    let parent = dir.ancestors().skip(1).find(|p| p.is_dir()).ok_or_else(|| notify::Error::generic("no existing parent folder"))?;
-    watcher.watch(parent, RecursiveMode::NonRecursive)?;
-    Ok(Some(parent.to_path_buf()))
+/// `dir` when it exists, else the nearest folder above it that does.
+fn nearest_folder(dir: &Path) -> Option<&Path> {
+    dir.ancestors().find(|p| p.is_dir())
+}
+
+#[cfg(unix)]
+type FolderIdentity = (u64, u64);
+#[cfg(not(unix))]
+type FolderIdentity = ();
+
+#[cfg(unix)]
+fn folder_identity(path: &Path) -> Option<FolderIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+#[cfg(not(unix))]
+fn folder_identity(_path: &Path) -> Option<FolderIdentity> {
+    None
 }
 
 fn run(job: Job) {
@@ -218,8 +245,9 @@ fn run(job: Job) {
                 } else if !relevant {
                     continue;
                 }
-                if let Some(native) = &mut watch {
-                    native.follow_folder(&dir);
+                if watch.as_mut().is_some_and(|native| !native.follow_folder(&dir)) {
+                    watch = None;
+                    mode.store(MODE_POLLING, Ordering::Release);
                 }
             }
         }

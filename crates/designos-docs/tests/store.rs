@@ -212,7 +212,10 @@ fn a_lock_held_by_another_program_fails_fast_with_an_error_that_names_the_fix() 
     let err = store.write_page("b.md", &page("b\n"), Expect::Absent).unwrap_err();
     assert!(started.elapsed() < std::time::Duration::from_secs(2), "the wait must be bounded, took {:?}", started.elapsed());
     assert!(matches!(err, DocsError::Busy { .. }), "{err:?}");
-    assert!(err.to_string().contains("fix:"), "{err}");
+    let shown = err.to_string();
+    assert!(shown.contains("fix:") && shown.contains("retry"), "{shown}");
+    // The lock frees itself when its holder exits; deleting the file while a holder lives would let two writers in.
+    assert!(!shown.contains("delete"), "{shown}");
     assert!(!store.dir().join("b.md").exists(), "nothing may be written while the lock is held elsewhere");
 
     holder.unlock().unwrap();

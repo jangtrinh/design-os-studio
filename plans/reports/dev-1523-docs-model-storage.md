@@ -218,6 +218,67 @@ Replace the two claims the review found untrue and add the new surface:
 1. Should `render.rs`, `front_matter.rs`, `markdown.rs`, `markdown_structures.rs` and `watch.rs` be split under 200 lines in this PR or a follow-up?
 2. Should cargo crates ever be listed in the licence register? Today they are not.
 
+Round 1 status: DONE_WITH_CONCERNS (superseded by round 2: the re-review found a regression from this round).
+
+---
+
+# Fix round 2 (re-review of PR #1571: REQUEST_CHANGES, regression from round 1)
+
+Started from 519ebeea (HEAD verified equal to origin). Same branch. Files: `crates/designos-docs/**`, this report,
+`plans/reports/evidence-1523/r2-*`. Nothing else.
+
+## NOT verified / deviations (read first)
+
+- **N3 red could not be reproduced here.** The reviewer saw `an_oversized_file_is_not_read_into_memory_and_not_reported` fail
+  10 of 10 alone; on this machine it passed 5 of 5 on the OLD code (`r2-02-oversized-alone-RED-old-code.txt`) and in the
+  full red run. The race is timing-dependent (stat small, read returns the whole file). Replaced by what is deterministic:
+  a unit test (`store::tests`) that the cap is applied to the read itself (file of cap and cap + 1 bytes), plus the loop
+  of 10 alone-runs on the new code (10/10 green, `r2-02-oversized-alone-10x.txt`). I did not prove the old failure.
+- **Linux (inotify) not run.** The delete / recreate and two-missing-levels tests pass on macOS; on Linux they run in the Ubuntu
+  CI job. I will report that job's result once CI has run (not yet available at the time of this report).
+- Red-first for N1, N2, N4, N5, N7, N8 is recorded in `r2-01-red.txt` (failing before the fix). The delete / recreate test
+  passed on macOS before the fix (FSEvents keeps working); it exists for Linux. The N4 test failed (`recv_timeout` -> `None`).
+- The deep comparison in the touch property skips pages that contain a carriage return (mixed line endings keep stray carriage returns in
+  text); those are still compared by block name.
+- The literal command `cargo test --test watch_idle_cpu -- --ignored --nocapture` needs `-p designos-docs` from the workspace
+  root; I ran `cargo test -p designos-docs --locked --test watch_idle_cpu -- --ignored --nocapture`.
+- Files over 200 lines stay as they are (controller ruling). `insert_blocks` / `move_block` are phase 06.
+
+## Findings
+
+| id | cause and fix | tests |
+|---|---|---|
+| N1 BLOCKER | The parser gives a list the blank line and indentation in front of the next block, so that block's kept gap has no newline; once the list is rewritten those characters are gone and the text glued on. `render_page` now uses the canonical gap after a rewritten block whenever the kept gap holds no newline (adopted from the suggested patch; it is the cause, not a workaround, and parsing is unchanged because moving the indentation into the gap broke canonical stability). Also an item whose text starts on the line after an empty marker stays raw (found by the new fuzz). | `touch_deep.rs::touching_an_indented_list_keeps_the_paragraph_after_it`; soup pieces for an indented paragraph, an indented `3.` list and an empty nested item; touch property now compares block kinds deeply (items and children) |
+| N2 MAJOR | A child list that cannot interrupt a paragraph (starts at a number other than 1, or its first item is empty) is written after a blank line when paragraph text is directly above it (adopted from the patch with its condition on what is above). | `touch_deep.rs` (3 tests incl. 1,000,000-case nested soup) |
+| N3 MAJOR | `store::read_capped` reads through `take(MAX + 1)` and returns `None` over the cap; the watcher uses it, and `read_limited` too. The watcher also skips a file that changed while it was read (stat, length and mtime must match after the read) and waits for the next event. | `store::tests`, `watch_robustness.rs` |
+| N4 | `Native::follow_folder` re-arms on the nearest existing folder whenever it differs from what is armed, and when the armed folder's identity (device, inode) changed, so a folder deleted and created again is armed again. | `folders_created_one_level_at_a_time_with_pauses_are_followed`, `a_docs_folder_that_is_deleted_and_created_again_is_watched_again` |
+| N5 | A numbered list between a `.` list and a `)` list takes `.` and an `<!-- -->` comment is written next to the neighbour it would merge with (reads back as one extra raw block; no merge). | `edit_blocks.rs::a_numbered_list_between_a_dot_list_and_a_paren_list_is_kept_apart_by_a_comment` |
+| N6 | Documented on `Block::hash` and in the README (false conflict, never a missed one). Not normalised. | n/a |
+| N7 | `Busy` now says to close the other Studio window or agent that is writing this project and retry; no advice to delete the lock. | `store.rs` lock test |
+| N8 | Replacing or removing a key also drops the indented continuation lines of its old value. | `front_matter.rs::replacing_a_block_scalar_title_removes_its_continuation_lines` |
+| ruling | `linked_specs` doc comment says absolute paths are allowed and the reader must confine every read to inside the linked folder. | n/a |
+
+## Acceptance (after the last edit; output in `plans/reports/evidence-1523/`)
+
+| Command | Result | Evidence |
+|---|---|---|
+| `cargo test -p designos-docs --locked` | 91 passed, 0 failed, 1 ignored (idle CPU, run below) | `r2-06` |
+| `cargo clippy -p designos-docs --all-targets --locked -- -D warnings` | clean | `r2-05` |
+| `cargo fmt --check` | exit 0 | `r2-05` |
+| `cargo test --workspace --lib --locked` | every crate ok, 0 failed; `cargo metadata --locked` exit 0 | `r2-07` |
+| Release fuzz `DOCS_TOUCH_CASES=200000 DOCS_SOUP_CASES=1000000` plus `DOCS_NESTED_CASES=1000000` | all pass. The reviewer's own `r_deep_touch_soup` (100,000 cases) printed `lossy=0 name_drift=0 deep_drift=0`; all 22 of the reviewer's probes pass | `r2-03` |
+| `cargo test -p designos-docs --locked --test watch_idle_cpu -- --ignored --nocapture` | `mode=Some(Native)`, before 0.03 s, after 0.03 s, delta 0.00 s | `r2-04` |
+| `an_oversized_file...` alone, 10 runs in a row | 10/10 ok | `r2-02-oversized-alone-10x.txt` |
+
+## Corrected PR body additions
+
+> **Review round 2.** Editing an indented list no longer glues the following paragraph onto it, and nested lists that cannot
+> interrupt a paragraph keep their structure when edited; the touch property now compares blocks deeply (1,000,000 nested
+> cases, 200,000 touch cases, 1,000,000 soup cases). The watcher reads files through the 8 MiB cap, follows a docs folder
+> created level by level, deleted or replaced, and the lock error no longer suggests deleting the lock file.
+
+Unresolved questions: none that block; the Ubuntu CI result for the new watcher tests is pending.
+
 Status: DONE_WITH_CONCERNS
-Summary: All review findings fixed on the same branch; M4 uses a native watcher with 0.00 s idle CPU (was 0.05 s polling); gates green after the last edit.
-Concerns/Blockers: 200k touch fuzz and the last few tests have no recorded red run; native watcher verified on macOS only; five source files exceed 200 lines; canonical-writer residue for stray `_`/backticks documented.
+Summary: N1 to N8 fixed test-first (red in `r2-01`); the regression is gone (touch and nested fuzz at 200k/1M/1M cases, reviewer probes clean); idle CPU delta 0.00 s.
+Concerns/Blockers: N3's reviewer-reported red not reproducible here (deterministic cap unit test added instead); Linux watcher paths not run locally; the `<!-- -->` separator reads back as one extra raw block.

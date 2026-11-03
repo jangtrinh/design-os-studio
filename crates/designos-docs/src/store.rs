@@ -144,13 +144,22 @@ pub(crate) fn read_limited(path: &Path, shown: &str) -> Result<Vec<u8>> {
     if !meta.is_file() {
         return Err(DocsError::io(shown, std::io::Error::new(std::io::ErrorKind::InvalidInput, "is not a file")));
     }
-    if meta.len() > MAX_FILE_BYTES {
-        return Err(DocsError::io(
+    match read_capped(path).map_err(|e| DocsError::io(shown, e))? {
+        Some(bytes) => Ok(bytes),
+        None => Err(DocsError::io(
             shown,
-            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("is {} bytes, over the {MAX_FILE_BYTES} byte limit; fix: split the page", meta.len())),
-        ));
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("is over the {MAX_FILE_BYTES} byte limit; fix: split the page")),
+        )),
     }
-    std::fs::read(path).map_err(|e| DocsError::io(shown, e))
+}
+
+/// The file's bytes, or `None` when it holds more than `MAX_FILE_BYTES`. The cap is applied while reading, so a file
+/// that grows after it was measured (or was measured before it was fully written) is never read whole into memory.
+pub(crate) fn read_capped(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    File::open(path)?.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+    Ok((bytes.len() as u64 <= MAX_FILE_BYTES).then_some(bytes))
 }
 
 fn collect_pages(dir: &Path, prefix: &str, depth: usize, out: &mut Vec<String>) -> Result<()> {
@@ -202,5 +211,23 @@ impl DirLock {
 impl Drop for DirLock {
     fn drop(&mut self) {
         let _ = self.0.unlock();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_read_cap_is_applied_while_reading_not_from_a_size_measured_earlier() {
+        let tmp = tempfile::tempdir().unwrap();
+        let exactly = tmp.path().join("exactly.md");
+        std::fs::write(&exactly, vec![b'a'; MAX_FILE_BYTES as usize]).unwrap();
+        assert_eq!(read_capped(&exactly).unwrap().map(|b| b.len() as u64), Some(MAX_FILE_BYTES));
+
+        let over = tmp.path().join("over.md");
+        std::fs::write(&over, vec![b'a'; MAX_FILE_BYTES as usize + 1]).unwrap();
+        assert!(read_capped(&over).unwrap().is_none());
+        assert!(matches!(read_limited(&over, "over.md"), Err(DocsError::Io { .. })));
     }
 }

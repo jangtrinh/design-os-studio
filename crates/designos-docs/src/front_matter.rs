@@ -111,12 +111,19 @@ impl FrontMatter {
         let mut out = String::new();
         let mut replaced = false;
         let mut first = true;
+        // Set while the lines of a replaced key's old value (`title: |` and its indented text) are being dropped.
+        let mut dropping_value = false;
         for line in self.raw.split_inclusive('\n') {
+            if dropping_value && line.starts_with([' ', '\t']) {
+                continue;
+            }
+            dropping_value = false;
             let is_closing = !first && line_content(line) == "---";
             first = false;
             let is_key = !line.starts_with([' ', '\t', '#']) && line_content(line).split_once(':').is_some_and(|(k, _)| k.trim() == key);
             if is_key && !replaced {
                 replaced = true;
+                dropping_value = true;
                 if let Some(v) = value {
                     out.push_str(&format!("{key}: {}{eol}", quote(v)));
                 }

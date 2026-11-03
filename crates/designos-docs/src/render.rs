@@ -16,6 +16,7 @@ pub(crate) fn render_page(page: &Page, canonical: bool) -> String {
     let mut prev_text: Option<String> = None;
     let mut after_rewritten_list = false;
     let mut after_table = false;
+    let mut prev_rewritten = false;
     for (i, block) in page.blocks.iter().enumerate() {
         let mut fixed = fixed_text(block, canonical);
         // Behind a rewritten list (whose marker width may have changed), a block kept with its indentation could
@@ -24,12 +25,21 @@ pub(crate) fn render_page(page: &Page, canonical: bool) -> String {
             fixed = None;
         }
         after_rewritten_list = fixed.is_none() && matches!(block.kind(), BlockKind::BulletList(_) | BlockKind::NumberedList { .. } | BlockKind::Checklist(_));
+        // What the neighbours see of this block: its own text, without any separator comment around it.
+        let mut as_neighbour = None;
         let text = match fixed {
             Some(text) => text.to_string(),
             None => {
                 let next = page.blocks.get(i + 1).and_then(|b| fixed_text(b, canonical));
                 let avoid = markers_to_avoid(block.kind(), prev_text.as_deref(), next);
-                to_eol(&render_kind(block.kind(), &avoid), eol)
+                let text = to_eol(&render_kind(block.kind(), &avoid), eol);
+                let (before, after) = list_separators(block.kind(), &avoid, prev_text.as_deref(), next);
+                if before || after {
+                    as_neighbour = Some(text.clone());
+                }
+                let lead = if before { format!("{SEPARATOR}{eol}{eol}") } else { String::new() };
+                let trail = if after { format!("{eol}{eol}{SEPARATOR}") } else { String::new() };
+                format!("{lead}{text}{trail}")
             }
         };
         let mut gap = if canonical { None } else { block.gap.as_deref() };
@@ -37,6 +47,13 @@ pub(crate) fn render_page(page: &Page, canonical: bool) -> String {
         if fixed.is_none() && after_table && gap.is_some_and(|g| g.matches('\n').count() < 2) {
             gap = None;
         }
+        // A block kept from parsing may start right where the previous block's source ended (the parser gave that
+        // block the blank line and indentation in front of it). Once that block is rewritten those characters are
+        // gone, so the canonical gap is needed to keep the two apart.
+        if prev_rewritten && gap.is_some_and(|g| !g.contains('\n')) {
+            gap = None;
+        }
+        prev_rewritten = fixed.is_none();
         after_table = matches!(block.kind(), BlockKind::Table { .. });
         let mut lead = match gap {
             Some(g) => g.to_string(),
@@ -47,7 +64,7 @@ pub(crate) fn render_page(page: &Page, canonical: bool) -> String {
         }
         out.push_str(&lead);
         out.push_str(&text);
-        prev_text = Some(text);
+        prev_text = Some(as_neighbour.unwrap_or(text));
     }
     if canonical && !page.blocks.is_empty() {
         out.push_str(eol);
@@ -81,6 +98,20 @@ fn canonical_gap(index: usize, has_front_matter: bool) -> &'static str {
         (0, true) => "\n",
         _ => "\n\n",
     }
+}
+
+/// Written between two numbered lists that no delimiter can keep apart.
+const SEPARATOR: &str = "<!-- -->";
+
+/// A numbered list between a `.` list and a `)` list has no free delimiter: it takes `.` and an HTML comment keeps
+/// it from merging with whichever neighbour also uses `.`. Returns whether a comment is needed before and after.
+fn list_separators(kind: &BlockKind, avoid: &[char], prev: Option<&str>, next: Option<&str>) -> (bool, bool) {
+    let both_taken = avoid.contains(&'.') && avoid.contains(&')');
+    if !both_taken || !matches!(kind, BlockKind::NumberedList { .. }) {
+        return (false, false);
+    }
+    let uses_dot = |t: Option<&str>| t.and_then(leading_list_marker).is_some_and(|(f, m)| f == ListFamily::Numbered && m == '.');
+    (uses_dot(prev), uses_dot(next))
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -207,10 +238,23 @@ fn join_items<'a>(items: impl Iterator<Item = Item<'a>>) -> String {
         let body = render_inlines(content).split('\n').map(str::to_string).collect::<Vec<_>>().join(&continuation);
         let mut text = format!("{marker}{body}");
         let mut prev_child: Option<String> = None;
+        let mut prev_child_kind: Option<&BlockKind> = None;
         for child in children {
             let avoid = markers_to_avoid(child, prev_child.as_deref(), None);
             let rendered = render_kind(child, &avoid);
-            let separator = if matches!(child, BlockKind::Paragraph(_)) { "\n\n" } else { "\n" };
+            // A list that cannot interrupt a paragraph (it does not start at 1, or its first item is empty) is read
+            // as the paragraph's text when it sits right under paragraph text, so a blank line goes in between.
+            let cannot_interrupt = match child {
+                BlockKind::NumberedList { start, items } => *start != 1 || items.first().is_some_and(|i| i.content.is_empty()),
+                BlockKind::BulletList(items) => items.first().is_some_and(|i| i.content.is_empty()),
+                _ => false,
+            };
+            let after_text = match prev_child_kind {
+                None => !content.is_empty(),
+                Some(kind) => matches!(kind, BlockKind::Paragraph(_)),
+            };
+            let separator = if matches!(child, BlockKind::Paragraph(_)) || (cannot_interrupt && after_text) { "\n\n" } else { "\n" };
+            prev_child_kind = Some(child);
             text.push_str(separator);
             text.push_str(&rendered.split('\n').map(|l| if l.is_empty() { String::new() } else { format!("{indent}{l}") }).collect::<Vec<_>>().join("\n"));
             prev_child = Some(rendered);

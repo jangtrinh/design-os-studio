@@ -3,7 +3,7 @@
 use crate::hash::ContentHash;
 use crate::manifest::MANIFEST_FILE;
 use crate::paths::page_path_problem;
-use crate::store::MAX_FILE_BYTES;
+use crate::store::read_capped;
 use crate::watch::DocChange;
 use std::collections::HashMap;
 use std::path::Path;
@@ -40,13 +40,23 @@ pub(crate) fn check(dir: &Path, known: &mut HashMap<String, Known>, tx: &Sender<
         if known.get(rel).is_some_and(|k| k.stat == *stat) {
             continue;
         }
-        if stat.1 > MAX_FILE_BYTES {
-            // Over the store's read limit: remembered, so it is not looked at again, but never read or reported.
-            known.insert(rel.clone(), Known { stat: *stat, hash: None });
+        // The size seen by `scan` may be stale (a file still being copied in), so the cap is applied to the read
+        // itself. Read failure means it vanished again or is mid-rename: the next event or pass sees the settled state.
+        let bytes = match read_capped(&dir.join(rel)) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => {
+                // Over the store's read limit: remembered, so it is not read again until it changes, never reported.
+                known.insert(rel.clone(), Known { stat: *stat, hash: None });
+                continue;
+            }
+            Err(_) => continue,
+        };
+        // A file still being written changes while it is read: what was read is a piece of it. Leave it unrecorded;
+        // the write that follows raises another event (or the next timer look) and the settled file is read then.
+        let settled = std::fs::metadata(dir.join(rel)).is_ok_and(|m| (m.modified().ok(), m.len()) == *stat && m.len() == bytes.len() as u64);
+        if !settled {
             continue;
         }
-        // Read failure means it vanished again or is mid-rename: the next event or pass sees the settled state.
-        let Ok(bytes) = std::fs::read(dir.join(rel)) else { continue };
         let hash = ContentHash::of(&bytes);
         let unchanged = known.get(rel).is_some_and(|k| k.hash == Some(hash));
         known.insert(rel.clone(), Known { stat: *stat, hash: Some(hash) });

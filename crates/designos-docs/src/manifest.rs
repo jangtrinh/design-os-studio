@@ -38,7 +38,8 @@ pub struct Manifest {
     /// Exactly the five groups, in the fixed order of `Group::ALL`.
     pub groups: [GroupEntry; 5],
     pub pins: Vec<Pin>,
-    /// Spec v2 folders read in place (phase 07).
+    /// Spec v2 folders read in place (phase 07). A path may be absolute (picked with the system folder picker); the
+    /// reader must confine every read to inside the linked folder (no `..`, no symlink out of it).
     pub linked_specs: Vec<String>,
 }
 

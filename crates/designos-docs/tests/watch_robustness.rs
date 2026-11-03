@@ -119,3 +119,45 @@ fn a_docs_folder_that_does_not_exist_yet_is_picked_up_when_it_appears() {
     std::fs::write(docs.join("second.md"), "# second\n").unwrap();
     assert_eq!(watcher.recv_timeout(Duration::from_millis(1500)).map(|c| c.rel).as_deref(), Some("second.md"));
 }
+
+#[test]
+fn folders_created_one_level_at_a_time_with_pauses_are_followed() {
+    let root = tempfile::tempdir().unwrap();
+    let docs = root.path().join("proj").join("docs");
+    let watcher = DocsWatcher::start(&docs, || {});
+    wait_for_mode(&watcher);
+    std::thread::sleep(Duration::from_millis(300));
+    std::fs::create_dir(root.path().join("proj")).unwrap();
+    std::thread::sleep(Duration::from_millis(600));
+    std::fs::create_dir(&docs).unwrap();
+    std::thread::sleep(Duration::from_millis(600));
+    std::fs::write(docs.join("a.md"), "# a\n").unwrap();
+    assert_eq!(watcher.recv_timeout(Duration::from_millis(2000)).map(|c| c.rel).as_deref(), Some("a.md"));
+}
+
+/// inotify drops the watch of a deleted folder without any error, so the folder must be armed again.
+#[test]
+fn a_docs_folder_that_is_deleted_and_created_again_is_watched_again() {
+    let root = tempfile::tempdir().unwrap();
+    let docs = root.path().join("docs");
+    std::fs::create_dir_all(&docs).unwrap();
+    std::fs::write(docs.join("old.md"), "# old\n").unwrap();
+    std::thread::sleep(Duration::from_millis(40));
+    let watcher = DocsWatcher::start(&docs, || {});
+    wait_for_mode(&watcher);
+    std::thread::sleep(Duration::from_millis(200));
+
+    std::fs::remove_dir_all(&docs).unwrap();
+    let gone = watcher.recv_timeout(Duration::from_millis(2000)).expect("the deletion is reported");
+    assert_eq!((gone.rel.as_str(), gone.hash), ("old.md", None));
+
+    std::thread::sleep(Duration::from_millis(600));
+    std::fs::create_dir_all(&docs).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    std::fs::write(docs.join("new.md"), "# new\n").unwrap();
+    assert_eq!(watcher.recv_timeout(Duration::from_millis(2000)).map(|c| c.rel).as_deref(), Some("new.md"));
+
+    std::thread::sleep(Duration::from_millis(300));
+    std::fs::write(docs.join("new.md"), "# newer\n").unwrap();
+    assert_eq!(watcher.recv_timeout(Duration::from_millis(2000)).map(|c| c.rel).as_deref(), Some("new.md"), "edits after the re-creation are seen");
+}

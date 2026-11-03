@@ -41,7 +41,7 @@ pub enum DocsError {
     BlockIndex { index: usize, len: usize },
 
     /// Another program holds the docs folder's write lock and did not let go in time. Nothing was written.
-    #[error("{path} is locked by another program, so nothing was written; fix: close the other Studio window or agent that is saving this project's docs, or delete the stale lock file if no program is running")]
+    #[error("{path} is locked by another program, so nothing was written; fix: close the other Studio window or agent that is writing this project's docs, then retry (the lock frees itself when that program exits)")]
     Busy { path: String },
 
     #[error("invalid path {path:?}: {problem}; fix: {fix}")]
