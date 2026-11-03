@@ -891,7 +891,11 @@ impl Renderer<'_> {
         if w <= 0.0 {
             return;
         }
-        if vectorops::has_mixed_subpath_align(n, sh) || vectorops::has_per_vertex_joins(n) {
+        if vectorops::has_mixed_subpath_align(n, sh)
+            || vectorops::has_per_vertex_joins(n)
+            || vectorops::has_arrow_caps(n)
+            || vectorops::vertex_caps(n).is_some()
+        {
             let scale = (ts.sx.hypot(ts.ky)).max(ts.kx.hypot(ts.sy)).max(1.0);
             let Some(plan) = outline::stroke_plan(n, sh, scale) else { return };
             let mask = match plan.clip {
@@ -912,12 +916,6 @@ impl Renderer<'_> {
                 fill_paths(&self.env, target, &plan.outline, ts, n.size, p, alpha, cl);
             }
             return;
-        }
-        if let Some(caps) = vectorops::vertex_caps(n) {
-            let caps = geom::vector_paths(&caps).paths;
-            for p in &paints {
-                fill_paths(&self.env, target, &caps, ts, n.size, p, alpha, clip);
-            }
         }
         match align {
             designos_doc::StrokeAlign::Center => {

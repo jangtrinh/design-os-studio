@@ -698,3 +698,269 @@ fn a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu() {
     }
     assert!(failed.is_empty(), "{}", failed.join("\n"));
 }
+
+#[test]
+fn all_five_arrow_caps_match_cpu_on_lines_and_open_vectors() {
+    let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(20.0, 50.0)), PathCmd::LineTo(Vec2::new(80.0, 50.0))], fill_rule: FillRule::NonZero };
+    for (cap, name, ink_pt, clear_pt) in [
+        (StrokeCap::ArrowLines, "arrow_lines", (70, 40), (90, 40)),
+        (StrokeCap::ArrowEquilateral, "arrow_equilateral", (62, 41), (78, 41)),
+        (StrokeCap::TriangleFilled, "triangle_filled", (78, 41), (62, 41)),
+        (StrokeCap::DiamondFilled, "diamond_filled", (80, 40), (88, 42)),
+        (StrokeCap::CircleFilled, "circle_filled", (86, 44), (90, 40)),
+    ] {
+        for as_line in [false, true] {
+            let mut t = T::new();
+            t.add(None, |id| {
+                let kind = if as_line {
+                    NodeKind::Line
+                } else {
+                    let net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+                    NodeKind::Vector { paths: vec![seg.clone()], network: Some(net) }
+                };
+                let mut n = Node::new(id, kind);
+                if as_line {
+                    n.transform = Affine::translate(20.0, 50.0);
+                    n.size = Vec2::new(60.0, 0.0);
+                } else {
+                    n.size = Vec2::new(100.0, 100.0);
+                }
+                n.stroke = Stroke {
+                    paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+                    weight: 4.0,
+                    align: StrokeAlign::Center,
+                    cap,
+                    join: StrokeJoin::Round,
+                    ..Stroke::default()
+                };
+                n
+            });
+            let cpu = cpu_render(&t);
+            assert!(is_ink(&cpu, ink_pt.0, ink_pt.1), "CPU {name} (line={as_line}): expected head ink at {ink_pt:?}");
+            assert!(!is_ink(&cpu, clear_pt.0, clear_pt.1), "CPU {name} (line={as_line}): expected clear pixel at {clear_pt:?}");
+
+            let Some(mut g) = gpu() else { return };
+            let label = format!("{name}_{}", if as_line { "line" } else { "vec" });
+            let c = compare(&mut g, &label, &t.doc, t.page, Viewport::default(), VIEW, 8);
+            assert!(is_ink(&c.gpu, ink_pt.0, ink_pt.1), "GPU {label}: expected head ink at {ink_pt:?}");
+            assert!(!is_ink(&c.gpu, clear_pt.0, clear_pt.1), "GPU {label}: expected clear pixel at {clear_pt:?}");
+            assert_eq!(c.report_aa.mismatched, 0, "{label}: 0 AA-forgiven mismatched pixels between CPU and GPU");
+            assert!(c.report.ratio < 0.005, "{label}: mismatch {:.3}%", c.report.ratio * 100.0);
+            assert!(c.report.ssim > 0.99, "{label}: {:?}", c.report);
+        }
+    }
+}
+
+#[test]
+fn resized_2x_arrow_vectors_drop_bake_keep_head_size_and_match_cpu() {
+    for (cap, name) in [
+        (StrokeCap::ArrowLines, "resized_arrow_lines"),
+        (StrokeCap::ArrowEquilateral, "resized_arrow_equilateral"),
+        (StrokeCap::TriangleFilled, "resized_triangle_filled"),
+        (StrokeCap::DiamondFilled, "resized_diamond_filled"),
+        (StrokeCap::CircleFilled, "resized_circle_filled"),
+    ] {
+        let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(4.0, 15.0)), PathCmd::LineTo(Vec2::new(26.0, 15.0))], fill_rule: FillRule::NonZero };
+        let net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+        let stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 2.0,
+            align: StrokeAlign::Center,
+            cap,
+            join: StrokeJoin::Round,
+            ..Stroke::default()
+        };
+        let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
+        let mut t = T::new();
+        let id = t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg], network: Some(net) });
+            n.transform = Affine::translate(20.0, 20.0);
+            n.size = Vec2::new(30.0, 30.0);
+            n.stroke = stroke;
+            n.stroke_geometry = Some(bake);
+            n
+        });
+        resize(&mut t.doc, id, Vec2::new(60.0, 60.0));
+        assert!(t.doc.get(id).unwrap().stroke_geometry.is_none(), "{name}: drops baked stroke_geometry on 2x resize");
+
+        let cpu = cpu_render(&t);
+        assert!((62..=74).any(|x| is_ink(&cpu, x, 46)), "CPU {name}: head ink at 1x head span (y = 46)");
+        assert!(!(60..=76).any(|x| is_ink(&cpu, x, 39)), "CPU {name}: head does not scale 2x to y = 39");
+
+        let Some(mut g) = gpu() else { return };
+        let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), VIEW, 8);
+        assert!((62..=74).any(|x| is_ink(&c.gpu, x, 46)), "GPU {name}: head ink at 1x head span (y = 46)");
+        assert!(!(60..=76).any(|x| is_ink(&c.gpu, x, 39)), "GPU {name}: head does not scale 2x to y = 39");
+        assert!(c.report_aa.mismatched <= 10, "{name}: expected <= 10 AA-forgiven mismatched pixels on 2px diagonal wings, got {}", c.report_aa.mismatched);
+        assert!(c.report.ratio < 0.005, "{name}: mismatch {:.3}%", c.report.ratio * 100.0);
+        assert!(c.report.ssim > 0.99, "{name}: {:?}", c.report);
+    }
+}
+
+fn figma_arrow_lines_bake(len: f32) -> Path {
+    Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(-0.35355338, -0.35355338)),
+            PathCmd::CubicTo(Vec2::new(-0.54881555, -0.15829125), Vec2::new(-0.54881555, 0.15829125), Vec2::new(-0.35355338, 0.35355338)),
+            PathCmd::LineTo(Vec2::new(2.828427, 3.535534)),
+            PathCmd::CubicTo(Vec2::new(3.0236893, 3.730796), Vec2::new(3.3402717, 3.730796), Vec2::new(3.535534, 3.535534)),
+            PathCmd::CubicTo(Vec2::new(3.730796, 3.3402717), Vec2::new(3.730796, 3.0236893), Vec2::new(3.535534, 2.828427)),
+            PathCmd::LineTo(Vec2::new(0.70710677, 0.0)),
+            PathCmd::LineTo(Vec2::new(3.535534, -2.828427)),
+            PathCmd::CubicTo(Vec2::new(3.730796, -3.0236893), Vec2::new(3.730796, -3.3402717), Vec2::new(3.535534, -3.535534)),
+            PathCmd::CubicTo(Vec2::new(3.3402717, -3.730796), Vec2::new(3.0236893, -3.730796), Vec2::new(2.828427, -3.535534)),
+            PathCmd::LineTo(Vec2::new(-0.35355338, -0.35355338)),
+            PathCmd::Close,
+            PathCmd::MoveTo(Vec2::new(len + 0.35355338, 0.35355338)),
+            PathCmd::CubicTo(Vec2::new(len + 0.54881555, 0.15829125), Vec2::new(len + 0.54881555, -0.15829125), Vec2::new(len + 0.35355338, -0.35355338)),
+            PathCmd::LineTo(Vec2::new(len - 2.828427, -3.535534)),
+            PathCmd::CubicTo(Vec2::new(len - 3.0236893, -3.730796), Vec2::new(len - 3.3402717, -3.730796), Vec2::new(len - 3.535534, -3.535534)),
+            PathCmd::CubicTo(Vec2::new(len - 3.730796, -3.3402717), Vec2::new(len - 3.730796, -3.0236893), Vec2::new(len - 3.535534, -2.828427)),
+            PathCmd::LineTo(Vec2::new(len - 0.70710677, 0.0)),
+            PathCmd::LineTo(Vec2::new(len - 3.535534, 2.828427)),
+            PathCmd::CubicTo(Vec2::new(len - 3.730796, 3.0236893), Vec2::new(len - 3.730796, 3.3402717), Vec2::new(len - 3.535534, 3.535534)),
+            PathCmd::CubicTo(Vec2::new(len - 3.3402717, 3.730796), Vec2::new(len - 3.0236893, 3.730796), Vec2::new(len - 2.828427, 3.535534)),
+            PathCmd::LineTo(Vec2::new(len + 0.35355338, 0.35355338)),
+            PathCmd::Close,
+            PathCmd::MoveTo(Vec2::new(0.0, 0.5)),
+            PathCmd::LineTo(Vec2::new(len, 0.5)),
+            PathCmd::LineTo(Vec2::new(len, -0.5)),
+            PathCmd::LineTo(Vec2::new(0.0, -0.5)),
+            PathCmd::LineTo(Vec2::new(0.0, 0.5)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    }
+}
+
+fn stitch_vertical(panels: &[&Pixmap]) -> Pixmap {
+    let w = panels.iter().map(|p| p.width()).max().unwrap_or(1);
+    let sep = 2u32;
+    let total_h: u32 = panels.iter().map(|p| p.height()).sum::<u32>() + sep * (panels.len().saturating_sub(1) as u32);
+    let mut out = Pixmap::new(w, total_h).unwrap();
+    out.fill(designos_render::tiny_skia::Color::from_rgba8(220, 224, 230, 255));
+    let mut y_off = 0u32;
+    for p in panels {
+        for y in 0..p.height() {
+            for x in 0..p.width() {
+                out.pixels_mut()[((y_off + y) * w + x) as usize] = p.pixels()[(y * p.width() + x) as usize];
+            }
+        }
+        y_off += p.height() + sep;
+    }
+    out
+}
+
+#[test]
+fn kit_arrow_vectors_match_figma_bake_at_1x_and_keep_head_size_when_resized_2x_on_cpu_and_gpu() {
+    let crops_dir = std::env::var("DESIGNOS_KIT_ARROW_CROPS_DIR").ok();
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 2.0, ..Viewport::default() };
+    for (slug, len) in [("1143-83664", 80.0_f32), ("8222-316128", 23.999998_f32), ("7749-50847", 23.999998_f32)] {
+        let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(len, 0.0))], fill_rule: FillRule::NonZero };
+        let net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+        let stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 1.0,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::ArrowLines,
+            join: StrokeJoin::Miter,
+            ..Stroke::default()
+        };
+        let figma_bake = figma_arrow_lines_bake(len);
+        let view_1x = (((len + 16.0) * 2.0).ceil() as u32, 36u32);
+        let view_2x = (((len * 2.0 + 16.0) * 2.0).ceil() as u32, 48u32);
+
+        let mut t_bake_1x = T::new();
+        let id_head = t_bake_1x.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg.clone()], network: Some(net.clone()) });
+            n.transform = Affine::translate(8.0, 9.0);
+            n.size = Vec2::new(len, 0.0);
+            n.stroke = stroke.clone();
+            n.stroke_geometry = Some(vec![figma_bake.clone()]);
+            n
+        });
+        let mut t_live_1x = T::new();
+        t_live_1x.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg.clone()], network: Some(net.clone()) });
+            n.transform = Affine::translate(8.0, 9.0);
+            n.size = Vec2::new(len, 0.0);
+            n.stroke = stroke.clone();
+            n
+        });
+
+        // Base behaviour on 2x resize (unmodelled cap kept its scaled bake via `apply_constrained_geometry`):
+        let mut t_base_2x = T::new();
+        let id_base = t_base_2x.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg.clone()], network: Some(net.clone()) });
+            n.transform = Affine::translate(8.0, 12.0);
+            n.size = Vec2::new(len, 0.0);
+            n.stroke = Stroke { cap: StrokeCap::None, align: StrokeAlign::Inside, dashes: vec![4.0, 2.0], ..stroke.clone() };
+            n.stroke_geometry = Some(vec![figma_bake]);
+            n
+        });
+        resize(&mut t_base_2x.doc, id_base, Vec2::new(len * 2.0, 0.0));
+        assert!(t_base_2x.doc.get(id_base).unwrap().stroke_geometry.is_some(), "unmodelled base keeps scaled bake on 2x resize");
+
+        let (Some(mut g1), Some(mut g2), Some(mut g3), Some(mut g4)) = (gpu(), gpu(), gpu(), gpu()) else { return };
+        let c_bake_1x = compare(&mut g1, &format!("kit_{slug}_bake_1x"), &t_bake_1x.doc, t_bake_1x.page, vp, view_1x, 8);
+        let c_live_1x = compare(&mut g2, &format!("kit_{slug}_live_1x"), &t_live_1x.doc, t_live_1x.page, vp, view_1x, 8);
+        assert!(c_live_1x.report_aa.mismatched <= 10, "{slug} 1x live: expected <= 10 AA-forgiven mismatched pixels on 2px wings");
+        assert!(c_live_1x.report.ssim > 0.99, "{slug} 1x live: {:?}", c_live_1x.report);
+        assert!(c_bake_1x.cpu.data() == c_live_1x.cpu.data(), "{slug} 1x CPU: live-drawn ArrowLines matches Figma's baked strokeGeometry pixel-for-pixel");
+        assert!(c_bake_1x.gpu.data() == c_live_1x.gpu.data(), "{slug} 1x GPU: live-drawn ArrowLines matches Figma's baked strokeGeometry pixel-for-pixel");
+
+        // Now resize `t_bake_1x` 2x on head (drops bake and draws live at weight = 1.0):
+        t_bake_1x.node(id_head).transform = Affine::translate(8.0, 12.0);
+        resize(&mut t_bake_1x.doc, id_head, Vec2::new(len * 2.0, 0.0));
+        assert!(t_bake_1x.doc.get(id_head).unwrap().stroke_geometry.is_none(), "{slug}: head drops bake on 2x resize");
+
+        let c_base_2x = compare(&mut g3, &format!("kit_{slug}_base_2x"), &t_base_2x.doc, t_base_2x.page, vp, view_2x, 8);
+        let c_head_2x = compare(&mut g4, &format!("kit_{slug}_head_2x"), &t_bake_1x.doc, t_bake_1x.page, vp, view_2x, 8);
+        assert!(c_head_2x.report_aa.mismatched <= 10, "{slug} 2x head: expected <= 10 AA-forgiven mismatched pixels on 2px wings");
+        assert!(c_head_2x.report.ssim > 0.99, "{slug} 2x head: {:?}", c_head_2x.report);
+        assert!(c_base_2x.cpu.data() != c_head_2x.cpu.data(), "{slug} 2x: live head keeps 1.0px stroke weight and head size instead of scaling the bake 2x");
+
+        if let Some(dir) = &crops_dir {
+            let p1 = stitch_vertical(&[&c_bake_1x.cpu, &c_live_1x.cpu, &c_bake_1x.gpu, &c_live_1x.gpu]);
+            p1.save_png(format!("{dir}/kit-{slug}-1x-bake-vs-live.png")).unwrap();
+            let p2 = stitch_vertical(&[&c_base_2x.cpu, &c_head_2x.cpu, &c_base_2x.gpu, &c_head_2x.gpu]);
+            p2.save_png(format!("{dir}/kit-{slug}-2x-base-vs-head.png")).unwrap();
+        }
+    }
+}
+
+#[test]
+fn per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu() {
+    let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(10.0, 20.0)), PathCmd::LineTo(Vec2::new(60.0, 20.0))], fill_rule: FillRule::NonZero };
+    for (cap, name) in [(StrokeCap::Square, "per_vertex_square_cap"), (StrokeCap::Round, "per_vertex_round_cap")] {
+        let mut net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+        for v in &mut net.vertices {
+            v.cap = Some(cap);
+        }
+        let mut t = T::new();
+        t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+            n.size = Vec2::new(80.0, 40.0);
+            n.stroke = Stroke {
+                paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+                weight: 12.0,
+                align: StrokeAlign::Center,
+                cap: StrokeCap::None,
+                join: StrokeJoin::Round,
+                ..Stroke::default()
+            };
+            n
+        });
+        let cpu = cpu_render(&t);
+        assert_eq!(horizontal_runs(&cpu, 20, 0..80), vec![62], "CPU {name}: paints x = 4..66 (62px run) on y = 20");
+        assert!(is_ink(&cpu, 5, 20) && is_ink(&cpu, 64, 20), "CPU {name}: both start (x=5) and end (x=64) caps are painted outward");
+
+        let Some(mut g) = gpu() else { return };
+        let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), VIEW, 8);
+        assert_eq!(horizontal_runs(&c.gpu, 20, 0..80), vec![62], "GPU {name}: paints x = 4..66 (62px run) on y = 20");
+        assert!(is_ink(&c.gpu, 5, 20) && is_ink(&c.gpu, 64, 20), "GPU {name}: both start (x=5) and end (x=64) caps are painted outward");
+        assert_eq!(c.report_aa.mismatched, 0, "{name}: 0 AA-forgiven mismatched pixels between CPU and GPU");
+        assert!(c.report.ratio < 0.005, "{name}: mismatch {:.3}%", c.report.ratio * 100.0);
+        assert!(c.report.ssim > 0.99, "{name}: {:?}", c.report);
+    }
+}

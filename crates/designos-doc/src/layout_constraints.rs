@@ -4,7 +4,7 @@
 //! `Stretch`, and `Scale` across both unrotated and rotated/skewed children,
 //! including half-away-from-zero extent rounding and sub-1px sizes.
 
-use crate::{Affine, Constraint, Constraints, Document, Node, NodeId, NodeKind, Path, PathCmd, Stroke, StrokeAlign, Vec2, VectorNetwork};
+use crate::{Affine, Constraint, Constraints, Document, Node, NodeId, NodeKind, Path, PathCmd, Stroke, StrokeAlign, StrokeCap, Vec2, VectorNetwork};
 use std::collections::BTreeMap;
 
 /// Minimum axis extent (`2^-12`) below which per-axis scale falls back to `1.0`.
@@ -181,20 +181,26 @@ fn scale_paths(paths: &mut [Path], kx: f32, ky: f32) {
 /// the scaled centerline at the unscaled weight; otherwise the bake is scaled with the shape.
 ///
 /// The live stroke honours per-subpath alignment (closed regions keep `Inside` or `Outside`; open
-/// chains stroke `Center`) and per-vertex joins. It cannot reproduce side weights, a brush, an
-/// arrow cap Figma draws but the stroke model has no name for (recorded at import in
-/// `fig_metadata["strokeCap"]`, on the node or on any vertex), a vertex with its own cap that
-/// differs from the node's, dashes on an inside or outside stroke, or dashes on a stroke with a
-/// vertex join that differs from the node's (dashes are stroked with the node's join alone).
+/// chains stroke `Center`), per-vertex joins, and arrowhead caps (node or per-vertex). It cannot
+/// reproduce side weights, a brush, a cap Figma draws that the stroke model still has no name for
+/// (recorded at import in `fig_metadata["strokeCap"]`, on the node or on any vertex), a vertex with
+/// its own non-arrow cap that differs from the node's, dashes on an inside or outside stroke, or
+/// dashes on a stroke with a vertex join that differs from the node's (dashes are stroked with the
+/// node's join alone).
 fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>, net: &VectorNetwork) -> bool {
     let centered = stroke.align == StrokeAlign::Center;
+    let is_arrow = |c: StrokeCap| {
+        matches!(c, StrokeCap::ArrowLines | StrokeCap::ArrowEquilateral | StrokeCap::TriangleFilled | StrokeCap::DiamondFilled | StrokeCap::CircleFilled)
+    };
+    let has_arrow = is_arrow(stroke.cap) || net.vertices.iter().any(|v| v.cap.is_some_and(is_arrow));
     !net.is_empty()
         && net.is_valid()
         && stroke.side_weights.is_none()
         && !meta.contains_key("brushType")
         && !meta.contains_key("strokeCap")
-        && net.vertices.iter().all(|v| v.cap.is_none_or(|c| c == stroke.cap))
-        && (stroke.dashes.is_empty() || (centered && net.vertices.iter().all(|v| v.join.is_none_or(|j| j == stroke.join))))
+        && (has_arrow || net.vertices.iter().all(|v| v.cap.is_none_or(|c| c == stroke.cap)))
+        && ((!has_arrow && stroke.dashes.is_empty())
+            || (centered && (stroke.dashes.is_empty() || (!has_arrow && net.vertices.iter().all(|v| v.join.is_none_or(|j| j == stroke.join))))))
 }
 
 /// Applies `(new_transform, new_size)` from [`constrain_child`] / [`plan_constraint_pass`]

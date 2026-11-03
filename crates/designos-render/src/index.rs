@@ -72,7 +72,8 @@ pub(crate) fn node_margin(n: &Node) -> f32 {
     let has_stroke_paint = n.stroke.paints.iter().any(|p| p.visible) && (n.stroke.weight > 0.0 || n.stroke.side_weights.is_some());
     if has_stroke_paint {
         let sw = n.stroke.side_weights.map(|s| s.iter().cloned().fold(0.0, f32::max)).unwrap_or(0.0);
-        m = m.max(n.stroke.weight.max(sw) * 2.0);
+        let mult = if crate::vectorops::has_arrow_caps(n) { 6.0 } else { 2.0 };
+        m = m.max(n.stroke.weight.max(sw) * mult);
     }
     for e in &n.effects {
         match e {

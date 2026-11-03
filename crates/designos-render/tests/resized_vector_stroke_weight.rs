@@ -787,3 +787,355 @@ fn vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends() {
     }
     assert!(failed.is_empty(), "{}", failed.join("\n"));
 }
+
+#[test]
+fn all_five_arrow_caps_draw_outward_heads_on_lines_and_open_vectors() {
+    let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(20.0, 50.0)), PathCmd::LineTo(Vec2::new(80.0, 50.0))], fill_rule: FillRule::NonZero };
+    let render_cap = |cap: StrokeCap, as_line: bool, end_only: bool| -> Pixmap {
+        let mut t = T::new();
+        t.add(None, |id| {
+            let kind = if as_line {
+                NodeKind::Line
+            } else {
+                let mut net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+                if end_only {
+                    net.vertices[0].cap = Some(StrokeCap::None);
+                    net.vertices[1].cap = Some(cap);
+                }
+                NodeKind::Vector { paths: vec![seg.clone()], network: Some(net) }
+            };
+            let mut n = Node::new(id, kind);
+            if as_line {
+                n.transform = Affine::translate(20.0, 50.0);
+                n.size = Vec2::new(60.0, 0.0);
+            } else {
+                n.size = Vec2::new(100.0, 100.0);
+            }
+            n.stroke = Stroke {
+                paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+                weight: 4.0,
+                align: StrokeAlign::Center,
+                cap: if end_only && !as_line { StrokeCap::None } else { cap },
+                join: StrokeJoin::Round,
+                ..Stroke::default()
+            };
+            n
+        });
+        t.render(110, 100)
+    };
+
+    for (as_line, end_only) in [(false, false), (true, false), (false, true)] {
+        // 1. ArrowLines: 45-degree open V wings reaching backward from (80, 50) to ~(67.3, 37.3) and ~(67.3, 62.7).
+        let pm = render_cap(StrokeCap::ArrowLines, as_line, end_only);
+        assert!(is_ink(&pm, 70, 40) && is_ink(&pm, 70, 60), "ArrowLines (line={as_line}, end_only={end_only}): backward wings at (70, 40) and (70, 60)");
+        assert!(!is_ink(&pm, 90, 40) && !is_ink(&pm, 90, 60), "ArrowLines: wings do not point forward of tip");
+        if end_only {
+            assert!(!is_ink(&pm, 30, 40), "ArrowLines end_only: start endpoint at (20, 50) has no wing");
+        } else {
+            assert!(is_ink(&pm, 30, 40) && is_ink(&pm, 30, 60), "ArrowLines node cap: start endpoint at (20, 50) has wings at (30, 40) and (30, 60)");
+        }
+
+        // 2. ArrowEquilateral: filled triangle tip at (80, 50), base at x = 60 with half-width ~11.55.
+        let pm = render_cap(StrokeCap::ArrowEquilateral, as_line, end_only);
+        assert!(is_ink(&pm, 62, 41) && is_ink(&pm, 62, 59), "ArrowEquilateral: wide base at x = 62, y = 41/59");
+        assert!(!is_ink(&pm, 78, 41) && !is_ink(&pm, 78, 59), "ArrowEquilateral: narrows toward tip at x = 78");
+        assert!(!is_ink(&pm, 90, 50), "ArrowEquilateral: does not extend past tip at x = 90");
+
+        // 3. TriangleFilled: reversed filled triangle with wide base at x = 80 (y = 50 +- 11.55) tapering to x = 60 (y = 50 +- 2).
+        let pm = render_cap(StrokeCap::TriangleFilled, as_line, end_only);
+        assert!(is_ink(&pm, 78, 41) && is_ink(&pm, 78, 59), "TriangleFilled: wide front edge at x = 78, y = 41/59");
+        assert!(!is_ink(&pm, 62, 41) && !is_ink(&pm, 62, 59), "TriangleFilled: narrow back waist at x = 62");
+
+        // 4. DiamondFilled: filled diamond centered at (80, 50) with half-diagonal ~11.55.
+        let pm = render_cap(StrokeCap::DiamondFilled, as_line, end_only);
+        assert!(is_ink(&pm, 80, 40) && is_ink(&pm, 80, 60) && is_ink(&pm, 89, 50), "DiamondFilled: top/bottom/front vertices inked");
+        assert!(!is_ink(&pm, 88, 42), "DiamondFilled: outside diamond diagonal edge at (88, 42) is white");
+
+        // 5. CircleFilled: filled circle centered at (80, 50) with radius ~10.67.
+        let pm = render_cap(StrokeCap::CircleFilled, as_line, end_only);
+        assert!(is_ink(&pm, 80, 41) && is_ink(&pm, 80, 59) && is_ink(&pm, 89, 50), "CircleFilled: circle interior inked");
+        assert!(is_ink(&pm, 86, 44), "CircleFilled: circle bulge at (86, 44) inked");
+        assert!(!is_ink(&pm, 90, 40), "CircleFilled: outside circle corner (90, 40) is white");
+    }
+
+    // Also test vertical, diagonal, and cubic-curved open vectors with ArrowEquilateral.
+    for cmds in [
+        vec![PathCmd::MoveTo(Vec2::new(50.0, 20.0)), PathCmd::LineTo(Vec2::new(50.0, 80.0))],
+        vec![PathCmd::MoveTo(Vec2::new(20.0, 20.0)), PathCmd::LineTo(Vec2::new(80.0, 80.0))],
+        vec![PathCmd::MoveTo(Vec2::new(20.0, 60.0)), PathCmd::CubicTo(Vec2::new(40.0, 20.0), Vec2::new(60.0, 20.0), Vec2::new(80.0, 60.0))],
+    ] {
+        let p = Path { cmds, fill_rule: FillRule::NonZero };
+        let net = VectorNetwork::from_paths(std::slice::from_ref(&p));
+        let mut t_arrow = T::new();
+        t_arrow.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![p.clone()], network: Some(net.clone()) });
+            n.size = Vec2::new(100.0, 100.0);
+            n.stroke = Stroke {
+                paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+                weight: 4.0,
+                cap: StrokeCap::ArrowEquilateral,
+                join: StrokeJoin::Round,
+                ..Stroke::default()
+            };
+            n
+        });
+        let mut t_none = T::new();
+        t_none.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![p.clone()], network: Some(net) });
+            n.size = Vec2::new(100.0, 100.0);
+            n.stroke = Stroke {
+                paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+                weight: 4.0,
+                cap: StrokeCap::None,
+                join: StrokeJoin::Round,
+                ..Stroke::default()
+            };
+            n
+        });
+        let ink_count = |pm: &Pixmap| pm.pixels().iter().filter(|p| p.red() < 128).count();
+        assert!(
+            ink_count(&t_arrow.render(100, 100)) > ink_count(&t_none.render(100, 100)) + 80,
+            "ArrowEquilateral adds arrowhead ink on vertical/diagonal/curved open subpaths"
+        );
+    }
+}
+
+fn figma_arrow_lines_bake(len: f32) -> Path {
+    Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(-0.35355338, -0.35355338)),
+            PathCmd::CubicTo(Vec2::new(-0.54881555, -0.15829125), Vec2::new(-0.54881555, 0.15829125), Vec2::new(-0.35355338, 0.35355338)),
+            PathCmd::LineTo(Vec2::new(2.828427, 3.535534)),
+            PathCmd::CubicTo(Vec2::new(3.0236893, 3.730796), Vec2::new(3.3402717, 3.730796), Vec2::new(3.535534, 3.535534)),
+            PathCmd::CubicTo(Vec2::new(3.730796, 3.3402717), Vec2::new(3.730796, 3.0236893), Vec2::new(3.535534, 2.828427)),
+            PathCmd::LineTo(Vec2::new(0.70710677, 0.0)),
+            PathCmd::LineTo(Vec2::new(3.535534, -2.828427)),
+            PathCmd::CubicTo(Vec2::new(3.730796, -3.0236893), Vec2::new(3.730796, -3.3402717), Vec2::new(3.535534, -3.535534)),
+            PathCmd::CubicTo(Vec2::new(3.3402717, -3.730796), Vec2::new(3.0236893, -3.730796), Vec2::new(2.828427, -3.535534)),
+            PathCmd::LineTo(Vec2::new(-0.35355338, -0.35355338)),
+            PathCmd::Close,
+            PathCmd::MoveTo(Vec2::new(len + 0.35355338, 0.35355338)),
+            PathCmd::CubicTo(Vec2::new(len + 0.54881555, 0.15829125), Vec2::new(len + 0.54881555, -0.15829125), Vec2::new(len + 0.35355338, -0.35355338)),
+            PathCmd::LineTo(Vec2::new(len - 2.828427, -3.535534)),
+            PathCmd::CubicTo(Vec2::new(len - 3.0236893, -3.730796), Vec2::new(len - 3.3402717, -3.730796), Vec2::new(len - 3.535534, -3.535534)),
+            PathCmd::CubicTo(Vec2::new(len - 3.730796, -3.3402717), Vec2::new(len - 3.730796, -3.0236893), Vec2::new(len - 3.535534, -2.828427)),
+            PathCmd::LineTo(Vec2::new(len - 0.70710677, 0.0)),
+            PathCmd::LineTo(Vec2::new(len - 3.535534, 2.828427)),
+            PathCmd::CubicTo(Vec2::new(len - 3.730796, 3.0236893), Vec2::new(len - 3.730796, 3.3402717), Vec2::new(len - 3.535534, 3.535534)),
+            PathCmd::CubicTo(Vec2::new(len - 3.3402717, 3.730796), Vec2::new(len - 3.0236893, 3.730796), Vec2::new(len - 2.828427, 3.535534)),
+            PathCmd::LineTo(Vec2::new(len + 0.35355338, 0.35355338)),
+            PathCmd::Close,
+            PathCmd::MoveTo(Vec2::new(0.0, 0.5)),
+            PathCmd::LineTo(Vec2::new(len, 0.5)),
+            PathCmd::LineTo(Vec2::new(len, -0.5)),
+            PathCmd::LineTo(Vec2::new(0.0, -0.5)),
+            PathCmd::LineTo(Vec2::new(0.0, 0.5)),
+            PathCmd::Close,
+        ],
+        fill_rule: FillRule::NonZero,
+    }
+}
+
+#[test]
+fn kit_arrow_vectors_match_figma_bake_at_1x_and_keep_stroke_weight_head_size_when_resized_2x() {
+    // Exact geometry and Figma baked strokeGeometry of the 3 named kit ARROW_LINES vectors:
+    // 1. 1143:83664 (NodeId(111958)): (0, 0) -> (80, 0), size=(80, 0), w=1.0, join=Miter, cap=ArrowLines
+    // 2. 8222:316128 (NodeId(112139)): (0, 0) -> (23.999998, 0), size=(23.999998, 0), w=1.0, join=Miter, cap=ArrowLines
+    // 3. 7749:50847 (NodeId(113459)): (0, 0) -> (23.999998, 0), size=(23.999998, 0), w=1.0, join=Miter, cap=ArrowLines
+    for (name, len) in [("1143:83664", 80.0_f32), ("8222:316128", 23.999998_f32), ("7749:50847", 23.999998_f32)] {
+        let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(len, 0.0))], fill_rule: FillRule::NonZero };
+        let net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+        let stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 1.0,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::ArrowLines,
+            join: StrokeJoin::Miter,
+            ..Stroke::default()
+        };
+        let figma_bake = figma_arrow_lines_bake(len);
+
+        // 1x comparison: Figma's baked strokeGeometry vs our live-drawn stroke (stroke_geometry = None).
+        let mut t_bake = T::new();
+        let id = t_bake.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg.clone()], network: Some(net.clone()) });
+            n.transform = Affine::translate(12.0, 20.0);
+            n.size = Vec2::new(len, 0.0);
+            n.stroke = stroke.clone();
+            n.stroke_geometry = Some(vec![figma_bake]);
+            n
+        });
+        let mut t_live = T::new();
+        t_live.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg.clone()], network: Some(net.clone()) });
+            n.transform = Affine::translate(12.0, 20.0);
+            n.size = Vec2::new(len, 0.0);
+            n.stroke = stroke.clone();
+            n
+        });
+        let pm_bake_1x = t_bake.render(200, 40);
+        let pm_live_1x = t_live.render(200, 40);
+        let mismatched_1x = pm_bake_1x
+            .pixels()
+            .iter()
+            .zip(pm_live_1x.pixels().iter())
+            .filter(|(a, b)| a.red().abs_diff(b.red()) > 2 || a.green().abs_diff(b.green()) > 2 || a.blue().abs_diff(b.blue()) > 2)
+            .count();
+        assert_eq!(mismatched_1x, 0, "{name}: live-drawn 1x head matches Figma's baked strokeGeometry with 0 mismatched pixels");
+
+        // 2x resize: drops the baked stroke_geometry and keeps head size relative to stroke weight = 1.0.
+        plain_resize(&mut t_bake.doc, id, Vec2::new(len * 2.0, 0.0));
+        assert!(t_bake.doc.get(id).unwrap().stroke_geometry.is_none(), "{name}: drops baked stroke_geometry on 2x resize");
+
+        let seg_2x = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(len * 2.0, 0.0))], fill_rule: FillRule::NonZero };
+        let net_2x = VectorNetwork::from_paths(std::slice::from_ref(&seg_2x));
+        let mut t_fresh_2x = T::new();
+        t_fresh_2x.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg_2x], network: Some(net_2x) });
+            n.transform = Affine::translate(12.0, 20.0);
+            n.size = Vec2::new(len * 2.0, 0.0);
+            n.stroke = stroke;
+            n
+        });
+        assert_eq!(
+            t_bake.render(200, 40).data(),
+            t_fresh_2x.render(200, 40).data(),
+            "{name}: resized 2x kit arrow vector renders identical pixels to a fresh 2x vector with 1.0px stroke weight and unscaled head"
+        );
+    }
+}
+
+#[test]
+fn resized_2x_arrow_caps_keep_head_size_relative_to_stroke_weight_for_all_five_caps() {
+    for cap in [StrokeCap::ArrowLines, StrokeCap::ArrowEquilateral, StrokeCap::TriangleFilled, StrokeCap::DiamondFilled, StrokeCap::CircleFilled] {
+        let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(4.0, 15.0)), PathCmd::LineTo(Vec2::new(26.0, 15.0))], fill_rule: FillRule::NonZero };
+        let net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+        let stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 2.0,
+            align: StrokeAlign::Center,
+            cap,
+            join: StrokeJoin::Round,
+            ..Stroke::default()
+        };
+        // Simulate an imported vector whose stroke_geometry has the 1x head baked in.
+        let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
+        let mut t = T::new();
+        let id = t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg], network: Some(net) });
+            n.transform = Affine::translate(20.0, 20.0);
+            n.size = Vec2::new(30.0, 30.0);
+            n.stroke = stroke.clone();
+            n.stroke_geometry = Some(bake);
+            n
+        });
+        plain_resize(&mut t.doc, id, Vec2::new(60.0, 60.0));
+        assert!(t.doc.get(id).unwrap().stroke_geometry.is_none(), "{cap:?}: baked stroke_geometry dropped on 2x resize");
+
+        let pm = t.render(120, 120);
+        // After 2x resize, the segment is at y = 20 + 30 = 50, from x = 28 to x = 72, with stroke weight = 2.0.
+        // At weight = 2.0, the arrowhead half-width is at most 5 / sqrt(3) * 2.0 = 5.77px (so y = 50 +- 6),
+        // whereas a 2x-scaled bake would reach y = 50 +- 12 (y = 39 and y = 61).
+        assert!((62..=74).any(|x| is_ink(&pm, x, 46)), "{cap:?}: head ink is present at 1x head span (y = 46)");
+        assert!(!(60..=76).any(|x| is_ink(&pm, x, 39)), "{cap:?}: head does NOT scale 2x to y = 39");
+    }
+}
+
+#[test]
+fn per_vertex_round_and_square_caps_paint_full_span() {
+    let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(10.0, 20.0)), PathCmd::LineTo(Vec2::new(60.0, 20.0))], fill_rule: FillRule::NonZero };
+    for cap in [StrokeCap::Square, StrokeCap::Round] {
+        let mut net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+        for v in &mut net.vertices {
+            v.cap = Some(cap);
+        }
+        let mut t = T::new();
+        t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+            n.size = Vec2::new(80.0, 40.0);
+            n.stroke = Stroke {
+                paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+                weight: 12.0,
+                align: StrokeAlign::Center,
+                cap: StrokeCap::None,
+                join: StrokeJoin::Round,
+                ..Stroke::default()
+            };
+            n
+        });
+        let pm = t.render(80, 40);
+        // Open line (10, 20)->(60, 20), weight 12 (r = 6), node cap None, both vertices `cap`:
+        // start cap covers x = 4..10 and end cap covers x = 60..66, so y = 20 is painted across x = 4..66 (62px).
+        assert_eq!(horizontal_ink_runs(&pm, 20, 0..80), vec![62], "{cap:?}: paints x = 4..66 (62px run) on y = 20");
+        assert!(is_ink(&pm, 5, 20) && is_ink(&pm, 64, 20), "{cap:?}: both start (x=5) and end (x=64) caps are painted outward");
+    }
+}
+
+#[test]
+fn closed_subpath_and_interior_vertex_draw_no_arrowheads_and_scene_index_bounds_include_arrowheads() {
+    // 1. Closed subpath with node arrow cap draws no arrowhead (identical to StrokeCap::None).
+    let closed = Path { cmds: rect_subpath(20.0, 20.0, 60.0, 60.0, false), fill_rule: FillRule::NonZero };
+    let net_closed = VectorNetwork::from_paths(std::slice::from_ref(&closed));
+    let render_closed = |cap: StrokeCap| {
+        let mut t = T::new();
+        t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![closed.clone()], network: Some(net_closed.clone()) });
+            n.size = Vec2::new(80.0, 80.0);
+            n.stroke = Stroke { paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))], weight: 4.0, cap, join: StrokeJoin::Miter, ..Stroke::default() };
+            n
+        });
+        t.render(80, 80)
+    };
+    assert_eq!(
+        render_closed(StrokeCap::ArrowEquilateral).data(),
+        render_closed(StrokeCap::None).data(),
+        "closed subpath with ArrowEquilateral draws no arrowhead"
+    );
+
+    // 2. Interior vertex (degree 2) with arrow cap draws no arrowhead.
+    let bent = Path {
+        cmds: vec![PathCmd::MoveTo(Vec2::new(10.0, 40.0)), PathCmd::LineTo(Vec2::new(40.0, 40.0)), PathCmd::LineTo(Vec2::new(70.0, 40.0))],
+        fill_rule: FillRule::NonZero,
+    };
+    let mut net_interior = VectorNetwork::from_paths(std::slice::from_ref(&bent));
+    for v in &mut net_interior.vertices {
+        if (v.pos.x - 40.0).abs() < 1e-3 {
+            v.cap = Some(StrokeCap::DiamondFilled);
+        } else {
+            v.cap = Some(StrokeCap::None);
+        }
+    }
+    let net_plain = VectorNetwork::from_paths(std::slice::from_ref(&bent));
+    let render_bent = |net: VectorNetwork| {
+        let mut t = T::new();
+        t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![bent.clone()], network: Some(net) });
+            n.size = Vec2::new(80.0, 80.0);
+            n.stroke = Stroke {
+                paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+                weight: 4.0,
+                cap: StrokeCap::None,
+                join: StrokeJoin::Round,
+                ..Stroke::default()
+            };
+            n
+        });
+        t.render(80, 80)
+    };
+    assert_eq!(render_bent(net_interior).data(), render_bent(net_plain).data(), "interior vertex (degree 2) with DiamondFilled draws no arrowhead");
+
+    // 3. SceneIndex bounds include the arrowhead overhang (up to 6 * weight).
+    let mut t = T::new();
+    let line_id = t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Line);
+        n.transform = Affine::translate(20.0, 10.0);
+        n.size = Vec2::new(60.0, 0.0);
+        n.stroke = Stroke { paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))], weight: 4.0, cap: StrokeCap::ArrowEquilateral, ..Stroke::default() };
+        n
+    });
+    let mut idx = designos_render::SceneIndex::new();
+    idx.ensure(&t.doc, t.page, 1);
+    let mut hits = Vec::new();
+    idx.query_rect((75.0, 20.0, 85.0, 24.0), &mut hits);
+    assert!(hits.contains(&line_id), "SceneIndex query in the arrowhead wing region (y = 20..24, 10px away from y = 10 line) includes the arrow-capped line");
+}

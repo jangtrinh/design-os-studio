@@ -11,20 +11,30 @@ fn num(v: &Value, k: &str) -> Option<f32> {
     v.get(k).and_then(Value::as_f64).map(|f| f as f32)
 }
 
-fn cap_from(s: &str) -> Option<StrokeCap> {
+pub(crate) fn cap_from(s: &str) -> Option<StrokeCap> {
     match s {
         "NONE" => Some(StrokeCap::None),
         "ROUND" => Some(StrokeCap::Round),
         "SQUARE" => Some(StrokeCap::Square),
+        "ARROW_LINES" => Some(StrokeCap::ArrowLines),
+        "ARROW_EQUILATERAL" => Some(StrokeCap::ArrowEquilateral),
+        "TRIANGLE_FILLED" => Some(StrokeCap::TriangleFilled),
+        "DIAMOND_FILLED" => Some(StrokeCap::DiamondFilled),
+        "CIRCLE_FILLED" => Some(StrokeCap::CircleFilled),
         _ => None,
     }
 }
 
-fn cap_name(c: StrokeCap) -> &'static str {
+pub(crate) fn cap_name(c: StrokeCap) -> &'static str {
     match c {
         StrokeCap::None => "NONE",
         StrokeCap::Round => "ROUND",
         StrokeCap::Square => "SQUARE",
+        StrokeCap::ArrowLines => "ARROW_LINES",
+        StrokeCap::ArrowEquilateral => "ARROW_EQUILATERAL",
+        StrokeCap::TriangleFilled => "TRIANGLE_FILLED",
+        StrokeCap::DiamondFilled => "DIAMOND_FILLED",
+        StrokeCap::CircleFilled => "CIRCLE_FILLED",
     }
 }
 
