@@ -107,7 +107,10 @@ each typed block without changing it and requires the page to keep the same bloc
   error that says to close the other window or agent and retry (the lock frees itself when its holder exits).
 - Pages over 8 MiB are refused (`DocsError::TooLarge`). Symlinked pages are not listed or watched. An explicit path follows a symlink
   only when the target is inside the docs folder; a link to anywhere else, for a file or a folder, is refused
-  (`DocsError::OutsideDocs`) for reads and writes of pages and of the manifest.
+  (`DocsError::OutsideDocs`) for reads and writes of pages and of the manifest. The file that is read is the one that was
+  checked: it is opened by its real path, and the open handle's device and inode must match that path (a link swapped in
+  between is refused). A regular file with more than one hard link is refused (`DocsError::HardLinked`), because a hard
+  link cannot be told apart from the outside file it names; replace it with a copy.
 
 ## Layout drift
 

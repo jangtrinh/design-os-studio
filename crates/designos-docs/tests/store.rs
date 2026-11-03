@@ -293,3 +293,71 @@ mod symlinks {
         assert!(matches!(store.read_page("nope/missing.md").unwrap_err(), DocsError::NotFound { .. }));
     }
 }
+
+#[cfg(unix)]
+mod links_r2 {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn docs_with_outside() -> (tempfile::TempDir, DocsStore, std::path::PathBuf) {
+        let (tmp, store) = store();
+        std::fs::create_dir_all(store.dir()).unwrap();
+        std::fs::write(store.dir().join("inside.md"), "# inside\n").unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.md"), "# SECRET\n").unwrap();
+        (tmp, store, outside)
+    }
+
+    #[test]
+    fn a_hard_link_to_a_file_outside_the_docs_folder_is_refused_with_a_fix() {
+        let (_tmp, store, outside) = docs_with_outside();
+        std::fs::hard_link(outside.join("secret.md"), store.dir().join("hard.md")).unwrap();
+        let err = store.read_page("hard.md").unwrap_err();
+        assert!(format!("{err:?}").starts_with("HardLinked { "), "{err:?}");
+        let text = err.to_string();
+        assert!(text.contains("hard.md") && text.contains("more than one") && text.contains("fix:"), "{text}");
+        let hash = ContentHash::of(b"# SECRET\n");
+        assert!(store.write_page("hard.md", &page("# x\n"), Expect::Hash(hash)).is_err(), "no write through a hard link either");
+        assert_eq!(std::fs::read_to_string(outside.join("secret.md")).unwrap(), "# SECRET\n");
+        assert!(store.read_page("inside.md").is_ok(), "an ordinary file is unaffected");
+    }
+
+    /// A link name that is swapped between `inside.md` and a file outside, while another thread reads it. The page read
+    /// must be one of the two things the name legitimately pointed at when the read started (inside), or an error; it
+    /// must never be the outside file.
+    #[test]
+    fn a_symlink_swapped_while_the_page_is_read_never_leaks_the_outside_file() {
+        let (tmp, store, outside) = docs_with_outside();
+        let link = store.dir().join("x.md");
+        symlink(store.dir().join("inside.md"), &link).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let swapper = {
+            let (stop, dir, outside) = (stop.clone(), store.dir().to_path_buf(), outside.clone());
+            std::thread::spawn(move || {
+                let mut flip = false;
+                while !stop.load(Ordering::Relaxed) {
+                    let target = if flip { dir.join("inside.md") } else { outside.join("secret.md") };
+                    let tmp_link = dir.join(".x.tmp");
+                    let _ = std::fs::remove_file(&tmp_link);
+                    symlink(&target, &tmp_link).unwrap();
+                    std::fs::rename(&tmp_link, dir.join("x.md")).unwrap();
+                    flip = !flip;
+                }
+            })
+        };
+        let mut leaks = 0;
+        for _ in 0..20_000 {
+            if let Ok(v) = store.read_page("x.md") {
+                if v.value.render().contains("SECRET") {
+                    leaks += 1;
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        swapper.join().unwrap();
+        drop(tmp);
+        assert_eq!(leaks, 0, "the outside file was read through the swapped link");
+    }
+}

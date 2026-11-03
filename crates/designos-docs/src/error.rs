@@ -45,6 +45,11 @@ pub enum DocsError {
     #[error("{path} resolves to a place outside the docs folder, so it was not touched; fix: remove the symlink, or replace it with a real file inside the docs folder")]
     OutsideDocs { path: String },
 
+    /// A page or manifest with more than one hard link. A hard link to a file outside the docs folder looks like an
+    /// ordinary file inside it, so the store cannot tell it from one and does not read it.
+    #[error("{path} has more than one hard link, so it may be another name for a file outside the docs folder and was not read; fix: replace it with a copy of the file (a hard link cannot be told apart from the file it points to)")]
+    HardLinked { path: String },
+
     #[error("block {index} does not exist; the page has {len} blocks; fix: read the page again and use an index below {len}")]
     BlockIndex { index: usize, len: usize },
 

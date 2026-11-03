@@ -112,30 +112,50 @@ impl DocsStore {
         Ok(path)
     }
 
-    /// Refuses a path that, after following every symlink, is outside the docs folder (`OutsideDocs`). The deepest
-    /// part of `path` that exists decides where it really is; names below it are new and cannot point anywhere. A
-    /// symlink whose target is inside the docs folder is fine. Without a docs folder there is nothing to escape into.
-    fn confine(&self, path: &Path, shown: &str) -> Result<()> {
-        let Ok(dir) = self.dir.canonicalize() else { return Ok(()) };
+    /// Refuses a path that, after following every symlink, is outside the docs folder (`OutsideDocs`), and returns
+    /// where it really is (`path` itself when it does not exist yet). The deepest part of `path` that exists decides;
+    /// names below it are new and cannot point anywhere. A symlink whose target is inside the docs folder is fine.
+    /// Without a docs folder there is nothing to escape into.
+    fn confine(&self, path: &Path, shown: &str) -> Result<PathBuf> {
+        let Ok(dir) = self.dir.canonicalize() else { return Ok(path.to_path_buf()) };
         let mut probe = path;
-        let real = loop {
+        let (real, exists) = loop {
             match probe.canonicalize() {
-                Ok(real) => break real,
+                Ok(real) => break (real, probe == path),
                 Err(_) => match probe.parent() {
                     Some(parent) => probe = parent,
-                    None => return Ok(()),
+                    None => return Ok(path.to_path_buf()),
                 },
             }
         };
-        if real.starts_with(&dir) {
-            Ok(())
-        } else {
-            Err(DocsError::OutsideDocs { path: shown.to_string() })
+        if !real.starts_with(&dir) {
+            return Err(DocsError::OutsideDocs { path: shown.to_string() });
+        }
+        Ok(if exists { real } else { path.to_path_buf() })
+    }
+
+    /// Reads a page or the manifest. The file that is read is the one `confine` found, opened by its real path and
+    /// then checked as an open handle: the name must still resolve to itself and to the same file (device and inode),
+    /// so a link swapped in after the check is refused instead of followed. A file with more than one hard link is
+    /// refused too, because a hard link to a file outside the folder cannot be told apart from an inside file.
+    fn read_confined(&self, path: &Path, shown: &str) -> Result<Vec<u8>> {
+        let real = self.confine(path, shown)?;
+        #[cfg(test)]
+        tests::before_open();
+        let file = File::open(&real).map_err(|e| DocsError::io(shown, e))?;
+        let meta = file.metadata().map_err(|e| DocsError::io(shown, e))?;
+        if !meta.is_file() {
+            return Err(DocsError::io(shown, std::io::Error::new(std::io::ErrorKind::InvalidInput, "is not a file")));
+        }
+        verify_handle(&real, &meta, shown)?;
+        match read_capped_file(file).map_err(|e| DocsError::io(shown, e))? {
+            Some(bytes) => Ok(bytes),
+            None => Err(DocsError::TooLarge { path: shown.to_string(), limit: MAX_FILE_BYTES }),
         }
     }
 
     fn read_text(&self, path: &Path, shown: &str) -> Result<(String, ContentHash)> {
-        let bytes = read_limited(path, shown)?;
+        let bytes = self.read_confined(path, shown)?;
         let hash = ContentHash::of(&bytes);
         let text = String::from_utf8(bytes)
             .map_err(|_| DocsError::io(shown, std::io::Error::new(std::io::ErrorKind::InvalidData, "is not UTF-8 text; fix: re-save it as UTF-8 Markdown")))?;
@@ -145,7 +165,7 @@ impl DocsStore {
     fn write_bytes(&self, path: &Path, shown: &str, bytes: &[u8], expect: Expect) -> Result<ContentHash> {
         std::fs::create_dir_all(&self.dir).map_err(|e| DocsError::io(self.dir.display().to_string(), e))?;
         let _lock = DirLock::acquire(&self.dir, self.lock_timeout)?;
-        let found = match read_limited(path, shown) {
+        let found = match self.read_confined(path, shown) {
             Ok(current) => Some(current),
             Err(DocsError::NotFound { .. }) => None,
             Err(e) => return Err(e),
@@ -167,23 +187,40 @@ impl DocsStore {
     }
 }
 
-pub(crate) fn read_limited(path: &Path, shown: &str) -> Result<Vec<u8>> {
-    let meta = std::fs::metadata(path).map_err(|e| DocsError::io(shown, e))?;
-    if !meta.is_file() {
-        return Err(DocsError::io(shown, std::io::Error::new(std::io::ErrorKind::InvalidInput, "is not a file")));
+/// The open file is the file `real` names right now: `real` still resolves to itself (no link was put in its way), is the
+/// same device and inode as the handle, and has no second name.
+fn verify_handle(real: &Path, meta: &std::fs::Metadata, shown: &str) -> Result<()> {
+    let outside = || DocsError::OutsideDocs { path: shown.to_string() };
+    let again = real.canonicalize().map_err(|e| DocsError::io(shown, e))?;
+    if again != real {
+        return Err(outside());
     }
-    match read_capped(path).map_err(|e| DocsError::io(shown, e))? {
-        Some(bytes) => Ok(bytes),
-        None => Err(DocsError::TooLarge { path: shown.to_string(), limit: MAX_FILE_BYTES }),
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if meta.nlink() > 1 {
+            return Err(DocsError::HardLinked { path: shown.to_string() });
+        }
+        let now = std::fs::metadata(&again).map_err(|e| DocsError::io(shown, e))?;
+        if (now.dev(), now.ino()) != (meta.dev(), meta.ino()) {
+            return Err(outside());
+        }
     }
+    #[cfg(not(unix))]
+    let _ = meta;
+    Ok(())
 }
 
 /// The file's bytes, or `None` when it holds more than `MAX_FILE_BYTES`. The cap is applied while reading, so a file
 /// that grows after it was measured (or was measured before it was fully written) is never read whole into memory.
 pub(crate) fn read_capped(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    read_capped_file(File::open(path)?)
+}
+
+fn read_capped_file(file: File) -> std::io::Result<Option<Vec<u8>>> {
     use std::io::Read;
     let mut bytes = Vec::new();
-    File::open(path)?.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
+    file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)?;
     Ok((bytes.len() as u64 <= MAX_FILE_BYTES).then_some(bytes))
 }
 
@@ -242,6 +279,22 @@ impl Drop for DirLock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+
+    type Hook = Box<dyn Fn()>;
+
+    thread_local! {
+        /// Runs between the confinement check and the open, where a concurrent process could swap a link.
+        static BEFORE_OPEN: RefCell<Option<Hook>> = const { RefCell::new(None) };
+    }
+
+    pub(super) fn before_open() {
+        BEFORE_OPEN.with(|hook| {
+            if let Some(f) = hook.borrow().as_ref() {
+                f();
+            }
+        });
+    }
 
     #[test]
     fn the_read_cap_is_applied_while_reading_not_from_a_size_measured_earlier() {
@@ -253,6 +306,77 @@ mod tests {
         let over = tmp.path().join("over.md");
         std::fs::write(&over, vec![b'a'; MAX_FILE_BYTES as usize + 1]).unwrap();
         assert!(read_capped(&over).unwrap().is_none());
-        assert!(matches!(read_limited(&over, "over.md"), Err(DocsError::TooLarge { limit, .. }) if limit == MAX_FILE_BYTES));
+        let store = DocsStore::at(tmp.path());
+        assert!(matches!(store.read_confined(&over, "over.md"), Err(DocsError::TooLarge { limit, .. }) if limit == MAX_FILE_BYTES));
+    }
+
+    #[cfg(unix)]
+    mod swapped_between_check_and_open {
+        use super::*;
+        use std::os::unix::fs::symlink;
+
+        fn docs() -> (tempfile::TempDir, DocsStore) {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path().join("docs");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("inside.md"), "# inside\n").unwrap();
+            std::fs::write(tmp.path().join("secret.md"), "# SECRET\n").unwrap();
+            (tmp, DocsStore::at(dir))
+        }
+
+        fn set_hook(f: impl Fn() + 'static) {
+            BEFORE_OPEN.with(|h| *h.borrow_mut() = Some(Box::new(f)));
+        }
+
+        fn clear_hook() {
+            BEFORE_OPEN.with(|h| *h.borrow_mut() = None);
+        }
+
+        #[test]
+        fn a_link_name_swapped_to_an_outside_file_after_the_check_is_not_followed() {
+            let (tmp, store) = docs();
+            let (link, secret) = (store.dir().join("x.md"), tmp.path().join("secret.md"));
+            symlink(store.dir().join("inside.md"), &link).unwrap();
+            let swap = link.clone();
+            set_hook(move || {
+                std::fs::remove_file(&swap).unwrap();
+                symlink(&secret, &swap).unwrap();
+            });
+            let read = store.read_page("x.md");
+            clear_hook();
+            let page = read.expect("the file the check saw (inside.md) is still what is read");
+            assert_eq!(page.value.render(), "# inside\n", "the real path was opened, so the swapped name made no difference");
+        }
+
+        #[test]
+        fn the_real_file_replaced_by_a_link_to_an_outside_file_after_the_check_is_refused() {
+            let (tmp, store) = docs();
+            let (real, secret) = (store.dir().join("inside.md"), tmp.path().join("secret.md"));
+            set_hook(move || {
+                std::fs::remove_file(&real).unwrap();
+                symlink(&secret, &real).unwrap();
+            });
+            let read = store.read_page("inside.md");
+            clear_hook();
+            assert!(matches!(read, Err(DocsError::OutsideDocs { .. })), "{read:?}");
+        }
+
+        #[test]
+        fn a_folder_swapped_for_a_link_after_the_check_is_refused() {
+            let (tmp, store) = docs();
+            std::fs::create_dir_all(store.dir().join("sub")).unwrap();
+            std::fs::write(store.dir().join("sub/a.md"), "# a\n").unwrap();
+            let outside = tmp.path().join("other");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::fs::write(outside.join("a.md"), "# SECRET\n").unwrap();
+            let sub = store.dir().join("sub");
+            set_hook(move || {
+                std::fs::rename(&sub, sub.with_file_name("sub-moved")).unwrap();
+                symlink(&outside, &sub).unwrap();
+            });
+            let read = store.read_page("sub/a.md");
+            clear_hook();
+            assert!(matches!(read, Err(DocsError::OutsideDocs { .. })), "{read:?}");
+        }
     }
 }
