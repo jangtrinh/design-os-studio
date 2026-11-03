@@ -167,3 +167,58 @@ F13 is open, and the pack has 18 chars of room.
 Status: DONE_WITH_CONCERNS
 Summary: F1-F12 fixed test-first (red run and green run above), all acceptance commands green on the changed crates, review repro fenced or refused on every BLOCKER/MAJOR line.
 Concerns/Blockers: F13 not changed (needs a designos-docs API outside the granted permission); 18 chars of rules-pack room left; workspace clippy still fails on 3 pre-existing designos-app errors.
+
+---
+
+# Fix round 2 (from 80137f38; re-review N1-N5 and the rules-pack restore)
+
+## NOT verified / not done (read first)
+- The first red logs of this round (designos-docs and designos-mcp) were overwritten by the green runs. What I saw in them: designos-docs, a hard link to an outside file was read, and the swapped-symlink stress test leaked 487 outside reads in 20,000; designos-mcp, 9 docs tests failed (loose slug paths, the `OutsideDocs` echo, no cursor, uncapped problems). The one red run I kept in the transcript: `the_rules_pack_lists_every_error_code_the_docs_tools_return` failed with `designos_docs_list must list VALUE_OUT_OF_RANGE`, then passed after the one-line fix.
+- `list` reads every page it lists whole (F13, unchanged: `DocsStore` has no partial read). Only pages inside the 90,000-byte window are read now, because the cursor stops the loop first.
+- The wire line of a result is about twice its structured size (rmcp repeats the structure as a text block). Same for every tool in this crate; the 90,000-byte budget and the 100,000 limit are on the structured result. K13: 92,461 bytes with the Python reviewer's `json.dumps` spacing, from 1,141,631 before.
+- Windows: the handle check (`dev`/`ino`, `nlink`) is `cfg(unix)`; the canonical-path recheck is portable. Not run on Windows.
+- Workspace `cargo clippy` still fails on 3 pre-existing `designos-app` errors (not touched; the two crates I changed are clean).
+
+## What changed, by finding
+| # | Fix | Where |
+|---|-----|-------|
+| N1 | Every page path (list entries, read's echoed `page`), pin `id` and `parent_screen` is fenced. No slug gate. `file_id` is plain only as lowercase hex of at most 32 chars (`designos_library::new_id`, `crates/designos-library/src/lib.rs:70-76`), `node_id` only as the digits of a `u64` (`designos_doc::NodeId(pub u64)`, `crates/designos-doc/src/lib.rs:133`); anything else is fenced. Descriptions say to pass back exactly the string inside `value`. | `docs_fence.rs`, `docs_list.rs`, `docs.rs`, `docs_descriptors.rs` |
+| N2 | Messages are fixed text. The echoed path and an ambiguous project name travel fenced in `received`; the `valid_options` list carries only hex project ids. | `docs_errors.rs`, `docs_project.rs` |
+| N3 | `read_confined` opens the real canonical path, then `verify_handle` re-canonicalizes and compares the handle's (dev, ino) with the path's metadata, refusing on mismatch (`OutsideDocs`). A regular file with `nlink > 1` is refused with `DocsError::HardLinked` and a fix text. Tests: 3 deterministic swap tests through a `BEFORE_OPEN` hook (mutation-checked: with `verify_handle` off, 2 of 3 fail), a hard-link test, and a 20,000-read stress test with a swapper thread (0 leaks; 487 before). | `designos-docs` `store.rs`, `error.rs`, `tests/store.rs`, `README.md` |
+| N4 | Read: at most 20 front-matter problems (`front_matter_problems_total`, `problems_truncated: true`), each text capped at 200 chars, title/description at 500. List: 90,000-byte serialized budget over pages then pins, `truncated`, `next_cursor`, `total_pages`, `total_pins`, `cursor` input (past the end is `VALUE_OUT_OF_RANGE` at `/cursor`); pin names capped at 200 chars, ids at 500. | `docs.rs`, `docs_list.rs`, `docs_descriptors.rs` |
+| N5 | Manifest failures say "docs-manifest.json", page failures say "the page". | `docs_errors.rs` |
+
+`designos_docs_list` now returns `VALUE_OUT_OF_RANGE` (the cursor) and cannot return `MISSING_FIELD` (it has no required argument); the per-tool error list and its test say so.
+
+## Green run (after the last edit)
+- `cargo fmt --all --check`: exit 0.
+- `cargo clippy -p designos-mcp -p designos-docs --all-targets --locked -- -D warnings`: exit 0.
+- `cargo test -p designos-mcp --locked`: exit 0; lib 359 passed, 0 failed; `docs_stdio` and the other integration binaries all `ok`.
+- `cargo test -p designos-docs --locked`: exit 0; every binary `ok` (lib 4, store integration 22 with the new `links_r2` cases, 1 pre-existing ignored doc test).
+- `cargo test --workspace --lib --locked`: exit 0; 13 + 745 + 4 + 1 + 164 + 143 + 30 + 5 + 37 + 359 + 56 + 1 + 8 passed, 0 failed.
+- `gen-tool-docs` rerun: `tools.json`, `generated/rules.md`, `skills/design-os-studio/rules.md`, README, CLAUDE.md, SKILL.md and `docs/mcp-parity.md` regenerated and committed.
+- Reviewer's r2 probes (K1-K15, `evidence-1528/repro-1528-r2.py`, output in `repro-1528-r2-output-after-fix.txt`): K1 plain strings 0; K4 all three look-alike paths fenced; K6/K7 pin ids and parent screen fenced (47- and 48-char hyphen ids no longer plain); K8 and K9 echo only inside `received`; K10 manifest error fenced; K11 3,000 reads, 0 leaks; K12 20 problems, body readable (`# Body`, `real text`); K13 92,461 bytes (was 1,141,631); K14/K15 dangling symlink and hard link refused, nothing leaked, no files created.
+- Round-1 repro (`repro-1528.py`) rerun: no loose injection strings; symlink cases refused.
+- Stdio transcript regenerated (`transcript-stdio.txt`, 38 lines).
+
+## Rules-pack restore
+- Step 4 render branch again says "inspect for hierarchy, alignment, clipping, and contrast" (`workflow.md`).
+- Paid for with: no `Example` line for `designos_docs_list` (all arguments optional, the Args line names them; special case in `render_tool_section`), a Purpose of "List a project's doc pages and pins.", the loop-hint line ("Repeat reads attach a `LOOP_SUSPECTED` `warning`"), and `MISSING_FIELD` dropped from the list's errors (it cannot happen) in exchange for `VALUE_OUT_OF_RANGE`.
+- `generated/rules.md`: **22,995 chars** (was 23,011 with the phrase restored and nothing paid; limit 23,000; the 1,000-char headroom test is unchanged). 5 chars of room.
+
+## Ledger (this round)
+- FACT: front-matter `problem.field` is one of `title`, `description`, `group` (`crates/designos-docs/src/front_matter.rs:77-99`), so it stays plain; the value text is what is fenced.
+- FACT: the hook-based swap tests fail without `verify_handle` (mutation-checked) and the stress test leaked 487/20,000 before the change.
+- INFERENCE: (dev, ino) plus `nlink > 1` closes the swap race on unix; a path swap after `verify_handle` but before `read` cannot matter, because the handle is already the checked file.
+- ASSUMPTION (medium): pin ids and parent screens that are long or hyphenated are fine fenced; an agent must pass back `value`.
+
+## Weakest link
+The 5 chars of rules-pack room: the second of #1318 and this change to merge must trim again.
+
+## Unresolved questions
+- F13 (still open): add a partial-read API to `designos-docs`, or accept whole-page reads for `list`?
+- Rules-pack budget: who decides once for both #1318 and this change?
+
+Status: DONE_WITH_CONCERNS
+Summary: N1-N5 and the rules-pack restore done test-first; fmt, clippy (two crates), `designos-mcp`, `designos-docs` and workspace lib tests are green after the last edit; the r2 probes and the round-1 repro are clean; stdio transcript regenerated.
+Concerns/Blockers: F13 whole-page reads in `list`; rules pack at 22,995/23,000; Windows handle check not run; workspace clippy fails on 3 pre-existing `designos-app` errors.
