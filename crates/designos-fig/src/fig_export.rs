@@ -1604,7 +1604,7 @@ fn encode_node_mode_entries(cx: &ExportCtx, vars: &NodeVariables) -> Vec<V> {
     mode_entries
 }
 
-fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
+fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
     let mut out = Vec::new();
     let Some(inst) = cx.doc.get(inst_id) else { return out };
     let mut stack: Vec<(NodeId, Vec<(u32, u32)>)> = inst.children.iter().rev().map(|&cid| (cid, Vec::new())).collect();
@@ -1716,6 +1716,12 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                 if n.stroke.miter_limit >= 1.0 {
                     ov.push(("miterLimit", fl(n.stroke.miter_limit)));
                 }
+                if let Some(paths) = &n.stroke_geometry {
+                    let geometry = encode_geometry_blobs(cx, paths);
+                    if !geometry.is_empty() {
+                        ov.push(("strokeGeometry", V::Array(geometry)));
+                    }
+                }
                 if let Some([top, right, bottom, left]) = n.stroke.side_weights {
                     ov.push(("borderStrokeWeightsIndependent", V::Bool(true)));
                     ov.push(("borderTopWeight", fl(top)));
@@ -1739,6 +1745,17 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::CornerRadii) {
                 let r = n.corner_radii;
                 ov.push(("cornerRadius", fl(r[0])));
+                // The reader drops the baked fill outline of every other kind when a corner radius is overridden, so it is
+                // written again. For a vector or boolean node it keeps the outline, and a `fillGeometry` key would replace
+                // the vector network with that outline.
+                if !matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                    if let Some(paths) = &n.fill_geometry {
+                        let geometry = encode_geometry_blobs(cx, paths);
+                        if !geometry.is_empty() {
+                            ov.push(("fillGeometry", V::Array(geometry)));
+                        }
+                    }
+                }
                 if !r.iter().all(|&x| (x - r[0]).abs() < 1e-5) {
                     ov.push(("rectangleCornerRadiiIndependent", V::Bool(true)));
                     ov.push(("rectangleTopLeftCornerRadius", fl(r[0])));

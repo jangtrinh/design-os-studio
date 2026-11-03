@@ -77,11 +77,12 @@ struct CachedLibVars {
 }
 
 /// Figma scope names `scope_allows` knows; any other scope string never matches a key.
-const SCOPE_NAMES: [&str; 22] = [
+const SCOPE_NAMES: [&str; 23] = [
     "ALL_FILLS",
     "FRAME_FILL",
     "SHAPE_FILL",
     "TEXT_FILL",
+    "STROKE",
     "STROKE_COLOR",
     "EFFECT_COLOR",
     "EFFECT_FLOAT",
@@ -259,6 +260,16 @@ fn style_target_kind(app: &App, style_key: &str) -> &'static NodeKind {
     }
 }
 
+/// The key `scope_allows` is asked about for `prop` of style `style_key`. A stroke style keeps its
+/// paints and bindings under `fills/…`, but its variables are scoped like the strokes of a layer.
+fn style_scope_key<'a>(app: &App, style_key: &str, prop: &'a str) -> std::borrow::Cow<'a, str> {
+    let is_stroke = app.doc.style_meta.get(style_key).is_some_and(|m| m.property == StyleProperty::Stroke);
+    match prop.strip_prefix("fills/") {
+        Some(rest) if is_stroke => std::borrow::Cow::Owned(format!("strokes/{rest}")),
+        _ => std::borrow::Cow::Borrowed(prop),
+    }
+}
+
 fn narrow_for_bind(rect: Rect, reserve: bool) -> Rect {
     if reserve {
         let max_x = (rect.right() - theme::TARGET_MIN - theme::BORDER_WIDTH).max(rect.left());
@@ -280,7 +291,8 @@ pub fn value_rect(app: &mut App, ui: &mut Ui, rect: Rect, sel: &[NodeId], keys: 
 /// reserving the right-hand `TARGET_MIN + BORDER_WIDTH` strip whenever a matching variable exists.
 pub fn style_value_rect(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) -> Rect {
     let target_kind = style_target_kind(app, style_key);
-    let has_vars = has_matching_var(app, ui.ctx(), prop, kind, target_kind);
+    let scope_key = style_scope_key(app, style_key, prop);
+    let has_vars = has_matching_var(app, ui.ctx(), &scope_key, kind, target_kind);
     narrow_for_bind(rect, has_vars)
 }
 
@@ -576,7 +588,8 @@ pub fn style_pill_field(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str,
 /// Small hexagon button in the style editor that opens the variable picker for `prop`.
 pub fn style_hover_button(app: &mut App, ui: &mut Ui, rect: Rect, style_key: &str, prop: &str, kind: VariableKind) {
     let target_kind = style_target_kind(app, style_key);
-    let has_vars = has_matching_var(app, ui.ctx(), prop, kind, target_kind);
+    let scope_key = style_scope_key(app, style_key, prop);
+    let has_vars = has_matching_var(app, ui.ctx(), &scope_key, kind, target_kind);
     let is_open = app.vars.bind_picker.as_ref().is_some_and(|b| b.style_key.as_deref() == Some(style_key) && b.keys.first().map(String::as_str) == Some(prop));
     if draw_hover_button(ui, rect, || format!("style-bind:{style_key}:{prop}"), ("style-bind-btn", style_key, prop), has_vars, is_open, true) {
         open_style_picker(app, style_key, prop, kind, rect);
@@ -630,13 +643,13 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         return;
     };
     let key0 = bp.keys.first().cloned().unwrap_or_default();
-    let (current, kind_node) = if let Some(skey) = &bp.style_key {
+    let (current, kind_node, scope_key) = if let Some(skey) = &bp.style_key {
         let cur = app.doc.style_meta.get(skey).and_then(|m| m.bindings.get(&key0)).cloned();
         let kn = match app.doc.styles.get(skey) {
             Some(Style::Text(_)) => NodeKind::Text(TextProps::default()),
             _ => NodeKind::Rectangle,
         };
-        (cur, kn)
+        (cur, kn, style_scope_key(app, skey, &key0).into_owned())
     } else {
         let Some(first) = bp.nodes.first().copied() else {
             return;
@@ -644,19 +657,19 @@ pub fn bind_picker(app: &mut App, ctx: &Context) {
         let Some(node) = app.doc.get(first) else {
             return;
         };
-        (node.variables.bindings.get(&key0).cloned(), node.kind.clone())
+        (node.variables.bindings.get(&key0).cloned(), node.kind.clone(), key0.clone())
     };
     let mut items = Vec::new();
     for c in app.doc.variable_collections.values() {
         for vid in &c.variables {
             let Some(v) = app.doc.variables.get(vid) else { continue };
-            if v.kind == bp.kind && scope_allows(&v.scopes, &key0, &kind_node) {
+            if v.kind == bp.kind && scope_allows(&v.scopes, &scope_key, &kind_node) {
                 items.push(pick_item(&app.doc, v));
             }
         }
     }
     // Variables of enabled libraries, one section per library; copied into the file when picked.
-    for lv in app.library_variables().into_iter().filter(|v| v.kind == bp.kind && v.local_id.is_none() && scope_allows(&v.scopes, &key0, &kind_node)) {
+    for lv in app.library_variables().into_iter().filter(|v| v.kind == bp.kind && v.local_id.is_none() && scope_allows(&v.scopes, &scope_key, &kind_node)) {
         let Some(render) = app.library_render_doc(&lv.library_id) else { continue };
         let Some(v) = render.variables.get(lv.key.strip_prefix("var:").unwrap_or(&lv.key)) else { continue };
         let mut item = pick_item(&render, v);
