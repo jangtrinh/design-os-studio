@@ -114,6 +114,10 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
     if link {
         n.component.source = Some(src);
         n.component.overrides.clear();
+        // A linked copy inherits property values from its main-side source.
+        // Property values belong only to explicit instance overrides; copying
+        // the source map would freeze nested instances at creation time.
+        n.component.values.clear();
         n.component.grid_align_overrides = [false, false];
         n.component.props.clear();
         n.component.slot_configs.clear();
@@ -7430,13 +7434,35 @@ mod tests {
         let later = *d.get(page).unwrap().children.last().unwrap();
         let nested = child_named(&d, later, "Leading badge");
         let main_values = d.get(main_badge).unwrap().component.values.clone();
-        assert_eq!(d.get(nested).unwrap().component.values, main_values, "the copy starts with the values of what it copies");
+        assert!(d.get(nested).unwrap().component.values.is_empty(), "the copy inherits values without storing a snapshot");
         assert!(exposed_nested_value_overrides(&d, later).is_empty(), "an equal map is no change");
 
         override_opacity(&mut d, later);
         let c = reset_instance(&mut d, later);
         apply(&mut d, c);
-        assert_eq!(d.get(nested).unwrap().component.values, main_values, "Reset leaves an equal map as it is");
+        assert!(d.get(nested).unwrap().component.values.is_empty(), "Reset leaves inherited values unset");
+        assert_eq!(main_values, d.get(main_badge).unwrap().component.values);
+    }
+
+    #[test]
+    fn nested_copy_created_after_main_value_change_follows_later_main_changes() {
+        let mut d = Document::new("nested-copy-live-values");
+        let page = d.add_page("P");
+        let (card, main_badge, _, _) = expose_outer_with_badge(&mut d, page);
+        set_main_badge_value(&mut d, card, main_badge, "Show dot", PropValue::Bool(false));
+
+        // This outer instance is created after the main-side badge changed. Its
+        // nested copy must inherit that value, rather than storing a snapshot.
+        let c = create_instance(&mut d, card, page, Vec2::new(300.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, outer, "Leading badge");
+        assert!(!dot_visible(&d, nested));
+        assert!(d.get(nested).unwrap().component.values.is_empty());
+
+        // A later edit on the main-side nested instance must flow through.
+        set_main_badge_value(&mut d, card, main_badge, "Show dot", PropValue::Bool(true));
+        assert!(dot_visible(&d, nested));
     }
 
     #[test]
