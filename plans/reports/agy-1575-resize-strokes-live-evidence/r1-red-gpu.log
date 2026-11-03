@@ -1,0 +1,47 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.66s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 11 tests
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu ... ok
+test resized_union_matches_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu ... ok
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu ... FAILED
+test equal_cap_open_stroke_draws_identically_on_cpu_and_gpu ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu ... FAILED
+test resized_imported_ellipse_and_star_match_cpu ... ok
+test resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu ... ok
+
+failures:
+
+---- an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu stdout ----
+GPU: Apple M4 Max (Metal)
+open_mixed_join_round_caps: mismatch 0.0385% (14 px of 36400) at tolerance 8, ssim 0.9999
+open_mixed_join_round_caps: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu' (89965511) panicked at crates/designos-gpu/tests/resized_shapes.rs:556:5:
+GPU Round: the end cap reaches right of the end point
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu stdout ----
+GPU: Apple M4 Max (Metal)
+open_mixed_join_square_caps: mismatch 0.0165% (6 px of 36400) at tolerance 8, ssim 1.0000
+open_mixed_join_square_caps: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu' (89965512) panicked at crates/designos-gpu/tests/resized_shapes.rs:556:5:
+GPU Square: the end cap reaches right of the end point
+
+
+failures:
+    an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu
+    an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu
+
+test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+error: test failed, to rerun pass `-p designos-gpu --test resized_shapes`
