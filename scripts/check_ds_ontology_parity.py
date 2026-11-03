@@ -68,7 +68,7 @@ C_STATE_TO_STORED = {
     "Disabled": "Disabled",
     "Selected": "Selected",
 }
-ALLOWED_VARIANT_AXES = ("Size", "Tone", "Kind", "State", "Rail", "Bar", "Axis")
+ALLOWED_VARIANT_AXES = ("Size", "Tone", "Kind", "State", "Rail", "Bar", "Axis", "Tool", "Depth", "Layout")
 COLOUR_PREFIX = "colors."
 PRIMITIVE_PREFIX = "colors.ramp-"
 
