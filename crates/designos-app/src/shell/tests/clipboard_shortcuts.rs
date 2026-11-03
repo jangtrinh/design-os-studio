@@ -27,6 +27,11 @@ fn pressed(key: Key, modifiers: Modifiers) -> Event {
     Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers }
 }
 
+/// The press the OS repeats while the key is held: the key was already down.
+fn repeated(key: Key, modifiers: Modifiers) -> Event {
+    Event::Key { key, physical_key: Some(key), pressed: true, repeat: true, modifiers }
+}
+
 /// A copied style on `Button` (opacity 0.31) with a different layer selected; returns that layer.
 fn select_a_layer_with_a_style_copied(s: &mut Sim) -> NodeId {
     let source = s.by_name("Button");
@@ -146,10 +151,16 @@ fn a_release_that_came_before_the_copy_belongs_to_an_earlier_tap() {
 #[test]
 fn a_shift_let_go_before_v_still_pastes_over_the_selection_and_not_the_clipboard_text() {
     let mut s = Sim::new();
+    s.ctx.set_os(OperatingSystem::Mac);
     let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
 
     s.mods = Modifiers::NONE;
-    s.frame(vec![Event::Paste("clipboard text".into()), released(Key::ShiftLeft, command_shift()), released(Key::V, Modifiers::NONE)]);
+    s.frame(vec![
+        Event::Paste("clipboard text".into()),
+        released(Key::ShiftLeft, command_shift()),
+        released(Key::SuperLeft, Modifiers::COMMAND),
+        released(Key::V, Modifiers::NONE),
+    ]);
 
     assert_pasted_over(&s, source, target, before);
     assert!(s.app().doc.nodes.values().all(|n| n.name != "clipboard text"), "the clipboard text was not inserted");
@@ -158,10 +169,11 @@ fn a_shift_let_go_before_v_still_pastes_over_the_selection_and_not_the_clipboard
 #[test]
 fn an_alt_let_go_before_c_still_copies_properties() {
     let mut s = Sim::new();
+    s.ctx.set_os(OperatingSystem::Mac);
     let id = s.by_name("Button");
     s.shell.app.selection = vec![id];
     s.mods = Modifiers::NONE;
-    s.frame(vec![Event::Copy, released(Key::AltLeft, command_alt()), released(Key::C, Modifiers::NONE)]);
+    s.frame(vec![Event::Copy, released(Key::AltLeft, command_alt()), released(Key::SuperLeft, Modifiers::COMMAND), released(Key::C, Modifiers::NONE)]);
 
     assert!(s.app().copied_style.is_some(), "Cmd+Alt+C must copy properties");
     assert!(s.app().clip.is_none(), "Cmd+Alt+C must not copy layers");
@@ -301,4 +313,87 @@ fn a_paste_with_shift_and_no_command_stays_a_plain_system_paste() {
     s.frame(vec![Event::Paste("text".into()), released(Key::ShiftLeft, Modifiers::SHIFT)]);
     s.mods = Modifiers::NONE;
     assert_pasted_text_not_layers(&s, source, target);
+}
+
+#[test]
+fn a_command_key_pressed_after_the_paste_does_not_turn_a_text_paste_into_a_paste_over() {
+    let mut s = Sim::new();
+    s.ctx.set_os(OperatingSystem::Windows);
+    let (source, target, _) = select_a_layer_with_layers_copied(&mut s);
+
+    // Shift+Insert with Control tapped before Shift is let go: Shift was held at the paste, Control was not
+    s.mods = Modifiers::NONE;
+    s.frame(vec![
+        Event::Paste("text".into()),
+        pressed(Key::ControlLeft, command_shift()),
+        released(Key::ShiftLeft, Modifiers::COMMAND),
+        released(Key::ControlLeft, Modifiers::NONE),
+    ]);
+
+    assert_pasted_text_not_layers(&s, source, target);
+}
+
+#[test]
+fn a_repeated_shift_press_in_the_batch_does_not_hide_the_shift_let_go() {
+    let mut s = Sim::new();
+    s.ctx.set_os(OperatingSystem::Windows);
+    let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
+
+    // Shift went down in an earlier frame and was already down at the paste, so the OS repeating it is not the
+    // start of the hold (egui marks a press as a repeat when the key is already down)
+    s.mods = command_shift();
+    s.frame(vec![pressed(Key::ShiftLeft, command_shift())]);
+    s.mods = Modifiers::NONE;
+    s.frame(vec![
+        Event::Paste("clipboard text".into()),
+        repeated(Key::ShiftLeft, command_shift()),
+        released(Key::ShiftLeft, Modifiers::COMMAND),
+        released(Key::V, Modifiers::COMMAND),
+    ]);
+
+    assert_pasted_over(&s, source, target, before);
+    assert!(s.app().doc.nodes.values().all(|n| n.name != "clipboard text"), "the clipboard text was not inserted");
+}
+
+#[test]
+fn a_repeated_control_press_in_the_batch_does_not_hide_the_command_let_go() {
+    let mut s = Sim::new();
+    s.ctx.set_os(OperatingSystem::Windows);
+    let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
+
+    // Control went down in an earlier frame, so the repeat is not the start of its hold
+    s.mods = command_shift();
+    s.frame(vec![pressed(Key::ControlLeft, command_shift())]);
+    s.mods = Modifiers::NONE;
+    s.frame(vec![
+        Event::Paste("clipboard text".into()),
+        repeated(Key::ControlLeft, command_shift()),
+        released(Key::ControlLeft, Modifiers::SHIFT),
+        released(Key::ShiftLeft, Modifiers::NONE),
+        released(Key::V, Modifiers::NONE),
+    ]);
+
+    assert_pasted_over(&s, source, target, before);
+    assert!(s.app().doc.nodes.values().all(|n| n.name != "clipboard text"), "the clipboard text was not inserted");
+}
+
+#[test]
+fn a_repeated_paste_after_shift_was_let_go_pastes_what_is_still_held() {
+    let mut s = Sim::new();
+    s.ctx.set_os(OperatingSystem::Mac);
+    let (source, target, _) = select_a_layer_with_layers_copied(&mut s);
+
+    // Cmd+Shift+V held, Shift let go, V repeats: the first paste had Shift, the second has Cmd alone
+    s.mods = Modifiers::NONE;
+    s.frame(vec![
+        Event::Paste("clipboard text".into()),
+        released(Key::ShiftLeft, command_shift()),
+        Event::Paste("clipboard text".into()),
+        released(Key::V, Modifiers::COMMAND),
+    ]);
+
+    let source_name = s.app().doc.get(source).unwrap().name.clone();
+    let pasted_over = s.app().doc.get(target).unwrap().children.iter().filter(|c| s.app().doc.get(**c).unwrap().name == source_name).count();
+    assert_eq!(pasted_over, 1, "the in-app layer went over the selection once, by the first paste");
+    assert!(s.app().doc.nodes.values().any(|n| n.name == "clipboard text"), "the second paste is a plain paste of the clipboard text");
 }

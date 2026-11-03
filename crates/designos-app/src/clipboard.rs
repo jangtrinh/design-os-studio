@@ -103,17 +103,18 @@ impl PasteChord {
 /// `Event::Paste` (`later`).
 ///
 /// `Event::Copy` and `Event::Paste` carry no modifiers, and a frame that spans the whole tap ends with every modifier
-/// already up. The span is `later` up to and including the first release of the chord's letter `key`, or all of it
-/// when the letter is still down. The chord is what the letter's release was stamped with (the `frame` modifiers when
-/// there is none) plus every modifier key released in the span whose press is not: it was already down at the event.
-/// A modifier pressed inside the span began after the chord and does not count.
+/// already up. The span is `later` up to the first release of the chord's letter `key` (that release is not in it), or
+/// all of it when the letter is still down. The chord is what the letter's release was stamped with (the `frame`
+/// modifiers when there is none) plus every modifier key released in the span whose press is not: it was already down
+/// at the event. A modifier pressed inside the span began after the chord and does not count. A repeated press is the
+/// OS saying a key that is already down is still down, so it does not begin a hold.
 ///
 /// A released modifier's own bit comes from the key it is, never from its stamp: the stamp says what else was down when
 /// the key went up, and which backend is first to update the modifiers decides whether it still holds the key's own bit. Winit's
 /// macOS backend queues the key event before the modifier change (the stamp still has the bit); its Windows backend
 /// changes the modifiers first (the stamp has lost it). `mac` tells whether Super (macOS) or Control (elsewhere) is
-/// the command key. Nothing makes up `command` from the kind of event (a paste from Shift+Insert has none): it comes
-/// from the letter's stamp, the frame, a command key let go, or the stamp of such a released modifier.
+/// the command key. Nothing makes up `command` from the kind of event (a paste from Shift+Insert has none) or from
+/// the stamp of another key: it comes from the letter's stamp, the frame, or a command key let go.
 pub fn chord_modifiers(later: &[egui::Event], key: egui::Key, frame: egui::Modifiers, mac: bool) -> egui::Modifiers {
     let letter_up = later.iter().enumerate().find_map(|(at, ev)| match ev {
         egui::Event::Key { key: released, pressed: false, modifiers, .. } if *released == key => Some((at, *modifiers)),
@@ -124,12 +125,12 @@ pub fn chord_modifiers(later: &[egui::Event], key: egui::Key, frame: egui::Modif
         None => (later, frame),
     };
     for (at, ev) in span.iter().enumerate() {
-        let egui::Event::Key { key: let_go, pressed: false, modifiers: stamp, .. } = ev else { continue };
+        let egui::Event::Key { key: let_go, pressed: false, .. } = ev else { continue };
         let held = modifier_of(*let_go, mac);
-        let began_in_span = span[..at].iter().any(|before| matches!(before, egui::Event::Key { key: pressed, pressed: true, .. } if pressed == let_go));
+        let began_in_span =
+            span[..at].iter().any(|before| matches!(before, egui::Event::Key { key: pressed, pressed: true, repeat: false, .. } if pressed == let_go));
         if !held.is_none() && !began_in_span {
             chord |= held;
-            chord.command |= stamp.command;
         }
     }
     chord
@@ -863,6 +864,11 @@ pub(crate) mod tests {
         egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers }
     }
 
+    /// The press the OS repeats while the key is held: the key was already down.
+    fn repeated(key: Key, modifiers: Modifiers) -> egui::Event {
+        egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: true, modifiers }
+    }
+
     fn command_alt() -> Modifiers {
         Modifiers { alt: true, ..Modifiers::COMMAND }
     }
@@ -899,8 +905,8 @@ pub(crate) mod tests {
 
     #[test]
     fn a_modifier_let_go_before_the_letter_is_part_of_the_chord() {
-        let shift_first = [released(Key::ShiftLeft, command_shift()), released(Key::V, Modifiers::NONE)];
-        assert_eq!(chord(&shift_first, Key::V, Modifiers::NONE, true), (true, true, false), "Cmd was still down at the Shift release");
+        let shift_first = [released(Key::ShiftLeft, command_shift()), released(Key::SuperLeft, Modifiers::COMMAND), released(Key::V, Modifiers::NONE)];
+        assert_eq!(chord(&shift_first, Key::V, Modifiers::NONE, true), (true, true, false), "Cmd was let go too");
         let shift_alone = [released(Key::ShiftLeft, Modifiers::SHIFT), released(Key::V, Modifiers::NONE)];
         assert_eq!(chord(&shift_alone, Key::V, Modifiers::NONE, true), (false, true, false), "Cmd is not made up");
         let cmd_then_alt = [released(Key::SuperLeft, command_alt()), released(Key::AltRight, Modifiers::ALT), released(Key::C, Modifiers::NONE)];
@@ -938,6 +944,47 @@ pub(crate) mod tests {
         // Shift+Insert pastes with no V release and no command key
         assert_eq!(chord(&[], Key::V, Modifiers::SHIFT, false), (false, true, false));
         assert_eq!(chord(&[released(Key::ShiftLeft, Modifiers::SHIFT)], Key::V, Modifiers::SHIFT, false), (false, true, false));
+        // a released Shift or Alt says what else was down, not that the command key was held at the event
+        let shift_up_with_command_in_the_stamp = [released(Key::ShiftLeft, command_shift()), released(Key::V, Modifiers::NONE)];
+        assert_eq!(chord(&shift_up_with_command_in_the_stamp, Key::V, Modifiers::NONE, true), (false, true, false));
+    }
+
+    #[test]
+    fn a_command_key_pressed_inside_the_span_does_not_come_back_through_the_stamp_of_a_modifier() {
+        // Windows: Shift was held at the paste, Control went down and up after it
+        let later = [pressed(Key::ControlLeft, command_shift()), released(Key::ShiftLeft, Modifiers::COMMAND), released(Key::ControlLeft, Modifiers::NONE)];
+        assert_eq!(chord(&later, Key::V, Modifiers::NONE, false), (false, true, false));
+        let super_tapped = [pressed(Key::SuperLeft, command_shift()), released(Key::ShiftLeft, command_shift()), released(Key::SuperLeft, Modifiers::NONE)];
+        assert_eq!(chord(&super_tapped, Key::V, Modifiers::NONE, true), (false, true, false), "the same on macOS");
+    }
+
+    #[test]
+    fn a_repeat_of_a_key_that_is_already_down_does_not_begin_its_hold() {
+        let shift = [repeated(Key::ShiftLeft, command_shift()), released(Key::ShiftLeft, Modifiers::COMMAND), released(Key::V, Modifiers::COMMAND)];
+        assert_eq!(chord(&shift, Key::V, Modifiers::NONE, false), (true, true, false), "Shift was down at the event, the repeat only says so again");
+        let control = [
+            repeated(Key::ControlLeft, command_shift()),
+            released(Key::ControlLeft, Modifiers::SHIFT),
+            released(Key::ShiftLeft, Modifiers::NONE),
+            released(Key::V, Modifiers::NONE),
+        ];
+        assert_eq!(chord(&control, Key::V, Modifiers::NONE, false), (true, true, false), "Control repeats too");
+        let tapped = [
+            pressed(Key::ShiftLeft, Modifiers::COMMAND),
+            repeated(Key::ShiftLeft, command_shift()),
+            released(Key::ShiftLeft, command_shift()),
+            released(Key::V, Modifiers::COMMAND),
+        ];
+        assert_eq!(chord(&tapped, Key::V, Modifiers::NONE, false), (true, false, false), "a first press in the span still starts the hold there");
+    }
+
+    #[test]
+    fn a_repeated_paste_after_a_modifier_was_let_go_reads_what_is_still_held() {
+        // macOS, Cmd+Shift+V held and Shift let go while V repeats: each paste reads the events after it
+        let events =
+            [egui::Event::Paste("t".into()), released(Key::ShiftLeft, command_shift()), egui::Event::Paste("t".into()), released(Key::V, Modifiers::COMMAND)];
+        assert_eq!(chord(&events[1..], Key::V, Modifiers::NONE, true), (true, true, false), "the first paste had Shift");
+        assert_eq!(chord(&events[3..], Key::V, Modifiers::NONE, true), (true, false, false), "by the second only Cmd is held");
     }
 
     #[test]
