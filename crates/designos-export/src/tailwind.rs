@@ -476,9 +476,13 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
         }
     }
     // stroke
-    if let Some(p) = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0).filter(|_| text_of(n).is_none()) {
+    let side_keys = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
+    let has_stroke_width = n.stroke.weight > 0.0
+        || n.stroke.side_weights.is_some()
+        || bound(doc, n, "strokeWeight").is_some()
+        || side_keys.iter().any(|key| bound(doc, n, key).is_some());
+    if let Some(p) = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0).filter(|_| text_of(n).is_none() && has_stroke_width) {
         let w = n.stroke.weight;
-        let side_keys = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
         let side_prefixes = ["border-t", "border-r", "border-b", "border-l"];
         let stored = n.stroke.side_weights.unwrap_or([n.stroke.weight; 4]);
         let has_side_width = n.stroke.side_weights.is_some() || side_keys.iter().any(|key| bound(doc, n, key).is_some());
@@ -727,6 +731,52 @@ mod tests {
         let out = tailwind_for(&d, id);
         assert!(out.contains("border-[length:var(--Stroke-Width)]"), "stored width must not leak into Tailwind: {out}");
         assert!(!out.contains("border-2"), "stored width must not leak into Tailwind: {out}");
+    }
+
+    #[test]
+    fn zero_stored_stroke_width_with_binding_is_exported_to_tailwind() {
+        let mut d = Document::new("stroke-zero");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["stroke".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "stroke".into(),
+            Variable {
+                id: "stroke".into(),
+                name: "Stroke/Width".into(),
+                collection: "tokens".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(6.0))].into(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 0.0;
+        n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
+        let id = d.insert(page, n).unwrap();
+        let out = tailwind_for(&d, id);
+        assert!(out.contains("border-[length:var(--Stroke-Width)]"), "bound width must not be dropped: {out}");
+        assert!(!out.contains("border-0"), "zero stored width must not leak into Tailwind: {out}");
     }
 
     #[test]
