@@ -105,7 +105,9 @@ each typed block without changing it and requires the page to keep the same bloc
   `stopped_flag()` turns true.
 - **Locking.** A write waits up to 2 s for `.docs.lock` (`DocsStore::with_lock_timeout`), then fails with `Busy`, an
   error that says to close the other window or agent and retry (the lock frees itself when its holder exits).
-- Pages over 8 MiB are refused; symlinked pages are not listed or watched (an explicit path still follows a symlink).
+- Pages over 8 MiB are refused (`DocsError::TooLarge`). Symlinked pages are not listed or watched. An explicit path follows a symlink
+  only when the target is inside the docs folder; a link to anywhere else, for a file or a folder, is refused
+  (`DocsError::OutsideDocs`) for reads and writes of pages and of the manifest.
 
 ## Layout drift
 

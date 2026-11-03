@@ -80,14 +80,18 @@ impl DocsStore {
     }
 
     pub fn read_manifest(&self) -> Result<Versioned<Manifest>> {
-        let (text, hash) = self.read_text(&self.dir.join(MANIFEST_FILE), MANIFEST_FILE)?;
+        let path = self.dir.join(MANIFEST_FILE);
+        self.confine(&path, MANIFEST_FILE)?;
+        let (text, hash) = self.read_text(&path, MANIFEST_FILE)?;
         Ok(Versioned { value: Manifest::parse(&text)?, hash })
     }
 
     /// Validates the manifest, then writes it like a page.
     pub fn write_manifest(&self, manifest: &Manifest, expect: Expect) -> Result<ContentHash> {
         let json = manifest.to_json_pretty()?;
-        self.write_bytes(&self.dir.join(MANIFEST_FILE), MANIFEST_FILE, json.as_bytes(), expect)
+        let path = self.dir.join(MANIFEST_FILE);
+        self.confine(&path, MANIFEST_FILE)?;
+        self.write_bytes(&path, MANIFEST_FILE, json.as_bytes(), expect)
     }
 
     /// Every `.md` file under the docs folder (relative, `/`-separated, sorted); empty when the folder is missing.
@@ -100,9 +104,33 @@ impl DocsStore {
     }
 
     fn page_path(&self, rel: &str) -> Result<PathBuf> {
-        match page_path_problem(rel) {
-            Some(problem) => Err(DocsError::invalid_path(rel, problem)),
-            None => Ok(self.dir.join(rel)),
+        if let Some(problem) = page_path_problem(rel) {
+            return Err(DocsError::invalid_path(rel, problem));
+        }
+        let path = self.dir.join(rel);
+        self.confine(&path, rel)?;
+        Ok(path)
+    }
+
+    /// Refuses a path that, after following every symlink, is outside the docs folder (`OutsideDocs`). The deepest
+    /// part of `path` that exists decides where it really is; names below it are new and cannot point anywhere. A
+    /// symlink whose target is inside the docs folder is fine. Without a docs folder there is nothing to escape into.
+    fn confine(&self, path: &Path, shown: &str) -> Result<()> {
+        let Ok(dir) = self.dir.canonicalize() else { return Ok(()) };
+        let mut probe = path;
+        let real = loop {
+            match probe.canonicalize() {
+                Ok(real) => break real,
+                Err(_) => match probe.parent() {
+                    Some(parent) => probe = parent,
+                    None => return Ok(()),
+                },
+            }
+        };
+        if real.starts_with(&dir) {
+            Ok(())
+        } else {
+            Err(DocsError::OutsideDocs { path: shown.to_string() })
         }
     }
 
@@ -146,10 +174,7 @@ pub(crate) fn read_limited(path: &Path, shown: &str) -> Result<Vec<u8>> {
     }
     match read_capped(path).map_err(|e| DocsError::io(shown, e))? {
         Some(bytes) => Ok(bytes),
-        None => Err(DocsError::io(
-            shown,
-            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("is over the {MAX_FILE_BYTES} byte limit; fix: split the page")),
-        )),
+        None => Err(DocsError::TooLarge { path: shown.to_string(), limit: MAX_FILE_BYTES }),
     }
 }
 
@@ -228,6 +253,6 @@ mod tests {
         let over = tmp.path().join("over.md");
         std::fs::write(&over, vec![b'a'; MAX_FILE_BYTES as usize + 1]).unwrap();
         assert!(read_capped(&over).unwrap().is_none());
-        assert!(matches!(read_limited(&over, "over.md"), Err(DocsError::Io { .. })));
+        assert!(matches!(read_limited(&over, "over.md"), Err(DocsError::TooLarge { limit, .. }) if limit == MAX_FILE_BYTES));
     }
 }
