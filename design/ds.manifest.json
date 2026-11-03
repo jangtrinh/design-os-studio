@@ -1177,17 +1177,77 @@
       "kind": "register",
       "note": "Tag/Chip",
       "ts": "2026-10-31T03:42:16.521Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Dialog/Modal",
+      "ts": "2026-11-02T13:14:44.453Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/BottomCanvasToolbar",
+      "ts": "2026-11-02T13:14:44.506Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Navigation/LeftRail",
+      "ts": "2026-11-02T13:14:44.555Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/AgentTerminal",
+      "ts": "2026-11-02T13:14:44.605Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/DevInspect",
+      "ts": "2026-11-02T13:14:44.655Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Panel/RightInspector",
+      "ts": "2026-11-02T13:14:44.704Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Popover/ColorPicker",
+      "ts": "2026-11-02T13:14:44.754Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Popover/Panel",
+      "ts": "2026-11-02T13:14:44.803Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Tree/Row",
+      "ts": "2026-11-02T13:14:44.853Z"
+    },
+    {
+      "by": "ui registry register",
+      "kind": "register",
+      "note": "Window/Variables",
+      "ts": "2026-11-02T13:14:44.902Z"
     }
   ],
   "compiledHash": "sha256-SkbvSo4GPRiDbsraF1SR2KVmOozT63OQNtWEiJgr-DY",
   "createdAt": "2026-10-16T01:36:40.659Z",
-  "generation": 170,
+  "generation": 180,
   "intent": "imported from design/tokens.json",
   "name": "designos-studio",
   "persona": {
     "family": "imported",
     "slug": "imported"
   },
-  "registryHash": "sha256-jOT8HnHDV8rYiL4ws2lMmKIKQx0Epyn5UGEIzdM7JlY",
+  "registryHash": "sha256-fqjA1WHRNdhYOs2Y5-ixZsmsZDZ91Z60ppkmPHisvYw",
   "version": "1.0.0"
 }
