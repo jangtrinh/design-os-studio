@@ -250,8 +250,21 @@ fn expand(path: &sk::Path, st: &sk::Stroke) -> Option<sk::Path> {
     crate::outline::stroke_outline(path, st, 1.0)
 }
 
+/// A straight segment is stored as the cubic `[p, p, q, q]` (see `path_curves`).
+fn is_straight(c: &[Vec2; 4]) -> bool {
+    c[1] == c[0] && c[2] == c[3]
+}
+
+/// The two halves of `c`. The halves of a straight segment are the straight segments `[a, a, m, m]` and `[m, m, b, b]`.
+/// Split like a curve they would be `[a, a, a + (b - a) / 4, m]`, a collinear cubic that the stroker can take for a
+/// degenerate curve (when the corner lies on an axis) and join to the previous piece with a round join, whatever join
+/// was asked for.
 fn split_cubic_half(c: &[Vec2; 4]) -> ([Vec2; 4], [Vec2; 4]) {
     let mid = |a: Vec2, b: Vec2| Vec2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+    if is_straight(c) {
+        let m = mid(c[0], c[3]);
+        return ([c[0], c[0], m, m], [m, m, c[3], c[3]]);
+    }
     let m01 = mid(c[0], c[1]);
     let m12 = mid(c[1], c[2]);
     let m23 = mid(c[2], c[3]);
@@ -430,10 +443,11 @@ fn cap_polygons(sub: &d::Path, w: f32, start_cap: d::StrokeCap, end_cap: d::Stro
             out.push(vec![pt(-h, 0.0), pt(h, 0.0), pt(h, h), pt(-h, h)]);
         }
     };
-    let s_out = dir(first[0], [first[1], first[2], first[3]]);
-    let e_out = dir(last[3], [last[2], last[1], last[0]]);
-    cap_at(first[0], Vec2::new(-s_out.x, -s_out.y), start_cap);
-    cap_at(last[3], e_out, end_cap);
+    // both directions run from an end point into the path; a cap points the opposite way
+    let s_in = dir(first[0], [first[1], first[2], first[3]]);
+    let e_in = dir(last[3], [last[2], last[1], last[0]]);
+    cap_at(first[0], Vec2::new(-s_in.x, -s_in.y), start_cap);
+    cap_at(last[3], Vec2::new(-e_in.x, -e_in.y), end_cap);
     out
 }
 
