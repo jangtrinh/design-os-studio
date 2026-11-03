@@ -705,11 +705,12 @@ mod tests {
             kid(40.0, 20.0),
         ];
         let out_span = compute(&al, v2(320.0, 100.0), &kids);
-        // kid[1] reserves (row 0..2, col 1); kid[0] takes (0, 0); kid[2] (col_span=2) cannot fit on row 0 or row 1 so takes (2, 0); kid[3] takes (0, 2).
+        // kid[1] reserves (row 0..2, col 1); kid[0] takes (0, 0); kid[2] (col_span=2) cannot fit on row 0 or row 1 so takes (2, 0);
+        // kid[3] follows kid[2] on the auto-placement cursor, which does not go back to the free cell at (0, 2), and takes (2, 2).
         assert_eq!((out_span.rects[0].x, out_span.rects[0].y), (0.0, 0.0));
         assert_eq!((out_span.rects[1].x, out_span.rects[1].y), (110.0, 0.0));
         assert_eq!((out_span.rects[2].x, out_span.rects[2].y), (0.0, 60.0));
-        assert_eq!((out_span.rects[3].x, out_span.rects[3].y), (220.0, 0.0));
+        assert_eq!((out_span.rects[3].x, out_span.rects[3].y), (220.0, 60.0));
 
         // 3. Explicit row 0 uses grid_row_tracks[0] (30px), while overflow auto rows (1, 2) use grid_auto_tracks (50px).
         al.grid_rows = 1;
