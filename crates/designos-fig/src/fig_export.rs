@@ -1717,10 +1717,15 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
             if ovs.contains(&OverrideField::CornerRadii) {
                 let r = n.corner_radii;
                 ov.push(("cornerRadius", fl(r[0])));
-                if let Some(paths) = &n.fill_geometry {
-                    let geometry = encode_geometry_blobs(cx, paths);
-                    if !geometry.is_empty() {
-                        ov.push(("fillGeometry", V::Array(geometry)));
+                // The reader drops the baked fill outline of every other kind when a corner radius is overridden, so it is
+                // written again. For a vector or boolean node it keeps the outline, and a `fillGeometry` key would replace
+                // the vector network with that outline.
+                if !matches!(n.kind, NodeKind::Vector { .. } | NodeKind::BooleanOp(_)) {
+                    if let Some(paths) = &n.fill_geometry {
+                        let geometry = encode_geometry_blobs(cx, paths);
+                        if !geometry.is_empty() {
+                            ov.push(("fillGeometry", V::Array(geometry)));
+                        }
                     }
                 }
                 if !r.iter().all(|&x| (x - r[0]).abs() < 1e-5) {
