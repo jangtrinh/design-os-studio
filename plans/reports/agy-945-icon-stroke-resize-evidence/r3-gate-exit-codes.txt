@@ -1,0 +1,16 @@
+Gates run on code commit 3c3f1507 (tree unchanged since; evidence-only commit follows).
+cargo fmt --all -- --check                                  fmt_rc=0          (r3-gate-fmt.log)
+cargo clippy --workspace --all-targets --locked             clippy_rc=0       (r3-gate-clippy.log; only the three known designos-app lints)
+cargo test -p designos-doc --locked                         rc=0              (r3-gate-doc.log)
+cargo test -p designos-fig --locked                         rc=0              (r3-gate-fig.log)
+cargo test -p designos-render --locked                      rc=0              (r3-gate-render.log)
+cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks   rc=0, GPU: Apple M4 Max (Metal) ran   (r3-gate-gpu.log)
+cargo test -p designos-mcp --locked                         rc=0              (r3-gate-mcp.log)
+cargo test --workspace --locked --lib                       rc=0              (r3-gate-workspace-lib.log)
+python3 -B scripts/zero_fake_ui_gate.py                     rc=0, 17/17       (r3-gate-zero-fake-ui.log)
+cargo test -p designos-app --bin designos --locked          rc=101: 4227 passed, 3 failed (r3-gate-app.log), run under load for 462 s
+  failed: terminal::tests::codex_turn_end_stub_pty_turn_decays_to_done_closes_ledger_and_hides_stop   (1.5 s PTY-quiet timing)
+          vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope   (slow-font)
+          vecops::tests::two_deferred_text_commands_both_convert_in_order   (slow-font)
+  each rerun alone: rc=0, 1 passed                          (r3-gate-app-reruns.log)
+Kit render hashes, 318 unresized vectors, head vs the cebb38e3 list from the previous round: diff empty (r3-kit-vector-render-hashes-head.txt vs r2-null-control-kit-vectors-cebb38e3.txt).

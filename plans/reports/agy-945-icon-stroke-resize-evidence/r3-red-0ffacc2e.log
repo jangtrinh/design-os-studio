@@ -1,0 +1,62 @@
+test unresized_kit_vector_renders_are_hashed_into_a_file ... ok
+test syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override ... ok
+test stroke_follows_the_network_while_the_fill_keeps_the_outline ... ok
+test plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes ... ok
+test stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize ... ok
+test unresized_imported_vector_renders_unchanged ... ok
+test an_inside_stroke_of_a_closed_network_still_drops_its_bake_and_stays_inside ... ok
+test an_inside_or_outside_stroke_of_a_network_with_an_open_chain_keeps_its_scaled_bake ... FAILED
+
+failures:
+--
+thread 'an_inside_or_outside_stroke_of_a_network_with_an_open_chain_keeps_its_scaled_bake' (84293314) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:317:43:
+a baked stroke
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+--
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test resized_vector_stroke_weight`
+test an_arrow_cap_on_the_node_keeps_the_scaled_bake ... ok
+test an_arrow_cap_on_a_vertex_keeps_the_scaled_bake ... ok
+test the_kit_icon_drops_its_bake_and_draws_its_own_weight ... ok
+test fig_icon_without_an_arrow_cap_drops_its_bake ... ok
+test a_brush_and_side_weights_keep_the_scaled_bake ... ok
+test a_vertex_cap_equal_to_the_nodes_and_dashes_on_a_centered_stroke_still_drop_the_bake ... ok
+test a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake ... ok
+test fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake ... ok
+test a_saved_fig_file_of_a_plain_icon_carries_no_cap_marker_and_still_drops_its_bake ... ok
+test an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_keeps_its_bake_on_a_resize ... FAILED
+test an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized ... ok
+
+failures:
+--
+thread 'an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_keeps_its_bake_on_a_resize' (84293642) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:393:9:
+assertion `left == right` failed: node cap: the arrow cap is still known
+  left: None
+--
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+error: test failed, to rerun pass `-p designos-fig --test resized_vector_stroke_model`
+thread 'resized_inside_and_outside_strokes_with_an_open_chain_keep_their_bake_like_cpu' (84297805) panicked at crates/designos-gpu/tests/resized_shapes.rs:343:9:
+Inside: the baked outline stays
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test resized_inside_and_outside_strokes_with_an_open_chain_keep_their_bake_like_cpu ... FAILED
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+resized_union: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_imported_vector: mismatch 0.0220% (8 px of 36400) at tolerance 8, ssim 0.9997
+--
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test resized_union_matches_cpu ... ok
+test resized_imported_ellipse_and_star_match_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+
+failures:
+--
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+error: test failed, to rerun pass `-p designos-gpu --test resized_shapes`
