@@ -378,3 +378,42 @@ Red = `r2-red-edit-menu-parity.log` (merged base, 7 failed / 4 passed) and `r2-r
 - Capture: `r2-edit-menu-cropped.png` (starter file, Edit menu, `Paste and match style` has no shortcut and is dimmed because the clipboard is empty; `Swap fill and stroke` shows `Shift+X`).
 
 Status: DONE_WITH_CONCERNS (see the three gaps above).
+
+---
+
+## Round 3
+
+Controller rulings applied on top of round 2 (`origin/main` still 88677245, nothing to merge). Evidence: `plans/reports/agy-1477-edit-menu-evidence/r3-*`. Code commit: dea90b5f. This supersedes the round 2 concerns 1 and 3 and the "Bindings copied are exactly the ruling's list" line; concern 2 (mixed-run swap unchanged), the text-fills-as-root-fill call and the `paragraph` drop are accepted as they were.
+
+### Ledger
+- FACT: the clipboard path used here (`clipboard::instantiate`) keeps `component.source` on the layers of a pasted instance; only the Figma paste path detaches it (`clipboard.rs:132`).
+- FACT: the standard edit path records overrides at commit: `Tx::commit_with_before` calls `comp_ops::record_overrides` on every node touched through `tx.ed.node` (`edit.rs:284`, `comp_ops.rs:60`). A node that arrives through `Command::Insert` is never touched, so it recorded nothing.
+- INFERENCE: styling a mirrored layer through `tx.ed.node` right after its insert gives the same override recording as an inspector edit, and `retain_changed` keeps the step to what changed.
+
+### Red then green (red = `r3-red-edit-menu-parity.log` on 6bb92813's code; green = `r3-test-designos-app.log`)
+| Ruling | Red | Green |
+|---|---|---|
+| 1 `effects/*` bindings: the pasted root drops its own bindings for every field it takes and takes the target's | `paste_and_match_style_rebinds_the_effect_colour_to_the_targets_variable` FAILED: root kept the source's `effects/0/color` binding (left `VariableID:d11`, right `VariableID:d12`) | ok: binding is the target's, and `designos_doc::resolve_node` gives the target variable's colour (blue), not the source's (red) |
+| 2 Instance override: a text layer inside an instance in the pasted subtree records `TextStyle` | `paste_and_match_style_keeps_the_target_text_style_on_text_inside_a_pasted_instance_after_a_sync_of_its_main` FAILED at `and the change is recorded as an override` | ok: style equals the target's, `TextStyle` override recorded, and after `edit_nodes` on the main label (font size 40, Roboto) the pasted label keeps the target style while the sibling instance "Learn more" follows the main (so the sync ran) |
+
+Implementation: `is_visual_binding` takes `effects/`. In the paste loop a layer with `component.source` set is not styled before the insert; after `Command::Insert` it is styled through `tx.ed.node`, so `record_overrides` marks it at commit (root, including an instance root, and text layers alike). All other layers are styled before the insert as in round 2. One undo step is unchanged (the parity test still asserts +1).
+
+### Mutant (null control green first: `r3-mutation-null-control.log`, 13 passed)
+- `effects/*` bindings left out again: KILLED, `paste_and_match_style_rebinds_the_effect_colour_to_the_targets_variable` (`r3-mutation-effects-bindings.log`, left `VariableID:d11` right `VariableID:d12`). 12 passed / 1 failed. Reverted, `git diff --quiet` clean.
+
+### Gates on code head dea90b5f (later commits touch only `plans/`)
+- fmt rc=0. clippy workspace `--all-targets --locked` rc=0, only main's three lints (`r3-fmt-clippy-gate.log`).
+- `cargo test -p designos-doc --locked` rc=0 (`r3-test-designos-doc.log`).
+- `cargo test -p designos-app --bin designos --locked` (short HOME/TMPDIR): 4220 passed, 4 failed; each failure rerun alone and passed (`r3-test-designos-app.log`):
+  - `vecops::tests::two_deferred_text_commands_both_convert_in_order` (main's slow-font test);
+  - `vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope` (same slow-font timing class);
+  - `shell::tests::close_human_dirty::library_file_close_save_writes_the_edit_and_closes_not_path_required` (`EDITOR_NOT_NOTIFIED`, main's close-and-save timing test under load);
+  - `agent_composer::tests::image_job_queued_behind_user_prompt_at_start_flushes_both_in_order` (`image job written second`): not on main's known list, passed in round 2's full run and alone now. It sits in code this change does not touch; treat it as a load-sensitive ordering test, not verified on main.
+- `cargo test --workspace --locked --lib` rc=0 (`r3-test-workspace-lib.log`).
+- `python3 -B -m unittest discover -s scripts/tests` rc=0 (`r3-test-python.log`).
+- `python3 -B scripts/zero_fake_ui_gate.py` 17/17, rc=0 (`r3-zero-fake-ui-gate.log`).
+- The modifier-paste finding is #1557; not touched here.
+
+Remaining gaps: mixed-run swap left unchanged (accepted), nothing new.
+
+Status: DONE_WITH_CONCERNS (the agent_composer image-job test failed once under load and passes alone).
