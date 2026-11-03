@@ -82,6 +82,12 @@ fn families() -> Vec<Family> {
             check: |n| assert_eq!(n.blend, BlendMode::Multiply),
         },
         Family {
+            name: "Moved badge",
+            fields: json!({"transform": {"m00": 1.0, "m01": 0.0, "m02": 7.0, "m10": 0.0, "m11": 1.0, "m12": 9.0}}),
+            flag: OverrideField::Transform,
+            check: |n| assert_eq!((n.transform.tx, n.transform.ty), (7.0, 9.0)),
+        },
+        Family {
             name: "Filled badge",
             fields: json!({"fillPaints": [solid(1.0, 0.0, 0.0)]}),
             flag: OverrideField::Fills,
@@ -161,6 +167,13 @@ fn nested_badge(doc: &Document) -> &Node {
     doc.get(card.children[0]).expect("nested badge inside the Card instance")
 }
 
+fn baked_path() -> Path {
+    Path {
+        cmds: vec![PathCmd::MoveTo(Vec2::new(1.0, 1.0)), PathCmd::LineTo(Vec2::new(20.0, 1.0)), PathCmd::LineTo(Vec2::new(20.0, 20.0)), PathCmd::Close],
+        fill_rule: FillRule::NonZero,
+    }
+}
+
 /// Imports the fixture, then saves and reopens it twice, calling `check` on the document of every stage.
 fn through_two_saves(check: impl Fn(&str, &Document)) {
     let mut doc = import_fig_node_changes(&changes(), "Doc").expect("import");
@@ -203,6 +216,27 @@ fn fig_save_and_reopen_keeps_every_kind_of_instance_override() {
             (f.check)(n);
         }
     });
+}
+
+#[test]
+fn fig_save_and_reopen_keeps_baked_geometry_for_root_stroke_and_corner_overrides() {
+    let mut doc = import_fig_node_changes(&changes(), "Doc").expect("import");
+    let baked = baked_path();
+    {
+        let stroke = doc.nodes.values_mut().find(|n| n.name == "Outlined badge").expect("outlined badge");
+        stroke.stroke_geometry = Some(vec![baked.clone()]);
+        stroke.component.overrides.insert(OverrideField::Stroke);
+        let rounded = doc.nodes.values_mut().find(|n| n.name == "Rounded badge").expect("rounded badge");
+        rounded.fill_geometry = Some(vec![baked.clone()]);
+        rounded.component.overrides.insert(OverrideField::CornerRadii);
+    }
+    for round in 1..=2 {
+        doc = import_fig(&export_fig(&doc).expect("export")).expect("reopen");
+        let stroke = find(&doc, "Outlined badge");
+        assert!(stroke.stroke_geometry.as_ref().is_some_and(|paths| !paths.is_empty()), "round {round}: root Stroke override dropped baked stroke geometry");
+        let rounded = find(&doc, "Rounded badge");
+        assert!(rounded.fill_geometry.as_ref().is_some_and(|paths| !paths.is_empty()), "round {round}: root CornerRadii override dropped baked fill geometry");
+    }
 }
 
 #[test]
