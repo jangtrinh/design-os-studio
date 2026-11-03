@@ -1,0 +1,13 @@
+Gates run on code commit dc8eb5fc (tree unchanged since; evidence-only commits follow).
+cargo fmt --all -- --check                                  fmt_rc=0          (r2-gate-fmt.log)
+cargo clippy --workspace --all-targets --locked             clippy_rc=0       (r2-gate-clippy.log; only the three known designos-app lints)
+cargo test -p designos-doc --locked                         rc=0              (r2-gate-doc.log)
+cargo test -p designos-fig --locked                         rc=0              (r2-gate-fig.log)
+cargo test -p designos-render --locked                      rc=0              (r2-gate-render.log)
+cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks   rc=0, GPU: Apple M4 Max (Metal) ran   (r2-gate-gpu.log)
+cargo test -p designos-mcp --locked                         rc=0              (r2-gate-mcp.log)
+cargo test -p designos-app --bin designos --locked          rc=101: 4229 passed, 1 failed (r2-gate-app.log)
+  failed: vecops::tests::two_deferred_text_commands_both_convert_in_order (known slow-font flake under load)
+  rerun alone: rc=0, 1 passed                               (r2-gate-app-reruns.log)
+cargo test --workspace --locked --lib                       rc=0              (r2-gate-workspace-lib.log)
+python3 -B scripts/zero_fake_ui_gate.py                     rc=0, 17/17       (r2-gate-zero-fake-ui.log)

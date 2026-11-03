@@ -1,0 +1,25 @@
+diff --git a/crates/designos-doc/src/components.rs b/crates/designos-doc/src/components.rs
+index 30ddfad8..1786726b 100644
+--- a/crates/designos-doc/src/components.rs
++++ b/crates/designos-doc/src/components.rs
+@@ -1204,18 +1204,10 @@ fn apply_reference(r: &Node, n: &mut Node, top: bool, values: &BTreeMap<String,
+     }
+     if ov.contains(&OverrideField::Size) && n.size != r.size && !matches!(n.kind, NodeKind::Text(_)) && n.kind.frame_props().is_none() {
+         let target_size = n.size;
+-        let (own_fill, own_stroke) = (n.fill_geometry.take(), n.stroke_geometry.take());
+-        // A vector without a bake of its own is resized as the main's vector is: the kernel sees the
+-        // main's bake, because that is what the paths just copied from the main were drawn with.
+-        if own_stroke.is_none() && matches!(n.kind, NodeKind::Vector { .. }) {
+-            n.stroke_geometry = r.stroke_geometry.clone();
+-        }
++        let own = (n.fill_geometry.take(), n.stroke_geometry.take());
+         n.size = r.size;
+         crate::layout_constraints::apply_constrained_geometry(n, n.transform, target_size);
+-        n.fill_geometry = own_fill;
+-        if own_stroke.is_some() {
+-            n.stroke_geometry = own_stroke;
+-        }
++        (n.fill_geometry, n.stroke_geometry) = own;
+     }
+ }
+ 

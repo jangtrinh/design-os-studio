@@ -1,0 +1,80 @@
+   Compiling idna v1.1.0
+   Compiling skrifa v0.40.0
+   Compiling skrifa v0.44.0
+   Compiling url v2.5.8
+   Compiling harfrust v0.5.2
+   Compiling ureq v2.12.1
+   Compiling swash v0.2.10
+   Compiling cosmic-text v0.19.0
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 10s
+     Running tests/resized_vector_stroke_model.rs (target/debug/deps/resized_vector_stroke_model-87b6562e1729e120)
+
+running 9 tests
+test the_kit_icon_drops_its_bake_and_draws_its_own_weight ... ok
+test fig_icon_without_an_arrow_cap_drops_its_bake ... ok
+test a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake ... FAILED
+test a_brush_and_side_weights_keep_the_scaled_bake ... FAILED
+test an_arrow_cap_on_a_vertex_keeps_the_scaled_bake ... FAILED
+test an_arrow_cap_on_the_node_keeps_the_scaled_bake ... FAILED
+test fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake ... FAILED
+test a_vertex_cap_equal_to_the_nodes_and_dashes_on_a_centered_stroke_still_drop_the_bake ... ok
+test an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized ... FAILED
+
+failures:
+
+---- a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake stdout ----
+
+thread 'a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake' (83351827) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:95:59:
+vertex cap that differs from the node's: the baked outline was dropped
+
+---- a_brush_and_side_weights_keep_the_scaled_bake stdout ----
+
+thread 'a_brush_and_side_weights_keep_the_scaled_bake' (83351825) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:95:59:
+brush: the baked outline was dropped
+
+---- an_arrow_cap_on_a_vertex_keeps_the_scaled_bake stdout ----
+
+thread 'an_arrow_cap_on_a_vertex_keeps_the_scaled_bake' (83351828) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:140:5:
+assertion `left == right` failed
+  left: None
+ right: Some("ARROW_EQUILATERAL")
+
+---- an_arrow_cap_on_the_node_keeps_the_scaled_bake stdout ----
+
+thread 'an_arrow_cap_on_the_node_keeps_the_scaled_bake' (83351829) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:132:5:
+assertion `left == right` failed
+  left: None
+ right: Some("ARROW_LINES")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake stdout ----
+
+thread 'fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake' (83351831) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:260:5:
+assertion `left == right` failed
+  left: None
+ right: Some("ARROW_LINES")
+
+---- an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized stdout ----
+
+thread 'an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized' (83351830) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:352:9:
+assertion `left == right` failed: padding 0: the marker survives the clone
+  left: None
+ right: Some("ARROW_LINES")
+
+
+failures:
+    a_brush_and_side_weights_keep_the_scaled_bake
+    a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake
+    an_arrow_cap_on_a_vertex_keeps_the_scaled_bake
+    an_arrow_cap_on_the_node_keeps_the_scaled_bake
+    an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized
+    fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake
+
+test result: FAILED. 3 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-fig --test resized_vector_stroke_model`
