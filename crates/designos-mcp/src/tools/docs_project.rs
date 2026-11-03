@@ -3,7 +3,6 @@
 
 use crate::tools::errors::{ErrorCode, ToolError};
 use designos_library::{Library, Project};
-use serde_json::json;
 use std::path::{Path, PathBuf};
 
 /// An id the library makes (`new_id`): lowercase hex.
@@ -55,8 +54,8 @@ pub fn resolve_project(root: &Path, requested: Option<&str>, open_file: Option<&
         let by_name: Vec<&Project> = projects.iter().filter(|p| p.name == wanted).collect();
         return match by_name.as_slice() {
             [one] => Ok((*one).clone()),
-            [] => Err(unknown_project(wanted, "is not a project id or name in this library", ids())),
-            _ => Err(unknown_project(wanted, "is the name of more than one project", by_name.iter().map(|p| p.id.clone()))),
+            [] => Err(unknown_project(wanted, "no project in this library has that id or name", ids())),
+            _ => Err(unknown_project(wanted, "more than one project has that name", by_name.iter().map(|p| p.id.clone()))),
         };
     }
     if let Some(p) = open_file.and_then(|f| project_id_of_file(root, f)).and_then(|id| projects.iter().find(|p| p.id == id)) {
@@ -71,8 +70,9 @@ pub fn resolve_project(root: &Path, requested: Option<&str>, open_file: Option<&
 }
 
 fn unknown_project(wanted: &str, why: &str, options: impl Iterator<Item = String>) -> ToolError {
-    ToolError::new(ErrorCode::InvalidArguments, "/project", format!("`{wanted}` {why}; fix: pass a project id from valid_options"))
-        .with_received(json!(wanted))
+    // The name can come from a project name, i.e. from doc-folder text: it travels fenced in `received`, not in `message`.
+    ToolError::new(ErrorCode::InvalidArguments, "/project", format!("{why}; fix: pass a project id from valid_options"))
+        .with_received(crate::tools::docs_fence::fence_capped(wanted, 500))
         .with_expected("a project id from valid_options")
         .with_valid_options(options)
 }

@@ -6,15 +6,16 @@
 
 use crate::engine::parse;
 use crate::tools::docs_errors::docs_error;
-use crate::tools::docs_fence::{fence, fence_capped, id_value, path_value};
+use crate::tools::docs_fence::{fence, fence_capped};
 use crate::tools::docs_project::resolve_project;
 use crate::tools::errors::{ErrorCode, ToolError};
-use designos_docs::{Block, DocsError, DocsStore, Manifest, Page};
+use designos_docs::{Block, DocsStore, Page};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::Path;
 
 pub use crate::tools::docs_descriptors::tool_descriptors;
+pub use crate::tools::docs_list::docs_list;
 
 /// The serialized size no MCP result may pass (the document-text limit of #1289).
 pub const MAX_RESULT_BYTES: usize = 100_000;
@@ -23,15 +24,13 @@ pub const MAX_RESULT_BYTES: usize = 100_000;
 /// backslashes double, not on the Markdown, and leaves room under [`MAX_RESULT_BYTES`] for a wrapper's own fields.
 pub const READ_BUDGET_BYTES: usize = 90_000;
 
-/// Longest title and description returned, so page-level fields cannot eat the block budget.
-const MAX_META_CHARS: usize = 2_000;
-const MAX_PROBLEM_CHARS: usize = 500;
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ListArgs {
-    project: Option<String>,
-}
+/// Longest title, description and page-level text returned, so page-level fields cannot eat the block budget.
+pub const MAX_META_CHARS: usize = 500;
+/// Front-matter problems returned per read; the rest are counted in `front_matter_problems_total`.
+const MAX_PROBLEMS: usize = 20;
+const MAX_PROBLEM_CHARS: usize = 200;
+/// Longest page path echoed back.
+const MAX_PAGE_ECHO_CHARS: usize = 500;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -48,63 +47,6 @@ struct RangeArg {
     end: Option<usize>,
 }
 
-/// `designos_docs_list`: the five groups with their pages, and the pinned frames.
-pub fn docs_list(root: &Path, open_file: Option<&str>, args: Value) -> Result<Value, ToolError> {
-    let a: ListArgs = parse(args)?;
-    let project = resolve_project(root, a.project.as_deref(), open_file)?;
-    let store = DocsStore::for_project(root, &project.id).map_err(|e| docs_error("/project", e))?;
-    // A project that has no manifest yet has no docs: five empty groups, nothing is created.
-    let (manifest, manifest_hash) = match store.read_manifest() {
-        Ok(v) => (v.value, Some(v.hash.to_string())),
-        Err(DocsError::NotFound { .. }) => (Manifest::new(), None),
-        Err(e) => return Err(docs_error("", e)),
-    };
-    let groups: Vec<Value> =
-        manifest.groups.iter().map(|g| json!({"id": g.id.as_str(), "pages": g.pages.iter().map(|rel| page_entry(&store, rel)).collect::<Vec<_>>()})).collect();
-    let pins: Vec<Value> = manifest
-        .pins
-        .iter()
-        .map(|p| {
-            json!({
-                "id": id_value(&p.id),
-                "file_id": id_value(&p.file_id),
-                "node_id": id_value(&p.node_id),
-                "name": fence(&p.name),
-                "group": p.group.as_str(),
-                "parent_screen": p.parent_screen.as_deref().map(id_value),
-            })
-        })
-        .collect();
-    Ok(json!({
-        "project": {"id": project.id, "name": fence(&project.name)},
-        "has_manifest": manifest_hash.is_some(),
-        "manifest_hash": manifest_hash,
-        "groups": groups,
-        "pins": pins,
-    }))
-}
-
-/// One listed page: its title and size, or why it cannot be read (the listing never fails for one bad page).
-///
-/// Every listed page is read whole. `DocsStore` has no partial read, and a prefix read made here would skip its
-/// symlink check; a page is capped at 8 MiB. `blocks` and `hash` need the whole page anyway.
-fn page_entry(store: &DocsStore, rel: &str) -> Value {
-    match store.read_page(rel) {
-        Ok(v) => {
-            let page = &v.value;
-            let title = page.front_matter().and_then(|f| f.title()).map(str::to_string).or_else(|| page.headings().into_iter().next().map(|h| h.text));
-            json!({
-                "path": path_value(rel),
-                "title": title.as_deref().map(|t| fence_capped(t, MAX_META_CHARS)),
-                "blocks": page.blocks.len(),
-                "front_matter_problems": page.front_matter().map_or(0, |f| f.problems().len()),
-                "hash": v.hash.to_string(),
-            })
-        }
-        Err(e) => json!({"path": path_value(rel), "error": fence(&e.to_string())}),
-    }
-}
-
 /// `designos_docs_read`: the blocks of one page, each with its index, kind, hash and Markdown.
 pub fn docs_read(root: &Path, open_file: Option<&str>, args: Value) -> Result<Value, ToolError> {
     let a: ReadArgs = parse(args)?;
@@ -116,17 +58,22 @@ pub fn docs_read(root: &Path, open_file: Option<&str>, args: Value) -> Result<Va
     let (start, end) = range_bounds(a.range.as_ref(), total)?;
 
     let front = page.front_matter();
-    let problems: Vec<Value> = front
-        .map(|f| f.problems().iter().map(|p| json!({"field": p.field, "problem": fence_capped(&p.problem, MAX_PROBLEM_CHARS), "fix": p.fix})).collect())
-        .unwrap_or_default();
+    let all_problems = front.map(|f| f.problems()).unwrap_or_default();
+    let problems: Vec<Value> = all_problems
+        .iter()
+        .take(MAX_PROBLEMS)
+        .map(|p| json!({"field": p.field, "problem": fence_capped(&p.problem, MAX_PROBLEM_CHARS), "fix": p.fix}))
+        .collect();
     let mut out = json!({
         "project": {"id": project.id, "name": fence(&project.name)},
-        "page": path_value(&a.page),
+        "page": fence_capped(&a.page, MAX_PAGE_ECHO_CHARS),
         "page_hash": versioned.hash.to_string(),
         "title": front.and_then(|f| f.title()).map(|t| fence_capped(t, MAX_META_CHARS)),
         "description": front.and_then(|f| f.description()).map(|t| fence_capped(t, MAX_META_CHARS)),
         "group": front.and_then(|f| f.group()).map(|g| g.as_str()),
         "front_matter_problems": problems,
+        "front_matter_problems_total": all_problems.len(),
+        "problems_truncated": all_problems.len() > MAX_PROBLEMS,
         "total_blocks": total,
         "range": {"start": start, "end": end},
         "next_start": Value::Null,
