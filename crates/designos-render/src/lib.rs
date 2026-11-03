@@ -690,17 +690,41 @@ impl Renderer<'_> {
     /// Draws each visible child's own opaque silhouette (a knockout): paint alpha is ignored,
     /// hidden and fully transparent children add nothing.
     fn knockout_children(&self, children: &[NodeId], parent_ts: sk::Transform, pm: &mut sk::Pixmap) {
-        for cid in children {
+        for (i, cid) in children.iter().enumerate() {
             if self.hide.contains(cid) {
                 continue;
             }
             let Some(child) = board::get(self.doc, *cid) else { continue };
             let child = &*resolve_node(self.doc, &child);
-            let runtime_mul = self.runtime_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
-            if !child.visible || child.is_mask || matches!(child.kind, NodeKind::Page { .. }) || child.opacity * runtime_mul <= 0.0 {
+            if !child.visible || matches!(child.kind, NodeKind::Page { .. }) {
                 continue;
             }
             let ts = parent_ts.pre_concat(to_sk_transform(&child.transform));
+            if child.is_mask {
+                let (w, h) = (pm.width(), pm.height());
+                let (Some(mut layer), Some(mut mask_layer)) = (sk::Pixmap::new(w, h), sk::Pixmap::new(w, h)) else {
+                    return;
+                };
+                self.knockout_children(&children[i + 1..], parent_ts, &mut layer);
+                let r = Renderer { doc: self.doc, env: PaintEnv { doc: self.doc }, cull: None, runtime_opacities: self.runtime_opacities, hide: self.hide };
+                let mask_node = mask::mask_stencil(child);
+                if child.mask_type == designos_doc::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
+                    r.draw_vector_group_children(&mask_node.children, ts, &mut mask_layer, None, None);
+                } else {
+                    r.draw_node(&mask_node, ts, &mut mask_layer, None, None);
+                }
+                if child.mask_type == designos_doc::MaskType::Luminance {
+                    mask::apply_luminance_mask(&mut mask_layer);
+                }
+                let pp = sk::PixmapPaint { blend_mode: sk::BlendMode::DestinationIn, ..Default::default() };
+                layer.draw_pixmap(0, 0, mask_layer.as_ref(), &pp, sk::Transform::identity(), None);
+                pm.draw_pixmap(0, 0, layer.as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
+                return;
+            }
+            let runtime_mul = self.runtime_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+            if child.opacity * runtime_mul <= 0.0 {
+                continue;
+            }
             let scale = ts_scale(&ts);
             let shape = node_shape(self.doc, child, 0.15 / scale);
             let text_layout = match &child.kind {
@@ -733,11 +757,11 @@ impl Renderer<'_> {
                 let Some(tl) = tl else { return };
                 for (i, path) in tl.paths.iter().enumerate() {
                     if let Some(path) = path {
-                        let a = if opaque {
-                            1.0
-                        } else {
-                            tl.styles[i].fills.iter().filter(|p| p.visible).map(designos_doc::Paint::silhouette_alpha).fold(0.0, f32::max)
-                        };
+                        let a = mode.text_run_alpha(n, &tl.styles[i].fills);
+                        // a run that paints nothing removes nothing from a knockout
+                        if a <= 0.0 && mode == designos_doc::SilhouetteMode::Knockout {
+                            continue;
+                        }
                         pm.fill_path(path, &black_paint(a), sk::FillRule::Winding, ts2, None);
                     }
                 }

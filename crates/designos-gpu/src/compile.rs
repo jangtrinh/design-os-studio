@@ -1294,7 +1294,11 @@ impl Ctx<'_> {
         match d::silhouette_source(n, g.shape.as_ref().map(|sh| sh.fillable), mode) {
             d::SilhouetteSource::Text => {
                 for t in g.text.iter() {
-                    let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(d::Paint::silhouette_alpha).fold(0.0, f32::max) };
+                    let a = mode.text_run_alpha(n, &t.fills);
+                    // a run that paints nothing removes nothing from a knockout
+                    if a <= 0.0 && mode == d::SilhouetteMode::Knockout {
+                        continue;
+                    }
                     self.draw_mesh(&t.mesh, ts2, black(a), DrawBlend::Over, clip);
                 }
             }
@@ -1375,17 +1379,77 @@ impl Ctx<'_> {
     /// hidden and fully transparent children add nothing.
     fn knockout_children(&mut self, children: &[NodeId], parent_ts: sk::Transform, clip: ClipId) {
         let doc = self.doc;
-        for cid in children {
+        for (i, cid) in children.iter().enumerate() {
             let Some(child) = board::get(doc, *cid) else { continue };
             let child = resolve_node(doc, &child);
             let child: &Node = &child;
-            if !child.visible || child.is_mask || matches!(child.kind, NodeKind::Page { .. }) || child.opacity <= 0.0 {
+            if !child.visible || matches!(child.kind, NodeKind::Page { .. }) {
                 continue;
             }
             let ts = parent_ts.pre_concat(to_sk(&child.transform));
+            if child.is_mask {
+                self.knockout_mask(child, children, i, parent_ts, ts, clip);
+                return;
+            }
+            let runtime_mul = self.opts.runtime_node_opacities.iter().find(|&&(id, _)| id == child.id).map(|&(_, a)| a.clamp(0.0, 1.0)).unwrap_or(1.0);
+            if child.opacity * runtime_mul <= 0.0 {
+                continue;
+            }
             let g = self.geom_of(child, &ts);
             self.silhouette(child, &g, ts, 0.0, 0.0, 0.0, d::SilhouetteMode::Knockout, clip);
         }
+    }
+
+    fn knockout_mask(&mut self, mask: &Node, siblings: &[NodeId], i: usize, parent_ts: sk::Transform, ts: sk::Transform, clip: ClipId) {
+        let vis = self.visible(clip);
+        let mut rect = vis;
+        if self.cull {
+            if let Some(b) = self.index.bounds_of(mask.id) {
+                rect = rect.intersect(IRect::outward(xform_bounds(&self.root_ts, b.0, b.1, b.2 - b.0, b.3 - b.1)).grow(1));
+            }
+        }
+        if rect.is_empty() {
+            return;
+        }
+        let rest = &siblings[i + 1..];
+        if self.prog_cap_hit(64) || self.over_budget(2, 2 * self.program_cost(rect)) {
+            let lclip = self.narrow_clip(clip, rect);
+            self.knockout_children(rest, parent_ts, lclip);
+            return;
+        }
+        let mask_cost = self.program_cost(rect);
+        let layer = self.new_prog(rect);
+        let lclip = self.narrow_clip(clip, rect);
+        self.reserving(1, mask_cost, |c| c.with_prog(layer, |c| c.knockout_children(rest, parent_ts, lclip)));
+        let mask_node = mask_stencil(mask);
+        let mprog = self.new_prog(rect);
+        let mclip = self.full_clip(rect);
+        let deferred = self.geom.deferred_empty;
+        let enclosing = (self.stencil_root.replace(mask.id), std::mem::take(&mut self.stencil_children_skipped));
+        self.with_prog(mprog, |c| {
+            if mask.mask_type == d::MaskType::Vector && matches!(mask_node.kind, NodeKind::Group) {
+                c.draw_vector_group_children(&mask_node.children, ts, mclip);
+            } else {
+                c.draw_node(&mask_node, ts, mclip);
+            }
+            if !c.prog_has_draws(mprog) && (c.geom.deferred_empty != deferred || c.stencil_children_skipped) {
+                if let Some(frame_box) = mask_frame_box(mask) {
+                    c.draw_node(&frame_box, ts, mclip);
+                }
+            }
+        });
+        (self.stencil_root, self.stencil_children_skipped) = enclosing;
+        let pclip = self.full_clip(rect);
+        let aux_mode = if mask.mask_type == d::MaskType::Luminance { AuxMode::MulLum } else { AuxMode::Mul };
+        self.push_op(Op::Composite(Box::new(CompositeOp {
+            src: layer,
+            rect,
+            opacity: 1.0,
+            tint: None,
+            aux: Some((mprog, aux_mode)),
+            mode: CompMode::Over,
+            clip: pclip,
+        })));
     }
 
     // ----- effects ----------------------------------------------------------------
