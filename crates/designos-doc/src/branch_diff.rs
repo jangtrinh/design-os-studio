@@ -1492,6 +1492,8 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
                 }
                 conflicts.push(Conflict { node: id, groups, kind: ConflictKind::DeleteModify });
             }
+            // A guard here would let a false condition fall through to the `(Some(_), None)` arm below, which is not what this arm means.
+            #[allow(clippy::collapsible_match)]
             (Some(NodeChange::Removed), None) => {
                 if has_modified_or_added_descendant_in(id, theirs, &theirs_nodes) {
                     conflicts.push(Conflict { node: id, groups: BTreeSet::new(), kind: ConflictKind::DeleteModify });
@@ -1504,6 +1506,8 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
                 }
                 conflicts.push(Conflict { node: id, groups, kind: ConflictKind::DeleteModify });
             }
+            // A guard here would let a false condition fall through to the `(None, Some(_))` arm below, which is not what this arm means.
+            #[allow(clippy::collapsible_match)]
             (None, Some(NodeChange::Removed)) => {
                 if has_modified_or_added_descendant_in(id, ours, &ours_nodes) || has_referencing_node_outside_subtree(id, ours, &theirs_nodes, &ours_nodes) {
                     conflicts.push(Conflict { node: id, groups: BTreeSet::new(), kind: ConflictKind::DeleteModify });
@@ -1704,10 +1708,8 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
                 (EntityChange::Removed, EntityChange::Changed) | (EntityChange::Changed, EntityChange::Removed) => {
                     entity_conflicts.push(EntityConflict { key: EntityKey::Style(k.clone()), kind: ConflictKind::DeleteModify });
                 }
-                (EntityChange::Changed, EntityChange::Changed) | (EntityChange::Added, EntityChange::Added) => {
-                    if !style_entry_eq(ours, theirs, k) {
-                        entity_conflicts.push(EntityConflict { key: EntityKey::Style(k.clone()), kind: ConflictKind::ModifyModify });
-                    }
+                (EntityChange::Changed, EntityChange::Changed) | (EntityChange::Added, EntityChange::Added) if !style_entry_eq(ours, theirs, k) => {
+                    entity_conflicts.push(EntityConflict { key: EntityKey::Style(k.clone()), kind: ConflictKind::ModifyModify });
                 }
                 _ => {}
             }
@@ -1728,10 +1730,8 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
                         }
                     }
                 }
-                (EntityChange::Added, EntityChange::Added) => {
-                    if ours.variables.get(k) != theirs.variables.get(k) {
-                        entity_conflicts.push(EntityConflict { key: EntityKey::Variable(k.clone()), kind: ConflictKind::ModifyModify });
-                    }
+                (EntityChange::Added, EntityChange::Added) if ours.variables.get(k) != theirs.variables.get(k) => {
+                    entity_conflicts.push(EntityConflict { key: EntityKey::Variable(k.clone()), kind: ConflictKind::ModifyModify });
                 }
                 _ => {}
             }
@@ -1745,10 +1745,10 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
                 (EntityChange::Removed, EntityChange::Changed) | (EntityChange::Changed, EntityChange::Removed) => {
                     entity_conflicts.push(EntityConflict { key: EntityKey::Collection(k.clone()), kind: ConflictKind::DeleteModify });
                 }
-                (EntityChange::Changed, EntityChange::Changed) | (EntityChange::Added, EntityChange::Added) => {
-                    if ours.variable_collections.get(k) != theirs.variable_collections.get(k) {
-                        entity_conflicts.push(EntityConflict { key: EntityKey::Collection(k.clone()), kind: ConflictKind::ModifyModify });
-                    }
+                (EntityChange::Changed, EntityChange::Changed) | (EntityChange::Added, EntityChange::Added)
+                    if ours.variable_collections.get(k) != theirs.variable_collections.get(k) =>
+                {
+                    entity_conflicts.push(EntityConflict { key: EntityKey::Collection(k.clone()), kind: ConflictKind::ModifyModify });
                 }
                 _ => {}
             }
@@ -1762,10 +1762,10 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
                 (EntityChange::Removed, EntityChange::Changed) | (EntityChange::Changed, EntityChange::Removed) => {
                     entity_conflicts.push(EntityConflict { key: EntityKey::Flow(k.clone()), kind: ConflictKind::DeleteModify });
                 }
-                (EntityChange::Changed, EntityChange::Changed) | (EntityChange::Added, EntityChange::Added) => {
-                    if ours_flows_map.get(k) != theirs_flows_map.get(k) {
-                        entity_conflicts.push(EntityConflict { key: EntityKey::Flow(k.clone()), kind: ConflictKind::ModifyModify });
-                    }
+                (EntityChange::Changed, EntityChange::Changed) | (EntityChange::Added, EntityChange::Added)
+                    if ours_flows_map.get(k) != theirs_flows_map.get(k) =>
+                {
+                    entity_conflicts.push(EntityConflict { key: EntityKey::Flow(k.clone()), kind: ConflictKind::ModifyModify });
                 }
                 _ => {}
             }
@@ -1786,10 +1786,8 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
                         }
                     }
                 }
-                (EntityChange::Added, EntityChange::Added) => {
-                    if ours_comments_map.get(k) != theirs_comments_map.get(k) {
-                        entity_conflicts.push(EntityConflict { key: EntityKey::Comment(k.clone()), kind: ConflictKind::ModifyModify });
-                    }
+                (EntityChange::Added, EntityChange::Added) if ours_comments_map.get(k) != theirs_comments_map.get(k) => {
+                    entity_conflicts.push(EntityConflict { key: EntityKey::Comment(k.clone()), kind: ConflictKind::ModifyModify });
                 }
                 _ => {}
             }
@@ -1803,15 +1801,15 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
         }
         if let Some(&tc) = theirs_guides.get(&page_id) {
             match (oc, tc) {
-                (EntityChange::Removed, EntityChange::Changed) | (EntityChange::Changed, EntityChange::Removed) => {
-                    if ours.nodes.contains_key(&page_id) && theirs.nodes.contains_key(&page_id) {
-                        entity_conflicts.push(EntityConflict { key: EntityKey::Guides(page_id), kind: ConflictKind::DeleteModify });
-                    }
+                (EntityChange::Removed, EntityChange::Changed) | (EntityChange::Changed, EntityChange::Removed)
+                    if ours.nodes.contains_key(&page_id) && theirs.nodes.contains_key(&page_id) =>
+                {
+                    entity_conflicts.push(EntityConflict { key: EntityKey::Guides(page_id), kind: ConflictKind::DeleteModify });
                 }
-                (EntityChange::Changed, EntityChange::Changed) | (EntityChange::Added, EntityChange::Added) => {
-                    if ours.guides.get(&page_id) != theirs.guides.get(&page_id) {
-                        entity_conflicts.push(EntityConflict { key: EntityKey::Guides(page_id), kind: ConflictKind::ModifyModify });
-                    }
+                (EntityChange::Changed, EntityChange::Changed) | (EntityChange::Added, EntityChange::Added)
+                    if ours.guides.get(&page_id) != theirs.guides.get(&page_id) =>
+                {
+                    entity_conflicts.push(EntityConflict { key: EntityKey::Guides(page_id), kind: ConflictKind::ModifyModify });
                 }
                 _ => {}
             }
@@ -1825,20 +1823,16 @@ pub fn diff3(base: &Document, ours: &Document, theirs: &Document) -> Diff3 {
             (Some(EntityChange::Removed), Some(EntityChange::Changed)) | (Some(EntityChange::Changed), Some(EntityChange::Removed)) => {
                 entity_conflicts.push(EntityConflict { key: EntityKey::Image(k.clone()), kind: ConflictKind::DeleteModify });
             }
-            (Some(EntityChange::Changed), Some(EntityChange::Changed)) | (Some(EntityChange::Added), Some(EntityChange::Added)) => {
-                if ours.images.get(k) != theirs.images.get(k) {
-                    entity_conflicts.push(EntityConflict { key: EntityKey::Image(k.clone()), kind: ConflictKind::ModifyModify });
-                }
+            (Some(EntityChange::Changed), Some(EntityChange::Changed)) | (Some(EntityChange::Added), Some(EntityChange::Added))
+                if ours.images.get(k) != theirs.images.get(k) =>
+            {
+                entity_conflicts.push(EntityConflict { key: EntityKey::Image(k.clone()), kind: ConflictKind::ModifyModify });
             }
-            (None, Some(EntityChange::Removed)) => {
-                if effective_side_references_image(k, ours, &ours_nodes, theirs, &theirs_nodes) {
-                    entity_conflicts.push(EntityConflict { key: EntityKey::Image(k.clone()), kind: ConflictKind::DeleteModify });
-                }
+            (None, Some(EntityChange::Removed)) if effective_side_references_image(k, ours, &ours_nodes, theirs, &theirs_nodes) => {
+                entity_conflicts.push(EntityConflict { key: EntityKey::Image(k.clone()), kind: ConflictKind::DeleteModify });
             }
-            (Some(EntityChange::Removed), None) => {
-                if effective_side_references_image(k, theirs, &theirs_nodes, ours, &ours_nodes) {
-                    entity_conflicts.push(EntityConflict { key: EntityKey::Image(k.clone()), kind: ConflictKind::DeleteModify });
-                }
+            (Some(EntityChange::Removed), None) if effective_side_references_image(k, theirs, &theirs_nodes, ours, &ours_nodes) => {
+                entity_conflicts.push(EntityConflict { key: EntityKey::Image(k.clone()), kind: ConflictKind::DeleteModify });
             }
             _ => {}
         }

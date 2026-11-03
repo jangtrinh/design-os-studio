@@ -1179,6 +1179,8 @@ fn inspector_var_binds_scope_oracle_and_per_target_fill_scopes() {
 
     // 3. Multi-variable and multi-scope documents: two variables of one kind (`[FRAME_FILL]` then `[SHAPE_FILL]`)
     //    and one variable with two scopes (`[FRAME_FILL, SHAPE_FILL]`).
+    // A literal table of (label, variables); a named type would not make the rows clearer.
+    #[allow(clippy::type_complexity)]
     let multi_docs: Vec<(&str, Vec<(VariableKind, Vec<String>)>)> = vec![
         (
             "two-vars [FRAME_FILL] then [SHAPE_FILL]",

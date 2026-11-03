@@ -1263,10 +1263,8 @@ fn discover_local_components_bounded(doc: &Document) -> Vec<&Node> {
             let Some(node) = doc.get(cid) else { continue };
             match &node.kind {
                 NodeKind::ComponentSet(_) | NodeKind::Component(_) => local_components.push(node),
-                NodeKind::Frame(_) | NodeKind::Section | NodeKind::Group => {
-                    if level2_containers.len() < MAX_COMPONENT_SCAN_NODES {
-                        level2_containers.push(cid);
-                    }
+                NodeKind::Frame(_) | NodeKind::Section | NodeKind::Group if level2_containers.len() < MAX_COMPONENT_SCAN_NODES => {
+                    level2_containers.push(cid);
                 }
                 _ => {}
             }

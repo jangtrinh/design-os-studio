@@ -370,19 +370,17 @@ pub fn export_pen_node(doc: &Document, id: NodeId) -> Option<Value> {
     // Kind-specific properties
     if !is_icon_node {
         match &n.kind {
-            NodeKind::Ellipse(arc) => {
-                if *arc != ArcData::default() {
-                    let start_deg = ((arc.start.to_degrees() * 1000.0).round()) / 1000.0;
-                    let sweep_deg = (((arc.end - arc.start).to_degrees() * 1000.0).round()) / 1000.0;
-                    if start_deg.abs() > 1e-3 {
-                        obj.insert("startAngle".into(), json!(start_deg));
-                    }
-                    if (sweep_deg - 360.0).abs() > 1e-3 {
-                        obj.insert("sweepAngle".into(), json!(sweep_deg));
-                    }
-                    if arc.inner_radius > 1e-4 {
-                        obj.insert("innerRadius".into(), json!(arc.inner_radius));
-                    }
+            NodeKind::Ellipse(arc) if *arc != ArcData::default() => {
+                let start_deg = ((arc.start.to_degrees() * 1000.0).round()) / 1000.0;
+                let sweep_deg = (((arc.end - arc.start).to_degrees() * 1000.0).round()) / 1000.0;
+                if start_deg.abs() > 1e-3 {
+                    obj.insert("startAngle".into(), json!(start_deg));
+                }
+                if (sweep_deg - 360.0).abs() > 1e-3 {
+                    obj.insert("sweepAngle".into(), json!(sweep_deg));
+                }
+                if arc.inner_radius > 1e-4 {
+                    obj.insert("innerRadius".into(), json!(arc.inner_radius));
                 }
             }
             NodeKind::Polygon { count } => {

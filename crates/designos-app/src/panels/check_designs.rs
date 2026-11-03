@@ -277,6 +277,8 @@ pub fn show(app: &mut App, ctx: &Context) {
         Some(Act::SetContrast(level)) => {
             app.set_contrast_level(level);
         }
+        // A guard would leave `Some(Act::Focus(_))` unmatched, and this match must stay exhaustive.
+        #[allow(clippy::collapsible_match)]
         Some(Act::Focus(id)) => {
             if app.doc.get(id).is_some() {
                 app.select_only(id);

@@ -357,26 +357,26 @@ pub fn evaluate_node(ctx: &NodeEvalCtx<'_>, out: &mut Vec<Finding>) -> bool {
             if !matches!(parent.kind, NodeKind::Page { .. }) {
                 let parent_al = parent.kind.frame_props().and_then(|fp| fp.auto_layout.as_ref());
                 match parent_al {
-                    None => {
-                        if matches!(n.layout_child.horizontal, Sizing::Fill | Sizing::Hug) || matches!(n.layout_child.vertical, Sizing::Fill | Sizing::Hug) {
-                            emit(
-                                "sizing-conflict",
-                                Category::Layout,
-                                n,
-                                ctx.page_bounds,
-                                format!(
-                                    "Child '{}' uses {:?}/{:?} sizing inside non-auto-layout parent '{}'",
-                                    n.name, n.layout_child.horizontal, n.layout_child.vertical, parent.name
-                                ),
-                                Some(FixSuggestion {
-                                    kind: "set".into(),
-                                    property: "sizing".into(),
-                                    from: json!(format!("{:?}/{:?}", n.layout_child.horizontal, n.layout_child.vertical)),
-                                    to: json!("Fixed"),
-                                }),
-                                true,
-                            );
-                        }
+                    None if (matches!(n.layout_child.horizontal, Sizing::Fill | Sizing::Hug)
+                        || matches!(n.layout_child.vertical, Sizing::Fill | Sizing::Hug)) =>
+                    {
+                        emit(
+                            "sizing-conflict",
+                            Category::Layout,
+                            n,
+                            ctx.page_bounds,
+                            format!(
+                                "Child '{}' uses {:?}/{:?} sizing inside non-auto-layout parent '{}'",
+                                n.name, n.layout_child.horizontal, n.layout_child.vertical, parent.name
+                            ),
+                            Some(FixSuggestion {
+                                kind: "set".into(),
+                                property: "sizing".into(),
+                                from: json!(format!("{:?}/{:?}", n.layout_child.horizontal, n.layout_child.vertical)),
+                                to: json!("Fixed"),
+                            }),
+                            true,
+                        );
                     }
                     Some(al) if !n.layout_child.absolute => {
                         let child_primary = if al.primary_is_horizontal() { n.layout_child.horizontal } else { n.layout_child.vertical };

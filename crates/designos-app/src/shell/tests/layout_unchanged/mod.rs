@@ -367,10 +367,8 @@ pub fn run_spec_cases(spec_key: &str) {
                         Some("comment_thread") => {
                             app.comments.author = Some("Kir".into());
                         }
-                        Some("published_library") => {
-                            if app.vars.open {
-                                app.vars.collection = app.doc.variable_collections.values().find(|c| c.is_library()).map(|c| c.id.clone());
-                            }
+                        Some("published_library") if app.vars.open => {
+                            app.vars.collection = app.doc.variable_collections.values().find(|c| c.is_library()).map(|c| c.id.clone());
                         }
                         Some("blank_deck") => {
                             if let Some(first_slide) = app.deck_slides().first().copied() {

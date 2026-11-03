@@ -33,6 +33,8 @@ fn mcp_on_the_shown_tab(s: &mut Sim, dir: &TmpDir) -> (designos_mcp::server::Ses
     (session, workspace)
 }
 
+// `Session::call` returns the server `ToolError`, which is large; the scope closure forwards it unchanged.
+#[allow(clippy::result_large_err)]
 fn close(s: &mut Sim, session: &mut designos_mcp::server::Session, args: Value) -> Call {
     std::thread::scope(|scope| {
         let h = scope.spawn(|| session.call("designos_close_document", args));

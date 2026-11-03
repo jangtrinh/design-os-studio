@@ -504,10 +504,8 @@ fn validate_dtcg_token_value(val: &Value, effective_type: Option<&str>, token_ob
                 });
             }
         }
-        Some("number") => {
-            if !val.is_number() {
-                errors.push(DtcgValidationError { path: path.to_string(), message: "number $value must be a JSON number".into() });
-            }
+        Some("number") if !val.is_number() => {
+            errors.push(DtcgValidationError { path: path.to_string(), message: "number $value must be a JSON number".into() });
         }
         Some("fontFamily") => {
             let ok = val.is_string() || val.as_array().is_some_and(|a| !a.is_empty() && a.iter().all(Value::is_string));

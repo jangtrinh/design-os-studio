@@ -1133,10 +1133,8 @@ mod tests {
             let plan = g.plan(key, n as f64 * 0.016, false, false);
             let (cb, _) = g.step(plan, &cx);
             match &cb {
-                Cb::Chunk(k) => {
-                    if take(k) {
-                        k.ack.store(k.index + 1, Ordering::SeqCst);
-                    }
+                Cb::Chunk(k) if take(k) => {
+                    k.ack.store(k.index + 1, Ordering::SeqCst);
                 }
                 Cb::Frame(_, Some(ack)) => ack.store(1, Ordering::SeqCst),
                 _ => {}

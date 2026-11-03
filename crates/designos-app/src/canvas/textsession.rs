@@ -770,6 +770,8 @@ pub fn text_keys(app: &mut App, ctx: &Context) {
             }
             egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => preedit(app, &text),
             egui::Event::Ime(egui::ImeEvent::Commit(text)) => commit_ime(app, &text),
+            // `key_event` mutates the session, which a match guard must not do.
+            #[allow(clippy::collapsible_match)]
             egui::Event::Key { key, pressed: true, modifiers, .. } => {
                 if !key_event(app, key, modifiers) {
                     return;

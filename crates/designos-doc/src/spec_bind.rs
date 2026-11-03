@@ -392,10 +392,8 @@ impl SpecBindIndex {
                         candidate_colls.clear();
                         candidate_colls.push(coll);
                     }
-                    Some(cur_max) if len == cur_max => {
-                        if !candidate_colls.iter().any(|c| c.coll_id == coll.coll_id) {
-                            candidate_colls.push(coll);
-                        }
+                    Some(cur_max) if len == cur_max && !candidate_colls.iter().any(|c| c.coll_id == coll.coll_id) => {
+                        candidate_colls.push(coll);
                     }
                     _ => {}
                 }
@@ -756,10 +754,8 @@ pub fn resolve_variable_ref_of_kind(
                         lib_candidate_colls.clear();
                         lib_candidate_colls.push((s_idx, cid.clone(), coll.name.clone()));
                     }
-                    Some(cur_max) if len == cur_max => {
-                        if !lib_candidate_colls.iter().any(|(si, c, _)| *si == s_idx && c == cid) {
-                            lib_candidate_colls.push((s_idx, cid.clone(), coll.name.clone()));
-                        }
+                    Some(cur_max) if len == cur_max && !lib_candidate_colls.iter().any(|(si, c, _)| *si == s_idx && c == cid) => {
+                        lib_candidate_colls.push((s_idx, cid.clone(), coll.name.clone()));
                     }
                     _ => {}
                 }

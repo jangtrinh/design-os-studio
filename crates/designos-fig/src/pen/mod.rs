@@ -116,7 +116,7 @@ fn import_pen_json_report_budgeted(raw: &str, opts: &PenImportOptions, clone_bud
         let first_page_id = page_ids[0];
         let mut visited_paths = Vec::new();
         resolve_pen_library_imports(&root, &mut doc, first_page_id, &mut ctx, &mut visited_paths, 0);
-        for (pval, pid) in pages_arr.iter().zip(page_ids.into_iter()) {
+        for (pval, pid) in pages_arr.iter().zip(page_ids) {
             if let Some(children) = pval.get("children").and_then(Value::as_array) {
                 for ch in children {
                     import_pen_node(ch, &mut doc, pid, &mut ctx);

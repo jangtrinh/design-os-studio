@@ -27,10 +27,8 @@ fn fx_field_rect(s: &Sim, tag: &str, i: usize) -> Rect {
 
 fn collect_texts_in_rect(shape: &egui::epaint::Shape, rect: Rect, out: &mut Vec<String>) {
     match shape {
-        egui::epaint::Shape::Text(t) => {
-            if rect.contains(t.pos) {
-                out.push(t.galley.text().to_string());
-            }
+        egui::epaint::Shape::Text(t) if rect.contains(t.pos) => {
+            out.push(t.galley.text().to_string());
         }
         egui::epaint::Shape::Vec(shapes) => {
             for s in shapes {
