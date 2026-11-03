@@ -613,7 +613,19 @@ fn export_variables_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), i
             };
             val_entries.push(msg(vec![("modeID", guid(mguid.0, mguid.1)), ("variableData", vdata)]));
         }
-        let scopes: Vec<V> = v.scopes.iter().filter(|s| cx.schema.has_enum_variant("VariableScope", s)).map(|s| en(s)).collect();
+        // The REST variable payload spells the stroke colour scope `STROKE_COLOR`,
+        // while the native `.fig` schema uses `STROKE`. Normalize before schema
+        // validation so stroke-only variables are not silently widened to all
+        // scopes, and preserve input order while removing duplicate spellings.
+        let mut seen_scopes = HashSet::new();
+        let scopes: Vec<V> = v
+            .scopes
+            .iter()
+            .filter_map(|scope| {
+                let fig_scope = if scope == "STROKE_COLOR" { "STROKE" } else { scope.as_str() };
+                (cx.schema.has_enum_variant("VariableScope", fig_scope) && seen_scopes.insert(fig_scope)).then(|| en(fig_scope))
+            })
+            .collect();
         let mut fields = vec![
             ("guid", guid(vguid.0, vguid.1)),
             ("phase", en("CREATED")),
