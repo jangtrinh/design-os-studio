@@ -659,6 +659,18 @@ impl SolvedGrid {
     }
 }
 
+/// `al` as the layout solver reads it for `n`: the auto layout and stroke of the node with its variable
+/// bindings applied, and the stroke's inset folded into the padding. Layout solves from that resolved
+/// node, so item spacing, row spacing, padding and an included stroke weight that are bound to a
+/// variable count at the value the variable resolves to, not at the number stored on the node. The
+/// frame size and size limits stay the stored ones, as they do in layout. `al` is returned (with the
+/// stored stroke folded in) when the resolved node carries no auto layout.
+fn solver_layout(doc: &Document, n: &Node, al: &AutoLayout) -> AutoLayout {
+    let resolved = designos_doc::resolve_node(doc, n);
+    let resolved_al = resolved.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).unwrap_or(al);
+    resolved_al.with_stroke(&resolved.stroke)
+}
+
 pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<SolvedGrid> {
     if al.direction != LayoutDirection::Grid {
         return None;
@@ -674,7 +686,7 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     if kids.is_empty() {
         return None;
     }
-    let al_s = al.with_stroke(&n.stroke);
+    let al_s = solver_layout(doc, n, al);
     let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
     let widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
     let rows = designos_doc::layout_solver::grid_row_heights(&al_s, n.size, own, &kids);
@@ -683,6 +695,18 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     let placed = designos_doc::layout_solver::place_children(&kids, widths.len());
     let children = ids.into_iter().zip(placed).collect();
     Some(SolvedGrid { widths, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), children })
+}
+
+/// Whether any gap of the grid `n` (`itemSpacing` for columns, `counterAxisSpacing` for rows) is bound
+/// to a variable. A bound gap exists in the export even when the stored number is 0.
+pub(crate) fn grid_gap_is_bound(doc: &Document, n: &Node) -> bool {
+    ["itemSpacing", "counterAxisSpacing"].iter().any(|k| bound(doc, n, k).is_some())
+}
+
+/// Whether any side of the padding of `n` is bound to a variable. Bound padding exists in the export
+/// even when the stored number is 0.
+pub(crate) fn padding_is_bound(doc: &Document, n: &Node) -> bool {
+    ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].iter().any(|k| bound(doc, n, k).is_some())
 }
 
 pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'static str {
@@ -719,7 +743,7 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
     if kids.is_empty() {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
-    let al_s = al.with_stroke(&n.stroke);
+    let al_s = solver_layout(doc, n, al);
     let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
     let solved = designos_doc::layout_solver::compute_grid(&al_s, n.size, own, &kids);
     if (n.size.x - solved.frame.x).abs() > 0.5 {
@@ -753,6 +777,29 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
     std::borrow::Cow::Owned(col_widths.into_iter().map(GridTrack::Fixed).collect())
+}
+
+/// Row tracks for web exports, and how many rows they cover. The solver levels implicit flex auto rows
+/// across a fixed-height container, so those rows can differ in height, and CSS `grid-auto-rows` has
+/// one value for every implicit row. While the solver levels the rows, emit its resolved row list as
+/// pixel tracks. Every other grid keeps its stored row tracks, because a packed or hugging grid
+/// already sizes its rows the way the browser sizes `auto` ones.
+pub(crate) fn resolved_grid_row_tracks<'a>(doc: &Document, n: &Node, al: &'a AutoLayout) -> (std::borrow::Cow<'a, [GridTrack]>, usize) {
+    let explicit = al.grid_rows as usize;
+    // Resolve only the implicit auto rows that the solver levels across a fixed-height
+    // container. Hugging/packed rows already match the browser's auto sizing and must keep
+    // the existing omitted/`auto` export form.
+    let needs_resolved = !grid_packs_auto_rows(doc, n, al);
+    if needs_resolved {
+        if let Some(solved) = solved_grid(doc, n, al) {
+            if explicit == 0 || solved.rows.len() > explicit {
+                let tracks: Vec<GridTrack> = solved.rows.into_iter().map(GridTrack::Fixed).collect();
+                let count = tracks.len();
+                return (std::borrow::Cow::Owned(tracks), count);
+            }
+        }
+    }
+    (std::borrow::Cow::Borrowed(&al.grid_row_tracks), explicit)
 }
 
 /// One track. A flex track is `minmax(0, {n}fr)`: the solver hands it a weighted share of the inner
@@ -934,7 +981,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     }
     // padding: expand to a 4-value shorthand when any side is bound
     let sides = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
-    if sides.iter().any(|k| bound(doc, n, k).is_some()) {
+    if padding_is_bound(doc, n) {
         if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
             let vals: Vec<String> = sides.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(al.padding[i])))).collect();
             lines.retain(|l| !l.starts_with("padding: "));

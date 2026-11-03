@@ -119,18 +119,19 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             push("padding", box_shorthand(t, r, b, l));
         }
         if al.direction == LayoutDirection::Grid {
-            if al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) {
+            if al.effective_padding(&n.stroke).iter().any(|&v| v > 0.0) || crate::codegen::padding_is_bound(doc, n) {
                 push("box-sizing", "border-box".into());
             }
             let cols = crate::codegen::grid_column_count(al);
             let col_tracks = crate::codegen::resolved_grid_col_tracks(doc, n, al);
             push("grid-template-columns", crate::codegen::grid_tracks_css(&col_tracks, cols));
-            if al.grid_rows > 0 {
-                push("grid-template-rows", crate::codegen::grid_tracks_css(&al.grid_row_tracks, al.grid_rows as usize));
+            let (row_tracks, row_count) = crate::codegen::resolved_grid_row_tracks(doc, n, al);
+            if row_count > 0 {
+                push("grid-template-rows", crate::codegen::grid_tracks_css(&row_tracks, row_count));
             }
             let col = al.item_spacing;
             let row = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };
-            if row > 0.0 || col > 0.0 {
+            if row > 0.0 || col > 0.0 || crate::codegen::grid_gap_is_bound(doc, n) {
                 push("gap", if (row - col).abs() < 1e-4 { format!("{}px", num(row)) } else { format!("{}px {}px", num(row), num(col)) });
             }
             if crate::codegen::grid_packs_auto_rows(doc, n, al) {
