@@ -501,6 +501,14 @@ impl State {
         [fmt_ok_channel(0, t[0]), fmt_ok_channel(1, t[1]), fmt_ok_channel(2, t[2])]
     }
 
+    /// The `[L, C, H]` (OKLCH) or `[L, a, b]` (OKLAB) triple of `fmt`.
+    fn ok_triple(&self, fmt: Fmt) -> [f32; 3] {
+        match fmt {
+            Fmt::Oklab => self.oklab,
+            _ => self.oklch,
+        }
+    }
+
     pub(crate) fn ok_text(&self, fmt: Fmt) -> String {
         let t = match fmt {
             Fmt::Oklab => self.oklab,
@@ -1697,9 +1705,14 @@ fn grouped_text(ui: &mut Ui, r: Rect, key: impl Key, display: &str, radius: egui
 }
 
 /// Steps the OKLCH or OKLAB component under `caret_char` (or to the left of a separator/space;
-/// at the start, the first component) by `dir * mult * base_step`, rewriting the text in the
-/// field's own format and returning `(rewritten_text, new_caret_char)`.
-fn step_ok_text(fmt: Fmt, cur_triple: [f32; 3], text: &str, caret_char: usize, dir: f32, mult: f32) -> Option<(String, usize)> {
+/// at the start, the first component) by `dir * mult * base_step` and returns
+/// `(rewritten_text, new_caret_char)`.
+///
+/// A plain `L C H` / `L a b` triple is rewritten whole in the field's own format. An `oklch(...)` or
+/// `oklab(...)` text keeps its form: the component steps in the function's own space, with that
+/// space's steps and clamps, and only its characters change, so the commit converts the function to
+/// the field's space the way Enter does.
+fn step_ok_text(st: &State, text: &str, caret_char: usize, dir: f32, mult: f32) -> Option<(String, usize)> {
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let total_chars = chars.len();
     let byte_of = |ci: usize| chars.get(ci).map(|&(b, _)| b).unwrap_or(text.len());
@@ -1727,7 +1740,7 @@ fn step_ok_text(fmt: Fmt, cur_triple: [f32; 3], text: &str, caret_char: usize, d
         }
         (af, true, p + 1, trim_end - 1)
     } else {
-        (fmt, false, trim_start, trim_end)
+        (st.fmt, false, trim_start, trim_end)
     };
     let mut slash_pos = None;
     for (ci, &(_, ch)) in chars.iter().enumerate().take(inner_end).skip(inner_start) {
@@ -1768,6 +1781,7 @@ fn step_ok_text(fmt: Fmt, cur_triple: [f32; 3], text: &str, caret_char: usize, d
     if tokens.len() != 3 {
         return None;
     }
+    let cur_triple = st.ok_triple(active_fmt);
     let idx = if caret_char < tokens[1].0 {
         0
     } else if caret_char < tokens[2].0 {
@@ -1788,32 +1802,14 @@ fn step_ok_text(fmt: Fmt, cur_triple: [f32; 3], text: &str, caret_char: usize, d
             parse_ok_channel(active_fmt, k, tok, cur_triple[k])?
         };
     }
+    let stepped = stepped_ok_token(active_fmt, idx, parsed[idx], dir, mult);
+    if is_func {
+        let next_text = format!("{}{}{}", &text[..byte_of(si)], stepped, &text[byte_of(ei)..]);
+        return Some((next_text, si + rel.min(stepped.chars().count())));
+    }
     let out_toks: [String; 3] = std::array::from_fn(|k| {
         if k == idx {
-            match (active_fmt, k) {
-                (Fmt::Oklch | Fmt::Oklab, 0) => {
-                    let l_pct = parsed[0] * 100.0;
-                    let next_pct = (((l_pct + dir * (1.0 * mult)) * 100.0).round() / 100.0).clamp(0.0, 100.0);
-                    format!("{}%", fmt_num(next_pct))
-                }
-                (Fmt::Oklch, 1) => {
-                    let next_c = (((parsed[1] + dir * (0.01 * mult)) * 1000.0).round() / 1000.0).clamp(0.0, 0.4);
-                    designos_export::util::num(next_c)
-                }
-                (Fmt::Oklch, 2) => {
-                    let raw_h = ((parsed[2] + dir * (1.0 * mult)) * 100.0).round() / 100.0;
-                    let mut next_h = ((raw_h.rem_euclid(360.0)) * 100.0).round() / 100.0;
-                    if next_h >= 360.0 || next_h == 0.0 {
-                        next_h = 0.0;
-                    }
-                    fmt_num(next_h)
-                }
-                (Fmt::Oklab, 1 | 2) => {
-                    let next_ab = (((parsed[k] + dir * (0.01 * mult)) * 1000.0).round() / 1000.0).clamp(-0.4, 0.4);
-                    designos_export::util::num(next_ab)
-                }
-                _ => fmt_ok_token(k, parsed[k]),
-            }
+            stepped.clone()
         } else {
             let tok = tokens[k].2;
             if tok == fmt_ok_token(k, cur_triple[k]) || tok == fmt_ok_channel(k, cur_triple[k]) {
@@ -1840,6 +1836,45 @@ fn step_ok_text(fmt: Fmt, cur_triple: [f32; 3], text: &str, caret_char: usize, d
     Some((next_text, new_caret))
 }
 
+/// Component `k` of `fmt`'s triple, whose parsed value is `value` (`L` in `0..=1`), stepped by `dir * mult`
+/// base steps (L 1 point, C / a / b 0.01, H 1 degree), clamped (H wraps), as field text.
+fn stepped_ok_token(fmt: Fmt, k: usize, value: f32, dir: f32, mult: f32) -> String {
+    match (fmt, k) {
+        (Fmt::Oklch | Fmt::Oklab, 0) => {
+            let l_pct = value * 100.0;
+            let next_pct = (((l_pct + dir * (1.0 * mult)) * 100.0).round() / 100.0).clamp(0.0, 100.0);
+            format!("{}%", fmt_num(next_pct))
+        }
+        (Fmt::Oklch, 1) => {
+            let next_c = (((value + dir * (0.01 * mult)) * 1000.0).round() / 1000.0).clamp(0.0, 0.4);
+            designos_export::util::num(next_c)
+        }
+        (Fmt::Oklch, 2) => {
+            let raw_h = ((value + dir * (1.0 * mult)) * 100.0).round() / 100.0;
+            let mut next_h = ((raw_h.rem_euclid(360.0)) * 100.0).round() / 100.0;
+            if next_h >= 360.0 || next_h == 0.0 {
+                next_h = 0.0;
+            }
+            fmt_num(next_h)
+        }
+        (Fmt::Oklab, 1 | 2) => {
+            let next_ab = (((value + dir * (0.01 * mult)) * 1000.0).round() / 1000.0).clamp(-0.4, 0.4);
+            designos_export::util::num(next_ab)
+        }
+        _ => fmt_ok_token(k, value),
+    }
+}
+
+/// Keeps the keyboard focus on the field `id` when an arrow key goes to it, where egui would move the focus
+/// to the next widget. Escape is not part of the filter: it drops the focus as in every other field, so the
+/// shell's Escape action still runs.
+fn keep_focus_on_arrows(ctx: &egui::Context, id: Id) {
+    ctx.memory_mut(|m| {
+        m.move_focus(egui::FocusDirection::None);
+        m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() });
+    });
+}
+
 /// OKLCH / OKLAB field cell with `ArrowUp`/`ArrowDown` (`×1`, `Shift ×10`, `Alt ×0.1`) per-component stepping.
 fn grouped_ok_text(ui: &mut Ui, r: Rect, key: impl Key, st: &State, display: &str, radius: egui::CornerRadius, pad: f32) -> Option<String> {
     let id = ui.id().with(("txt", key));
@@ -1851,10 +1886,6 @@ fn grouped_ok_text(ui: &mut Ui, r: Rect, key: impl Key, st: &State, display: &st
         ui.painter().rect_stroke(r, radius, Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
     }
     let step_id = id.with("ok_step");
-    let cur_triple = match st.fmt {
-        Fmt::Oklab => st.oklab,
-        _ => st.oklch,
-    };
     let mut stepped: Option<(String, egui::text::CCursorRange)> = None;
     if focused {
         let mut arrow: Option<(f32, egui::Modifiers)> = None;
@@ -1880,7 +1911,7 @@ fn grouped_ok_text(ui: &mut Ui, r: Rect, key: impl Key, st: &State, display: &st
                 .and_then(|s| s.cursor.char_range())
                 .map(|r| r.primary.index.0.min(r.secondary.index.0))
                 .unwrap_or(0);
-            if let Some((next_text, next_caret)) = step_ok_text(st.fmt, cur_triple, &cur_buf, caret_char, dir, mult) {
+            if let Some((next_text, next_caret)) = step_ok_text(st, &cur_buf, caret_char, dir, mult) {
                 let range = egui::text::CCursorRange::one(egui::text::CCursor::new(next_caret));
                 stepped = Some((next_text, range));
             }
@@ -1898,11 +1929,8 @@ fn grouped_ok_text(ui: &mut Ui, r: Rect, key: impl Key, st: &State, display: &st
             d.insert_temp(step_id, (st.fmt, next_disp, next_text.clone()));
         });
         let res = field::edit_text(ui, r, id, &next_text, theme::font_body(), theme::TEXT, pad);
-        ui.memory_mut(|m| {
-            m.request_focus(id);
-            m.move_focus(egui::FocusDirection::None);
-            m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, escape: true, ..Default::default() });
-        });
+        ui.memory_mut(|m| m.request_focus(id));
+        keep_focus_on_arrows(ui.ctx(), id);
         let mut state = egui::widgets::text_edit::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
         state.cursor.set_char_range(Some(next_range));
         state.store(ui.ctx(), id);
@@ -1918,10 +1946,7 @@ fn grouped_ok_text(ui: &mut Ui, r: Rect, key: impl Key, st: &State, display: &st
     let eff_display = live_display.as_deref().unwrap_or(display);
     let res = field::edit_text(ui, r, id, eff_display, theme::font_body(), theme::TEXT, pad);
     if ui.memory(|m| m.has_focus(id)) {
-        ui.memory_mut(|m| {
-            m.move_focus(egui::FocusDirection::None);
-            m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, escape: true, ..Default::default() });
-        });
+        keep_focus_on_arrows(ui.ctx(), id);
     }
     res
 }
@@ -3126,6 +3151,171 @@ mod tests {
         }
     }
 
+    /// What one key press left behind in the OKLCH / OKLAB field.
+    struct OkPress {
+        buf: String,
+        caret: usize,
+        rgba: [u8; 4],
+        st: State,
+        changed: bool,
+        focused: bool,
+    }
+
+    /// A fresh picker on a solid `rgb` fill in `fmt`, its OKLCH / OKLAB field focused for several frames and holding
+    /// `text` with the caret at `caret`; presses each key of `keys` in its own frame and reports the field after each.
+    fn press_in_ok_field(fmt: Fmt, rgb: [u8; 3], text: &str, caret: usize, keys: &[(egui::Key, egui::Modifiers)]) -> Vec<OkPress> {
+        let ctx = test_ctx();
+        let mut paint = solid(rgb[0], rgb[1], rgb[2], 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = fmt;
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, caret);
+        ctx.data_mut(|d| d.insert_temp(id, text.to_string()));
+        keys.iter()
+            .map(|&(key, modifiers)| {
+                let out = press_picker_key(&ctx, key, modifiers, &mut paint, &mut st);
+                let (buf, caret) = picker_ok_buf_and_caret(&ctx, id);
+                OkPress { buf, caret, rgba: active_rgba(&paint, 0), st: st.clone(), changed: out.changed, focused: ctx.memory(|m| m.has_focus(id)) }
+            })
+            .collect()
+    }
+
+    /// The colour and state Enter commits on `text` in a fresh picker on a solid `rgb` fill in `fmt`.
+    fn enter_commits(fmt: Fmt, rgb: [u8; 3], text: &str) -> ([u8; 4], State) {
+        let ctx = test_ctx();
+        let mut paint = solid(rgb[0], rgb[1], rgb[2], 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = fmt;
+        let _ = commit_picker_ok(&ctx, text, &mut paint, &mut st);
+        (active_rgba(&paint, 0), st)
+    }
+
+    const UP: (egui::Key, egui::Modifiers) = (egui::Key::ArrowUp, egui::Modifiers::NONE);
+    const DOWN: (egui::Key, egui::Modifiers) = (egui::Key::ArrowDown, egui::Modifiers::NONE);
+    const SHIFT_UP: (egui::Key, egui::Modifiers) = (egui::Key::ArrowUp, egui::Modifiers { shift: true, ..egui::Modifiers::NONE });
+    const SHIFT_DOWN: (egui::Key, egui::Modifiers) = (egui::Key::ArrowDown, egui::Modifiers { shift: true, ..egui::Modifiers::NONE });
+
+    /// Every press committed exactly what Enter commits on the text the field then holds.
+    fn assert_commits_like_enter(fmt: Fmt, rgb: [u8; 3], presses: &[OkPress]) {
+        for p in presses {
+            let (rgba, st) = enter_commits(fmt, rgb, &p.buf);
+            assert_eq!(p.rgba, rgba, "the colour after a step must be the one Enter commits on {:?}", p.buf);
+            for i in 0..3 {
+                assert!((p.st.oklch[i] - st.oklch[i]).abs() < 1e-4, "OKLCH[{i}] after a step on {:?}: {:?} vs Enter {:?}", p.buf, p.st.oklch, st.oklch);
+                assert!((p.st.oklab[i] - st.oklab[i]).abs() < 1e-4, "OKLAB[{i}] after a step on {:?}: {:?} vs Enter {:?}", p.buf, p.st.oklab, st.oklab);
+            }
+        }
+    }
+
+    const BLUE: [u8; 3] = [52, 120, 200];
+
+    #[test]
+    fn an_oklab_function_in_the_oklch_field_keeps_its_form_and_steps_in_oklab() {
+        // Caret on L (char 7 of "oklab(50% 0.2 -0.1)"): two presses, wrapper kept both times.
+        let p = press_in_ok_field(Fmt::Oklch, BLUE, "oklab(50% 0.2 -0.1)", 7, &[UP, UP]);
+        assert_eq!(p[0].buf, "oklab(51% 0.2 -0.1)");
+        assert_eq!(p[1].buf, "oklab(52% 0.2 -0.1)");
+        for q in &p {
+            assert!(q.changed && q.focused);
+            assert!((6..=9).contains(&q.caret), "caret must stay on L, got {}", q.caret);
+        }
+        assert!((p[0].st.oklab[0] - 0.51).abs() < 1e-5 && (p[0].st.oklab[1] - 0.2).abs() < 1e-5 && (p[0].st.oklab[2] + 0.1).abs() < 1e-5);
+        // The bare L step in OKLCH would read b = -0.1 as a hue and land on 359.9.
+        assert!((p[0].st.oklch[2] - 359.9).abs() > 1.0, "hue {} must come from a = 0.2, b = -0.1", p[0].st.oklch[2]);
+        assert_commits_like_enter(Fmt::Oklch, BLUE, &p);
+
+        // Caret on b (char 16): b steps by 0.01 in OKLAB, where OKLCH would step a hue by 1 degree.
+        let p = press_in_ok_field(Fmt::Oklch, BLUE, "oklab(50% 0.2 -0.1)", 16, &[UP, DOWN, DOWN]);
+        assert_eq!(p[0].buf, "oklab(50% 0.2 -0.09)");
+        assert_eq!(p[1].buf, "oklab(50% 0.2 -0.1)");
+        assert_eq!(p[2].buf, "oklab(50% 0.2 -0.11)");
+        for q in &p {
+            assert!((14..=19).contains(&q.caret), "caret must stay on b, got {}", q.caret);
+        }
+        assert_commits_like_enter(Fmt::Oklch, BLUE, &p);
+
+        // a and b clamp at +-0.4 in OKLAB.
+        let p = press_in_ok_field(Fmt::Oklch, BLUE, "oklab(50% 0.2 -0.4)", 16, &[DOWN]);
+        assert_eq!(p[0].buf, "oklab(50% 0.2 -0.4)");
+        let p = press_in_ok_field(Fmt::Oklch, BLUE, "oklab(50% 0.4 -0.1)", 11, &[SHIFT_UP]);
+        assert_eq!(p[0].buf, "oklab(50% 0.4 -0.1)");
+        assert_commits_like_enter(Fmt::Oklch, BLUE, &p);
+    }
+
+    #[test]
+    fn an_oklch_function_in_the_oklab_field_keeps_its_form_and_steps_in_oklch() {
+        let p = press_in_ok_field(Fmt::Oklab, BLUE, "oklch(50% 0.2 120)", 7, &[UP, UP]);
+        assert_eq!(p[0].buf, "oklch(51% 0.2 120)");
+        assert_eq!(p[1].buf, "oklch(52% 0.2 120)");
+        assert!((p[0].st.oklch[0] - 0.51).abs() < 1e-5 && (p[0].st.oklch[1] - 0.2).abs() < 1e-5 && (p[0].st.oklch[2] - 120.0).abs() < 1e-3);
+        assert_commits_like_enter(Fmt::Oklab, BLUE, &p);
+
+        // Caret on H (char 15): a hue steps by 1 degree and wraps, where OKLAB would clamp b at 0.4.
+        let p = press_in_ok_field(Fmt::Oklab, BLUE, "oklch(50% 0.2 120)", 15, &[UP, UP, DOWN]);
+        assert_eq!(p[0].buf, "oklch(50% 0.2 121)");
+        assert_eq!(p[1].buf, "oklch(50% 0.2 122)");
+        assert_eq!(p[2].buf, "oklch(50% 0.2 121)");
+        for q in &p {
+            assert!((14..=17).contains(&q.caret), "caret must stay on H, got {}", q.caret);
+        }
+        assert_commits_like_enter(Fmt::Oklab, BLUE, &p);
+        let p = press_in_ok_field(Fmt::Oklab, BLUE, "oklch(50% 0.2 359)", 15, &[UP]);
+        assert_eq!(p[0].buf, "oklch(50% 0.2 0)");
+        assert_commits_like_enter(Fmt::Oklab, BLUE, &p);
+
+        // Caret on C (char 11): C clamps at 0.4.
+        let p = press_in_ok_field(Fmt::Oklab, BLUE, "oklch(50% 0.4 120)", 11, &[UP]);
+        assert_eq!(p[0].buf, "oklch(50% 0.4 120)");
+    }
+
+    #[test]
+    fn a_function_in_its_own_space_keeps_its_wrapper_name_and_alpha() {
+        let p = press_in_ok_field(Fmt::Oklch, BLUE, "oklch(50% 0.2 120 / 0.5)", 7, &[UP]);
+        assert_eq!(p[0].buf, "oklch(51% 0.2 120 / 0.5)");
+        assert_eq!(p[0].rgba[3], 128, "the alpha of the text goes through the commit");
+        assert_commits_like_enter(Fmt::Oklch, BLUE, &p);
+
+        let p = press_in_ok_field(Fmt::Oklab, BLUE, "OKLAB(50% 0.2 -0.1)", 11, &[UP]);
+        assert_eq!(p[0].buf, "OKLAB(50% 0.21 -0.1)");
+        assert_commits_like_enter(Fmt::Oklab, BLUE, &p);
+
+        let p = press_in_ok_field(Fmt::Oklch, BLUE, "oklch( 50%, 0.2, 120 )", 9, &[UP]);
+        assert_eq!(p[0].buf, "oklch( 51%, 0.2, 120 )");
+    }
+
+    #[test]
+    fn oklch_chroma_stops_at_0_4_going_up_and_at_0_going_down() {
+        let up = press_in_ok_field(Fmt::Oklch, BLUE, "56.93% 0.14 254.47", 9, &[SHIFT_UP, SHIFT_UP, SHIFT_UP, UP, SHIFT_UP, UP]);
+        let bufs: Vec<&str> = up.iter().map(|p| p.buf.as_str()).collect();
+        assert_eq!(bufs, ["56.93% 0.24 254.47", "56.93% 0.34 254.47", "56.93% 0.4 254.47", "56.93% 0.4 254.47", "56.93% 0.4 254.47", "56.93% 0.4 254.47"]);
+        assert!((up[5].st.oklch[1] - 0.4).abs() < 1e-6);
+        assert!(up.iter().all(|p| p.focused));
+
+        let down = press_in_ok_field(Fmt::Oklch, BLUE, "56.93% 0.14 254.47", 9, &[SHIFT_DOWN, DOWN, DOWN, DOWN, SHIFT_DOWN, DOWN]);
+        let bufs: Vec<&str> = down.iter().map(|p| p.buf.as_str()).collect();
+        assert_eq!(bufs, ["56.93% 0.04 254.47", "56.93% 0.03 254.47", "56.93% 0.02 254.47", "56.93% 0.01 254.47", "56.93% 0 254.47", "56.93% 0 254.47"]);
+        assert!(down[5].st.oklch[1].abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_caret_after_the_slash_steps_nothing_and_a_caret_on_it_steps_the_last_component() {
+        let text = "56.93% 0.14 254.47 / 0.5";
+        let before = State::new(&solid(52, 120, 200, 1.0));
+        // Char 21 is the "0" of the alpha.
+        let p = press_in_ok_field(Fmt::Oklch, BLUE, text, 21, &[UP, SHIFT_DOWN]);
+        for q in &p {
+            assert_eq!(q.buf, text, "a step must not touch the text when the caret is in the alpha");
+            assert!(!q.changed, "no step, no change");
+            assert!(q.focused, "the field keeps the focus");
+            assert_eq!(q.st.oklch, before.oklch);
+            assert_eq!(q.st.oklab, before.oklab);
+            assert_eq!(q.rgba, [52, 120, 200, 255]);
+        }
+        // Char 19 is the slash itself: it belongs to the component on its left.
+        let p = press_in_ok_field(Fmt::Oklch, BLUE, text, 19, &[UP]);
+        assert_eq!(p[0].buf, "56.93% 0.14 255.47 / 0.5");
+        assert!(p[0].changed);
+    }
+
     fn apply_textures_delta(atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>, delta: &egui::TexturesDelta) {
         for (tid, d) in &delta.set {
             let [w, h] = d.image.size();
@@ -3324,14 +3514,14 @@ mod tests {
         assert_eq!(crop_before.dimensions(), crop_after.dimensions());
         assert_ne!(crop_before.as_raw(), crop_after.as_raw(), "rendered picker crop must visually change after 3 ArrowUp presses on H");
 
-        if let Ok(ev_dir) = std::env::var("DESIGNOS_1459_EVIDENCE_DIR") {
+        if let Ok(ev_dir) = std::env::var("DESIGNOS_PICKER_EVIDENCE_DIR") {
             let ev = std::path::Path::new(&ev_dir);
             crop_before.save(ev.join("picker-oklch-before-3-arrowup-h.png")).expect("save before crop");
             crop_after.save(ev.join("picker-oklch-after-3-arrowup-h.png")).expect("save after crop");
-            if let Ok(full_dir) = std::env::var("DESIGNOS_1459_FULL_DIR") {
+            if let Ok(full_dir) = std::env::var("DESIGNOS_PICKER_FULL_DIR") {
                 let fd = std::path::Path::new(&full_dir);
-                full_before.save(fd.join("1459-picker-oklch-before.png")).expect("save full before");
-                full_after.save(fd.join("1459-picker-oklch-after-3-arrowup-h.png")).expect("save full after");
+                full_before.save(fd.join("picker-oklch-before.png")).expect("save full before");
+                full_after.save(fd.join("picker-oklch-after-3-arrowup-h.png")).expect("save full after");
             }
         }
     }
