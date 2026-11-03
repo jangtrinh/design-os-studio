@@ -657,6 +657,9 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             } else if let Some(k) = component_key {
                 m.insert("componentKey".into(), k.clone().into());
             }
+            if node.component.expose_nested_instances {
+                m.insert("propsAreBubbled".into(), true.into());
+            }
             let ovs = instance_overrides(doc, id);
             if !ovs.is_empty() {
                 m.insert("overrides".into(), Value::Array(ovs));

@@ -1871,6 +1871,28 @@ impl<'a> Ctx<'a> {
                     n.component.source = Some(*comp);
                 }
             }
+            let mut pair_stack = vec![(*inst, *comp)];
+            while let Some((ic_parent, cc_parent)) = pair_stack.pop() {
+                let ic_kids = self.doc.get(ic_parent).map(|n| n.children.clone()).unwrap_or_default();
+                let cc_kids = self.doc.get(cc_parent).map(|n| n.children.clone()).unwrap_or_default();
+                for (idx, ic) in ic_kids.into_iter().enumerate() {
+                    let Some(in_node) = self.doc.get(ic).cloned() else { continue };
+                    let matched_cc = cc_kids
+                        .get(idx)
+                        .copied()
+                        .filter(|&cc| self.doc.get(cc).is_some_and(|cn| cn.name == in_node.name))
+                        .or_else(|| cc_kids.iter().copied().find(|&cc| self.doc.get(cc).is_some_and(|cn| cn.name == in_node.name)));
+                    let Some(cc) = matched_cc else { continue };
+                    if in_node.component.source.is_none() || in_node.component.source == instance_component(&in_node) {
+                        if let Some(m) = self.doc.get_mut(ic) {
+                            m.component.source = Some(cc);
+                        }
+                    }
+                    if !matches!(in_node.kind, NodeKind::Instance { .. }) && in_node.kind.is_container() {
+                        pair_stack.push((ic, cc));
+                    }
+                }
+            }
             if self.node_lock_fields.contains(inst) {
                 let differs = self.doc.get(*inst).map(|n| n.lock_aspect) != self.doc.get(*comp).map(|n| n.lock_aspect);
                 if differs {
@@ -2442,6 +2464,7 @@ impl<'a> Ctx<'a> {
             n.component.grid_align_overrides = [false, false];
             n.component.layout_cleared = false;
             n.component.props.clear();
+            n.component.expose_nested_instances = false;
             let container = n.kind.is_container();
             match parent_idx {
                 Some(idx) => staged[idx].children.push(id),

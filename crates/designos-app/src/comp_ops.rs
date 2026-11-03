@@ -458,6 +458,23 @@ impl App {
         }
     }
 
+    /// Sets (or with `None` resets) a component property on an instance nested in an outer instance: an edit made from
+    /// the outer instance's panel of exposed properties. Text that grew or shrank is refitted in the outer instance.
+    pub fn set_nested_instance_prop(&mut self, nested: NodeId, name: &str, value: Option<PropValue>) {
+        let mut tx = Tx::new();
+        let cmd = set_nested_instance_prop(&mut self.doc, nested, name, value);
+        if self.push_cmd(&mut tx, cmd) {
+            let outer = instance_root_of(&self.doc, nested).unwrap_or(nested);
+            self.refit_texts(&mut tx, outer);
+            self.run_tx(tx);
+        }
+    }
+
+    /// Sets whether a primary nested instance inside a main component exposes its properties on outer instances.
+    pub fn set_expose_nested_instance(&mut self, nested_inst: NodeId, expose: bool) {
+        self.comp_edit(|d| set_expose_nested_instance(d, nested_inst, expose));
+    }
+
     /// Swaps an instance to another component.
     pub fn swap_instance(&mut self, inst: NodeId, comp: NodeId) {
         let mut tx = Tx::new();
