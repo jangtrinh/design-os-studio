@@ -52,14 +52,15 @@ pub fn toggle_all(kind: VariableKind, scopes: &[String]) -> Vec<String> {
 pub fn toggle_scope(kind: VariableKind, scopes: &[String], id: &str) -> Vec<String> {
     let all: Vec<String> = scope_options(kind).iter().map(|o| o.2.to_string()).collect();
     let mut cur = if scope_all(scopes) { all.clone() } else { scopes.to_vec() };
-    if let Some(i) = cur.iter().position(|s| s == id) {
-        if cur.len() > 1 {
-            cur.remove(i);
+    if has_scope(&cur, id) {
+        let rest: Vec<String> = cur.iter().filter(|s| !same_scope(s, id)).cloned().collect();
+        if !rest.is_empty() {
+            cur = rest;
         }
     } else {
         cur.push(id.to_string());
     }
-    if all.iter().all(|a| cur.contains(a)) {
+    if all.iter().all(|a| has_scope(&cur, a)) {
         vec![]
     } else {
         cur
@@ -68,6 +69,21 @@ pub fn toggle_scope(kind: VariableKind, scopes: &[String], id: &str) -> Vec<Stri
 
 fn scope_all(scopes: &[String]) -> bool {
     scopes.is_empty() || scopes.iter().any(|s| s == "ALL_SCOPES")
+}
+
+/// Whether `scope` is the scope the row `id` stands for. The stroke colour scope is `STROKE` in
+/// the `.fig` file and `STROKE_COLOR` in REST, so the Stroke row stands for both spellings.
+fn same_scope(scope: &str, id: &str) -> bool {
+    scope == id || (id == "STROKE_COLOR" && scope == "STROKE")
+}
+
+fn has_scope(scopes: &[String], id: &str) -> bool {
+    scopes.iter().any(|s| same_scope(s, id))
+}
+
+/// Whether the checkbox for scope `id` is on for a variable with these `scopes`.
+pub fn scope_on(scopes: &[String], id: &str) -> bool {
+    scope_all(scopes) || has_scope(scopes, id)
 }
 
 /// A scope row: the kit checkbox is the focusable control, and the row takes clicks on its label.
@@ -164,7 +180,7 @@ pub fn show(app: &mut App, ctx: &Context, g: &Geom, fr: &mut Frame) {
                 }
                 y += row_h;
                 for (_, label, id) in options {
-                    let on = all || var.scopes.iter().any(|s| s == id);
+                    let on = scope_on(&var.scopes, id);
                     let row = Rect::from_min_size(Pos2::new(full.left() + 8.0, y), Vec2::new(w - 16.0, row_h));
                     let r = Rect::from_min_max(row.min + Vec2::new(16.0, 0.0), row.max);
                     if checkbox(ui, r, id, label, on) {
@@ -236,5 +252,44 @@ mod tests {
         // the last property cannot be unchecked
         assert_eq!(toggle_scope(k, &["ALL_FILLS".to_string()], "ALL_FILLS"), vec!["ALL_FILLS".to_string()]);
         assert!(toggle_all(k, &s).is_empty());
+    }
+
+    fn strings(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_stroke_row_is_on_for_either_stroke_colour_spelling() {
+        for spelling in ["STROKE", "STROKE_COLOR"] {
+            assert!(scope_on(&strings(&["ALL_FILLS", spelling]), "STROKE_COLOR"), "{spelling} keeps the Stroke row on");
+            assert!(scope_on(&strings(&[spelling]), "STROKE_COLOR"), "{spelling} alone keeps the Stroke row on");
+            assert!(!scope_on(&strings(&[spelling]), "ALL_FILLS"), "{spelling} leaves the fill rows off");
+        }
+        assert!(!scope_on(&strings(&["ALL_FILLS"]), "STROKE_COLOR"));
+        assert!(scope_on(&[], "STROKE_COLOR"), "no scopes means every row is on");
+    }
+
+    #[test]
+    fn toggling_the_stroke_row_off_removes_both_spellings() {
+        let k = VariableKind::Color;
+        assert_eq!(toggle_scope(k, &strings(&["ALL_FILLS", "STROKE"]), "STROKE_COLOR"), strings(&["ALL_FILLS"]));
+        assert_eq!(toggle_scope(k, &strings(&["ALL_FILLS", "STROKE_COLOR"]), "STROKE_COLOR"), strings(&["ALL_FILLS"]));
+        assert_eq!(toggle_scope(k, &strings(&["STROKE", "ALL_FILLS", "STROKE_COLOR"]), "STROKE_COLOR"), strings(&["ALL_FILLS"]));
+        // the last property cannot be unchecked, whichever spelling holds it
+        assert_eq!(toggle_scope(k, &strings(&["STROKE"]), "STROKE_COLOR"), strings(&["STROKE"]));
+        assert_eq!(toggle_scope(k, &strings(&["STROKE", "STROKE_COLOR"]), "STROKE_COLOR"), strings(&["STROKE", "STROKE_COLOR"]));
+    }
+
+    #[test]
+    fn toggling_the_stroke_row_on_adds_the_rest_spelling() {
+        let k = VariableKind::Color;
+        assert_eq!(toggle_scope(k, &strings(&["ALL_FILLS"]), "STROKE_COLOR"), strings(&["ALL_FILLS", "STROKE_COLOR"]));
+    }
+
+    #[test]
+    fn every_row_on_with_the_editor_spelling_collapses_to_all() {
+        let k = VariableKind::Color;
+        let nearly_all = strings(&["ALL_FILLS", "FRAME_FILL", "SHAPE_FILL", "TEXT_FILL", "STROKE"]);
+        assert!(toggle_scope(k, &nearly_all, "EFFECT_COLOR").is_empty());
     }
 }
