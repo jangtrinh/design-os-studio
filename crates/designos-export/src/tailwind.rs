@@ -348,8 +348,9 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
             let col_tracks = resolved_grid_col_tracks(doc, n, al);
             c.push("grid".into());
             c.push(template_class("grid-cols", &col_tracks, grid_column_count(al), STOCK_GRID_COLS));
-            if al.grid_rows > 0 {
-                c.push(template_class("grid-rows", &al.grid_row_tracks, al.grid_rows as usize, STOCK_GRID_ROWS));
+            let (row_tracks, row_count) = resolved_grid_row_tracks(doc, n, al);
+            if row_count > 0 {
+                c.push(template_class("grid-rows", &row_tracks, row_count, STOCK_GRID_ROWS));
             }
             if grid_packs_auto_rows(doc, n, al) {
                 c.push("content-start".into());

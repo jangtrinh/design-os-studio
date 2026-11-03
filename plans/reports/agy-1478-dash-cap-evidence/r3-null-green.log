@@ -1,0 +1,29 @@
+# HEAD 6540b6ecf7fa10c17725ae677e23cefb674c7704  branch jangtrinh/agy-1478-dash-cap
+# git status --short -- crates (empty = committed tree):
+# ---
+# null control: the committed tree, no mutation
+## designos-render
+test dashed_line_and_caps ... ok
+test thin_inside_dashed_rect_keeps_stroke ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+test inside_dashed_ellipse_round_cap_extends_past_dash_end ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+render_rc=0
+## designos-gpu (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+thin_inside_dashed_rect: mismatch 0.7955% (42 px of 5280) at tolerance 8, ssim 0.9991
+inside_dashed_ellipse_round_cap: mismatch 3.1000% (310 px of 10000) at tolerance 8, ssim 0.9962
+thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+inside_dashed_ellipse_butt_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+inside_dashed_ellipse_butt_cap: 0.0000% with AA pixels forgiven (0 px)
+test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.20s
+gpu_rc=0

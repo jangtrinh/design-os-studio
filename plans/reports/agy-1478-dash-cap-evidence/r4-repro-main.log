@@ -1,0 +1,6 @@
+# designos-render/src/{lib,outline,vectorops}.rs of origin/main e7ace20b; everything else at HEAD a0b4f32b
+ crates/designos-gpu/tests/fidelity.rs  | 196 +++++++++++++++++++++++++++++++++
+ crates/designos-render/tests/render.rs | 171 ++++++++++++++++++++++++++++
+ 2 files changed, 367 insertions(+)
+(files differing from e7ace20b outside tests/fig/app listed above; empty = identical)
+test result: ok. 49 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.84s

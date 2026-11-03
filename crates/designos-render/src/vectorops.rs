@@ -325,10 +325,11 @@ fn cap_polygons(sub: &d::Path, w: f32, start_cap: d::StrokeCap, end_cap: d::Stro
 }
 
 /// Cap shapes to draw over a butt-capped stroke of a vector whose vertices
-/// carry their own stroke caps; `None` when no vertex overrides the cap.
+/// carry their own stroke caps; `None` when no vertex overrides the cap or when
+/// the stroke is dashed (dashed strokes cap every dash with `Stroke::cap`).
 pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
     let NodeKind::Vector { network: Some(net), .. } = &n.kind else { return None };
-    if !net.is_valid() || !net.vertices.iter().any(|v| v.cap.is_some()) || n.stroke.weight <= 0.0 {
+    if crate::outline::has_dashes(&n.stroke) || !net.is_valid() || !net.vertices.iter().any(|v| v.cap.is_some()) || n.stroke.weight <= 0.0 {
         return None;
     }
     let ends = net.open_chain_ends();
@@ -364,11 +365,34 @@ pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
 /// stroker's own offset curves); inside/outside alignment and mixed caps go
 /// through polygon clipping and are re-fitted to curves.
 pub fn outline_stroke(paths: &[d::Path], stroke: &d::Stroke, network: Option<&VectorNetwork>) -> Vec<d::Path> {
+    outline_stroke_along(paths, stroke, network, None)
+}
+
+/// [`outline_stroke`] of the geometry of node `n`, expanding a stroke the way the canvas strokes it.
+/// A rectangle-like shape with a dashed `Inside` or `Outside` stroke is stroked along its inset or
+/// outset outline at the stroke's own weight (so each dash cap is `w` wide) and clipped to its side
+/// of the boundary; every other node goes through [`outline_stroke`] unchanged. Which shapes take
+/// the inset or outset outline is decided by the node's own geometry, exactly as for the canvas, so
+/// a vector that merely looks like a rectangle keeps the doubled boundary stroke.
+/// Empty when the node has no geometry or no stroke weight.
+pub fn outline_node_stroke(doc: &Document, n: &Node) -> Vec<d::Path> {
+    let Some(paths) = node_paths(doc, n) else { return vec![] };
+    let network = match &n.kind {
+        NodeKind::Vector { network: Some(net), .. } => Some(net),
+        _ => None,
+    };
+    let aligned_outline = node_shape(doc, n, 0.05).and_then(|sh| crate::outline::dashed_rect_stroke_path(n, &sh));
+    outline_stroke_along(&paths, &n.stroke, network, aligned_outline.as_ref())
+}
+
+/// `aligned_outline` replaces the closed sub-paths as the line that an `Inside` or `Outside`
+/// stroke follows, at the stroke's own weight instead of twice that; the clip to the shape stays.
+fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&VectorNetwork>, aligned_outline: Option<&sk::Path>) -> Vec<d::Path> {
     let w = stroke.weight;
     if w <= 0.0 || paths.is_empty() {
         return vec![];
     }
-    let per_vertex_caps = network.is_some_and(|n| n.vertices.iter().any(|v| v.cap.is_some()));
+    let per_vertex_caps = !crate::outline::has_dashes(stroke) && network.is_some_and(|n| n.vertices.iter().any(|v| v.cap.is_some()));
     let chain_caps: Vec<(d::StrokeCap, d::StrokeCap)> = match network {
         Some(n) if per_vertex_caps => {
             n.open_chain_ends().iter().map(|(a, b)| (n.vertices[*a].cap.unwrap_or(stroke.cap), n.vertices[*b].cap.unwrap_or(stroke.cap))).collect()
@@ -412,11 +436,22 @@ pub fn outline_stroke(paths: &[d::Path], stroke: &d::Stroke, network: Option<&Ve
         if !closed_subs.is_empty() {
             let fill = paths_to_shapes(&[d::Path { cmds: closed_subs.iter().flat_map(|c| c.cmds.clone()).collect(), fill_rule: p.fill_rule }], 0.05);
             let mut ring: Shapes = vec![];
-            for c in &closed_subs {
-                let Some(skp) = vector_paths(std::slice::from_ref(c)).paths.into_iter().next().map(|x| x.0) else { continue };
-                let Some(o) = expand(&skp, &st_double) else { continue };
-                let polys = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
-                ring = if ring.is_empty() { polys } else { ring.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
+            if let Some(outline) = aligned_outline {
+                if let Some(o) = expand(outline, &st_center) {
+                    ring = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
+                    if !leaves_its_side(&ring, &fill, &closed_subs, stroke.align) {
+                        // already on its side of the shape: keep the stroker's exact curves
+                        out.push(sk_to_doc(&o, d::FillRule::NonZero));
+                        continue;
+                    }
+                }
+            } else {
+                for c in &closed_subs {
+                    let Some(skp) = vector_paths(std::slice::from_ref(c)).paths.into_iter().next().map(|x| x.0) else { continue };
+                    let Some(o) = expand(&skp, &st_double) else { continue };
+                    let polys = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
+                    ring = if ring.is_empty() { polys } else { ring.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
+                }
             }
             let rule = if stroke.align == d::StrokeAlign::Inside { OverlayRule::Intersect } else { OverlayRule::Difference };
             let clipped = ring.overlay(&fill, rule, FillRule::NonZero);
@@ -424,6 +459,32 @@ pub fn outline_stroke(paths: &[d::Path], stroke: &d::Stroke, network: Option<&Ve
         }
     }
     out
+}
+
+/// How far (document units) a stroke may reach across the boundary of its shape before it counts as
+/// crossing it: flattening the stroke and the shape leaves differences well below this.
+const SIDE_SLACK: f32 = 0.2;
+
+/// Whether the stroke `ring` reaches onto the wrong side of the shape `fill` (outside it for an
+/// `Inside` stroke, into it for an `Outside` one) by more than [`SIDE_SLACK`]. `boundary` holds the
+/// closed outlines of the shape.
+fn leaves_its_side(ring: &Shapes, fill: &Shapes, boundary: &[d::Path], align: d::StrokeAlign) -> bool {
+    let st = sk::Stroke { width: SIDE_SLACK * 2.0, ..Default::default() };
+    let mut band: Shapes = vec![];
+    for c in boundary {
+        let Some(skp) = vector_paths(std::slice::from_ref(c)).paths.into_iter().next().map(|x| x.0) else { continue };
+        let Some(o) = expand(&skp, &st) else { continue };
+        let polys = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
+        band = if band.is_empty() { polys } else { band.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
+    }
+    let wrong = if align == d::StrokeAlign::Inside {
+        let allowed = fill.overlay(&band, OverlayRule::Union, FillRule::NonZero);
+        ring.overlay(&allowed, OverlayRule::Difference, FillRule::NonZero)
+    } else {
+        let forbidden = fill.overlay(&band, OverlayRule::Difference, FillRule::NonZero);
+        ring.overlay(&forbidden, OverlayRule::Intersect, FillRule::NonZero)
+    };
+    !wrong.is_empty()
 }
 
 // ---------------------------------------------------------------- flatten

@@ -2972,6 +2972,40 @@ impl<'a> Ctx<'a> {
                 _ => StrokeAlign::Inside,
             };
         }
+        if let Some(c) = fstr(set, "strokeCap") {
+            n.stroke.cap = match c {
+                "ROUND" => StrokeCap::Round,
+                "SQUARE" => StrokeCap::Square,
+                _ => StrokeCap::None,
+            };
+            if !has("strokeGeometry") {
+                n.stroke_geometry = None;
+            }
+        }
+        if let Some(j) = fstr(set, "strokeJoin") {
+            n.stroke.join = match j {
+                "BEVEL" => StrokeJoin::Bevel,
+                "ROUND" => StrokeJoin::Round,
+                _ => StrokeJoin::Miter,
+            };
+            if !has("strokeGeometry") {
+                n.stroke_geometry = None;
+            }
+        }
+        if let Some(m) = fnum(set, "strokeMiterLimit") {
+            n.stroke.miter_limit = m.max(1.0);
+        } else if let Some(deg) = fnum(set, "strokeMiterAngle") {
+            let rad = (deg * 0.5).to_radians();
+            if rad > 1e-4 {
+                n.stroke.miter_limit = (1.0 / rad.sin()).clamp(1.0, 100.0);
+            }
+        }
+        if set.get("strokeDashes").is_some() {
+            n.stroke.dashes = farr(set, "strokeDashes").iter().filter_map(num).collect();
+            if !has("strokeGeometry") {
+                n.stroke_geometry = None;
+            }
+        }
         if set.get("effects").is_some() {
             n.effects = farr(set, "effects").iter().filter_map(parse_effect).collect();
         }
@@ -3632,9 +3666,16 @@ pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> 
         "relativeTransform" | "transform" => OverrideField::Transform,
         "fills" | "_clearFillStyle" if is_text => OverrideField::TextStyle,
         "fills" | "_clearFillStyle" => OverrideField::Fills,
-        "strokes" | "_clearStrokeStyle" | "strokeWeight" | "strokeAlign" | "strokeCap" | "strokeJoin" | "strokeDashes" | "individualStrokeWeights" => {
-            OverrideField::Stroke
-        }
+        "strokes"
+        | "_clearStrokeStyle"
+        | "strokeWeight"
+        | "strokeAlign"
+        | "strokeCap"
+        | "strokeJoin"
+        | "strokeDashes"
+        | "strokeMiterLimit"
+        | "strokeMiterAngle"
+        | "individualStrokeWeights" => OverrideField::Stroke,
         "effects" => OverrideField::Effects,
         "cornerRadius" | "rectangleCornerRadii" | "cornerSmoothing" => OverrideField::CornerRadii,
         "characters" => OverrideField::Characters,

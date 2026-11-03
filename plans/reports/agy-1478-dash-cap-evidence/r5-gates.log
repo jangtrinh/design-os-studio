@@ -1,0 +1,48 @@
+# round 5 gates on code commit ddf874215ab442bc5abe3defc4e9f99cbd204e74
+
+## fmt: cargo fmt --all -- --check
+fmt_rc=0
+
+## clippy_ws: cargo clippy --workspace --all-targets --locked
+lints (file:line): crates/designos-app/src/agent_permissions.rs:1176:9; crates/designos-app/src/agent_permissions.rs:1194:9; crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181:21
+clippy_ws_rc=0
+
+## test_render: cargo test -p designos-render --locked
+30 `test result` lines: 289 passed; 0 failed; 5 ignored
+failing tests: none
+test_render_rc=0
+
+## test_gpu: cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks
+16 `test result` lines: 105 passed; 0 failed; 0 ignored
+failing tests: none
+test_gpu_rc=0
+
+## test_export: cargo test -p designos-export --locked
+16 `test result` lines: 347 passed; 0 failed; 5 ignored
+failing tests: none
+test_export_rc=0
+
+## test_fig: cargo test -p designos-fig --locked
+48 `test result` lines: 527 passed; 0 failed; 6 ignored
+failing tests: none
+test_fig_rc=0
+
+## test_svg: cargo test -p designos-svg --locked
+6 `test result` lines: 24 passed; 0 failed; 1 ignored
+failing tests: none
+test_svg_rc=0
+
+## test_app_bin: cargo test -p designos-app --bin designos --locked
+3 `test result` lines: 4209 passed; 1 failed; 13 ignored
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+failing tests: vecops::tests::two_deferred_text_commands_both_convert_in_order
+test_app_bin_rc=101
+
+## test_ws_lib: cargo test --workspace --locked --lib
+12 `test result` lines: 1507 passed; 0 failed; 3 ignored
+failing tests: none
+test_ws_lib_rc=0
+
+## rerun of the one failure, each alone (cargo test -p designos-app --bin designos --locked two_deferred_text_commands_both_convert_in_order), twice:
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok (1.52 s)
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok (1.51 s)

@@ -1225,6 +1225,7 @@ mod palette_autofix_undo;
 mod panel_export;
 mod panel_keys;
 mod picker_libraries_tooltip;
+mod picker_ok_escape;
 mod proto;
 mod proto_vars;
 mod relayout_budget;

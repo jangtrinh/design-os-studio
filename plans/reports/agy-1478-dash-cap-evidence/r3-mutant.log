@@ -1,0 +1,60 @@
+# HEAD 6540b6ecf7fa10c17725ae677e23cefb674c7704  branch jangtrinh/agy-1478-dash-cap
+# git status --short -- crates (empty = committed tree):
+ M crates/designos-render/src/outline.rs
+# ---
+# mutant: node_stroke_style forces butt on dashed strokes wider than the weight (outline.rs taken from bd099a3a)
+## mutation (git diff against the committed tree)
+diff --git a/crates/designos-render/src/outline.rs b/crates/designos-render/src/outline.rs
+index 2015b8f5..e0d7edec 100644
+--- a/crates/designos-render/src/outline.rs
++++ b/crates/designos-render/src/outline.rs
+@@ -81,6 +81,9 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
+         dash: None,
+     };
+     if has_dashes(s) {
++        if width > s.weight {
++            st.line_cap = sk::LineCap::Butt;
++        }
+         let mut v = s.dashes.clone();
+         if v.len() % 2 == 1 {
+             v.extend_from_within(..);
+## designos-render
+test dashed_line_and_caps ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+test thin_inside_dashed_rect_keeps_stroke ... FAILED
+test inside_dashed_ellipse_round_cap_extends_past_dash_end ... FAILED
+test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+thread 'thin_inside_dashed_rect_keeps_stroke' (76637311) panicked at crates/designos-render/tests/render.rs:820:5:
+assertion `left == right` failed: thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+thread 'inside_dashed_ellipse_round_cap_extends_past_dash_end' (76637310) panicked at crates/designos-render/tests/render.rs:841:5:
+assertion `left == right` failed: round cap is painted 2.6px past the dash end at (68, 83)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+render_rc=101
+## designos-gpu (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+thin_inside_dashed_rect: mismatch 0.0000% (0 px of 5280) at tolerance 8, ssim 1.0000
+thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+thread 'thin_inside_dashed_rect_keeps_stroke_gpu' (76639205) panicked at crates/designos-gpu/tests/fidelity.rs:677:5:
+assertion `left == right` failed: GPU thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+inside_dashed_ellipse_round_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+thread 'inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu' (76639204) panicked at crates/designos-gpu/tests/fidelity.rs:711:5:
+assertion `left == right` failed: GPU round cap painted 2.6px past the dash end at (68, 83)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... FAILED
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.24s
+gpu_rc=101
+# after restore: git status --short -- crates (empty = clean):
