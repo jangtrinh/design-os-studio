@@ -382,9 +382,9 @@ Full gate outputs logged at `plans/reports/agy-1478-dash-cap-evidence/gates.log:
 | **Gate 1 (`cargo fmt`)** | `cargo fmt --all -- --check` | `0` | `fmt_rc=0` (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:1-2`) |
 | **Gate 2a (`clippy --workspace`)** | `cargo clippy --workspace --all-targets --locked -- -D warnings` | `101` | Pre-existing `main` errors in `designos-app` only (`clippy_ws_rc=101`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:3-57`) |
 | **Gate 2b (`clippy` touched crates)** | `cargo clippy -p designos-render -p designos-gpu -p designos-fig --all-targets --locked -- -D warnings` | `0` | `clippy_touched_rc=0` (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:58-66`) |
-| **Gate 3 (`designos-render` tests)** | `cargo test -p designos-render --locked` | `0` | `265 passed; 0 failed; 5 ignored` (`test_render_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:67-534`) |
-| **Gate 4 (`designos-gpu` tests)** | `cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks` | `0` | `103 passed; 0 failed` (`test_gpu_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:535-745`) |
-| **Gate 5 (`designos-fig` tests)** | `cargo test -p designos-fig --locked` | `0` | `692 passed; 0 failed; 6 ignored` (`test_fig_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:746-1565`) |
+| **Gate 3 (`designos-render` tests)** | `cargo test -p designos-render --locked` | `0` | `283 passed; 0 failed; 5 ignored` (corrected in Round 4: the Round 2 report printed 265; this is the sum of the 29 `test result` lines in the cited range; `test_render_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:67-534`) |
+| **Gate 4 (`designos-gpu` tests)** | `cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks` | `0` | `104 passed; 0 failed` (corrected in Round 4: the Round 2 report printed 103; sum of the 16 `test result` lines in the cited range; `test_gpu_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:535-745`) |
+| **Gate 5 (`designos-fig` tests)** | `cargo test -p designos-fig --locked` | `0` | `525 passed; 0 failed; 6 ignored` (corrected in Round 4: the Round 2 report printed 692; sum of the 47 `test result` lines in the cited range; `test_fig_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:746-1565`) |
 | **Gate 6 (`designos-app --bin designos`)** | `cargo test -p designos-app --bin designos --locked` + individual reruns | `101` -> `0` / `0` | Full run: `4205 passed; 2 failed` (`r2-gates.log:1566-5998`). Individual reruns: `two_deferred_text_commands_both_convert_in_order` -> `ok` (`rerun_vecops_rc=0`, `r2-gates.log:7687-7703`); `the_production_root_sits_outside_every_agent_writable_root` -> `ok` with short `HOME` (`rerun_ap_short_home_rc=0`, `r2-gates.log:7730-7744`) |
 | **Gate 7 (`--workspace --lib`)** | `cargo test --workspace --locked --lib` | `0` | `1501 passed; 0 failed; 3 ignored` (`test_ws_lib_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:5999-7659`) |
 | **Gate 8 (`zero_fake_ui_gate.py`)** | `python3 scripts/zero_fake_ui_gate.py` | `0` | `Gate Verdict: PASS (17/17 invariants satisfied)` (`zero_fake_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7660-7686`) |
@@ -710,3 +710,139 @@ Each corrected cite is checked by comparing the quoted words with the text at th
 - Closing the clamp question as "main's behaviour": an inside or outside dashed non-rectangle stroked at twice the weight keeps its own cap. Confidence high; evidence: the ellipse probe passes on the `56869cad` and `9dba68d2` stroke code (`r3-old-source.log:17,38,56,77`). It flips if the reviewer shows a rendering reference where the cap radius is `weight` rather than `2 * weight / 2`.
 
 Status: DONE (code and report; PR not marked ready, not merged, not commented)
+
+## Round 4
+
+CI `Test (macos-15)` failed on `0ffe4f36`, deterministically: `designos-export` `pdf_vector_fidelity` `randomised_frames_of_supported_features_are_vector_and_match_the_canvas`, seeds 6, 17, 49, 69, 83. Rounds 1-3 never ran `designos-export`. `origin/main` had moved to `e7ace20b` and was merged first (`a0b4f32b`, merge not rebase, no conflicts). Code under test is `6aabc599`. Round 4 evidence is in `plans/reports/agy-1478-dash-cap-evidence/r4-*`.
+
+### What could not be verified, deviations, and open concerns
+
+1. **The CI job was not re-run locally.** The local run is `cargo test -p designos-export --locked --test pdf_vector_fidelity` on macOS here; the CI result is in the final message, not in this report.
+2. **Repro and red runs used `a0b4f32b`, not `0ffe4f36`.** `a0b4f32b` is `0ffe4f36` plus the `origin/main` merge; the export, render, gpu and doc source is the same (`r4-base.log:2-3` is an empty diff stat), the merge only touched `designos-fig` (`r4-base.log:4-6`). The local run reproduces CI exactly: same five seeds, same counts (`r4-repro-head.log:53-58`).
+3. **"Passes on `origin/main`" was checked without a scratch worktree.** I took the head tree and put `crates/designos-render/src/{lib,outline,vectorops}.rs` back to `e7ace20b`; the export, gpu and doc source already equal main's. The `git diff --stat` printed in `r4-repro-main.log:2-4` lists two test files only, so its trailing "empty = identical" label is misleading: the non-test source of the compared crates matches `e7ace20b`. Result: `49 passed; 0 failed` (`r4-repro-main.log:6`).
+4. **One line outside `crates/designos-export`:** `crates/designos-render/src/lib.rs` re-exports `dashed_rect_center_path` (a public API addition, `lib.rs:39`), so the PDF writer and the canvas share one helper instead of a second copy of the inset outline rules.
+5. **Same bug class in two other consumers, not fixed here (the task scopes the fix to the PDF failure):**
+   - `crates/designos-export/src/svg.rs:597-626` strokes an inside or outside dashed rectangle at `w * 2.0` on the boundary under a clip or mask, like the PDF writer did.
+   - `crates/designos-render/src/vectorops.rs:380-382,391` (`outline_stroke`, the "Outline stroke" action) expands closed aligned shapes with `st_double` (`w * 2.0`) and clips, so a dashed inside or outside rectangle outlines differently from the canvas.
+   - I read both and did not render either; a test for each would show the divergence the same way `pdf_vector_fidelity` did.
+6. **Residual differences after the fix.** Seeds 17 and 49 still show 7 and 17 differing samples (threshold 48), in a bounding box that is identical to `origin/main` before this PR: `r4-residual.log` lists `main-pre-PR 7/9600` and `17/9600` with the same boxes and maxima. They are not caused by this PR.
+7. **Proof-sheet numbers come from two sources.** "126" and "202" are the Rust test's counts (`r4-repro-head.log:54-58`); "0 after" is a Python recount of the dumped PNGs; the same Python recount of the before images gives 121 and 201 (`r4-residual.log`), a few samples different from the test's own counts because of how the canvas picture is composited. The recount is labelled as such on the sheet.
+8. **Round 2 gate counts were wrong against their own log** and are corrected in the Round 2 table above: render `283` (printed `265`), gpu `104` (printed `103`), fig `525` (printed `692`).
+9. **Workspace clippy is not clean, by the known lints only** (`r4-gates.log:7-18`): `crates/designos-app/src/agent_permissions.rs:1176`, `:1194` and `crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181`. None of those files is changed by this PR (`r4-clippy-scope.log:20-21` is empty). `designos-app/src/panels/stroke.rs` is changed and reports no lint. Scoped clippy on render, gpu, export and fig is clean (`clippy_scoped_rc=0`, `r4-clippy-scope.log:23`).
+10. **A test-file helper was added:** the randomised test now also writes the page raster next to the canvas picture when `DESIGNOS_PDF_DUMP_DIR` is set (`pdf_vector_fidelity.rs`, the dump block of `random_frames_agree`). It changes no assertion.
+
+### Root cause
+
+The canvas and the PDF stroke a dashed inside or outside rectangle on different outlines at different widths.
+
+- Canvas (`crates/designos-render/src/lib.rs:916` in `0ffe4f36`, `draw_strokes`): for a dashed rectangle-like shape with `Inside` or `Outside` alignment it strokes the inset or outset outline from `outline::dashed_rect_center_path` (`outline.rs:221`) at the stroke's own weight `w`, clipped to one side. The GPU does the same through `stroke_plan` (`outline.rs:279` in `0ffe4f36`). Commit `9dba68d2` introduced `dashed_rect_center_path` (`r4-base.log:12-13`).
+- PDF (`crates/designos-export/src/pdf.rs:1107` and `:1123` in `0ffe4f36`, `stroke_line`): width `weight * 2.0` for every inside or outside stroke, stroking `path_cmds(&sh.paths)`, the node boundary, under the same clip.
+- Effect: a PDF dash cap has radius `w` instead of `w / 2`, so round and square caps overlap the gaps and the dashes run together (the middle panel of the sheet below); the dash phase also differs because the boundary and the inset outline have different lengths, which is why butt caps differ too (seed 69, outside, no cap).
+- On `origin/main` both sides used the doubled boundary, which is why main passes.
+- The failing nodes are dashed rectangles with `Inside` or `Outside` alignment: seed 83 node 6 (inside, round cap, bbox of the differing samples x 121..189, y 75..111, equal to the node bounds), seed 69 node 6 (outside, no cap), seeds 6 and 17 (inside), seed 49 (outside, rounded and rotated). Centered dashed strokes and the thin-rectangle fallback already agreed.
+
+### Fix
+
+`crates/designos-export/src/pdf.rs:1098-1136` (`stroke_line`): for a rectangle-like shape with a valid dash pattern and `Inside` or `Outside` alignment, when `dashed_rect_center_path` returns an outline, stroke that outline at the stroke's own weight (clip unchanged); otherwise keep the doubled boundary, which is what the canvas does for the thin-rectangle fallback.
+
+### Test-first
+
+Two focused tests in `crates/designos-export/tests/pdf_vector_fidelity.rs`: `dashed_inside_and_outside_rectangle_strokes_match_the_canvas` (inside round, inside butt, inside square with rounded corners, outside square, outside butt with rounded corners; each also asserts the canvas paints the first dash) and `thin_dashed_rectangle_stroke_matches_the_canvas` (a regression guard for the unchanged fallback, green before and after).
+
+Red on the export code of the failing head (`r4-red.log`):
+```text
+   # new pdf_vector_fidelity tests against the export code of 0ffe4f36 (crates/designos-export/src unchanged; only tests edited). git status --short -- crates:
+    M crates/designos-export/tests/pdf_vector_fidelity.rs
+   # ---
+   test thin_dashed_rectangle_stroke_matches_the_canvas ... ok
+   test dashed_inside_and_outside_rectangle_strokes_match_the_canvas ... FAILED
+   test randomised_frames_of_supported_features_are_vector_and_match_the_canvas ... FAILED
+   thread 'dashed_inside_and_outside_rectangle_strokes_match_the_canvas' (77632215) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:507:5:
+   Inside Round dashed rectangle: 206 of 6000 sampled pixels differ from the canvas
+   Inside None dashed rectangle: 250 of 6000 sampled pixels differ from the canvas
+   Inside Square dashed rectangle: 31 of 6000 sampled pixels differ from the canvas
+   Outside Square dashed rectangle: 170 of 6000 sampled pixels differ from the canvas
+   Outside None dashed rectangle: 218 of 6000 sampled pixels differ from the canvas
+   thread 'randomised_frames_of_supported_features_are_vector_and_match_the_canvas' (77632216) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:1258:5:
+   5 of 150 random frames differ from the canvas:
+   seed 6: 65/9600 sampled pixels differ on the Vector page
+   seed 17: 70/9600 sampled pixels differ on the Vector page
+   seed 49: 105/9600 sampled pixels differ on the Vector page
+   seed 69: 202/9600 sampled pixels differ on the Vector page
+   seed 83: 126/9600 sampled pixels differ on the Vector page
+   test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 48 filtered out; finished in 5.60s
+```
+
+Green on `6aabc599` (`r4-green.log`):
+```text
+   # green: the committed tree
+   test dashed_inside_and_outside_rectangle_strokes_match_the_canvas ... ok
+   test thin_dashed_rectangle_stroke_matches_the_canvas ... ok
+   test randomised_frames_with_unsupported_features_still_match_the_canvas ... ok
+   test randomised_frames_of_supported_features_are_vector_and_match_the_canvas ... ok
+   test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.61s
+   export_rc=0
+```
+
+Mutant: `crates/designos-export/src/pdf.rs` taken from `a0b4f32b`, then restored (`r4-mutant.log`); the two tests fail with the same numbers as the red run:
+```text
+   # mutant: crates/designos-export/src/pdf.rs taken from a0b4f32b (export code of the failing head)
+   ## mutation (git diff against the committed tree)
+    crates/designos-export/src/pdf.rs | 17 +++++------------
+    1 file changed, 5 insertions(+), 12 deletions(-)
+   test dashed_inside_and_outside_rectangle_strokes_match_the_canvas ... FAILED
+   test thin_dashed_rectangle_stroke_matches_the_canvas ... ok
+   test randomised_frames_with_unsupported_features_still_match_the_canvas ... ok
+   test randomised_frames_of_supported_features_are_vector_and_match_the_canvas ... FAILED
+   thread 'dashed_inside_and_outside_rectangle_strokes_match_the_canvas' (77649501) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:507:5:
+   Inside Round dashed rectangle: 206 of 6000 sampled pixels differ from the canvas
+   Inside None dashed rectangle: 250 of 6000 sampled pixels differ from the canvas
+   Inside Square dashed rectangle: 31 of 6000 sampled pixels differ from the canvas
+   Outside Square dashed rectangle: 170 of 6000 sampled pixels differ from the canvas
+   Outside None dashed rectangle: 218 of 6000 sampled pixels differ from the canvas
+   ---- randomised_frames_of_supported_features_are_vector_and_match_the_canvas stdout ----
+   thread 'randomised_frames_of_supported_features_are_vector_and_match_the_canvas' (77649530) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:1258:5:
+   seed 6: 65/9600 sampled pixels differ on the Vector page
+   seed 17: 70/9600 sampled pixels differ on the Vector page
+   seed 49: 105/9600 sampled pixels differ on the Vector page
+   seed 69: 202/9600 sampled pixels differ on the Vector page
+   seed 83: 126/9600 sampled pixels differ on the Vector page
+       dashed_inside_and_outside_rectangle_strokes_match_the_canvas
+       randomised_frames_of_supported_features_are_vector_and_match_the_canvas
+   test result: FAILED. 49 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.65s
+   export_rc=101
+   # after restore: git status --short -- crates (empty = clean):
+```
+
+### Before and after (synthetic test frames only)
+
+`r4-before-after.png`: canvas, PDF page before the fix and PDF page after the fix for seed 83 (inside, round cap) and seed 69 (outside, butt cap), cropped to the node and magnified 3x. `r4-seed83-canvas.png`, `r4-seed83-pdf-before.png` and `r4-seed83-pdf-after.png` are the full frames (480 x 320). Differing samples per seed, before the fix, after, and on `origin/main` before this PR (`r4-residual.log`):
+```text
+   seed 6: before-fix 65/9600 bbox=[187.0, 87.0, 223.0, 149.0] max=135 | after-fix 0/9600 bbox=- max=0 | main-pre-PR 0/9600 bbox=- max=0
+   seed 17: before-fix 72/9600 bbox=[123.0, 21.0, 233.0, 159.0] max=64 | after-fix 7/9600 bbox=[123.0, 21.0, 233.0, 35.0] max=64 | main-pre-PR 7/9600 bbox=[123.0, 21.0, 233.0, 35.0] max=64
+   seed 49: before-fix 105/9600 bbox=[139.0, 15.0, 239.0, 67.0] max=71 | after-fix 17/9600 bbox=[139.0, 15.0, 237.0, 49.0] max=48 | main-pre-PR 17/9600 bbox=[139.0, 15.0, 237.0, 49.0] max=48
+   seed 69: before-fix 201/9600 bbox=[67.0, 65.0, 137.0, 121.0] max=232 | after-fix 0/9600 bbox=- max=0 | main-pre-PR 0/9600 bbox=- max=0
+   seed 83: before-fix 121/9600 bbox=[121.0, 75.0, 189.0, 111.0] max=166 | after-fix 0/9600 bbox=- max=0 | main-pre-PR 0/9600 bbox=- max=0
+
+```
+
+### Gates on `6aabc599` (`r4-gates.log`, `r4-clippy-scope.log`)
+
+| Gate | Result | Log line |
+|---|---|---|
+| `cargo fmt --all -- --check` | `fmt_rc=0` | `r4-gates.log:5` |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | `clippy_ws_rc=101`, only the three known lints above (finding 9) | `r4-gates.log:7-18` |
+| scoped clippy: render, gpu, export, fig | `clippy_scoped_rc=0` | `r4-clippy-scope.log:23` |
+| `cargo test -p designos-render --locked` | 284 passed, 0 failed, 5 ignored (29 result lines); `test_render_rc=0` | `r4-gates.log:49` |
+| `cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks` | 105 passed, 0 failed (16 result lines); `test_gpu_rc=0` | `r4-gates.log:67` |
+| `cargo test -p designos-export --locked` | 341 passed, 0 failed, 5 ignored (16 result lines); `test_export_rc=0` | `r4-gates.log:85` |
+| `cargo test -p designos-fig --locked` | 527 passed, 0 failed, 6 ignored (48 result lines); `test_fig_rc=0` | `r4-gates.log:136` |
+| `cargo test --workspace --locked --lib` | 1501 passed, 0 failed, 3 ignored (12 result lines); `test_ws_lib_rc=0` | `r4-gates.log:157` |
+
+Report-only commits follow the gated commit `6aabc599`; the final message pastes `git diff --name-only 6aabc599 HEAD`.
+
+### Assumptions
+
+- The canvas (`designos-render` CPU) is the reference and is right: the GPU renderer already follows the same outline through `stroke_plan`, and the PR's purpose is the dash cap on that outline. Confidence high. Evidence that would flip it: a Figma reference where an inside dashed rectangle's caps are drawn at radius `w`.
+
+Status: DONE_WITH_CONCERNS (PDF fix and tests are done; the SVG exporter and Outline stroke have the same divergence, see finding 5)

@@ -1,0 +1,20 @@
+# new pdf_vector_fidelity tests against the export code of 0ffe4f36 (crates/designos-export/src unchanged; only tests edited). git status --short -- crates:
+ M crates/designos-export/tests/pdf_vector_fidelity.rs
+# ---
+test thin_dashed_rectangle_stroke_matches_the_canvas ... ok
+test dashed_inside_and_outside_rectangle_strokes_match_the_canvas ... FAILED
+test randomised_frames_of_supported_features_are_vector_and_match_the_canvas ... FAILED
+thread 'dashed_inside_and_outside_rectangle_strokes_match_the_canvas' (77632215) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:507:5:
+Inside Round dashed rectangle: 206 of 6000 sampled pixels differ from the canvas
+Inside None dashed rectangle: 250 of 6000 sampled pixels differ from the canvas
+Inside Square dashed rectangle: 31 of 6000 sampled pixels differ from the canvas
+Outside Square dashed rectangle: 170 of 6000 sampled pixels differ from the canvas
+Outside None dashed rectangle: 218 of 6000 sampled pixels differ from the canvas
+thread 'randomised_frames_of_supported_features_are_vector_and_match_the_canvas' (77632216) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:1258:5:
+5 of 150 random frames differ from the canvas:
+seed 6: 65/9600 sampled pixels differ on the Vector page
+seed 17: 70/9600 sampled pixels differ on the Vector page
+seed 49: 105/9600 sampled pixels differ on the Vector page
+seed 69: 202/9600 sampled pixels differ on the Vector page
+seed 83: 126/9600 sampled pixels differ on the Vector page
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 48 filtered out; finished in 5.60s

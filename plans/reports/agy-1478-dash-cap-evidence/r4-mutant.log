@@ -1,0 +1,31 @@
+# HEAD 6aabc5991985e2dc9586b93d6bd0411a312090f7  branch jangtrinh/agy-1478-dash-cap
+# git status --short -- crates:
+ M crates/designos-export/src/pdf.rs
+# ---
+# mutant: crates/designos-export/src/pdf.rs taken from a0b4f32b (export code of the failing head)
+## mutation (git diff against the committed tree)
+ crates/designos-export/src/pdf.rs | 17 +++++------------
+ 1 file changed, 5 insertions(+), 12 deletions(-)
+test dashed_inside_and_outside_rectangle_strokes_match_the_canvas ... FAILED
+test thin_dashed_rectangle_stroke_matches_the_canvas ... ok
+test randomised_frames_with_unsupported_features_still_match_the_canvas ... ok
+test randomised_frames_of_supported_features_are_vector_and_match_the_canvas ... FAILED
+---- dashed_inside_and_outside_rectangle_strokes_match_the_canvas stdout ----
+thread 'dashed_inside_and_outside_rectangle_strokes_match_the_canvas' (77649501) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:507:5:
+Inside Round dashed rectangle: 206 of 6000 sampled pixels differ from the canvas
+Inside None dashed rectangle: 250 of 6000 sampled pixels differ from the canvas
+Inside Square dashed rectangle: 31 of 6000 sampled pixels differ from the canvas
+Outside Square dashed rectangle: 170 of 6000 sampled pixels differ from the canvas
+Outside None dashed rectangle: 218 of 6000 sampled pixels differ from the canvas
+---- randomised_frames_of_supported_features_are_vector_and_match_the_canvas stdout ----
+thread 'randomised_frames_of_supported_features_are_vector_and_match_the_canvas' (77649530) panicked at crates/designos-export/tests/pdf_vector_fidelity.rs:1258:5:
+seed 6: 65/9600 sampled pixels differ on the Vector page
+seed 17: 70/9600 sampled pixels differ on the Vector page
+seed 49: 105/9600 sampled pixels differ on the Vector page
+seed 69: 202/9600 sampled pixels differ on the Vector page
+seed 83: 126/9600 sampled pixels differ on the Vector page
+    dashed_inside_and_outside_rectangle_strokes_match_the_canvas
+    randomised_frames_of_supported_features_are_vector_and_match_the_canvas
+test result: FAILED. 49 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.65s
+export_rc=101
+# after restore: git status --short -- crates (empty = clean):
