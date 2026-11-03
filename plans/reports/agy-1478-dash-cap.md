@@ -316,14 +316,14 @@ Full gate outputs logged at `plans/reports/agy-1478-dash-cap-evidence/gates.log:
    - The Kiwi schema string extracted from `Figma.app` at byte offset `13489978` (`plans/reports/agy-1478-dash-cap-evidence/step1-figma-re.log:11`) is:
      `StrokeCap strokeCap=30;uint strokeCapTag=82[deprecated];Number strokeCapSize=497;StrokeJoin strokeJoin=31;...`
    - That slice does **not** contain `dashPattern=13`; `dashPattern` is defined earlier in `NodeChange`.
-3. **Correction 3 — `crates/designos-fig/tests/data/figma-real-schema.txt` line numbers**:
+3. **Correction 3 — `crates/designos-fig/tests/data/figma-real-schema.txt` line numbers** (corrected again in Round 3; the Round 2 ranges `359-381` and `457-460` were wrong and its citation log printed the lines without comparing text):
    - Round 1 cited shifted line ranges (`404-426`, `502-505`, `1986-2009`).
-   - The actual line numbers in `crates/designos-fig/tests/data/figma-real-schema.txt` (verified in `plans/reports/agy-1478-dash-cap-evidence/r2-citation-grep.log`) are:
-     - `crates/designos-fig/tests/data/figma-real-schema.txt:359-381`: `enum StrokeCap` (`NONE = 0`, `ROUND = 1`, `SQUARE = 2`, ...).
-     - `crates/designos-fig/tests/data/figma-real-schema.txt:457-460`: `enum DashMode` (`CLIP = 0`, `STRETCH = 1`).
-     - `crates/designos-fig/tests/data/figma-real-schema.txt:1503`: `Float[] dashPattern = 11;` inside `struct Stroke`.
-     - `crates/designos-fig/tests/data/figma-real-schema.txt:1890`: `Float[] dashPattern = 13;` inside `message NodeChange`.
-     - `crates/designos-fig/tests/data/figma-real-schema.txt:1906`: `StrokeCap strokeCap = 30;` inside `message NodeChange`.
+   - The actual line numbers, text-checked in `plans/reports/agy-1478-dash-cap-evidence/r3-citation-grep.log`:
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:220-241`: `Enum StrokeCap` (`NONE = 0`, `ROUND = 1`, `SQUARE = 2`, ... `ERD_MANY = 20`).
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:276-278`: `Enum DashMode` (`CLIP = 0`, `STRETCH = 1`).
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:1503`: `dashPattern = 11 : Float[]` in the `Stroke` message.
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:1890`: `dashPattern = 13 : Float[]` in the `NodeChange` message.
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:1906`: `strokeCap = 30 : StrokeCap` in the `NodeChange` message.
 4. **Correction 4 — Where per-vertex `v.cap` (`Vertex::cap`) is populated during `.fig` and REST import**:
    - Per-vertex `v.cap` is **not** populated at `crates/designos-fig/src/rest_import.rs:1951-1953` (where `mark_custom_instance_slots` resides at `crates/designos-fig/src/rest_import.rs:1952-1965`).
    - Instead, per-vertex `v.cap` is populated in `crates/designos-fig/src/vecnet.rs`:
@@ -349,6 +349,7 @@ Full gate outputs logged at `plans/reports/agy-1478-dash-cap-evidence/gates.log:
 
 3. **Ruling 3 (Major 2) — Thin inside dashed rectangles keep their stroke**:
    - When `outline::dashed_rect_center_path(n, align)` returns `None` (because `w >= n.size.x` or `w >= n.size.y` on `StrokeAlign::Inside`), both `Renderer::draw_strokes` (`crates/designos-render/src/lib.rs:915-928`) and `outline::stroke_plan` (`crates/designos-render/src/outline.rs:281-296`) fall through to the `2 * w` clipped stroke path instead of returning early with no stroke.
+   - **Superseded in Round 3: the butt clamp described in this bullet was deleted; both fallbacks stroke with `s.cap` again.**
    - In `outline::node_stroke_style` (`crates/designos-render/src/outline.rs:83-86`), when `has_dashes(s)` and `width > s.weight` (the `2 * w` fallback), `st.line_cap` is clamped to `sk::LineCap::Butt` so `tiny-skia` does not expand round/square caps with radius `w` (`= 2 * (w / 2)`) across `4px` gaps on thin inside-aligned dashed rectangles.
    - Added CPU test `thin_inside_dashed_rect_keeps_stroke` (`crates/designos-render/tests/render.rs:801-818`), GPU test `thin_inside_dashed_rect_keeps_stroke_gpu` (`crates/designos-gpu/tests/fidelity.rs:652-678`), and `StrokeAlign::Outside` probes in `dashed_rect_round_dash_cap_renders_round_dash_ends` (`crates/designos-render/tests/render.rs:709-719`) and `dashed_rect_round_dash_cap_renders_round_dash_ends_gpu` (`crates/designos-gpu/tests/fidelity.rs:555-564`).
 
@@ -374,7 +375,7 @@ Full gate outputs logged at `plans/reports/agy-1478-dash-cap-evidence/gates.log:
 | **Ruling 1 (`LockAspect` after merge)** | `cargo test -p designos-fig --test fig_roundtrip -- fig_instance_lock_aspect_override_roundtrip` | `0` | `ok. 2 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-lock-aspect-roundtrip.log:1-19`) |
 | **A1 (GREEN on HEAD — CPU)** | `cargo test -p designos-render --test render -- dashed_rect_round_dash_cap_renders_round_dash_ends dashed_open_line_uses_stroke_cap_on_every_dash solid_open_line_all_butt_vertex_caps_stay_butt thin_inside_dashed_rect_keeps_stroke` | `0` | `ok. 4 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:1-20`) |
 | **A1 (GREEN on HEAD — GPU)** | `cargo test -p designos-gpu --test fidelity -- dashed_rect_round_dash_cap_renders_round_dash_ends_gpu dashed_open_line_uses_stroke_cap_on_every_dash_gpu solid_open_line_round_vertex_cap_renders_round_gpu thin_inside_dashed_rect_keeps_stroke_gpu` | `0` | `ok. 4 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:21-43`) |
-| **A1 (GREEN on HEAD — `.fig`/REST)** | `cargo test -p designos-fig --test fig_roundtrip -- fig_instance_stroke_override_preserves_dash_cap_and_dashes fig_instance_stroke_override_preserves_align_join_and_miter fig_instance_stroke_override_clears_dashes rest_instance_overrides_skips_layout_cleared` | `0` | `ok. 5 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:44-61`) |
+| **A1 (GREEN on HEAD — `.fig`/REST)** | `cargo test -p designos-fig --test fig_roundtrip -- rest_instance_overrides_skips_layout_cleared rest_export_import_preserves_dash_cap fig_instance_stroke_override_preserves_align_join_and_miter fig_export_import_preserves_dash_cap fig_instance_stroke_override_clears_dashes` (the Round 2 log does not record its filter; this command is rebuilt from the five names it printed and rerun in Round 3) | `0` | `ok. 5 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:52-59`) |
 | **A2 (Null Control)** | `cargo test -p designos-render ... && cargo test -p designos-gpu ...` | `0` / `0` | `4 passed` CPU (`null_render_rc=0`), `4 passed` GPU (`null_gpu_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:1-31`) |
 | **A2 (Mutant 1: `node_stroke_style` consults `vertex_caps`)** | `cargo test -p designos-gpu --test fidelity -- solid_open_line_round_vertex_cap_renders_round_gpu` | `101` | Killed by `solid_open_line_round_vertex_cap_renders_round_gpu` (`1 failed`, `mutant1_gpu_rc=101`, `plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:32-107`) |
 | **A2 (Mutant 2: `None` fallback removed)** | `cargo test -p designos-render --test render -- thin_inside_dashed_rect_keeps_stroke && cargo test -p designos-gpu --test fidelity -- thin_inside_dashed_rect_keeps_stroke_gpu` | `101` / `101` | Killed by `thin_inside_dashed_rect_keeps_stroke` (`mutant2_render_rc=101`) and `thin_inside_dashed_rect_keeps_stroke_gpu` (`mutant2_gpu_rc=101`, `plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:108-219`) |
@@ -410,32 +411,40 @@ Full gate outputs logged at `plans/reports/agy-1478-dash-cap-evidence/gates.log:
    fig_rc=101
    ```
 
-2. **Acceptance 1 — GREEN on HEAD (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:12-61`)**:
+2. **Acceptance 1 — GREEN on HEAD (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:12-18,32-43,52-61`, pasted as printed)**:
    ```text
    running 4 tests
-   test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
    test solid_open_line_all_butt_vertex_caps_stay_butt ... ok
    test thin_inside_dashed_rect_keeps_stroke ... ok
+   test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
    test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+
    test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
-   render_rc=0
+
+       Finished `test` profile [unoptimized + debuginfo] target(s) in 9.04s
+        Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
 
    running 4 tests
-   test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
-   test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
    test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
    test solid_open_line_round_vertex_cap_renders_round_gpu ... ok
+   test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+   test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+
    test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.16s
+
    gpu_rc=0
 
    running 5 tests
    test rest_instance_overrides_skips_layout_cleared ... ok
+   test rest_export_import_preserves_dash_cap ... ok
    test fig_instance_stroke_override_preserves_align_join_and_miter ... ok
+   test fig_export_import_preserves_dash_cap ... ok
    test fig_instance_stroke_override_clears_dashes ... ok
-   test fig_instance_stroke_override_preserves_dash_cap_and_dashes ... ok
-   test sync_instances_preserves_instance_child_stroke_cap_and_dashes_override ... ok
+
    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.04s
+
    fig_rc=0
+
    ```
 
 3. **Acceptance 2 — Mutation Testing (`plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:84-107,164-219`)**:
@@ -469,6 +478,235 @@ Full gate outputs logged at `plans/reports/agy-1478-dash-cap-evidence/gates.log:
 
 ### Assumptions
 
-- For thin inside-aligned dashed rectangles (`w >= n.size.x` or `w >= n.size.y`) where the inset centerline collapses (`dashed_rect_center_path` returns `None`) and rendering falls back to the `2 * w` clipped stroke along the outer perimeter, clamping `st.line_cap` to `sk::LineCap::Butt` when `width > s.weight` in `node_stroke_style` (`crates/designos-render/src/outline.rs:84-86`) is intentional so `tiny-skia` does not scale round/square cap protrusion to `w` (`2 * (w / 2)`) and bridge across dash gaps.
+- **Superseded in Round 3: this assumption (the butt clamp) no longer applies.** For thin inside-aligned dashed rectangles (`w >= n.size.x` or `w >= n.size.y`) where the inset centerline collapses (`dashed_rect_center_path` returns `None`) and rendering falls back to the `2 * w` clipped stroke along the outer perimeter, clamping `st.line_cap` to `sk::LineCap::Butt` when `width > s.weight` in `node_stroke_style` (`crates/designos-render/src/outline.rs:84-86`) is intentional so `tiny-skia` does not scale round/square cap protrusion to `w` (`2 * (w / 2)`) and bridge across dash gaps.
 
 Status: COMPLETED (All Round 2 rulings 1–6 implemented and verified; RED->GREEN tests, mutation kills, citation checks, and gates logged in `plans/reports/agy-1478-dash-cap-evidence/r2-*.log`; `out/cargo` removed).
+
+## Round 3
+
+Status of the code: head of the code under test is `6540b6ec` (`d1dc75b2` removes the butt clamp, `6540b6ec` moves the thin rectangle probes). `origin/main` had moved by one commit (`9a294a1b`); it was merged first (`fdf066b4`, no conflicts, merge not rebase). Round 3 evidence is in `plans/reports/agy-1478-dash-cap-evidence/r3-*`.
+
+### What could not be verified, deviations, and predictions that were wrong
+
+1. **The ruling's example dashes `[8, 20]` were replaced by `[8, 60]` in the thin rectangle tests.** On a 4px tall rectangle the stroke at twice the weight covers the full height, so the dashes on the bottom edge reach the same rows. With `[8, 20]` (period 28, outline 408) a bottom dash covered the probe at `(20, 11)`, and the thin test stayed green with the clamp put back, so it could not kill the mutant. I predicted red and observed green; that run's log was not kept (the mutant log was rewritten afterwards), so this is observed, not logged. With `[8, 40]` the probe `(19, 11)` was also reached by the bottom dash's start cap (center `(22, 14)`, radius 4, distance about 3.5), so the cap probe was not tied to the dash end above it. With `[8, 60]` (period 68) the first bottom dash sits at x = 66..74 and the probe is reached only by the top dash's end cap. The gap, 60, is longer than twice the weight, as ruling 2 requires.
+2. **The GPU ellipse test asserts the anti-aliasing-forgiven ratio.** My first run failed on the strict ratio (that failing run's log was not kept; the final null-control log prints the same ratios): round cap `3.1000%` (310 px of 10000), butt cap `2.7200%` (272 px), while the forgiven ratio is `0.0000%` (`r3-null-green.log:19,23-25`). I had predicted green on the strict `< 0.02` gate; the curve edges differ by anti-aliasing only. The assert now follows the existing curve test at `crates/designos-gpu/tests/fidelity.rs:33` (`report_aa.ratio < 0.005`), and the probed pixels are still read exactly from the GPU image.
+3. **"2.6px past the dash end" is the distance along the arc** (pixel `(68, 83)`, arc length 42.65 against a dash end at 40). Its straight-line distance from the dash end point `(71.6, 83.7)` is about 3.1 px, inside the cap radius of 4 (largest pixel-corner distance 3.67).
+4. **Probe `(19, 11)` on the thin rectangle** is, with `[8, 60]`, reached only by the top dash's end cap; I computed this from the geometry, I did not render a cap-only image.
+5. **The two old-source runs match because the stroke code is identical:** `git diff --stat 9dba68d2 56869cad -- crates/designos-render/src crates/designos-gpu/src` is empty (`r3-old-source.log:1-2`). Both runs check out only `designos-render/src/{lib,outline,vectorops}.rs` from the named commit and keep everything else at HEAD.
+6. **Scope of the gates:** exactly the five in the brief. I did not run the full `designos-fig` suite, the `designos-app` binary tests or `zero_fake_ui_gate.py` in Round 3; the five `fig_roundtrip` tests named in the review were rerun alone (`r3-fig-green-names.log`).
+7. **The stamps at the top of `r3-mutant.log` and `r3-old-source.log` print `git status` after the mutation or checkout**, so they show the changed files on purpose; the lines after each restore print an empty status.
+8. **Report-only commit after the gates:** the gates ran on `6540b6ec`; the report commit changes only `plans/reports/**` (`git diff --name-only 6540b6ec HEAD` is pasted in the final message).
+
+### Rulings
+
+| Ruling | Result | Evidence |
+|---|---|---|
+| 1. Delete the butt clamp in `node_stroke_style`; no cap override there | Done. `node_stroke_style` (`crates/designos-render/src/outline.rs:66-91`) copies `s.cap` (line 71) and `if has_dashes(s)` (line 83) only builds the dash array. Both `2 * weight` fallbacks stroke with `s.cap`. | `git show d1dc75b2 -- crates/designos-render/src/outline.rs` deletes the three clamp lines; mutant diff at `r3-mutant.log:7-20` |
+| 2. Thin rectangle tests: gap longer than twice the weight; dash, cap and gap probes; red on `9dba68d2` | Done, with `[8, 60]` (deviation 1). CPU `crates/designos-render/tests/render.rs:802-822`, GPU `crates/designos-gpu/tests/fidelity.rs:653-688`. Probes `(14, 12)` painted, `(19, 11)` painted cap, `(40, 12)` white gap. | green `r3-null-green.log:7,21`; red on `9dba68d2` source `r3-old-source.log:16,19,29-34`; red on `56869cad` source `r3-old-source.log:55,58,68-73` |
+| 3. Inside dashed ellipse, round cap, gap longer than twice the weight, CPU and GPU | Done. CPU `render.rs:825-848`, GPU `fidelity.rs:691-720`. Circle of radius 40, weight 4, dashes `[40, 20]`; probes `(83, 68)` body, `(68, 83)` round cap past the dash end, `(61, 86)` gap; butt contrast `(68, 83)` white. | passes on `56869cad` and `9dba68d2` sources (`r3-old-source.log:17,38,56,77`); fails with the clamp put back (`r3-mutant.log:25,31-34,52-56`) |
+| 4. Report fixes | `Enum StrokeCap` is `figma-real-schema.txt:220-241`, `Enum DashMode` is `:276-278`; green `fig_roundtrip` names pasted as printed; Round 2 text that the clamp made false is marked superseded | `r3-citation-grep.log`, `r3-fig-green-names.log:6-11` |
+
+### Mutant (after a green null control)
+
+Null control on the committed tree, then the clamp put back (`outline.rs` taken from `bd099a3a:crates/designos-render/src/outline.rs`, not from `HEAD`), then restored with `git checkout HEAD -- crates/designos-render/src/outline.rs`. The mutant run kills four tests: the thin rectangle and the ellipse, each on the CPU and the GPU.
+
+Null control (`r3-null-green.log:4-29`):
+```text
+   # null control: the committed tree, no mutation
+   ## designos-render
+   test dashed_line_and_caps ... ok
+   test thin_inside_dashed_rect_keeps_stroke ... ok
+   test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+   test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+   test inside_dashed_ellipse_round_cap_extends_past_dash_end ... ok
+   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+   render_rc=0
+   ## designos-gpu (Metal)
+   thin_inside_dashed_rect: mismatch 0.7955% (42 px of 5280) at tolerance 8, ssim 0.9991
+   inside_dashed_ellipse_round_cap: mismatch 3.1000% (310 px of 10000) at tolerance 8, ssim 0.9962
+   thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+   test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
+   test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+   inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+   inside_dashed_ellipse_butt_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+   inside_dashed_ellipse_butt_cap: 0.0000% with AA pixels forgiven (0 px)
+   test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... ok
+   test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+   test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.20s
+   gpu_rc=0
+```
+
+Mutant (`r3-mutant.log:5-36,44-60`):
+```text
+   # mutant: node_stroke_style forces butt on dashed strokes wider than the weight (outline.rs taken from bd099a3a)
+   ## mutation (git diff against the committed tree)
+   diff --git a/crates/designos-render/src/outline.rs b/crates/designos-render/src/outline.rs
+   index 2015b8f5..e0d7edec 100644
+   --- a/crates/designos-render/src/outline.rs
+   +++ b/crates/designos-render/src/outline.rs
+   @@ -81,6 +81,9 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
+            dash: None,
+        };
+        if has_dashes(s) {
+   +        if width > s.weight {
+   +            st.line_cap = sk::LineCap::Butt;
+   +        }
+            let mut v = s.dashes.clone();
+            if v.len() % 2 == 1 {
+                v.extend_from_within(..);
+   ## designos-render
+   test dashed_line_and_caps ... ok
+   test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+   test thin_inside_dashed_rect_keeps_stroke ... FAILED
+   test inside_dashed_ellipse_round_cap_extends_past_dash_end ... FAILED
+   test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+   thread 'thin_inside_dashed_rect_keeps_stroke' (76637311) panicked at crates/designos-render/tests/render.rs:820:5:
+   assertion `left == right` failed: thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   thread 'inside_dashed_ellipse_round_cap_extends_past_dash_end' (76637310) panicked at crates/designos-render/tests/render.rs:841:5:
+   assertion `left == right` failed: round cap is painted 2.6px past the dash end at (68, 83)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+   render_rc=101
+   thread 'thin_inside_dashed_rect_keeps_stroke_gpu' (76639205) panicked at crates/designos-gpu/tests/fidelity.rs:677:5:
+   assertion `left == right` failed: GPU thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   inside_dashed_ellipse_round_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+   test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+   test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+   inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+   thread 'inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu' (76639204) panicked at crates/designos-gpu/tests/fidelity.rs:711:5:
+   assertion `left == right` failed: GPU round cap painted 2.6px past the dash end at (68, 83)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... FAILED
+   test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+   test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.24s
+   gpu_rc=101
+   # after restore: git status --short -- crates (empty = clean):
+```
+
+### Red on the old sources (`r3-old-source.log`)
+
+```text
+   # git diff --stat 9dba68d2 56869cad -- crates/designos-render/src crates/designos-gpu/src (empty = identical stroke code):
+
+   # new tests run against designos-render/src/{lib,outline,vectorops}.rs of 9dba68d2; everything else at HEAD
+   # files differing from HEAD:
+    crates/designos-render/src/lib.rs       |  8 ++------
+    crates/designos-render/src/outline.rs   | 15 ++++++++-------
+    crates/designos-render/src/vectorops.rs |  2 +-
+    3 files changed, 11 insertions(+), 14 deletions(-)
+   ## designos-render
+   test thin_inside_dashed_rect_keeps_stroke ... FAILED
+   test inside_dashed_ellipse_round_cap_extends_past_dash_end ... ok
+   thread 'thin_inside_dashed_rect_keeps_stroke' (76640655) panicked at crates/designos-render/tests/render.rs:819:5:
+   assertion `left == right` failed: thin inside dashed rectangle paints the first dash at (14, 12)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.00s
+   render_rc=101
+   thin_inside_dashed_rect: mismatch 0.0000% (0 px of 5280) at tolerance 8, ssim 1.0000
+   thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+   thread 'thin_inside_dashed_rect_keeps_stroke_gpu' (76642639) panicked at crates/designos-gpu/tests/fidelity.rs:671:5:
+   assertion `left == right` failed: GPU thin inside dashed rectangle paints the first dash at (14, 12)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   inside_dashed_ellipse_round_cap: mismatch 3.1000% (310 px of 10000) at tolerance 8, ssim 0.9962
+   test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+   inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+   inside_dashed_ellipse_butt_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+   inside_dashed_ellipse_butt_cap: 0.0000% with AA pixels forgiven (0 px)
+   test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... ok
+   test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.20s
+   gpu_rc=101
+   # new tests run against designos-render/src/{lib,outline,vectorops}.rs of 56869cad; everything else at HEAD
+   # files differing from HEAD:
+    crates/designos-render/src/lib.rs       |  8 ++------
+    crates/designos-render/src/outline.rs   | 15 ++++++++-------
+    crates/designos-render/src/vectorops.rs |  2 +-
+    3 files changed, 11 insertions(+), 14 deletions(-)
+   ## designos-render
+   test thin_inside_dashed_rect_keeps_stroke ... FAILED
+   test inside_dashed_ellipse_round_cap_extends_past_dash_end ... ok
+   thread 'thin_inside_dashed_rect_keeps_stroke' (76643802) panicked at crates/designos-render/tests/render.rs:819:5:
+   assertion `left == right` failed: thin inside dashed rectangle paints the first dash at (14, 12)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.00s
+   render_rc=101
+   thin_inside_dashed_rect: mismatch 0.0000% (0 px of 5280) at tolerance 8, ssim 1.0000
+   thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+   thread 'thin_inside_dashed_rect_keeps_stroke_gpu' (76645492) panicked at crates/designos-gpu/tests/fidelity.rs:671:5:
+   assertion `left == right` failed: GPU thin inside dashed rectangle paints the first dash at (14, 12)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   inside_dashed_ellipse_round_cap: mismatch 3.1000% (310 px of 10000) at tolerance 8, ssim 0.9962
+   test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+   inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+   inside_dashed_ellipse_butt_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+   inside_dashed_ellipse_butt_cap: 0.0000% with AA pixels forgiven (0 px)
+   test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... ok
+   test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.31s
+   gpu_rc=101
+   # after restore: git status --short -- crates (empty = clean):
+```
+
+### Citation check (`r3-citation-grep.log`)
+
+Each corrected cite is checked by comparing the quoted words with the text at that line (`awk 'NR==n'` plus a substring test), not by printing the line. The two old wrong cites (`:359` `Enum StrokeCap`, `:457` `Enum DashMode`) are included as negative rows and print `FAIL`, which proves the check reads the text. `cite_unexpected=0` closes the log.
+```text
+   # text-at-line check: PASS = the quoted words are on that line. HEAD 6540b6ec
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:220 needle=[Enum StrokeCap] line=[Enum StrokeCap]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:221 needle=[NONE = 0] line=[    NONE = 0]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:222 needle=[ROUND = 1] line=[    ROUND = 1]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:223 needle=[SQUARE = 2] line=[    SQUARE = 2]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:241 needle=[ERD_MANY = 20] line=[    ERD_MANY = 20]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:242 needle=[Enum StrokeJoin] line=[Enum StrokeJoin]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:276 needle=[Enum DashMode] line=[Enum DashMode]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:277 needle=[CLIP = 0] line=[    CLIP = 0]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:278 needle=[STRETCH = 1] line=[    STRETCH = 1]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:1503 needle=[dashPattern = 11] line=[    dashPattern = 11 : Float[]]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:1890 needle=[dashPattern = 13] line=[    dashPattern = 13 : Float[]]
+   PASS expect=PASS ok        crates/designos-fig/tests/data/figma-real-schema.txt:1906 needle=[strokeCap = 30] line=[    strokeCap = 30 : StrokeCap]
+   FAIL expect=FAIL ok        crates/designos-fig/tests/data/figma-real-schema.txt:359 needle=[Enum StrokeCap] line=[Enum StackPositioning]
+   FAIL expect=FAIL ok        crates/designos-fig/tests/data/figma-real-schema.txt:457 needle=[Enum DashMode] line=[    PARAGRAPH = 4]
+   FAIL expect=FAIL ok        crates/designos-fig/tests/data/figma-real-schema.txt:460 needle=[STRETCH = 1] line=[    HORIZONTAL = 1]
+   cite_unexpected=0
+```
+
+### Green `fig_roundtrip` names as printed (`r3-fig-green-names.log:5-12`)
+
+```text
+   running 5 tests
+   test rest_instance_overrides_skips_layout_cleared ... ok
+   test rest_export_import_preserves_dash_cap ... ok
+   test fig_instance_stroke_override_preserves_align_join_and_miter ... ok
+   test fig_export_import_preserves_dash_cap ... ok
+   test fig_instance_stroke_override_clears_dashes ... ok
+   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.02s
+   fig_rc=0
+```
+
+### Gates on `6540b6ec` (`r3-gates.log`)
+
+| Gate | Result | Log line |
+|---|---|---|
+| `cargo fmt --all -- --check` | `fmt_rc=0` | `r3-gates.log:5` |
+| `cargo clippy -p designos-render -p designos-gpu --all-targets --locked -- -D warnings` | `clippy_rc=0` | `r3-gates.log:16` |
+| `cargo test -p designos-render --locked` | 284 passed, 0 failed, 5 ignored (sum of the 29 `test result` lines); `test_render_rc=0` | `r3-gates.log:76` |
+| `cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks` | 105 passed, 0 failed (sum of the 16 `test result` lines); `test_gpu_rc=0` | `r3-gates.log:110` |
+| `cargo test --workspace --locked --lib` | 1501 passed, 0 failed, 3 ignored (sum of the 12 `test result` lines); `test_ws_lib_rc=0` | `r3-gates.log:143` |
+
+### Visual proof
+
+`plans/reports/agy-1478-dash-cap-evidence/r3-proof-sheet.png` (CPU and GPU renders from the passing run, 4x, probes boxed: green expects painted, blue expects white). The ellipse with a round cap shows round dash ends and the butt contrast shows flat ones; the thin rectangle shows the dashes painted. The per-render PNGs are `r3-thin_inside_dashed_rect-{cpu,gpu}.png`, `r3-inside_dashed_ellipse_round_cap-{cpu,gpu}.png`, `r3-inside_dashed_ellipse_butt_cap-cpu.png`.
+
+### Assumptions
+
+- Closing the clamp question as "main's behaviour": an inside or outside dashed non-rectangle stroked at twice the weight keeps its own cap. Confidence high; evidence: the ellipse probe passes on the `56869cad` and `9dba68d2` stroke code (`r3-old-source.log:17,38,56,77`). It flips if the reviewer shows a rendering reference where the cap radius is `weight` rather than `2 * weight / 2`.
+
+Status: DONE (code and report; PR not marked ready, not merged, not commented)
