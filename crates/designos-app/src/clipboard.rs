@@ -99,19 +99,44 @@ impl PasteChord {
     }
 }
 
-/// The modifiers a copy or paste chord was let go with: those of the first release of `key` in `later` (the events
-/// that follow the `Event::Copy` or `Event::Paste`) while Cmd was still down, else `frame`, the modifiers of the whole
-/// frame. egui-winit stamps the release with the modifiers held at that moment, but its `Copy` and `Paste` carry none,
-/// and a frame that spans the whole tap ends with every modifier already up.
+/// The modifiers a copy or paste chord was held with, read off the events that follow its `Event::Copy` or
+/// `Event::Paste` (`later`) up to the first release of its letter `key`; `frame`, the modifiers of the whole frame,
+/// when the letter is still down.
+///
+/// egui-winit stamps every key event with the modifiers at that moment, but its `Copy` and `Paste` carry none, and a
+/// frame that spans the whole tap ends with every modifier already up. Two traces remain:
+/// - the letter's release, when Cmd was still down for it;
+/// - the release of a Shift or Alt that was held when the chord began, which can come before the letter's. Winit's
+///   macOS backend queues that key event before the modifier change, so it still says Cmd was down while the letter's
+///   release says nothing. A modifier that is pressed inside the span began after the chord and does not count.
 pub fn chord_modifiers(later: &[egui::Event], key: egui::Key, frame: egui::Modifiers) -> egui::Modifiers {
-    later
-        .iter()
-        .find_map(|ev| match ev {
-            egui::Event::Key { key: released, pressed: false, modifiers, .. } if *released == key => Some(*modifiers),
-            _ => None,
-        })
-        .filter(|modifiers| modifiers.command)
-        .unwrap_or(frame)
+    let Some(end) = later.iter().position(|ev| matches!(ev, egui::Event::Key { key: released, pressed: false, .. } if *released == key)) else {
+        return frame;
+    };
+    let span = &later[..end];
+    let mut chord = match &later[end] {
+        egui::Event::Key { modifiers, .. } if modifiers.command => *modifiers,
+        _ => egui::Modifiers::NONE,
+    };
+    for (at, ev) in span.iter().enumerate() {
+        let egui::Event::Key { key: let_go, pressed: false, modifiers, .. } = ev else { continue };
+        let began_in_span = span[..at].iter().any(|before| matches!(before, egui::Event::Key { key: pressed, pressed: true, .. } if pressed == let_go));
+        if !modifiers.command || began_in_span {
+            continue;
+        }
+        match let_go {
+            egui::Key::ShiftLeft | egui::Key::ShiftRight => chord.shift = true,
+            egui::Key::AltLeft | egui::Key::AltRight => chord.alt = true,
+            egui::Key::SuperLeft | egui::Key::SuperRight | egui::Key::ControlLeft | egui::Key::ControlRight => {}
+            _ => continue,
+        }
+        chord.command = true;
+    }
+    if chord.command {
+        chord
+    } else {
+        frame
+    }
 }
 
 /// Pastes `html` if it carries a Figma clipboard payload: the copied layers appear centered in the
@@ -840,6 +865,41 @@ pub(crate) mod tests {
         assert_eq!(chord_modifiers(&[press], egui::Key::C, command_alt), command_alt, "a press is not a release");
         assert_eq!(chord_modifiers(&[released(egui::Key::C, egui::Modifiers::ALT)], egui::Key::C, command_alt), command_alt, "Cmd was already up");
         assert_eq!(chord_modifiers(&[released(egui::Key::X, command_alt)], egui::Key::C, egui::Modifiers::COMMAND), egui::Modifiers::COMMAND, "another letter");
+    }
+
+    fn pressed(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers }
+    }
+
+    #[test]
+    fn a_shift_or_alt_let_go_before_the_letter_is_part_of_the_chord() {
+        let command_shift = egui::Modifiers { shift: true, ..egui::Modifiers::COMMAND };
+        let command_alt = egui::Modifiers { alt: true, ..egui::Modifiers::COMMAND };
+        let shift_first = [released(egui::Key::ShiftLeft, command_shift), released(egui::Key::V, egui::Modifiers::NONE)];
+        let chord = chord_modifiers(&shift_first, egui::Key::V, egui::Modifiers::NONE);
+        assert!(chord.command && chord.shift && !chord.alt, "{chord:?}");
+        let alt_then_cmd = [
+            released(egui::Key::AltRight, command_alt),
+            released(egui::Key::SuperLeft, egui::Modifiers::COMMAND),
+            released(egui::Key::C, egui::Modifiers::NONE),
+        ];
+        let chord = chord_modifiers(&alt_then_cmd, egui::Key::C, egui::Modifiers::NONE);
+        assert!(chord.command && chord.alt && !chord.shift, "{chord:?}");
+    }
+
+    #[test]
+    fn a_modifier_that_began_or_ended_outside_the_chord_is_not_part_of_it() {
+        let command_alt = egui::Modifiers { alt: true, ..egui::Modifiers::COMMAND };
+        let tapped_inside = [
+            pressed(egui::Key::AltLeft, egui::Modifiers::COMMAND),
+            released(egui::Key::AltLeft, command_alt),
+            released(egui::Key::C, egui::Modifiers::COMMAND),
+        ];
+        assert_eq!(chord_modifiers(&tapped_inside, egui::Key::C, egui::Modifiers::NONE), egui::Modifiers::COMMAND, "pressed after the copy");
+        let after_the_letter = [released(egui::Key::C, egui::Modifiers::COMMAND), released(egui::Key::AltLeft, command_alt)];
+        assert_eq!(chord_modifiers(&after_the_letter, egui::Key::C, egui::Modifiers::NONE), egui::Modifiers::COMMAND, "let go after the letter");
+        let without_cmd = [released(egui::Key::AltLeft, egui::Modifiers::ALT), released(egui::Key::C, egui::Modifiers::NONE)];
+        assert_eq!(chord_modifiers(&without_cmd, egui::Key::C, command_alt), command_alt, "no Cmd anywhere: the frame decides");
     }
 
     // ---- paste from Figma

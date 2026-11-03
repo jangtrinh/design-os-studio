@@ -244,7 +244,8 @@ fn shift_let_go_before_v_on_a_figma_html_only_clipboard_is_a_plain_paste() {
     s.mods = shift_cmd;
     s.frame(vec![]);
     s.mods = Modifiers::COMMAND;
-    let shift_up = Event::Key { key: Key::ShiftLeft, physical_key: Some(Key::ShiftLeft), pressed: false, repeat: false, modifiers: Modifiers::COMMAND };
+    // winit's macOS backend queues a modifier's key event before the modifier change, so it is still stamped with it
+    let shift_up = Event::Key { key: Key::ShiftLeft, physical_key: Some(Key::ShiftLeft), pressed: false, repeat: false, modifiers: shift_cmd };
     s.frame(vec![shift_up, key_v(false, Modifiers::COMMAND)]);
     s.mods = Modifiers::NONE;
 
