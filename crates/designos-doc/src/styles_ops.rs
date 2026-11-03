@@ -504,9 +504,14 @@ fn collections_for_var<'a>(doc: &'a Document, start_id: &str) -> (Vec<VarCollect
                 }
             }
             if let VariableValue::Alias(next) = val {
+                // The alias is followed only while `v_cid` is in mode `k`, so that mode replaces any
+                // earlier one for the same collection (a hop from another variable of `v_cid`).
                 let mut next_prefix = prefix.clone();
-                if !k.contains('+') && doc.variable_collections.contains_key(v_cid) && !next_prefix.iter().any(|(c, _)| *c == v_cid) {
-                    next_prefix.push((v_cid, k.as_str()));
+                if !k.contains('+') && doc.variable_collections.contains_key(v_cid) {
+                    match next_prefix.iter_mut().find(|entry| entry.0 == v_cid) {
+                        Some(entry) => entry.1 = k.as_str(),
+                        None => next_prefix.push((v_cid, k.as_str())),
+                    }
                 }
                 queue.push_back((next.as_str(), next_prefix));
             }
@@ -4094,5 +4099,103 @@ mod tests {
         let mut h = History::default();
         run(&mut d, &mut h, Ok(cmd));
         assert!((d.get(rid).unwrap().fills[0].opacity - 0.6).abs() < 1e-6);
+    }
+
+    #[test]
+    fn delete_style_keeps_every_look_when_a_same_collection_hop_aliases_to_different_variables_per_mode() {
+        let mut d = Document::new("t");
+        d.add_page("p");
+        d.variable_collections.insert("theme".into(), mode_collection("theme", &["a", "b"], "a", &["v_fill", "v_hop"]));
+        d.variable_collections.insert("brand".into(), mode_collection("brand", &["x", "y"], "x", &["v_one", "v_two"]));
+        d.variable_collections.insert("density".into(), mode_collection("density", &["d"], "d", &["v_op"]));
+        let tint = |alpha: u8| VariableValue::Color(Color::rgba(200, 100, 50, alpha));
+        d.variables.insert(
+            "v_fill".into(),
+            mode_variable("v_fill", "theme", VariableKind::Color, &[("a", VariableValue::Alias("v_hop".into())), ("b", VariableValue::Alias("v_hop".into()))]),
+        );
+        d.variables.insert(
+            "v_hop".into(),
+            mode_variable("v_hop", "theme", VariableKind::Color, &[("a", VariableValue::Alias("v_one".into())), ("b", VariableValue::Alias("v_two".into()))]),
+        );
+        d.variables.insert("v_one".into(), mode_variable("v_one", "brand", VariableKind::Color, &[("x", tint(128)), ("y", tint(128))]));
+        d.variables.insert("v_two".into(), mode_variable("v_two", "brand", VariableKind::Color, &[("x", tint(128)), ("y", tint(255))]));
+        d.variables.insert("v_op".into(), mode_variable("v_op", "density", VariableKind::Number, &[("d", VariableValue::Number(40.0))]));
+        let rid = add_surface_layer(&mut d, "v_fill", "v_op", &[("theme", "a")]);
+
+        let before = d.clone();
+        assert!(
+            (resolved_fill_opacity(&before, rid, &[("theme", "b"), ("brand", "y")]) - 0.4).abs() < 1e-6,
+            "the translucent tint is absent in (b, y), so the style opacity of 0.4 shows there"
+        );
+        take_style_mode_visits();
+        let (cmd, fb) = delete_style_with_fallbacks(&d, "Surface").unwrap();
+        let visits = take_style_mode_visits();
+        assert!(fb.is_empty(), "the style value is the same in every mode where it wins, so nothing is reported");
+        let mut h = History::default();
+        run(&mut d, &mut h, Ok(cmd));
+
+        assert!(
+            (resolved_fill_opacity(&d, rid, &[("theme", "b"), ("brand", "y")]) - 0.4).abs() < 1e-6,
+            "the 0.4 that showed in (b, y) before the delete must survive it"
+        );
+        assert_resolved_matches_across_mode_combos(
+            &before,
+            &d,
+            rid,
+            &[&[("theme", "a"), ("brand", "x")], &[("theme", "a"), ("brand", "y")], &[("theme", "b"), ("brand", "x")], &[("theme", "b"), ("brand", "y")]],
+            "a hop inside one collection that aliases to different variables per mode stays exact in every combination",
+        );
+        assert_eq!(visits, 4, "brand is reached through two variables by way of the hop, so the modes are crossed: 2 x 2 x 1");
+    }
+
+    #[test]
+    fn delete_style_counts_a_fallback_when_the_style_variable_hops_inside_one_collection_to_different_variables_per_mode() {
+        let mut d = Document::new("t");
+        d.add_page("p");
+        d.variable_collections.insert("own".into(), mode_collection("own", &["o1", "o2"], "o1", &["v_own"]));
+        d.variable_collections.insert("theme".into(), mode_collection("theme", &["a", "b"], "a", &["v_sty", "v_hop"]));
+        d.variable_collections.insert("brand".into(), mode_collection("brand", &["x", "y"], "x", &["v_sa", "v_sb"]));
+        let tint = |alpha: u8| VariableValue::Color(Color::rgba(200, 100, 50, alpha));
+        d.variables.insert("v_own".into(), mode_variable("v_own", "own", VariableKind::Color, &[("o1", tint(128)), ("o2", tint(255))]));
+        d.variables.insert(
+            "v_sty".into(),
+            mode_variable("v_sty", "theme", VariableKind::Number, &[("a", VariableValue::Alias("v_hop".into())), ("b", VariableValue::Alias("v_hop".into()))]),
+        );
+        d.variables.insert(
+            "v_hop".into(),
+            mode_variable("v_hop", "theme", VariableKind::Number, &[("a", VariableValue::Alias("v_sa".into())), ("b", VariableValue::Alias("v_sb".into()))]),
+        );
+        d.variables.insert(
+            "v_sa".into(),
+            mode_variable("v_sa", "brand", VariableKind::Number, &[("x", VariableValue::Number(40.0)), ("y", VariableValue::Number(40.0))]),
+        );
+        d.variables.insert(
+            "v_sb".into(),
+            mode_variable("v_sb", "brand", VariableKind::Number, &[("x", VariableValue::Number(40.0)), ("y", VariableValue::Number(70.0))]),
+        );
+        let rid = add_surface_layer(&mut d, "v_own", "v_sty", &[("own", "o1"), ("theme", "a"), ("brand", "x")]);
+
+        let before = d.clone();
+        take_style_mode_visits();
+        let (cmd, fb) = delete_style_with_fallbacks(&d, "Surface").unwrap();
+        let visits = take_style_mode_visits();
+        assert_eq!(fb, vec![(rid, "fills/0/opacity".to_string())], "the style value is 70 in (b, y) and 40 elsewhere where it wins, so the layer is counted");
+        let mut h = History::default();
+        run(&mut d, &mut h, Ok(cmd));
+
+        assert!(!d.get(rid).unwrap().variables.bindings.contains_key("fills/0/opacity"), "the style binding is baked, not moved");
+        assert_resolved_matches_across_mode_combos(
+            &before,
+            &d,
+            rid,
+            &[
+                &[("own", "o1"), ("theme", "a"), ("brand", "x")],
+                &[("own", "o2"), ("theme", "a"), ("brand", "x")],
+                &[("own", "o2"), ("theme", "a"), ("brand", "y")],
+                &[("own", "o2"), ("theme", "b"), ("brand", "x")],
+            ],
+            "the delete-time look and the modes where the style value is 40 stay exact",
+        );
+        assert_eq!(visits, 8, "the style variable reaches brand through two variables by way of the hop, so the modes are crossed: 2 x 2 x 2");
     }
 }
