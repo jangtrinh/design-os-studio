@@ -1,0 +1,49 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1458-native-stack-export/crates/designos-export)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.09s
+     Running tests/native_stack_export.rs (out/cargo/debug/deps/native_stack_export-bf2213274ac9527a)
+
+running 5 tests
+
+thread 'absolute_and_variable_hidden_children_in_stacks_are_emitted_in_overlay_out_of_flow' (81581635) panicked at crates/designos-export/tests/native_stack_export.rs:206:5:
+SwiftUI VStack with absolute/hidden children must be wrapped in ZStack(alignment: .topLeading):
+VStack(alignment: .leading) {
+    Rectangle()
+        .fill(Color(red: 0.102, green: 0.2, blue: 0.302))
+        .frame(width: 100, height: 24)
+    Spacer()
+    Rectangle()
+        .fill(Color(red: 0.2, green: 0.302, blue: 0.4))
+        .frame(width: 100, height: 32)
+    Spacer()
+    Rectangle()
+        .fill(Color(red: 0.902, green: 0.2, blue: 0.2))
+        .frame(width: 24, height: 16)
+        .offset(x: 260, y: 12)
+    Spacer()
+    Rectangle()
+        .fill(Color(red: 0.4, green: 0.4, blue: 0.4))
+        .frame(width: 80, height: 20)
+}
+    .padding(16)
+    .frame(width: 300, height: 200, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames ... ok
+test null_control_frames_without_abs_children_or_fill_fixed_pairs_export_identically ... ok
+test absolute_and_variable_hidden_children_in_grid_are_emitted_in_overlay_out_of_flow ... ok
+test absolute_and_variable_hidden_children_in_stacks_are_emitted_in_overlay_out_of_flow ... FAILED
+swiftc_typecheck_summary: checked=12 passed=12 failed=0
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... ok
+
+failures:
+
+failures:
+    absolute_and_variable_hidden_children_in_stacks_are_emitted_in_overlay_out_of_flow
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
+
+error: test failed, to rerun pass `-p designos-export --test native_stack_export`
