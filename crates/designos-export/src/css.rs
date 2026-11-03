@@ -125,8 +125,9 @@ pub fn css_for(doc: &Document, node: NodeId) -> String {
             let cols = crate::codegen::grid_column_count(al);
             let col_tracks = crate::codegen::resolved_grid_col_tracks(doc, n, al);
             push("grid-template-columns", crate::codegen::grid_tracks_css(&col_tracks, cols));
-            if al.grid_rows > 0 {
-                push("grid-template-rows", crate::codegen::grid_tracks_css(&al.grid_row_tracks, al.grid_rows as usize));
+            let (row_tracks, row_count) = crate::codegen::resolved_grid_row_tracks(doc, n, al);
+            if row_count > 0 {
+                push("grid-template-rows", crate::codegen::grid_tracks_css(&row_tracks, row_count));
             }
             let col = al.item_spacing;
             let row = if al.counter_spacing > 0.0 { al.counter_spacing } else { al.item_spacing };

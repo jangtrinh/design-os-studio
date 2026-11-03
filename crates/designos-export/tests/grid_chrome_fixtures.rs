@@ -63,6 +63,8 @@ pub fn build_fixtures() -> Vec<GridFixture> {
         scene_s5b_hug_height_min_h_flex_auto(),
         scene_s7_explicit_rows_hug(),
         scene_n1_explicit_hug_rows_flex_auto(),
+        scene_s9_auto_tracks_flex_unequal(),
+        scene_n1b_explicit_hug_rows_flex_auto_overflow(),
         scene_n2_hug_equal_flex_two_empty_hug_cols(),
         scene_n2b_hug_equal_flex_one_empty_hug_col(),
         scene_n2c_hug_equal_flex_fill_only_hug_col(),
@@ -456,6 +458,59 @@ fn scene_n1_explicit_hug_rows_flex_auto() -> GridFixture {
     }
 }
 
+fn scene_s9_auto_tracks_flex_unequal() -> GridFixture {
+    let al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 0,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        grid_auto_tracks: GridAutoTracks::Track(GridTrack::Flex(1.0)),
+        ..Default::default()
+    };
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 300.0));
+    let items = vec![
+        add_item(&mut doc, grid, 100.0, 20.0, Sizing::Fill, Sizing::Fixed),
+        add_item(&mut doc, grid, 100.0, 20.0, Sizing::Fill, Sizing::Fixed),
+        add_item(&mut doc, grid, 100.0, 200.0, Sizing::Fill, Sizing::Fixed),
+        add_item(&mut doc, grid, 100.0, 200.0, Sizing::Fill, Sizing::Fixed),
+    ];
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "s9_auto_tracks_flex_unequal",
+        doc,
+        grid,
+        items,
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 300px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: 100px 200px;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 grid-rows-[100px_200px] w-[200px] h-[300px]\">\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-[200px]\"></div>\n  <div class=\"h-[200px]\"></div>\n</div>",
+    }
+}
+
+fn scene_n1b_explicit_hug_rows_flex_auto_overflow() -> GridFixture {
+    let mut al = AutoLayout {
+        grid_columns: 2,
+        grid_rows: 2,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        grid_auto_tracks: GridAutoTracks::Track(GridTrack::Flex(1.0)),
+        ..Default::default()
+    };
+    al.grid_row_tracks[0] = GridTrack::Hug;
+    al.grid_row_tracks[1] = GridTrack::Hug;
+    let (mut doc, grid) = new_grid(al, Vec2::new(200.0, 200.0));
+    let items = (0..6).map(|_| add_item(&mut doc, grid, 50.0, 20.0, Sizing::Fill, Sizing::Fixed)).collect();
+    doc.relayout_subtree(grid);
+    GridFixture {
+        name: "n1b_explicit_hug_rows_flex_auto_overflow",
+        doc,
+        grid,
+        items,
+        expected_css: "display: grid;\nwidth: 200px;\nheight: 200px;\ngrid-template-columns: repeat(2, minmax(0, 1fr));\ngrid-template-rows: 20px 20px 140px;\ngap: 10px;",
+        expected_tailwind: "<div class=\"grid grid-cols-2 grid-rows-[20px_20px_140px] gap-2.5 w-[200px] h-[200px]\">\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n  <div class=\"h-5\"></div>\n</div>",
+    }
+}
+
 fn scene_n2_hug_equal_flex_two_empty_hug_cols() -> GridFixture {
     let mut al = AutoLayout {
         grid_columns: 4,
@@ -757,6 +812,16 @@ fn s7_explicit_rows_hug_css_and_tailwind() {
 #[test]
 fn n1_explicit_hug_rows_flex_auto_css_and_tailwind() {
     assert_fixture_css_and_tailwind("n1_explicit_hug_rows_flex_auto");
+}
+
+#[test]
+fn s9_auto_tracks_flex_unequal_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("s9_auto_tracks_flex_unequal");
+}
+
+#[test]
+fn n1b_explicit_hug_rows_flex_auto_overflow_css_and_tailwind() {
+    assert_fixture_css_and_tailwind("n1b_explicit_hug_rows_flex_auto_overflow");
 }
 
 #[test]

@@ -755,6 +755,29 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
     std::borrow::Cow::Owned(col_widths.into_iter().map(GridTrack::Fixed).collect())
 }
 
+/// Row tracks for web exports. When the document has a resolved implicit track mode, the solver
+/// may give each implicit row a different height (for example after flex auto-row leveling). CSS
+/// `grid-auto-rows` has one value for every implicit row, so emit the solver's resolved row list as
+/// explicit pixel tracks whenever implicit rows are present. The ordinary stored row tracks remain
+/// untouched for grids whose rows are already fully explicit.
+pub(crate) fn resolved_grid_row_tracks<'a>(doc: &Document, n: &Node, al: &'a AutoLayout) -> (std::borrow::Cow<'a, [GridTrack]>, usize) {
+    let explicit = al.grid_rows as usize;
+    // Resolve only the implicit auto rows that the solver levels across a fixed-height
+    // container. Hugging/packed rows already match the browser's auto sizing and must keep
+    // the existing omitted/`auto` export form.
+    let needs_resolved = !grid_packs_auto_rows(doc, n, al);
+    if needs_resolved {
+        if let Some(solved) = solved_grid(doc, n, al) {
+            if explicit == 0 || solved.rows.len() > explicit {
+                let tracks: Vec<GridTrack> = solved.rows.into_iter().map(GridTrack::Fixed).collect();
+                let count = tracks.len();
+                return (std::borrow::Cow::Owned(tracks), count);
+            }
+        }
+    }
+    (std::borrow::Cow::Borrowed(&al.grid_row_tracks), explicit)
+}
+
 /// One track. A flex track is `minmax(0, {n}fr)`: the solver hands it a weighted share of the inner
 /// width and lets it shrink to a pixel, while a bare `{n}fr` is `minmax(auto, {n}fr)` and cannot
 /// shrink under its content.
