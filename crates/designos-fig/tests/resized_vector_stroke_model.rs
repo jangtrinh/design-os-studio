@@ -169,6 +169,22 @@ fn a_vertex_cap_of_its_own_and_dashes_inside_keep_the_scaled_bake_while_a_vertex
 }
 
 #[test]
+fn dashes_on_a_centered_stroke_whose_vertex_join_differs_from_the_nodes_keep_the_scaled_bake() {
+    // the live outliner strokes dashes with the node join only, so a vertex join cannot be drawn live
+    let mut dashed_with_vertex_join = icon_with_vertex(json!({"strokeJoin": "MITER"}));
+    dashed_with_vertex_join["strokeDashes"] = json!([4.0, 2.0]);
+    let (mut doc, id) = imported(dashed_with_vertex_join);
+    resize_2x(&mut doc, id);
+    assert_outline_scaled(&doc, id, "dashes on a centered stroke with a vertex join of its own");
+
+    let mut dashed_with_equal_vertex_join = icon_with_vertex(json!({"strokeJoin": "ROUND"}));
+    dashed_with_equal_vertex_join["strokeDashes"] = json!([4.0, 2.0]);
+    let (mut doc, id) = imported(dashed_with_equal_vertex_join);
+    resize_2x(&mut doc, id);
+    assert_centerline_stroked_live(&doc, id, "dashes on a centered stroke with a vertex join equal to the node's");
+}
+
+#[test]
 fn an_arrow_cap_survives_a_rest_round_trip_and_keeps_its_bake_on_a_resize() {
     for (what, (doc, _), marker) in [
         ("node arrow cap", imported(icon(json!({"strokeCap": "ARROW_LINES"}))), "ARROW_LINES"),
@@ -184,6 +200,144 @@ fn an_arrow_cap_survives_a_rest_round_trip_and_keeps_its_bake_on_a_resize() {
         resize_2x(&mut reopened, id);
         assert_outline_scaled(&reopened, id, what);
     }
+}
+
+/// `icon` with `props` set on its vertex number `index`.
+fn icon_with_vertex_at(index: usize, node_props: Value, props: Value) -> Value {
+    let mut v = icon(node_props);
+    for (k, x) in props.as_object().unwrap() {
+        v["vectorNetwork"]["vertices"][index][k] = x.clone();
+    }
+    v
+}
+
+fn named<'a>(v: &'a Value, name: &str) -> Option<&'a Value> {
+    named_any(v, name, "VECTOR")
+}
+
+fn named_any<'a>(v: &'a Value, name: &str, node_type: &str) -> Option<&'a Value> {
+    if v.get("name").and_then(Value::as_str) == Some(name) && v.get("type").is_some_and(|t| t == node_type) {
+        return Some(v);
+    }
+    ["document", "children"].iter().find_map(|k| match v.get(*k)? {
+        Value::Array(items) => items.iter().find_map(|c| named_any(c, name, node_type)),
+        o => named_any(o, name, node_type),
+    })
+}
+
+/// The cap names written for the exported icon: its own, then those of its vertices (`None` where a vertex has none).
+fn written_caps(rest: &Value) -> (String, Vec<Option<String>>) {
+    caps_of(named(rest, "Icon").expect("the exported icon"))
+}
+
+fn caps_of(icon: &Value) -> (String, Vec<Option<String>>) {
+    let node = icon["strokeCap"].as_str().expect("the node's strokeCap").to_string();
+    let vertices = icon["vectorNetwork"]["vertices"].as_array().expect("the exported vertices");
+    (node, vertices.iter().map(|x| x.get("strokeCap").and_then(Value::as_str).map(String::from)).collect())
+}
+
+/// Exports `vector` as REST JSON, checks the cap names written for the node and for each vertex, then reopens the
+/// JSON: the arrow cap must be known again, the modelled cap unchanged, and a resize must keep the scaled bake.
+#[track_caller]
+fn assert_arrow_cap_round_trips(what: &str, vector: Value, node_cap: &str, vertex_caps: [Option<&str>; 4]) {
+    let (doc, _) = imported(vector);
+    let icon_node = doc.nodes.values().find(|n| n.name == "Icon").unwrap();
+    let marker = icon_node.fig_metadata.get("strokeCap").cloned().expect("the arrow cap is recorded");
+    let cap_before = icon_node.stroke.cap;
+
+    let rest = export_rest_json(&doc);
+    let (written_node, written_vertices) = written_caps(&rest);
+    let expected_vertices: Vec<Option<String>> = vertex_caps.iter().map(|c| c.map(String::from)).collect();
+    assert_eq!(written_node, node_cap, "{what}: the node's strokeCap");
+    assert_eq!(written_vertices, expected_vertices, "{what}: the strokeCap of each vertex");
+
+    let mut reopened = import_rest_json(&rest.to_string()).expect("reimport the REST JSON");
+    let id = reopened.nodes.values().find(|n| n.name == "Icon").unwrap().id;
+    let n = reopened.get(id).unwrap();
+    assert_eq!(n.fig_metadata.get("strokeCap"), Some(&marker), "{what}: the arrow cap survives the round trip");
+    assert_eq!(n.stroke.cap, cap_before, "{what}: the modelled stroke cap is preserved");
+    resize_2x(&mut reopened, id);
+    assert_outline_scaled(&reopened, id, what);
+
+    // the second export writes it to the same place again
+    let (again_node, again_vertices) = written_caps(&export_rest_json(&import_rest_json(&rest.to_string()).unwrap()));
+    assert_eq!((again_node.as_str(), again_vertices), (node_cap, expected_vertices), "{what}: stable on a second round trip");
+}
+
+fn icon_with_arrow_on_vertex_3(node_cap: &str, arrow: &str) -> Value {
+    icon_with_vertex_at(3, json!({"strokeCap": node_cap}), json!({"strokeCap": arrow}))
+}
+
+#[test]
+fn a_rest_export_writes_a_vertex_arrow_back_onto_its_vertex_when_the_node_has_a_cap() {
+    assert_arrow_cap_round_trips(
+        "round node, arrow on vertex 3",
+        icon_with_arrow_on_vertex_3("ROUND", "ARROW_EQUILATERAL"),
+        "ROUND",
+        [None, None, None, Some("ARROW_EQUILATERAL")],
+    );
+}
+
+#[test]
+fn a_rest_export_keeps_a_vertex_arrow_off_a_plain_node() {
+    assert_arrow_cap_round_trips(
+        "plain node, arrow on vertex 3",
+        icon_with_arrow_on_vertex_3("NONE", "ARROW_LINES"),
+        "NONE",
+        [None, None, None, Some("ARROW_LINES")],
+    );
+}
+
+#[test]
+fn a_rest_export_writes_a_node_arrow_into_the_nodes_stroke_cap() {
+    assert_arrow_cap_round_trips("arrow on the node", icon(json!({"strokeCap": "ARROW_LINES"})), "ARROW_LINES", [None, None, None, None]);
+}
+
+/// A REST file with a main component holding an icon that has an arrow on vertex 3, and an instance of it without
+/// children of its own, so that the importer clones the component's layers; with `padding` rectangles the file has
+/// the 10,000 nodes or more at which it clones them in bulk.
+fn rest_instance_of_an_arrow_icon(padding: u32) -> Value {
+    let mut icon_in_main = icon_with_arrow_on_vertex_3("ROUND", "ARROW_EQUILATERAL");
+    icon_in_main["id"] = json!("1:2");
+    icon_in_main["relativeTransform"] = json!([[1, 0, 0], [0, 1, 0]]);
+    let mut children = vec![
+        json!({"id": "1:1", "name": "Main", "type": "COMPONENT", "size": {"x": 20.0, "y": 20.0}, "relativeTransform": [[1, 0, 0], [0, 1, 0]], "children": [icon_in_main]}),
+        json!({"id": "1:3", "name": "Use", "type": "INSTANCE", "componentId": "1:1", "size": {"x": 40.0, "y": 40.0}, "relativeTransform": [[1, 0, 60], [0, 1, 0]]}),
+    ];
+    for i in 0..padding {
+        children.push(json!({"id": format!("9:{i}"), "name": format!("Pad {i}"), "type": "RECTANGLE", "size": {"x": 2.0, "y": 2.0}, "relativeTransform": [[1, 0, 0], [0, 1, 100]]}));
+    }
+    json!({"name": "icons", "document": {"id": "0:0", "type": "DOCUMENT", "children": [{"id": "0:1", "name": "Page", "type": "CANVAS", "children": children}]}})
+}
+
+#[test]
+fn an_instance_clone_of_an_arrow_icon_writes_the_arrow_back_onto_its_vertex_at_any_file_size() {
+    for padding in [0, 10_100] {
+        let doc = import_rest_json(&rest_instance_of_an_arrow_icon(padding).to_string()).unwrap();
+        let rest = export_rest_json(&doc);
+        let instance = named_any(&rest, "Use", "INSTANCE").expect("the exported instance");
+        let icon = named(instance, "Icon").unwrap_or_else(|| panic!("padding {padding}: the instance holds a copy of the icon"));
+        assert_eq!(
+            caps_of(icon),
+            ("ROUND".to_string(), vec![None, None, None, Some("ARROW_EQUILATERAL".to_string())]),
+            "padding {padding}: the cloned icon keeps where its arrow sat"
+        );
+    }
+}
+
+#[test]
+fn a_document_recorded_without_the_cap_source_keeps_writing_the_arrow_where_it_always_did() {
+    let (mut doc, id) = imported(icon_with_vertex_at(3, json!({"strokeCap": "ROUND"}), json!({"strokeCap": "ARROW_EQUILATERAL"})));
+    doc.get_mut(id).unwrap().fig_metadata.retain(|k, _| k == "strokeCap");
+    let (node_cap, vertex_caps) = written_caps(&export_rest_json(&doc));
+    assert_eq!(node_cap, "ROUND", "a modelled node cap stays the node's strokeCap");
+    assert_eq!(vertex_caps.iter().position(|c| c.is_some()), Some(0), "the arrow goes to the first vertex without a cap");
+
+    let (mut doc, id) = imported(icon_with_vertex_at(3, json!({"strokeCap": "NONE"}), json!({"strokeCap": "ARROW_LINES"})));
+    doc.get_mut(id).unwrap().fig_metadata.retain(|k, _| k == "strokeCap");
+    let (node_cap, vertex_caps) = written_caps(&export_rest_json(&doc));
+    assert_eq!(node_cap, "ARROW_LINES", "an unmodelled cap fills a plain node's strokeCap");
+    assert!(vertex_caps.iter().all(|c| c.is_none()));
 }
 
 // ---- `.fig` files ---------------------------------------------------------------------------------
