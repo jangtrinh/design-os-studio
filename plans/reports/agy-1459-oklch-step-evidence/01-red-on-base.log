@@ -1,0 +1,85 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1459-oklch-step/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1459-oklch-step/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1459-oklch-step/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1459-oklch-step/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 37.77s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 30 tests
+test widgets::picker::tests::hsb_is_computed_in_gamma_space ... ok
+test widgets::picker::tests::active_color_edits_the_selected_stop ... ok
+test widgets::picker::tests::gradient_to_solid_takes_first_stop ... ok
+test widgets::picker::tests::gradient_shape_switch_keeps_stops ... ok
+test widgets::picker::tests::oklch_and_oklab_format_list_and_default ... ok
+test widgets::picker::tests::hue_survives_grey ... ok
+test widgets::picker::tests::solid_to_gradient_keeps_color_as_first_stop ... ok
+test widgets::picker::tests::stop_color_interpolates ... ok
+test widgets::picker::tests::procedural_png_presets_generate_valid_png_headers_and_distinct_textures ... ok
+test widgets::picker::tests::css_and_hsl_roundtrip ... ok
+test widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap ... ok
+test widgets::picker::tests::visible_text_hex_mode ... ok
+test widgets::picker::tests::oklch_and_oklab_caret_stays_on_stepped_component_and_respects_separators ... FAILED
+test widgets::picker::tests::oklab_arrow_keys_step_a_and_b_by_hundredths_and_clamp ... FAILED
+test widgets::picker::tests::oklch_arrow_keys_step_l_c_h_with_plain_shift_and_alt_modifiers ... FAILED
+test widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps ... ok
+test widgets::picker::tests::visible_text_hsb_at_full_s_b ... ok
+test widgets::picker::tests::visible_text_css_mode ... ok
+test widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells ... ok
+test widgets::picker::tests::oklch_hue_wraps_from_359_to_0_and_lightness_stops_at_100 ... FAILED
+test widgets::picker::tests::visible_text_oklab_mode ... ok
+test widgets::picker::tests::visible_text_hsl_mode ... ok
+test widgets::picker::tests::visible_text_oklch_mode ... ok
+test widgets::picker::tests::visible_text_rgb_at_255_255_255 ... ok
+test widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue ... ok
+test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... ok
+test widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba ... ok
+test widgets::picker::tests::oklch_and_oklab_arrow_key_press_is_one_undo_step ... FAILED
+test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... ok
+test widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid ... ok
+
+failures:
+
+---- widgets::picker::tests::oklch_and_oklab_caret_stays_on_stepped_component_and_respects_separators stdout ----
+
+thread 'widgets::picker::tests::oklch_and_oklab_caret_stays_on_stepped_component_and_respects_separators' (76827083) panicked at crates/designos-app/src/widgets/picker.rs:2784:9:
+assertion `left == right` failed
+  left: "56.93% 0.14 254.47"
+ right: "57.93% 0.14 254.47"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- widgets::picker::tests::oklab_arrow_keys_step_a_and_b_by_hundredths_and_clamp stdout ----
+
+thread 'widgets::picker::tests::oklab_arrow_keys_step_a_and_b_by_hundredths_and_clamp' (76827081) panicked at crates/designos-app/src/widgets/picker.rs:2695:9:
+ArrowUp on OKLAB a must update paint immediately
+
+---- widgets::picker::tests::oklch_arrow_keys_step_l_c_h_with_plain_shift_and_alt_modifiers stdout ----
+
+thread 'widgets::picker::tests::oklch_arrow_keys_step_l_c_h_with_plain_shift_and_alt_modifiers' (76827085) panicked at crates/designos-app/src/widgets/picker.rs:2605:9:
+ArrowUp on L must update paint immediately
+
+---- widgets::picker::tests::oklch_hue_wraps_from_359_to_0_and_lightness_stops_at_100 stdout ----
+
+thread 'widgets::picker::tests::oklch_hue_wraps_from_359_to_0_and_lightness_stops_at_100' (76827086) panicked at crates/designos-app/src/widgets/picker.rs:2754:9:
+assertion `left == right` failed
+  left: "99% 0.26 359"
+ right: "99% 0.26 0"
+
+---- widgets::picker::tests::oklch_and_oklab_arrow_key_press_is_one_undo_step stdout ----
+
+thread 'widgets::picker::tests::oklch_and_oklab_arrow_key_press_is_one_undo_step' (76827082) panicked at crates/designos-app/src/widgets/picker.rs:2863:9:
+assertion `left != right` failed: one ArrowUp press in OKLCH must update the node fill immediately
+  left: Color { r: 0.20392157, g: 0.47058824, b: 0.78431374, a: 1.0 }
+ right: Color { r: 0.20392157, g: 0.47058824, b: 0.78431374, a: 1.0 }
+
+
+failures:
+    widgets::picker::tests::oklab_arrow_keys_step_a_and_b_by_hundredths_and_clamp
+    widgets::picker::tests::oklch_and_oklab_arrow_key_press_is_one_undo_step
+    widgets::picker::tests::oklch_and_oklab_caret_stays_on_stepped_component_and_respects_separators
+    widgets::picker::tests::oklch_arrow_keys_step_l_c_h_with_plain_shift_and_alt_modifiers
+    widgets::picker::tests::oklch_hue_wraps_from_359_to_0_and_lightness_stops_at_100
+
+test result: FAILED. 25 passed; 5 failed; 0 ignored; 0 measured; 4194 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

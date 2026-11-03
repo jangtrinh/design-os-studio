@@ -397,6 +397,7 @@ impl Hsva {
 }
 
 // ---------------------------------------------------------------- state
+#[derive(Clone)]
 pub struct State {
     pub tab: Tab,
     pub fmt: Fmt,
@@ -577,8 +578,11 @@ impl State {
             } else {
                 parse_ok_channel(active_fmt, i, tok, cur_triple[i])?
             };
-            let disp_tok = fmt_ok_token(i, cur_triple[i]);
-            let disp_ch = if is_func && i == 0 { disp_tok.clone() } else { fmt_ok_channel(i, cur_triple[i]) };
+            let exact_3dec = i > 0
+                && ((cur_triple[i] * 1000.0).round() - cur_triple[i] * 1000.0).abs() < 1e-4
+                && ((cur_triple[i] * 100.0).round() - cur_triple[i] * 100.0).abs() > 1e-4;
+            let disp_tok = if exact_3dec { designos_export::util::num(cur_triple[i]) } else { fmt_ok_token(i, cur_triple[i]) };
+            let disp_ch = if is_func && i == 0 || exact_3dec { disp_tok.clone() } else { fmt_ok_channel(i, cur_triple[i]) };
             changed_mask[i] = tok != disp_tok && tok != disp_ch;
         }
         let mut rgb = match active_fmt {
@@ -1393,7 +1397,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             Fmt::Oklch | Fmt::Oklab => {
                 let r = Rect::from_min_size(fields.min, Vec2::new(fields.width(), 24.0));
                 let disp = st.ok_text(st.fmt);
-                if let Some(s) = grouped_text(ui, r, "picker-ok", &disp, theme::cr(theme::RADIUS_CONTROL), 3.0) {
+                if let Some(s) = grouped_ok_text(ui, r, "picker-ok", st, &disp, theme::cr(theme::RADIUS_CONTROL), 3.0) {
                     typed = st.apply_ok_input(st.fmt, &s, cur[3]);
                 }
             }
@@ -1690,6 +1694,236 @@ fn grouped_text(ui: &mut Ui, r: Rect, key: impl Key, display: &str, radius: egui
         ui.painter().rect_stroke(r, radius, Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
     }
     field::edit_text(ui, r, id, display, theme::font_body(), theme::TEXT, pad)
+}
+
+/// Steps the OKLCH or OKLAB component under `caret_char` (or to the left of a separator/space;
+/// at the start, the first component) by `dir * mult * base_step`, rewriting the text in the
+/// field's own format and returning `(rewritten_text, new_caret_char)`.
+fn step_ok_text(fmt: Fmt, cur_triple: [f32; 3], text: &str, caret_char: usize, dir: f32, mult: f32) -> Option<(String, usize)> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let total_chars = chars.len();
+    let byte_of = |ci: usize| chars.get(ci).map(|&(b, _)| b).unwrap_or(text.len());
+    let mut trim_start = 0;
+    while trim_start < total_chars && chars[trim_start].1.is_whitespace() {
+        trim_start += 1;
+    }
+    let mut trim_end = total_chars;
+    while trim_end > trim_start && chars[trim_end - 1].1.is_whitespace() {
+        trim_end -= 1;
+    }
+    if trim_start >= trim_end {
+        return None;
+    }
+    let trimmed = &text[byte_of(trim_start)..byte_of(trim_end)];
+    let lower = trimmed.to_ascii_lowercase();
+    let (active_fmt, is_func, inner_start, inner_end) = if lower.starts_with("oklch") || lower.starts_with("oklab") {
+        let af = if lower.starts_with("oklch") { Fmt::Oklch } else { Fmt::Oklab };
+        let mut p = trim_start + 5;
+        while p < trim_end && chars[p].1.is_whitespace() {
+            p += 1;
+        }
+        if p >= trim_end || chars[p].1 != '(' || chars[trim_end - 1].1 != ')' {
+            return None;
+        }
+        (af, true, p + 1, trim_end - 1)
+    } else {
+        (fmt, false, trim_start, trim_end)
+    };
+    let mut slash_pos = None;
+    for (ci, &(_, ch)) in chars.iter().enumerate().take(inner_end).skip(inner_start) {
+        if ch == '/' {
+            if slash_pos.is_some() {
+                return None;
+            }
+            slash_pos = Some(ci);
+        }
+    }
+    let (ch_end, alpha_suffix) = if let Some(sp) = slash_pos {
+        if caret_char > sp {
+            return None;
+        }
+        let a_str = text[byte_of(sp + 1)..byte_of(inner_end)].trim();
+        if a_str.is_empty() {
+            return None;
+        }
+        (sp, format!(" / {a_str}"))
+    } else {
+        (inner_end, String::new())
+    };
+    let mut tokens: Vec<(usize, usize, &str)> = Vec::with_capacity(3);
+    let mut i = inner_start;
+    while i < ch_end {
+        while i < ch_end && (chars[i].1.is_ascii_whitespace() || chars[i].1 == ',') {
+            i += 1;
+        }
+        if i >= ch_end {
+            break;
+        }
+        let start = i;
+        while i < ch_end && !chars[i].1.is_ascii_whitespace() && chars[i].1 != ',' {
+            i += 1;
+        }
+        tokens.push((start, i, &text[byte_of(start)..byte_of(i)]));
+    }
+    if tokens.len() != 3 {
+        return None;
+    }
+    let idx = if caret_char < tokens[1].0 {
+        0
+    } else if caret_char < tokens[2].0 {
+        1
+    } else {
+        2
+    };
+    let (si, ei, _) = tokens[idx];
+    let rel = caret_char.saturating_sub(si).min(ei - si);
+    let mut parsed = [0.0_f32; 3];
+    for (k, &(_, _, tok)) in tokens.iter().enumerate() {
+        parsed[k] = if is_func && k == 0 && !tok.ends_with('%') {
+            if tok.contains('%') {
+                return None;
+            }
+            field::eval_number_expr(tok, Some(cur_triple[0]), false)?.clamp(0.0, 1.0)
+        } else {
+            parse_ok_channel(active_fmt, k, tok, cur_triple[k])?
+        };
+    }
+    let out_toks: [String; 3] = std::array::from_fn(|k| {
+        if k == idx {
+            match (active_fmt, k) {
+                (Fmt::Oklch | Fmt::Oklab, 0) => {
+                    let l_pct = parsed[0] * 100.0;
+                    let next_pct = (((l_pct + dir * (1.0 * mult)) * 100.0).round() / 100.0).clamp(0.0, 100.0);
+                    format!("{}%", fmt_num(next_pct))
+                }
+                (Fmt::Oklch, 1) => {
+                    let next_c = (((parsed[1] + dir * (0.01 * mult)) * 1000.0).round() / 1000.0).clamp(0.0, 0.4);
+                    designos_export::util::num(next_c)
+                }
+                (Fmt::Oklch, 2) => {
+                    let raw_h = ((parsed[2] + dir * (1.0 * mult)) * 100.0).round() / 100.0;
+                    let mut next_h = ((raw_h.rem_euclid(360.0)) * 100.0).round() / 100.0;
+                    if next_h >= 360.0 || next_h == 0.0 {
+                        next_h = 0.0;
+                    }
+                    fmt_num(next_h)
+                }
+                (Fmt::Oklab, 1 | 2) => {
+                    let next_ab = (((parsed[k] + dir * (0.01 * mult)) * 1000.0).round() / 1000.0).clamp(-0.4, 0.4);
+                    designos_export::util::num(next_ab)
+                }
+                _ => fmt_ok_token(k, parsed[k]),
+            }
+        } else {
+            let tok = tokens[k].2;
+            if tok == fmt_ok_token(k, cur_triple[k]) || tok == fmt_ok_channel(k, cur_triple[k]) {
+                fmt_ok_token(k, cur_triple[k])
+            } else if k == 0 {
+                format!("{}%", fmt_num(parsed[0] * 100.0))
+            } else if k == 2 && active_fmt == Fmt::Oklch {
+                fmt_num(parsed[2])
+            } else {
+                designos_export::util::num(parsed[k])
+            }
+        }
+    });
+    let next_text = format!("{} {} {}{}", out_toks[0], out_toks[1], out_toks[2], alpha_suffix);
+    let len0 = out_toks[0].chars().count();
+    let len1 = out_toks[1].chars().count();
+    let len2 = out_toks[2].chars().count();
+    let (new_start, new_len) = match idx {
+        0 => (0, len0),
+        1 => (len0 + 1, len1),
+        _ => (len0 + 1 + len1 + 1, len2),
+    };
+    let new_caret = new_start + rel.min(new_len);
+    Some((next_text, new_caret))
+}
+
+/// OKLCH / OKLAB field cell with `ArrowUp`/`ArrowDown` (`×1`, `Shift ×10`, `Alt ×0.1`) per-component stepping.
+fn grouped_ok_text(ui: &mut Ui, r: Rect, key: impl Key, st: &State, display: &str, radius: egui::CornerRadius, pad: f32) -> Option<String> {
+    let id = ui.id().with(("txt", key));
+    let focused = ui.memory(|m| m.has_focus(id));
+    ui.painter().rect_filled(r, radius, theme::BG_SECONDARY);
+    if focused {
+        ui.painter().rect_stroke(r, radius, Stroke::new(1.0, theme::BORDER_SELECTED), StrokeKind::Inside);
+    } else if ui.rect_contains_pointer(r) {
+        ui.painter().rect_stroke(r, radius, Stroke::new(1.0, theme::BORDER), StrokeKind::Inside);
+    }
+    let step_id = id.with("ok_step");
+    let cur_triple = match st.fmt {
+        Fmt::Oklab => st.oklab,
+        _ => st.oklch,
+    };
+    let mut stepped: Option<(String, egui::text::CCursorRange)> = None;
+    if focused {
+        let mut arrow: Option<(f32, egui::Modifiers)> = None;
+        ui.input_mut(|i| {
+            if let Some(pos) = i.events.iter().position(|e| matches!(e, egui::Event::Key { key: egui::Key::ArrowUp | egui::Key::ArrowDown, pressed: true, .. }))
+            {
+                if let egui::Event::Key { key, modifiers, .. } = i.events.remove(pos) {
+                    let dir = if key == egui::Key::ArrowUp { 1.0 } else { -1.0 };
+                    arrow = Some((dir, modifiers));
+                }
+            }
+        });
+        if let Some((dir, m)) = arrow {
+            let mult = if m.alt {
+                0.1
+            } else if m.shift {
+                10.0
+            } else {
+                1.0
+            };
+            let cur_buf = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_else(|| display.to_string());
+            let caret_char = egui::widgets::text_edit::TextEdit::load_state(ui.ctx(), id)
+                .and_then(|s| s.cursor.char_range())
+                .map(|r| r.primary.index.0.min(r.secondary.index.0))
+                .unwrap_or(0);
+            if let Some((next_text, next_caret)) = step_ok_text(st.fmt, cur_triple, &cur_buf, caret_char, dir, mult) {
+                let range = egui::text::CCursorRange::one(egui::text::CCursor::new(next_caret));
+                stepped = Some((next_text, range));
+            }
+        }
+    } else {
+        ui.data_mut(|d| d.remove_temp::<(Fmt, String, String)>(step_id));
+    }
+    if let Some((next_text, next_range)) = stepped {
+        let mut preview = st.clone();
+        let _ = preview.apply_ok_input(st.fmt, &next_text, 255);
+        let next_disp = preview.ok_text(st.fmt);
+        ui.data_mut(|d| {
+            d.insert_temp(id, next_text.clone());
+            d.insert_temp(id.with("seed"), next_text.clone());
+            d.insert_temp(step_id, (st.fmt, next_disp, next_text.clone()));
+        });
+        let res = field::edit_text(ui, r, id, &next_text, theme::font_body(), theme::TEXT, pad);
+        ui.memory_mut(|m| {
+            m.request_focus(id);
+            m.move_focus(egui::FocusDirection::None);
+            m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, escape: true, ..Default::default() });
+        });
+        let mut state = egui::widgets::text_edit::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+        state.cursor.set_char_range(Some(next_range));
+        state.store(ui.ctx(), id);
+        return res.or(Some(next_text));
+    }
+    let live_display = ui.data(|d| d.get_temp::<(Fmt, String, String)>(step_id)).and_then(|(saved_fmt, saved_disp, saved_text)| {
+        if focused && saved_fmt == st.fmt && saved_disp == display {
+            Some(saved_text)
+        } else {
+            None
+        }
+    });
+    let eff_display = live_display.as_deref().unwrap_or(display);
+    let res = field::edit_text(ui, r, id, eff_display, theme::font_body(), theme::TEXT, pad);
+    if ui.memory(|m| m.has_focus(id)) {
+        ui.memory_mut(|m| {
+            m.move_focus(egui::FocusDirection::None);
+            m.set_focus_lock_filter(id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, escape: true, ..Default::default() });
+        });
+    }
+    res
 }
 
 /// Hex field cell with `ArrowUp`/`ArrowDown` (`±1`) and `Shift+ArrowUp`/`ArrowDown` (`±10`) stepping.
@@ -2548,5 +2782,557 @@ mod tests {
         let _ = commit_picker_ok(&ctx, "50% 0.26 29.23", &mut paint2, &mut st2);
         assert_eq!(st2.ok_cells(Fmt::Oklch)[0], "50");
         assert_visible_mode(&ctx, &mut paint2, &mut st2, &["OKLCH", "50% 0.26 29.23"]);
+    }
+
+    fn focus_picker_ok_at(ctx: &egui::Context, paint: &mut Paint, st: &mut State, caret: usize) -> Id {
+        let _ = run_picker_frame(ctx, vec![], paint, st);
+        let mut cell_id = None;
+        let sources: Vec<(String, Vec<Color32>)> = vec![("On this page".into(), vec![])];
+        let env = Env { paint_types: true, sources: &sources, styles: &[], can_add_style: false };
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let id = ui.id().with(("txt", "picker-ok"));
+            cell_id = Some(id);
+            let _ = show(ui, Pos2::ZERO, st, paint, &env);
+            ui.memory_mut(|m| m.request_focus(id));
+        });
+        let id = cell_id.unwrap();
+        let _ = run_picker_frame(ctx, vec![], paint, st);
+        let mut state = egui::widgets::text_edit::TextEdit::load_state(ctx, id).unwrap_or_default();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(caret))));
+        state.store(ctx, id);
+        id
+    }
+
+    fn press_picker_key(ctx: &egui::Context, key: egui::Key, modifiers: egui::Modifiers, paint: &mut Paint, st: &mut State) -> Out {
+        run_picker_frame(ctx, vec![egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers }], paint, st)
+    }
+
+    fn picker_ok_buf_and_caret(ctx: &egui::Context, id: Id) -> (String, usize) {
+        let buf = ctx.data(|d| d.get_temp::<String>(id)).unwrap_or_default();
+        let caret = egui::widgets::text_edit::TextEdit::load_state(ctx, id).and_then(|s| s.cursor.char_range()).map(|r| r.primary.index.0).unwrap_or(0);
+        (buf, caret)
+    }
+
+    #[test]
+    fn oklch_arrow_keys_step_l_c_h_with_plain_shift_and_alt_modifiers() {
+        let ctx = test_ctx();
+        let shift = egui::Modifiers { shift: true, ..egui::Modifiers::NONE };
+        let alt = egui::Modifiers { alt: true, ..egui::Modifiers::NONE };
+
+        // Start from [52, 120, 200, 255] -> OKLCH "56.93% 0.14 254.47"
+        let mut paint = solid(52, 120, 200, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+        assert_eq!(st.ok_text(Fmt::Oklch), "56.93% 0.14 254.47");
+
+        // 1. L component (caret at char 2 inside "56.93%"): plain ±1%, Shift ±10%, Alt ±0.1%
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 2);
+        let out_l_up = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert!(out_l_up.changed, "ArrowUp on L must update paint immediately");
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "57.93% 0.14 254.47");
+        assert!((st.oklch[0] - 0.5793).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+        assert!((st.oklch[0] - 0.5693).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, shift, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "66.93% 0.14 254.47");
+        assert!((st.oklch[0] - 0.6693).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, shift, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, alt, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "57.03% 0.14 254.47");
+        assert!((st.oklch[0] - 0.5703).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, alt, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+
+        // 2. C component (caret at char 9 inside "0.14"): plain ±0.01, Shift ±0.1, Alt ±0.001
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 9);
+        let out_c_up = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert!(out_c_up.changed, "ArrowUp on C must update paint immediately");
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.15 254.47");
+        assert!((st.oklch[1] - 0.15).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+        assert!((st.oklch[1] - 0.14).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, shift, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.24 254.47");
+        assert!((st.oklch[1] - 0.24).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, shift, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, alt, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.141 254.47");
+        assert!((st.oklch[1] - 0.141).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, alt, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+        assert!((st.oklch[1] - 0.14).abs() < 1e-5);
+
+        // 3. H component (caret at char 14 inside "254.47"): plain ±1°, Shift ±10°, Alt ±0.1°
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 14);
+        let out_h_up = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert!(out_h_up.changed, "ArrowUp on H must update paint immediately");
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 255.47");
+        assert!((st.oklch[2] - 255.47).abs() < 1e-4);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+        assert!((st.oklch[2] - 254.47).abs() < 1e-4);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, shift, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 264.47");
+        assert!((st.oklch[2] - 264.47).abs() < 1e-4);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, shift, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, alt, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.57");
+        assert!((st.oklch[2] - 254.57).abs() < 1e-4);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, alt, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.14 254.47");
+        assert!((st.oklch[2] - 254.47).abs() < 1e-4);
+    }
+
+    #[test]
+    fn oklab_arrow_keys_step_a_and_b_by_hundredths_and_clamp() {
+        let ctx = test_ctx();
+        let shift = egui::Modifiers { shift: true, ..egui::Modifiers::NONE };
+        let alt = egui::Modifiers { alt: true, ..egui::Modifiers::NONE };
+
+        // Start from [52, 120, 200, 255] -> OKLAB "56.93% -0.04 -0.14"
+        let mut paint = solid(52, 120, 200, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklab;
+        assert_eq!(st.ok_text(Fmt::Oklab), "56.93% -0.04 -0.14");
+
+        // Step `a` (caret at char 9 inside "-0.04"): +0.01 -> -0.03, -0.01 -> -0.04, Shift +0.1 -> 0.06, Alt +0.001 -> -0.039
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 9);
+        let out_a = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert!(out_a.changed, "ArrowUp on OKLAB a must update paint immediately");
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% -0.03 -0.14");
+        assert!((st.oklab[1] - (-0.03)).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% -0.04 -0.14");
+        assert!((st.oklab[1] - (-0.04)).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, shift, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.06 -0.14");
+        assert!((st.oklab[1] - 0.06).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, shift, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% -0.04 -0.14");
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, alt, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% -0.039 -0.14");
+        assert!((st.oklab[1] - (-0.039)).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, alt, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% -0.04 -0.14");
+
+        // Step `b` (caret at char 15 inside "-0.14"): +0.01 -> -0.13, -0.01 -> -0.14
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 15);
+        let out_b = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert!(out_b.changed, "ArrowUp on OKLAB b must update paint immediately");
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% -0.04 -0.13");
+        assert!((st.oklab[2] - (-0.13)).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% -0.04 -0.14");
+        assert!((st.oklab[2] - (-0.14)).abs() < 1e-5);
+
+        // Clamp `b` at -0.4 and `a` at +0.4
+        for _ in 0..3 {
+            let _ = press_picker_key(&ctx, egui::Key::ArrowDown, shift, &mut paint, &mut st);
+        }
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% -0.04 -0.4");
+        assert!((st.oklab[2] - (-0.4)).abs() < 1e-5);
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 9);
+        for _ in 0..5 {
+            let _ = press_picker_key(&ctx, egui::Key::ArrowUp, shift, &mut paint, &mut st);
+        }
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "56.93% 0.4 -0.4");
+        assert!((st.oklab[1] - 0.4).abs() < 1e-5);
+    }
+
+    #[test]
+    fn oklch_hue_wraps_from_359_to_0_and_lightness_stops_at_100() {
+        let ctx = test_ctx();
+        let mut paint = solid(255, 0, 0, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+        let _ = commit_picker_ok(&ctx, "99% 0.26 359", &mut paint, &mut st);
+        assert_eq!(st.ok_text(Fmt::Oklch), "99% 0.26 359");
+
+        // Caret on H ("359", char 10): ArrowUp wraps 359 -> 0, ArrowDown wraps 0 -> 359
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 10);
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "99% 0.26 0");
+        assert!((st.oklch[2] - 0.0).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowDown, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "99% 0.26 359");
+        assert!((st.oklch[2] - 359.0).abs() < 1e-5);
+
+        // Caret on L ("99%", char 1): ArrowUp steps to 100%, second ArrowUp stops at 100%
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 1);
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "100% 0.26 359");
+        assert!((st.oklch[0] - 1.0).abs() < 1e-5);
+
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        assert_eq!(picker_ok_buf_and_caret(&ctx, id).0, "100% 0.26 359");
+        assert!((st.oklch[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn oklch_and_oklab_caret_stays_on_stepped_component_and_respects_separators() {
+        let ctx = test_ctx();
+        let mut paint = solid(52, 120, 200, 1.0);
+        let mut st = State::new(&paint);
+        st.fmt = Fmt::Oklch;
+        assert_eq!(st.ok_text(Fmt::Oklch), "56.93% 0.14 254.47");
+
+        // At start (char 0) -> steps first component (L) and caret stays on L (0..=6)
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 0);
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        let (buf, caret) = picker_ok_buf_and_caret(&ctx, id);
+        assert_eq!(buf, "57.93% 0.14 254.47");
+        assert!(caret <= 6, "caret at start must stay on L component, got {caret}");
+
+        // On space between L and C (char 6, right after '%'): nudges component to its left (L)
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 6);
+        let _ = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+        let (buf, caret) = picker_ok_buf_and_caret(&ctx, id);
+        assert_eq!(buf, "58.93% 0.14 254.47");
+        assert!(caret <= 6, "caret on separator after L must stay on L, got {caret}");
+
+        // On space between C and H (char 11, right after "0.14"): nudges component to its left (C)
+        // and consecutive ArrowUp presses without re-positioning keep stepping C.
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 11);
+        for expected_c in ["0.15", "0.16", "0.17"] {
+            let _ = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+            let (buf, caret) = picker_ok_buf_and_caret(&ctx, id);
+            assert_eq!(buf, format!("58.93% {expected_c} 254.47"));
+            assert!((7..=11).contains(&caret), "caret must stay on C component (7..=11), got {caret}");
+        }
+
+        // On H across width change ("359" -> "0" -> "1" -> "2"): caret stays on H
+        let _ = commit_picker_ok(&ctx, "58.93% 0.17 359", &mut paint, &mut st);
+        let id = focus_picker_ok_at(&ctx, &mut paint, &mut st, 15);
+        for expected_h in ["0", "1", "2"] {
+            let _ = press_picker_key(&ctx, egui::Key::ArrowUp, egui::Modifiers::NONE, &mut paint, &mut st);
+            let (buf, caret) = picker_ok_buf_and_caret(&ctx, id);
+            assert_eq!(buf, format!("58.93% 0.17 {expected_h}"));
+            assert!(caret >= 12, "caret must stay on H component (>= 12), got {caret}");
+        }
+    }
+
+    #[test]
+    fn oklch_and_oklab_arrow_key_press_is_one_undo_step() {
+        let mut doc = designos_doc::Document::new("oklch-undo");
+        let page = doc.add_page("Page 1");
+        let mut app = crate::app::App::new(doc);
+        app.page = page;
+        let rect_id = app.doc.alloc_id();
+        let mut node = designos_doc::Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0));
+        let initial_color = Color::rgb(52, 120, 200);
+        node.fills = vec![Paint::solid(initial_color)];
+        let rect_id = app.doc.insert(page, node).unwrap();
+        app.selection = vec![rect_id];
+
+        let ctx = test_ctx();
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(240.0, 900.0));
+        let step_ui = |app: &mut crate::app::App, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(region), events, ..Default::default() };
+            let _ = ctx.run_ui(raw, |ui| crate::panels::properties::show(app, ui, region));
+        };
+
+        for (fmt, cell_id) in [
+            (Fmt::Hex, Id::new("color-picker").with(("txt", "picker-hex"))),
+            (Fmt::Rgb, Id::new("color-picker").with(("txt", ("picker-ch", 0usize)))),
+            (Fmt::Oklch, Id::new("color-picker").with(("txt", "picker-ok"))),
+            (Fmt::Oklab, Id::new("color-picker").with(("txt", "picker-ok"))),
+        ] {
+            // Open fill picker in `fmt` mode
+            step_ui(&mut app, vec![]);
+            let sw_rect = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "sw:false:0".to_string())))).expect("fill swatch");
+            step_ui(&mut app, vec![egui::Event::PointerMoved(sw_rect.center())]);
+            for pressed in [true, false] {
+                step_ui(
+                    &mut app,
+                    vec![egui::Event::PointerButton { pos: sw_rect.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }],
+                );
+            }
+            app.props.picker.as_mut().expect("picker open").state.fmt = fmt;
+            step_ui(&mut app, vec![]);
+
+            // Focus the value cell inside "color-picker" at char 0 and send one ArrowUp key press
+            ctx.memory_mut(|m| m.request_focus(cell_id));
+            step_ui(&mut app, vec![]);
+            {
+                let mut state = egui::widgets::text_edit::TextEdit::load_state(&ctx, cell_id).unwrap_or_default();
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(0))));
+                state.store(&ctx, cell_id);
+            }
+            step_ui(
+                &mut app,
+                vec![egui::Event::Key {
+                    key: egui::Key::ArrowUp,
+                    physical_key: Some(egui::Key::ArrowUp),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+
+            let stepped_fill = match app.doc.get(rect_id).unwrap().fills[0].kind {
+                PaintKind::Solid(c) => c,
+                _ => panic!("expected solid fill"),
+            };
+            assert_ne!(stepped_fill, initial_color, "one ArrowUp press in {fmt:?} must update the node fill immediately");
+
+            // Close picker with Escape and verify one undo step restores initial_color
+            ctx.memory_mut(|m| m.surrender_focus(cell_id));
+            step_ui(
+                &mut app,
+                vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: Some(egui::Key::Escape),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+            assert!(app.props.picker.is_none(), "Escape closes picker");
+            assert!(app.hist.can_undo(), "one key press in {fmt:?} must record an undo step");
+            app.undo();
+            let restored_fill = match app.doc.get(rect_id).unwrap().fills[0].kind {
+                PaintKind::Solid(c) => c,
+                _ => panic!("expected solid fill"),
+            };
+            assert_eq!(restored_fill, initial_color, "one undo step must restore the initial fill colour after {fmt:?} step");
+            assert!(!app.hist.can_undo(), "only one undo step must have been recorded for {fmt:?}");
+        }
+    }
+
+    fn apply_textures_delta(atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>, delta: &egui::TexturesDelta) {
+        for (tid, d) in &delta.set {
+            let [w, h] = d.image.size();
+            let src: Vec<[u8; 4]> = match &d.image {
+                egui::ImageData::Color(c) => c.pixels.iter().map(|p| p.to_array()).collect(),
+            };
+            if let Some([ox, oy]) = d.pos {
+                if let Some(existing) = atlas.get_mut(tid) {
+                    for y in 0..h {
+                        for x in 0..w {
+                            let px = src[y * w + x];
+                            if (ox + x) < existing.width() as usize && (oy + y) < existing.height() as usize {
+                                existing.put_pixel((ox + x) as u32, (oy + y) as u32, image::Rgba(px));
+                            }
+                        }
+                    }
+                }
+            } else {
+                let mut img = image::RgbaImage::new(w as u32, h as u32);
+                for y in 0..h {
+                    for x in 0..w {
+                        img.put_pixel(x as u32, y as u32, image::Rgba(src[y * w + x]));
+                    }
+                }
+                atlas.insert(*tid, img);
+            }
+        }
+    }
+
+    fn rasterize_shapes(
+        ctx: &egui::Context,
+        shapes: Vec<egui::epaint::ClippedShape>,
+        atlas: &std::collections::HashMap<egui::TextureId, image::RgbaImage>,
+        width: u32,
+        height: u32,
+    ) -> image::RgbaImage {
+        let mut fb = image::RgbaImage::from_pixel(width, height, image::Rgba([0x18, 0x18, 0x1B, 0xFF]));
+        let prims = ctx.tessellate(shapes, 1.0);
+        for cp in prims {
+            let egui::epaint::Primitive::Mesh(mesh) = cp.primitive else { continue };
+            let clip_min_x = cp.clip_rect.min.x.floor().max(0.0) as i32;
+            let clip_min_y = cp.clip_rect.min.y.floor().max(0.0) as i32;
+            let clip_max_x = cp.clip_rect.max.x.ceil().min(width as f32) as i32;
+            let clip_max_y = cp.clip_rect.max.y.ceil().min(height as f32) as i32;
+            let tex = atlas.get(&mesh.texture_id);
+            for tri in mesh.indices.chunks_exact(3) {
+                let v0 = &mesh.vertices[tri[0] as usize];
+                let v1 = &mesh.vertices[tri[1] as usize];
+                let v2 = &mesh.vertices[tri[2] as usize];
+                let min_x = v0.pos.x.min(v1.pos.x).min(v2.pos.x).floor().max(clip_min_x as f32) as i32;
+                let max_x = v0.pos.x.max(v1.pos.x).max(v2.pos.x).ceil().min(clip_max_x as f32) as i32;
+                let min_y = v0.pos.y.min(v1.pos.y).min(v2.pos.y).floor().max(clip_min_y as f32) as i32;
+                let max_y = v0.pos.y.max(v1.pos.y).max(v2.pos.y).ceil().min(clip_max_y as f32) as i32;
+                let denom = (v1.pos.y - v2.pos.y) * (v0.pos.x - v2.pos.x) + (v2.pos.x - v1.pos.x) * (v0.pos.y - v2.pos.y);
+                if denom.abs() < 1e-6 {
+                    continue;
+                }
+                let inv_denom = 1.0 / denom;
+                let c0 = v0.color.to_array().map(|c| c as f32);
+                let c1 = v1.color.to_array().map(|c| c as f32);
+                let c2 = v2.color.to_array().map(|c| c as f32);
+                for py in min_y..max_y {
+                    for px in min_x..max_x {
+                        let p = Pos2::new(px as f32 + 0.5, py as f32 + 0.5);
+                        let w0 = ((v1.pos.y - v2.pos.y) * (p.x - v2.pos.x) + (v2.pos.x - v1.pos.x) * (p.y - v2.pos.y)) * inv_denom;
+                        let w1 = ((v2.pos.y - v0.pos.y) * (p.x - v2.pos.x) + (v0.pos.x - v2.pos.x) * (p.y - v2.pos.y)) * inv_denom;
+                        let w2 = 1.0 - w0 - w1;
+                        if w0 >= -1e-4 && w1 >= -1e-4 && w2 >= -1e-4 {
+                            let mut col = [0.0f32; 4];
+                            for k in 0..4 {
+                                col[k] = (w0 * c0[k] + w1 * c1[k] + w2 * c2[k]).clamp(0.0, 255.0);
+                            }
+                            if let Some(t) = tex {
+                                let u = (w0 * v0.uv.x + w1 * v1.uv.x + w2 * v2.uv.x).clamp(0.0, 1.0);
+                                let v = (w0 * v0.uv.y + w1 * v1.uv.y + w2 * v2.uv.y).clamp(0.0, 1.0);
+                                let tx = ((u * t.width() as f32).floor() as u32).min(t.width().saturating_sub(1));
+                                let ty = ((v * t.height() as f32).floor() as u32).min(t.height().saturating_sub(1));
+                                let tp = t.get_pixel(tx, ty).0;
+                                for k in 0..4 {
+                                    col[k] *= tp[k] as f32 / 255.0;
+                                }
+                            }
+                            let src_a = col[3] / 255.0;
+                            if src_a > 0.0 {
+                                let dst = fb.get_pixel(px as u32, py as u32).0;
+                                let inv_a = 1.0 - src_a;
+                                let out_px = [
+                                    (col[0] + dst[0] as f32 * inv_a).round().clamp(0.0, 255.0) as u8,
+                                    (col[1] + dst[1] as f32 * inv_a).round().clamp(0.0, 255.0) as u8,
+                                    (col[2] + dst[2] as f32 * inv_a).round().clamp(0.0, 255.0) as u8,
+                                    255,
+                                ];
+                                fb.put_pixel(px as u32, py as u32, image::Rgba(out_px));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        fb
+    }
+
+    #[test]
+    fn headless_picker_render_oklch_before_and_after_three_arrowup_on_h() {
+        let mut doc = designos_doc::Document::new("oklch-render");
+        let page = doc.add_page("Page 1");
+        let mut app = crate::app::App::new(doc);
+        app.page = page;
+        let rect_id = app.doc.alloc_id();
+        let mut node = designos_doc::Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0));
+        node.fills = vec![Paint::solid(Color::rgb(52, 120, 200))];
+        let rect_id = app.doc.insert(page, node).unwrap();
+        app.selection = vec![rect_id];
+
+        let ctx = test_ctx();
+        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 900.0));
+        let region = Rect::from_min_size(Pos2::new(260.0, 0.0), Vec2::new(240.0, 900.0));
+        let mut atlas = std::collections::HashMap::new();
+        let run_frame = |app: &mut crate::app::App,
+                         atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>,
+                         events: Vec<egui::Event>|
+         -> Vec<egui::epaint::ClippedShape> {
+            let raw = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let out = ctx.run_ui(raw, |ui| crate::panels::properties::show(app, ui, region));
+            apply_textures_delta(atlas, &out.textures_delta);
+            out.shapes
+        };
+
+        // Open fill picker in OKLCH mode
+        let _ = run_frame(&mut app, &mut atlas, vec![]);
+        let sw_rect = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "sw:false:0".to_string())))).expect("fill swatch");
+        let _ = run_frame(&mut app, &mut atlas, vec![egui::Event::PointerMoved(sw_rect.center())]);
+        for pressed in [true, false] {
+            let _ = run_frame(
+                &mut app,
+                &mut atlas,
+                vec![egui::Event::PointerButton { pos: sw_rect.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }],
+            );
+        }
+        app.props.picker.as_mut().expect("picker open").state.fmt = Fmt::Oklch;
+        let _ = run_frame(&mut app, &mut atlas, vec![]);
+
+        // Focus "picker-ok" with caret on H (char 14 of "56.93% 0.14 254.47")
+        let ok_id = Id::new("color-picker").with(("txt", "picker-ok"));
+        ctx.memory_mut(|m| m.request_focus(ok_id));
+        let _ = run_frame(&mut app, &mut atlas, vec![]);
+        {
+            let mut state = egui::widgets::text_edit::TextEdit::load_state(&ctx, ok_id).unwrap_or_default();
+            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(14))));
+            state.store(&ctx, ok_id);
+        }
+        let shapes_before = run_frame(&mut app, &mut atlas, vec![]);
+        let (buf_before, caret_before) = picker_ok_buf_and_caret(&ctx, ok_id);
+        assert_eq!(buf_before, "56.93% 0.14 254.47");
+        assert_eq!(caret_before, 14);
+
+        let picker_rect = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "picker".to_string())))).expect("picker rect");
+        let full_before = rasterize_shapes(&ctx, shapes_before, &atlas, 500, 900);
+        let crop_before = image::imageops::crop_imm(
+            &full_before,
+            picker_rect.min.x.max(0.0) as u32,
+            picker_rect.min.y.max(0.0) as u32,
+            picker_rect.width() as u32,
+            picker_rect.height() as u32,
+        )
+        .to_image();
+
+        // Press ArrowUp 3 times on H ("254.47" -> "257.47")
+        for _ in 0..3 {
+            let _ = run_frame(
+                &mut app,
+                &mut atlas,
+                vec![egui::Event::Key {
+                    key: egui::Key::ArrowUp,
+                    physical_key: Some(egui::Key::ArrowUp),
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                }],
+            );
+        }
+        let shapes_after = run_frame(&mut app, &mut atlas, vec![]);
+        let (buf_after, caret_after) = picker_ok_buf_and_caret(&ctx, ok_id);
+        assert_eq!(buf_after, "56.93% 0.14 257.47");
+        assert_eq!(caret_after, 14);
+
+        let full_after = rasterize_shapes(&ctx, shapes_after, &atlas, 500, 900);
+        let crop_after = image::imageops::crop_imm(
+            &full_after,
+            picker_rect.min.x.max(0.0) as u32,
+            picker_rect.min.y.max(0.0) as u32,
+            picker_rect.width() as u32,
+            picker_rect.height() as u32,
+        )
+        .to_image();
+        assert_eq!(crop_before.dimensions(), crop_after.dimensions());
+        assert_ne!(crop_before.as_raw(), crop_after.as_raw(), "rendered picker crop must visually change after 3 ArrowUp presses on H");
+
+        if let Ok(ev_dir) = std::env::var("DESIGNOS_1459_EVIDENCE_DIR") {
+            let ev = std::path::Path::new(&ev_dir);
+            crop_before.save(ev.join("picker-oklch-before-3-arrowup-h.png")).expect("save before crop");
+            crop_after.save(ev.join("picker-oklch-after-3-arrowup-h.png")).expect("save after crop");
+            if let Ok(full_dir) = std::env::var("DESIGNOS_1459_FULL_DIR") {
+                let fd = std::path::Path::new(&full_dir);
+                full_before.save(fd.join("1459-picker-oklch-before.png")).expect("save full before");
+                full_after.save(fd.join("1459-picker-oklch-after-3-arrowup-h.png")).expect("save full after");
+            }
+        }
     }
 }

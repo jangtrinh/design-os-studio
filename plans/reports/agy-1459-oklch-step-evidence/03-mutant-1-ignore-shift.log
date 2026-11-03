@@ -1,0 +1,61 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1459-oklch-step/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1459-oklch-step/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1459-oklch-step/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1459-oklch-step/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.94s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 30 tests
+test widgets::picker::tests::gradient_to_solid_takes_first_stop ... ok
+test widgets::picker::tests::hsb_is_computed_in_gamma_space ... ok
+test widgets::picker::tests::active_color_edits_the_selected_stop ... ok
+test widgets::picker::tests::gradient_shape_switch_keeps_stops ... ok
+test widgets::picker::tests::oklch_and_oklab_format_list_and_default ... ok
+test widgets::picker::tests::hue_survives_grey ... ok
+test widgets::picker::tests::solid_to_gradient_keeps_color_as_first_stop ... ok
+test widgets::picker::tests::stop_color_interpolates ... ok
+test widgets::picker::tests::procedural_png_presets_generate_valid_png_headers_and_distinct_textures ... ok
+test widgets::picker::tests::css_and_hsl_roundtrip ... ok
+test widgets::picker::tests::dropdown_insets_keep_source_at_main_and_fmt_chevron_gap ... ok
+test widgets::picker::tests::visible_text_css_mode ... ok
+test widgets::picker::tests::parse_oklch_and_oklab_channel_rules_and_clamps ... ok
+test widgets::picker::tests::visible_text_hex_mode ... ok
+
+thread 'widgets::picker::tests::oklch_arrow_keys_step_l_c_h_with_plain_shift_and_alt_modifiers' (77204156) panicked at crates/designos-app/src/widgets/picker.rs:2882:9:
+assertion `left == right` failed
+  left: "57.93% 0.14 254.47"
+ right: "66.93% 0.14 254.47"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test widgets::picker::tests::visible_text_hsb_at_full_s_b ... 
+thread 'widgets::picker::tests::oklab_arrow_keys_step_a_and_b_by_hundredths_and_clamp' (77204152) panicked at crates/designos-app/src/widgets/picker.rs:2972:9:
+assertion `left == right` failed
+  left: "56.93% -0.03 -0.14"
+ right: "56.93% 0.06 -0.14"
+ok
+test widgets::picker::tests::red_shows_expected_oklch_and_oklab_cells ... ok
+test widgets::picker::tests::visible_text_hsl_mode ... ok
+test widgets::picker::tests::oklch_arrow_keys_step_l_c_h_with_plain_shift_and_alt_modifiers ... FAILED
+test widgets::picker::tests::oklab_arrow_keys_step_a_and_b_by_hundredths_and_clamp ... FAILED
+test widgets::picker::tests::visible_text_oklch_mode ... ok
+test widgets::picker::tests::visible_text_oklab_mode ... ok
+test widgets::picker::tests::visible_text_rgb_at_255_255_255 ... ok
+test widgets::picker::tests::alpha_only_or_retyped_channels_preserve_rgb_and_alpha_precision ... ok
+test widgets::picker::tests::oklch_hue_wraps_from_359_to_0_and_lightness_stops_at_100 ... ok
+test widgets::picker::tests::oklch_state_preserves_typed_values_and_grey_hue ... ok
+test widgets::picker::tests::editing_oklch_and_oklab_channels_commits_srgb_rgba ... ok
+test widgets::picker::tests::oklch_and_oklab_caret_stays_on_stepped_component_and_respects_separators ... ok
+test widgets::picker::tests::pasted_css_oklch_and_oklab_functions_accept_unit_and_percent_lightness ... ok
+test widgets::picker::tests::oklch_and_oklab_arrow_key_press_is_one_undo_step ... ok
+test widgets::picker::tests::value_cell_at_rest_has_no_alpha_and_never_elides_across_grid ... ok
+
+failures:
+
+failures:
+    widgets::picker::tests::oklab_arrow_keys_step_a_and_b_by_hundredths_and_clamp
+    widgets::picker::tests::oklch_arrow_keys_step_l_c_h_with_plain_shift_and_alt_modifiers
+
+test result: FAILED. 28 passed; 2 failed; 0 ignored; 0 measured; 4194 filtered out; finished in 0.25s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant1_rc=101
