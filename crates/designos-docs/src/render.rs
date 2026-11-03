@@ -1,35 +1,77 @@
 //! Blocks to Markdown. Unedited blocks are written from their kept source; everything else (and everything in
-//! canonical mode) is written the way Studio writes new content.
+//! canonical mode) is written the way Studio writes new content, with the page's own line endings.
 
-use crate::inline::render_inlines;
-use crate::model::{Align, BlockKind, Inline, Page};
+use crate::inline::{render_cell_inlines, render_inlines};
+use crate::model::{Align, Block, BlockKind, Inline, Page};
 
 pub(crate) fn render_page(page: &Page, canonical: bool) -> String {
+    let eol = if page.crlf { "\r\n" } else { "\n" };
     let mut out = String::new();
+    if page.bom {
+        out.push('\u{FEFF}');
+    }
     if let Some(front) = &page.front {
         out.push_str(front.raw());
     }
     let mut prev_text: Option<String> = None;
+    let mut after_rewritten_list = false;
+    let mut after_table = false;
     for (i, block) in page.blocks.iter().enumerate() {
-        let gap = if canonical { None } else { block.gap.as_deref() };
-        let text = match (&block.source, canonical) {
-            (Some(source), false) => source.clone(),
-            _ => render_kind(block.kind(), list_marker_to_avoid(block.kind(), prev_text.as_deref())),
-        };
-        let mut lead = gap.unwrap_or(canonical_gap(i, page.front.is_some()));
-        if gap.is_none() && i == 0 && page.front.is_none() && text.starts_with("---") {
-            lead = "\n"; // generated text that opens with `---` would be read as front matter
+        let mut fixed = fixed_text(block, canonical);
+        // Behind a rewritten list (whose marker width may have changed), a block kept with its indentation could
+        // read as part of the list's last item, so it is written without it.
+        if after_rewritten_list && !matches!(block.kind(), BlockKind::Raw(_)) && fixed.is_some_and(|t| t.starts_with([' ', '\t'])) {
+            fixed = None;
         }
-        out.push_str(lead);
+        after_rewritten_list = fixed.is_none() && matches!(block.kind(), BlockKind::BulletList(_) | BlockKind::NumberedList { .. } | BlockKind::Checklist(_));
+        let text = match fixed {
+            Some(text) => text.to_string(),
+            None => {
+                let next = page.blocks.get(i + 1).and_then(|b| fixed_text(b, canonical));
+                let avoid = markers_to_avoid(block.kind(), prev_text.as_deref(), next);
+                to_eol(&render_kind(block.kind(), &avoid), eol)
+            }
+        };
+        let mut gap = if canonical { None } else { block.gap.as_deref() };
+        // Right under a table row, a rewritten block with no blank line before it would be read as another row.
+        if fixed.is_none() && after_table && gap.is_some_and(|g| g.matches('\n').count() < 2) {
+            gap = None;
+        }
+        after_table = matches!(block.kind(), BlockKind::Table { .. });
+        let mut lead = match gap {
+            Some(g) => g.to_string(),
+            None => to_eol(canonical_gap(i, page.front.is_some()), eol),
+        };
+        if gap.is_none() && i == 0 && page.front.is_none() && text.starts_with("---") {
+            lead = eol.to_string(); // generated text that opens with `---` would be read as front matter
+        }
+        out.push_str(&lead);
         out.push_str(&text);
         prev_text = Some(text);
     }
     if canonical && !page.blocks.is_empty() {
-        out.push('\n');
+        out.push_str(eol);
     } else {
         out.push_str(&page.tail);
     }
     out
+}
+
+/// The text a block is written as when it is not rewritten: its kept source, or the text of a raw block.
+fn fixed_text(block: &Block, canonical: bool) -> Option<&str> {
+    match (&block.source, block.kind()) {
+        (Some(source), _) if !canonical => Some(source),
+        (_, BlockKind::Raw(text)) => Some(text),
+        _ => None,
+    }
+}
+
+fn to_eol(text: &str, eol: &str) -> String {
+    if eol == "\n" {
+        text.to_string()
+    } else {
+        text.replace("\r\n", "\n").replace('\n', eol)
+    }
 }
 
 /// A blank line between blocks; one after the front matter; nothing before the first block of a page without it.
@@ -41,28 +83,25 @@ fn canonical_gap(index: usize, has_front_matter: bool) -> &'static str {
     }
 }
 
-#[derive(PartialEq)]
-enum ListFamily {
+#[derive(PartialEq, Clone, Copy)]
+pub(crate) enum ListFamily {
     Bullet,
     Numbered,
 }
 
-/// Two lists that follow each other must not read as one: a list directly after another list of the same family
-/// uses the other bullet (`*`) or delimiter (`)`) when the first one ends up with the default.
-fn list_marker_to_avoid(kind: &BlockKind, prev_text: Option<&str>) -> Option<char> {
+/// The list markers a rewritten list must not use because a neighbour already has them: two lists that follow
+/// each other read as one when they share a bullet or delimiter.
+fn markers_to_avoid(kind: &BlockKind, prev_text: Option<&str>, next_text: Option<&str>) -> Vec<char> {
     let family = match kind {
         BlockKind::BulletList(_) | BlockKind::Checklist(_) => ListFamily::Bullet,
         BlockKind::NumberedList { .. } => ListFamily::Numbered,
-        _ => return None,
+        _ => return Vec::new(),
     };
-    match leading_list_marker(prev_text?) {
-        Some((prev_family, marker)) if prev_family == family => Some(marker),
-        _ => None,
-    }
+    [prev_text, next_text].into_iter().flatten().filter_map(leading_list_marker).filter(|(f, _)| *f == family).map(|(_, marker)| marker).collect()
 }
 
 /// The list marker a block's text starts with: the bullet character, or the `.` / `)` after the number.
-fn leading_list_marker(text: &str) -> Option<(ListFamily, char)> {
+pub(crate) fn leading_list_marker(text: &str) -> Option<(ListFamily, char)> {
     let t = text.trim_start();
     let first = t.chars().next()?;
     let (family, marker, rest) = if matches!(first, '-' | '*' | '+') {
@@ -75,9 +114,16 @@ fn leading_list_marker(text: &str) -> Option<(ListFamily, char)> {
     (rest.is_empty() || rest.starts_with([' ', '\t', '\n', '\r'])).then_some((family, marker))
 }
 
-pub(crate) fn render_kind(kind: &BlockKind, avoid_marker: Option<char>) -> String {
-    let bullet = if avoid_marker == Some('-') { "* " } else { "- " };
-    let delimiter = if avoid_marker == Some('.') { ')' } else { '.' };
+fn bullet_marker(avoid: &[char]) -> char {
+    ['-', '*', '+'].into_iter().find(|m| !avoid.contains(m)).unwrap_or('-')
+}
+
+fn number_delimiter(avoid: &[char]) -> char {
+    ['.', ')'].into_iter().find(|m| !avoid.contains(m)).unwrap_or('.')
+}
+
+/// `avoid` lists the bullets or delimiters that neighbouring lists already use.
+pub(crate) fn render_kind(kind: &BlockKind, avoid: &[char]) -> String {
     match kind {
         BlockKind::Heading { level, content } => {
             let marks = "#".repeat((*level).clamp(1, 3) as usize);
@@ -94,12 +140,25 @@ pub(crate) fn render_kind(kind: &BlockKind, avoid_marker: Option<char>) -> Strin
             }
         }
         BlockKind::Paragraph(content) => render_inlines(content),
-        BlockKind::BulletList(items) => items.iter().map(|c| item_line(bullet, c)).collect::<Vec<_>>().join("\n"),
+        BlockKind::BulletList(items) => {
+            let bullet = format!("{} ", bullet_marker(avoid));
+            join_items(items.iter().map(|i| Item { marker: bullet.clone(), indent: bullet.len(), content: &i.content, children: &i.children }))
+        }
         BlockKind::NumberedList { start, items } => {
-            items.iter().enumerate().map(|(i, c)| item_line(&format!("{}{delimiter} ", start + i as u64), c)).collect::<Vec<_>>().join("\n")
+            let delimiter = number_delimiter(avoid);
+            join_items(items.iter().enumerate().map(|(n, i)| {
+                let marker = format!("{}{delimiter} ", start + n as u64);
+                Item { indent: marker.len(), marker, content: &i.content, children: &i.children }
+            }))
         }
         BlockKind::Checklist(items) => {
-            items.iter().map(|item| item_line(&format!("{bullet}[{}] ", if item.checked { 'x' } else { ' ' }), &item.content)).collect::<Vec<_>>().join("\n")
+            let bullet = format!("{} ", bullet_marker(avoid));
+            join_items(items.iter().map(|i| Item {
+                marker: format!("{bullet}[{}] ", if i.checked { 'x' } else { ' ' }),
+                indent: bullet.len(),
+                content: &i.content,
+                children: &i.children,
+            }))
         }
         BlockKind::Callout { kind, body } => {
             let mut out = format!("> [!{kind}]");
@@ -119,12 +178,50 @@ pub(crate) fn render_kind(kind: &BlockKind, avoid_marker: Option<char>) -> Strin
     }
 }
 
-fn item_line(marker: &str, content: &[Inline]) -> String {
-    format!("{marker}{}", render_inlines(content))
+/// List items with their nested lists and paragraphs. Children are indented by the width of the item's bullet
+/// or number, which is what keeps them inside the item.
+struct Item<'a> {
+    marker: String,
+    /// Columns the item's children are indented by.
+    indent: usize,
+    content: &'a [Inline],
+    children: &'a [BlockKind],
+}
+
+fn newline_outside_text(nodes: &[Inline]) -> bool {
+    nodes.iter().any(|n| match n {
+        Inline::Text(_) => false,
+        Inline::Code(c) => c.contains('\n'),
+        Inline::Bold(c) | Inline::Italic(c) => newline_outside_text(c),
+        Inline::Link { content, target } => target.contains('\n') || newline_outside_text(content),
+    })
+}
+
+fn join_items<'a>(items: impl Iterator<Item = Item<'a>>) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for Item { marker, indent, content, children } in items {
+        let indent = " ".repeat(indent);
+        // Continuation lines sit under the item's text; the reader drops that indentation again.
+        // (Not inside a link target or code span, where the spaces would become part of the target or code.)
+        let continuation = if newline_outside_text(content) { "\n".to_string() } else { format!("\n{indent}") };
+        let body = render_inlines(content).split('\n').map(str::to_string).collect::<Vec<_>>().join(&continuation);
+        let mut text = format!("{marker}{body}");
+        let mut prev_child: Option<String> = None;
+        for child in children {
+            let avoid = markers_to_avoid(child, prev_child.as_deref(), None);
+            let rendered = render_kind(child, &avoid);
+            let separator = if matches!(child, BlockKind::Paragraph(_)) { "\n\n" } else { "\n" };
+            text.push_str(separator);
+            text.push_str(&rendered.split('\n').map(|l| if l.is_empty() { String::new() } else { format!("{indent}{l}") }).collect::<Vec<_>>().join("\n"));
+            prev_child = Some(rendered);
+        }
+        lines.push(text);
+    }
+    lines.join("\n")
 }
 
 fn render_table(aligns: &[Align], header: &[Vec<Inline>], rows: &[Vec<Vec<Inline>>]) -> String {
-    let row = |cells: &[Vec<Inline>]| format!("| {} |", cells.iter().map(|c| render_inlines(c)).collect::<Vec<_>>().join(" | "));
+    let row = |cells: &[Vec<Inline>]| format!("| {} |", cells.iter().map(|c| render_cell_inlines(c)).collect::<Vec<_>>().join(" | "));
     let rule: Vec<&str> = aligns
         .iter()
         .map(|a| match a {

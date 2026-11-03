@@ -11,7 +11,7 @@ fn store() -> (tempfile::TempDir, DocsStore) {
 }
 
 fn page(text: &str) -> Page {
-    Page::parse(text).unwrap()
+    Page::parse(text)
 }
 
 fn files_in(dir: &Path) -> Vec<String> {
@@ -198,4 +198,23 @@ fn the_manifest_is_validated_on_read_and_write_and_conflict_checked() {
     let DocsError::Manifest(e) = s.read_manifest().unwrap_err() else { panic!("manifest error expected") };
     assert_eq!(e.field, "groups");
     assert!(matches!(s.write_manifest(&m, Expect::Hash(h)), Err(DocsError::Conflict { .. })));
+}
+
+#[test]
+fn a_lock_held_by_another_program_fails_fast_with_an_error_that_names_the_fix() {
+    let (_tmp, store) = store();
+    let store = store.with_lock_timeout(std::time::Duration::from_millis(150));
+    store.write_page("a.md", &page("a\n"), Expect::Absent).unwrap();
+    let holder = std::fs::File::options().create(true).truncate(false).write(true).open(store.dir().join(".docs.lock")).unwrap();
+    holder.lock().unwrap();
+
+    let started = std::time::Instant::now();
+    let err = store.write_page("b.md", &page("b\n"), Expect::Absent).unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "the wait must be bounded, took {:?}", started.elapsed());
+    assert!(matches!(err, DocsError::Busy { .. }), "{err:?}");
+    assert!(err.to_string().contains("fix:"), "{err}");
+    assert!(!store.dir().join("b.md").exists(), "nothing may be written while the lock is held elsewhere");
+
+    holder.unlock().unwrap();
+    store.write_page("b.md", &page("b\n"), Expect::Absent).unwrap();
 }

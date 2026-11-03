@@ -101,6 +101,123 @@ Evidence: `plans/reports/evidence-1523/` (text captures of test, clippy, fmt, wo
 1. Should the Project tab (02) treat `Raw` blocks as read-only source cards, or should 04 make them editable as source? Affects nothing in this crate.
 2. Is a `.conflict-<time>.md` page expected to be listed in the manifest automatically (UI spec says "listed under Discovery")? That is a phase 02 manifest write; no helper here.
 
+Round 0 status (superseded by the fix round below, which replaces the watcher, the idle CPU line, the "polls instead of
+notify" decision and the "1 in 2M" claim):
 Status: DONE_WITH_CONCERNS
-Summary: `designos-docs` crate implemented; acceptance 1-6 pass with captured output after the last edit; 12 fixtures byte-identical, conflict/atomic/lock tests, watcher within 1 s, pulldown-cmark chosen with measured fidelity table.
-Concerns/Blockers: no recorded red-first run (mutation-checked instead); Skill tool unavailable so skills not loaded; canonical rewrite is not stable on a few pathological inputs (1 in 2M random cases, documented); watcher idle CPU and non-macOS CI unverified.
+
+---
+
+# Fix round 1 (review of PR #1571: REQUEST_CHANGES)
+
+Same branch `feat/1523-docs-model-storage`, started from 92e6714a (verified equal to origin). Files touched: `crates/designos-docs/**`,
+`Cargo.lock` (notify and its platform crates), this report, `plans/reports/evidence-1523/r1-*`. No file outside that list.
+
+## NOT verified / deviations (read first)
+
+- **Red-first is recorded for most, not all.** Red runs before the fix are in `r1-01` (10 tests), `r1-02-*` (nested lists,
+  `escape_plain`, `page_api`) and `r1-03` (3 watcher tests). Not recorded red: the 200k "touch a block, count unchanged"
+  fuzz property and the extra tests added at the end (watch mode, start race, missing folder, linked specs, lock timeout).
+  The fuzz property was written together with the fixes it drove; it found 9 distinct bugs while the fixes were being made
+  (listed below) and each was fixed before the green 200k run, but no clean red-then-green transcript of the final property exists.
+- **Skill tool still unavailable**, so the skills were again not loaded and Orca was not used (as instructed).
+- **macOS only** for the native watcher (FSEvents). The inotify and Windows paths compile through `notify` but were not run.
+  The polling fallback is tested on macOS only by forcing it (`start_polling`); the automatic switch when the native
+  watcher breaks at run time (`Err` event) has no test (no portable way to make FSEvents fail).
+- **Idle CPU is measured with `ps -o time=`** (10 ms resolution): "0.00 s" means under 10 ms in 20 s, the same method the
+  CLAUDE.md invariant uses.
+- **Files over 200 lines**: `model.rs` is now under 200 as asked, but `render.rs` (248), `front_matter.rs` (256), `markdown.rs`
+  (239), `markdown_structures.rs` (235), `watch.rs` (235), `store.rs` (206), `manifest.rs` (202) are over the guideline.
+  Not split in this round (review only asked for `model.rs`); say so if you want it.
+- Known residue of the canonical writer (documented in the README): stray `_` emphasis next to other delimiters and
+  stray backticks in running text can read differently on a second pass. Not seen in 1,000,000 soup cases, but the soup
+  deliberately excludes those two shapes from the stability property.
+
+## Findings and where they are fixed
+
+| Finding | Fix | Test (file) |
+|---|---|---|
+| B1 table text after last cell lost; `\|` in cells | Table stays `Raw` when a row has source text after its last parsed cell; `\|` written as `\\|` in cells and code spans | `edit_blocks.rs` pipes, `soup.rs` |
+| M1 adjacent lists merge | marker chosen to avoid both the previous and the next list; also: a rewritten list drops the indentation of a following block kept with indentation, a rewritten block under a table row gets a blank line, a list in front of an indented raw block stays raw | `edit_blocks.rs`, `soup.rs` touch property (200k cases green, 1M soup green: `r1-05`) |
+| M2 nested lists | `ListItem { content, children }`, `ChecklistItem` likewise; children are nested lists and further paragraphs; continuation lines are re-indented under the item; unedited files stay byte-identical (`fixtures/nested-lists.md`) | `nested_lists.rs` (6) |
+| M3 front matter failure | `Page::parse` is infallible; a bad value leaves the key unset and is listed in `FrontMatter::problems()`; body still parsed | `front_matter.rs` (7) |
+| M4 watcher polls | `notify` 8.2 (FSEvents), poll fallback only if it cannot start or fails | `watch_robustness.rs`, `watch_idle_cpu.rs` |
+| M5 escaping | `escape_plain`, `plain_inlines`, `paragraphs_from_plain`, `TextContext` | `escape_plain.rs` (5) |
+| Phase 06 note | `Block::hash()`, `Page::block_hashes()` | `page_api.rs` |
+| BOM before front matter | BOM kept, front matter found after it, not duplicated | `front_matter.rs` |
+| Leading `---` rule | a page opening with a rule and no `key:` lines is a page | `front_matter.rs` |
+| CRLF for edited blocks | `Page::crlf` from the first line ending; edited/inserted blocks use it | `edit_blocks.rs` |
+| `remove_block` panic | returns `DocsError::BlockIndex { index, len }` with a fix | `page_api.rs` |
+| `linked_specs` validation | empty, `..`, control characters, duplicates refused with field `linked_specs[i]` and a fix; absolute paths allowed (Studio's folder picker gives absolute paths; decision below) | `manifest.rs` |
+| Case-insensitive duplicate pages | `Notes.md` vs `notes.md` refused (macOS/Windows are one file) | `manifest.rs` |
+| Watcher read cap | files over 8 MiB (the store's limit) are never read or reported | `watch_robustness.rs` |
+| First scan on the caller's thread | baseline scan runs on the watcher thread; files written at/after `start` are reported (start-time rule) | `watch_robustness.rs` (3 tests) |
+| `stopped` after callback panic | drop guard on the thread sets the flag on unwind | `watch_robustness.rs` |
+| Lock wait | 2 s `try_lock` loop, `DocsError::Busy` with a fix, `with_lock_timeout` | `store.rs` |
+| `model.rs` > 200 lines | split into `model.rs` (types) and `page_edit.rs` (page operations) | n/a |
+
+Bugs the new fuzz property found while fixing (each fixed, each has a soup piece or a test): indentation hiding a block
+marker on a paragraph's first line; lazy-continuation indentation growing with each nesting level; `===` lazy
+underline; HTML-start lines; a list range swallowing a link definition; a nested item outside the list's range; a
+continuation line that is a bare bullet; a lazy table row that becomes a table once indented under an item; an item
+range that starts with the marker's indentation (`  - b` was kept raw although it is a plain list).
+
+## M4 numbers (200 pages, 20 s idle, `ps -o time=`, test `watch_idle_cpu`)
+
+- BEFORE (400 ms polling thread, `r1-04-idle-cpu-BEFORE-polling.txt`): delta 0.05 s, test failed its gate.
+- AFTER (`notify`, FSEvents, `mode() == Native`, `r1-04-idle-cpu-AFTER-native.txt`): before 0.02 s, after 0.02 s, delta 0.00 s.
+  A second run printed 0.03 s / 0.03 s, delta 0.00 s. The gate asserts `< 0.01 s`; the phase 02 gate is not loosened.
+
+Licence: `notify` is CC0-1.0 (its `Cargo.toml` says `license = "CC0-1.0"`); the other additions (`inotify`, `kqueue`, `mio`,
+`objc2-core-*`, `walkdir`, `bitflags`, `libc`) are the usual permissive crates. The repo's licence register
+(`docs/eval-licences.md` -> `THIRD_PARTY_LICENSES.md`, checked by `scripts/check_eval_licences.py`) lists datasets, weights,
+kits, skills and fonts, not cargo crates (pulldown-cmark, sha2 and every other dependency are absent from it too), so no
+entry was added. If the controller wants crates registered, that is a new convention, not something to do inside this PR.
+
+## Acceptance (after the last edit; output in `plans/reports/evidence-1523/`)
+
+| Command | Result | Evidence |
+|---|---|---|
+| `cargo test -p designos-docs --locked` | 82 passed, 0 failed, 1 ignored (the 20 s idle CPU test, run separately above) | `r1-06` |
+| `cargo clippy -p designos-docs --all-targets --locked -- -D warnings` | clean | `r1-07` |
+| `cargo fmt --check` | exit 0 | `r1-07` |
+| `cargo test --workspace --lib --locked` | every crate ok, 0 failed | `r1-08` |
+| `cargo metadata --locked` | exit 0 | `r1-08` |
+| Fuzz, release: `DOCS_TOUCH_CASES=200000 DOCS_SOUP_CASES=1000000` | both properties pass | `r1-05` |
+| Idle CPU, 200 pages, 20 s | delta 0.00 s, mode Native | `r1-04-*-AFTER-native` |
+
+## Decisions I made (technical, invisible to the user)
+
+- Absolute `linked_specs` stay valid: phase 07 reads spec folders chosen with the system folder picker, which are absolute.
+  Refused: empty, `..` segments, control characters, duplicates.
+- `Page::parse` never fails (it was `Result`): any text is a page; problems are data (`FrontMatter::problems()`).
+- Watcher modes: `Native` by default, `start_polling` for network shares; `mode()` reports which. A baseline file whose
+  modification time is within 10 ms of `start` is reported as a change (spurious at worst, never a miss).
+- A missing docs folder is handled by watching its nearest existing parent and switching to the folder when it appears.
+- Child blocks of a list item are limited to nested lists and paragraphs; code, quotes and tables inside an item keep the
+  whole list `Raw` (lossless, just not typed).
+
+## Corrected PR #1571 body text (for the controller to paste)
+
+Replace the two claims the review found untrue and add the new surface:
+
+> **What changed since review.** Lists nest (`ListItem::children`). Text typed into a block goes through
+> `escape_plain` / `plain_inlines`. `Page::parse` never fails: front matter problems are data. Every block has a hash
+> (`Block::hash`, `Page::block_hashes`) for block-level checks. The watcher uses the operating system's change
+> notifications (FSEvents on macOS) and costs 0.00 s of CPU over 20 s idle with 200 pages; it falls back to a 400 ms timer
+> only when the system watcher cannot start.
+>
+> **Verification.** 82 tests in the crate. Random Markdown soup: 1,000,000 cases, `render()` lossless and the canonical form
+> stable. A second property (touching a block without changing it keeps the block count and kinds) ran 200,000 cases. The
+> canonical writer is not claimed stable for text with stray `_` emphasis or stray backticks (README, Known limits).
+> `linked_specs` entries are validated (not empty, no `..`, no control characters, each listed once); absolute paths are allowed.
+>
+> Remove: "about 1 in 2M canonical instability" and "linked specs validated" as they were worded before.
+
+## Unresolved questions (round 1)
+
+1. Should `render.rs`, `front_matter.rs`, `markdown.rs`, `markdown_structures.rs` and `watch.rs` be split under 200 lines in this PR or a follow-up?
+2. Should cargo crates ever be listed in the licence register? Today they are not.
+
+Status: DONE_WITH_CONCERNS
+Summary: All review findings fixed on the same branch; M4 uses a native watcher with 0.00 s idle CPU (was 0.05 s polling); gates green after the last edit.
+Concerns/Blockers: 200k touch fuzz and the last few tests have no recorded red run; native watcher verified on macOS only; five source files exceed 200 lines; canonical-writer residue for stray `_`/backticks documented.
