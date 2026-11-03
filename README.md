@@ -33,6 +33,39 @@ Open Figma `.fig` files, edit them and save them back. Studio draws the canvas o
 
 ---
 
+## Studio, designed in Studio
+
+Studio's own interface is kept as a design system in a Studio file, [`design/studio-ui.designos`](design/studio-ui.designos): foundations, component sets, Studio surfaces and editor screens on six pages. These captures open that file in the 0.7.7 release build with `designos-studio --screenshot` (2x); click an image for full size.
+
+<p align="center">
+  <a href="docs/images/v0.7/studio-in-studio-hero.png">
+    <img src="docs/images/v0.7/studio-in-studio-hero.png" alt="DESIGN:OS Studio 0.7.7 with its own interface file open on the 04 Screens page. The editor frame Screen/EditorDesign/d-editor-selected of the Editor shell section is selected on the canvas at 55%, with the Pages and Layers panels on the left and the Design panel on the right showing its 1440 by 900 size and position" width="880">
+  </a>
+  <br>
+  <sub>Command: <code>designos-studio design/studio-ui.designos --select id:10423 --zoom 55 --size 1440x900 --scale 2 --no-toast --screenshot docs/images/v0.7/studio-in-studio-hero.png</code></sub>
+</p>
+
+<table>
+  <tr>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/images/v0.7/studio-in-studio-components.png"><img src="docs/images/v0.7/studio-in-studio-components.png" alt="DESIGN:OS Studio on the 02 Core page of its own interface file with the Input/Field component set of the Forms and Inputs section selected. The Layers panel lists the section's variant sets, the canvas shows the Input/Field and Input/Search variants, and the Design panel lists the set's Has Placeholder, Has Value, Size and State properties" width="430"></a><br>
+      <sub><b>Components</b><br>Command: <code>designos-studio design/studio-ui.designos --select id:689 --zoom fit --size 1440x900 --scale 2 --no-toast --screenshot docs/images/v0.7/studio-in-studio-components.png</code></sub>
+    </td>
+    <td width="50%" valign="top" align="center">
+      <a href="docs/images/v0.7/studio-in-studio-foundations.png"><img src="docs/images/v0.7/studio-in-studio-foundations.png" alt="DESIGN:OS Studio Variables view on its own interface file. The left column lists the Primitives collection with 221 variables and the Semantic collection with 534, and the Primitives collection is open on its All group, showing the amber and base colors with their hex values" width="430"></a><br>
+      <sub><b>Foundations</b><br>Command: <code>designos-studio design/studio-ui.designos --panel variables --size 1440x900 --scale 2 --no-toast --screenshot docs/images/v0.7/studio-in-studio-foundations.png</code></sub>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2" valign="top" align="center">
+      <a href="docs/images/v0.7/studio-in-studio-surfaces.png"><img src="docs/images/v0.7/studio-in-studio-surfaces.png" alt="DESIGN:OS Studio on the 03 Studio page of its own interface file with the Agents section selected. The canvas shows the Card/Approval component, an approval card reading Claude Code wants to run Bash with the command cargo test -p designos-app --bin designos and Deny and Approve buttons, above the Input/Composer component" width="430"></a><br>
+      <sub><b>Studio surfaces</b><br>Command: <code>designos-studio design/studio-ui.designos --select id:3157 --zoom fit --size 1440x900 --scale 2 --no-toast --screenshot docs/images/v0.7/studio-in-studio-surfaces.png</code></sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## Why this exists
 
 ### Why DESIGN:OS Studio?
