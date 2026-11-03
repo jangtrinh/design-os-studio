@@ -1,0 +1,16 @@
+{
+  "code": "COMMAND_NOT_FOUND",
+  "message": "'triage' is not a command for 'rea'. Did you mean 'trace'?",
+  "cta": {
+    "description": "Suggested commands:",
+    "commands": [
+      {
+        "command": "rea trace /Applications/Figma.app --json"
+      },
+      {
+        "command": "rea --help",
+        "description": "see all available commands"
+      }
+    ]
+  }
+}

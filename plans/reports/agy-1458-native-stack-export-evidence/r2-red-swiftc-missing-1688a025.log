@@ -1,0 +1,17 @@
+# old swiftc test (1688a025) with /usr/bin/swiftc hidden and unexecutable by: sandbox-exec -p '(version 1)(allow default)(deny file-read* (literal "/usr/bin/swiftc"))(deny process-exec* (literal "/usr/bin/swiftc"))'
+
+running 1 test
+
+thread 'every_swiftui_test_fixture_passes_swiftc_typecheck' (82268466) panicked at crates/designos-export/tests/zz_old_native_stack_export.rs:686:92:
+invoke /usr/bin/swiftc: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test every_swiftui_test_fixture_passes_swiftc_typecheck ... FAILED
+
+failures:
+
+failures:
+    every_swiftui_test_fixture_passes_swiftc_typecheck
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+old_missing_swiftc_rc=101

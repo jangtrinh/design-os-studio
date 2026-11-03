@@ -2,7 +2,7 @@
 
 use crate::codegen::*;
 use crate::slots::*;
-use crate::util::num;
+use crate::util::{num, split_overlay_children};
 use designos_doc::*;
 
 /// A Jetpack Compose composable for `node` and its descendants: `Row`/`Column` with
@@ -209,6 +209,18 @@ fn size_mods(doc: &Document, n: &Node, sz: &Sizes, parent: Parent, m: &mut Vec<S
     m.extend(fills);
 }
 
+/// The modifier that makes the in-flow stack of a frame fill the `Box` that also holds absolute children,
+/// so `Arrangement` and the cross-axis alignment run across the frame's own area and the stack's
+/// children land where the layout solver put them. An axis the frame hugs does not fill.
+fn fill_frame_mod(sz: &Sizes) -> Option<&'static str> {
+    match (sz.w != Dim::Hug, sz.h != Dim::Hug) {
+        (true, true) => Some(".fillMaxSize()"),
+        (true, false) => Some(".fillMaxWidth()"),
+        (false, true) => Some(".fillMaxHeight()"),
+        (false, false) => None,
+    }
+}
+
 fn style_mods(doc: &Document, n: &Node, m: &mut Vec<String>) {
     let shp = shape(doc, n);
     let shadows = drop_shadows(n);
@@ -411,8 +423,13 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     size_mods(doc, n, &sz, parent, &mut mods);
     style_mods(doc, n, &mut mods);
     if let Some((al, grid)) = grid_opt {
-        let out_of_flow: Vec<&Node> = kids.iter().copied().filter(|k| !grid.children.iter().any(|(cid, _)| *cid == k.id)).collect();
-        let has_oof = !out_of_flow.is_empty();
+        let split = split_overlay_children(&kids);
+        let behind = split.behind;
+        // Children the grid does not place paint over it in child order: absolute ones, and ones a
+        // variable hides, which keep their place in the flow and so carry no offset.
+        let after: Vec<&Node> =
+            kids.iter().copied().filter(|k| !grid.children.iter().any(|(cid, _)| *cid == k.id) && !behind.iter().any(|b| b.id == k.id)).collect();
+        let has_oof = !behind.is_empty() || !after.is_empty();
         let g_depth = if has_oof { depth + 1 } else { depth };
         let widths_dp = grid.widths.iter().map(|w| format!("{}.dp", num(*w))).collect::<Vec<_>>().join(", ");
         args.push(arg(format!(
@@ -422,6 +439,10 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             finish_mods(doc, n, rot, &mut mods);
             let box_args: Vec<Arg> = modifier_arg(o, parent, &mods).into_iter().collect();
             open_call(o, depth, "Box", box_args, true);
+            let me = Parent::of(n);
+            for k in &behind {
+                emit(doc, k.id, me, depth + 1, o);
+            }
             let mut grid_mods = vec![".fillMaxSize()".to_string()];
             padding_mods(doc, n, al, &mut grid_mods);
             args.extend(modifier_arg(o, Parent { al: None, root: false }, &grid_mods));
@@ -508,7 +529,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         }
         o.line(g_depth, "}");
         if has_oof {
-            for k in out_of_flow {
+            for k in after {
                 emit(doc, k.id, me, depth + 1, o);
             }
             o.line(depth, "}");
@@ -516,11 +537,9 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         return;
     } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
+        let split = split_overlay_children(&kids);
+        let has_overlay = !split.behind.is_empty() || !split.front.is_empty();
         name = if horizontal { "Row" } else { "Column" };
-        block = true;
-        padding_mods(doc, n, al, &mut mods);
-        finish_mods(doc, n, rot, &mut mods);
-        args.extend(modifier_arg(o, parent, &mods));
         let spacing = (al.item_spacing > 0.0 || bound(doc, n, "itemSpacing").is_some()).then(|| dp(doc, n, "itemSpacing", al.item_spacing));
         let (start, center, end) = if horizontal {
             ("Alignment.Start", "Alignment.CenterHorizontally", "Alignment.End")
@@ -537,9 +556,6 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             (_, None) => None,
         };
         let _ = start;
-        if let Some(a) = arrangement {
-            args.push(arg(format!("{} = {a}", if horizontal { "horizontalArrangement" } else { "verticalArrangement" })));
-        }
         let cross = match (al.counter_align, horizontal) {
             (LayoutAlign::Center, true) => "Alignment.CenterVertically",
             (LayoutAlign::Center, false) => "Alignment.CenterHorizontally",
@@ -548,6 +564,44 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             (_, true) => "Alignment.Top",
             (_, false) => "Alignment.Start",
         };
+        if has_overlay {
+            finish_mods(doc, n, rot, &mut mods);
+            let box_args: Vec<Arg> = modifier_arg(o, parent, &mods).into_iter().collect();
+            open_call(o, depth, "Box", box_args, true);
+            let me = Parent::of(n);
+            for k in &split.behind {
+                emit(doc, k.id, me, depth + 1, o);
+            }
+            if !split.flow.is_empty() || site.is_some() {
+                let mut stack_mods: Vec<String> = fill_frame_mod(&sz).map(String::from).into_iter().collect();
+                padding_mods(doc, n, al, &mut stack_mods);
+                args.extend(modifier_arg(o, Parent { al: None, root: false }, &stack_mods));
+                if let Some(a) = arrangement {
+                    args.push(arg(format!("{} = {a}", if horizontal { "horizontalArrangement" } else { "verticalArrangement" })));
+                }
+                args.push(arg(format!("{} = {cross}", if horizontal { "verticalAlignment" } else { "horizontalAlignment" })));
+                open_call(o, depth + 1, name, args, true);
+                if let Some(site) = &site {
+                    o.line(depth + 2, format!("{}()", slot_ident_for(doc, site.comp, &site.name, site.single, Lang::Kotlin)));
+                }
+                for k in &split.flow {
+                    emit(doc, k.id, me, depth + 2, o);
+                }
+                o.line(depth + 1, "}");
+            }
+            for k in &split.front {
+                emit(doc, k.id, me, depth + 1, o);
+            }
+            o.line(depth, "}");
+            return;
+        }
+        block = true;
+        padding_mods(doc, n, al, &mut mods);
+        finish_mods(doc, n, rot, &mut mods);
+        args.extend(modifier_arg(o, parent, &mods));
+        if let Some(a) = arrangement {
+            args.push(arg(format!("{} = {a}", if horizontal { "horizontalArrangement" } else { "verticalArrangement" })));
+        }
         args.push(arg(format!("{} = {cross}", if horizontal { "verticalAlignment" } else { "horizontalAlignment" })));
     } else {
         name = "Box";
