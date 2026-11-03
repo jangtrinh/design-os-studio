@@ -251,7 +251,7 @@ fn is_all_geometric_scopes(scopes: &[String]) -> bool {
 }
 
 /// Normalizes scope names between Figma editor (`STROKE`) and REST (`STROKE_COLOR`) (`E1-9` §14.8).
-fn normalize_scope_on_import(scope: &str) -> String {
+pub(crate) fn normalize_scope_on_import(scope: &str) -> String {
     match scope {
         "STROKE" => "STROKE_COLOR".to_string(),
         other => other.to_string(),

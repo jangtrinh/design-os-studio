@@ -46,6 +46,11 @@ fn exported_scopes(doc: &Document, name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn round_tripped_scopes(doc: &Document, name: &str) -> Vec<String> {
+    let back = import_fig(&export_fig(doc).expect("export_fig")).expect("import_fig");
+    back.variables.values().find(|v| v.name == name).unwrap_or_else(|| panic!("no variable named {name}")).scopes.clone()
+}
+
 #[test]
 fn rest_code_syntax_is_stored_and_written_back() {
     let mut doc = Document::new("d");
@@ -80,6 +85,50 @@ fn native_fig_export_keeps_stroke_only_scope() {
 fn native_fig_export_deduplicates_editor_and_rest_stroke_scope_spellings() {
     let doc = fig_variable_with_scopes(&["STROKE", "STROKE_COLOR"]);
     assert_eq!(exported_scopes(&doc, "Brand/Primary"), vec!["STROKE"]);
+}
+
+#[test]
+fn fig_round_trip_keeps_rest_stroke_color_scope() {
+    let rectangle = NodeKind::Rectangle;
+    for scopes in [vec!["ALL_FILLS", "STROKE_COLOR"], vec!["STROKE_COLOR"]] {
+        let doc = fig_variable_with_scopes(&scopes);
+        assert_eq!(round_tripped_scopes(&doc, "Brand/Primary"), scopes);
+        let back = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+        let stored = &back.variables.values().find(|v| v.name == "Brand/Primary").expect("variable").scopes;
+        assert!(scope_allows(stored, "strokes/0", &rectangle), "{scopes:?} must still allow stroke binding");
+    }
+}
+
+#[test]
+fn fig_import_maps_kiwi_stroke_scope_to_rest_stroke_color() {
+    let doc = fig_variable_with_scopes(&["STROKE"]);
+    assert_eq!(exported_scopes(&doc, "Brand/Primary"), vec!["STROKE"], "kiwi side of the fixture");
+    assert_eq!(round_tripped_scopes(&doc, "Brand/Primary"), vec!["STROKE_COLOR"]);
+}
+
+#[test]
+fn fig_round_trip_of_both_stroke_spellings_keeps_one_stroke_scope() {
+    let doc = fig_variable_with_scopes(&["STROKE", "ALL_FILLS", "STROKE_COLOR"]);
+    assert_eq!(round_tripped_scopes(&doc, "Brand/Primary"), vec!["STROKE_COLOR", "ALL_FILLS"]);
+}
+
+#[test]
+fn rest_variables_json_after_fig_round_trip_uses_rest_stroke_scope_name() {
+    let doc = fig_variable_with_scopes(&["ALL_FILLS", "STROKE_COLOR"]);
+    let back = import_fig(&export_fig(&doc).expect("export_fig")).expect("import_fig");
+    let rest = export_variables_json(&back);
+    let variable = rest["meta"]["variables"].as_object().expect("variables").values().find(|v| v["name"] == "Brand/Primary").expect("variable");
+    assert_eq!(variable["scopes"], json!(["ALL_FILLS", "STROKE_COLOR"]));
+    assert!(!rest.to_string().contains("\"STROKE\""), "REST payload must not carry the native spelling: {rest}");
+}
+
+#[test]
+fn fig_round_trip_leaves_other_scope_lists_unchanged() {
+    let others = ["ALL_FILLS", "TEXT_FILL", "STROKE_FLOAT", "EFFECT_COLOR"];
+    let doc = fig_variable_with_scopes(&others);
+    assert_eq!(round_tripped_scopes(&doc, "Brand/Primary"), others);
+    let all = fig_variable_with_scopes(&[]);
+    assert!(round_tripped_scopes(&all, "Brand/Primary").is_empty());
 }
 
 #[test]
