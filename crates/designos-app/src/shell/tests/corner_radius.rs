@@ -319,6 +319,48 @@ fn selection_of_129_rectangles_is_edited_by_one_commit_and_restored_by_one_undo(
 }
 
 #[test]
+fn selection_beyond_128_reports_mixed_values_for_opacity_and_radius() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let mut rect_ids = Vec::with_capacity(129);
+    for i in 0..129 {
+        let id = s.shell.app.doc.alloc_id();
+        let mut n = Node::new(id, NodeKind::Rectangle);
+        n.name = format!("MixedRect {i}");
+        n.size = DocVec2::new(40.0, 40.0);
+        n.opacity = if i < 128 { 0.5 } else { 0.75 };
+        n.corner_radii = if i < 128 { [6.0; 4] } else { [8.0; 4] };
+        s.shell.app.doc.insert(page, n).unwrap();
+        rect_ids.push(id);
+    }
+    s.shell.app.selection = rect_ids.clone();
+    s.frame(vec![]);
+
+    assert!(has_field(&s, "opacity"));
+    assert!(texts_in_rect(&s, s.field_rect("opacity")).contains(&"Mixed".to_string()), "opacity must reflect all selected layers");
+    assert!(has_field(&s, "radius"));
+    assert!(texts_in_rect(&s, s.field_rect("radius")).contains(&"Mixed".to_string()), "radius must reflect all selected layers");
+
+    edit_num_field(&mut s, "opacity", "25");
+    edit_num_field(&mut s, "radius", "18");
+    for &id in &rect_ids {
+        let n = s.app().doc.get(id).unwrap();
+        assert!((n.opacity - 0.25).abs() < 1e-6);
+        assert_eq!(n.corner_radii, [18.0; 4]);
+    }
+
+    s.cmd_key(Key::Z);
+    s.cmd_key(Key::Z);
+    for (idx, &id) in rect_ids.iter().enumerate() {
+        let n = s.app().doc.get(id).unwrap();
+        let expected_opacity = if idx < 128 { 0.5 } else { 0.75 };
+        let expected_radius = if idx < 128 { [6.0; 4] } else { [8.0; 4] };
+        assert!((n.opacity - expected_opacity).abs() < 1e-6);
+        assert_eq!(n.corner_radii, expected_radius);
+    }
+}
+
+#[test]
 fn selection_of_128_text_layers_plus_one_frame_shows_radius_row_and_edits_frame() {
     let mut s = Sim::new();
     let page = s.app().page;
