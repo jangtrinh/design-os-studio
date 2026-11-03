@@ -418,11 +418,28 @@ pub fn set_tool(app: &mut App, tool: VTool) {
     }
 }
 
+fn scale_cursor(v: &VectorEdit) -> Option<egui::CursorIcon> {
+    if let Some(d) = &v.drag {
+        if let DragKind::ScaleBox { handle, .. } = d.kind {
+            return Some(handle.cursor());
+        }
+        return None;
+    }
+    if v.marquee.is_some() {
+        return None;
+    }
+    match v.hover {
+        Some(Hit::BoxHandle(h)) => Some(h.cursor()),
+        _ => None,
+    }
+}
+
 // ------------------------------------------------------------ pointer
 fn begin_drag(app: &mut App, kind: DragKind, world0: Affine, t0: Affine, page: DV) {
     let Some(v) = app.canvas.vedit.as_mut() else { return };
     let anchor = world0.invert().map(|i| i.apply(page)).unwrap_or(page);
     v.drag = Some(VDrag { tx: Tx::new(), kind, world0, t0, start: v.net.clone(), anchor_page: page, anchor, changed: false });
+    app.canvas.cursor = Some(scale_cursor(v).unwrap_or(egui::CursorIcon::Default));
     app.canvas.inter = Interaction::VectorDrag;
 }
 
@@ -515,6 +532,7 @@ pub fn drag(app: &mut App, cur: DV, mods: Modifiers) {
     let App { doc, canvas, view, .. } = app;
     let zoom = view.zoom;
     let Some(v) = canvas.vedit.as_mut() else { return };
+    canvas.cursor = Some(scale_cursor(v).unwrap_or(egui::CursorIcon::Default));
     if let Some(m) = v.marquee.as_mut() {
         m.cur = cur;
         if !m.lasso.is_empty() && m.lasso.last().map(|l| dist(*l, cur) * zoom > 2.0).unwrap_or(true) {
@@ -567,11 +585,17 @@ pub fn drag(app: &mut App, cur: DV, mods: Modifiers) {
                 if handle.affects_x() && (handle_pt0.x - anchor_pt.x).abs() > 1e-4 { (target.x - anchor_pt.x) / (handle_pt0.x - anchor_pt.x) } else { 1.0 };
             let mut sy =
                 if handle.affects_y() && (handle_pt0.y - anchor_pt.y).abs() > 1e-4 { (target.y - anchor_pt.y) / (handle_pt0.y - anchor_pt.y) } else { 1.0 };
-            if mods.shift && handle.is_corner() {
-                // one signed factor from the axis the pointer moved furthest, so crossing the anchor on the other axis never mirrors
-                let s = if sx.abs() >= sy.abs() { sx } else { sy };
-                sx = s;
-                sy = s;
+            if mods.shift {
+                if handle.is_corner() {
+                    // one signed factor from the axis the pointer moved furthest, so crossing the anchor on the other axis never mirrors
+                    let s = if sx.abs() >= sy.abs() { sx } else { sy };
+                    sx = s;
+                    sy = s;
+                } else if handle.affects_x() {
+                    sy = sx;
+                } else if handle.affects_y() {
+                    sx = sy;
+                }
             }
             for &i in &v.sel {
                 if let Some(vx) = net.vertices.get_mut(i) {
@@ -745,6 +769,7 @@ pub fn insert_point(app: &mut App, seg: usize, t: f32) {
 pub fn hover(app: &mut App, rect: ERect, pos: Option<Pos2>) {
     let Some(v) = app.canvas.vedit.as_ref() else { return };
     if v.drag.is_some() || v.marquee.is_some() {
+        app.canvas.cursor = Some(scale_cursor(v).unwrap_or(egui::CursorIcon::Default));
         return;
     }
     let world = app.doc.world_transform(v.id);
@@ -762,6 +787,7 @@ pub fn hover(app: &mut App, rect: ERect, pos: Option<Pos2>) {
     if let Some(v) = app.canvas.vedit.as_mut() {
         v.hover = hit;
         v.hover_face = face;
+        app.canvas.cursor = Some(scale_cursor(v).unwrap_or(egui::CursorIcon::Default));
     }
 }
 
@@ -1109,6 +1135,11 @@ pub fn overlay(app: &App, p: &Painter, rect: ERect) {
 /// The floating sub-tool switcher at the bottom of the canvas.
 pub fn toolbar(app: &mut App, ui: &mut egui::Ui, rect: ERect) {
     let Some(tool) = app.canvas.vedit.as_ref().map(|v| v.tool) else { return };
+    if matches!(app.canvas.cursor, None | Some(egui::CursorIcon::Default)) {
+        if let Some(c) = app.canvas.vedit.as_ref().and_then(scale_cursor) {
+            app.canvas.cursor = Some(c);
+        }
+    }
     let font = theme::font_body();
     let w = 84.0;
     let total = VTool::ALL.len() as f32 * w + 8.0;
