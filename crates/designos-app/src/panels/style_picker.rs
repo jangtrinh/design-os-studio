@@ -29,6 +29,11 @@ fn style_deleted_toast(fallback_layers: usize) -> String {
     }
 }
 
+pub(crate) fn fallback_layer_count(fallbacks: &[(NodeId, String)]) -> usize {
+    let ids: std::collections::BTreeSet<NodeId> = fallbacks.iter().map(|(id, _)| *id).collect();
+    ids.len()
+}
+
 fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
     let Some(key) = linked_style(app, sel, prop) else { return };
     app.scrub_end();
@@ -39,11 +44,7 @@ fn delete_linked_style(app: &mut App, sel: &[NodeId], prop: StyleProperty) {
         app.props.style_rename = None;
     }
     let (op, fallback_layers) = match delete_style_with_fallbacks(&app.doc, &key) {
-        Ok((cmd, fallbacks)) => {
-            let mut ids: Vec<NodeId> = fallbacks.into_iter().map(|(id, _)| id).collect();
-            ids.dedup();
-            (Ok(cmd), ids.len())
-        }
+        Ok((cmd, fallbacks)) => (Ok(cmd), fallback_layer_count(&fallbacks)),
         Err(e) => (Err(e), 0),
     };
     if app.run_style_op(op) {
