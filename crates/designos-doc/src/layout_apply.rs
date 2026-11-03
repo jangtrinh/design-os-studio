@@ -186,19 +186,44 @@ impl Document {
         }
         for ((cid, kid), r) in flow_ids.iter().zip(&kids).zip(&out.rects) {
             let new_size = Vec2::new(r.w, r.h);
-            let (size_changed, is_auto_layout) = self
+            let (old_size, size_changed, is_auto_layout, is_bool_op) = self
                 .get(*cid)
                 .map(|n| {
                     let changed = (n.size.x - new_size.x).abs() > 1e-3 || (n.size.y - new_size.y).abs() > 1e-3;
                     let has_al = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).is_some();
-                    (changed, has_al)
+                    let bool_op = matches!(n.kind, NodeKind::BooleanOp(_));
+                    (n.size, changed, has_al, bool_op)
                 })
-                .unwrap_or((false, false));
+                .unwrap_or((new_size, false, false, false));
             if let Some(cnode) = self.get_mut(*cid) {
-                cnode.transform.tx = r.x;
-                cnode.transform.ty = r.y;
-                cnode.size = new_size;
+                let mut new_tf = cnode.transform;
+                new_tf.tx = r.x;
+                new_tf.ty = r.y;
+                if size_changed
+                    && matches!(
+                        cnode.kind,
+                        NodeKind::Vector { .. }
+                            | NodeKind::BooleanOp(_)
+                            | NodeKind::Rectangle
+                            | NodeKind::Ellipse(_)
+                            | NodeKind::Star { .. }
+                            | NodeKind::Polygon { .. }
+                            | NodeKind::Line
+                    )
+                {
+                    crate::apply_constrained_geometry(cnode, new_tf, new_size);
+                } else {
+                    cnode.transform = new_tf;
+                    cnode.size = new_size;
+                }
                 cnode.layout_child.record_stretched(kid.size, new_size, horiz, kid.stretches_cross());
+            }
+            if size_changed && is_bool_op {
+                for (gc, gt, gs) in crate::plan_constraint_pass(self, *cid, old_size, new_size, 64) {
+                    if let Some(gn) = self.get_mut(gc) {
+                        crate::apply_constrained_geometry(gn, gt, gs);
+                    }
+                }
             }
             if size_changed && is_auto_layout {
                 self.relayout_top_down(*cid, hops + 1, budget);

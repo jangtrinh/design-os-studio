@@ -257,17 +257,19 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
     if let Some(name) = u.name {
         node.name = name;
     }
+    let mut new_transform = node.transform;
     if let Some(x) = u.x {
-        node.transform.tx = x;
+        new_transform.tx = x;
     }
     if let Some(y) = u.y {
-        node.transform.ty = y;
+        new_transform.ty = y;
     }
+    let mut new_size = node.size;
     if let Some(width) = u.width {
-        node.size.x = width;
+        new_size.x = width;
     }
     if let Some(height) = u.height {
-        node.size.y = height;
+        new_size.y = height;
     }
     if let NodeKind::Text(props) = &mut node.kind {
         if u.height.is_some() {
@@ -278,7 +280,8 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
             props.auto_resize = designos_doc::TextAutoResize::Height;
         }
     }
-    geometry(node.transform.tx, node.transform.ty, node.size.x, node.size.y)?;
+    geometry(new_transform.tx, new_transform.ty, new_size.x, new_size.y)?;
+    designos_doc::apply_constrained_geometry(&mut node, new_transform, new_size);
     if let Some(visible) = u.visible {
         node.visible = visible;
     }

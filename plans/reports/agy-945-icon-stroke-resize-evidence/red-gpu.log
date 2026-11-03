@@ -1,0 +1,149 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling bitflags v2.13.2
+   Compiling syn v3.0.9
+   Compiling smallvec v1.16.3
+   Compiling num-traits v0.2.19
+   Compiling arrayvec v0.7.8
+   Compiling objc2 v0.6.5
+   Compiling objc2-encode v4.1.0
+   Compiling syn v2.0.119
+   Compiling zerocopy v0.8.62
+   Compiling synstructure v0.14.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling objc2-foundation v0.3.2
+   Compiling block2 v0.6.2
+   Compiling naga v29.0.4
+   Compiling parking_lot_core v0.9.12
+   Compiling unicode-width v0.2.2
+   Compiling bit-vec v0.9.1
+   Compiling foldhash v0.2.0
+   Compiling hashbrown v0.16.1
+   Compiling bit-set v0.9.1
+   Compiling codespan-reporting v0.13.1
+   Compiling moxcms v0.8.1
+   Compiling objc2-metal v0.3.2
+   Compiling png v0.18.1
+   Compiling hexf-parse v0.2.1
+   Compiling raw-window-handle v0.6.2
+   Compiling rustc-hash v1.1.0
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling objc2-quartz-core v0.3.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling wgpu-hal v29.0.4
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling bytemuck v1.25.2
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling zerofrom v0.1.8
+   Compiling thiserror-impl v2.0.21
+   Compiling yoke v0.8.3
+   Compiling font-types v0.12.7
+   Compiling zerovec v0.11.8
+   Compiling font-types v0.11.3
+   Compiling zerotrie v0.2.5
+   Compiling serde_derive v1.0.229
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling read-fonts v0.37.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling read-fonts v0.41.0
+   Compiling thiserror v2.0.21
+   Compiling half v2.7.1
+   Compiling skrifa v0.44.0
+   Compiling serde v1.0.229
+   Compiling url v2.5.8
+   Compiling tiny-skia-path v0.11.4
+   Compiling ureq v2.12.1
+   Compiling swash v0.2.10
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-doc)
+   Compiling skrifa v0.40.0
+   Compiling harfrust v0.5.2
+   Compiling wgpu-types v29.0.4
+   Compiling image v0.25.10
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fonts)
+   Compiling cosmic-text v0.19.0
+   Compiling tiny-skia v0.11.4
+   Compiling parking_lot v0.12.5
+   Compiling raw-window-metal v1.1.0
+   Compiling kurbo v0.11.3
+   Compiling profiling v1.0.18
+   Compiling utf8parse v0.2.2
+   Compiling anstyle-parse v1.0.0
+   Compiling svgtypes v0.15.3
+   Compiling rustybuzz v0.20.1
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-render)
+   Compiling euclid v0.22.14
+   Compiling wgpu-core v29.0.4
+   Compiling litrs v1.0.0
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling anstyle v1.0.14
+   Compiling usvg v0.45.1
+   Compiling document-features v0.2.12
+   Compiling anstream v1.0.0
+   Compiling lyon_geom v1.0.19
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling wgpu v29.0.4
+   Compiling clap_lex v1.1.1
+   Compiling strsim v0.11.1
+   Compiling heck v0.5.0
+   Compiling clap_builder v4.6.7
+   Compiling clap_derive v4.6.7
+   Compiling lyon_path v1.0.19
+   Compiling nix v0.31.3
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-svg)
+   Compiling static_assertions v1.1.0
+   Compiling float_next_after v1.0.0
+   Compiling lyon_tessellation v1.0.22
+   Compiling clap v4.6.7
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-webcapture)
+   Compiling zip v9.0.4
+   Compiling pollster v0.4.0
+   Compiling designos-diff v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-diff)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fig)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-gpu)
+    Finished `test` profile [unoptimized] target(s) in 1m 21s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-66cc6ce27e088e29)
+
+running 4 tests
+
+thread 'resized_imported_vector_keeps_stroke_weight_and_matches_cpu' (82286595) panicked at crates/designos-gpu/tests/resized_shapes.rs:261:5:
+assertion `left == right` failed: CPU 2x plain resize keeps 2px stroke walls
+  left: [4, 4]
+ right: [2, 2]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... FAILED
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+resized_union: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_union: 0.0000% with AA pixels forgiven (0 px)
+resized_star: mismatch 0.9505% (346 px of 36400) at tolerance 8, ssim 0.9990
+resized_imported_shapes: mismatch 1.1566% (421 px of 36400) at tolerance 8, ssim 0.9984
+test resized_union_matches_cpu ... ok
+resized_star: 0.0000% with AA pixels forgiven (0 px)
+resized_imported_shapes: 0.0000% with AA pixels forgiven (0 px)
+test resized_flattened_star_matches_cpu ... ok
+test resized_imported_ellipse_and_star_match_cpu ... ok
+
+failures:
+
+failures:
+    resized_imported_vector_keeps_stroke_weight_and_matches_cpu
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `-p designos-gpu --test resized_shapes`

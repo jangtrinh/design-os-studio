@@ -190,6 +190,8 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
     let ky = if old_size.y.abs() > 1e-6 { new_size.y / old_size.y } else { 1.0 };
     match &mut node.kind {
         NodeKind::Vector { paths, network } => {
+            let outline_only =
+                network.as_ref().is_none_or(|n| !n.is_valid()) && node.stroke_geometry.as_ref().is_some_and(|sg| paths.is_empty() || paths == sg);
             scale_paths(paths, kx, ky);
             if let Some(net) = network {
                 for v in &mut net.vertices {
@@ -199,15 +201,19 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                     s.ta = scale_vec2(s.ta, kx, ky);
                     s.tb = scale_vec2(s.tb, kx, ky);
                 }
-                if net.vertices.iter().any(|v| v.corner_radius > 0.0) && net.is_valid() {
+                if net.is_valid() && (node.stroke_geometry.is_some() || net.vertices.iter().any(|v| v.corner_radius > 0.0)) {
                     *paths = net.to_paths();
                 }
             }
             if let Some(fg) = &mut node.fill_geometry {
                 scale_paths(fg, kx, ky);
             }
-            if let Some(sg) = &mut node.stroke_geometry {
-                scale_paths(sg, kx, ky);
+            if outline_only {
+                if let Some(sg) = &mut node.stroke_geometry {
+                    scale_paths(sg, kx, ky);
+                }
+            } else {
+                node.stroke_geometry = None;
             }
         }
         NodeKind::BooleanOp(_) => {
@@ -566,5 +572,53 @@ mod tests {
         let plan = plan_constraint_pass(&doc, union_id, Vec2::new(100.0, 80.0), Vec2::new(200.0, 40.0), 64);
         let (_, t, sz) = plan.iter().find(|(n, ..)| *n == rect_id).copied().expect("the rectangle is in the plan");
         assert_eq!((t.tx, t.ty, sz), (10.0, 20.0, Vec2::new(40.0, 40.0)), "Min / Min leaves the layer where it was");
+    }
+
+    #[test]
+    fn resizing_imported_stroked_vector_rebuilds_centerline_and_drops_baked_stroke() {
+        let stroke_ring = vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(1.0, 1.0)),
+                crate::PathCmd::LineTo(Vec2::new(19.0, 1.0)),
+                crate::PathCmd::LineTo(Vec2::new(19.0, 19.0)),
+                crate::PathCmd::LineTo(Vec2::new(1.0, 19.0)),
+                crate::PathCmd::Close,
+            ],
+            fill_rule: crate::FillRule::NonZero,
+        }];
+        let centerline = vec![crate::Path {
+            cmds: vec![
+                crate::PathCmd::MoveTo(Vec2::new(2.0, 2.0)),
+                crate::PathCmd::LineTo(Vec2::new(18.0, 2.0)),
+                crate::PathCmd::LineTo(Vec2::new(18.0, 18.0)),
+                crate::PathCmd::LineTo(Vec2::new(2.0, 18.0)),
+                crate::PathCmd::Close,
+            ],
+            fill_rule: crate::FillRule::NonZero,
+        }];
+        let net = crate::VectorNetwork::from_paths(&centerline);
+
+        // Case 1: valid network -> stroke_geometry dropped, paths rebuilt from scaled network.
+        let mut v = Node::new(NodeId(10), NodeKind::Vector { paths: stroke_ring.clone(), network: Some(net) });
+        v.size = Vec2::new(20.0, 20.0);
+        v.stroke.weight = 2.0;
+        v.stroke_geometry = Some(stroke_ring.clone());
+        let tf = v.transform;
+        apply_constrained_geometry(&mut v, tf, Vec2::new(40.0, 20.0));
+        assert_eq!(v.size, Vec2::new(40.0, 20.0));
+        assert_eq!(v.stroke.weight, 2.0);
+        assert!(v.stroke_geometry.is_none());
+        let NodeKind::Vector { paths, network: Some(net_after) } = &v.kind else { panic!("expected Vector") };
+        assert_eq!(paths, &net_after.to_paths());
+
+        // Case 2: outline-only (network is None and paths == stroke_geometry) -> stroke_geometry scaled with paths.
+        let mut outline_only = Node::new(NodeId(11), NodeKind::Vector { paths: stroke_ring.clone(), network: None });
+        outline_only.size = Vec2::new(20.0, 20.0);
+        outline_only.stroke.weight = 2.0;
+        outline_only.stroke_geometry = Some(stroke_ring);
+        let tf = outline_only.transform;
+        apply_constrained_geometry(&mut outline_only, tf, Vec2::new(40.0, 40.0));
+        let NodeKind::Vector { paths: outline_paths, .. } = &outline_only.kind else { panic!("expected Vector") };
+        assert_eq!(outline_only.stroke_geometry.as_ref(), Some(outline_paths));
     }
 }

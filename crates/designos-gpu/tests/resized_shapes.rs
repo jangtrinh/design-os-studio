@@ -180,3 +180,82 @@ fn resized_imported_ellipse_and_star_match_cpu() {
     assert!(c.report.ratio < 0.02, "mismatch {:.3}%", c.report.ratio * 100.0);
     assert!(c.report.ssim > 0.97, "{:?}", c.report);
 }
+
+fn rect_subpath(x0: f32, y0: f32, x1: f32, y1: f32, reversed: bool) -> Vec<PathCmd> {
+    if !reversed {
+        vec![
+            PathCmd::MoveTo(Vec2::new(x0, y0)),
+            PathCmd::LineTo(Vec2::new(x1, y0)),
+            PathCmd::LineTo(Vec2::new(x1, y1)),
+            PathCmd::LineTo(Vec2::new(x0, y1)),
+            PathCmd::Close,
+        ]
+    } else {
+        vec![
+            PathCmd::MoveTo(Vec2::new(x0, y0)),
+            PathCmd::LineTo(Vec2::new(x0, y1)),
+            PathCmd::LineTo(Vec2::new(x1, y1)),
+            PathCmd::LineTo(Vec2::new(x1, y0)),
+            PathCmd::Close,
+        ]
+    }
+}
+
+fn imported_stroked_icon(t: &mut T, at: Vec2) -> NodeId {
+    let mut cmds = rect_subpath(1.0, 1.0, 19.0, 19.0, false);
+    cmds.extend(rect_subpath(3.0, 3.0, 17.0, 17.0, true));
+    let stroke_geo = vec![Path { cmds, fill_rule: FillRule::NonZero }];
+    let centerline = vec![Path { cmds: rect_subpath(2.0, 2.0, 18.0, 18.0, false), fill_rule: FillRule::NonZero }];
+    let net = VectorNetwork::from_paths(&centerline);
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: stroke_geo.clone(), network: Some(net) });
+        n.transform = Affine::translate(at.x, at.y);
+        n.size = Vec2::new(20.0, 20.0);
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))];
+        n.stroke.weight = 2.0;
+        n.stroke.align = StrokeAlign::Center;
+        n.stroke.cap = StrokeCap::Round;
+        n.stroke.join = StrokeJoin::Round;
+        n.stroke_geometry = Some(stroke_geo);
+        n
+    })
+}
+
+fn horizontal_runs(pm: &Pixmap, y: u32, x_range: std::ops::Range<u32>) -> Vec<u32> {
+    let mut runs = Vec::new();
+    let mut cur = 0u32;
+    for x in x_range {
+        let p = pm.pixel(x, y).unwrap();
+        if p.red() < 128 && p.green() < 128 && p.blue() < 128 {
+            cur += 1;
+        } else if cur > 0 {
+            runs.push(cur);
+            cur = 0;
+        }
+    }
+    if cur > 0 {
+        runs.push(cur);
+    }
+    runs
+}
+
+#[test]
+fn resized_imported_vector_keeps_stroke_weight_and_matches_cpu() {
+    let mut t = T::new();
+    let icon_2x = imported_stroked_icon(&mut t, Vec2::new(20.0, 20.0));
+    let icon_2x1 = imported_stroked_icon(&mut t, Vec2::new(90.0, 20.0));
+    resize(&mut t.doc, icon_2x, Vec2::new(40.0, 40.0));
+    resize(&mut t.doc, icon_2x1, Vec2::new(40.0, 20.0));
+
+    let cpu = cpu_render(&t);
+    assert_eq!(horizontal_runs(&cpu, 40, 15..65), vec![2, 2], "CPU 2x plain resize keeps 2px stroke walls");
+    assert_eq!(horizontal_runs(&cpu, 30, 85..135), vec![2, 2], "CPU 2x1 plain resize keeps 2px stroke walls");
+
+    let Some(mut g) = gpu() else { return };
+    let c = compare(&mut g, "resized_imported_vector", &t.doc, t.page, Viewport::default(), VIEW, 8);
+    assert_eq!(horizontal_runs(&c.gpu, 40, 15..65), vec![2, 2], "GPU 2x plain resize keeps 2px stroke walls");
+    assert_eq!(horizontal_runs(&c.gpu, 30, 85..135), vec![2, 2], "GPU 2x1 plain resize keeps 2px stroke walls");
+    assert!(c.report.ratio < 0.02, "mismatch {:.3}%", c.report.ratio * 100.0);
+    assert!(c.report.ssim > 0.97, "{:?}", c.report);
+}

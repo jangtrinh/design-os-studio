@@ -1,0 +1,28 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-app)
+    Finished `test` profile [unoptimized] target(s) in 13.15s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-325402c5854b32a1)
+
+running 3 tests
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+
+failures:
+
+---- vecops::tests::two_deferred_text_commands_both_convert_in_order stdout ----
+
+thread 'vecops::tests::two_deferred_text_commands_both_convert_in_order' (82761741) panicked at crates/designos-app/src/vecops.rs:1921:9:
+both texts still waiting for slow fonts
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    vecops::tests::two_deferred_text_commands_both_convert_in_order
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4240 filtered out; finished in 1.80s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

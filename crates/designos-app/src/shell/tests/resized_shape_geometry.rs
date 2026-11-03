@@ -439,3 +439,247 @@ fn a_resized_imported_shape_keeps_its_drawing_through_a_fig_file() {
         );
     }
 }
+
+fn icon_rect_subpath(x0: f32, y0: f32, x1: f32, y1: f32, reversed: bool) -> Vec<PathCmd> {
+    if !reversed {
+        vec![
+            PathCmd::MoveTo(DV::new(x0, y0)),
+            PathCmd::LineTo(DV::new(x1, y0)),
+            PathCmd::LineTo(DV::new(x1, y1)),
+            PathCmd::LineTo(DV::new(x0, y1)),
+            PathCmd::Close,
+        ]
+    } else {
+        vec![
+            PathCmd::MoveTo(DV::new(x0, y0)),
+            PathCmd::LineTo(DV::new(x0, y1)),
+            PathCmd::LineTo(DV::new(x1, y1)),
+            PathCmd::LineTo(DV::new(x1, y0)),
+            PathCmd::Close,
+        ]
+    }
+}
+
+/// An imported `.fig` stroke-only vector icon (`20x20` at `(300, 300)`, `stroke.weight = 2.0`),
+/// with `paths == stroke_geometry` (2px stroke ring) and an optional centerline `VectorNetwork`.
+fn imported_icon_vector(s: &mut Sim, with_network: bool) -> NodeId {
+    let page = s.app().page;
+    // Clear starter children on the page so the CPU render measures only our icon.
+    let existing: Vec<NodeId> = s.app().doc.get(page).unwrap().children.clone();
+    for ch in existing {
+        let _ = s.shell.app.doc.remove(ch);
+    }
+    s.shell.app.doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+
+    let mut cmds = icon_rect_subpath(1.0, 1.0, 19.0, 19.0, false);
+    cmds.extend(icon_rect_subpath(3.0, 3.0, 17.0, 17.0, true));
+    let stroke_geo = vec![Path { cmds, fill_rule: designos_doc::FillRule::NonZero }];
+
+    let network = with_network.then(|| {
+        let centerline = vec![Path { cmds: icon_rect_subpath(2.0, 2.0, 18.0, 18.0, false), fill_rule: designos_doc::FillRule::NonZero }];
+        designos_doc::VectorNetwork::from_paths(&centerline)
+    });
+
+    let id = s.shell.app.doc.alloc_id();
+    let mut n = Node::new(id, NodeKind::Vector { paths: stroke_geo.clone(), network });
+    n.name = "Imported Icon".into();
+    n.transform = designos_doc::Affine::translate(300.0, 300.0);
+    n.size = DV::new(20.0, 20.0);
+    n.fills.clear();
+    n.stroke.paints = vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))];
+    n.stroke.weight = 2.0;
+    n.stroke.align = designos_doc::StrokeAlign::Center;
+    n.stroke.cap = designos_doc::StrokeCap::Round;
+    n.stroke.join = designos_doc::StrokeJoin::Round;
+    n.stroke_geometry = Some(stroke_geo);
+    let id = s.shell.app.doc.insert(page, n).unwrap();
+    s.shell.app.selection = vec![id];
+    s.shell.app.changed();
+    s.frame(vec![]);
+    id
+}
+
+/// Renders the `(290, 290)..(370, 370)` crop around the icon at `(300, 300)` onto an `80x80` CPU pixmap.
+fn render_icon_crop(doc: &designos_doc::Document, page: NodeId) -> designos_render::tiny_skia::Pixmap {
+    let mut pm = designos_render::tiny_skia::Pixmap::new(80, 80).unwrap();
+    let vp = designos_render::Viewport { offset: DV::new(290.0, 290.0), zoom: 1.0, ..designos_render::Viewport::default() };
+    designos_render::render_page(doc, page, &vp, &mut pm);
+    pm
+}
+
+fn scanline_runs_h(pm: &designos_render::tiny_skia::Pixmap, y: u32) -> Vec<u32> {
+    let mut runs = Vec::new();
+    let mut cur = 0u32;
+    for x in 0..pm.width() {
+        let p = pm.pixel(x, y).unwrap();
+        if p.red() < 128 && p.green() < 128 && p.blue() < 128 {
+            cur += 1;
+        } else if cur > 0 {
+            runs.push(cur);
+            cur = 0;
+        }
+    }
+    if cur > 0 {
+        runs.push(cur);
+    }
+    runs
+}
+
+fn scanline_runs_v(pm: &designos_render::tiny_skia::Pixmap, x: u32) -> Vec<u32> {
+    let mut runs = Vec::new();
+    let mut cur = 0u32;
+    for y in 0..pm.height() {
+        let p = pm.pixel(x, y).unwrap();
+        if p.red() < 128 && p.green() < 128 && p.blue() < 128 {
+            cur += 1;
+        } else if cur > 0 {
+            runs.push(cur);
+            cur = 0;
+        }
+    }
+    if cur > 0 {
+        runs.push(cur);
+    }
+    runs
+}
+
+#[test]
+fn plain_resize_of_an_imported_vector_keeps_its_stroke_weight_on_2x_and_2x1() {
+    // (a) 2x plain resize via W/H fields keeps 2px stroke band on CPU render.
+    let mut s = Sim::new();
+    let icon = imported_icon_vector(&mut s, true);
+    let pm_1x = render_icon_crop(&s.app().doc, s.app().page);
+    assert_eq!(scanline_runs_h(&pm_1x, 20), vec![2, 2], "1x icon has 2px horizontal stroke walls");
+    assert_eq!(scanline_runs_v(&pm_1x, 20), vec![2, 2], "1x icon has 2px vertical stroke walls");
+
+    type_into(&mut s, "w", "40");
+    type_into(&mut s, "h", "40");
+    assert_eq!(s.app().doc.get(icon).unwrap().size, DV::new(40.0, 40.0));
+    assert_eq!(s.app().doc.get(icon).unwrap().stroke.weight, 2.0);
+    assert!(s.app().doc.get(icon).unwrap().stroke_geometry.is_none());
+    let pm_2x = render_icon_crop(&s.app().doc, s.app().page);
+    assert_eq!(scanline_runs_h(&pm_2x, 30), vec![2, 2], "2x plain-resized icon draws 2px left/right stroke walls");
+    assert_eq!(scanline_runs_v(&pm_2x, 30), vec![2, 2], "2x plain-resized icon draws 2px top/bottom stroke walls");
+
+    // (a) 2x1 non-uniform plain resize gives an even 2px stroke on both axes.
+    type_into(&mut s, "h", "20");
+    assert_eq!(s.app().doc.get(icon).unwrap().size, DV::new(40.0, 20.0));
+    let pm_2x1 = render_icon_crop(&s.app().doc, s.app().page);
+    let h_runs = scanline_runs_h(&pm_2x1, 20);
+    let v_runs = scanline_runs_v(&pm_2x1, 30);
+    assert_eq!(h_runs, vec![2, 2], "2x1 plain-resized icon draws 2px vertical stroke walls");
+    assert_eq!(v_runs, vec![2, 2], "2x1 plain-resized icon draws 2px horizontal stroke walls");
+    assert_eq!(h_runs, v_runs, "2x1 plain-resized icon draws an even stroke on both axes");
+
+    // Also verify canvas handle plain resize (dragging bottom-right handle from (320, 320) to (340, 340) -> 40x40).
+    let mut s_drag = Sim::new();
+    let icon_drag = imported_icon_vector(&mut s_drag, true);
+    let br = corner_on_screen(&s_drag, 2);
+    let target = s_drag.screen(340.0, 340.0);
+    s_drag.drag(br, target);
+    assert_eq!(s_drag.app().doc.get(icon_drag).unwrap().size, DV::new(40.0, 40.0));
+    let pm_drag = render_icon_crop(&s_drag.app().doc, s_drag.app().page);
+    assert_eq!(scanline_runs_h(&pm_drag, 30), vec![2, 2], "handle plain resize keeps 2px stroke band");
+
+    // Also verify MCP agent resize (`designos_update_node`) scales the vector path while keeping 2px stroke band.
+    let mut s_mcp = Sim::new();
+    let icon_mcp = imported_icon_vector(&mut s_mcp, true);
+    let mut engine = designos_mcp::engine::Engine::new();
+    engine.doc = s_mcp.app().doc.clone();
+    engine
+        .call(
+            "designos_update_node",
+            serde_json::json!({
+                "node_id": icon_mcp.0,
+                "width": 40.0,
+                "height": 40.0
+            }),
+        )
+        .expect("designos_update_node succeeded");
+    let pm_mcp = render_icon_crop(&engine.doc, s_mcp.app().page);
+    assert_eq!(scanline_runs_h(&pm_mcp, 30), vec![2, 2], "MCP agent resize keeps 2px stroke band");
+}
+
+#[test]
+fn scale_tool_resize_of_an_imported_vector_scales_its_stroke_to_2x() {
+    // (b) The same vector resized 2x with the Scale tool draws a 2x (4px) stroke.
+    let mut s = Sim::new();
+    let icon = imported_icon_vector(&mut s, true);
+    s.shell.app.tool = Tool::Scale;
+    s.frame(vec![]);
+
+    let br = corner_on_screen(&s, 2);
+    let target = s.screen(340.0, 340.0);
+    s.drag(br, target);
+
+    let n = s.app().doc.get(icon).unwrap();
+    assert!((n.size.x - 40.0).abs() < 0.5 && (n.size.y - 40.0).abs() < 0.5, "Scale tool resized icon to 40x40: {:?}", n.size);
+    assert!((n.stroke.weight - 4.0).abs() < 0.1, "Scale tool scaled stroke weight from 2.0 to 4.0: {}", n.stroke.weight);
+    let pm = render_icon_crop(&s.app().doc, s.app().page);
+    assert_eq!(scanline_runs_h(&pm, 30), vec![4, 4], "Scale tool 2x resize draws a 4px (2x) stroke band");
+    assert_eq!(scanline_runs_v(&pm, 30), vec![4, 4], "Scale tool 2x resize draws a 4px (2x) stroke band");
+}
+
+#[test]
+fn stroke_only_imported_vector_whose_outline_is_its_path_draws_once_after_resize() {
+    // (c) Stroke-only vector where `paths == stroke_geometry` draws its stroke once after resize.
+    for with_network in [true, false] {
+        let mut s = Sim::new();
+        let icon = imported_icon_vector(&mut s, with_network);
+        type_into(&mut s, "w", "40");
+        type_into(&mut s, "h", "40");
+        assert_eq!(s.app().doc.get(icon).unwrap().size, DV::new(40.0, 40.0));
+        let pm = render_icon_crop(&s.app().doc, s.app().page);
+        let h_runs = scanline_runs_h(&pm, 30);
+        let v_runs = scanline_runs_v(&pm, 30);
+        assert_eq!(h_runs.len(), 2, "with_network={with_network}: stroke-only vector draws once per side (got h_runs={h_runs:?})");
+        assert_eq!(v_runs.len(), 2, "with_network={with_network}: stroke-only vector draws once per side (got v_runs={v_runs:?})");
+        if with_network {
+            assert_eq!(h_runs, vec![2, 2]);
+            assert_eq!(v_runs, vec![2, 2]);
+        }
+    }
+}
+
+#[test]
+fn resized_imported_vector_cpu_and_gpu_renders_match() {
+    // (d) CPU and GPU renders of (a) match, and null control unresized vector is unchanged.
+    let mut s = Sim::new();
+    let icon = imported_icon_vector(&mut s, true);
+    let before_doc = s.app().doc.clone();
+    let null_diff = designos_render::diff_image::render_diff_image(&before_doc, &s.app().doc, s.app().page, DRect::new(290.0, 290.0, 80.0, 80.0), 1.0).unwrap();
+    assert_eq!(null_diff.changed_pixels, 0, "null control: unresized imported vector has 0 changed pixels");
+
+    type_into(&mut s, "w", "40");
+    type_into(&mut s, "h", "40");
+    assert_eq!(s.app().doc.get(icon).unwrap().size, DV::new(40.0, 40.0));
+
+    let vp = designos_render::Viewport { offset: DV::new(290.0, 290.0), zoom: 1.0, ..designos_render::Viewport::default() };
+    let cpu = render_icon_crop(&s.app().doc, s.app().page);
+    assert_eq!(scanline_runs_h(&cpu, 30), vec![2, 2]);
+
+    if let Ok(mut g) = designos_gpu::HeadlessGpu::new() {
+        let name_lower = g.ctx.adapter_info.name.to_lowercase();
+        if g.ctx.adapter_info.device_type != designos_gpu::wgpu::DeviceType::Cpu
+            && !name_lower.contains("llvmpipe")
+            && !name_lower.contains("lavapipe")
+            && !name_lower.contains("software")
+        {
+            let gpu = g.render_page(&s.app().doc, s.app().page, &vp, (80, 80));
+            assert_eq!(scanline_runs_h(&gpu, 30), vec![2, 2], "GPU render also draws 2px horizontal stroke walls");
+            assert_eq!(scanline_runs_v(&gpu, 30), vec![2, 2], "GPU render also draws 2px vertical stroke walls");
+            let mismatched = cpu
+                .pixels()
+                .iter()
+                .zip(gpu.pixels().iter())
+                .filter(|(a, b)| {
+                    (a.red() as i32 - b.red() as i32).abs() > 8
+                        || (a.green() as i32 - b.green() as i32).abs() > 8
+                        || (a.blue() as i32 - b.blue() as i32).abs() > 8
+                })
+                .count();
+            let ratio = mismatched as f64 / (80.0 * 80.0);
+            assert!(ratio < 0.02, "CPU vs GPU mismatch ratio {ratio:.4} ({mismatched} px) exceeds 2%");
+        }
+    }
+}
