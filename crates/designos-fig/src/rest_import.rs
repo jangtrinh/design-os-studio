@@ -503,6 +503,10 @@ struct Ctx<'a> {
     pending_swaps: Vec<(NodeId, String, String, bool)>,
     /// REST `overrides` entries: (instance, node id inside it, field names).
     rest_overrides: Vec<(NodeId, String, Vec<String>)>,
+    /// Instance nodes whose source payload carries a node-level aspect-lock field.
+    /// Presence matters because `false` is a meaningful value, even though it is the
+    /// document model's default.
+    node_lock_fields: HashSet<NodeId>,
     /// Prototype data to resolve once every node id is known.
     proto: Vec<(NodeId, Value)>,
     /// Overlay presentation of potential overlay destinations, by REST id.
@@ -681,6 +685,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
         rest_overrides: Vec::new(),
+        node_lock_fields: HashSet::new(),
         proto: Vec::new(),
         overlay_props: BTreeMap::new(),
         flow_pages: Vec::new(),
@@ -827,6 +832,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
         library_keys: BTreeMap::new(),
         pending_swaps: Vec::new(),
         rest_overrides: Vec::new(),
+        node_lock_fields: HashSet::new(),
         proto: Vec::new(),
         overlay_props: BTreeMap::new(),
         flow_pages: Vec::new(),
@@ -981,6 +987,9 @@ impl<'a> Ctx<'a> {
             }
         }
         if is_instance {
+            if v.get("preserveRatio").is_some() || v.get("lockAspect").is_some() {
+                self.node_lock_fields.insert(id);
+            }
             if let Some(cid) = fstr(&v, "componentId") {
                 self.instances.push((id, cid.to_string()));
             }
@@ -1086,6 +1095,9 @@ impl<'a> Ctx<'a> {
             }
         }
         if is_instance {
+            if v.get("preserveRatio").is_some() || v.get("lockAspect").is_some() {
+                self.node_lock_fields.insert(id);
+            }
             if let Some(cid) = fstr(v, "componentId") {
                 self.instances.push((id, cid.to_string()));
             }
@@ -1857,6 +1869,14 @@ impl<'a> Ctx<'a> {
             if let Some(n) = self.doc.get_mut(*inst) {
                 if n.component.source.is_none() {
                     n.component.source = Some(*comp);
+                }
+            }
+            if self.node_lock_fields.contains(inst) {
+                let differs = self.doc.get(*inst).map(|n| n.lock_aspect) != self.doc.get(*comp).map(|n| n.lock_aspect);
+                if differs {
+                    if let Some(n) = self.doc.get_mut(*inst) {
+                        n.component.overrides.insert(OverrideField::LockAspect);
+                    }
                 }
             }
         }
@@ -3366,6 +3386,11 @@ impl designos_doc::PageHydrator for DeferredFigHydrator {
             unresolved: Vec::new(),
             overrides: std::mem::take(&mut self.overrides),
             rest_overrides: Vec::new(),
+            // Node-level lock overrides were recorded during the initial
+            // `link_sources` pass, before deferred hydration starts. Hydrated
+            // pages only clone already-linked nodes, so there is no pending
+            // presence map to carry here.
+            node_lock_fields: HashSet::new(),
             override_keys: std::mem::take(&mut self.override_keys),
             col_anchor_guids: std::mem::take(&mut self.col_anchor_guids),
             row_anchor_guids: std::mem::take(&mut self.row_anchor_guids),
@@ -4567,6 +4592,7 @@ mod expand_depth_tests {
             library_keys: BTreeMap::new(),
             pending_swaps: Vec::new(),
             rest_overrides: Vec::new(),
+            node_lock_fields: HashSet::new(),
             proto: Vec::new(),
             overlay_props: BTreeMap::new(),
             flow_pages: Vec::new(),
@@ -4610,6 +4636,7 @@ mod expand_depth_tests {
             library_keys: BTreeMap::new(),
             pending_swaps: Vec::new(),
             rest_overrides: Vec::new(),
+            node_lock_fields: HashSet::new(),
             proto: Vec::new(),
             overlay_props: BTreeMap::new(),
             flow_pages: Vec::new(),
