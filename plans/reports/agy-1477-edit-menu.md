@@ -318,7 +318,8 @@ out_cargo_deleted_rc=1
 ## Pull Request & Commits
 
 - **Branch**: `jangtrinh/agy-1477-edit-menu`
-- **PR URL**: *(to be populated after `gh pr create --draft`)*
-- **Commits (`git log --oneline origin/main..HEAD`)**: *(to be populated after commit)*
+- **PR URL**: https://github.com/jangtrinh/design-os-studio/pull/1556
+- **Commits (`git log --oneline origin/main..HEAD`)**:
+  - `f8e844da feat(edit): Edit menu parity for select same, paste and match style, swap fill and stroke (#1477)`
 
 Status: NEEDS_CONTEXT — Z16 (`scripts/zero_fake_ui_gate.py`) requires adding Figma's 4-word labels `"Paste and match style"` and `"Swap fill and stroke"` to `scripts/ux_writing_baseline.json` (outside `Files you may modify`) or coordinator approval to shorten those two labels to ≤3 words.
