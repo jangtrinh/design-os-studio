@@ -421,6 +421,8 @@ pub enum Act {
     NewDeck,
     OpenStarterSample,
     OpenSpecs,
+    /// Opens (or focuses) the Project tab of library project `id`.
+    OpenProject(String),
     OpenLibrariesModal,
     OpenVariables,
     OpenPlugins,
@@ -563,8 +565,9 @@ pub fn context_entries(h: &Home, target: &Target) -> Vec<(crate::widgets::menu::
             ]
         }
         Target::Project(id) => vec![
-            (MenuItem::new("New folder"), Act::NewFolder(id.clone(), None)),
-            (MenuItem::new("Rename").sep(), Act::RenameProject(id.clone())),
+            (MenuItem::new("Open project"), Act::OpenProject(id.clone())),
+            (MenuItem::new("New folder").sep(), Act::NewFolder(id.clone(), None)),
+            (MenuItem::new("Rename"), Act::RenameProject(id.clone())),
             (MenuItem::new("Move to trash"), Act::DeleteProject(id.clone())),
         ],
         Target::Folder(p, f) => {
@@ -710,6 +713,12 @@ pub fn apply(app: &mut App, act: Act) {
         }
         Act::OpenStarterSample => {
             app.open_starter_sample();
+        }
+        Act::OpenProject(id) => {
+            let mut tabs = std::mem::take(&mut app.tabs);
+            tabs.open_project_tab(app, &id, None);
+            app.tabs = tabs;
+            changed = false;
         }
         Act::OpenSpecs => {
             app.home = None;
@@ -1310,6 +1319,11 @@ mod main_view {
                 _ => None,
             }
         };
+        // "Open project" leads the button group inside a project (not in a folder of "All folders").
+        let open_project_target: Option<&str> = match &h.section {
+            Section::Project(pid, _) if !trash && !h.searching() => Some(pid.as_str()),
+            _ => None,
+        };
         let gap = 8.0;
         let mut span = 0.0;
         let mut add = |label: &str| {
@@ -1331,6 +1345,9 @@ mod main_view {
             add("Import");
             if folder_target.is_some() {
                 add("+ New folder");
+            }
+            if open_project_target.is_some() {
+                add("Open project");
             }
         }
         let leftmost = right - span;
@@ -1369,6 +1386,13 @@ mod main_view {
                 let r = button(ui, &p, &mut right, head.center().y, "+ New folder", Kind::Secondary, "home-new-folder");
                 if r.clicked() {
                     acts.push(Act::NewFolder(pid.to_string(), parent_folder.map(str::to_string)));
+                }
+            }
+            if let Some(pid) = open_project_target {
+                right -= gap;
+                let r = button(ui, &p, &mut right, head.center().y, "Open project", Kind::Secondary, "home-open-project");
+                if r.clicked() {
+                    acts.push(Act::OpenProject(pid.to_string()));
                 }
             }
         }
@@ -1832,8 +1856,14 @@ mod main_view {
                 let plus_r = Rect::from_min_size(Pos2::new(r.right() - 74.0, r.top() + 8.0), Vec2::new(66.0, theme::TARGET_MIN));
                 let plus_resp = ui.interact(plus_r, Id::new(("home-proj-new-folder", &pr.id)), Sense::click());
                 let card_resp = ui.interact(r, Id::new(("home-proj-card", &pr.id)), Sense::click());
+                // "Open project" sits at the right end of the name row, 8 px inside the card, and shows on hover.
+                let open_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
+                let open_w = widgets::text_width(&p, "Open project", &open_font) + theme::SPACE_GROUP * 2.0;
+                let name_cy = r.top() + 8.0 + 92.0 + 16.0;
+                let open_r = Rect::from_min_size(Pos2::new(r.right() - 8.0 - open_w, name_cy - theme::TARGET_MIN / 2.0), Vec2::new(open_w, theme::TARGET_MIN));
+                let open_resp = ui.interact(open_r, Id::new(("home-proj-open", &pr.id)), Sense::click());
                 let over = dragging && ptr.is_some_and(|q| r.contains(q));
-                let hot = card_resp.hovered() || plus_resp.hovered();
+                let hot = card_resp.hovered() || plus_resp.hovered() || open_resp.hovered();
 
                 p.rect_filled(r, theme::cr(theme::RADIUS_XL), if over { theme::BG_SELECTED_HOVER } else { theme::BG_SECONDARY });
                 p.rect_stroke(
@@ -1871,13 +1901,18 @@ mod main_view {
                 p.rect_filled(Rect::from_center_size(icon_c, Vec2::splat(22.0)), theme::cr(theme::RADIUS_CONTROL), theme::BG_TERTIARY);
                 icons::paint(&p, Icon::Frame, icon_c, 13.0, theme::ICON_QUATERNARY);
 
+                let name_room = r.width() - 48.0 - if hot { open_w + 8.0 } else { 0.0 };
                 p.text(
                     Pos2::new(r.left() + 36.0, preview.bottom() + 16.0),
                     Align2::LEFT_CENTER,
-                    widgets::elide(&p, &pr.name, &theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold), r.width() - 48.0),
+                    widgets::elide(&p, &pr.name, &theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold), name_room),
                     theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold),
                     theme::TEXT,
                 );
+                if hot {
+                    paint_secondary(ui, open_r, "Open project", open_resp.hovered(), false, open_resp.id);
+                    widgets::record(ui, &format!("home-project-open-{}", pr.name), open_r);
+                }
                 let sub = format!(
                     "{} file{} \u{b7} {} folder{}",
                     proj_files.len(),
@@ -1896,6 +1931,8 @@ mod main_view {
                 widgets::record(ui, &format!("home-project-card-{}", pr.name), r);
                 if plus_resp.clicked() {
                     acts.push(Act::NewFolder(pr.id.clone(), None));
+                } else if open_resp.clicked() && hot {
+                    acts.push(Act::OpenProject(pr.id.clone()));
                 } else if card_resp.clicked() {
                     acts.push(Act::Go(Section::Project(pr.id.clone(), None)));
                 }
