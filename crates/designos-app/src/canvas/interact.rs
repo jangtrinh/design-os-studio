@@ -2349,7 +2349,7 @@ pub fn place_video_bytes(app: &mut App, page: DV, name: &str, bytes: Vec<u8>) ->
     let mut node = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, w * scale, h * scale));
     node.name = name.to_string();
     node.fills = vec![designos_doc::Paint {
-        kind: designos_doc::PaintKind::Image { image_ref: poster_key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
+        kind: designos_doc::PaintKind::Image { image_ref: poster_key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill, params: Default::default() },
         opacity: 1.0,
         visible: true,
         blend: designos_doc::BlendMode::Normal,
@@ -2407,7 +2407,7 @@ pub fn insert_image(app: &mut App, tx: &mut Tx, parent: NodeId, name: &str, byte
     let mut n = designos_doc::Node::rectangle(id, Rect::new(o.x, o.y, size.x, size.y));
     n.name = name.to_string();
     n.fills = vec![designos_doc::Paint {
-        kind: designos_doc::PaintKind::Image { image_ref: key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill },
+        kind: designos_doc::PaintKind::Image { image_ref: key.clone(), scale_mode: designos_doc::ImageScaleMode::Fill, params: Default::default() },
         opacity: 1.0,
         visible: true,
         blend: designos_doc::BlendMode::Normal,

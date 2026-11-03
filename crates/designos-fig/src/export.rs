@@ -62,7 +62,7 @@ fn paint(p: &Paint) -> Value {
         PaintKind::RadialGradient { handles, stops } => grad(&mut m, "GRADIENT_RADIAL", handles, stops),
         PaintKind::AngularGradient { handles, stops } => grad(&mut m, "GRADIENT_ANGULAR", handles, stops),
         PaintKind::DiamondGradient { handles, stops } => grad(&mut m, "GRADIENT_DIAMOND", handles, stops),
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, .. } => {
             m.insert("type".into(), "IMAGE".into());
             m.insert("imageRef".into(), image_ref.clone().into());
             m.insert(

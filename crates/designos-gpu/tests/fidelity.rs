@@ -77,7 +77,7 @@ fn fx_scene() -> (Document, NodeId) {
     t.node(ch).transform = Affine::translate(30.0, 20.0) * Affine::rotate(0.5);
     let im = t.rect(None, Rect::new(130.0, 120.0, 60.0, 60.0), Color::WHITE);
     t.node(im).fills = vec![Paint {
-        kind: PaintKind::Image { image_ref: "checker".into(), scale_mode: ImageScaleMode::Fill },
+        kind: PaintKind::Image { image_ref: "checker".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
         opacity: 0.9,
         visible: true,
         blend: BlendMode::Multiply,

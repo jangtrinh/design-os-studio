@@ -330,7 +330,7 @@ pub fn topmost_visible_image_fill(node: &Node) -> Option<(usize, String, ImageSc
     let mut count = 0usize;
     let mut chosen: Option<(usize, String, ImageScaleMode)> = None;
     for (idx, paint) in node.fills.iter().enumerate() {
-        if let PaintKind::Image { image_ref, scale_mode } = &paint.kind {
+        if let PaintKind::Image { image_ref, scale_mode, .. } = &paint.kind {
             count += 1;
             if paint.visible {
                 chosen = Some((idx, image_ref.clone(), *scale_mode));
@@ -406,7 +406,7 @@ fn crop_visible_image(decoded: &image::RgbaImage, layer_size: Vec2, scale_mode: 
 fn node_fill_visible_crop_dims(doc: &Document, node: NodeId, fill_index: usize) -> Option<((u32, u32), ImageScaleMode)> {
     let n = doc.get(node)?;
     let paint = n.fills.get(fill_index)?;
-    let PaintKind::Image { image_ref, scale_mode } = &paint.kind else {
+    let PaintKind::Image { image_ref, scale_mode, .. } = &paint.kind else {
         return None;
     };
     let (raw_w, raw_h) = doc_image_dimensions(doc, image_ref).unwrap_or_else(|| (n.size.x.round().max(1.0) as u32, n.size.y.round().max(1.0) as u32));
@@ -626,7 +626,7 @@ impl App {
 
         let (image_ref, scale_mode, layer_size) = match self.doc.get(node) {
             Some(n) => match n.fills.get(fill_index).map(|p| &p.kind) {
-                Some(PaintKind::Image { image_ref, scale_mode }) => (image_ref.clone(), *scale_mode, n.size),
+                Some(PaintKind::Image { image_ref, scale_mode, .. }) => (image_ref.clone(), *scale_mode, n.size),
                 _ => return None,
             },
             None => return None,
@@ -997,7 +997,7 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
         visible: true,
         opacity: orig_opacity,
         blend: orig_blend,
-        kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: orig_scale_mode },
+        kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: orig_scale_mode, params: Default::default() },
     };
     if job.fill_index < new_node.fills.len() {
         new_node.fills[job.fill_index] = new_paint;
@@ -1643,7 +1643,7 @@ mod tests {
             visible: true,
             opacity: 1.0,
             blend: BlendMode::Normal,
-            kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
         }];
         doc.insert(page, node).unwrap();
 
@@ -1955,7 +1955,7 @@ mod tests {
             }
         }
         app.doc.images.insert(img_key.clone(), encode_png(&wide).unwrap());
-        app.doc.get_mut(orig_id).unwrap().fills[0].kind = PaintKind::Image { image_ref: img_key, scale_mode: ImageScaleMode::Crop };
+        app.doc.get_mut(orig_id).unwrap().fills[0].kind = PaintKind::Image { image_ref: img_key, scale_mode: ImageScaleMode::Crop, params: Default::default() };
 
         // Expand by 50 image px each side on the 200x200 visible crop -> expected output is 300x300 image px,
         // and the 100x100 layer (0.5 layer units per image px) grows by 25 layer units each side to 150x150 at (-25, -25).

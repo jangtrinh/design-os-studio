@@ -102,7 +102,7 @@ fn child_layout_paints_and_relative_positions() {
     assert!(matches!(r.fills[1].kind, PaintKind::RadialGradient { .. }));
     assert!(matches!(r.fills[2].kind, PaintKind::AngularGradient { .. }));
     assert!(matches!(r.fills[3].kind, PaintKind::DiamondGradient { .. }));
-    assert!(matches!(&r.fills[4].kind, PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Fit } if image_ref == "deadbeefcafe"));
+    assert!(matches!(&r.fills[4].kind, PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Fit, .. } if image_ref == "deadbeefcafe"));
     assert!(!r.fills[5].visible);
     assert_eq!(image_refs(&doc), vec!["0123456789ab".to_string(), "deadbeefcafe".to_string()]);
 

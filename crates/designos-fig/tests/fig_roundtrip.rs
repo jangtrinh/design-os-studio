@@ -314,7 +314,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
     bg_rect.fills = vec![
         Paint::solid(Color::rgb(240, 242, 245)),
         Paint {
-            kind: PaintKind::Image { image_ref: img_hash.into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: img_hash.into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 0.9,
             visible: true,
             blend: BlendMode::Normal,

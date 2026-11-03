@@ -191,6 +191,99 @@ pub enum ImageScaleMode {
     Tile,
 }
 
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+
+fn is_one_f32(v: &f32) -> bool {
+    (*v - 1.0).abs() < f32::EPSILON
+}
+
+fn default_tile_scale() -> f32 {
+    1.0
+}
+
+/// Per-paint image colour adjustments matching `PaintFilterMessage` (fields 1..10).
+/// Each adjustment ranges over `[-1.0, 1.0]` with `0.0` as neutral.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ImageAdjust {
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub tint: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub shadows: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub highlights: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub detail: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub exposure: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub vignette: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub temperature: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub vibrance: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub contrast: f32,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub brightness: f32,
+}
+
+impl ImageAdjust {
+    pub fn is_default(&self) -> bool {
+        self.tint == 0.0
+            && self.shadows == 0.0
+            && self.highlights == 0.0
+            && self.detail == 0.0
+            && self.exposure == 0.0
+            && self.vignette == 0.0
+            && self.temperature == 0.0
+            && self.vibrance == 0.0
+            && self.contrast == 0.0
+            && self.brightness == 0.0
+    }
+}
+
+/// Crop transform, rotation, tile scale, colour adjustments, and round-trip metadata for [`PaintKind::Image`].
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ImageParams {
+    /// Crop affine `[m00, m01, m02, m10, m11, m12]` in normalised UV space (`0..1` of node -> `0..1` of image).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform: Option<[f32; 6]>,
+    /// Clockwise rotation in degrees (`0`, `90`, `180`, `270`, mod `360`).
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub rotation: f32,
+    /// Tile scale factor (`1.0` = 100% native pixel dimensions).
+    #[serde(default = "default_tile_scale", skip_serializing_if = "is_one_f32")]
+    pub tile_scale: f32,
+    /// Colour adjustments.
+    #[serde(default, skip_serializing_if = "ImageAdjust::is_default")]
+    pub adjust: ImageAdjust,
+    /// Round-tripped `.fig` `imageShouldColorManage` flag.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_manage: Option<bool>,
+    /// Round-tripped `.fig` `(originalImageWidth, originalImageHeight)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_size: Option<(u32, u32)>,
+}
+
+impl Default for ImageParams {
+    fn default() -> Self {
+        Self { transform: None, rotation: 0.0, tile_scale: 1.0, adjust: ImageAdjust::default(), color_manage: None, original_size: None }
+    }
+}
+
+impl ImageParams {
+    pub fn is_default(&self) -> bool {
+        self.transform.is_none()
+            && self.rotation == 0.0
+            && is_one_f32(&self.tile_scale)
+            && self.adjust.is_default()
+            && self.color_manage.is_none()
+            && self.original_size.is_none()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PaintKind {
     Solid(Color),
@@ -216,6 +309,8 @@ pub enum PaintKind {
     Image {
         image_ref: String,
         scale_mode: ImageScaleMode,
+        #[serde(default, skip_serializing_if = "ImageParams::is_default")]
+        params: ImageParams,
     },
 }
 
@@ -585,10 +680,6 @@ fn is_default_grid_align(a: &LayoutGridAlign) -> bool {
     *a == LayoutGridAlign::Stretch
 }
 
-fn is_zero_f32(v: &f32) -> bool {
-    *v == 0.0
-}
-
 fn is_default_leading_trim(v: &LeadingTrim) -> bool {
     *v == LeadingTrim::default()
 }
@@ -686,5 +777,14 @@ mod tests {
         assert_eq!(Color::from_hex("blue"), Some(Color::rgb(0, 0, 255)));
         assert_eq!(Color::from_hex("coral"), Some(Color::rgb(255, 127, 80)));
         assert_eq!(Color::from_hex("rebeccapurple"), Some(Color::rgb(102, 51, 153)));
+    }
+
+    #[test]
+    fn old_designos_file_loads_with_default_params_and_saves_unchanged() {
+        let json = r#"{"Image":{"image_ref":"hash123","scale_mode":"Fill"}}"#;
+        let kind: PaintKind = serde_json::from_str(json).unwrap();
+        assert_eq!(kind, PaintKind::Image { image_ref: "hash123".into(), scale_mode: ImageScaleMode::Fill, params: ImageParams::default() });
+        let saved = serde_json::to_string(&kind).unwrap();
+        assert_eq!(saved, json);
     }
 }

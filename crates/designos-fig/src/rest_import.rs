@@ -118,6 +118,7 @@ pub(crate) fn parse_paint(v: &Value) -> Option<Paint> {
                 Some("STRETCH") => ImageScaleMode::Crop,
                 _ => ImageScaleMode::Fill,
             },
+            params: Default::default(),
         },
         _ => return None, // EMOJI, VIDEO, ...
     };

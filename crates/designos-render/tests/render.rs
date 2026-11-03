@@ -512,7 +512,7 @@ fn image_fill_modes() {
     // 20x10 image: left half red, right half blue
     t.doc.images.insert("img".into(), png_bytes(20, 10, |x, _| if x < 10 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
     let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), RED);
-    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "img".into(), scale_mode: ImageScaleMode::Fill })];
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "img".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() })];
     let pm = t.render(40, 40);
     // cover: scale 4 -> 80x40 centred, so the red/blue split is at x=20 and the left 20px are cropped
     assert!(near(px(&pm, 5, 20), [255, 0, 0, 255], 4), "{:?}", px(&pm, 5, 20));

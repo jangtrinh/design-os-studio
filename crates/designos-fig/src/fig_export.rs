@@ -2150,7 +2150,7 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
         PaintKind::RadialGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_RADIAL", handles, stops),
         PaintKind::AngularGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_ANGULAR", handles, stops),
         PaintKind::DiamondGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_DIAMOND", handles, stops),
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, .. } => {
             fields.push(("type", en("IMAGE")));
             if let Some(raw) = unhex(image_ref) {
                 fields.push(("image", msg(vec![("hash", V::Bytes(raw))])));

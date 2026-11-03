@@ -317,7 +317,7 @@ pub fn with_paint<R>(
             paint.shader = sk::Pattern::new(pm.as_ref(), sk::SpreadMode::Pad, sk::FilterQuality::Nearest, 1.0, shader_ts);
             Some(f(&paint))
         }
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, .. } => {
             // first decode at full size to learn dimensions
             let full = load_image(env.doc, image_ref, None)?;
             let (iw, ih) = (full.width() as f32, full.height() as f32);

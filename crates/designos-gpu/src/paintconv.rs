@@ -159,7 +159,7 @@ impl PaintCache {
                 inst.c2 = [inv.tx, inv.ty, 0.0, 0.0];
                 Some(PaintInst { inst, ramp: Some(self.ramp(stops)), image: None })
             }
-            PaintKind::Image { image_ref, scale_mode } => {
+            PaintKind::Image { image_ref, scale_mode, .. } => {
                 let img = self.image(doc, image_ref)?;
                 let (iw, ih) = (img.w as f32, img.h as f32);
                 let (s, tx, ty) = match scale_mode {
