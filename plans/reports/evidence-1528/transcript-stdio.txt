@@ -10,7 +10,7 @@
 
 ## tools/list
 >>> {"jsonrpc": "2.0", "method": "tools/list", "params": {}, "id": 2}
-<<< (153665 bytes elided: the full catalogue, see the summary below)
+<<< (153969 bytes elided: the full catalogue, see the summary below)
 
 ## tools/list summary: 39 tools; docs tools present: ['designos_docs_list', 'designos_docs_read']
 
