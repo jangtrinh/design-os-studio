@@ -1712,9 +1712,7 @@ fn collect_instance_overrides(cx: &ExportCtx, inst_id: NodeId) -> Vec<V> {
                         StrokeCap::Square => "SQUARE",
                     }),
                 ));
-                if !n.stroke.dashes.is_empty() {
-                    ov.push(("dashPattern", V::Array(n.stroke.dashes.iter().map(|&d| fl(d)).collect())));
-                }
+                ov.push(("dashPattern", V::Array(n.stroke.dashes.iter().map(|&d| fl(d)).collect())));
                 if n.stroke.miter_limit >= 1.0 {
                     ov.push(("miterLimit", fl(n.stroke.miter_limit)));
                 }

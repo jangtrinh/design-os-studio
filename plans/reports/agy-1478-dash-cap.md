@@ -288,3 +288,187 @@ Full gate outputs logged at `plans/reports/agy-1478-dash-cap-evidence/gates.log:
    $ ls out/cargo
    ls: out/cargo: No such file or directory
    ```
+
+---
+
+## Round 2
+
+### What Could Not Be Verified & Pre-Existing / Environmental Exceptions
+
+1. **Workspace-wide `cargo clippy --workspace --all-targets --locked -- -D warnings`** (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:3-57`):
+   - Exited with `clippy_ws_rc=101` solely due to 3 pre-existing errors on `main` in untouched files of `designos-app`: `crates/designos-app/src/agent_permissions.rs:1176` (`clippy::needless_return`), `crates/designos-app/src/agent_permissions.rs:1194` (`clippy::needless_return`), and `crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181` (`clippy::type_complexity`).
+   - Scoped clippy on all crates modified in Round 2 (`cargo clippy -p designos-render -p designos-gpu -p designos-fig --all-targets --locked -- -D warnings`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:58-66`) passed with `clippy_touched_rc=0`.
+2. **Full-suite `cargo test -p designos-app --bin designos --locked` under 77-byte scratch `HOME`** (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:1566-5998`):
+   - Result: `4205 passed; 2 failed; 13 ignored` (`test_app_bin_rc=101`).
+   - Named failure 1: `vecops::tests::two_deferred_text_commands_both_convert_in_order` (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:5965,5985-5989`) timed out waiting for background font loading under 4220-test parallel CPU load; rerun alone (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7687-7703`), it passed (`1 passed; 0 failed`, `rerun_vecops_rc=0`).
+   - Named failure 2: `agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root` (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:5979-5984`) panicked at `crates/designos-app/src/agent_approval_channel.rs:286` because the 77-byte scratch `HOME` (`/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap-scratch/home`) made the Unix socket path `148` bytes (`> 103`-byte macOS `SUN_LEN` limit). Rerun alone with that 77-byte `HOME` reproduces the 148-byte socket failure (`rerun_ap_long_home_rc=101`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7704-7729`), and rerun alone with normal `HOME="/Users/jangtrinh"` (while keeping `TMPDIR` in the scratch directory) passes (`1 passed; 0 failed`, `rerun_ap_short_home_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7730-7744`).
+
+---
+
+### Ruling 6 — Round 1 Report Corrections (Verified Against Actual Files & Line Numbers)
+
+1. **Correction 1 — Figma Desktop bundle offset `79313` (`endCap` vs `dashCap`)**:
+   - In `Cache_Data/193b5f09212e6390_0` (`74515-63b499fb5ad21b5d.min.js.br`), offset `79313` (`plans/reports/agy-1478-dash-cap-evidence/step1-figma-re.log:46`) is:
+     `label:(0,c.t)("fullscreen.properties_panel.stroke_settings.end_points"),hideNone:n,kind:"endCap"`
+     which is the **`endCap` ("end_points")** control (it reuses `recordingKey:v.Pt(e,"dashCap")` for telemetry/recording, not for writing `dashCap`).
+   - The actual **Dash cap** control is in `84430-eea6d6965fe6eeb8.min.js.br` at offset `144279` (`plans/reports/agy-1478-dash-cap-evidence/step1-figma-re.log:35`), which passes `value:e.dashCap,onChange:t=>{e.onChange({dashCap:t})}` and `kind:"dashCap"` under `fullscreen.properties_panel.stroke_settings.dash_cap`.
+2. **Correction 2 — `NodeChange` byte offset `13489978` quote**:
+   - The Kiwi schema string extracted from `Figma.app` at byte offset `13489978` (`plans/reports/agy-1478-dash-cap-evidence/step1-figma-re.log:11`) is:
+     `StrokeCap strokeCap=30;uint strokeCapTag=82[deprecated];Number strokeCapSize=497;StrokeJoin strokeJoin=31;...`
+   - That slice does **not** contain `dashPattern=13`; `dashPattern` is defined earlier in `NodeChange`.
+3. **Correction 3 — `crates/designos-fig/tests/data/figma-real-schema.txt` line numbers**:
+   - Round 1 cited shifted line ranges (`404-426`, `502-505`, `1986-2009`).
+   - The actual line numbers in `crates/designos-fig/tests/data/figma-real-schema.txt` (verified in `plans/reports/agy-1478-dash-cap-evidence/r2-citation-grep.log`) are:
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:359-381`: `enum StrokeCap` (`NONE = 0`, `ROUND = 1`, `SQUARE = 2`, ...).
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:457-460`: `enum DashMode` (`CLIP = 0`, `STRETCH = 1`).
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:1503`: `Float[] dashPattern = 11;` inside `struct Stroke`.
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:1890`: `Float[] dashPattern = 13;` inside `message NodeChange`.
+     - `crates/designos-fig/tests/data/figma-real-schema.txt:1906`: `StrokeCap strokeCap = 30;` inside `message NodeChange`.
+4. **Correction 4 — Where per-vertex `v.cap` (`Vertex::cap`) is populated during `.fig` and REST import**:
+   - Per-vertex `v.cap` is **not** populated at `crates/designos-fig/src/rest_import.rs:1951-1953` (where `mark_custom_instance_slots` resides at `crates/designos-fig/src/rest_import.rs:1952-1965`).
+   - Instead, per-vertex `v.cap` is populated in `crates/designos-fig/src/vecnet.rs`:
+     - For REST JSON / intermediate JSON vertices: `network_from_json` at `crates/designos-fig/src/vecnet.rs:77` (`vx.cap = x.get("strokeCap").and_then(Value::as_str).and_then(cap_from);`).
+     - For `.fig` `styleOverrideTable` vertex styles: `apply_style_table` at `crates/designos-fig/src/vecnet.rs:207-228` (specifically `crates/designos-fig/src/vecnet.rs:214-216`: `if let Some(c) = entry.get("strokeCap").and_then(Value::as_str).and_then(cap_from) { v.cap = Some(c); }`), called from `convert_vector_network` in `crates/designos-fig/src/fig.rs:2083-2142`.
+
+---
+
+### Rulings 1–5 — Code Changes & Root-Cause Resolution
+
+1. **Ruling 1 — Merge `origin/main` (`56869cad`)**:
+   - Merged `origin/main` into `jangtrinh/agy-1478-dash-cap` (`56869cad`), keeping both `main`'s `proportionsConstrained` -> `preserveRatio` -> `OverrideField::LockAspect` arms and this branch's stroke override arms in:
+     - `crates/designos-fig/src/fig.rs:2183-2211` (`convert_override`: lines `2194-2205` for stroke fields/`dashPattern` and lines `2206-2210` for `proportionsConstrained`).
+     - `crates/designos-fig/src/rest_import.rs:2853-2965` (`apply_override`) and `crates/designos-fig/src/rest_import.rs:3609-3632` (`override_field`: line `3614` for `LockAspect` and lines `3622-3630` for `Stroke`).
+     - `crates/designos-fig/src/export.rs:285-315` (`instance_overrides`: line `297` for `LockAspect` and line `303` for `Stroke`).
+   - Verified `cargo test -p designos-fig --test fig_roundtrip -- fig_instance_lock_aspect_override_roundtrip` passes (`2 passed; 0 failed`, `lock_aspect_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-lock-aspect-roundtrip.log:1-19`).
+
+2. **Ruling 2 (Major 1) — Solid open vectors render as on `main`**:
+   - Removed the `vertex_caps` check from `node_stroke_style` (`crates/designos-render/src/outline.rs:66-94`), which is shared by both CPU and GPU (`stroke_plan`).
+   - Applied the `st.line_cap = sk::LineCap::Butt` override for per-vertex caps exclusively on the CPU draw path in `Renderer::make_stroke` (`crates/designos-render/src/lib.rs:832-837`), where `draw_strokes` draws the polygon caps returned by `vertex_caps(n)`.
+   - In `vectorops::vertex_caps` (`crates/designos-render/src/vectorops.rs:330-357`), kept the `crate::outline::has_dashes(&n.stroke)` early return (`crates/designos-render/src/vectorops.rs:332`) and returned `Some(out)` at `crates/designos-render/src/vectorops.rs:356` even when `out` is empty (when every open endpoint's effective cap is `StrokeCap::None`), so `make_stroke` still overrides `n.stroke.cap` to `Butt` on CPU when vertices explicitly set `cap = Some(StrokeCap::None)`.
+   - Added CPU test `solid_open_line_all_butt_vertex_caps_stay_butt` (`crates/designos-render/tests/render.rs:766-799`) and GPU test `solid_open_line_round_vertex_cap_renders_round_gpu` (`crates/designos-gpu/tests/fidelity.rs:609-650`).
+
+3. **Ruling 3 (Major 2) — Thin inside dashed rectangles keep their stroke**:
+   - When `outline::dashed_rect_center_path(n, align)` returns `None` (because `w >= n.size.x` or `w >= n.size.y` on `StrokeAlign::Inside`), both `Renderer::draw_strokes` (`crates/designos-render/src/lib.rs:915-928`) and `outline::stroke_plan` (`crates/designos-render/src/outline.rs:281-296`) fall through to the `2 * w` clipped stroke path instead of returning early with no stroke.
+   - In `outline::node_stroke_style` (`crates/designos-render/src/outline.rs:83-86`), when `has_dashes(s)` and `width > s.weight` (the `2 * w` fallback), `st.line_cap` is clamped to `sk::LineCap::Butt` so `tiny-skia` does not expand round/square caps with radius `w` (`= 2 * (w / 2)`) across `4px` gaps on thin inside-aligned dashed rectangles.
+   - Added CPU test `thin_inside_dashed_rect_keeps_stroke` (`crates/designos-render/tests/render.rs:801-818`), GPU test `thin_inside_dashed_rect_keeps_stroke_gpu` (`crates/designos-gpu/tests/fidelity.rs:652-678`), and `StrokeAlign::Outside` probes in `dashed_rect_round_dash_cap_renders_round_dash_ends` (`crates/designos-render/tests/render.rs:709-719`) and `dashed_rect_round_dash_cap_renders_round_dash_ends_gpu` (`crates/designos-gpu/tests/fidelity.rs:555-564`).
+
+4. **Ruling 4 — Instance stroke overrides (`.fig` and REST)**:
+   - In `collect_instance_overrides` (`crates/designos-fig/src/fig_export.rs:1715`), `OverrideField::Stroke` now unconditionally emits `("dashPattern", V::Array(n.stroke.dashes.iter().map(|&d| fl(d)).collect()))`, so an instance that clears its component's dashed stroke to solid (`dashes = []`) writes `"dashPattern": []` into `symbolOverrides` instead of omitting `dashPattern` and inheriting the component's dashes on re-import.
+   - Added 3 tests in `crates/designos-fig/tests/fig_roundtrip.rs`:
+     - `fig_instance_stroke_override_preserves_align_join_and_miter` (`crates/designos-fig/tests/fig_roundtrip.rs:4475-4526`)
+     - `fig_instance_stroke_override_clears_dashes` (`crates/designos-fig/tests/fig_roundtrip.rs:4528-4587`)
+     - `rest_instance_overrides_skips_layout_cleared` (`crates/designos-fig/tests/fig_roundtrip.rs:4589-4641`)
+
+5. **Ruling 5 (LOW) — Removed review/ruling wording from comments**:
+   - Removed `"Under Branch B"` from the comment in `dashed_open_line_uses_stroke_cap_on_every_dash` (`crates/designos-render/tests/render.rs:724-725`).
+
+---
+
+### Round 2 Acceptance Table
+
+| Check | Command | Exit Code | Result Summary & Log Citation |
+|---|---|---|---|
+| **A1 (RED on `9dba68d2` — CPU)** | `cargo test -p designos-render --test render -- solid_open_line_all_butt_vertex_caps_stay_butt thin_inside_dashed_rect_keeps_stroke` | `101` | `1 passed; 2 failed` (`solid_open_line_all_butt_vertex_caps_stay_butt` and `thin_inside_dashed_rect_keeps_stroke` both `FAILED`, `plans/reports/agy-1478-dash-cap-evidence/r2-red-tests.log:9-218`) |
+| **A1 (RED on `9dba68d2` — GPU)** | `cargo test -p designos-gpu --test fidelity -- solid_open_line_round_vertex_cap_renders_round_gpu thin_inside_dashed_rect_keeps_stroke_gpu` | `101` | `1 passed; 2 failed` (`solid_open_line_round_vertex_cap_renders_round_gpu` and `thin_inside_dashed_rect_keeps_stroke_gpu` both `FAILED`, `plans/reports/agy-1478-dash-cap-evidence/r2-red-tests.log:219-379`) |
+| **A1 (RED on `9dba68d2` — `.fig`)** | `cargo test -p designos-fig --test fig_roundtrip -- fig_instance_stroke_override_clears_dashes` | `101` | `2 passed; 1 failed` (`fig_instance_stroke_override_clears_dashes` `FAILED`, `plans/reports/agy-1478-dash-cap-evidence/r2-red-tests.log:380-410`) |
+| **Ruling 1 (`LockAspect` after merge)** | `cargo test -p designos-fig --test fig_roundtrip -- fig_instance_lock_aspect_override_roundtrip` | `0` | `ok. 2 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-lock-aspect-roundtrip.log:1-19`) |
+| **A1 (GREEN on HEAD — CPU)** | `cargo test -p designos-render --test render -- dashed_rect_round_dash_cap_renders_round_dash_ends dashed_open_line_uses_stroke_cap_on_every_dash solid_open_line_all_butt_vertex_caps_stay_butt thin_inside_dashed_rect_keeps_stroke` | `0` | `ok. 4 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:1-20`) |
+| **A1 (GREEN on HEAD — GPU)** | `cargo test -p designos-gpu --test fidelity -- dashed_rect_round_dash_cap_renders_round_dash_ends_gpu dashed_open_line_uses_stroke_cap_on_every_dash_gpu solid_open_line_round_vertex_cap_renders_round_gpu thin_inside_dashed_rect_keeps_stroke_gpu` | `0` | `ok. 4 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:21-43`) |
+| **A1 (GREEN on HEAD — `.fig`/REST)** | `cargo test -p designos-fig --test fig_roundtrip -- fig_instance_stroke_override_preserves_dash_cap_and_dashes fig_instance_stroke_override_preserves_align_join_and_miter fig_instance_stroke_override_clears_dashes rest_instance_overrides_skips_layout_cleared` | `0` | `ok. 5 passed; 0 failed` (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:44-61`) |
+| **A2 (Null Control)** | `cargo test -p designos-render ... && cargo test -p designos-gpu ...` | `0` / `0` | `4 passed` CPU (`null_render_rc=0`), `4 passed` GPU (`null_gpu_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:1-31`) |
+| **A2 (Mutant 1: `node_stroke_style` consults `vertex_caps`)** | `cargo test -p designos-gpu --test fidelity -- solid_open_line_round_vertex_cap_renders_round_gpu` | `101` | Killed by `solid_open_line_round_vertex_cap_renders_round_gpu` (`1 failed`, `mutant1_gpu_rc=101`, `plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:32-107`) |
+| **A2 (Mutant 2: `None` fallback removed)** | `cargo test -p designos-render --test render -- thin_inside_dashed_rect_keeps_stroke && cargo test -p designos-gpu --test fidelity -- thin_inside_dashed_rect_keeps_stroke_gpu` | `101` / `101` | Killed by `thin_inside_dashed_rect_keeps_stroke` (`mutant2_render_rc=101`) and `thin_inside_dashed_rect_keeps_stroke_gpu` (`mutant2_gpu_rc=101`, `plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:108-219`) |
+| **Gate 1 (`cargo fmt`)** | `cargo fmt --all -- --check` | `0` | `fmt_rc=0` (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:1-2`) |
+| **Gate 2a (`clippy --workspace`)** | `cargo clippy --workspace --all-targets --locked -- -D warnings` | `101` | Pre-existing `main` errors in `designos-app` only (`clippy_ws_rc=101`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:3-57`) |
+| **Gate 2b (`clippy` touched crates)** | `cargo clippy -p designos-render -p designos-gpu -p designos-fig --all-targets --locked -- -D warnings` | `0` | `clippy_touched_rc=0` (`plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:58-66`) |
+| **Gate 3 (`designos-render` tests)** | `cargo test -p designos-render --locked` | `0` | `265 passed; 0 failed; 5 ignored` (`test_render_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:67-534`) |
+| **Gate 4 (`designos-gpu` tests)** | `cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks` | `0` | `103 passed; 0 failed` (`test_gpu_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:535-745`) |
+| **Gate 5 (`designos-fig` tests)** | `cargo test -p designos-fig --locked` | `0` | `692 passed; 0 failed; 6 ignored` (`test_fig_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:746-1565`) |
+| **Gate 6 (`designos-app --bin designos`)** | `cargo test -p designos-app --bin designos --locked` + individual reruns | `101` -> `0` / `0` | Full run: `4205 passed; 2 failed` (`r2-gates.log:1566-5998`). Individual reruns: `two_deferred_text_commands_both_convert_in_order` -> `ok` (`rerun_vecops_rc=0`, `r2-gates.log:7687-7703`); `the_production_root_sits_outside_every_agent_writable_root` -> `ok` with short `HOME` (`rerun_ap_short_home_rc=0`, `r2-gates.log:7730-7744`) |
+| **Gate 7 (`--workspace --lib`)** | `cargo test --workspace --locked --lib` | `0` | `1501 passed; 0 failed; 3 ignored` (`test_ws_lib_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:5999-7659`) |
+| **Gate 8 (`zero_fake_ui_gate.py`)** | `python3 scripts/zero_fake_ui_gate.py` | `0` | `Gate Verdict: PASS (17/17 invariants satisfied)` (`zero_fake_rc=0`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7660-7686`) |
+| **Cleanup (`rm -rf out/cargo "$S"`)** | `rm -rf out/cargo "$S" && ls out/cargo` | `1` | `ls: out/cargo: No such file or directory` (`ls_out_cargo_rc=1`, `plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7745-7747`) |
+
+---
+
+### Pasted Key Command Outputs (`r2-*` Evidence Logs)
+
+1. **Acceptance 1 — RED on `9dba68d2` (`plans/reports/agy-1478-dash-cap-evidence/r2-red-tests.log:188-218,343-379,389-410`)**:
+   ```text
+   test solid_open_line_all_butt_vertex_caps_stay_butt ... FAILED
+   test thin_inside_dashed_rect_keeps_stroke ... FAILED
+   test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.00s
+   render_rc=101
+
+   test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+   test solid_open_line_round_vertex_cap_renders_round_gpu ... FAILED
+   test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.12s
+   gpu_rc=101
+
+   test fig_instance_stroke_override_clears_dashes ... FAILED
+   test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.02s
+   fig_rc=101
+   ```
+
+2. **Acceptance 1 — GREEN on HEAD (`plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:12-61`)**:
+   ```text
+   running 4 tests
+   test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+   test solid_open_line_all_butt_vertex_caps_stay_butt ... ok
+   test thin_inside_dashed_rect_keeps_stroke ... ok
+   test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+   test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+   render_rc=0
+
+   running 4 tests
+   test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+   test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+   test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
+   test solid_open_line_round_vertex_cap_renders_round_gpu ... ok
+   test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.16s
+   gpu_rc=0
+
+   running 5 tests
+   test rest_instance_overrides_skips_layout_cleared ... ok
+   test fig_instance_stroke_override_preserves_align_join_and_miter ... ok
+   test fig_instance_stroke_override_clears_dashes ... ok
+   test fig_instance_stroke_override_preserves_dash_cap_and_dashes ... ok
+   test sync_instances_preserves_instance_child_stroke_cap_and_dashes_override ... ok
+   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.04s
+   fig_rc=0
+   ```
+
+3. **Acceptance 2 — Mutation Testing (`plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:84-107,164-219`)**:
+   ```text
+   test solid_open_line_round_vertex_cap_renders_round_gpu ... FAILED
+   thread 'solid_open_line_round_vertex_cap_renders_round_gpu' (75914545) panicked at crates/designos-gpu/tests/fidelity.rs:643:5:
+   assertion `left == right` failed: GPU round cap painted at (18, 20)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.16s
+   mutant1_gpu_rc=101
+
+   test thin_inside_dashed_rect_keeps_stroke ... FAILED
+   thread 'thin_inside_dashed_rect_keeps_stroke' (75918418) panicked at crates/designos-render/tests/render.rs:815:5:
+   assertion `left == right` failed: thin inside dashed rectangle paints first dash at (14, 12)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.00s
+   mutant2_render_rc=101
+
+   test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+   thread 'thin_inside_dashed_rect_keeps_stroke_gpu' (75919840) panicked at crates/designos-gpu/tests/fidelity.rs:667:5:
+   assertion `left == right` failed: GPU thin inside dashed rectangle paints dash at (14, 12)
+     left: [255, 255, 255, 255]
+    right: [255, 0, 0, 255]
+   test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.14s
+   mutant2_gpu_rc=101
+   ```
+
+---
+
+### Assumptions
+
+- For thin inside-aligned dashed rectangles (`w >= n.size.x` or `w >= n.size.y`) where the inset centerline collapses (`dashed_rect_center_path` returns `None`) and rendering falls back to the `2 * w` clipped stroke along the outer perimeter, clamping `st.line_cap` to `sk::LineCap::Butt` when `width > s.weight` in `node_stroke_style` (`crates/designos-render/src/outline.rs:84-86`) is intentional so `tiny-skia` does not scale round/square cap protrusion to `w` (`2 * (w / 2)`) and bridge across dash gaps.
+
+Status: COMPLETED (All Round 2 rulings 1–6 implemented and verified; RED->GREEN tests, mutation kills, citation checks, and gates logged in `plans/reports/agy-1478-dash-cap-evidence/r2-*.log`; `out/cargo` removed).

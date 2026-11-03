@@ -65,12 +65,10 @@ pub fn has_dashes(s: &d::Stroke) -> bool {
 /// The stroke style the renderer uses for `n` at line width `width`.
 pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
     let s = &n.stroke;
-    // per-vertex caps are drawn as decorations over a butt-capped stroke
-    let cap = if crate::vectorops::vertex_caps(n).is_some() { d::StrokeCap::None } else { s.cap };
     let mut st = sk::Stroke {
         width,
         miter_limit: s.miter_limit.max(1.0),
-        line_cap: match cap {
+        line_cap: match s.cap {
             d::StrokeCap::None => sk::LineCap::Butt,
             d::StrokeCap::Round => sk::LineCap::Round,
             d::StrokeCap::Square => sk::LineCap::Square,
@@ -83,6 +81,9 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
         dash: None,
     };
     if has_dashes(s) {
+        if width > s.weight {
+            st.line_cap = sk::LineCap::Butt;
+        }
         let mut v = s.dashes.clone();
         if v.len() % 2 == 1 {
             v.extend_from_within(..);
@@ -278,11 +279,12 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
         return None;
     }
     if sh.is_rect && has_dashes(&n.stroke) && align != d::StrokeAlign::Center {
-        let center_path = dashed_rect_center_path(n, align)?;
-        let st = node_stroke_style(n, w);
-        let outline = stroke_outline(&center_path, &st, res_scale)?;
-        let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
-        return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
+        if let Some(center_path) = dashed_rect_center_path(n, align) {
+            let st = node_stroke_style(n, w);
+            let outline = stroke_outline(&center_path, &st, res_scale)?;
+            let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
+            return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
+        }
     }
     let (width, clip) = match align {
         d::StrokeAlign::Center => (w, StrokeClip::None),

@@ -1,0 +1,863 @@
+=== Verifying 70 file:line citations in ## Round 2 of plans/reports/agy-1478-dash-cap.md ===
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:3-57 (total 7747 lines) ---
+     3  === 2a. cargo clippy --workspace --all-targets --locked -- -D warnings ===
+     4  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+     5    * `bin` target `designos`
+     6    * `bin` target `designos-studio`
+     7     Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-mcp)
+   ... (45 lines omitted) ...
+    53       = help: to override `-D warnings` add `#[allow(clippy::type_complexity)]`
+    54  
+    55  error: could not compile `designos-app` (bin "designos" test) due to 3 previous errors
+    56  error: could not compile `designos-app` (bin "designos-studio" test) due to 3 previous errors
+    57  clippy_ws_rc=101
+
+--- crates/designos-app/src/agent_permissions.rs:1176 (total 2566 lines) ---
+  1176          return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Application Support"));
+
+--- crates/designos-app/src/agent_permissions.rs:1194 (total 2566 lines) ---
+  1194          return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join("Caches"));
+
+--- crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181 (total 1331 lines) ---
+  1181      let multi_docs: Vec<(&str, Vec<(VariableKind, Vec<String>)>)> = vec![
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:58-66 (total 7747 lines) ---
+    58  === 2b. cargo clippy -p designos-render -p designos-gpu -p designos-fig --all-targets --locked -- -D warnings ===
+    59  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+    60    * `bin` target `designos`
+    61    * `bin` target `designos-studio`
+    62      Checking designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    63      Checking designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+    64      Checking designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+    65      Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.06s
+    66  clippy_touched_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:1566-5998 (total 7747 lines) ---
+  1566  === 6. cargo test -p designos-app --bin designos --locked ===
+  1567  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  1568    * `bin` target `designos`
+  1569    * `bin` target `designos-studio`
+  1570     Compiling smallvec v1.16.3
+   ... (4423 lines omitted) ...
+  5994  
+  5995  test result: FAILED. 4205 passed; 2 failed; 13 ignored; 0 measured; 0 filtered out; finished in 396.29s
+  5996  
+  5997  error: test failed, to rerun pass `-p designos-app --bin designos`
+  5998  test_app_bin_rc=101
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:5965,5985-5989 (total 7747 lines) ---
+  5965  test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+  5985  ---- vecops::tests::two_deferred_text_commands_both_convert_in_order stdout ----
+  5986  
+  5987  thread 'vecops::tests::two_deferred_text_commands_both_convert_in_order' (76220229) panicked at crates/designos-app/src/vecops.rs:1882:9:
+  5988  both texts still waiting for slow fonts
+  5989  
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7687-7703 (total 7747 lines) ---
+  7687  === 6a. Rerun alone: vecops::tests::two_deferred_text_commands_both_convert_in_order ===
+  7688  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  7689    * `bin` target `designos`
+  7690    * `bin` target `designos-studio`
+  7691     Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-mcp)
+  7692     Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app)
+  7693      Finished `test` profile [unoptimized + debuginfo] target(s) in 12.29s
+  7694       Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+  7695  
+  7696  running 1 test
+  7697  test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+  7698  
+  7699  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4219 filtered out; finished in 1.46s
+  7700  
+  7701  rerun_vecops_rc=0
+  7702  === 6b. Rerun alone (long scratch HOME=/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap-scratch/home): agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ===
+  7703  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:5979-5984 (total 7747 lines) ---
+  5979  ---- agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root stdout ----
+  5980  
+  5981  thread 'agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root' (75991110) panicked at crates/designos-app/src/agent_approval_channel.rs:286:9:
+  5982  /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap-scratch/home/Library/Application Support/designos/ap/a0f3532b733a534f/codex.sock is 148 bytes
+  5983  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+  5984  
+
+--- crates/designos-app/src/agent_approval_channel.rs:286 (total 345 lines) ---
+   286          assert!(socket.as_os_str().len() <= 103, "{} is {} bytes", socket.display(), socket.as_os_str().len());
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7704-7729 (total 7747 lines) ---
+  7704    * `bin` target `designos`
+  7705    * `bin` target `designos-studio`
+  7706     Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-mcp)
+  7707     Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app)
+  7708      Finished `test` profile [unoptimized + debuginfo] target(s) in 6.99s
+  7709       Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+  7710  
+  7711  running 1 test
+  7712  test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... FAILED
+  7713  
+  7714  failures:
+  7715  
+  7716  ---- agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root stdout ----
+  7717  
+  7718  thread 'agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root' (76260168) panicked at crates/designos-app/src/agent_approval_channel.rs:286:9:
+  7719  /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap-scratch/home/Library/Application Support/designos/ap/816a288eecd29a97/codex.sock is 148 bytes
+  7720  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+  7721  
+  7722  
+  7723  failures:
+  7724      agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+  7725  
+  7726  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4219 filtered out; finished in 0.00s
+  7727  
+  7728  error: test failed, to rerun pass `-p designos-app --bin designos`
+  7729  rerun_ap_long_home_rc=101
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7730-7744 (total 7747 lines) ---
+  7730  === 6c. Rerun alone (short HOME=/Users/jangtrinh, TMPDIR=/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap-scratch/tmp/): agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ===
+  7731  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  7732    * `bin` target `designos`
+  7733    * `bin` target `designos-studio`
+  7734     Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-mcp)
+  7735     Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app)
+  7736      Finished `test` profile [unoptimized + debuginfo] target(s) in 6.99s
+  7737       Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+  7738  
+  7739  running 1 test
+  7740  test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+  7741  
+  7742  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4219 filtered out; finished in 0.00s
+  7743  
+  7744  rerun_ap_short_home_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/step1-figma-re.log:46 (total 46 lines) ---
+    46    offset=79313: >{j({strokeCap:e})},recordingKey:v.Pt(e,"dashCap"),label:(0,c.t)("fullscreen.properties_panel.stroke_settings.end_points"),hideNone:n,kind:"endCap"})}),ev=(0,r.jsx)("span",{className:"pencil_tool_pane
+
+--- plans/reports/agy-1478-dash-cap-evidence/step1-figma-re.log:35 (total 46 lines) ---
+    35    offset=144279: hange({dashCap:t})},recordingKey:A.Pt(e,"dashCap"),label:(0,y.t)("fullscreen.properties_panel.stroke_settings.dash_cap"),kind:"dashCap"}),ed=(0,i.jsx)(em.D7,{source:"flyout",recordingKey:A.Pt(e.record
+
+--- plans/reports/agy-1478-dash-cap-evidence/step1-figma-re.log:11 (total 46 lines) ---
+    11  offset=13489978: StrokeCap strokeCap=30;uint strokeCapTag=82[deprecated];Number strokeCapSize=497;StrokeJoin strokeJoin=31;uint strokeJoinTag=83[deprecated];Paint[]fillPaints=38;uint fillPaintsTag=90[deprecated];Paint[]strokePaints=39;uint strokePaintsTag=9
+
+--- crates/designos-fig/tests/data/figma-real-schema.txt:359-381 (total 4804 lines) ---
+   359  Enum StackPositioning
+   360      AUTO = 0
+   361      ABSOLUTE = 1
+   362  Enum StackWrap
+   363      NO_WRAP = 0
+   364      WRAP = 1
+   365  Enum StackCounterAlignContent
+   366      AUTO = 0
+   367      SPACE_BETWEEN = 1
+   368  Enum ConnectionType
+   369      NONE = 0
+   370      INTERNAL_NODE = 1
+   371      URL = 2
+   372      BACK = 3
+   373      CLOSE = 4
+   374      SET_VARIABLE = 5
+   375      UPDATE_MEDIA_RUNTIME = 6
+   376      CONDITIONAL = 7
+   377      SET_VARIABLE_MODE = 8
+   378      OBJECT_ANIMATION = 9
+   379      UPDATE_ANIMATION_TIMELINE_STATE = 10
+   380  Enum InteractionType
+   381      ON_CLICK = 0
+
+--- crates/designos-fig/tests/data/figma-real-schema.txt:457-460 (total 4804 lines) ---
+   457      PARAGRAPH = 4
+   458  Enum ScrollDirection
+   459      NONE = 0
+   460      HORIZONTAL = 1
+
+--- crates/designos-fig/tests/data/figma-real-schema.txt:1503 (total 4804 lines) ---
+  1503      dashPattern = 11 : Float[]
+
+--- crates/designos-fig/tests/data/figma-real-schema.txt:1890 (total 4804 lines) ---
+  1890      dashPattern = 13 : Float[]
+
+--- crates/designos-fig/tests/data/figma-real-schema.txt:1906 (total 4804 lines) ---
+  1906      strokeCap = 30 : StrokeCap
+
+--- crates/designos-fig/src/rest_import.rs:1951-1953 (total 4773 lines) ---
+  1951  
+  1952      /// Marks every instance slot whose direct children are not pure mirrors of its main component
+  1953      /// slot (including component instance children and emptied slots) with
+
+--- crates/designos-fig/src/rest_import.rs:1952-1965 (total 4773 lines) ---
+  1952      /// Marks every instance slot whose direct children are not pure mirrors of its main component
+  1953      /// slot (including component instance children and emptied slots) with
+  1954      /// `OverrideField::SlotContent` so a subsequent `sync_component_instances` preserves them.
+  1955      fn mark_custom_instance_slots(&mut self) {
+  1956          let to_mark: Vec<NodeId> = self
+  1957              .doc
+  1958              .nodes
+  1959              .values()
+  1960              .filter(|slot| {
+  1961                  if !designos_doc::is_instance_slot(&self.doc, slot.id) {
+  1962                      return false;
+  1963                  }
+  1964                  if let Some(main_slot) = slot.component.source.and_then(|s| self.doc.get(s)) {
+  1965                      slot.children.len() != main_slot.children.len()
+
+--- crates/designos-fig/src/vecnet.rs:77 (total 331 lines) ---
+    77          vx.cap = x.get("strokeCap").and_then(Value::as_str).and_then(cap_from);
+
+--- crates/designos-fig/src/vecnet.rs:207-228 (total 331 lines) ---
+   207  pub(crate) fn apply_style_table(net: &mut VectorNetwork, styles: &[u32], table: &[Value]) {
+   208      for entry in table {
+   209          let Some(id) = entry.get("styleID").and_then(Value::as_u64) else { continue };
+   210          for (v, s) in net.vertices.iter_mut().zip(styles) {
+   211              if *s as u64 != id {
+   212                  continue;
+   213              }
+   214              if let Some(c) = entry.get("strokeCap").and_then(Value::as_str).and_then(cap_from) {
+   215                  v.cap = Some(c);
+   216              }
+   217              if let Some(j) = entry.get("strokeJoin").and_then(Value::as_str).and_then(join_from) {
+   218                  v.join = Some(j);
+   219              }
+   220              if let Some(r) = num(entry, "cornerRadius") {
+   221                  v.corner_radius = r.max(0.0);
+   222              }
+   223              if let Some(m) = entry.get("handleMirroring").and_then(Value::as_str) {
+   224                  v.mirror = mirror_from(m);
+   225              }
+   226          }
+   227      }
+   228  }
+
+--- crates/designos-fig/src/vecnet.rs:214-216 (total 331 lines) ---
+   214              if let Some(c) = entry.get("strokeCap").and_then(Value::as_str).and_then(cap_from) {
+   215                  v.cap = Some(c);
+   216              }
+
+--- crates/designos-fig/src/fig.rs:2083-2142 (total 3127 lines) ---
+  2083  fn convert_vector_network(nc: &Value, blobs: &[&[u8]]) -> Option<Value> {
+  2084      let vd = nc.get("vectorData")?;
+  2085      let blob = blobs.get(vd.get("vectorNetworkBlob")?.as_u64()? as usize)?;
+  2086      let size = |v: Option<&Value>| v.and_then(|s| Some((fnum(s, "x")?, fnum(s, "y")?)));
+  2087      let scale = match (size(nc.get("size")), size(vd.get("normalizedSize"))) {
+   ... (50 lines omitted) ...
+  2138      let list = p.and_then(|p| p.get("guids")).or(p).and_then(Value::as_array);
+  2139      list.map(|a| a.iter().filter_map(guid_str).collect()).unwrap_or_default()
+  2140  }
+  2141  
+  2142  fn stack_align(s: Option<&str>) -> &'static str {
+
+--- crates/designos-fig/src/fig.rs:2183-2211 (total 3127 lines) ---
+  2183  fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
+  2184      let mut m = Map::new();
+  2185      let Some(obj) = o.as_object() else { return m };
+  2186      let mut has_borders = false;
+  2187      let mut has_corners = false;
+   ... (19 lines omitted) ...
+  2207                  if let Some(locked) = val.as_bool() {
+  2208                      m.insert("preserveRatio".into(), locked.into());
+  2209                  }
+  2210              }
+  2211              "mask" => {
+
+--- crates/designos-fig/src/rest_import.rs:2853-2965 (total 4773 lines) ---
+  2853          if let Some(b) = fbool(set, "preserveRatio").or_else(|| fbool(set, "lockAspect")) {
+  2854              n.lock_aspect = b;
+  2855          }
+  2856          if let Some(o) = fnum(set, "opacity") {
+  2857              n.opacity = o;
+   ... (103 lines omitted) ...
+  2961              n.stroke.dashes = farr(set, "strokeDashes").iter().filter_map(num).collect();
+  2962              if !has("strokeGeometry") {
+  2963                  n.stroke_geometry = None;
+  2964              }
+  2965          }
+
+--- crates/designos-fig/src/rest_import.rs:3609-3632 (total 4773 lines) ---
+  3609  pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> {
+  3610      Some(match key {
+  3611          "name" => OverrideField::Name,
+  3612          "visible" => OverrideField::Visible,
+  3613          "locked" => OverrideField::Locked,
+  3614          "preserveRatio" | "lockAspect" => OverrideField::LockAspect,
+  3615          "opacity" => OverrideField::Opacity,
+  3616          "blendMode" => OverrideField::Blend,
+  3617          "size" => OverrideField::Size,
+  3618          "relativeTransform" | "transform" => OverrideField::Transform,
+  3619          "fills" | "_clearFillStyle" if is_text => OverrideField::TextStyle,
+  3620          "fills" | "_clearFillStyle" => OverrideField::Fills,
+  3621          "strokes"
+  3622          | "_clearStrokeStyle"
+  3623          | "strokeWeight"
+  3624          | "strokeAlign"
+  3625          | "strokeCap"
+  3626          | "strokeJoin"
+  3627          | "strokeDashes"
+  3628          | "strokeMiterLimit"
+  3629          | "strokeMiterAngle"
+  3630          | "individualStrokeWeights" => OverrideField::Stroke,
+  3631          "effects" => OverrideField::Effects,
+  3632          "cornerRadius" | "rectangleCornerRadii" | "cornerSmoothing" => OverrideField::CornerRadii,
+
+--- crates/designos-fig/src/export.rs:285-315 (total 797 lines) ---
+   285  fn instance_overrides(doc: &Document, inst_id: NodeId) -> Vec<Value> {
+   286      let mut out = Vec::new();
+   287      doc.walk(inst_id, |n, _| {
+   288          if n.component.overrides.is_empty() && n.component.grid_align_overrides == [false, false] {
+   289              return;
+   ... (21 lines omitted) ...
+   311                  OverrideField::SlotContent => fields.push("slotContent"),
+   312              }
+   313          }
+   314          if n.component.grid_align_overrides[0] {
+   315              fields.push("gridChildHorizontalAlign");
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-lock-aspect-roundtrip.log:1-19 (total 19 lines) ---
+     1  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+     2    * `bin` target `designos`
+     3    * `bin` target `designos-studio`
+     4     Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-doc)
+     5     Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fonts)
+     6     Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+     7     Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+     8     Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+     9     Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    10      Finished `test` profile [unoptimized + debuginfo] target(s) in 9.19s
+    11       Running tests/fig_instance_lock_aspect_override_roundtrip.rs (out/cargo/debug/deps/fig_instance_lock_aspect_override_roundtrip-2f8b8aa72887dfcb)
+    12  
+    13  running 2 tests
+    14  test an_instance_whose_lock_differs_from_its_main_keeps_both_the_lock_and_the_override_through_a_fig_reopen ... ok
+    15  test a_reopened_instance_keeps_its_own_lock_when_its_main_is_locked_or_unlocked_and_synced ... ok
+    16  
+    17  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+    18  
+    19  lock_aspect_rc=0
+
+--- crates/designos-render/src/outline.rs:66-94 (total 322 lines) ---
+    66  pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
+    67      let s = &n.stroke;
+    68      let mut st = sk::Stroke {
+    69          width,
+    70          miter_limit: s.miter_limit.max(1.0),
+   ... (19 lines omitted) ...
+    90          }
+    91          st.dash = sk::StrokeDash::new(v, 0.0);
+    92      }
+    93      st
+    94  }
+
+--- crates/designos-render/src/lib.rs:832-837 (total 932 lines) ---
+   832      fn make_stroke(&self, n: &Node, width: f32) -> sk::Stroke {
+   833          let mut st = outline::node_stroke_style(n, width);
+   834          if vectorops::vertex_caps(n).is_some() {
+   835              st.line_cap = sk::LineCap::Butt;
+   836          }
+   837          st
+
+--- crates/designos-render/src/vectorops.rs:330-357 (total 730 lines) ---
+   330  pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
+   331      let NodeKind::Vector { network: Some(net), .. } = &n.kind else { return None };
+   332      if crate::outline::has_dashes(&n.stroke) || !net.is_valid() || !net.vertices.iter().any(|v| v.cap.is_some()) || n.stroke.weight <= 0.0 {
+   333          return None;
+   334      }
+   ... (18 lines omitted) ...
+   353              idx += 1;
+   354          }
+   355      }
+   356      Some(out)
+   357  }
+
+--- crates/designos-render/src/vectorops.rs:332 (total 730 lines) ---
+   332      if crate::outline::has_dashes(&n.stroke) || !net.is_valid() || !net.vertices.iter().any(|v| v.cap.is_some()) || n.stroke.weight <= 0.0 {
+
+--- crates/designos-render/src/vectorops.rs:356 (total 730 lines) ---
+   356      Some(out)
+
+--- crates/designos-render/tests/render.rs:766-799 (total 818 lines) ---
+   766  #[test]
+   767  fn solid_open_line_all_butt_vertex_caps_stay_butt() {
+   768      let mut t = T::new();
+   769      t.add(None, |id| {
+   770          let p = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(80.0, 0.0))], fill_rule: FillRule::NonZero };
+   ... (24 lines omitted) ...
+   795      let pm = t.render(120, 40);
+   796      assert_eq!(px(&pm, 60, 20), [255, 0, 0, 255], "solid line interior is painted");
+   797      assert_eq!(px(&pm, 18, 20), WHITE, "explicit butt vertex cap overrides round stroke cap before start end (18, 20)");
+   798      assert_eq!(px(&pm, 102, 20), WHITE, "explicit butt vertex cap overrides round stroke cap past finish end (102, 20)");
+   799  }
+
+--- crates/designos-gpu/tests/fidelity.rs:609-650 (total 678 lines) ---
+   609  #[test]
+   610  fn solid_open_line_round_vertex_cap_renders_round_gpu() {
+   611      let Some(mut g) = gpu() else { return };
+   612      let mut t = T::new();
+   613      let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+   ... (32 lines omitted) ...
+   646          [start_corner.red(), start_corner.green(), start_corner.blue(), start_corner.alpha()],
+   647          [255, 255, 255, 255],
+   648          "GPU round cap leaves outer corner (16, 16) white"
+   649      );
+   650  }
+
+--- crates/designos-render/src/lib.rs:915-928 (total 932 lines) ---
+   915                  if sh.is_rect && outline::has_dashes(&n.stroke) {
+   916                      if let Some(center_path) = outline::dashed_rect_center_path(n, a) {
+   917                          let st = self.make_stroke(n, w);
+   918                          let paths = [(center_path, sk::FillRule::Winding)];
+   919                          for p in paints {
+   920                              stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, Some(&m));
+   921                          }
+   922                          return;
+   923                      }
+   924                  }
+   925                  let st = self.make_stroke(n, w * 2.0);
+   926                  for p in paints {
+   927                      stroke_paths(&self.env, target, &sh.paths, &st, ts, n.size, p, alpha, Some(&m));
+   928                  }
+
+--- crates/designos-render/src/outline.rs:281-296 (total 322 lines) ---
+   281      if sh.is_rect && has_dashes(&n.stroke) && align != d::StrokeAlign::Center {
+   282          if let Some(center_path) = dashed_rect_center_path(n, align) {
+   283              let st = node_stroke_style(n, w);
+   284              let outline = stroke_outline(&center_path, &st, res_scale)?;
+   285              let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
+   286              return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
+   287          }
+   288      }
+   289      let (width, clip) = match align {
+   290          d::StrokeAlign::Center => (w, StrokeClip::None),
+   291          d::StrokeAlign::Inside => (w * 2.0, StrokeClip::Inside),
+   292          d::StrokeAlign::Outside => (w * 2.0, StrokeClip::Outside),
+   293      };
+   294      let st = node_stroke_style(n, width);
+   295      let outline: Vec<_> = sh.paths.iter().filter_map(|(p, _)| stroke_outline(p, &st, res_scale)).map(|p| (p, sk::FillRule::Winding)).collect();
+   296      (!outline.is_empty()).then_some(StrokePlan { outline, clip })
+
+--- crates/designos-render/src/outline.rs:83-86 (total 322 lines) ---
+    83      if has_dashes(s) {
+    84          if width > s.weight {
+    85              st.line_cap = sk::LineCap::Butt;
+    86          }
+
+--- crates/designos-render/tests/render.rs:801-818 (total 818 lines) ---
+   801  #[test]
+   802  fn thin_inside_dashed_rect_keeps_stroke() {
+   803      let mut t = T::new();
+   804      t.add(None, |id| {
+   805          let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 200.0, 4.0));
+   806          n.fills.clear();
+   807          n.stroke.paints = vec![Paint::solid(RED)];
+   808          n.stroke.weight = 4.0;
+   809          n.stroke.align = StrokeAlign::Inside;
+   810          n.stroke.dashes = vec![8.0, 4.0];
+   811          n.stroke.cap = StrokeCap::Round;
+   812          n
+   813      });
+   814      let pm = t.render(220, 24);
+   815      assert_eq!(px(&pm, 14, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints first dash at (14, 12)");
+   816      assert_eq!(px(&pm, 20, 12), WHITE, "thin inside dashed rectangle leaves first gap unpainted at (20, 12)");
+   817      assert_eq!(px(&pm, 26, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints second dash at (26, 12)");
+   818  }
+
+--- crates/designos-gpu/tests/fidelity.rs:652-678 (total 678 lines) ---
+   652  #[test]
+   653  fn thin_inside_dashed_rect_keeps_stroke_gpu() {
+   654      let Some(mut g) = gpu() else { return };
+   655      let mut t = T::new();
+   656      let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+   ... (17 lines omitted) ...
+   674          [gap_px.red(), gap_px.green(), gap_px.blue(), gap_px.alpha()],
+   675          [255, 255, 255, 255],
+   676          "GPU thin inside dashed rectangle leaves gap white at (20, 12)"
+   677      );
+   678  }
+
+--- crates/designos-render/tests/render.rs:709-719 (total 818 lines) ---
+   709      // Outside alignment: outset centerline runs x = 16..84, y = 16..64 (stroke band y = 12..20 along top edge).
+   710      // First 20px dash along top edge runs x = 16..36, with round cap of radius 4 centered at (36, 16).
+   711      t.node(r).stroke.align = StrokeAlign::Outside;
+   712      t.node(r).stroke.cap = StrokeCap::Round;
+   713      let pm_outside = t.render(100, 80);
+   714      assert_eq!(px(&pm_outside, 26, 16), [255, 0, 0, 255], "outside dash body painted on outset midline (26, 16)");
+   715      assert_eq!(px(&pm_outside, 38, 16), [255, 0, 0, 255], "outside round dash cap extends +2px along outset midline (38, 16)");
+   716      assert_eq!(px(&pm_outside, 39, 12), WHITE, "outside round dash cap curves away from outer corner (39, 12)");
+   717      assert_eq!(px(&pm_outside, 46, 16), WHITE, "outside dash gap is unpainted at (46, 16)");
+   718      assert_eq!(px(&pm_outside, 26, 22), WHITE, "outside alignment clips interior of rectangle at (26, 22)");
+   719  }
+
+--- crates/designos-gpu/tests/fidelity.rs:555-564 (total 678 lines) ---
+   555      t.node(r).stroke.align = StrokeAlign::Outside;
+   556      t.node(r).stroke.cap = StrokeCap::Round;
+   557      g.compiler.geom.clear();
+   558      let c_outside = compare(&mut g, "dashed_rect_outside_round_cap", &t.doc, t.page, vp, (120, 100), 8);
+   559      assert!(c_outside.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c_outside.report.ratio * 100.0);
+   560      let out_mid = c_outside.gpu.pixel(38, 16).unwrap();
+   561      assert_eq!([out_mid.red(), out_mid.green(), out_mid.blue(), out_mid.alpha()], [255, 0, 0, 255], "GPU outside round dash cap painted at (38, 16)");
+   562      let out_gap = c_outside.gpu.pixel(46, 16).unwrap();
+   563      assert_eq!([out_gap.red(), out_gap.green(), out_gap.blue(), out_gap.alpha()], [255, 255, 255, 255], "GPU outside dash gap unpainted at (46, 16)");
+   564  }
+
+--- crates/designos-fig/src/fig_export.rs:1715 (total 2645 lines) ---
+  1715                  ov.push(("dashPattern", V::Array(n.stroke.dashes.iter().map(|&d| fl(d)).collect())));
+
+--- crates/designos-fig/tests/fig_roundtrip.rs:4475-4526 (total 4641 lines) ---
+  4475  #[test]
+  4476  fn fig_instance_stroke_override_preserves_align_join_and_miter() {
+  4477      let mut doc = Document::new("FigStrokeAlignJoinMiterOverride");
+  4478      let page = doc.add_page("Page 1");
+  4479  
+   ... (42 lines omitted) ...
+  4522      let rt_child_after = roundtripped.get(rt_inst_after.children[0]).expect("instance child after sync");
+  4523      assert_eq!(rt_child_after.stroke.align, StrokeAlign::Outside);
+  4524      assert_eq!(rt_child_after.stroke.join, StrokeJoin::Bevel);
+  4525      assert!((rt_child_after.stroke.miter_limit - 15.0).abs() < 1e-3);
+  4526  }
+
+--- crates/designos-fig/tests/fig_roundtrip.rs:4528-4587 (total 4641 lines) ---
+  4528  #[test]
+  4529  fn fig_instance_stroke_override_clears_dashes() {
+  4530      let mut doc = Document::new("FigStrokeClearDashesOverride");
+  4531      let page = doc.add_page("Page 1");
+  4532  
+   ... (50 lines omitted) ...
+  4583      sync_instances(&mut roundtripped, rt_comp_id).apply(&mut roundtripped).unwrap();
+  4584      let rt_inst_after = find(&roundtripped, "ClearedDashesInst");
+  4585      let rt_child_after = roundtripped.get(rt_inst_after.children[0]).expect("instance child after sync");
+  4586      assert_eq!(rt_child_after.stroke.dashes, Vec::<f32>::new(), "instance child keeps cleared dash pattern after sync_instances");
+  4587  }
+
+--- crates/designos-fig/tests/fig_roundtrip.rs:4589-4641 (total 4641 lines) ---
+  4589  #[test]
+  4590  fn rest_instance_overrides_skips_layout_cleared() {
+  4591      let mut doc = Document::new("RestInstanceLayoutClearedSkip");
+  4592      let page = doc.add_page("Page 1");
+  4593  
+   ... (43 lines omitted) ...
+  4637      assert_eq!(cleared_ovs.len(), 1);
+  4638      assert_eq!(cleared_ovs[0]["overriddenFields"], json!(["opacity"]), "layout_cleared instance skips layoutMode and keeps other overrides");
+  4639  
+  4640      assert!(find_json("InstOnlyLayoutCleared").get("overrides").is_none(), "instance with only layout_cleared Layout override emits no overrides array");
+  4641  }
+
+--- crates/designos-render/tests/render.rs:724-725 (total 818 lines) ---
+   724      // Open vector line from (20, 20) to (100, 20) with VectorNetwork vertices carrying cap = Some(StrokeCap::None),
+   725      // while Stroke::cap is Round and dashes = [20, 20]. Every dash uses Stroke::cap (Round).
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-red-tests.log:9-218 (total 410 lines) ---
+     9  === 1. designos-render on 9dba68d2 ===
+    10  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+    11    * `bin` target `designos`
+    12    * `bin` target `designos-studio`
+    13     Compiling proc-macro2 v1.0.107
+   ... (200 lines omitted) ...
+   214  
+   215  test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.00s
+   216  
+   217  error: test failed, to rerun pass `-p designos-render --test render`
+   218  render_rc=101
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-red-tests.log:219-379 (total 410 lines) ---
+   219  === 2. designos-gpu on 9dba68d2 ===
+   220  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+   221    * `bin` target `designos`
+   222    * `bin` target `designos-studio`
+   223     Compiling unicode-ident v1.0.27
+   ... (151 lines omitted) ...
+   375  
+   376  test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.12s
+   377  
+   378  error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+   379  gpu_rc=101
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-red-tests.log:380-410 (total 410 lines) ---
+   380  === 3. designos-fig on 9dba68d2 ===
+   381  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+   382    * `bin` target `designos`
+   383    * `bin` target `designos-studio`
+   384     Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+   ... (21 lines omitted) ...
+   406  
+   407  test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.02s
+   408  
+   409  error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+   410  fig_rc=101
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:1-20 (total 61 lines) ---
+     1  === 1. designos-render GREEN ===
+     2  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+     3    * `bin` target `designos`
+     4    * `bin` target `designos-studio`
+     5     Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+     6     Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+     7     Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+     8     Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+     9      Finished `test` profile [unoptimized + debuginfo] target(s) in 4.10s
+    10       Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+    11  
+    12  running 4 tests
+    13  test solid_open_line_all_butt_vertex_caps_stay_butt ... ok
+    14  test thin_inside_dashed_rect_keeps_stroke ... ok
+    15  test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+    16  test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+    17  
+    18  test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+    19  
+    20  render_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:21-43 (total 61 lines) ---
+    21  === 2. designos-gpu GREEN ===
+    22  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+    23    * `bin` target `designos`
+    24    * `bin` target `designos-studio`
+    25     Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-doc)
+    26     Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fonts)
+    27     Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+    28     Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+    29     Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+    30     Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+    31     Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    32      Finished `test` profile [unoptimized + debuginfo] target(s) in 9.04s
+    33       Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+    34  
+    35  running 4 tests
+    36  test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
+    37  test solid_open_line_round_vertex_cap_renders_round_gpu ... ok
+    38  test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+    39  test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+    40  
+    41  test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.16s
+    42  
+    43  gpu_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:44-61 (total 61 lines) ---
+    44  === 3. designos-fig GREEN ===
+    45  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+    46    * `bin` target `designos`
+    47    * `bin` target `designos-studio`
+    48     Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    49      Finished `test` profile [unoptimized + debuginfo] target(s) in 1.33s
+    50       Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+    51  
+    52  running 5 tests
+    53  test rest_instance_overrides_skips_layout_cleared ... ok
+    54  test rest_export_import_preserves_dash_cap ... ok
+    55  test fig_instance_stroke_override_preserves_align_join_and_miter ... ok
+    56  test fig_export_import_preserves_dash_cap ... ok
+    57  test fig_instance_stroke_override_clears_dashes ... ok
+    58  
+    59  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.04s
+    60  
+    61  fig_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:1-31 (total 219 lines) ---
+     1  === 0. NULL CONTROL (NO MUTANTS) ===
+     2  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+     3    * `bin` target `designos`
+     4    * `bin` target `designos-studio`
+     5      Finished `test` profile [unoptimized + debuginfo] target(s) in 0.33s
+   ... (21 lines omitted) ...
+    27  test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+    28  
+    29  test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.13s
+    30  
+    31  null_gpu_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:32-107 (total 219 lines) ---
+    32  === 1. MUTANT 1: node_stroke_style consults vertex_caps again ===
+    33  diff --git a/crates/designos-render/src/outline.rs b/crates/designos-render/src/outline.rs
+    34  index 51fa63d6..606a382c 100644
+    35  --- a/crates/designos-render/src/outline.rs
+    36  +++ b/crates/designos-render/src/outline.rs
+   ... (66 lines omitted) ...
+   103  
+   104  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.16s
+   105  
+   106  error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+   107  mutant1_gpu_rc=101
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:108-219 (total 219 lines) ---
+   108  === 2. MUTANT 2: None fallback removed ===
+   109  diff --git a/crates/designos-render/src/lib.rs b/crates/designos-render/src/lib.rs
+   110  index 2159d778..b6f99753 100644
+   111  --- a/crates/designos-render/src/lib.rs
+   112  +++ b/crates/designos-render/src/lib.rs
+   ... (102 lines omitted) ...
+   215  
+   216  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.14s
+   217  
+   218  error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+   219  mutant2_gpu_rc=101
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:1-2 (total 7747 lines) ---
+     1  === 1. cargo fmt --all -- --check ===
+     2  fmt_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:67-534 (total 7747 lines) ---
+    67  === 3. cargo test -p designos-render --locked ===
+    68  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+    69    * `bin` target `designos`
+    70    * `bin` target `designos-studio`
+    71      Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+   ... (458 lines omitted) ...
+   530  running 0 tests
+   531  
+   532  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+   533  
+   534  test_render_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:535-745 (total 7747 lines) ---
+   535  === 4. cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks ===
+   536  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+   537    * `bin` target `designos`
+   538    * `bin` target `designos-studio`
+   539     Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   ... (201 lines omitted) ...
+   741  running 0 tests
+   742  
+   743  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+   744  
+   745  test_gpu_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:746-1565 (total 7747 lines) ---
+   746  === 5. cargo test -p designos-fig --locked ===
+   747  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+   748    * `bin` target `designos`
+   749    * `bin` target `designos-studio`
+   750     Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+   ... (810 lines omitted) ...
+  1561  running 0 tests
+  1562  
+  1563  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  1564  
+  1565  test_fig_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:5999-7659 (total 7747 lines) ---
+  5999  === 7. cargo test --workspace --locked --lib ===
+  6000  warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  6001    * `bin` target `designos`
+  6002    * `bin` target `designos-studio`
+  6003     Compiling num-traits v0.2.19
+   ... (1651 lines omitted) ...
+  7655  test import::tests::screenshot_diff_within_threshold ... ok
+  7656  
+  7657  test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+  7658  
+  7659  test_ws_lib_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7660-7686 (total 7747 lines) ---
+  7660  === 8. python3 scripts/zero_fake_ui_gate.py ===
+  7661  ============================================================================================================
+  7662   design:os studio — Zero Fake UI Enforcement Gate (DIR-28 · BR-31 · REQ-25 · D25)
+  7663  ============================================================================================================
+  7664  ID    | STATUS | MODULE                           | INVARIANT & EVIDENCE
+   ... (17 lines omitted) ...
+  7682  Z17   | PASS   | terminal.rs + mcp/server.rs      | No global /tmp/designos-live-* or designos-live-selection.spec.json fallback in shipped code — no shipped (non-test) Rust source under designos-app or designos-mcp contains a global `/tmp/designos-live-` path or `designos-live-selection.spec.json`
+  7683  ------------------------------------------------------------------------------------------------------------
+  7684   Gate Verdict: PASS (17/17 invariants satisfied)
+  7685  ============================================================================================================
+  7686  zero_fake_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-gates.log:7745-7747 (total 7747 lines) ---
+  7745  === 9. rm -rf out/cargo "$S" && ls out/cargo ===
+  7746  ls: out/cargo: No such file or directory
+  7747  ls_out_cargo_rc=1
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-red-tests.log:188-218,343-379,389-410 (total 410 lines) ---
+   188  running 3 tests
+   189  test solid_open_line_all_butt_vertex_caps_stay_butt ... FAILED
+   190  test thin_inside_dashed_rect_keeps_stroke ... FAILED
+   191  test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+   192  
+   ... (21 lines omitted) ...
+   214  
+   215  test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 30 filtered out; finished in 0.00s
+   216  
+   217  error: test failed, to rerun pass `-p designos-render --test render`
+   218  render_rc=101
+   343  running 3 tests
+   344  test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+   345  test solid_open_line_round_vertex_cap_renders_round_gpu ... FAILED
+   346  test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+   347  
+   ... (27 lines omitted) ...
+   375  
+   376  test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.12s
+   377  
+   378  error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+   379  gpu_rc=101
+   389  test rest_instance_overrides_skips_layout_cleared ... ok
+   390  test fig_instance_stroke_override_clears_dashes ... FAILED
+   391  test fig_instance_stroke_override_preserves_align_join_and_miter ... ok
+   392  
+   393  failures:
+   394  
+   395  ---- fig_instance_stroke_override_clears_dashes stdout ----
+   396  
+   397  thread 'fig_instance_stroke_override_clears_dashes' (75876641) panicked at crates/designos-fig/tests/fig_roundtrip.rs:4502:5:
+   398  assertion `left == right` failed: symbolOverrides writes empty dashPattern when override clears dashes
+   399    left: None
+   400   right: Some(Array [])
+   401  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+   402  
+   403  
+   404  failures:
+   405      fig_instance_stroke_override_clears_dashes
+   406  
+   407  test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.02s
+   408  
+   409  error: test failed, to rerun pass `-p designos-fig --test fig_roundtrip`
+   410  fig_rc=101
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-green-tests.log:12-61 (total 61 lines) ---
+    12  running 4 tests
+    13  test solid_open_line_all_butt_vertex_caps_stay_butt ... ok
+    14  test thin_inside_dashed_rect_keeps_stroke ... ok
+    15  test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+    16  test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+   ... (40 lines omitted) ...
+    57  test fig_instance_stroke_override_clears_dashes ... ok
+    58  
+    59  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.04s
+    60  
+    61  fig_rc=0
+
+--- plans/reports/agy-1478-dash-cap-evidence/r2-mutants.log:84-107,164-219 (total 219 lines) ---
+    84  running 1 test
+    85  test solid_open_line_round_vertex_cap_renders_round_gpu ... FAILED
+    86  
+    87  failures:
+    88  
+    89  ---- solid_open_line_round_vertex_cap_renders_round_gpu stdout ----
+    90  GPU: Apple M4 Max (Metal)
+    91  solid_open_line_round_vertex_cap: mismatch 1.2500% (60 px of 4800) at tolerance 8, ssim 0.9663
+    92  solid_open_line_round_vertex_cap: 0.8333% with AA pixels forgiven (40 px)
+    93  
+    94  thread 'solid_open_line_round_vertex_cap_renders_round_gpu' (75914545) panicked at crates/designos-gpu/tests/fidelity.rs:643:5:
+    95  assertion `left == right` failed: GPU round cap painted at (18, 20)
+    96    left: [255, 255, 255, 255]
+    97   right: [255, 0, 0, 255]
+    98  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    99  
+   100  
+   101  failures:
+   102      solid_open_line_round_vertex_cap_renders_round_gpu
+   103  
+   104  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.16s
+   105  
+   106  error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+   107  mutant1_gpu_rc=101
+   164  running 1 test
+   165  test thin_inside_dashed_rect_keeps_stroke ... FAILED
+   166  
+   167  failures:
+   168  
+   ... (46 lines omitted) ...
+   215  
+   216  test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.14s
+   217  
+   218  error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+   219  mutant2_gpu_rc=101
+
+--- crates/designos-render/src/outline.rs:84-86 (total 322 lines) ---
+    84          if width > s.weight {
+    85              st.line_cap = sk::LineCap::Butt;
+    86          }
+
+=== CITATION CHECK VERDICT: PASS (70/70 verified) ===

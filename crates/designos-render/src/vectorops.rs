@@ -353,7 +353,7 @@ pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
             idx += 1;
         }
     }
-    (!out.is_empty()).then_some(out)
+    Some(out)
 }
 
 /// Converts the stroke of `paths` into filled geometry: weight, alignment,

@@ -830,7 +830,11 @@ impl Renderer<'_> {
     }
 
     fn make_stroke(&self, n: &Node, width: f32) -> sk::Stroke {
-        outline::node_stroke_style(n, width)
+        let mut st = outline::node_stroke_style(n, width);
+        if vectorops::vertex_caps(n).is_some() {
+            st.line_cap = sk::LineCap::Butt;
+        }
+        st
     }
 
     fn draw_strokes(&self, n: &Node, sh: &Shape, ts: sk::Transform, target: &mut sk::Pixmap, clip: Option<&sk::Mask>, alpha: f32) {
@@ -915,8 +919,8 @@ impl Renderer<'_> {
                         for p in paints {
                             stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, Some(&m));
                         }
+                        return;
                     }
-                    return;
                 }
                 let st = self.make_stroke(n, w * 2.0);
                 for p in paints {
