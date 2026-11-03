@@ -660,7 +660,7 @@ fn thin_inside_dashed_rect_keeps_stroke_gpu() {
         n.stroke.paints = vec![Paint::solid(red)];
         n.stroke.weight = 4.0;
         n.stroke.align = StrokeAlign::Inside;
-        n.stroke.dashes = vec![8.0, 4.0];
+        n.stroke.dashes = vec![8.0, 40.0];
         n.stroke.cap = StrokeCap::Round;
         n
     });
@@ -668,11 +668,53 @@ fn thin_inside_dashed_rect_keeps_stroke_gpu() {
     let c = compare(&mut g, "thin_inside_dashed_rect", &t.doc, t.page, vp, (220, 24), 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
     let dash_px = c.gpu.pixel(14, 12).unwrap();
-    assert_eq!([dash_px.red(), dash_px.green(), dash_px.blue(), dash_px.alpha()], [255, 0, 0, 255], "GPU thin inside dashed rectangle paints dash at (14, 12)");
-    let gap_px = c.gpu.pixel(20, 12).unwrap();
+    assert_eq!(
+        [dash_px.red(), dash_px.green(), dash_px.blue(), dash_px.alpha()],
+        [255, 0, 0, 255],
+        "GPU thin inside dashed rectangle paints the first dash at (14, 12)"
+    );
+    let cap_px = c.gpu.pixel(19, 11).unwrap();
+    assert_eq!(
+        [cap_px.red(), cap_px.green(), cap_px.blue(), cap_px.alpha()],
+        [255, 0, 0, 255],
+        "GPU thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)"
+    );
+    let gap_px = c.gpu.pixel(44, 12).unwrap();
     assert_eq!(
         [gap_px.red(), gap_px.green(), gap_px.blue(), gap_px.alpha()],
         [255, 255, 255, 255],
-        "GPU thin inside dashed rectangle leaves gap white at (20, 12)"
+        "GPU thin inside dashed rectangle leaves the middle of the gap white at (44, 12)"
     );
+}
+
+#[test]
+fn inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
+    let e = t.add(None, |id| {
+        let mut n = Node::ellipse(id, Rect::new(10.0, 10.0, 80.0, 80.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(red)];
+        n.stroke.weight = 4.0;
+        n.stroke.align = StrokeAlign::Inside;
+        n.stroke.dashes = vec![40.0, 20.0];
+        n.stroke.cap = StrokeCap::Round;
+        n
+    });
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "inside_dashed_ellipse_round_cap", &t.doc, t.page, vp, (100, 100), 8);
+    assert!(c.report_aa.ratio < 0.005, "mismatch with AA forgiven {:.3}%", c.report_aa.ratio * 100.0);
+    let body = c.gpu.pixel(83, 68).unwrap();
+    assert_eq!([body.red(), body.green(), body.blue(), body.alpha()], [255, 0, 0, 255], "GPU inside dash body painted at (83, 68)");
+    let cap = c.gpu.pixel(68, 83).unwrap();
+    assert_eq!([cap.red(), cap.green(), cap.blue(), cap.alpha()], [255, 0, 0, 255], "GPU round cap painted 2.6px past the dash end at (68, 83)");
+    let gap = c.gpu.pixel(61, 86).unwrap();
+    assert_eq!([gap.red(), gap.green(), gap.blue(), gap.alpha()], [255, 255, 255, 255], "GPU middle of the gap white at (61, 86)");
+
+    t.node(e).stroke.cap = StrokeCap::None;
+    g.compiler.geom.clear();
+    let c_butt = compare(&mut g, "inside_dashed_ellipse_butt_cap", &t.doc, t.page, vp, (100, 100), 8);
+    let butt = c_butt.gpu.pixel(68, 83).unwrap();
+    assert_eq!([butt.red(), butt.green(), butt.blue(), butt.alpha()], [255, 255, 255, 255], "GPU butt dash ends at the dash end so (68, 83) is white");
 }

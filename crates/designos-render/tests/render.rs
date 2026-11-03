@@ -801,18 +801,48 @@ fn solid_open_line_all_butt_vertex_caps_stay_butt() {
 #[test]
 fn thin_inside_dashed_rect_keeps_stroke() {
     let mut t = T::new();
+    // The inset centerline of a 4px tall rectangle with weight 4 collapses, so the stroke is drawn on the
+    // outline at twice the weight and clipped to the inside. The first dash covers x = 10..18 along the top edge
+    // and its round end cap, radius 4, is centered at (18, 10). The dash period is 48 and the outline is 408 long,
+    // so the dashes on the bottom edge sit at x = 22..30, 70..78 and so on, clear of that cap and of the gap middle.
     t.add(None, |id| {
         let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 200.0, 4.0));
         n.fills.clear();
         n.stroke.paints = vec![Paint::solid(RED)];
         n.stroke.weight = 4.0;
         n.stroke.align = StrokeAlign::Inside;
-        n.stroke.dashes = vec![8.0, 4.0];
+        n.stroke.dashes = vec![8.0, 40.0];
         n.stroke.cap = StrokeCap::Round;
         n
     });
     let pm = t.render(220, 24);
-    assert_eq!(px(&pm, 14, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints first dash at (14, 12)");
-    assert_eq!(px(&pm, 20, 12), WHITE, "thin inside dashed rectangle leaves first gap unpainted at (20, 12)");
-    assert_eq!(px(&pm, 26, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints second dash at (26, 12)");
+    assert_eq!(px(&pm, 14, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints the first dash at (14, 12)");
+    assert_eq!(px(&pm, 19, 11), [255, 0, 0, 255], "thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)");
+    assert_eq!(px(&pm, 44, 12), WHITE, "thin inside dashed rectangle leaves the middle of the gap unpainted at (44, 12)");
+}
+
+#[test]
+fn inside_dashed_ellipse_round_cap_extends_past_dash_end() {
+    let mut t = T::new();
+    // Circle of radius 40 centered at (50, 50). The dash path starts at (90, 50) and runs clockwise, so the first
+    // 40px dash ends at (71.6, 83.7). The gap, 20px, is longer than twice the weight.
+    let e = t.add(None, |id| {
+        let mut n = Node::ellipse(id, Rect::new(10.0, 10.0, 80.0, 80.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(RED)];
+        n.stroke.weight = 4.0;
+        n.stroke.align = StrokeAlign::Inside;
+        n.stroke.dashes = vec![40.0, 20.0];
+        n.stroke.cap = StrokeCap::Round;
+        n
+    });
+    let pm_round = t.render(100, 100);
+    assert_eq!(px(&pm_round, 83, 68), [255, 0, 0, 255], "inside dash body is painted at (83, 68)");
+    assert_eq!(px(&pm_round, 68, 83), [255, 0, 0, 255], "round cap is painted 2.6px past the dash end at (68, 83)");
+    assert_eq!(px(&pm_round, 61, 86), WHITE, "middle of the gap is unpainted at (61, 86)");
+
+    t.node(e).stroke.cap = StrokeCap::None;
+    let pm_butt = t.render(100, 100);
+    assert_eq!(px(&pm_butt, 83, 68), [255, 0, 0, 255], "butt dash body is painted at (83, 68)");
+    assert_eq!(px(&pm_butt, 68, 83), WHITE, "butt dash ends at the dash end so (68, 83) is unpainted");
 }

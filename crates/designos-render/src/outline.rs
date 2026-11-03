@@ -81,9 +81,6 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
         dash: None,
     };
     if has_dashes(s) {
-        if width > s.weight {
-            st.line_cap = sk::LineCap::Butt;
-        }
         let mut v = s.dashes.clone();
         if v.len() % 2 == 1 {
             v.extend_from_within(..);
