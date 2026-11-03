@@ -659,6 +659,18 @@ impl SolvedGrid {
     }
 }
 
+/// `al` as the layout solver reads it for `n`: the auto layout and stroke of the node with its variable
+/// bindings applied, and the stroke's inset folded into the padding. Layout solves from that resolved
+/// node, so item spacing, row spacing, padding and an included stroke weight that are bound to a
+/// variable count at the value the variable resolves to, not at the number stored on the node. The
+/// frame size and size limits stay the stored ones, as they do in layout. `al` is returned (with the
+/// stored stroke folded in) when the resolved node carries no auto layout.
+fn solver_layout(doc: &Document, n: &Node, al: &AutoLayout) -> AutoLayout {
+    let resolved = designos_doc::resolve_node(doc, n);
+    let resolved_al = resolved.kind.frame_props().and_then(|f| f.auto_layout.as_ref()).unwrap_or(al);
+    resolved_al.with_stroke(&resolved.stroke)
+}
+
 pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<SolvedGrid> {
     if al.direction != LayoutDirection::Grid {
         return None;
@@ -674,7 +686,7 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     if kids.is_empty() {
         return None;
     }
-    let al_s = al.with_stroke(&n.stroke);
+    let al_s = solver_layout(doc, n, al);
     let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
     let widths = designos_doc::layout_solver::grid_column_widths(&al_s, n.size, own, &kids);
     let rows = designos_doc::layout_solver::grid_row_heights(&al_s, n.size, own, &kids);
@@ -755,11 +767,11 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
     std::borrow::Cow::Owned(col_widths.into_iter().map(GridTrack::Fixed).collect())
 }
 
-/// Row tracks for web exports. When the document has a resolved implicit track mode, the solver
-/// may give each implicit row a different height (for example after flex auto-row leveling). CSS
-/// `grid-auto-rows` has one value for every implicit row, so emit the solver's resolved row list as
-/// explicit pixel tracks whenever implicit rows are present. The ordinary stored row tracks remain
-/// untouched for grids whose rows are already fully explicit.
+/// Row tracks for web exports, and how many rows they cover. The solver levels implicit flex auto rows
+/// across a fixed-height container, so those rows can differ in height, and CSS `grid-auto-rows` has
+/// one value for every implicit row. While the solver levels the rows, emit its resolved row list as
+/// pixel tracks. Every other grid keeps its stored row tracks, because a packed or hugging grid
+/// already sizes its rows the way the browser sizes `auto` ones.
 pub(crate) fn resolved_grid_row_tracks<'a>(doc: &Document, n: &Node, al: &'a AutoLayout) -> (std::borrow::Cow<'a, [GridTrack]>, usize) {
     let explicit = al.grid_rows as usize;
     // Resolve only the implicit auto rows that the solver levels across a fixed-height
