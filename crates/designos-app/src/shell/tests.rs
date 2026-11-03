@@ -1187,6 +1187,7 @@ mod dev_code_panel;
 mod dev_mode_shortcut;
 mod dropdown_keys;
 mod duplicate_order;
+mod edit_menu_parity;
 mod effect_caps;
 mod effect_grid_styles;
 mod effect_stop_binds;

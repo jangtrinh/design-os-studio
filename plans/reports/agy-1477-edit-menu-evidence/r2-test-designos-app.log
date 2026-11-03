@@ -1,0 +1,26 @@
+# cargo test -p designos-app --bin designos --locked   (code head 7c033f12; HOME=/Users/jangtrinh/.c1477/h TMPDIR=/Users/jangtrinh/.c1477/t, real CARGO_HOME and RUSTUP_HOME)
+# full run: app_rc=101
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4234 filtered out; finished in 12.65s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4234 filtered out; finished in 12.71s
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+thread 'vecops::tests::two_deferred_text_commands_both_convert_in_order' (79521468) panicked at crates/designos-app/src/vecops.rs:1882:9:
+both texts still waiting for slow fonts
+test result: FAILED. 4221 passed; 1 failed; 13 ignored; 0 measured; 0 filtered out; finished in 373.52s
+
+# rerun of the one failure alone
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4234 filtered out; finished in 1.60s
+rerun_rc=0
+
+# round-2 parity tests inside the full run
+test shell::tests::edit_menu_parity::edit_menu_and_palette_expose_all_five_commands_with_labels_shortcuts_and_enabled_states ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_copies_only_the_visual_bindings_and_style_refs ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_restyles_the_text_inside_a_pasted_frame ... ok
+test shell::tests::edit_menu_parity::select_same_text_style_and_variant_match_exact_unlocked_visible_siblings ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_layer_and_text_carries_target_style_and_undoes_in_one_step ... ok
+test shell::tests::edit_menu_parity::the_old_paste_and_match_style_chord_does_nothing ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_leaves_text_with_different_run_fills_unchanged_and_swaps_the_rest ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_gives_a_stroke_with_every_width_zero_a_visible_width ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_on_instance_text_survives_a_sync_of_its_main ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_on_uniform_text_exchanges_the_painted_fills_with_the_stroke_and_round_trips ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_single_and_multi_selection_preserves_gradients_and_bindings_and_round_trips ... ok

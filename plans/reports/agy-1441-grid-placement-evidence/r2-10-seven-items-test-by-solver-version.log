@@ -1,0 +1,17 @@
+== solver at 1a13eb89 (before this round)
+test layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks ... FAILED
+thread 'layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks' (81089896) panicked at crates/designos-app/src/layout.rs:712:9:
+assertion `left == right` failed
+  left: (220.0, 60.0)
+ right: (220.0, 0.0)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4223 filtered out; finished in 0.00s
+== solver at base 4683fe99
+test layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4223 filtered out; finished in 0.00s
+== solver at HEAD (this round)
+test layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks ... FAILED
+thread 'layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks' (81101806) panicked at crates/designos-app/src/layout.rs:712:9:
+assertion `left == right` failed
+  left: (220.0, 60.0)
+ right: (220.0, 0.0)
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4223 filtered out; finished in 0.00s

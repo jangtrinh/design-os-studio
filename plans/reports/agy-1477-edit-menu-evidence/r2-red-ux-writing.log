@@ -1,0 +1,24 @@
+# red: base scripts/ux_writing_labels.py (no allowlist)
+.F.F
+======================================================================
+FAIL: test_an_unlisted_four_word_menu_label_still_fails (__main__.FigmaCommandLabelTests.test_an_unlisted_four_word_menu_label_still_fails)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/scripts/tests/test_ux_writing_figma_command_labels.py", line 38, in test_an_unlisted_four_word_menu_label_still_fails
+    self.assertEqual(scan(files), Counter({(MENU_FILE, labels.WORDS_KIND, unlisted): 1}))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Count[29 chars]s', 'Paste and match style'): 1, ('panels/menu[106 chars]: 1}) != Count[29 chars]s', 'Duplicate every selected layer'): 1})
+
+======================================================================
+FAIL: test_the_two_figma_command_names_pass (__main__.FigmaCommandLabelTests.test_the_two_figma_command_names_pass)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/scripts/tests/test_ux_writing_figma_command_labels.py", line 31, in test_the_two_figma_command_names_pass
+    self.assertEqual(scan(files), Counter())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Counter({('panels/menus.rs', 'words', 'Paste and [70 chars]: 1}) != Counter()
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.001s
+
+FAILED (failures=2)

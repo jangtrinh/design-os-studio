@@ -1,0 +1,43 @@
+$ mutant: pass 2 start_col forced to 0 (cursor ignored)
+$ cargo test -p designos-doc --locked --lib layout_solver_grid_placement
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.50s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 11 tests
+test layout_solver_grid_placement::tests::a_auto_children_before_and_after_column_locked_child_match_css_grid ... ok
+test layout_solver_grid_placement::tests::b_row_locked_child_is_still_placed_before_auto_children ... ok
+test layout_solver_grid_placement::tests::null_control_all_auto_and_all_pinned_grids_match_base ... ok
+test layout_solver_grid_placement::tests::a_missing_column_keeps_the_row_lock_and_a_wide_span_is_pulled_back_in ... ok
+test layout_solver_grid_placement::tests::a_row_locked_child_that_moves_down_does_not_close_its_own_row ... ok
+test layout_solver_grid_placement::tests::d_column_locked_child_with_column_span_places_in_child_order ... ok
+test layout_solver_grid_placement::tests::c_column_locked_child_after_cursor_passed_its_column_goes_to_next_row_sparse ... ok
+test layout_solver_grid_placement::tests::explicit_cells_may_overlap_each_other_as_in_css ... ok
+test layout_solver_grid_placement::tests::auto_children_never_take_a_cell_a_later_child_pinned ... ok
+test layout_solver_grid_placement::tests::a_row_locked_child_with_no_room_past_the_previous_one_moves_down ... FAILED
+test layout_solver_grid_placement::tests::a_row_locked_child_starts_past_the_row_locked_children_placed_before_it ... FAILED
+
+failures:
+
+---- layout_solver_grid_placement::tests::a_row_locked_child_with_no_room_past_the_previous_one_moves_down stdout ----
+
+thread 'layout_solver_grid_placement::tests::a_row_locked_child_with_no_room_past_the_previous_one_moves_down' (80985325) panicked at crates/designos-doc/src/layout_solver_grid_placement.rs:222:9:
+assertion `left == right` failed
+  left: [(0, 1), (0, 2), (0, 0)]
+ right: [(0, 1), (0, 2), (1, 0)]
+
+---- layout_solver_grid_placement::tests::a_row_locked_child_starts_past_the_row_locked_children_placed_before_it stdout ----
+
+thread 'layout_solver_grid_placement::tests::a_row_locked_child_starts_past_the_row_locked_children_placed_before_it' (80985323) panicked at crates/designos-doc/src/layout_solver_grid_placement.rs:214:9:
+assertion `left == right` failed
+  left: [(0, 0), (0, 1), (1, 2), (1, 0)]
+ right: [(0, 0), (0, 1), (1, 2), (1, 4)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout_solver_grid_placement::tests::a_row_locked_child_starts_past_the_row_locked_children_placed_before_it
+    layout_solver_grid_placement::tests::a_row_locked_child_with_no_room_past_the_previous_one_moves_down
+
+test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 719 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

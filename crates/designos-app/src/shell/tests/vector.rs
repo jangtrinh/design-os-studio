@@ -383,6 +383,253 @@ fn scaling_selected_points_bounding_box_scales_only_selected_points() {
     assert!((p3_undo.x - 335.0).abs() < 1.0 && (p3_undo.y - 820.0).abs() < 1.0, "{p3_undo:?}");
 }
 
+/// 100x100 square at (300, 800)..(400, 900) in vector edit mode. The top segment (0 -> 1) is
+/// split at `t` so vertex 4 sits on the top edge, and `selected` are the selected vertices.
+fn editing_square_split_at(t: f32, selected: &[usize]) -> (Sim, NodeId) {
+    let mut s = Sim::new();
+    let id = add_rect(&mut s, "Sq", 300.0, 800.0, 100.0, 100.0);
+    let p = at(&s, 350.0, 850.0);
+    s.click(p);
+    s.click(p);
+    assert_eq!(s.app().canvas.vedit.as_ref().map(|v| v.id), Some(id));
+    crate::canvas::vector::insert_point(&mut s.shell.app, 0, t);
+    s.shell.app.canvas.vedit.as_mut().unwrap().sel = selected.iter().copied().collect();
+    s.frame(vec![]);
+    (s, id)
+}
+
+/// The square with its 4 corners selected and a 5th unselected vertex at (350, 800) on the top
+/// edge as a null control.
+fn editing_square_with_unselected_point() -> (Sim, NodeId) {
+    editing_square_split_at(0.5, &[0, 1, 2, 3])
+}
+
+/// World positions of every vertex of the vector `id`, in vertex order.
+fn world_vertices(s: &Sim, id: NodeId) -> Vec<DV> {
+    let w = s.app().doc.world_transform(id);
+    network(s, id).vertices.iter().map(|v| w.apply(v.pos)).collect()
+}
+
+fn assert_vertices_at(got: &[DV], want: &[DV], what: &str) {
+    assert_eq!(got.len(), want.len(), "{what}: vertex count");
+    for (i, (g, w)) in got.iter().zip(want).enumerate() {
+        assert!((g.x - w.x).abs() < 1.0 && (g.y - w.y).abs() < 1.0, "{what}: vertex {i} should be at {w:?}, got {g:?}");
+    }
+}
+
+fn selected_bounds_world(s: &Sim, id: NodeId, indices: &[usize]) -> (f32, f32, f32, f32) {
+    let w = s.app().doc.world_transform(id);
+    let net = network(s, id);
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for &i in indices {
+        let p = w.apply(net.vertices[i].pos);
+        x0 = x0.min(p.x);
+        y0 = y0.min(p.y);
+        x1 = x1.max(p.x);
+        y1 = y1.max(p.y);
+    }
+    (x0, y0, x1, y1)
+}
+
+#[test]
+fn shift_dragging_edge_scale_handles_locks_the_aspect_ratio_and_undoes_in_one_step() {
+    use crate::canvas::handles::Handle;
+    let (mut s, id) = editing_square_with_unselected_point();
+
+    // Null control 1: without Shift, dragging Handle::R by +50 in X and +20 in Y scales only X to 150 and leaves Y at 100.
+    let from_r = scale_handle_at(&s, Handle::R);
+    let travel_r = at(&s, 450.0, 870.0) - at(&s, 400.0, 850.0);
+    s.drag(from_r, from_r + travel_r);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    assert!((x0 - 300.0).abs() < 1.0 && (x1 - 450.0).abs() < 1.0, "unshifted R scales X to [300,450], got [{x0},{x1}]");
+    assert!((y0 - 800.0).abs() < 1.0 && (y1 - 900.0).abs() < 1.0, "unshifted R leaves Y at [800,900], got [{y0},{y1}]");
+    s.cmd_key(Key::Z);
+
+    // Null control 2: Shift + drag on corner Handle::BR scales both axes by the larger factor (1.5x -> 150x150).
+    mods(&mut s, Modifiers::SHIFT);
+    let from_br = scale_handle_at(&s, Handle::BR);
+    let travel_br = at(&s, 450.0, 920.0) - at(&s, 400.0, 900.0);
+    s.drag(from_br, from_br + travel_br);
+    mods(&mut s, Modifiers::NONE);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    assert!(
+        (x0 - 300.0).abs() < 1.0 && (x1 - 450.0).abs() < 1.0 && (y0 - 800.0).abs() < 1.0 && (y1 - 950.0).abs() < 1.0,
+        "corner Shift kept 150x150: [{x0},{y0}]..[{x1},{y1}]"
+    );
+    s.cmd_key(Key::Z);
+
+    // (a) Shift + drag on Handle::R (with non-zero Y pointer travel too) locks sy = sx = 1.5 about anchor (300, 850).
+    mods(&mut s, Modifiers::SHIFT);
+    let from_r = scale_handle_at(&s, Handle::R);
+    s.drag(from_r, from_r + travel_r);
+    mods(&mut s, Modifiers::NONE);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    let (w, h) = (x1 - x0, y1 - y0);
+    assert!((w - 150.0).abs() < 1.0 && (h - 150.0).abs() < 1.0, "Shift+R kept square 150x150, got {w}x{h} ([{x0},{y0}]..[{x1},{y1}])");
+    assert!((x0 - 300.0).abs() < 1.0 && (x1 - 450.0).abs() < 1.0, "X anchored at left 300..450, got {x0}..{x1}");
+    assert!((y0 - 775.0).abs() < 1.0 && (y1 - 925.0).abs() < 1.0, "Y centred on 850 (775..925), got {y0}..{y1}");
+    // Unselected vertex 4 stayed at (350, 800).
+    let p4 = s.app().doc.world_transform(id).apply(network(&s, id).vertices[4].pos);
+    assert!((p4.x - 350.0).abs() < 1.0 && (p4.y - 800.0).abs() < 1.0, "unselected vertex stayed at (350,800), got {p4:?}");
+
+    // (d) One scale drag is one undo step.
+    s.cmd_key(Key::Z);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    assert!(
+        (x0 - 300.0).abs() < 1.0 && (x1 - 400.0).abs() < 1.0 && (y0 - 800.0).abs() < 1.0 && (y1 - 900.0).abs() < 1.0,
+        "single undo restored 100x100 square, got [{x0},{y0}]..[{x1},{y1}]"
+    );
+
+    // (a) Shift + drag on Handle::T (with non-zero X pointer travel too) locks sx = sy = 1.5 about anchor (350, 900).
+    mods(&mut s, Modifiers::SHIFT);
+    let from_t = scale_handle_at(&s, Handle::T);
+    let travel_t = at(&s, 370.0, 750.0) - at(&s, 350.0, 800.0);
+    s.drag(from_t, from_t + travel_t);
+    mods(&mut s, Modifiers::NONE);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    let (w, h) = (x1 - x0, y1 - y0);
+    assert!((w - 150.0).abs() < 1.0 && (h - 150.0).abs() < 1.0, "Shift+T kept square 150x150, got {w}x{h} ([{x0},{y0}]..[{x1},{y1}])");
+    assert!((x0 - 275.0).abs() < 1.0 && (x1 - 425.0).abs() < 1.0, "X centred on 350 (275..425), got {x0}..{x1}");
+    assert!((y0 - 750.0).abs() < 1.0 && (y1 - 900.0).abs() < 1.0, "Y anchored at bottom 750..900, got {y0}..{y1}");
+
+    // (d) One scale drag on Handle::T is also one undo step.
+    s.cmd_key(Key::Z);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    assert!(
+        (x0 - 300.0).abs() < 1.0 && (x1 - 400.0).abs() < 1.0 && (y0 - 800.0).abs() < 1.0 && (y1 - 900.0).abs() < 1.0,
+        "single undo restored 100x100 square after T drag, got [{x0},{y0}]..[{x1},{y1}]"
+    );
+}
+
+#[test]
+fn alt_shift_dragging_an_edge_scale_handle_scales_uniformly_about_the_centre() {
+    use crate::canvas::handles::Handle;
+    let (mut s, id) = editing_square_with_unselected_point();
+
+    // (b) Alt + Shift on Handle::R scales uniformly (2x -> 200x200) about the centre (350, 850).
+    mods(&mut s, Modifiers::ALT | Modifiers::SHIFT);
+    let from_r = scale_handle_at(&s, Handle::R);
+    let travel_r = at(&s, 450.0, 865.0) - at(&s, 400.0, 850.0);
+    s.drag(from_r, from_r + travel_r);
+    mods(&mut s, Modifiers::NONE);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    assert!((x0 - 250.0).abs() < 1.0 && (x1 - 450.0).abs() < 1.0, "Alt+Shift+R scaled X about 350 to [250,450], got [{x0},{x1}]");
+    assert!((y0 - 750.0).abs() < 1.0 && (y1 - 950.0).abs() < 1.0, "Alt+Shift+R scaled Y about 850 to [750,950], got [{y0},{y1}]");
+    // Null control: unselected vertex 4 stayed at (350, 800).
+    let p4 = s.app().doc.world_transform(id).apply(network(&s, id).vertices[4].pos);
+    assert!((p4.x - 350.0).abs() < 1.0 && (p4.y - 800.0).abs() < 1.0, "unselected vertex stayed at (350,800), got {p4:?}");
+
+    s.cmd_key(Key::Z);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    assert!((x0 - 300.0).abs() < 1.0 && (x1 - 400.0).abs() < 1.0 && (y0 - 800.0).abs() < 1.0 && (y1 - 900.0).abs() < 1.0);
+
+    // (b) Alt + Shift on Handle::T scales uniformly (2x -> 200x200) about the centre (350, 850).
+    mods(&mut s, Modifiers::ALT | Modifiers::SHIFT);
+    let from_t = scale_handle_at(&s, Handle::T);
+    let travel_t = at(&s, 365.0, 750.0) - at(&s, 350.0, 800.0);
+    s.drag(from_t, from_t + travel_t);
+    mods(&mut s, Modifiers::NONE);
+    let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
+    assert!((x0 - 250.0).abs() < 1.0 && (x1 - 450.0).abs() < 1.0, "Alt+Shift+T scaled X about 350 to [250,450], got [{x0},{x1}]");
+    assert!((y0 - 750.0).abs() < 1.0 && (y1 - 950.0).abs() < 1.0, "Alt+Shift+T scaled Y about 850 to [750,950], got [{y0},{y1}]");
+}
+
+/// Pointer travel on screen for a page-space move of `(dx, dy)`.
+fn page_travel(s: &Sim, dx: f32, dy: f32) -> Vec2 {
+    at(s, 500.0 + dx, 500.0 + dy) - at(s, 500.0, 500.0)
+}
+
+/// Drags the scale handle `h` by the page-space travel `(dx, dy)` with `m` held.
+fn drag_scale_handle(s: &mut Sim, h: crate::canvas::handles::Handle, m: Modifiers, (dx, dy): (f32, f32)) {
+    mods(s, m);
+    let from = scale_handle_at(s, h);
+    let travel = page_travel(s, dx, dy);
+    s.drag(from, from + travel);
+    mods(s, Modifiers::NONE);
+}
+
+#[test]
+fn shift_dragging_an_edge_scale_handle_past_the_anchor_mirrors_only_the_dragged_axis() {
+    use crate::canvas::handles::Handle;
+    let (mut s, id) = editing_square_split_at(0.25, &[0, 1, 2, 3, 4]);
+    let before = world_vertices(&s, id);
+    let corners = [DV::new(300.0, 800.0), DV::new(400.0, 800.0), DV::new(400.0, 900.0), DV::new(300.0, 900.0)];
+    assert_vertices_at(&before[..4], &corners, "start");
+    assert!(before[4].y == 800.0 && before[4].x > 301.0 && before[4].x < 349.0, "vertex 4 starts on the top edge off the centre line, got {:?}", before[4]);
+
+    // Shift + R dragged 200 to the left (and 20 down) carries the right edge past the left edge at x = 300:
+    // x mirrors about x = 300 while y keeps its size and direction, so no vertex changes its y.
+    drag_scale_handle(&mut s, Handle::R, Modifiers::SHIFT, (-200.0, 20.0));
+    let after = world_vertices(&s, id);
+    let want: Vec<DV> = before.iter().map(|p| DV::new(600.0 - p.x, p.y)).collect();
+    assert_vertices_at(&after, &want, "Shift+R past the left edge");
+    assert_vertices_at(&after[..1], &[DV::new(300.0, 800.0)], "the top-left corner on the anchor line keeps its y");
+    assert_vertices_at(&after[3..4], &[DV::new(300.0, 900.0)], "the bottom-left corner on the anchor line keeps its y");
+    s.cmd_key(Key::Z);
+    assert_vertices_at(&world_vertices(&s, id), &before, "one undo restores the square");
+
+    // Shift + T dragged 200 down (and 20 right) carries the top edge past the bottom edge at y = 900:
+    // y mirrors about y = 900 while x keeps its size and direction, so no vertex changes its x.
+    drag_scale_handle(&mut s, Handle::T, Modifiers::SHIFT, (20.0, 200.0));
+    let after = world_vertices(&s, id);
+    let want: Vec<DV> = before.iter().map(|p| DV::new(p.x, 1800.0 - p.y)).collect();
+    assert_vertices_at(&after, &want, "Shift+T past the bottom edge");
+    assert_vertices_at(&after[..1], &[DV::new(300.0, 1000.0)], "the top-left corner keeps its x");
+    assert_vertices_at(&after[1..2], &[DV::new(400.0, 1000.0)], "the top-right corner keeps its x");
+    s.cmd_key(Key::Z);
+    assert_vertices_at(&world_vertices(&s, id), &before, "one undo restores the square");
+}
+
+#[test]
+fn alt_shift_dragging_an_edge_scale_handle_across_the_centre_mirrors_only_the_dragged_axis() {
+    use crate::canvas::handles::Handle;
+    let (mut s, id) = editing_square_split_at(0.25, &[0, 1, 2, 3, 4]);
+    let before = world_vertices(&s, id);
+
+    // Alt + Shift + R dragged 100 to the left (and 15 down) puts the right edge on the left edge: x mirrors
+    // about the centre x = 350 while y keeps its size and direction.
+    drag_scale_handle(&mut s, Handle::R, Modifiers::ALT | Modifiers::SHIFT, (-100.0, 15.0));
+    let after = world_vertices(&s, id);
+    let want: Vec<DV> = before.iter().map(|p| DV::new(700.0 - p.x, p.y)).collect();
+    assert_vertices_at(&after, &want, "Alt+Shift+R across the centre");
+    assert_vertices_at(&after[..1], &[DV::new(400.0, 800.0)], "the top-left corner lands top-right");
+    assert_vertices_at(&after[3..4], &[DV::new(400.0, 900.0)], "the bottom-left corner lands bottom-right");
+    s.cmd_key(Key::Z);
+    assert_vertices_at(&world_vertices(&s, id), &before, "one undo restores the square");
+}
+
+#[test]
+fn hovering_and_dragging_vector_scale_box_handles_reports_resize_cursors() {
+    use crate::canvas::handles::Handle;
+    let (mut s, _id) = editing_square_with_unselected_point();
+
+    // (c) Hovering each of the 8 scale-box handles reports the frame handles' cursor for that handle.
+    for h in Handle::ALL {
+        let pos = scale_handle_at(&s, h);
+        s.mv(pos);
+        assert_eq!(s.cursor, h.cursor(), "hovering scale-box handle {h:?} should set egui cursor to {:?}", h.cursor());
+        assert_eq!(s.app().canvas.cursor, Some(h.cursor()), "hovering scale-box handle {h:?} should set canvas.cursor to {:?}", h.cursor());
+    }
+
+    // While actively dragging a scale-box handle, the resize cursor stays locked to that handle's cursor.
+    let pos_r = scale_handle_at(&s, Handle::R);
+    s.mv(pos_r);
+    s.button(true);
+    s.mv(pos_r + Vec2::new(20.0, 15.0));
+    assert_eq!(s.cursor, Handle::R.cursor(), "dragging Handle::R keeps ResizeHorizontal");
+    assert_eq!(s.app().canvas.cursor, Some(Handle::R.cursor()));
+    s.button(false);
+    s.cmd_key(Key::Z);
+
+    // Null controls: hovering a vertex or segment midpoint keeps CursorIcon::Default.
+    s.mv(at(&s, 300.0, 800.0));
+    assert_eq!(s.app().canvas.vedit.as_ref().and_then(|v| v.hover), Some(crate::canvas::vector::Hit::Vertex(0)));
+    assert_eq!(s.cursor, egui::CursorIcon::Default, "vertex hover keeps Default cursor");
+    s.mv(at(&s, 300.0, 850.0));
+    assert!(matches!(s.app().canvas.vedit.as_ref().and_then(|v| v.hover), Some(crate::canvas::vector::Hit::Segment(..))));
+    assert_eq!(s.cursor, egui::CursorIcon::Default, "segment hover keeps Default cursor");
+}
+
 #[test]
 fn dragging_a_selected_vertex_of_a_multi_point_selection_moves_the_whole_selection() {
     let (mut s, id) = editing();

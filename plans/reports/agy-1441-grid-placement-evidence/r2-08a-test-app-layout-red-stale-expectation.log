@@ -1,0 +1,295 @@
+$ cargo test -p designos-app --bin designos --locked -- layout
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1441-grid-placement/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1441-grid-placement/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 25s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 257 tests
+test canvas::handles::tests::auto_layout_padding_and_gap_handles_calculation_and_hit ... ok
+test canvas::reorder::tests::non_auto_layout_parents_have_no_insertion ... ok
+test edit::tests::rebasing_the_layout_epoch_moves_an_opened_edit_to_now_and_leaves_an_unopened_one_alone ... ok
+test layout::solver_parity_tests::a_grid_hug_column_shrinks_back_around_a_main_fill_child_with_margins ... ok
+test layout::solver_parity_tests::a_grid_auto_row_shrinks_back_around_a_cross_fill_child_with_margins ... ok
+test layout::solver_parity_tests::a_fixed_frame_with_a_variable_bound_width_lays_its_children_out_in_the_bound_box ... ok
+test layout::solver_parity_tests::a_group_ignores_width_and_height_variables_because_it_always_fits_its_children ... ok
+test layout::solver_parity_tests::a_hugging_frame_respects_its_own_limits ... ok
+test layout::solver_parity_tests::a_hugging_flow_line_grows_to_the_minimum_size_of_a_cross_fill_child_with_margins ... ok
+test layout::solver_parity_tests::a_hugging_counter_axis_reserves_the_margins_of_a_cross_fill_child ... ok
+test layout::solver_parity_tests::a_lone_cross_fill_child_still_reserves_its_margins_in_a_hugging_counter_axis ... ok
+test layout::solver_parity_tests::a_flow_line_shrinks_back_around_a_cross_fill_child_with_margins ... ok
+test layout::solver_parity_tests::align_self_children_sit_at_literal_cross_axis_positions_in_flow_frames ... ok
+test layout::solver_parity_tests::a_lone_cross_fill_child_without_margins_keeps_its_natural_size_in_wrapped_and_flow_lines ... ok
+test layout::solver_parity_tests::a_hugging_frame_ignores_width_and_height_variables_so_siblings_sit_behind_the_hugged_size ... ok
+test layout::solver_parity_tests::a_margined_stretch_child_holds_a_hugging_line_open_by_its_margins_and_minimum_only ... ok
+test layout::solver_parity_tests::an_imported_stretch_child_made_fixed_on_the_counter_axis_stops_stretching ... ok
+test layout::solver_parity_tests::align_self_positions_the_margin_box_of_a_child_in_the_line ... ok
+test layout::solver_parity_tests::child_minimums_raise_natural_sizes_and_cross_fill_respects_maximums ... ok
+test layout::solver_parity_tests::child_limits_clamp_the_distributed_size_and_siblings_follow ... ok
+test layout::solver_parity_tests::auto_layout_child_margins_shift_positions_and_expand_hug_frames_across_all_solvers ... ok
+test layout::solver_parity_tests::fixed_frame_below_its_minimum_lays_out_in_the_clamped_size ... ok
+test layout::solver_parity_tests::fill_children_share_free_space_by_grow_weight ... ok
+test layout::solver_parity_tests::grid_auto_child_before_a_pinned_child_flows_around_it ... ok
+test layout::solver_parity_tests::grid_child_aligns_horizontally_and_vertically_within_its_cell ... ok
+test layout::solver_parity_tests::grid_child_pinned_to_a_missing_column_falls_back_to_a_free_cell_in_its_row ... ok
+test layout::solver_parity_tests::fill_siblings_redistribute_space_after_min_or_max_clamping_freeze_loop ... ok
+test layout::solver_parity_tests::grid_child_alignment_centres_the_margin_box_inside_its_cell ... ok
+test layout::solver_parity_tests::grid_child_with_auto_alignment_inherits_the_frame_alignment_on_each_axis ... ok
+test layout::solver_parity_tests::grid_clamps_child_sizes_when_sizing_hug_columns_and_auto_rows ... ok
+test layout::solver_parity_tests::grid_child_larger_than_its_cell_overflows_like_the_flow_cross_axis ... ok
+test layout::solver_parity_tests::grid_fixed_row_tracks_set_the_row_height ... ok
+test layout::solver_parity_tests::grid_fixed_child_spanning_rows_keeps_its_size ... ok
+test layout::solver_parity_tests::grid_honors_explicit_cells_and_fixed_children_keep_their_own_size ... ok
+test layout::solver_parity_tests::grid_frame_raised_by_its_minimum_shares_the_extra_width_between_flex_columns ... ok
+test layout::solver_parity_tests::grid_row_span_does_not_inflate_rows_that_already_hold_it ... ok
+test layout::solver_parity_tests::grid_overlapping_row_spans_size_rows_the_same_when_the_tall_span_is_lower ... ok
+test layout::solver_parity_tests::grid_locked_children_place_after_pinned_ones_and_before_auto_ones ... ok
+test layout::solver_parity_tests::grid_spans_and_hugging_frame_agree ... ok
+test layout::solver_parity_tests::grid_overlapping_row_spans_size_rows_independent_of_child_order ... ok
+test layout::solver_parity_tests::grid_stretches_only_fill_children_across_their_cell ... ok
+test layout::solver_parity_tests::grid_row_spans_of_different_lengths_size_rows_independent_of_child_order ... ok
+test layout::solver_parity_tests::grid_overlapping_row_spans_keep_content_below_in_place_for_every_child_order ... ok
+test layout::solver_parity_tests::hugging_cross_axis_is_sized_by_a_plain_sibling_even_when_it_is_flat ... ok
+test layout::solver_parity_tests::hugging_cross_axis_is_sized_by_a_non_stretch_sibling_when_there_is_one ... ok
+test layout::solver_parity_tests::hugging_cross_axis_is_floored_by_the_minimum_of_a_stretching_child ... ok
+test layout::solver_parity_tests::hugging_cross_axis_keeps_a_lone_stretch_childs_natural_size ... ok
+test layout::solver_parity_tests::hugging_cross_axis_raised_by_its_minimum_aligns_children_in_the_raised_box ... ok
+test layout::solver_parity_tests::hugging_cross_axis_shrinks_back_when_the_tallest_plain_sibling_shrinks ... ok
+test layout::solver_parity_tests::hugging_cross_axis_stretches_every_stretch_child_to_the_tallest_natural_size ... ok
+test layout::solver_parity_tests::hugging_frame_raised_by_its_minimum_centers_children_in_the_raised_box ... ok
+test layout::solver_parity_tests::plain_fill_weighs_one_next_to_a_grow_child ... ok
+test layout::solver_parity_tests::nested_container_resized_by_parent_fill_resolves_its_own_children ... ok
+test layout::solver_parity_tests::hugging_cross_axis_treats_a_fill_only_child_like_a_stretch_child ... ok
+test layout::solver_parity_tests::only_the_hugging_axis_of_a_frame_ignores_its_variable_the_fixed_axis_keeps_it ... ok
+test layout::solver_parity_tests::vertical_frame_raised_by_its_minimum_centers_children_along_the_main_axis ... ok
+test layout::solver_parity_tests::variable_bound_width_gap_and_padding_under_non_default_mode ... ok
+test layout::solver_parity_tests::wrapped_counter_space_between_spreads_lines_edge_to_edge ... ok
+test layout::solver_parity_tests::space_around_and_evenly_agree_with_free_space ... ok
+test layout::solver_parity_tests::space_around_and_evenly_overflow_pack_from_the_start_ignoring_item_spacing ... ok
+test layout::solver_parity_tests::wrapped_children_flow_into_lines_in_every_solver ... ok
+test layout::solver_parity_tests::wrapped_hug_cross_and_counter_align_agree ... ok
+test layout::solver_parity_tests::version_0_with_stroke_included_adds_stroke_inset_while_version_1_keeps_borders_inside_the_box ... ok
+test layout::solver_parity_tests::wrapped_space_between_agrees_with_counter_align_content ... ok
+test layout::tests::constraints_on_resize ... ok
+test layout::tests::counter_space_between_spreads_wrapped_horizontal_lines ... ok
+test layout::tests::counter_space_between_keeps_the_counter_spacing_as_a_minimum ... ok
+test layout::tests::counter_space_between_spreads_wrapped_vertical_columns ... ok
+test layout::tests::counter_space_between_with_a_single_line_stays_at_the_start ... ok
+test layout::tests::cross_fill_stretches ... ok
+test layout::tests::editor_no_longer_skips_rotated_children ... ok
+test layout::tests::editor_and_importer_call_the_shared_pass ... ok
+test layout::tests::empty_hug_collapses_to_padding ... ok
+test layout::tests::fill_children_share_space ... ok
+test layout::tests::counter_space_between_with_three_unequal_lines ... ok
+test layout::tests::applies_to_document_and_hugs ... ok
+test layout::tests::group_fit_follows_children ... ok
+test layout::tests::horizontal_start_fixed ... ok
+test layout::tests::hug_both_axes ... ok
+test layout::tests::space_around_and_evenly_fall_back_to_start_when_items_overflow ... ok
+test layout::tests::space_around_and_evenly_center_a_single_item ... ok
+test layout::tests::gap_bound_to_a_variable_follows_the_mode ... ok
+test layout::tests::space_around_applies_to_each_wrapped_line ... ok
+test layout::tests::space_between ... ok
+test layout::tests::apply_constraints_scales_rotated_vector_geometry_and_reaches_deep_children ... ok
+test layout::tests::space_around_gives_each_item_equal_space_on_both_sides ... ok
+test layout::tests::space_around_respects_padding_and_ignores_the_fixed_gap ... ok
+test layout::tests::vertical_center_alignment ... ok
+test layout::tests::space_evenly_makes_every_gap_equal_edges_included ... ok
+test layout::tests::vertical_wrap_flows_down_then_into_new_columns ... ok
+test layout::tests::vertical_wrap_hugs_the_columns_across ... ok
+test layout::tests::vertical_wrap_one_item_taller_than_the_frame_gets_its_own_column ... ok
+test layout::tests::vertical_wrap_with_zero_counter_spacing_packs_columns ... ok
+test layout::tests::wrap_breaks_lines ... ok
+test layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks ... FAILED
+test layout::solver_parity_tests::twelve_column_grid_lays_out_correctly_and_old_eight_track_json_loads ... ok
+test agent_busy_frames::tests::auto_layout_parent_inserts_the_copy_as_the_next_sibling ... ok
+test decks::tests::slide_order_and_layout_restore_together_on_undo ... ok
+test canvas::grids::tests::layout_grids_paint_parents_beneath_children_and_lower_siblings_beneath_upper_ones ... ok
+test layout::text_refit_tests::layout_after_a_late_font_matches_the_new_measure ... ok
+test layout::text_refit_tests::editing_wrapped_text_refits_its_height ... ok
+test layout_snapshot::tests::a_banded_widget_ignores_width_changes_outside_its_band ... ok
+test layout_snapshot::tests::a_control_growing_left_under_an_overlapping_row_keeps_g3_order ... ok
+test layout_snapshot::tests::a_control_moving_into_another_row_fails_g3 ... ok
+test layout::text_refit_tests::typing_the_w_field_refits_wrapped_fill_text ... ok
+test layout_snapshot::tests::centred_bar_widening_by_12_passes_with_anchor_x_centre ... ok
+test layout::text_refit_tests::fractional_frame_width_still_matches_the_measured_lines ... ok
+test layout_snapshot::tests::centred_growth_with_an_equal_centre_keeps_g3_order ... ok
+test layout_snapshot::tests::cumulative_shift_is_derived_not_a_range ... ok
+test layout::tests::text_estimate_scales_with_content ... ok
+test layout_snapshot::tests::derived_shift_covers_left_right_and_bottom_anchors ... ok
+test layout_snapshot::tests::equal_centres_with_half_point_y_jitter_keep_g3_order ... ok
+test layout_snapshot::tests::equally_specific_entries_fail_to_parse ... ok
+test layout_snapshot::tests::g1_allows_covered_region_y_and_h_while_keeping_x_and_w_exact ... ok
+test layout_snapshot::tests::growing_a_row_without_allow_fails_and_with_allow_passes ... ok
+test layout_snapshot::tests::g3_checks_row_name_sequence_with_underscore_for_unnamed ... ok
+test layout_snapshot::tests::gap_dy_shifts_expected_y_per_row_gap_with_half_pt_tolerance ... ok
+test layout_snapshot::tests::inspector_overflow_does_not_fail_g2 ... ok
+test layout::text_refit_tests::toggling_wrap_mode_refits_the_box ... ok
+test layout_snapshot::tests::inventory_max_delta_forgives_count_only_and_compares_shared_prefix ... ok
+test layout_snapshot::tests::layout_json_requires_screenshot ... ok
+test layout_snapshot::tests::negative_dw_or_dh_requires_r5_in_reason ... ok
+test layout::text_refit_tests::a_second_layout_pass_changes_nothing ... ok
+test layout::text_refit_tests::nested_auto_layout_hug_height_follows_the_inner_wrapped_text ... ok
+test layout_snapshot::tests::palette_growing_above_bottom_anchor_passes_with_allow ... ok
+test layout_snapshot::tests::region_wide_wildcard_entry_is_rejected ... ok
+test layout_snapshot::tests::reordering_two_buttons_fails_g3 ... ok
+test layout_snapshot::tests::row_own_dh_is_range_checked_against_covering_entry ... ok
+test layout_snapshot::tests::same_height_entries_in_disjoint_x_bands_each_cover_their_own_widgets ... ok
+test layout::text_refit_tests::a_fixed_height_frame_still_refits_wrapped_children ... ok
+test layout_snapshot::tests::overlay_names_use_areas_order_and_omit_egui_id ... ok
+test layout_snapshot::tests::sidebar_rows_growing_past_content_rows_keep_g3_order ... ok
+test layout_snapshot::tests::stale_allow_entry_fails ... ok
+test layout_snapshot::tests::stale_check_counts_covering_entries_and_runs_over_union_of_run ... ok
+test layout_snapshot::tests::swapping_two_side_by_side_buttons_in_a_merged_row_still_fails_g3 ... ok
+test layout_snapshot::tests::taller_controls_that_merge_rows_keep_g3_order ... ok
+test layout_snapshot::tests::unnamed_rows_shift_by_cumulative_row_box_dh ... ok
+test layout_snapshot::tests::widening_the_left_panel_fails_g1 ... ok
+test layout_snapshot::tests::missing_baseline_fails ... ok
+test layout_snapshot::tests::scroll_detection_uses_widget_type_scrollbar_and_maybe_in_release ... ok
+test ops::tests::auto_layout_wrap_orders_by_x ... ok
+test ops::tests::new_auto_layout_frames_created_in_studio_default_to_version_1 ... ok
+test ops::tests::imported_v0_frame_stays_v0_until_update_auto_layout_upgrades_and_relayouts_in_one_undo_step ... ok
+test ops::tests::resize_to_fit_auto_layout_frame_turns_hug_on_both_axes ... ok
+test ops::tests::resize_to_fit_fill_width_frame_in_auto_layout_parent_becomes_fixed_and_keeps_fitted_size ... ok
+test panels::layers::tests::kind_icon_maps_auto_layout_and_component_set ... ok
+test panels::layoutguide::tests::kinds_convert_and_keep_the_colour ... ok
+test panels::layoutguide::tests::auto_count_on_a_stretch_guide_draws_the_width_the_field_shows ... ok
+test panels::rail::tests::cells_follow_the_measured_rail_layout ... ok
+test ops::tests::resize_to_fit_frame_inside_auto_layout_parent_reflows_parent_and_moves_child_on_page ... ok
+test shell::columns::tests::a_nan_window_or_request_gives_a_usable_layout ... ok
+test panels::prototype::tests::ui3_prototype_assets_and_right_header_layout ... ok
+
+running 1 test
+
+running 1 test
+test font_refit::tests::guards::a_face_landing_during_a_gesture_does_not_re_measure_a_hugging_text_the_layout_resized ... ok
+test font_refit::tests::recorded_edits::a_refit_after_a_recorded_step_makes_its_undo_solve_layout_again ... ok
+test font_refit::tests::after_edits::a_face_landing_during_a_gesture_does_not_re_measure_a_text_the_layout_resized ... ok
+test font_refit::tests::after_edits::a_parent_layout_that_widens_a_text_whose_box_is_the_stand_in_measure_records_nothing ... ok
+test layout::text_refit_tests::wrapped_fill_text_takes_the_height_of_its_solved_width_when_narrowed_and_widened ... ok
+test font_refit::tests::guards::a_text_that_a_layout_resized_between_two_slices_is_left_alone ... ok
+test shell::tests::layout_unchanged::cases_json_and_allow_json_match_spec_l_contract ... ok
+test shell::tests::layout_unchanged::cases_json_has_no_old_fixture ... ok
+test layout_snapshot::tests::snapshot_reports_every_region_of_the_editor ... ok
+test layout_snapshot::tests::home_is_deterministic_with_fixed_clock ... ok
+test shell::tests::home::home_layout_regions_unchanged ... ok
+test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... ok
+test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+test layout_snapshot::tests::layout_json_matches_headless_snapshot ... ok
+test shell::tests::auto_layout_shortcut_wraps ... ok
+test agent_turn_ledger::tests::revert_undoes_earlier_step_after_intervening_auto_layout_reflow ... ok
+test shell::tests::layout_unchanged::new_named_widget_is_reported_not_failed ... ok
+test shell::tests::layout_unchanged::panel_presets::cli_accepts_panel_comments ... ok
+test shell::tests::assets_thumbs::grid_toggle_switches_layout_and_keeps_rows_draggable ... ok
+test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+test agent_turn_ledger::tests::user_drag_of_auto_layout_frame_between_two_agent_writes_survives_revert ... ok
+test shell::tests::layout_unchanged::panel_presets::comments_panel_with_no_thread_opens_comment_mode_only ... ok
+test shell::tests::layout_unchanged::panel_presets::comments_panel_opens_the_first_unresolved_thread_in_paint_order ... ok
+test shell::tests::layout_unchanged::prep_helpers_populate_missing_starter_states ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_opens_the_selected_nodes_first_reaction ... ok
+test shell::tests::layout_unchanged::unblessed_cases_file_fails_the_gate ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_with_no_reaction_opens_the_prototype_tab_only ... ok
+test shell::tests::layout_unchanged::panel_presets::interaction_panel_without_a_reacting_selection_picks_the_first_reaction_in_paint_order ... ok
+test shell::tests::dragging_inside_an_auto_layout_frame_reorders_children ... ok
+test shell::tests::dragging_out_of_an_auto_layout_frame_leaves_the_flow ... ok
+test shell::tests::layout_unchanged::sim_loads_starter_and_seed_library_at_seeds_starter_not_showcase ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w400 ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w709 ... ok
+test shell::tests::inspector_button_and_object_menu_upgrade_auto_layout_from_v0_to_v1 ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w469 ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w468 ... ok
+test shell::tests::narrow_window_layout::agents_panel_board_w710 ... ok
+test shell::tests::narrow_window_layout::agents_panel_doc_w400 ... ok
+test shell::tests::narrow_window_layout::board_popovers::the_brush_popover_of_the_toolbar_survives_a_window_narrower_than_itself ... ok
+test shell::tests::narrow_window_layout::agents_panel_doc_w709 ... ok
+test shell::tests::narrow_window_layout::agents_panel_doc_w469 ... ok
+test shell::tests::narrow_window_layout::agents_panel_doc_w710 ... ok
+test shell::tests::layout_guide_section_edits_the_grids_of_a_frame ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w400 ... ok
+test shell::tests::leave_prompt_edges::a_press_on_an_auto_layout_bar_that_has_not_moved_opens_no_inline_editor_behind_the_question ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w710 ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w469 ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w709 ... ok
+test shell::tests::narrow_window_layout::tools_panel_board_w468 ... ok
+test shell::tests::narrow_window_layout::tools_panel_doc_w400 ... ok
+test shell::tests::narrow_window_layout::board_popovers::the_shape_popover_of_the_selection_bar_survives_a_window_narrower_than_itself ... ok
+test shell::tests::narrow_window_layout::tools_panel_doc_w469 ... ok
+test shell::tests::narrow_window_layout::tools_panel_doc_w709 ... ok
+test shell::tests::overlays_chrome_layout::command_bar_keeps_its_height_when_every_row_fits ... ok
+test shell::tests::overlays_chrome_layout::command_bar_scrolls_the_selected_row_into_view ... ok
+test shell::tests::narrow_window_layout::tools_panel_doc_w710 ... ok
+test shell::tests::overlays_chrome_layout::command_bar_shows_hover_apart_from_the_selected_row ... ok
+test shell::tests::overlays_chrome_layout::command_field_holds_no_permanent_focus_ring ... ok
+test shell::tests::overlays_chrome_layout::command_bar_stays_above_the_toolbar_at_the_minimum_window ... ok
+test shell::tests::overlays_chrome_layout::comment_message_dots_stay_clear_of_the_message_text ... ok
+test shell::tests::palette_autofix_undo::a_fix_that_solves_layout_another_edit_left_queued_does_not_claim_it_as_its_own ... ok
+test shell::tests::agent_turn_card_scroll::ac05_three_row_card_has_no_scrollbar_and_preserves_base_layout ... ok
+test shell::tests::overlays_chrome_layout::dialog_body_text_is_text_sm ... ok
+test shell::tests::overlays_chrome_layout::dialog_footer_sits_a_modal_inset_inside_a_borderless_frame ... ok
+test shell::tests::overlays_chrome_layout::save_version_dialog_text_is_text_sm ... ok
+test shell::tests::overlays_chrome_layout::present_link_prompt_is_a_sixty_pixel_card ... ok
+test shell::tests::overlays_chrome_layout::import_path_prompt_paints_its_hint_as_a_placeholder ... ok
+test shell::tests::overlays_chrome_layout::context_menu_and_layer_picker_rows_are_menu_items ... ok
+test shell::tests::overlays_chrome_layout::deck_mode_bar_keeps_its_own_button_look ... ok
+test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+test shell::tests::relayout_budget::undo_and_redo_of_an_editor_widening_of_a_deep_nest_restore_every_frame_at_once ... ok
+test shell::tests::relayout_budget::an_export_reads_the_finished_layout ... ok
+test shell::tests::relayout_budget::the_canvas_follows_the_lazy_steps_on_every_frame ... ok
+test shell::tests::relayout_budget::saving_an_external_file_writes_the_finished_layout ... ok
+test shell::tests::relayout_budget::sync_live_file_context_waits_for_pending_relayout_to_drain ... ok
+test shell::tests::undo_layout_epoch::a_scrub_and_an_edit_opened_after_the_tail_drained_are_still_recorded_and_undo_exactly ... ok
+test shell::tests::undo_layout_epoch::a_scrub_that_sees_a_tail_drain_is_not_recorded_and_undoes_to_a_consistent_nest ... ok
+test shell::tests::undo_layout_epoch::a_tx_kept_open_while_a_tail_drains_is_not_recorded_and_undoes_to_a_consistent_nest ... ok
+test shell::tests::undo_layout_epoch::a_writer_outside_the_history_that_reports_itself_leaves_an_open_edit_or_scrub_unrecorded ... ok
+test shell::tests::undo_layout_epoch::an_edit_that_only_issues_commands_is_not_recorded_when_a_tail_drains_before_it_commits ... ok
+test terminal::tests::figma_desktop_agents_side_panel_renders_and_passes_layout_lint ... ok
+test showcase::tests::auto_layout_content_fits_inside_fixed_frames ... ok
+test variables::tests::changing_a_variable_reflows_auto_layout_in_the_same_undo_step ... ok
+test vecops::tests::offset_path_fits_the_shape_to_a_layout_slot_that_clamps_its_size ... ok
+test vecops::tests::offset_path_refits_a_hugging_auto_layout_parent ... ok
+test vecops::tests::offset_path_reflows_the_auto_layout_siblings_in_the_same_undo_step ... ok
+test vecops::tests::text_in_auto_layout_keeps_fixed_size_after_relayout_and_redo_matches_commit ... ok
+test widgets::menu::tests::focus_ring_is_inside_the_rect_and_does_not_shift_layout ... ok
+test widgets::menu::tests::menu_height_is_the_height_of_the_panel_the_layout_gives_the_items ... ok
+test shell::tests::relayout_budget::a_saved_file_holds_the_finished_layout_not_the_queued_one ... ok
+test shell::tests::relayout_budget::a_one_step_deferral_is_finished_before_paint_and_never_toasts ... ok
+test shell::tests::relayout_budget::undo_and_redo_finish_the_queue_and_retire_the_notice ... ok
+test shell::tests::relayout_budget::viewing_a_version_writes_the_finished_layout_to_disk_first ... ok
+test shell::tests::resized_shape_geometry::a_fill_union_in_an_auto_layout_scales_its_operands_with_its_slot ... ok
+test shell::tests::relayout_budget::closing_the_window_saves_the_finished_layout ... ok
+test shell::tests::resized_shape_geometry::a_fill_vector_in_an_auto_layout_scales_with_its_slot ... ok
+test shell::tests::undo_exact_layout::an_agent_edit_step_is_not_recorded_so_its_undo_keeps_solving_layout ... ok
+test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+test shell::tests::undo_exact_layout::undo_and_redo_of_a_main_component_text_edit_move_nothing_on_any_page ... ok
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4223 filtered out; finished in 12.46s
+
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4223 filtered out; finished in 12.54s
+
+test layout_snapshot::tests::agent_cases_do_not_depend_on_installed_clis ... ok
+test terminal::tests::sim_approval_card_and_permissions_modal_pass_layout_lint ... ok
+test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+
+failures:
+
+---- layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks stdout ----
+
+thread 'layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks' (81040522) panicked at crates/designos-app/src/layout.rs:712:9:
+assertion `left == right` failed
+  left: (220.0, 60.0)
+ right: (220.0, 0.0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    layout::tests::seven_items_in_3_col_grid_auto_rows_and_auto_tracks
+
+test result: FAILED. 256 passed; 1 failed; 0 ignored; 0 measured; 3967 filtered out; finished in 16.71s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -1,0 +1,65 @@
+# mutant C: only the T/B edge branch back to signed sx = sy (expect red)
+# head: 8ac06082b3733e5be7d6949fbf0cf2112feecbe3
+# vector.rs diff vs HEAD: 1 file changed, 1 insertion(+), 1 deletion(-)
+# cmd: cargo test -p designos-app --bin designos --locked -- shell::tests::vector
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-477-vector-scale-shift/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.74s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 37 tests
+test shell::tests::vector::hovering_a_region_highlights_it ... ok
+test shell::tests::vector::an_open_pen_path_stays_open ... ok
+test shell::tests::vector::alt_drag_lassos_the_vertices_it_encloses ... ok
+test shell::tests::vector::double_clicking_inside_a_group_selects_the_child_before_editing_it ... ok
+test shell::tests::vector::double_clicking_a_rectangle_enters_vertex_editing ... ok
+test shell::tests::vector::alt_click_deletes_a_region ... ok
+test shell::tests::vector::dragging_across_regions_merges_them_into_one_shape ... ok
+test shell::tests::vector::flatten_merges_a_boolean_group_into_one_vector ... ok
+test shell::tests::vector::clicking_a_region_extracts_it_and_cuts_the_shapes_around_it ... ok
+test shell::tests::vector::marquee_selects_vertices_and_a_click_on_empty_space_clears ... ok
+test shell::tests::vector::dragging_a_selected_vertex_of_a_multi_point_selection_moves_the_whole_selection ... ok
+test shell::tests::vector::flatten_a_single_vector_bakes_its_corner_radii ... ok
+test shell::tests::vector::join_closes_two_selected_endpoints_with_ctrl_j ... ok
+test shell::tests::vector::editing_a_child_of_a_boolean_group_in_place_then_flattening ... ok
+test shell::tests::vector::ctrl_drag_bends_a_segment_in_one_undo_step ... ok
+test shell::tests::vector::leaving_without_edits_keeps_the_shapes_and_switching_tools_commits ... ok
+test shell::tests::vector::outline_stroke_keeps_a_filled_shape_and_adds_the_outline_above ... ok
+test shell::tests::vector::simplify_path_from_the_menu_removes_nodes ... ok
+test shell::tests::vector::shift_keeps_pen_segments_on_45_degree_steps ... ok
+test shell::tests::vector::the_shape_builder_fixture_hovers_the_lens ... ok
+test shell::tests::vector::outline_stroke_turns_the_stroke_into_a_filled_vector ... ok
+test shell::tests::vector::alt_shift_dragging_an_edge_scale_handle_across_the_centre_mirrors_only_the_dragged_axis ... ok
+test shell::tests::vector::the_pencil_keeps_an_open_stroke_open ... ok
+test shell::tests::vector::the_vector_edit_fixture_shows_the_corner_radius_field ... ok
+test shell::tests::vector::the_pen_closes_the_path_on_its_first_point ... ok
+test shell::tests::vector::the_shape_builder_needs_overlapping_shapes_selected ... ok
+test shell::tests::vector::the_pencil_smooths_a_wobbly_circle_into_a_closed_curve ... ok
+test shell::tests::vector::scaling_selected_points_bounding_box_scales_only_selected_points ... ok
+test shell::tests::vector::alt_shift_dragging_an_edge_scale_handle_scales_uniformly_about_the_centre ... ok
+test shell::tests::vector::the_paint_bucket_fills_and_unfills_an_enclosed_area ... ok
+test shell::tests::vector::the_bend_tool_pulls_handles_out_of_a_vertex ... ok
+test shell::tests::vector::the_vertex_inspector_offers_cap_and_handle_modes_and_commands ... ok
+test shell::tests::vector::the_vertex_inspector_edits_the_corner_radius_as_one_undo_step ... ok
+test shell::tests::vector::vertices_move_with_the_arrow_keys_and_delete_removes_them ... ok
+test shell::tests::vector::shift_dragging_an_edge_scale_handle_past_the_anchor_mirrors_only_the_dragged_axis ... FAILED
+test shell::tests::vector::hovering_and_dragging_vector_scale_box_handles_reports_resize_cursors ... ok
+test shell::tests::vector::shift_dragging_edge_scale_handles_locks_the_aspect_ratio_and_undoes_in_one_step ... ok
+
+failures:
+
+---- shell::tests::vector::shift_dragging_an_edge_scale_handle_past_the_anchor_mirrors_only_the_dragged_axis stdout ----
+
+thread 'shell::tests::vector::shift_dragging_an_edge_scale_handle_past_the_anchor_mirrors_only_the_dragged_axis' (82128899) panicked at crates/designos-app/src/shell/tests/vector.rs:416:9:
+Shift+T past the bottom edge: vertex 0 should be at Vec2 { x: 300.0, y: 1000.0 }, got Vec2 { x: 400.00003, y: 1000.00006 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::vector::shift_dragging_an_edge_scale_handle_past_the_anchor_mirrors_only_the_dragged_axis
+
+test result: FAILED. 36 passed; 1 failed; 0 ignored; 0 measured; 4192 filtered out; finished in 8.83s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant_rc=101
