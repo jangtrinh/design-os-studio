@@ -3418,111 +3418,146 @@ mod tests {
         fb
     }
 
+    /// The fill picker of a selected rectangle in OKLCH, drawn by the software rasterizer; the OKLCH field is focused.
+    struct HeadlessPicker {
+        app: crate::app::App,
+        ctx: egui::Context,
+        atlas: std::collections::HashMap<egui::TextureId, image::RgbaImage>,
+        ok_id: Id,
+    }
+
+    impl HeadlessPicker {
+        const SCREEN: Vec2 = Vec2::new(500.0, 900.0);
+
+        /// Opens the picker on a `52, 120, 200` fill with the OKLCH field focused, its caret at `caret`, holding `text`
+        /// (the field's own text when `None`).
+        fn open(text: Option<&str>, caret: usize) -> Self {
+            let mut doc = designos_doc::Document::new("oklch-render");
+            let page = doc.add_page("Page 1");
+            let mut app = crate::app::App::new(doc);
+            app.page = page;
+            let rect_id = app.doc.alloc_id();
+            let mut node = designos_doc::Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0));
+            node.fills = vec![Paint::solid(Color::rgb(52, 120, 200))];
+            let rect_id = app.doc.insert(page, node).unwrap();
+            app.selection = vec![rect_id];
+            let mut h = Self { app, ctx: test_ctx(), atlas: std::collections::HashMap::new(), ok_id: Id::new("color-picker").with(("txt", "picker-ok")) };
+
+            let _ = h.frame(vec![]);
+            let sw_rect = h.ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "sw:false:0".to_string())))).expect("fill swatch");
+            let _ = h.frame(vec![egui::Event::PointerMoved(sw_rect.center())]);
+            for pressed in [true, false] {
+                let _ = h.frame(vec![egui::Event::PointerButton {
+                    pos: sw_rect.center(),
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                }]);
+            }
+            h.app.props.picker.as_mut().expect("picker open").state.fmt = Fmt::Oklch;
+            let _ = h.frame(vec![]);
+            h.ctx.memory_mut(|m| m.request_focus(h.ok_id));
+            let _ = h.frame(vec![]);
+            let _ = h.frame(vec![]);
+            if let Some(text) = text {
+                h.ctx.data_mut(|d| d.insert_temp(h.ok_id, text.to_string()));
+            }
+            let mut state = egui::widgets::text_edit::TextEdit::load_state(&h.ctx, h.ok_id).unwrap_or_default();
+            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(caret))));
+            state.store(&h.ctx, h.ok_id);
+            h
+        }
+
+        fn frame(&mut self, events: Vec<egui::Event>) -> Vec<egui::epaint::ClippedShape> {
+            let region = Rect::from_min_size(Pos2::new(260.0, 0.0), Vec2::new(240.0, 900.0));
+            let raw = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Self::SCREEN)), events, ..Default::default() };
+            let app = &mut self.app;
+            let out = self.ctx.run_ui(raw, |ui| crate::panels::properties::show(app, ui, region));
+            apply_textures_delta(&mut self.atlas, &out.textures_delta);
+            out.shapes
+        }
+
+        fn press(&mut self, key: egui::Key) {
+            let _ = self.frame(vec![egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }]);
+        }
+
+        /// The whole window and the picker panel cut out of it, for the frame that drew `shapes`.
+        fn capture(&self, shapes: Vec<egui::epaint::ClippedShape>) -> (image::RgbaImage, image::RgbaImage) {
+            let picker_rect = self.ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "picker".to_string())))).expect("picker rect");
+            let full = rasterize_shapes(&self.ctx, shapes, &self.atlas, Self::SCREEN.x as u32, Self::SCREEN.y as u32);
+            let crop = image::imageops::crop_imm(
+                &full,
+                picker_rect.min.x.max(0.0) as u32,
+                picker_rect.min.y.max(0.0) as u32,
+                picker_rect.width() as u32,
+                picker_rect.height() as u32,
+            )
+            .to_image();
+            (full, crop)
+        }
+    }
+
+    /// Saves the picker crops under `before_name` / `after_name` when `DESIGNOS_PICKER_EVIDENCE_DIR` is set, and the
+    /// whole windows (`window-` in front of the name) when `DESIGNOS_PICKER_FULL_DIR` is set too.
+    fn save_headless_picker_evidence(
+        before: &(image::RgbaImage, image::RgbaImage),
+        after: &(image::RgbaImage, image::RgbaImage),
+        before_name: &str,
+        after_name: &str,
+    ) {
+        let Ok(ev_dir) = std::env::var("DESIGNOS_PICKER_EVIDENCE_DIR") else { return };
+        let ev = std::path::Path::new(&ev_dir);
+        before.1.save(ev.join(before_name)).expect("save before crop");
+        after.1.save(ev.join(after_name)).expect("save after crop");
+        if let Ok(full_dir) = std::env::var("DESIGNOS_PICKER_FULL_DIR") {
+            let fd = std::path::Path::new(&full_dir);
+            before.0.save(fd.join(format!("window-{before_name}"))).expect("save full before");
+            after.0.save(fd.join(format!("window-{after_name}"))).expect("save full after");
+        }
+    }
+
     #[test]
     fn headless_picker_render_oklch_before_and_after_three_arrowup_on_h() {
-        let mut doc = designos_doc::Document::new("oklch-render");
-        let page = doc.add_page("Page 1");
-        let mut app = crate::app::App::new(doc);
-        app.page = page;
-        let rect_id = app.doc.alloc_id();
-        let mut node = designos_doc::Node::rectangle(rect_id, designos_doc::Rect::new(0.0, 0.0, 100.0, 100.0));
-        node.fills = vec![Paint::solid(Color::rgb(52, 120, 200))];
-        let rect_id = app.doc.insert(page, node).unwrap();
-        app.selection = vec![rect_id];
-
-        let ctx = test_ctx();
-        let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(500.0, 900.0));
-        let region = Rect::from_min_size(Pos2::new(260.0, 0.0), Vec2::new(240.0, 900.0));
-        let mut atlas = std::collections::HashMap::new();
-        let run_frame = |app: &mut crate::app::App,
-                         atlas: &mut std::collections::HashMap<egui::TextureId, image::RgbaImage>,
-                         events: Vec<egui::Event>|
-         -> Vec<egui::epaint::ClippedShape> {
-            let raw = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
-            let out = ctx.run_ui(raw, |ui| crate::panels::properties::show(app, ui, region));
-            apply_textures_delta(atlas, &out.textures_delta);
-            out.shapes
-        };
-
-        // Open fill picker in OKLCH mode
-        let _ = run_frame(&mut app, &mut atlas, vec![]);
-        let sw_rect = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "sw:false:0".to_string())))).expect("fill swatch");
-        let _ = run_frame(&mut app, &mut atlas, vec![egui::Event::PointerMoved(sw_rect.center())]);
-        for pressed in [true, false] {
-            let _ = run_frame(
-                &mut app,
-                &mut atlas,
-                vec![egui::Event::PointerButton { pos: sw_rect.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }],
-            );
-        }
-        app.props.picker.as_mut().expect("picker open").state.fmt = Fmt::Oklch;
-        let _ = run_frame(&mut app, &mut atlas, vec![]);
-
-        // Focus "picker-ok" with caret on H (char 14 of "56.93% 0.14 254.47")
-        let ok_id = Id::new("color-picker").with(("txt", "picker-ok"));
-        ctx.memory_mut(|m| m.request_focus(ok_id));
-        let _ = run_frame(&mut app, &mut atlas, vec![]);
-        {
-            let mut state = egui::widgets::text_edit::TextEdit::load_state(&ctx, ok_id).unwrap_or_default();
-            state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(14))));
-            state.store(&ctx, ok_id);
-        }
-        let shapes_before = run_frame(&mut app, &mut atlas, vec![]);
-        let (buf_before, caret_before) = picker_ok_buf_and_caret(&ctx, ok_id);
+        // Caret on H (char 14 of "56.93% 0.14 254.47").
+        let mut h = HeadlessPicker::open(None, 14);
+        let shapes = h.frame(vec![]);
+        let (buf_before, caret_before) = picker_ok_buf_and_caret(&h.ctx, h.ok_id);
         assert_eq!(buf_before, "56.93% 0.14 254.47");
         assert_eq!(caret_before, 14);
+        let before = h.capture(shapes);
 
-        let picker_rect = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "picker".to_string())))).expect("picker rect");
-        let full_before = rasterize_shapes(&ctx, shapes_before, &atlas, 500, 900);
-        let crop_before = image::imageops::crop_imm(
-            &full_before,
-            picker_rect.min.x.max(0.0) as u32,
-            picker_rect.min.y.max(0.0) as u32,
-            picker_rect.width() as u32,
-            picker_rect.height() as u32,
-        )
-        .to_image();
-
-        // Press ArrowUp 3 times on H ("254.47" -> "257.47")
         for _ in 0..3 {
-            let _ = run_frame(
-                &mut app,
-                &mut atlas,
-                vec![egui::Event::Key {
-                    key: egui::Key::ArrowUp,
-                    physical_key: Some(egui::Key::ArrowUp),
-                    pressed: true,
-                    repeat: false,
-                    modifiers: egui::Modifiers::NONE,
-                }],
-            );
+            h.press(egui::Key::ArrowUp);
         }
-        let shapes_after = run_frame(&mut app, &mut atlas, vec![]);
-        let (buf_after, caret_after) = picker_ok_buf_and_caret(&ctx, ok_id);
+        let shapes = h.frame(vec![]);
+        let (buf_after, caret_after) = picker_ok_buf_and_caret(&h.ctx, h.ok_id);
         assert_eq!(buf_after, "56.93% 0.14 257.47");
         assert_eq!(caret_after, 14);
+        let after = h.capture(shapes);
 
-        let full_after = rasterize_shapes(&ctx, shapes_after, &atlas, 500, 900);
-        let crop_after = image::imageops::crop_imm(
-            &full_after,
-            picker_rect.min.x.max(0.0) as u32,
-            picker_rect.min.y.max(0.0) as u32,
-            picker_rect.width() as u32,
-            picker_rect.height() as u32,
-        )
-        .to_image();
-        assert_eq!(crop_before.dimensions(), crop_after.dimensions());
-        assert_ne!(crop_before.as_raw(), crop_after.as_raw(), "rendered picker crop must visually change after 3 ArrowUp presses on H");
+        assert_eq!(before.1.dimensions(), after.1.dimensions());
+        assert_ne!(before.1.as_raw(), after.1.as_raw(), "rendered picker crop must visually change after 3 ArrowUp presses on H");
+        save_headless_picker_evidence(&before, &after, "picker-oklch-before-3-arrowup-h.png", "picker-oklch-after-3-arrowup-h.png");
+    }
 
-        if let Ok(ev_dir) = std::env::var("DESIGNOS_PICKER_EVIDENCE_DIR") {
-            let ev = std::path::Path::new(&ev_dir);
-            crop_before.save(ev.join("picker-oklch-before-3-arrowup-h.png")).expect("save before crop");
-            crop_after.save(ev.join("picker-oklch-after-3-arrowup-h.png")).expect("save after crop");
-            if let Ok(full_dir) = std::env::var("DESIGNOS_PICKER_FULL_DIR") {
-                let fd = std::path::Path::new(&full_dir);
-                full_before.save(fd.join("picker-oklch-before.png")).expect("save full before");
-                full_after.save(fd.join("picker-oklch-after-3-arrowup-h.png")).expect("save full after");
-            }
-        }
+    #[test]
+    fn headless_picker_render_oklab_function_in_the_oklch_field_before_and_after_arrowup_on_l() {
+        // Caret on L (char 7 of "oklab(50% 0.2 -0.1)").
+        let mut h = HeadlessPicker::open(Some("oklab(50% 0.2 -0.1)"), 7);
+        let shapes = h.frame(vec![]);
+        let (buf_before, caret_before) = picker_ok_buf_and_caret(&h.ctx, h.ok_id);
+        assert_eq!(buf_before, "oklab(50% 0.2 -0.1)");
+        assert_eq!(caret_before, 7);
+        let before = h.capture(shapes);
+
+        h.press(egui::Key::ArrowUp);
+        let shapes = h.frame(vec![]);
+        let (buf_after, caret_after) = picker_ok_buf_and_caret(&h.ctx, h.ok_id);
+        assert_eq!(buf_after, "oklab(51% 0.2 -0.1)");
+        assert_eq!(caret_after, 7);
+        let after = h.capture(shapes);
+
+        assert_ne!(before.1.as_raw(), after.1.as_raw(), "the panel must show the stepped function text and its colour");
+        save_headless_picker_evidence(&before, &after, "picker-oklch-field-oklab-function-before.png", "picker-oklch-field-oklab-function-after-arrowup-l.png");
     }
 }
