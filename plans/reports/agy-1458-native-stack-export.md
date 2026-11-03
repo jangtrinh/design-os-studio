@@ -207,3 +207,14 @@ test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; 
 - **Paint order when an out-of-flow child appears earlier in `n.children` than an in-flow child (`crates/designos-export/src/swiftui.rs:647-652,693-698`, `crates/designos-export/src/compose.rs:510-516,574-578`)**: Because all in-flow children must reside inside the single `HStack`/`VStack`/`Grid` or `Row`/`Column`/`LazyVerticalGrid` container, emitting the `ZStack`/`Box` overlay places all out-of-flow children (in their relative `n.children` paint order) after the in-flow container, as specified by Ruling 2 (`crates/designos-export/src/swiftui.rs:693-698`). If a document places an absolute child underneath in-flow siblings in `n.children` without setting `item_reverse_z_index`, the overlay still renders above the in-flow container unless `zIndex` modifiers are also emitted.
 
 Status: https://github.com/jangtrinh/design-os-studio/pull/1563 | jangtrinh/agy-1458-native-stack-export | ea679553 fix(export): emit absolute and hidden children out of stack and grid flow (#1458); 9b7c2700 fix(export): emit valid SwiftUI min/max frame overload for Fill + Fixed (#1454) | fmt=0 clippy=ok test=ok zero_fake=ok
+
+---
+
+## Correction after review round 2 (supersedes the sections above where they differ)
+
+- **Only children with `layout_child.absolute` leave the flow.** A child hidden by a boolean variable stays where it was before this change: in the stack or grid, with no offset. The round-1 text above (hidden children placed in the overlay, and the test names that asserted it) describes the first version, which the review rejected.
+- **Compose:** the inner `Row`/`Column` fills its frame (`fillMaxSize` before the padding) on non-hug axes, so arrangement and counter-axis alignment run in the frame's box.
+- **SwiftUI:** the in-flow stack fills the `ZStack` with the frame's layout alignment, and the `ZStack` is placed `.topLeading`, so absolute offsets are measured from the frame's top-left. A frame whose only children are absolute emits just the `ZStack`.
+- **Paint order:** absolute children before the first in-flow child are emitted behind the stack or grid; the rest in front, in child order.
+- **`swiftc` check:** skipped when `/usr/bin/swiftc` is missing (Linux and Windows CI); 19 of 19 SwiftUI outputs typecheck on macOS.
+- Round-2 evidence: `agy-1458-native-stack-export-evidence/r2-*` (red, green, mutants, gates, and SwiftUI `ImageRenderer` before/after renders).
