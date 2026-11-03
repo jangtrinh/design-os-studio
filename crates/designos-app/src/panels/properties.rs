@@ -378,7 +378,7 @@ pub(super) fn checkbox(ui: &mut Ui, pane: &mut Pane, key: &str, label: &str, val
 
 /// Common value of `f` over all selected nodes, or None if they differ.
 fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
-    let mut it = sel.iter().take(128).filter_map(|id| app.doc.get(*id)).map(f);
+    let mut it = sel.iter().filter_map(|id| app.doc.get(*id)).map(f);
     let first = it.next()?;
     it.all(|v| v == first).then_some(first)
 }
@@ -405,7 +405,7 @@ fn uniform_corner_radius(n: &Node) -> Option<f32> {
 }
 
 fn common_corners<T: PartialEq>(doc: &Document, ids: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
-    let mut it = ids.iter().take(128).filter_map(|id| doc.get(*id)).map(f);
+    let mut it = ids.iter().filter_map(|id| doc.get(*id)).map(f);
     let first = it.next()?;
     it.all(|v| v == first).then_some(first)
 }
