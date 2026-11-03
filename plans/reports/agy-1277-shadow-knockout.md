@@ -171,4 +171,22 @@ $ cargo test -p designos-gpu --locked --test shadow_fillless_fixture -- --test-t
 - **Remaining assumptions**: None on the five rulings; `Paint::silhouette_alpha` (`crates/designos-doc/src/paint.rs:239-245`) already returns `0.0` for `PaintKind::Solid(c)` with `c.a == 0.0`, gradients whose stops all have `color.a == 0.0`, and any paint with `opacity == 0.0`.
 - **Weakest link**: On CPU (`crates/designos-render/src/lib.rs:703-723`), applying a sibling mask inside `knockout_children` allocates two temporary `Pixmap`s (`layer` and `mask_layer`) of the shadow pixmap's dimensions just like `Renderer::draw_children` (`crates/designos-render/src/lib.rs:396-399`) does. Since the shadow pixmap is already bounded to the node's shadow bbox (`effects::drop_shadow_with` at `crates/designos-render/src/effects.rs:133-145`), this matches the existing mask allocation cost in the shadow source pass (`SilhouetteMode::Alpha`).
 
+---
+
+## Step 4 — Draft PR, Git Log & Cleanup
+
+- **Draft PR URL**: https://github.com/jangtrinh/design-os-studio/pull/1569
+- **`git log --oneline origin/main..HEAD`**:
+
+```text
+534cc2d1 fix(effects): fill-less frame shadow knockout follows what the children paint (#1277)
+```
+
+- **`ls out/cargo` after `rm -rf out/cargo`**:
+
+```text
+$ ls out/cargo
+ls: out/cargo: No such file or directory
+```
+
 Status: DONE
