@@ -1,4 +1,4 @@
-//! End-to-end SVG round-trip and CPU render parity tests for shadow blend modes (#1278).
+//! End-to-end SVG round-trip and CPU render parity tests for shadow blend modes.
 
 use designos_doc::*;
 use designos_export::{export_svg, SvgOptions};
