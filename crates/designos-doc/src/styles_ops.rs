@@ -461,12 +461,24 @@ struct VarCollectionModes<'a> {
     alias_prefix: Vec<(&'a str, &'a str)>,
 }
 
+/// Whether two alias prefixes pick the same modes for every collection except `cid`. Variables of
+/// `cid` that alias one another resolve in a single mode of `cid`, so its own entry never tells
+/// them apart.
+fn same_parent_modes(a: &[(&str, &str)], b: &[(&str, &str)], cid: &str) -> bool {
+    a.iter().filter(|(c, _)| *c != cid).eq(b.iter().filter(|(c, _)| *c != cid))
+}
+
+/// The collections `start_id` resolves through (itself and every alias target, at most 32
+/// variables), each with the parent modes that lead to it. The flag is set when those collections
+/// cannot be probed one at a time because their modes are coupled: a `+` key picks a value from
+/// several modes at once, and a collection reached through different parent modes may resolve to
+/// a different variable under each of them.
 fn collections_for_var<'a>(doc: &'a Document, start_id: &str) -> (Vec<VarCollectionModes<'a>>, bool) {
     let mut visited_vars = std::collections::BTreeSet::new();
     let mut queue: std::collections::VecDeque<(&str, Vec<(&'a str, &'a str)>)> = std::collections::VecDeque::new();
     queue.push_back((start_id, Vec::new()));
     let mut colls: Vec<(&'a str, Vec<(&'a str, &'a str)>)> = Vec::new();
-    let mut has_multi_axis = false;
+    let mut mode_coupled = false;
 
     while let Some((id, prefix)) = queue.pop_front() {
         if visited_vars.len() >= 32 || !visited_vars.insert(id) {
@@ -474,12 +486,15 @@ fn collections_for_var<'a>(doc: &'a Document, start_id: &str) -> (Vec<VarCollect
         }
         let Some(v) = doc.variables.get(id) else { continue };
         let v_cid = v.collection.as_str();
-        if doc.variable_collections.contains_key(v_cid) && !colls.iter().any(|(c, _)| *c == v_cid) {
-            colls.push((v_cid, prefix.clone()));
+        if doc.variable_collections.contains_key(v_cid) {
+            match colls.iter().find(|(c, _)| *c == v_cid) {
+                None => colls.push((v_cid, prefix.clone())),
+                Some((_, first_prefix)) => mode_coupled |= !same_parent_modes(first_prefix, &prefix, v_cid),
+            }
         }
         for (k, val) in &v.values {
             if k.contains('+') {
-                has_multi_axis = true;
+                mode_coupled = true;
                 for part in k.split('+') {
                     for (cid, coll) in &doc.variable_collections {
                         if (coll.default_mode == part || coll.modes.iter().any(|m| m.id == part)) && !colls.iter().any(|(c, _)| *c == cid.as_str()) {
@@ -512,7 +527,7 @@ fn collections_for_var<'a>(doc: &'a Document, start_id: &str) -> (Vec<VarCollect
             out.push(VarCollectionModes { cid, modes, alias_prefix });
         }
     }
-    (out, has_multi_axis)
+    (out, mode_coupled)
 }
 
 /// Classifies how `n`'s existing own bindings interact with moving `node_key` (`style_var`) onto
@@ -539,8 +554,8 @@ fn classify_own_binding_override(doc: &Document, id: NodeId, n: &Node, node_key:
     let Some(own_var_id) = own.get(&own_key) else {
         return StyleBindingOverride::None;
     };
-    let (own_colls, own_multi) = collections_for_var(doc, own_var_id.as_str());
-    let (style_colls, style_multi) = collections_for_var(doc, style_var);
+    let (own_colls, own_coupled) = collections_for_var(doc, own_var_id.as_str());
+    let (style_colls, style_coupled) = collections_for_var(doc, style_var);
     let mut merged_colls: Vec<(&str, Vec<&str>)> = Vec::with_capacity(own_colls.len() + style_colls.len());
     for coll in own_colls.iter().chain(style_colls.iter()) {
         if !merged_colls.iter().any(|(cid, _)| *cid == coll.cid) {
@@ -551,7 +566,9 @@ fn classify_own_binding_override(doc: &Document, id: NodeId, n: &Node, node_key:
         return StyleBindingOverride::None;
     }
 
-    let shares_collection = own_multi || style_multi || own_colls.iter().any(|c1| style_colls.iter().any(|c2| c1.cid == c2.cid));
+    // Independent collections are probed one at a time (the sum of their modes). Coupled modes, and
+    // collections that both variables resolve in, need every combination (the capped product).
+    let crosses_modes = own_coupled || style_coupled || own_colls.iter().any(|c1| style_colls.iter().any(|c2| c1.cid == c2.cid));
 
     let mut any_overridden = false;
     let mut all_overridden = true;
@@ -559,7 +576,7 @@ fn classify_own_binding_override(doc: &Document, id: NodeId, n: &Node, node_key:
     let mut style_vals_agree = true;
     let mut visits = 0usize;
 
-    if !shares_collection {
+    if !crosses_modes {
         let mut probe: Vec<(&str, &str)> = Vec::new();
         if own_colls.is_empty() {
             all_overridden = false;
@@ -3500,7 +3517,10 @@ mod tests {
             },
         );
 
-        let leaf_vals: BTreeMap<String, VariableValue> = (0..8).map(|i| (format!("c3_m{i}"), VariableValue::Number(60.0))).collect();
+        // The leaf differs from the other style values only in its default mode, so the walk sees it
+        // only when it probes the leaf's collection under the parent mode that aliases to it.
+        let leaf_vals: BTreeMap<String, VariableValue> =
+            (0..8).map(|i| (format!("c3_m{i}"), VariableValue::Number(if i == 0 { 30.0 } else { 60.0 }))).collect();
         d.variables.insert(
             "v_leaf".into(),
             Variable {
@@ -3548,6 +3568,10 @@ mod tests {
         r.fills = vec![Paint::solid(Color::BLACK)];
         r.style_refs.insert("fill".into(), "Surface".into());
         r.variables.bindings.insert("fills/0".into(), "v_own".into());
+        // The layer sits where its own fill wins, away from the parent mode that aliases to the leaf.
+        r.variables.modes.insert("c1".into(), "c1_m7".into());
+        r.variables.modes.insert("c2".into(), "c2_m3".into());
+        r.variables.modes.insert("c3".into(), "c3_m5".into());
         let rid = d.insert(p, r).unwrap();
 
         d.styles.insert("Surface".into(), Style::Fill(vec![Paint::solid(Color::BLACK)]));
@@ -3568,10 +3592,17 @@ mod tests {
             visits_three_colls, 24,
             "three 8-mode collections with variables that do not share a collection must visit 8 + 8 + 8 = 24 modes, not 8^3 = 512"
         );
-        assert!(fb.is_empty());
+        assert_eq!(
+            fb,
+            vec![(rid, "fills/0/opacity".to_string())],
+            "the leaf disagrees with the other style values once it is probed under its parent mode, so the layer is counted"
+        );
         let mut h = History::default();
         run(&mut d, &mut h, Ok(cmd));
-        assert!((d.get(rid).unwrap().fills[0].opacity - 0.6).abs() < 1e-6);
+        assert!(
+            (d.get(rid).unwrap().fills[0].opacity - 0.3).abs() < 1e-6,
+            "the bake comes from the default combination, where the parent mode reaches the leaf's default mode"
+        );
     }
 
     #[test]
@@ -3857,5 +3888,211 @@ mod tests {
             &[&[("c", "dim")], &[("c", "light")], &[("c", "warm")]],
             "delete-time mode dim and other style-won modes stay exact when binding is kept",
         );
+    }
+
+    fn mode_collection(cid: &str, modes: &[&str], default_mode: &str, variables: &[&str]) -> VariableCollection {
+        VariableCollection {
+            id: cid.into(),
+            name: cid.into(),
+            modes: modes.iter().map(|m| VariableMode { id: (*m).into(), name: (*m).into() }).collect(),
+            default_mode: default_mode.into(),
+            variables: variables.iter().map(|v| (*v).into()).collect(),
+            key: None,
+            source_library_key: None,
+            extensions: Default::default(),
+        }
+    }
+
+    fn mode_variable(id: &str, collection: &str, kind: VariableKind, values: &[(&str, VariableValue)]) -> Variable {
+        Variable {
+            id: id.into(),
+            name: id.into(),
+            collection: collection.into(),
+            kind,
+            values: values.iter().map(|(mode, val)| ((*mode).to_string(), val.clone())).collect(),
+            description: String::new(),
+            scopes: vec![],
+            hidden_from_publishing: false,
+            key: None,
+            code_syntax: Default::default(),
+            extensions: Default::default(),
+            mode_extensions: Default::default(),
+        }
+    }
+
+    /// Adds a rectangle whose `fills/0` is bound to `own_var` and linked to a fill style `Surface`
+    /// that binds `fills/0/opacity` to `style_var`. `modes` are the layer's explicit mode choices.
+    fn add_surface_layer(d: &mut Document, own_var: &str, style_var: &str, modes: &[(&str, &str)]) -> NodeId {
+        let page = d.pages[0];
+        let rid = d.alloc_id();
+        let mut r = Node::rectangle(rid, Rect::new(0.0, 0.0, 100.0, 40.0));
+        r.fills = vec![Paint::solid(Color::BLACK)];
+        r.style_refs.insert("fill".into(), "Surface".into());
+        r.variables.bindings.insert("fills/0".into(), own_var.into());
+        for (cid, mid) in modes {
+            r.variables.modes.insert((*cid).into(), (*mid).into());
+        }
+        let rid = d.insert(page, r).unwrap();
+        d.styles.insert("Surface".into(), Style::Fill(vec![Paint::solid(Color::BLACK)]));
+        d.style_meta.insert(
+            "Surface".into(),
+            StyleMeta {
+                name: "Surface".into(),
+                property: StyleProperty::Fill,
+                bindings: [("fills/0/opacity".to_string(), style_var.to_string())].into_iter().collect(),
+                ..Default::default()
+            },
+        );
+        rid
+    }
+
+    fn resolved_fill_opacity(d: &Document, id: NodeId, modes: &[(&str, &str)]) -> f32 {
+        let mut doc = d.clone();
+        for (cid, mid) in modes {
+            doc.get_mut(id).unwrap().variables.modes.insert((*cid).into(), (*mid).into());
+        }
+        resolve_node(&doc, doc.get(id).unwrap()).fills[0].opacity
+    }
+
+    #[test]
+    fn delete_style_keeps_every_look_when_one_variable_aliases_to_different_variables_per_parent_mode() {
+        let mut d = Document::new("t");
+        d.add_page("p");
+        d.variable_collections.insert("theme".into(), mode_collection("theme", &["dark", "light"], "dark", &["v_fill"]));
+        d.variable_collections.insert("brand".into(), mode_collection("brand", &["a", "b"], "a", &["v_dark", "v_light"]));
+        d.variable_collections.insert("density".into(), mode_collection("density", &["d"], "d", &["v_op"]));
+        let tint = |alpha: u8| VariableValue::Color(Color::rgba(200, 100, 50, alpha));
+        d.variables.insert(
+            "v_fill".into(),
+            mode_variable(
+                "v_fill",
+                "theme",
+                VariableKind::Color,
+                &[("dark", VariableValue::Alias("v_dark".into())), ("light", VariableValue::Alias("v_light".into()))],
+            ),
+        );
+        d.variables.insert("v_dark".into(), mode_variable("v_dark", "brand", VariableKind::Color, &[("a", tint(128)), ("b", tint(128))]));
+        d.variables.insert("v_light".into(), mode_variable("v_light", "brand", VariableKind::Color, &[("a", tint(128)), ("b", tint(255))]));
+        d.variables.insert("v_op".into(), mode_variable("v_op", "density", VariableKind::Number, &[("d", VariableValue::Number(40.0))]));
+        let rid = add_surface_layer(&mut d, "v_fill", "v_op", &[("theme", "light"), ("brand", "a")]);
+
+        let before = d.clone();
+        assert!(
+            (resolved_fill_opacity(&before, rid, &[("theme", "light"), ("brand", "b")]) - 0.4).abs() < 1e-6,
+            "the translucent tint is absent in (light, b), so the style opacity of 0.4 shows there"
+        );
+        take_style_mode_visits();
+        let (cmd, fb) = delete_style_with_fallbacks(&d, "Surface").unwrap();
+        let visits = take_style_mode_visits();
+        assert!(fb.is_empty(), "the style value is the same in every mode where it wins, so nothing is reported");
+        let mut h = History::default();
+        run(&mut d, &mut h, Ok(cmd));
+
+        assert!(
+            (resolved_fill_opacity(&d, rid, &[("theme", "light"), ("brand", "b")]) - 0.4).abs() < 1e-6,
+            "the 0.4 that showed in (light, b) before the delete must survive it"
+        );
+        assert_resolved_matches_across_mode_combos(
+            &before,
+            &d,
+            rid,
+            &[
+                &[("theme", "light"), ("brand", "a")],
+                &[("theme", "light"), ("brand", "b")],
+                &[("theme", "dark"), ("brand", "a")],
+                &[("theme", "dark"), ("brand", "b")],
+            ],
+            "alias targets that differ per parent mode stay exact in every combination",
+        );
+        assert_eq!(visits, 4, "brand is reached through two variables, so the modes are crossed: 2 x 2 x 1");
+    }
+
+    #[test]
+    fn delete_style_counts_a_fallback_when_the_style_variable_aliases_to_different_variables_per_parent_mode() {
+        let mut d = Document::new("t");
+        d.add_page("p");
+        d.variable_collections.insert("own".into(), mode_collection("own", &["o1", "o2"], "o1", &["v_own"]));
+        d.variable_collections.insert("theme".into(), mode_collection("theme", &["dark", "light"], "dark", &["v_sty"]));
+        d.variable_collections.insert("brand".into(), mode_collection("brand", &["a", "b"], "a", &["v_sd", "v_sl"]));
+        let tint = |alpha: u8| VariableValue::Color(Color::rgba(200, 100, 50, alpha));
+        d.variables.insert("v_own".into(), mode_variable("v_own", "own", VariableKind::Color, &[("o1", tint(128)), ("o2", tint(255))]));
+        d.variables.insert(
+            "v_sty".into(),
+            mode_variable(
+                "v_sty",
+                "theme",
+                VariableKind::Number,
+                &[("dark", VariableValue::Alias("v_sd".into())), ("light", VariableValue::Alias("v_sl".into()))],
+            ),
+        );
+        d.variables.insert(
+            "v_sd".into(),
+            mode_variable("v_sd", "brand", VariableKind::Number, &[("a", VariableValue::Number(40.0)), ("b", VariableValue::Number(40.0))]),
+        );
+        d.variables.insert(
+            "v_sl".into(),
+            mode_variable("v_sl", "brand", VariableKind::Number, &[("a", VariableValue::Number(40.0)), ("b", VariableValue::Number(70.0))]),
+        );
+        let rid = add_surface_layer(&mut d, "v_own", "v_sty", &[("own", "o1"), ("theme", "light"), ("brand", "a")]);
+
+        let before = d.clone();
+        take_style_mode_visits();
+        let (cmd, fb) = delete_style_with_fallbacks(&d, "Surface").unwrap();
+        let visits = take_style_mode_visits();
+        assert_eq!(
+            fb,
+            vec![(rid, "fills/0/opacity".to_string())],
+            "the style value is 70 in (light, b) and 40 elsewhere where it wins, so the layer is counted"
+        );
+        let mut h = History::default();
+        run(&mut d, &mut h, Ok(cmd));
+
+        assert_eq!(d.get(rid).unwrap().variables.bindings.get("fills/0").map(String::as_str), Some("v_own"));
+        assert!(!d.get(rid).unwrap().variables.bindings.contains_key("fills/0/opacity"), "the style binding is baked, not moved");
+        assert_resolved_matches_across_mode_combos(
+            &before,
+            &d,
+            rid,
+            &[
+                &[("own", "o1"), ("theme", "light"), ("brand", "a")],
+                &[("own", "o2"), ("theme", "dark"), ("brand", "a")],
+                &[("own", "o2"), ("theme", "light"), ("brand", "a")],
+            ],
+            "the delete-time look and the modes where the style value is 40 stay exact",
+        );
+        assert_eq!(visits, 8, "the style variable reaches brand through two variables, so the modes are crossed: 2 x 2 x 2");
+    }
+
+    #[test]
+    fn delete_style_keeps_the_mode_sum_when_an_alias_chain_stays_inside_one_collection() {
+        let mut d = Document::new("t");
+        d.add_page("p");
+        let ids = |cid: &str| -> Vec<String> { (0..8).map(|i| format!("{cid}_m{i}")).collect() };
+        let (c1, c2) = (ids("c1"), ids("c2"));
+        fn as_refs(v: &[String]) -> Vec<&str> {
+            v.iter().map(String::as_str).collect()
+        }
+        d.variable_collections.insert("c1".into(), mode_collection("c1", &as_refs(&c1), "c1_m0", &["v_own"]));
+        d.variable_collections.insert("c2".into(), mode_collection("c2", &as_refs(&c2), "c2_m0", &["v_style", "v_base"]));
+        let own_vals: Vec<(&str, VariableValue)> =
+            c1.iter().enumerate().map(|(i, m)| (m.as_str(), VariableValue::Color(Color::rgba(200, 100, 50, if i == 7 { 128 } else { 255 })))).collect();
+        d.variables.insert("v_own".into(), mode_variable("v_own", "c1", VariableKind::Color, &own_vals));
+        let style_vals: Vec<(&str, VariableValue)> = c2
+            .iter()
+            .enumerate()
+            .map(|(i, m)| (m.as_str(), if i == 0 { VariableValue::Alias("v_base".into()) } else { VariableValue::Number(60.0) }))
+            .collect();
+        d.variables.insert("v_style".into(), mode_variable("v_style", "c2", VariableKind::Number, &style_vals));
+        let base_vals: Vec<(&str, VariableValue)> = c2.iter().map(|m| (m.as_str(), VariableValue::Number(60.0))).collect();
+        d.variables.insert("v_base".into(), mode_variable("v_base", "c2", VariableKind::Number, &base_vals));
+        let rid = add_surface_layer(&mut d, "v_own", "v_style", &[]);
+
+        take_style_mode_visits();
+        let (cmd, fb) = delete_style_with_fallbacks(&d, "Surface").unwrap();
+        assert_eq!(take_style_mode_visits(), 16, "an alias inside the same collection resolves in the same mode, so the walk stays 8 + 8, not 8 x 8");
+        assert!(fb.is_empty());
+        let mut h = History::default();
+        run(&mut d, &mut h, Ok(cmd));
+        assert!((d.get(rid).unwrap().fills[0].opacity - 0.6).abs() < 1e-6);
     }
 }
