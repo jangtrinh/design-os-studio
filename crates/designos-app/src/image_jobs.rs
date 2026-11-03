@@ -16,7 +16,10 @@ use crate::widgets;
 use crate::widgets::field::{self, Prefix};
 use designos_doc::{Affine, BlendMode, Command, Document, ImageScaleMode, Node, NodeId, NodeKind, Paint, PaintKind, Vec2};
 use egui::{Align2, Area, Color32, Context, Id, Key, Order, Pos2, Rect, Sense, Stroke, StrokeKind};
-use framing::{bitmap_region_to_local_rect, cut_job_bitmap, expand_refusal, frame_uv_map, local_rect_to_bitmap_region, plan_image_job_frame, ImageJobFrame};
+use framing::{
+    cut_job_bitmap, cut_to_layer, erase_overlay_local_rect, expand_refusal, frame_uv_map, local_rect_to_bitmap_region, local_rect_to_tiled_bitmap_region,
+    plan_image_job_frame, ImageJobFrame,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -144,11 +147,23 @@ mod framing {
 
     /// The pixels `[x, y, w, h]` of a `dims` bitmap that the layer-local rectangle `(p0, p1)` covers.
     pub fn local_rect_to_bitmap_region(map: &ImageUvMap, dims: (u32, u32), p0: Vec2, p1: Vec2) -> Option<[u32; 4]> {
+        bitmap_region(map, dims, p0, p1, false)
+    }
+
+    /// Like [`local_rect_to_bitmap_region`] for a tiled fill, where the bitmap repeats across the layer: a rectangle
+    /// on a later copy covers the pixels it shows of that copy. One mask is one axis-aligned rectangle, so a rectangle
+    /// that crosses a copy edge takes the whole bitmap on that axis.
+    pub fn local_rect_to_tiled_bitmap_region(map: &ImageUvMap, dims: (u32, u32), p0: Vec2, p1: Vec2) -> Option<[u32; 4]> {
+        bitmap_region(map, dims, p0, p1, true)
+    }
+
+    fn bitmap_region(map: &ImageUvMap, dims: (u32, u32), p0: Vec2, p1: Vec2, tiled: bool) -> Option<[u32; 4]> {
         let (bw, bh) = (dims.0 as f32, dims.1 as f32);
         let corners = [map.apply(p0.x, p0.y), map.apply(p1.x, p0.y), map.apply(p0.x, p1.y), map.apply(p1.x, p1.y)];
         let extent = |pick: fn(&(f32, f32)) -> f32, dim: f32| {
-            let lo = (corners.iter().map(pick).fold(f32::INFINITY, f32::min) * dim).clamp(0.0, dim);
-            let hi = (corners.iter().map(pick).fold(f32::NEG_INFINITY, f32::max) * dim).clamp(0.0, dim);
+            let lo = corners.iter().map(pick).fold(f32::INFINITY, f32::min) * dim;
+            let hi = corners.iter().map(pick).fold(f32::NEG_INFINITY, f32::max) * dim;
+            let (lo, hi) = if tiled { wrap_span(lo, hi, dim) } else { (lo.clamp(0.0, dim), hi.clamp(0.0, dim)) };
             ((hi - lo) >= 1.0).then_some((lo, hi))
         };
         let (min_x, max_x) = extent(|c| c.0, bw)?;
@@ -158,6 +173,40 @@ mod framing {
         let rw = (((max_x - min_x) - PIXEL_EPS).ceil().max(1.0) as u32).min(dims.0.saturating_sub(rx));
         let rh = (((max_y - min_y) - PIXEL_EPS).ceil().max(1.0) as u32).min(dims.1.saturating_sub(ry));
         Some([rx, ry, rw, rh])
+    }
+
+    /// A span `lo..hi` in pixels over repeating copies of a `dim`-pixel bitmap, as the pixels of the one copy it lies in.
+    /// A span a whole copy wide, or one that crosses a copy edge, is the whole bitmap.
+    fn wrap_span(lo: f32, hi: f32, dim: f32) -> (f32, f32) {
+        let copy = ((lo + PIXEL_EPS) / dim).floor();
+        if hi - lo >= dim || copy != ((hi - PIXEL_EPS) / dim).floor() {
+            (0.0, dim)
+        } else {
+            (lo - copy * dim, hi - copy * dim)
+        }
+    }
+
+    /// The corners `(p0, p1)` cut to a layer of `layer_size`.
+    pub fn cut_to_layer(layer_size: Vec2, p0: Vec2, p1: Vec2) -> (Vec2, Vec2) {
+        let (w, h) = (layer_size.x.max(1.0), layer_size.y.max(1.0));
+        let cut = |p: Vec2| Vec2::new(p.x.clamp(0.0, w), p.y.clamp(0.0, h));
+        (cut(p0), cut(p1))
+    }
+
+    /// The layer-local rectangle `(x, y, w, h)` the erase overlay draws for the mask `region`. A tiled fill draws the
+    /// dragged rectangle itself, since the mask holds one copy's pixels and its inverse would land on the first copy.
+    pub fn erase_overlay_local_rect(
+        layer_size: Vec2,
+        scale_mode: ImageScaleMode,
+        frame: &ImageJobFrame,
+        region: [u32; 4],
+        drag_local: Option<(f32, f32, f32, f32)>,
+    ) -> Option<(f32, f32, f32, f32)> {
+        if scale_mode == ImageScaleMode::Tile {
+            return drag_local;
+        }
+        let map = frame_uv_map(layer_size, scale_mode, frame)?;
+        bitmap_region_to_local_rect(&map, frame.dims(), region)
     }
 
     /// The layer-local rectangle `(x, y, w, h)` that the bitmap pixels `region` cover, or `None` when the mapping is singular.
@@ -344,6 +393,8 @@ pub struct ErasePopoverState {
     pub scale_mode: ImageScaleMode,
     /// Optional mask rectangle in exported crop pixel coordinates `[x, y, w, h]`.
     pub region: Option<[u32; 4]>,
+    /// The dragged rectangle in layer-local coordinates `(x, y, w, h)`, which a tiled fill draws as its overlay.
+    pub region_local: Option<(f32, f32, f32, f32)>,
     /// Drag start in page coordinates when drawing the mask rectangle on the canvas.
     pub drag_start_page: Option<Pos2>,
 }
@@ -550,6 +601,14 @@ fn node_fill_job_frame(doc: &Document, node: NodeId, fill_index: usize) -> Optio
     plan_image_job_frame(raw_w, raw_h, n.size, *scale_mode, params).map(|frame| (frame, *scale_mode))
 }
 
+/// A canvas drag `(start_page, cur_page)` as layer-local corners, or `None` when it is under one unit wide or tall.
+fn drag_local_corners(world: Affine, start_page: Pos2, cur_page: Pos2) -> Option<(Vec2, Vec2)> {
+    let inv = world.invert()?;
+    let p0 = inv.apply(Vec2::new(start_page.x, start_page.y));
+    let p1 = inv.apply(Vec2::new(cur_page.x, cur_page.y));
+    ((p1.x - p0.x).abs() >= 1.0 && (p1.y - p0.y).abs() >= 1.0).then_some((p0, p1))
+}
+
 /// Maps a canvas drag `(start_page, cur_page)` through `world.invert()` into the pixel grid of the bitmap `frame` sends.
 pub fn page_drag_to_image_region(
     world: Affine,
@@ -559,14 +618,21 @@ pub fn page_drag_to_image_region(
     start_page: Pos2,
     cur_page: Pos2,
 ) -> Option<[u32; 4]> {
-    let inv = world.invert()?;
-    let p0 = inv.apply(Vec2::new(start_page.x, start_page.y));
-    let p1 = inv.apply(Vec2::new(cur_page.x, cur_page.y));
-    if (p1.x - p0.x).abs() < 1.0 || (p1.y - p0.y).abs() < 1.0 {
-        return None;
-    }
+    let (p0, p1) = drag_local_corners(world, start_page, cur_page)?;
     let map = frame_uv_map(layer_size, scale_mode, frame)?;
-    local_rect_to_bitmap_region(&map, frame.dims(), p0, p1)
+    if scale_mode == ImageScaleMode::Tile {
+        let (p0, p1) = cut_to_layer(layer_size, p0, p1);
+        local_rect_to_tiled_bitmap_region(&map, frame.dims(), p0, p1)
+    } else {
+        local_rect_to_bitmap_region(&map, frame.dims(), p0, p1)
+    }
+}
+
+/// A canvas drag as the layer-local rectangle `(x, y, w, h)` cut to the layer.
+pub fn page_drag_to_local_rect(world: Affine, layer_size: Vec2, start_page: Pos2, cur_page: Pos2) -> Option<(f32, f32, f32, f32)> {
+    let (p0, p1) = drag_local_corners(world, start_page, cur_page)?;
+    let (p0, p1) = cut_to_layer(layer_size, p0, p1);
+    Some((p0.x.min(p1.x), p0.y.min(p1.y), (p1.x - p0.x).abs(), (p1.y - p0.y).abs()))
 }
 
 /// Encodes an [`image::RgbaImage`] as PNG bytes.
@@ -677,6 +743,7 @@ impl App {
             frame,
             scale_mode,
             region: None,
+            region_local: None,
             drag_start_page: None,
         });
     }
@@ -1682,6 +1749,7 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
             let cur = Pos2::new(cur_v.x, cur_v.y);
             if let Some(region) = page_drag_to_image_region(world, node_size, pop.scale_mode, &pop.frame, start, cur) {
                 pop.region = Some(region);
+                pop.region_local = page_drag_to_local_rect(world, node_size, start, cur);
             }
             if released {
                 pop.drag_start_page = None;
@@ -1690,8 +1758,7 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
     }
 
     if let Some([rx, ry, rw, rh]) = pop.region {
-        let Some((local_x, local_y, local_w, local_h)) =
-            frame_uv_map(node_size, pop.scale_mode, &pop.frame).and_then(|map| bitmap_region_to_local_rect(&map, pop.frame.dims(), [rx, ry, rw, rh]))
+        let Some((local_x, local_y, local_w, local_h)) = erase_overlay_local_rect(node_size, pop.scale_mode, &pop.frame, [rx, ry, rw, rh], pop.region_local)
         else {
             return;
         };

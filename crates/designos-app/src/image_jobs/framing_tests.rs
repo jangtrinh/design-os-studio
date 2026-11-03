@@ -402,3 +402,88 @@ mod frame_math {
         assert_eq!(expand_refusal(ImageScaleMode::Fill, &fill), None, "a quarter turn is baked into the bitmap, so Expand works");
     }
 }
+
+mod tile_erase_drag {
+    use super::super::framing::*;
+    use super::super::{page_drag_to_image_region, page_drag_to_local_rect};
+    use designos_doc::{Affine, ImageParams, ImageScaleMode, Vec2};
+    use egui::Pos2;
+
+    const WORLD: Affine = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0 };
+
+    /// An 80x80 picture tiled at `tile_scale` over a 160x160 layer.
+    fn tiled_frame(tile_scale: f32) -> ImageJobFrame {
+        let params = ImageParams { tile_scale, ..Default::default() };
+        plan_image_job_frame(80, 80, Vec2::new(160.0, 160.0), ImageScaleMode::Tile, &params).expect("a tiled fill shows its picture")
+    }
+
+    fn drag(frame: &ImageJobFrame, from: (f32, f32), to: (f32, f32)) -> Option<[u32; 4]> {
+        page_drag_to_image_region(WORLD, Vec2::new(160.0, 160.0), ImageScaleMode::Tile, frame, Pos2::new(from.0, from.1), Pos2::new(to.0, to.1))
+    }
+
+    #[test]
+    fn a_drag_on_a_later_copy_maps_to_the_pixels_of_that_copy() {
+        // The top-right copy of four shows source pixels 20..60 in the middle of its 80x80 cell.
+        assert_eq!(drag(&tiled_frame(1.0), (100.0, 20.0), (140.0, 60.0)), Some([20, 20, 40, 40]));
+        assert_eq!(drag(&tiled_frame(1.0), (20.0, 100.0), (60.0, 140.0)), Some([20, 20, 40, 40]), "bottom-left copy");
+        assert_eq!(drag(&tiled_frame(1.0), (140.0, 60.0), (100.0, 20.0)), Some([20, 20, 40, 40]), "dragged the other way");
+    }
+
+    #[test]
+    fn a_drag_across_a_tile_edge_takes_the_whole_bitmap_on_that_axis() {
+        // The vertical tile edge sits at x = 80: one mask cannot hold two wrapped intervals, so x is the whole width.
+        assert_eq!(drag(&tiled_frame(1.0), (60.0, 20.0), (100.0, 60.0)), Some([0, 20, 80, 40]));
+        assert_eq!(drag(&tiled_frame(1.0), (20.0, 60.0), (60.0, 100.0)), Some([20, 0, 40, 80]), "horizontal tile edge");
+        assert_eq!(drag(&tiled_frame(1.0), (10.0, 10.0), (150.0, 30.0)), Some([0, 10, 80, 20]), "spanning more than one copy");
+    }
+
+    #[test]
+    fn a_drag_ending_exactly_on_a_tile_edge_stays_inside_its_copy() {
+        assert_eq!(drag(&tiled_frame(1.0), (20.0, 20.0), (80.0, 60.0)), Some([20, 20, 60, 40]));
+        assert_eq!(drag(&tiled_frame(1.0), (80.0, 20.0), (120.0, 60.0)), Some([0, 20, 40, 40]), "starting on the edge");
+    }
+
+    #[test]
+    fn a_half_scale_tile_maps_a_drag_in_the_third_column_copy() {
+        // At tile scale 0.5 each copy is 40 layer units wide, so x 80..120 is the third column and y 40..80 the second row.
+        assert_eq!(drag(&tiled_frame(0.5), (90.0, 52.0), (110.0, 70.0)), Some([20, 24, 40, 36]));
+        assert_eq!(drag(&tiled_frame(0.5), (45.0, 45.0), (75.0, 75.0)), Some([10, 10, 60, 60]));
+    }
+
+    #[test]
+    fn a_drag_that_leaves_the_layer_is_cut_to_the_layer() {
+        assert_eq!(drag(&tiled_frame(1.0), (-20.0, 20.0), (40.0, 60.0)), Some([0, 20, 40, 40]));
+        assert_eq!(drag(&tiled_frame(1.0), (120.0, 100.0), (400.0, 140.0)), Some([40, 20, 40, 40]));
+    }
+
+    #[test]
+    fn a_tile_drag_under_a_pixel_is_dropped() {
+        assert_eq!(drag(&tiled_frame(1.0), (100.0, 20.0), (100.4, 60.0)), None);
+    }
+    #[test]
+    fn the_overlay_of_a_tile_drag_is_the_dragged_rectangle() {
+        let frame = tiled_frame(1.0);
+        let layer = Vec2::new(160.0, 160.0);
+        let (start, cur) = (Pos2::new(100.0, 20.0), Pos2::new(140.0, 60.0));
+        let region = page_drag_to_image_region(WORLD, layer, ImageScaleMode::Tile, &frame, start, cur).unwrap();
+        assert_eq!(region, [20, 20, 40, 40]);
+        let drag = page_drag_to_local_rect(WORLD, layer, start, cur);
+        assert_eq!(drag, Some((100.0, 20.0, 40.0, 40.0)));
+        assert_eq!(erase_overlay_local_rect(layer, ImageScaleMode::Tile, &frame, region, drag), Some((100.0, 20.0, 40.0, 40.0)), "not the first copy");
+        // The inverse of a mask that holds one copy's pixels lands on the first copy, which is why the overlay does not use it.
+        let map = frame_uv_map(layer, ImageScaleMode::Tile, &frame).unwrap();
+        let (x, y, w, h) = bitmap_region_to_local_rect(&map, frame.dims(), region).unwrap();
+        assert!((x - 20.0).abs() < 1e-3 && (y - 20.0).abs() < 1e-3 && (w - 40.0).abs() < 1e-3 && (h - 40.0).abs() < 1e-3, "{x} {y} {w} {h}");
+        // Dragged the other way and past the layer edge, the overlay is cut to the layer.
+        let drag = page_drag_to_local_rect(WORLD, layer, Pos2::new(200.0, 60.0), Pos2::new(140.0, 20.0));
+        assert_eq!(drag, Some((140.0, 20.0, 20.0, 40.0)));
+    }
+
+    #[test]
+    fn the_overlay_of_a_fit_drag_is_still_the_inverse_of_the_mask() {
+        let layer = Vec2::new(100.0, 100.0);
+        let frame = plan_image_job_frame(400, 200, layer, ImageScaleMode::Fit, &ImageParams::default()).unwrap();
+        let (x, y, w, h) = erase_overlay_local_rect(layer, ImageScaleMode::Fit, &frame, [40, 40, 200, 100], None).unwrap();
+        assert!((x - 10.0).abs() < 1e-3 && (y - 35.0).abs() < 1e-3 && (w - 50.0).abs() < 1e-3 && (h - 25.0).abs() < 1e-3, "{x} {y} {w} {h}");
+    }
+}
