@@ -1,0 +1,3 @@
+# cargo fmt --all -- --check
+# branch jangtrinh/agy-1458-native-stack-export HEAD 284444ea; modified tracked files under crates: 0
+fmt_rc=0
