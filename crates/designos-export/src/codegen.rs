@@ -697,6 +697,18 @@ pub(crate) fn solved_grid(doc: &Document, n: &Node, al: &AutoLayout) -> Option<S
     Some(SolvedGrid { widths, rows, col_gap, row_gap, pad_tl: (al_s.padding[3], al_s.padding[0]), children })
 }
 
+/// Whether any gap of the grid `n` (`itemSpacing` for columns, `counterAxisSpacing` for rows) is bound
+/// to a variable. A bound gap exists in the export even when the stored number is 0.
+pub(crate) fn grid_gap_is_bound(doc: &Document, n: &Node) -> bool {
+    ["itemSpacing", "counterAxisSpacing"].iter().any(|k| bound(doc, n, k).is_some())
+}
+
+/// Whether any side of the padding of `n` is bound to a variable. Bound padding exists in the export
+/// even when the stored number is 0.
+pub(crate) fn padding_is_bound(doc: &Document, n: &Node) -> bool {
+    ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"].iter().any(|k| bound(doc, n, k).is_some())
+}
+
 pub(crate) fn grid_row_gap_key(doc: &Document, n: &Node, al: &AutoLayout) -> &'static str {
     if bound(doc, n, "counterAxisSpacing").is_some() || al.counter_spacing > 0.0 {
         "counterAxisSpacing"
@@ -731,7 +743,7 @@ pub(crate) fn resolved_grid_col_tracks<'a>(doc: &Document, n: &Node, al: &'a Aut
     if kids.is_empty() {
         return std::borrow::Cow::Borrowed(&al.grid_col_tracks);
     }
-    let al_s = al.with_stroke(&n.stroke);
+    let al_s = solver_layout(doc, n, al);
     let own = designos_doc::layout_solver::SizeLimits::from(&n.layout_child);
     let solved = designos_doc::layout_solver::compute_grid(&al_s, n.size, own, &kids);
     if (n.size.x - solved.frame.x).abs() > 0.5 {
@@ -969,7 +981,7 @@ pub(crate) fn apply_css_vars(doc: &Document, n: &Node, lines: &mut Vec<String>) 
     }
     // padding: expand to a 4-value shorthand when any side is bound
     let sides = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
-    if sides.iter().any(|k| bound(doc, n, k).is_some()) {
+    if padding_is_bound(doc, n) {
         if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) {
             let vals: Vec<String> = sides.iter().enumerate().map(|(i, k)| b(k, Fallback::Px).unwrap_or_else(|| format!("{}px", num(al.padding[i])))).collect();
             lines.retain(|l| !l.starts_with("padding: "));
