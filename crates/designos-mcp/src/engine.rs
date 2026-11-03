@@ -2341,7 +2341,7 @@ pub fn tools() -> Vec<Value> {
     out.push(crate::tools::design_context::tool_descriptor());
     out.push(crate::tools::session_options::tool_descriptor());
     out.push(crate::tools::bootstrap::tool_definition());
-    out.extend(crate::tools::docs::tool_descriptors());
+    out.extend(crate::tools::docs_descriptors::tool_descriptors());
     for tool in &mut out {
         crate::risk::stamp_tool_json(tool);
     }
