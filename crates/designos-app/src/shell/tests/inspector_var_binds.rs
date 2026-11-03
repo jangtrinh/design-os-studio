@@ -1094,6 +1094,7 @@ fn inspector_var_binds_scope_oracle_and_per_target_fill_scopes() {
         "FRAME_FILL",
         "SHAPE_FILL",
         "TEXT_FILL",
+        "STROKE",
         "STROKE_COLOR",
         "EFFECT_COLOR",
         "EFFECT_FLOAT",
@@ -1228,10 +1229,20 @@ fn inspector_var_binds_scope_oracle_and_per_target_fill_scopes() {
 
     // 4. Style targets (`Style::Text` and `Style::Fill`): compare `style_value_rect` on `"fills/0"` (`Color`)
     //    with `scope_allows(scopes, "fills/0", Text | Rectangle)` for `TEXT_FILL`-only and `SHAPE_FILL`-only variables.
+    //    A stroke style keeps its paints and bindings under `fills/0` but its variables are scoped like layer strokes.
     s.shell.app.doc.styles.insert("Text/Oracle".into(), designos_doc::Style::Text(designos_doc::TextStyle::default()));
     s.shell.app.doc.styles.insert("Fill/Oracle".into(), designos_doc::Style::Fill(vec![]));
-    let style_targets: Vec<(&str, NodeKind)> = vec![("Text/Oracle", NodeKind::Text(Default::default())), ("Fill/Oracle", NodeKind::Rectangle)];
-    for scope in ["TEXT_FILL", "SHAPE_FILL", "FRAME_FILL", "ALL_FILLS"] {
+    s.shell.app.doc.styles.insert("Stroke/Oracle".into(), designos_doc::Style::Fill(vec![]));
+    s.shell.app.doc.style_meta.insert(
+        "Stroke/Oracle".into(),
+        designos_doc::StyleMeta { name: "Stroke/Oracle".into(), property: designos_doc::StyleProperty::Stroke, ..Default::default() },
+    );
+    let style_targets: Vec<(&str, NodeKind, &str)> = vec![
+        ("Text/Oracle", NodeKind::Text(Default::default()), "fills/0"),
+        ("Fill/Oracle", NodeKind::Rectangle, "fills/0"),
+        ("Stroke/Oracle", NodeKind::Rectangle, "strokes/0"),
+    ];
+    for scope in ["TEXT_FILL", "SHAPE_FILL", "FRAME_FILL", "ALL_FILLS", "STROKE", "STROKE_COLOR"] {
         clear_all_variables_and_bindings(&mut s.shell.app);
         let mut sstore = VariableStore::default();
         let scoll = sstore.add_collection("StyleOracle");
@@ -1243,8 +1254,8 @@ fn inspector_var_binds_scope_oracle_and_per_target_fill_scopes() {
 
         let ctx = egui::Context::default();
         let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
-            for (style_key, picker_target) in &style_targets {
-                let expected = designos_doc::scope_allows(&scopes, "fills/0", picker_target);
+            for (style_key, picker_target, scope_key) in &style_targets {
+                let expected = designos_doc::scope_allows(&scopes, scope_key, picker_target);
                 let got = crate::panels::var_bind::style_value_rect(&mut s.shell.app, ui, full, style_key, "fills/0", VariableKind::Color).width() < 88.0;
                 if got != expected {
                     mismatches.push(format!("style={style_key} scope={scope} key=fills/0: style_value_rect={got} != scope_allows={expected}"));
@@ -1259,6 +1270,81 @@ fn inspector_var_binds_scope_oracle_and_per_target_fill_scopes() {
         mismatches.len(),
         &mismatches[..mismatches.len().min(10)]
     );
+}
+
+/// Adds one colour variable per `(name, scopes)` and returns their ids in order.
+fn add_scoped_colours(app: &mut App, vars: &[(&str, &[&str])]) -> Vec<String> {
+    clear_all_variables_and_bindings(app);
+    let mut store = VariableStore::default();
+    let coll = store.add_collection("Scoped");
+    let ids: Vec<String> = vars
+        .iter()
+        .map(|(name, scopes)| {
+            let id = store.add_variable(&coll, name, VariableKind::Color).unwrap();
+            store.variables.get_mut(&id).unwrap().scopes = scopes.iter().map(|sc| sc.to_string()).collect();
+            id
+        })
+        .collect();
+    app.doc.variable_collections = store.collections;
+    app.doc.variables = store.variables;
+    ids
+}
+
+fn open_style_editor(s: &mut Sim, key: &str) {
+    s.shell.app.vars.bind_picker = None;
+    s.shell.app.props.pop = None;
+    s.shell.app.props.style_edit = Some(crate::panels::style_edit::StyleEdit {
+        key: key.into(),
+        anchor: Rect::from_min_size(Pos2::new(1200.0, 200.0), Vec2::splat(24.0)),
+        item: 0,
+        pending: None,
+    });
+    s.frame(vec![]);
+    s.frame(vec![]);
+}
+
+#[test]
+fn style_colour_picker_scopes_follow_the_style_property() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    for (key, property) in [("Border/Strong", designos_doc::StyleProperty::Stroke), ("Surface/Card", designos_doc::StyleProperty::Fill)] {
+        s.shell.app.doc.styles.insert(key.into(), Style::Fill(vec![Paint::solid(Color::BLACK)]));
+        s.shell.app.doc.style_meta.insert(key.into(), designos_doc::StyleMeta { name: key.into(), property, ..Default::default() });
+    }
+    let ids = add_scoped_colours(
+        &mut s.shell.app,
+        &[("Edge/Editor", &["STROKE"]), ("Edge/Rest", &["STROKE_COLOR"]), ("Back/All", &["ALL_FILLS"]), ("Back/Shape", &["SHAPE_FILL"])],
+    );
+
+    // A stroke style lists the stroke colours under both spellings and no fill-only colour.
+    open_style_editor(&mut s, "Border/Strong");
+    assert!(has_test_rect(&s, "style-bind:Border/Strong:fills/0"), "a stroke style with stroke colours shows its bind button");
+    s.click(s.rect_of("style-bind:Border/Strong:fills/0").center());
+    s.frame(vec![]);
+    assert!(has_test_rect(&s, "pick:Edge/Editor"), "STROKE colour is offered for a stroke style");
+    assert!(has_test_rect(&s, "pick:Edge/Rest"), "STROKE_COLOR colour is offered for a stroke style");
+    assert!(!has_test_rect(&s, "pick:Back/All"), "ALL_FILLS colour is not offered for a stroke style");
+    assert!(!has_test_rect(&s, "pick:Back/Shape"), "SHAPE_FILL colour is not offered for a stroke style");
+    s.click(s.rect_of("pick:Edge/Editor").center());
+    s.frame(vec![]);
+    let bindings = &s.app().doc.style_meta["Border/Strong"].bindings;
+    assert_eq!(bindings.get("fills/0"), Some(&ids[0]), "a stroke style stores its binding under fills/0: {bindings:?}");
+    assert!(!bindings.contains_key("strokes/0"), "{bindings:?}");
+
+    // A fill style keeps the fill colours and never lists a stroke colour.
+    open_style_editor(&mut s, "Surface/Card");
+    s.click(s.rect_of("style-bind:Surface/Card:fills/0").center());
+    s.frame(vec![]);
+    assert!(has_test_rect(&s, "pick:Back/All"), "ALL_FILLS colour is offered for a fill style");
+    assert!(has_test_rect(&s, "pick:Back/Shape"), "SHAPE_FILL colour is offered for a fill style");
+    assert!(!has_test_rect(&s, "pick:Edge/Editor"), "STROKE colour is not offered for a fill style");
+    assert!(!has_test_rect(&s, "pick:Edge/Rest"), "STROKE_COLOR colour is not offered for a fill style");
+
+    // A document whose only colour carries the editor spelling still reaches the stroke style picker.
+    add_scoped_colours(&mut s.shell.app, &[("Edge/Editor", &["STROKE"])]);
+    open_style_editor(&mut s, "Border/Strong");
+    assert!(has_test_rect(&s, "style-bind:Border/Strong:fills/0"), "a lone STROKE colour makes the stroke style bind button appear");
+    open_style_editor(&mut s, "Surface/Card");
+    assert!(!has_test_rect(&s, "style-bind:Surface/Card:fills/0"), "a lone STROKE colour gives a fill style no bind button");
 }
 
 #[test]
