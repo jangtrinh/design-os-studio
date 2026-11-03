@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  RUST_VERSION: "1.93.1"
+  RUST_VERSION: "1.95.0"
   CARGO_TERM_COLOR: always
 
 jobs:

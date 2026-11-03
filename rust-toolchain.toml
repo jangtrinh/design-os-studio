@@ -1,6 +1,6 @@
 # Pinned so local builds and CI use the same compiler and lints.
 # Bump deliberately: update this file and RUST_VERSION in .github/workflows/*.yml together.
 [toolchain]
-channel = "1.93.1"
+channel = "1.95.0"
 components = ["clippy", "rustfmt"]
 profile = "minimal"
