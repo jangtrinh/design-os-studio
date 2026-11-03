@@ -94,6 +94,39 @@ pub(crate) fn blend(s: &str) -> BlendMode {
 
 // ------------------------------------------------------------ paints & effects
 
+fn parse_image_params(v: &Value) -> ImageParams {
+    let transform = v.get("imageTransform").and_then(Value::as_array).and_then(|rows| {
+        let r0 = rows.first()?.as_array()?;
+        let r1 = rows.get(1)?.as_array()?;
+        let m = [num(r0.first()?)?, num(r0.get(1)?)?, num(r0.get(2)?)?, num(r1.first()?)?, num(r1.get(1)?)?, num(r1.get(2)?)?];
+        m.iter().all(|x| x.is_finite()).then_some(m)
+    });
+    let rotation = fnum(v, "rotation").filter(|r| r.is_finite()).unwrap_or(0.0);
+    let tile_scale = fnum(v, "scalingFactor").filter(|s| s.is_finite() && *s > 0.0).unwrap_or(1.0);
+    let adjust = if let Some(flt) = v.get("filters") {
+        let f = |k: &str| fnum(flt, k).filter(|x| x.is_finite()).unwrap_or(0.0);
+        ImageAdjust {
+            exposure: f("exposure"),
+            contrast: f("contrast"),
+            vibrance: fnum(flt, "vibrance").or_else(|| fnum(flt, "saturation")).filter(|x| x.is_finite()).unwrap_or(0.0),
+            temperature: f("temperature"),
+            tint: f("tint"),
+            highlights: f("highlights"),
+            shadows: f("shadows"),
+            detail: f("detail"),
+            vignette: f("vignette"),
+            brightness: f("brightness"),
+        }
+    } else {
+        ImageAdjust::default()
+    };
+    let color_manage = fbool(v, "imageShouldColorManage");
+    let orig_w = v.get("originalImageWidth").and_then(Value::as_u64).and_then(|x| u32::try_from(x).ok()).unwrap_or(0);
+    let orig_h = v.get("originalImageHeight").and_then(Value::as_u64).and_then(|x| u32::try_from(x).ok()).unwrap_or(0);
+    let original_size = (orig_w > 0 && orig_h > 0).then_some((orig_w, orig_h));
+    ImageParams { transform, rotation, tile_scale, adjust, color_manage, original_size }
+}
+
 pub(crate) fn parse_paint(v: &Value) -> Option<Paint> {
     let t = fstr(v, "type")?;
     let handles = || -> [Vec2; 3] {
@@ -111,14 +144,14 @@ pub(crate) fn parse_paint(v: &Value) -> Option<Paint> {
         "GRADIENT_ANGULAR" => PaintKind::AngularGradient { handles: handles(), stops: stops() },
         "GRADIENT_DIAMOND" => PaintKind::DiamondGradient { handles: handles(), stops: stops() },
         "IMAGE" => PaintKind::Image {
-            image_ref: fstr(v, "imageRef")?.to_string(),
+            image_ref: fstr(v, "imageRef").or_else(|| fstr(v, "imageHash"))?.to_string(),
             scale_mode: match fstr(v, "scaleMode") {
                 Some("FIT") => ImageScaleMode::Fit,
                 Some("TILE") => ImageScaleMode::Tile,
-                Some("STRETCH") => ImageScaleMode::Crop,
+                Some("STRETCH") | Some("CROP") => ImageScaleMode::Crop,
                 _ => ImageScaleMode::Fill,
             },
-            params: Default::default(),
+            params: parse_image_params(v),
         },
         _ => return None, // EMOJI, VIDEO, ...
     };

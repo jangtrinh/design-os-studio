@@ -2150,7 +2150,7 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
         PaintKind::RadialGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_RADIAL", handles, stops),
         PaintKind::AngularGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_ANGULAR", handles, stops),
         PaintKind::DiamondGradient { handles, stops } => push_grad(&mut fields, "GRADIENT_DIAMOND", handles, stops),
-        PaintKind::Image { image_ref, scale_mode, .. } => {
+        PaintKind::Image { image_ref, scale_mode, params } => {
             fields.push(("type", en("IMAGE")));
             if let Some(raw) = unhex(image_ref) {
                 fields.push(("image", msg(vec![("hash", V::Bytes(raw))])));
@@ -2165,6 +2165,48 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
                 ImageScaleMode::Tile => "TILE",
             };
             fields.push(("imageScaleMode", en(sm)));
+            if let Some(m) = params.transform {
+                fields.push((
+                    "transform",
+                    st(vec![("m00", fl_one(m[0])), ("m01", fl(m[1])), ("m02", fl(m[2])), ("m10", fl(m[3])), ("m11", fl_one(m[4])), ("m12", fl(m[5]))]),
+                ));
+            }
+            if params.rotation != 0.0 {
+                fields.push(("rotation", fl(params.rotation)));
+            }
+            if (params.tile_scale - 1.0).abs() > 1e-6 {
+                fields.push(("scale", fl_one(params.tile_scale)));
+            }
+            if !params.adjust.is_default() {
+                let adj = &params.adjust;
+                let mut pf = Vec::new();
+                for (k, val) in [
+                    ("tint", adj.tint),
+                    ("shadows", adj.shadows),
+                    ("highlights", adj.highlights),
+                    ("detail", adj.detail),
+                    ("exposure", adj.exposure),
+                    ("vignette", adj.vignette),
+                    ("temperature", adj.temperature),
+                    ("vibrance", adj.vibrance),
+                    ("contrast", adj.contrast),
+                    ("brightness", adj.brightness),
+                ] {
+                    if val != 0.0 {
+                        pf.push((k, fl(val)));
+                    }
+                }
+                if !pf.is_empty() {
+                    fields.push(("paintFilter", msg(pf)));
+                }
+            }
+            if let Some(cm) = params.color_manage {
+                fields.push(("imageShouldColorManage", V::Bool(cm)));
+            }
+            if let Some((w, h)) = params.original_size {
+                fields.push(("originalImageWidth", V::Uint(w)));
+                fields.push(("originalImageHeight", V::Uint(h)));
+            }
         }
     }
     fields.push(("opacity", fl_one(p.opacity)));

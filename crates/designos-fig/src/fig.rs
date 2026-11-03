@@ -2779,6 +2779,23 @@ fn convert_paint(p: &Value) -> Option<Value> {
                 .or_else(|| image.and_then(|i| fstr(i, "name")))?;
             m.insert("imageRef".into(), hash.into());
             enum_map(&mut m, p, "imageScaleMode", "scaleMode", &[]);
+            if let Some(t) = p.get("transform") {
+                m.insert("imageTransform".into(), matrix_json(t));
+            }
+            copy(&mut m, p, "rotation", "rotation");
+            copy(&mut m, p, "scale", "scalingFactor");
+            if let Some(pf) = p.get("paintFilter").or_else(|| p.get("filterColorAdjust")) {
+                let mut flt = Map::new();
+                for k in ["tint", "shadows", "highlights", "detail", "exposure", "vignette", "temperature", "vibrance", "contrast", "brightness"] {
+                    copy(&mut flt, pf, k, k);
+                }
+                if !flt.is_empty() {
+                    m.insert("filters".into(), Value::Object(flt));
+                }
+            }
+            copy(&mut m, p, "imageShouldColorManage", "imageShouldColorManage");
+            copy(&mut m, p, "originalImageWidth", "originalImageWidth");
+            copy(&mut m, p, "originalImageHeight", "originalImageHeight");
         }
         _ => return None,
     }
