@@ -382,6 +382,8 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let mut head: Vec<String> = Vec::new(); // lines of the view expression before modifiers
     let mut body: Option<Vec<NodeId>> = None; // children inside braces
     let mut stack: Option<String> = None; // "HStack(...) {"
+    let mut oof_ids: Vec<NodeId> = Vec::new();
+    let mut inner_mods: Vec<String> = Vec::new();
     let mut grid_body: Option<(&AutoLayout, SolvedGrid, String, String)> = None;
     let mut spacers = (false, false, false); // before, between, after
     let radius_shape = shape(doc, n);
@@ -442,8 +444,13 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     } else if let Some((al, grid)) = own_al.filter(|_| site.is_none()).and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
         let col_gap_s = dimension(doc, n, "itemSpacing", grid.col_gap);
         let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
+        oof_ids = kids.iter().filter(|k| !grid.children.iter().any(|(cid, _)| *cid == k.id)).map(|k| k.id).collect();
+        if oof_ids.is_empty() {
+            padding_mods(doc, n, al, &mut mods);
+        } else {
+            padding_mods(doc, n, al, &mut inner_mods);
+        }
         grid_body = Some((al, grid, col_gap_s, row_gap_s));
-        padding_mods(doc, n, al, &mut mods);
         let align = layout_frame_align(al, true);
         if let Some(f) = frame_args(sz.w, sz.h, align.as_deref(), n, doc) {
             mods.push(f);
@@ -451,6 +458,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         container_style(doc, n, &radius_shape, &mut mods);
     } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
+        let (flow_kids, oof_kids): (Vec<&Node>, Vec<&Node>) = kids.iter().copied().partition(|k| doc.flow_child_input(k.id, horizontal).is_some());
         let counter = match (al.counter_align, horizontal) {
             (LayoutAlign::Center, _) => "center",
             (LayoutAlign::End, true) => "bottom",
@@ -479,8 +487,13 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             LayoutAlign::SpaceBetween => (false, true, false),
             _ => (false, false, false),
         };
-        body = Some(kids.iter().map(|k| k.id).collect());
-        padding_mods(doc, n, al, &mut mods);
+        body = Some(flow_kids.iter().map(|k| k.id).collect());
+        oof_ids = oof_kids.iter().map(|k| k.id).collect();
+        if oof_ids.is_empty() {
+            padding_mods(doc, n, al, &mut mods);
+        } else {
+            padding_mods(doc, n, al, &mut inner_mods);
+        }
         let align = layout_frame_align(al, horizontal);
         if let Some(f) = frame_args(sz.w, sz.h, align.as_deref(), n, doc) {
             mods.push(f);
@@ -549,11 +562,18 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         o.line(depth, h);
     }
     if let Some((al, grid, col_gap_s, row_gap_s)) = &grid_body {
-        o.line(depth, format!("Grid(alignment: .topLeading, horizontalSpacing: {col_gap_s}, verticalSpacing: {row_gap_s}) {{"));
+        let has_oof = !oof_ids.is_empty();
+        let g_depth = if has_oof {
+            o.line(depth, "ZStack(alignment: .topLeading) {");
+            depth + 1
+        } else {
+            depth
+        };
+        o.line(g_depth, format!("Grid(alignment: .topLeading, horizontalSpacing: {col_gap_s}, verticalSpacing: {row_gap_s}) {{"));
         let me = Parent::of(n);
         let cols = grid.widths.len();
         for r in 0..grid.rows.len() {
-            o.line(depth + 1, "GridRow {");
+            o.line(g_depth + 1, "GridRow {");
             let groups = grid.row_cells(r);
             let mut c = 0usize;
             while c < cols {
@@ -562,13 +582,13 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                     let p = &group.placed;
                     if p.row_span > 1 {
                         let cname = doc.get(cid).map(|cn| cn.name.as_str()).unwrap_or("");
-                        o.line(depth + 2, format!("// \"{}\": row span {} is not supported by SwiftUI Grid; placed in row {}", cname, p.row_span, p.row + 1));
+                        o.line(g_depth + 2, format!("// \"{}\": row span {} is not supported by SwiftUI Grid; placed in row {}", cname, p.row_span, p.row + 1));
                     }
                     for s in &group.stacked {
                         if s.placed.row_span > 1 {
                             let sname = doc.get(s.id).map(|cn| cn.name.as_str()).unwrap_or("");
                             o.line(
-                                depth + 2,
+                                g_depth + 2,
                                 format!(
                                     "// \"{}\": row span {} is not supported by SwiftUI Grid; placed in row {}",
                                     sname,
@@ -579,81 +599,105 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                         }
                     }
                     if let Some(comment) = SolvedGrid::overlap_comment(doc, group) {
-                        o.line(depth + 2, comment);
+                        o.line(g_depth + 2, comment);
                     }
                     let cell_w = grid.cell_width(p);
                     let cell_h = grid.cell_height(p, false);
                     let (ah, av) = grid_cell_align(doc, cid, al);
                     let cell_align = cell_alignment(ah, av);
                     if group.stacked.is_empty() {
-                        view(doc, cid, me, depth + 2, o);
-                        o.line(depth + 3, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                        view(doc, cid, me, g_depth + 2, o);
+                        o.line(g_depth + 3, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
                     } else {
-                        o.line(depth + 2, "ZStack(alignment: .topLeading) {");
-                        view(doc, cid, me, depth + 3, o);
-                        o.line(depth + 4, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
+                        o.line(g_depth + 2, "ZStack(alignment: .topLeading) {");
+                        view(doc, cid, me, g_depth + 3, o);
+                        o.line(g_depth + 4, format!(".frame(width: {}, height: {}, alignment: {cell_align})", num(cell_w), num(cell_h)));
                         for s in &group.stacked {
-                            view(doc, s.id, me, depth + 3, o);
+                            view(doc, s.id, me, g_depth + 3, o);
                             let sw = grid.cell_width(&s.placed);
                             let sh = grid.cell_height(&s.placed, false);
                             let (sah, sav) = grid_cell_align(doc, s.id, al);
                             let s_align = cell_alignment(sah, sav);
-                            o.line(depth + 4, format!(".frame(width: {}, height: {}, alignment: {s_align})", num(sw), num(sh)));
+                            o.line(g_depth + 4, format!(".frame(width: {}, height: {}, alignment: {s_align})", num(sw), num(sh)));
                             if s.offset.0 != 0.0 || s.offset.1 != 0.0 {
-                                o.line(depth + 4, format!(".offset(x: {}, y: {})", num(s.offset.0), num(s.offset.1)));
+                                o.line(g_depth + 4, format!(".offset(x: {}, y: {})", num(s.offset.0), num(s.offset.1)));
                             }
                         }
-                        o.line(depth + 2, "}");
-                        o.line(depth + 3, format!(".frame(width: {}, height: {}, alignment: .topLeading)", num(cell_w), num(cell_h)));
+                        o.line(g_depth + 2, "}");
+                        o.line(g_depth + 3, format!(".frame(width: {}, height: {}, alignment: .topLeading)", num(cell_w), num(cell_h)));
                     }
                     if p.col_span > 1 {
-                        o.line(depth + 3, format!(".gridCellColumns({})", p.col_span));
+                        o.line(g_depth + 3, format!(".gridCellColumns({})", p.col_span));
                     }
                     c += p.col_span;
                 } else {
-                    o.line(depth + 2, format!("Color.clear.frame(width: {}, height: {})", num(grid.widths[c]), num(grid.rows[r])));
+                    o.line(g_depth + 2, format!("Color.clear.frame(width: {}, height: {})", num(grid.widths[c]), num(grid.rows[r])));
                     c += 1;
                 }
             }
-            o.line(depth + 1, "}");
+            o.line(g_depth + 1, "}");
         }
-        for k in &kids {
-            if !grid.children.iter().any(|(cid, _)| *cid == k.id) {
-                view(doc, k.id, me, depth + 1, o);
+        o.line(g_depth, "}");
+        for m in &inner_mods {
+            o.line(g_depth + 1, m);
+        }
+        if has_oof {
+            let oof_parent = Parent { al: None, root: false };
+            for cid in &oof_ids {
+                view(doc, *cid, oof_parent, depth + 1, o);
             }
+            o.line(depth, "}");
         }
-        o.line(depth, "}");
     }
     if let (Some(open), Some(children)) = (&stack, &body) {
-        o.line(depth, open);
-        let me = Parent::of(n);
-        if spacers.0 {
-            o.line(depth + 1, "Spacer()");
-        }
-        if let Some(site) = &site {
-            let name = slot_ident_for(doc, site.comp, &site.name, site.single, Lang::Swift);
-            o.line(depth + 1, format!("if let {name} {{"));
-            o.line(depth + 2, &name);
-            if site.defaults.is_empty() {
-                o.line(depth + 1, "}");
-            } else {
-                o.line(depth + 1, "} else {");
-                for c in &site.defaults {
-                    view(doc, *c, me, depth + 2, o);
+        let has_oof = !oof_ids.is_empty();
+        let s_depth = if has_oof {
+            o.line(depth, "ZStack(alignment: .topLeading) {");
+            depth + 1
+        } else {
+            depth
+        };
+        if !has_oof || !children.is_empty() || site.is_some() {
+            o.line(s_depth, open);
+            let me = Parent::of(n);
+            if spacers.0 {
+                o.line(s_depth + 1, "Spacer()");
+            }
+            if let Some(site) = &site {
+                let name = slot_ident_for(doc, site.comp, &site.name, site.single, Lang::Swift);
+                o.line(s_depth + 1, format!("if let {name} {{"));
+                o.line(s_depth + 2, &name);
+                if site.defaults.is_empty() {
+                    o.line(s_depth + 1, "}");
+                } else {
+                    o.line(s_depth + 1, "} else {");
+                    for c in &site.defaults {
+                        view(doc, *c, me, s_depth + 2, o);
+                    }
+                    o.line(s_depth + 1, "}");
                 }
-                o.line(depth + 1, "}");
+            }
+            for (i, c) in children.iter().enumerate() {
+                if i > 0 && spacers.1 {
+                    o.line(s_depth + 1, "Spacer()");
+                }
+                view(doc, *c, me, s_depth + 1, o);
+            }
+            if spacers.2 {
+                o.line(s_depth + 1, "Spacer()");
+            }
+            o.line(s_depth, "}");
+            for m in &inner_mods {
+                o.line(s_depth + 1, m);
             }
         }
-        for (i, c) in children.iter().enumerate() {
-            if i > 0 && spacers.1 {
-                o.line(depth + 1, "Spacer()");
+        if has_oof {
+            let oof_parent = Parent { al: None, root: false };
+            for cid in &oof_ids {
+                view(doc, *cid, oof_parent, depth + 1, o);
             }
-            view(doc, *c, me, depth + 1, o);
+            o.line(depth, "}");
         }
-        if spacers.2 {
-            o.line(depth + 1, "Spacer()");
-        }
-        o.line(depth, "}");
     }
     for m in mods {
         o.line(depth + 1, m);

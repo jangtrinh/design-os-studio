@@ -508,19 +508,18 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         }
         o.line(g_depth, "}");
         if has_oof {
+            let oof_parent = Parent { al: None, root: false };
             for k in out_of_flow {
-                emit(doc, k.id, me, depth + 1, o);
+                emit(doc, k.id, oof_parent, depth + 1, o);
             }
             o.line(depth, "}");
         }
         return;
     } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
+        let (flow_kids, out_of_flow): (Vec<&Node>, Vec<&Node>) = kids.iter().copied().partition(|k| doc.flow_child_input(k.id, horizontal).is_some());
+        let has_oof = !out_of_flow.is_empty();
         name = if horizontal { "Row" } else { "Column" };
-        block = true;
-        padding_mods(doc, n, al, &mut mods);
-        finish_mods(doc, n, rot, &mut mods);
-        args.extend(modifier_arg(o, parent, &mods));
         let spacing = (al.item_spacing > 0.0 || bound(doc, n, "itemSpacing").is_some()).then(|| dp(doc, n, "itemSpacing", al.item_spacing));
         let (start, center, end) = if horizontal {
             ("Alignment.Start", "Alignment.CenterHorizontally", "Alignment.End")
@@ -537,9 +536,6 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             (_, None) => None,
         };
         let _ = start;
-        if let Some(a) = arrangement {
-            args.push(arg(format!("{} = {a}", if horizontal { "horizontalArrangement" } else { "verticalArrangement" })));
-        }
         let cross = match (al.counter_align, horizontal) {
             (LayoutAlign::Center, true) => "Alignment.CenterVertically",
             (LayoutAlign::Center, false) => "Alignment.CenterHorizontally",
@@ -548,6 +544,42 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             (_, true) => "Alignment.Top",
             (_, false) => "Alignment.Start",
         };
+        if has_oof {
+            finish_mods(doc, n, rot, &mut mods);
+            let box_args: Vec<Arg> = modifier_arg(o, parent, &mods).into_iter().collect();
+            open_call(o, depth, "Box", box_args, true);
+            if !flow_kids.is_empty() || site.is_some() {
+                let mut stack_mods = Vec::new();
+                padding_mods(doc, n, al, &mut stack_mods);
+                args.extend(modifier_arg(o, Parent { al: None, root: false }, &stack_mods));
+                if let Some(a) = arrangement {
+                    args.push(arg(format!("{} = {a}", if horizontal { "horizontalArrangement" } else { "verticalArrangement" })));
+                }
+                args.push(arg(format!("{} = {cross}", if horizontal { "verticalAlignment" } else { "horizontalAlignment" })));
+                open_call(o, depth + 1, name, args, true);
+                if let Some(site) = &site {
+                    o.line(depth + 2, format!("{}()", slot_ident_for(doc, site.comp, &site.name, site.single, Lang::Kotlin)));
+                }
+                let me = Parent::of(n);
+                for k in flow_kids {
+                    emit(doc, k.id, me, depth + 2, o);
+                }
+                o.line(depth + 1, "}");
+            }
+            let oof_parent = Parent { al: None, root: false };
+            for k in out_of_flow {
+                emit(doc, k.id, oof_parent, depth + 1, o);
+            }
+            o.line(depth, "}");
+            return;
+        }
+        block = true;
+        padding_mods(doc, n, al, &mut mods);
+        finish_mods(doc, n, rot, &mut mods);
+        args.extend(modifier_arg(o, parent, &mods));
+        if let Some(a) = arrangement {
+            args.push(arg(format!("{} = {a}", if horizontal { "horizontalArrangement" } else { "verticalArrangement" })));
+        }
         args.push(arg(format!("{} = {cross}", if horizontal { "verticalAlignment" } else { "horizontalAlignment" })));
     } else {
         name = "Box";
