@@ -65,7 +65,7 @@ fn cpu_and_gpu_match_on_the_fixture_pair_with_show_behind() {
 }
 
 // ---------------------------------------------------------------------------
-// #1277: fill-less frame shadow knockout follows what the children paint
+// Fill-less frame shadow knockout follows what the children paint
 // ---------------------------------------------------------------------------
 
 use designos_diff::{diff_image, DiffOptions};
@@ -83,13 +83,14 @@ fn px(pm: &Pixmap, x: u32, y: u32) -> [u8; 4] {
     [p.red(), p.green(), p.blue(), p.alpha()]
 }
 
+/// Writes the CPU and GPU renders next to the other fidelity outputs when
+/// `SAVE_SHADOW_KNOCKOUT_CROPS` is `before` or `after`.
 fn maybe_save_crop(slug: &str, cpu: &Pixmap, gpu: &Pixmap) {
-    let Ok(stage) = std::env::var("SAVE_1277_CROPS") else { return };
+    let Ok(stage) = std::env::var("SAVE_SHADOW_KNOCKOUT_CROPS") else { return };
     if stage != "before" && stage != "after" {
         return;
     }
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plans/reports/agy-1277-shadow-knockout-evidence");
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = common::out_dir();
     cpu.save_png(dir.join(format!("{slug}-cpu-{stage}.png"))).unwrap();
     gpu.save_png(dir.join(format!("{slug}-gpu-{stage}.png"))).unwrap();
 }
@@ -133,15 +134,15 @@ fn case_a_doc(with_paint_free_children: bool) -> common::T {
 }
 
 #[test]
-fn issue_1277_a_paint_free_and_zero_fill_children_keep_shadow() {
+fn paint_free_and_zero_fill_children_keep_shadow() {
     let Some(mut g) = common::gpu() else { return };
     let actual = case_a_doc(true);
     let expected = case_a_doc(false);
     let vp = Viewport::default();
     let size = (160, 120);
-    let c = compare_doc(&mut g, "1277-case-a-paint-free", &actual.doc, actual.page, vp, size, 8);
+    let c = compare_doc(&mut g, "knockout-paint-free-children", &actual.doc, actual.page, vp, size, 8);
     maybe_save_crop("case-a", &c.cpu, &c.gpu);
-    let exp_c = compare_doc(&mut g, "1277-case-a-expected", &expected.doc, expected.page, vp, size, 8);
+    let exp_c = compare_doc(&mut g, "knockout-paint-free-children-expected", &expected.doc, expected.page, vp, size, 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
     assert!(px(&c.cpu, 78, 40)[0] < 220, "CPU knocked out shadow under paint-free child frame: {:?}", px(&c.cpu, 78, 40));
     assert!(px(&c.cpu, 78, 80)[0] < 220, "CPU knocked out shadow under 0%-fill child frame: {:?}", px(&c.cpu, 78, 80));
@@ -182,14 +183,14 @@ fn case_b_doc(nested_in_fillless_child_frame: bool) -> common::T {
 }
 
 #[test]
-fn issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild() {
+fn fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild() {
     let Some(mut g) = common::gpu() else { return };
     let actual = case_b_doc(true);
     let expected = case_b_doc(false);
     let vp = Viewport::default();
     let size = (160, 120);
-    let c = compare_doc(&mut g, "1277-case-b-grandchild", &actual.doc, actual.page, vp, size, 8);
-    let exp_c = compare_doc(&mut g, "1277-case-b-expected", &expected.doc, expected.page, vp, size, 8);
+    let c = compare_doc(&mut g, "knockout-grandchild", &actual.doc, actual.page, vp, size, 8);
+    let exp_c = compare_doc(&mut g, "knockout-grandchild-expected", &expected.doc, expected.page, vp, size, 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
     assert!(px(&c.cpu, 68, 60)[0] < 220, "CPU knocked out shadow outside grandchild: {:?}", px(&c.cpu, 68, 60));
     assert!(px(&c.gpu, 68, 60)[0] < 220, "GPU knocked out shadow outside grandchild: {:?}", px(&c.gpu, 68, 60));
@@ -237,15 +238,15 @@ fn case_c_doc(use_mask: bool) -> common::T {
 }
 
 #[test]
-fn issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect() {
+fn ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect() {
     let Some(mut g) = common::gpu() else { return };
     let actual = case_c_doc(true);
     let expected = case_c_doc(false);
     let vp = Viewport::default();
     let size = (140, 140);
-    let c = compare_doc(&mut g, "1277-case-c-mask", &actual.doc, actual.page, vp, size, 8);
+    let c = compare_doc(&mut g, "knockout-ellipse-mask", &actual.doc, actual.page, vp, size, 8);
     maybe_save_crop("case-c", &c.cpu, &c.gpu);
-    let exp_c = compare_doc(&mut g, "1277-case-c-expected", &expected.doc, expected.page, vp, size, 8);
+    let exp_c = compare_doc(&mut g, "knockout-ellipse-mask-expected", &expected.doc, expected.page, vp, size, 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
     assert!(px(&c.cpu, 40, 40)[0] < 230, "CPU unmasked rect corner knocked out circular shadow: {:?}", px(&c.cpu, 40, 40));
     assert!(px(&c.gpu, 40, 40)[0] < 230, "GPU unmasked rect corner knocked out circular shadow: {:?}", px(&c.gpu, 40, 40));
@@ -284,15 +285,15 @@ fn case_d_doc(wrapped_in_group: bool) -> common::T {
 }
 
 #[test]
-fn issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child() {
+fn group_wrapped_50pct_child_removes_same_shadow_as_direct_child() {
     let Some(mut g) = common::gpu() else { return };
     let actual = case_d_doc(true);
     let expected = case_d_doc(false);
     let vp = Viewport::default();
     let size = (160, 120);
-    let c = compare_doc(&mut g, "1277-case-d-group", &actual.doc, actual.page, vp, size, 8);
+    let c = compare_doc(&mut g, "knockout-group-wrapped", &actual.doc, actual.page, vp, size, 8);
     maybe_save_crop("case-d", &c.cpu, &c.gpu);
-    let exp_c = compare_doc(&mut g, "1277-case-d-expected", &expected.doc, expected.page, vp, size, 8);
+    let exp_c = compare_doc(&mut g, "knockout-group-wrapped-expected", &expected.doc, expected.page, vp, size, 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
     assert!(px(&c.cpu, 80, 60)[1] >= 120, "CPU group-wrapped 50% child left shadow under itself: {:?}", px(&c.cpu, 80, 60));
     assert!(px(&c.gpu, 80, 60)[1] >= 120, "GPU group-wrapped 50% child left shadow under itself: {:?}", px(&c.gpu, 80, 60));
@@ -304,7 +305,7 @@ fn issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child() 
 }
 
 #[test]
-fn issue_1277_e_gpu_skips_runtime_opacity_zero_child_like_cpu() {
+fn gpu_skips_runtime_opacity_zero_child_like_cpu() {
     let Some(mut g) = common::gpu() else { return };
     let mut t = common::T::new();
     let f = t.add(None, |id| {
@@ -339,7 +340,7 @@ fn issue_1277_e_gpu_skips_runtime_opacity_zero_child_like_cpu() {
 }
 
 #[test]
-fn issue_1277_null_control_filled_and_plain_fillless_frames_unchanged() {
+fn null_control_filled_and_plain_fillless_frames_unchanged() {
     let Some(mut g) = common::gpu() else { return };
     for (name, show_behind) in [("null-ctrl-no-behind", false), ("null-ctrl-behind", true)] {
         let (doc, page) = pair(show_behind);
@@ -348,4 +349,274 @@ fn issue_1277_null_control_filled_and_plain_fillless_frames_unchanged() {
         assert!(c.report.ratio < 0.02, "{name} strict mismatch {:.3}%", c.report.ratio * 100.0);
     }
     let _ = render_page;
+}
+
+// ---------------------------------------------------------------------------
+// Paint-free leaves, text children and luminance masks
+// ---------------------------------------------------------------------------
+
+/// Renders `t` on both backends and returns the pair `(cpu, gpu)`.
+fn render_both(g: &mut designos_gpu::HeadlessGpu, name: &str, t: &common::T, size: (u32, u32)) -> (Pixmap, Pixmap) {
+    let c = compare_doc(g, name, &t.doc, t.page, Viewport::default(), size, 8);
+    assert!(c.report.ratio < 0.02, "{name}: CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
+    (c.cpu, c.gpu)
+}
+
+/// Pixels that differ at all.
+fn differing_pixels(a: &Pixmap, b: &Pixmap) -> u64 {
+    let opts = DiffOptions { tolerance: 0, detect_aa: false, ignore: vec![] };
+    diff_image(&common::to_img(a), &common::to_img(b), &opts).0.mismatched
+}
+
+/// Both backends must leave `with` and `without` identical; one report names both counts.
+fn assert_same_on_both(what: &str, (cpu, gpu): (&Pixmap, &Pixmap), (cpu0, gpu0): (&Pixmap, &Pixmap)) {
+    let (c, g) = (differing_pixels(cpu, cpu0), differing_pixels(gpu, gpu0));
+    assert!(c == 0 && g == 0, "{what}: {c} CPU and {g} GPU pixels differ");
+}
+
+fn close(a: [u8; 4], b: [u8; 4], tol: u8) -> bool {
+    a.iter().zip(b).all(|(x, y)| x.abs_diff(y) <= tol)
+}
+
+const WHITE_PX: [u8; 4] = [255, 255, 255, 255];
+
+fn zero_percent_paint() -> Paint {
+    let mut p = Paint::solid(Color::WHITE);
+    p.opacity = 0.0;
+    p
+}
+
+fn offset_drop_shadow(radius: f32) -> Effect {
+    Effect::DropShadow {
+        color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.65 },
+        offset: Vec2::new(16.0, 16.0),
+        radius,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
+}
+
+fn inner_shadow(radius: f32) -> Effect {
+    Effect::InnerShadow {
+        color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.65 },
+        offset: Vec2::new(6.0, 6.0),
+        radius,
+        spread: 0.0,
+        visible: true,
+        blend: Default::default(),
+    }
+}
+
+/// A frame whose only fill is visible but 0% opaque, holding one child painted `child`.
+fn zero_fill_frame(effects: Vec<Effect>, child: Color) -> common::T {
+    let mut t = common::T::new();
+    let f = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(30.0, 30.0, 100.0, 80.0));
+        n.fills = vec![zero_percent_paint()];
+        n.effects = effects;
+        n
+    });
+    t.rect(Some(f), Rect::new(10.0, 10.0, 40.0, 40.0), child);
+    t
+}
+
+#[test]
+fn zero_fill_frame_with_children_keeps_an_empty_drop_shadow() {
+    let Some(mut g) = common::gpu() else { return };
+    let size = (160, 140);
+    for (i, radius) in [0.0, 8.0].into_iter().enumerate() {
+        let (cpu, gpu) = render_both(&mut g, &format!("zero-fill-drop-{i}"), &zero_fill_frame(vec![offset_drop_shadow(radius)], BLUE_A), size);
+        let (cpu0, gpu0) = render_both(&mut g, &format!("zero-fill-drop-bare-{i}"), &zero_fill_frame(vec![], BLUE_A), size);
+        assert_same_on_both(&format!("radius {radius}: a 0% fill frame cast a drop shadow"), (&cpu, &gpu), (&cpu0, &gpu0));
+    }
+}
+
+#[test]
+fn zero_fill_frame_with_children_draws_no_inner_shadow() {
+    let Some(mut g) = common::gpu() else { return };
+    let size = (160, 140);
+    for (i, radius) in [0.0, 4.0].into_iter().enumerate() {
+        // a 50% child, so an inner shadow drawn under it would show through
+        let (cpu, gpu) = render_both(&mut g, &format!("zero-fill-inner-{i}"), &zero_fill_frame(vec![inner_shadow(radius)], RED_B), size);
+        let (cpu0, gpu0) = render_both(&mut g, &format!("zero-fill-inner-bare-{i}"), &zero_fill_frame(vec![], RED_B), size);
+        assert_same_on_both(&format!("radius {radius}: a 0% fill frame drew an inner shadow"), (&cpu, &gpu), (&cpu0, &gpu0));
+    }
+}
+
+#[test]
+fn zero_percent_stroke_frame_keeps_its_stroke_footprint_shadow() {
+    let Some(mut g) = common::gpu() else { return };
+    let build = |effects: Vec<Effect>| {
+        let mut t = common::T::new();
+        t.add(None, |id| {
+            let mut n = Node::frame(id, Rect::new(30.0, 30.0, 100.0, 60.0));
+            n.fills.clear();
+            n.stroke.weight = 4.0;
+            n.stroke.paints = vec![zero_percent_paint()];
+            n.effects = effects;
+            n
+        });
+        t
+    };
+    let (cpu, gpu) = render_both(&mut g, "zero-stroke-shadow", &build(vec![offset_drop_shadow(8.0)]), (160, 140));
+    // the ring's shadow, shifted by 16, shows below the frame's bottom edge (y 90 -> 106)
+    let (c, g) = (px(&cpu, 80, 106), px(&gpu, 80, 106));
+    assert!(c[0] < 235 && g[0] < 235, "the stroke footprint cast no shadow: CPU {c:?}, GPU {g:?}");
+}
+
+const TEXT_CANVAS: (u32, u32) = (240, 230);
+
+/// A fill-less frame (20, 20, 200 x 150): a blue band across the top whose shadow falls 70px
+/// below it, and a text child standing in that shadow.
+fn text_scene(text_fills: Vec<Paint>, text_stroke: bool, with_text: bool, with_shadow: bool) -> common::T {
+    let mut t = common::T::new();
+    let f = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(20.0, 20.0, 200.0, 150.0));
+        n.fills.clear();
+        if with_shadow {
+            n.effects = vec![Effect::DropShadow {
+                color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.65 },
+                offset: Vec2::new(0.0, 70.0),
+                radius: 6.0,
+                spread: 0.0,
+                visible: true,
+                show_behind: false,
+                blend: Default::default(),
+            }];
+        }
+        n
+    });
+    t.rect(Some(f), Rect::new(0.0, 0.0, 200.0, 60.0), BLUE_A);
+    if with_text {
+        t.add(Some(f), |id| {
+            let style = TextStyle { font_size: 48.0, font_weight: 700, fills: text_fills, ..Default::default() };
+            let mut n = Node::text(id, Rect::new(10.0, 72.0, 180.0, 60.0), "HHH", style);
+            if text_stroke {
+                n.stroke.weight = 1.0;
+                n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+            }
+            n
+        });
+    }
+    t
+}
+
+fn black_at(opacity: f32) -> Paint {
+    let mut p = Paint::solid(Color::BLACK);
+    p.opacity = opacity;
+    p
+}
+
+/// Pixel positions fully covered by a 50% black glyph: its interior, away from the rim.
+fn glyph_interior(pm: &Pixmap) -> Vec<(u32, u32)> {
+    let covered = |x: u32, y: u32| {
+        let p = px(pm, x, y);
+        y >= 90 && p[0].abs_diff(p[1]) <= 1 && p[1].abs_diff(p[2]) <= 1 && p[0] <= 129 && p[3] == 255
+    };
+    let mut out = Vec::new();
+    for y in 1..pm.height() - 1 {
+        for x in 1..pm.width() - 1 {
+            if covered(x, y) && (-1i32..=1).all(|dy| (-1i32..=1).all(|dx| covered((x as i32 + dx) as u32, (y as i32 + dy) as u32))) {
+                out.push((x, y));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn paint_free_text_children_add_nothing_to_the_knockout() {
+    let Some(mut g) = common::gpu() else { return };
+    let mut hidden = black_at(1.0);
+    hidden.visible = false;
+    let (cpu0, gpu0) = render_both(&mut g, "paint-free-text-bare", &text_scene(vec![], false, false, true), TEXT_CANVAS);
+    for (i, (what, fills)) in [("0% fill", vec![black_at(0.0)]), ("hidden fill", vec![hidden]), ("no fill", vec![])].into_iter().enumerate() {
+        let (cpu, gpu) = render_both(&mut g, &format!("paint-free-text-{i}"), &text_scene(fills, false, true, true), TEXT_CANVAS);
+        assert_same_on_both(&format!("{what}: text that paints nothing changed the shadow"), (&cpu, &gpu), (&cpu0, &gpu0));
+    }
+}
+
+#[test]
+fn half_opaque_text_knocks_out_the_shadow_at_full_coverage() {
+    let Some(mut g) = common::gpu() else { return };
+    let (cpu, gpu) = render_both(&mut g, "half-text-shadow", &text_scene(vec![black_at(0.5)], false, true, true), TEXT_CANVAS);
+    let (cpu0, gpu0) = render_both(&mut g, "half-text-bare", &text_scene(vec![black_at(0.5)], false, true, false), TEXT_CANVAS);
+    for (what, shadowed, bare) in [("CPU", &cpu, &cpu0), ("GPU", &gpu, &gpu0)] {
+        let interior = glyph_interior(bare);
+        assert!(interior.len() > 100, "{what}: the glyphs must have interior pixels, found {}", interior.len());
+        for (x, y) in &interior {
+            assert!(
+                close(px(shadowed, *x, *y), px(bare, *x, *y), 2),
+                "{what} ({x}, {y}): shadow left under a 50% glyph: {:?} vs {:?}",
+                px(shadowed, *x, *y),
+                px(bare, *x, *y)
+            );
+        }
+        assert!(px(shadowed, 24, 120)[0] < 235, "{what}: the fixture must cast a shadow: {:?}", px(shadowed, 24, 120));
+    }
+}
+
+#[test]
+fn stroke_only_text_still_knocks_out_its_glyph_interior() {
+    let Some(mut g) = common::gpu() else { return };
+    let (_, gpu_bare) = render_both(&mut g, "stroke-text-bare", &text_scene(vec![black_at(0.5)], false, true, false), TEXT_CANVAS);
+    let (cpu, gpu) = render_both(&mut g, "stroke-text-shadow", &text_scene(vec![], true, true, true), TEXT_CANVAS);
+    let interior = glyph_interior(&gpu_bare);
+    assert!(interior.len() > 100);
+    for (what, pm) in [("CPU", &cpu), ("GPU", &gpu)] {
+        for (x, y) in &interior {
+            assert!(close(px(pm, *x, *y), WHITE_PX, 2), "{what} ({x}, {y}): {:?}", px(pm, *x, *y));
+        }
+        assert!(px(pm, 24, 120)[0] < 235, "{what}: the fixture must cast a shadow: {:?}", px(pm, 24, 120));
+    }
+}
+
+/// The ellipse mask of the mask case, but a mid-gray luminance mask (alpha 1, luminance 0.5).
+fn luminance_scene(show_behind: Option<bool>) -> common::T {
+    let mut t = common::T::new();
+    let f = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(20.0, 20.0, 100.0, 100.0));
+        n.fills.clear();
+        if let Some(show_behind) = show_behind {
+            n.effects = vec![Effect::DropShadow {
+                color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.75 },
+                offset: Vec2::ZERO,
+                radius: 14.0,
+                spread: 6.0,
+                visible: true,
+                show_behind,
+                blend: Default::default(),
+            }];
+        }
+        n
+    });
+    t.add(Some(f), |id| {
+        let mut m = Node::ellipse(id, Rect::new(10.0, 10.0, 80.0, 80.0));
+        m.is_mask = true;
+        m.mask_type = MaskType::Luminance;
+        m.fills = vec![Paint::solid(Color { r: 0.5, g: 0.5, b: 0.5, a: 1.0 })];
+        m
+    });
+    t.rect(Some(f), Rect::new(10.0, 10.0, 80.0, 80.0), RED_B);
+    t
+}
+
+#[test]
+fn luminance_mask_knocks_out_by_its_luminance() {
+    let Some(mut g) = common::gpu() else { return };
+    let size = (140, 140);
+    let (cpu_k, gpu_k) = render_both(&mut g, "luminance-knockout", &luminance_scene(Some(false)), size);
+    let (cpu_b, gpu_b) = render_both(&mut g, "luminance-show-behind", &luminance_scene(Some(true)), size);
+    let (cpu_n, gpu_n) = render_both(&mut g, "luminance-no-shadow", &luminance_scene(None), size);
+    for (what, k, b, n) in [("CPU", &cpu_k, &cpu_b, &cpu_n), ("GPU", &gpu_k, &gpu_b, &gpu_n)] {
+        // at the centre, green rises with the share of shadow knocked out: bare = all, behind = nothing
+        let (gk, gb, gn) = (px(k, 70, 70)[1] as f32, px(b, 70, 70)[1] as f32, px(n, 70, 70)[1] as f32);
+        assert!(gn - gb >= 8.0, "{what}: the fixture must cast a visible shadow at the centre: shadowed {gb}, bare {gn}");
+        let share = (gk - gb) / (gn - gb);
+        assert!((0.3..=0.7).contains(&share), "{what}: a mid-gray luminance mask must knock out about half the shadow, got {share:.2} ({gb} {gk} {gn})");
+        // outside the mask the rect's corner removes nothing
+        assert!(close(px(k, 40, 40), px(b, 40, 40), 2), "{what}: {:?} vs {:?}", px(k, 40, 40), px(b, 40, 40));
+    }
 }

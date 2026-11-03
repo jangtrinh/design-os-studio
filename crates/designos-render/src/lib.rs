@@ -757,11 +757,11 @@ impl Renderer<'_> {
                 let Some(tl) = tl else { return };
                 for (i, path) in tl.paths.iter().enumerate() {
                     if let Some(path) = path {
-                        let a = if opaque {
-                            1.0
-                        } else {
-                            tl.styles[i].fills.iter().filter(|p| p.visible).map(designos_doc::Paint::silhouette_alpha).fold(0.0, f32::max)
-                        };
+                        let a = mode.text_run_alpha(n, &tl.styles[i].fills);
+                        // a run that paints nothing removes nothing from a knockout
+                        if a <= 0.0 && mode == designos_doc::SilhouetteMode::Knockout {
+                            continue;
+                        }
                         pm.fill_path(path, &black_paint(a), sk::FillRule::Winding, ts2, None);
                     }
                 }

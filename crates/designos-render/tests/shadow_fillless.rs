@@ -186,7 +186,7 @@ fn tile_render_equals_full_render_for_the_fixture_pair() {
 }
 
 // ---------------------------------------------------------------------------
-// #1277: fill-less frame shadow knockout follows what the children paint
+// Fill-less frame shadow knockout follows what the children paint
 // ---------------------------------------------------------------------------
 
 fn right_shadow() -> Effect {
@@ -230,7 +230,7 @@ fn case_a_doc(with_paint_free_children: bool) -> T {
 }
 
 #[test]
-fn issue_1277_a_paint_free_and_zero_fill_children_keep_shadow() {
+fn paint_free_and_zero_fill_children_keep_shadow() {
     let actual = case_a_doc(true);
     let expected = case_a_doc(false);
     let pm = actual.render(160, 120);
@@ -271,7 +271,7 @@ fn case_b_doc(nested_in_fillless_child_frame: bool) -> T {
 }
 
 #[test]
-fn issue_1277_b_fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild() {
+fn fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild() {
     let actual = case_b_doc(true);
     let expected = case_b_doc(false);
     let pm = actual.render(160, 120);
@@ -318,7 +318,7 @@ fn case_c_doc(use_mask: bool) -> T {
 }
 
 #[test]
-fn issue_1277_c_ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect() {
+fn ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect() {
     let actual = case_c_doc(true);
     let expected = case_c_doc(false);
     let pm = actual.render(140, 140);
@@ -360,7 +360,7 @@ fn case_d_doc(wrapped_in_group: bool) -> T {
 }
 
 #[test]
-fn issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child() {
+fn group_wrapped_50pct_child_removes_same_shadow_as_direct_child() {
     let actual = case_d_doc(true);
     let expected = case_d_doc(false);
     let pm = actual.render(160, 120);
@@ -371,7 +371,7 @@ fn issue_1277_d_group_wrapped_50pct_child_removes_same_shadow_as_direct_child() 
 }
 
 #[test]
-fn issue_1277_e_runtime_opacity_zero_child_is_skipped_in_knockout() {
+fn runtime_opacity_zero_child_is_skipped_in_knockout() {
     let mut t = T::new();
     let f = t.add(None, |id| {
         let mut n = Node::frame(id, Rect::new(20.0, 20.0, 120.0, 80.0));
@@ -404,7 +404,7 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 }
 
 #[test]
-fn issue_1277_null_control_filled_and_plain_fillless_frames_unchanged() {
+fn null_control_filled_and_plain_fillless_frames_unchanged() {
     let (_, filled) = fixture(true, false);
     let (_, behind) = fixture(false, true);
     let (_, plain_fillless) = fixture(false, false);
@@ -413,8 +413,251 @@ fn issue_1277_null_control_filled_and_plain_fillless_frames_unchanged() {
     let p_behind = probes(&behind, 96.0, 96.0);
     assert!(p_behind[0] > 0.1 && p_behind[1] > 0.1, "null control show_behind {:?}", p_behind);
     assert_probes(probes(&plain_fillless, 96.0, 96.0), [0.149, 0.0, 0.0], "null control plain fill-less");
-    // Exact deterministic pixel digests on base 06e6b84a
+    // Exact deterministic pixel digests of the fill-less, filled and show-behind fixtures
     assert_eq!(fnv1a(filled.data()), 0x92c8d1f05c89c3be);
     assert_eq!(fnv1a(behind.data()), 0x67f982db879975e7);
     assert_eq!(fnv1a(plain_fillless.data()), 0x31ff0b365a24b628);
+}
+
+// ---------------------------------------------------------------------------
+// Paint-free leaves, text children and luminance masks
+// ---------------------------------------------------------------------------
+
+fn differing_bytes(a: &Pixmap, b: &Pixmap) -> usize {
+    a.data().iter().zip(b.data()).filter(|(x, y)| x != y).count()
+}
+
+fn zero_percent_paint() -> Paint {
+    let mut p = Paint::solid(Color::WHITE);
+    p.opacity = 0.0;
+    p
+}
+
+fn offset_drop_shadow(radius: f32) -> Effect {
+    Effect::DropShadow {
+        color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.65 },
+        offset: Vec2::new(16.0, 16.0),
+        radius,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: Default::default(),
+    }
+}
+
+fn inner_shadow(radius: f32) -> Effect {
+    Effect::InnerShadow {
+        color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.65 },
+        offset: Vec2::new(6.0, 6.0),
+        radius,
+        spread: 0.0,
+        visible: true,
+        blend: Default::default(),
+    }
+}
+
+/// A frame whose only fill is visible but 0% opaque, holding one child painted `child`.
+fn zero_fill_frame(effects: Vec<Effect>, child: Color) -> T {
+    let mut t = T::new();
+    let f = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(30.0, 30.0, 100.0, 80.0));
+        n.fills = vec![zero_percent_paint()];
+        n.effects = effects;
+        n
+    });
+    t.rect(Some(f), Rect::new(10.0, 10.0, 40.0, 40.0), child);
+    t
+}
+
+#[test]
+fn zero_fill_frame_with_children_keeps_an_empty_drop_shadow() {
+    for radius in [0.0, 8.0] {
+        let with = zero_fill_frame(vec![offset_drop_shadow(radius)], BLUE_A).render(160, 140);
+        let without = zero_fill_frame(vec![], BLUE_A).render(160, 140);
+        let diff = differing_bytes(&with, &without);
+        assert_eq!(diff, 0, "radius {radius}: a 0% fill frame cast a drop shadow ({diff} bytes differ)");
+    }
+}
+
+#[test]
+fn zero_fill_frame_with_children_draws_no_inner_shadow() {
+    for radius in [0.0, 4.0] {
+        // a 50% child, so an inner shadow drawn under it would show through
+        let with = zero_fill_frame(vec![inner_shadow(radius)], RED_B).render(160, 140);
+        let without = zero_fill_frame(vec![], RED_B).render(160, 140);
+        let diff = differing_bytes(&with, &without);
+        assert_eq!(diff, 0, "radius {radius}: a 0% fill frame drew an inner shadow ({diff} bytes differ)");
+    }
+}
+
+/// A fill-less frame whose stroke paint is 0% opaque.
+fn zero_stroke_frame(effects: Vec<Effect>) -> T {
+    let mut t = T::new();
+    t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(30.0, 30.0, 100.0, 60.0));
+        n.fills.clear();
+        n.stroke.weight = 4.0;
+        n.stroke.paints = vec![zero_percent_paint()];
+        n.effects = effects;
+        n
+    });
+    t
+}
+
+#[test]
+fn zero_percent_stroke_frame_keeps_its_stroke_footprint_shadow() {
+    let with = zero_stroke_frame(vec![offset_drop_shadow(8.0)]).render(160, 140);
+    let without = zero_stroke_frame(vec![]).render(160, 140);
+    // the ring's shadow, shifted by 16, shows below the frame's bottom edge (y 90 -> 106)
+    let probe = px(&with, 80, 106);
+    assert!(probe[0] < 235, "the stroke footprint cast no shadow: {probe:?}");
+    assert!(differing_bytes(&with, &without) > 0);
+}
+
+const TEXT_CANVAS: (u32, u32) = (240, 230);
+
+/// A fill-less frame (20, 20, 200 x 150): a blue band across the top whose shadow falls 70px
+/// below it, and a text child standing in that shadow.
+fn text_scene(text_fills: Vec<Paint>, text_stroke: bool, with_text: bool, with_shadow: bool) -> T {
+    let mut t = T::new();
+    let f = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(20.0, 20.0, 200.0, 150.0));
+        n.fills.clear();
+        if with_shadow {
+            n.effects = vec![Effect::DropShadow {
+                color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.65 },
+                offset: Vec2::new(0.0, 70.0),
+                radius: 6.0,
+                spread: 0.0,
+                visible: true,
+                show_behind: false,
+                blend: Default::default(),
+            }];
+        }
+        n
+    });
+    t.rect(Some(f), Rect::new(0.0, 0.0, 200.0, 60.0), BLUE_A);
+    if with_text {
+        t.add(Some(f), |id| {
+            let style = TextStyle { font_size: 48.0, font_weight: 700, fills: text_fills, ..Default::default() };
+            let mut n = Node::text(id, Rect::new(10.0, 72.0, 180.0, 60.0), "HHH", style);
+            if text_stroke {
+                n.stroke.weight = 1.0;
+                n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+            }
+            n
+        });
+    }
+    t
+}
+
+fn black_at(opacity: f32) -> Paint {
+    let mut p = Paint::solid(Color::BLACK);
+    p.opacity = opacity;
+    p
+}
+
+/// Pixel positions fully covered by a 50% black glyph: its interior, away from the rim.
+fn glyph_interior(pm: &Pixmap) -> Vec<(u32, u32)> {
+    let covered = |x: u32, y: u32| {
+        let p = px(pm, x, y);
+        y >= 90 && p[0] == p[1] && p[1] == p[2] && p[0] <= 128 && p[3] == 255
+    };
+    let mut out = Vec::new();
+    for y in 1..pm.height() - 1 {
+        for x in 1..pm.width() - 1 {
+            if covered(x, y) && (-1i32..=1).all(|dy| (-1i32..=1).all(|dx| covered((x as i32 + dx) as u32, (y as i32 + dy) as u32))) {
+                out.push((x, y));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn paint_free_text_children_add_nothing_to_the_knockout() {
+    let (w, h) = TEXT_CANVAS;
+    let mut hidden = black_at(1.0);
+    hidden.visible = false;
+    for (what, fills) in [("0% fill", vec![black_at(0.0)]), ("hidden fill", vec![hidden]), ("no fill", vec![])] {
+        let actual = text_scene(fills, false, true, true).render(w, h);
+        let expected = text_scene(vec![], false, false, true).render(w, h);
+        let diff = differing_bytes(&actual, &expected);
+        assert_eq!(diff, 0, "{what}: text that paints nothing changed {diff} bytes of the shadow");
+    }
+}
+
+#[test]
+fn half_opaque_text_knocks_out_the_shadow_at_full_coverage() {
+    let (w, h) = TEXT_CANVAS;
+    let actual = text_scene(vec![black_at(0.5)], false, true, true).render(w, h);
+    let no_shadow = text_scene(vec![black_at(0.5)], false, true, false).render(w, h);
+    let interior = glyph_interior(&no_shadow);
+    assert!(interior.len() > 100, "the glyphs must have interior pixels, found {}", interior.len());
+    for (x, y) in &interior {
+        assert!(
+            near(px(&actual, *x, *y), px(&no_shadow, *x, *y), 1),
+            "({x}, {y}): shadow left under a 50% glyph: {:?} vs {:?}",
+            px(&actual, *x, *y),
+            px(&no_shadow, *x, *y)
+        );
+    }
+    // the shadow does show beside the glyphs
+    assert!(px(&actual, 24, 120)[0] < 235, "the fixture must cast a shadow: {:?}", px(&actual, 24, 120));
+}
+
+#[test]
+fn stroke_only_text_still_knocks_out_its_glyph_interior() {
+    let (w, h) = TEXT_CANVAS;
+    let interior = glyph_interior(&text_scene(vec![black_at(0.5)], false, true, false).render(w, h));
+    let actual = text_scene(vec![], true, true, true).render(w, h);
+    assert!(interior.len() > 100);
+    for (x, y) in &interior {
+        assert!(near(px(&actual, *x, *y), WHITE, 1), "({x}, {y}): {:?}", px(&actual, *x, *y));
+    }
+    assert!(px(&actual, 24, 120)[0] < 235, "the fixture must cast a shadow: {:?}", px(&actual, 24, 120));
+}
+
+/// The ellipse mask of the mask case, but a mid-gray luminance mask (alpha 1, luminance 0.5).
+fn luminance_scene(show_behind: Option<bool>) -> T {
+    let mut t = T::new();
+    let f = t.add(None, |id| {
+        let mut n = Node::frame(id, Rect::new(20.0, 20.0, 100.0, 100.0));
+        n.fills.clear();
+        if let Some(show_behind) = show_behind {
+            n.effects = vec![Effect::DropShadow {
+                color: Color { r: 0.0, g: 0.0, b: 0.0, a: 0.75 },
+                offset: Vec2::ZERO,
+                radius: 14.0,
+                spread: 6.0,
+                visible: true,
+                show_behind,
+                blend: Default::default(),
+            }];
+        }
+        n
+    });
+    t.add(Some(f), |id| {
+        let mut m = Node::ellipse(id, Rect::new(10.0, 10.0, 80.0, 80.0));
+        m.is_mask = true;
+        m.mask_type = MaskType::Luminance;
+        m.fills = vec![Paint::solid(Color { r: 0.5, g: 0.5, b: 0.5, a: 1.0 })];
+        m
+    });
+    t.rect(Some(f), Rect::new(10.0, 10.0, 80.0, 80.0), RED_B);
+    t
+}
+
+#[test]
+fn luminance_mask_knocks_out_by_its_luminance() {
+    let knocked = luminance_scene(Some(false)).render(140, 140);
+    let behind = luminance_scene(Some(true)).render(140, 140);
+    let none = luminance_scene(None).render(140, 140);
+    // at the centre, green rises with the share of shadow knocked out: none = all, behind = nothing
+    let (gk, gb, gn) = (px(&knocked, 70, 70)[1] as f32, px(&behind, 70, 70)[1] as f32, px(&none, 70, 70)[1] as f32);
+    assert!(gn - gb >= 8.0, "the fixture must cast a visible shadow at the centre: shadowed {gb}, bare {gn}");
+    let share = (gk - gb) / (gn - gb);
+    assert!((0.3..=0.7).contains(&share), "a mid-gray luminance mask must knock out about half the shadow, got {share:.2} ({gb} {gk} {gn})");
+    // outside the mask the rect's corner removes nothing
+    assert!(near(px(&knocked, 40, 40), px(&behind, 40, 40), 2), "{:?} vs {:?}", px(&knocked, 40, 40), px(&behind, 40, 40));
 }

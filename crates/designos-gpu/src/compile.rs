@@ -1294,7 +1294,11 @@ impl Ctx<'_> {
         match d::silhouette_source(n, g.shape.as_ref().map(|sh| sh.fillable), mode) {
             d::SilhouetteSource::Text => {
                 for t in g.text.iter() {
-                    let a = if opaque { 1.0 } else { t.fills.iter().filter(|p| p.visible).map(d::Paint::silhouette_alpha).fold(0.0, f32::max) };
+                    let a = mode.text_run_alpha(n, &t.fills);
+                    // a run that paints nothing removes nothing from a knockout
+                    if a <= 0.0 && mode == d::SilhouetteMode::Knockout {
+                        continue;
+                    }
                     self.draw_mesh(&t.mesh, ts2, black(a), DrawBlend::Over, clip);
                 }
             }
