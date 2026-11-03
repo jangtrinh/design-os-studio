@@ -471,7 +471,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 92;
+const MAX_PURPOSE_CHARS: usize = 72;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -581,6 +581,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_new_document" => &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
         "designos_get_metadata" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_libraries" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
+        "designos_docs_read" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`FILE_TOO_LARGE`", "`TOOL_DISABLED`"],
         "designos_get_screenshot" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_search_design_system" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_design_context" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TOOL_DISABLED`"],
@@ -595,6 +596,7 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
         "designos_get_document" => r#"{}"#,
         "designos_get_metadata" => r#"{"node_id":1,"depth":3}"#,
         "designos_get_libraries" => r#"{}"#,
+        "designos_docs_read" => r#"{"page":"spec/checkout.md"}"#,
         "designos_list_nodes" => r#"{"parent_id":1,"limit":50}"#,
         "designos_get_node" => r#"{"node_id":2}"#,
         "designos_get_screenshot" => r#"{"node_id":2,"scale":2.0}"#,

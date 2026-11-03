@@ -1140,6 +1140,7 @@ version = "0.7.7"
 dependencies = [
  "designos-diff",
  "designos-doc",
+ "designos-docs",
  "designos-export",
  "designos-fig",
  "designos-library",
@@ -1152,6 +1153,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 
