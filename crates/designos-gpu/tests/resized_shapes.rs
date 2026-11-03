@@ -964,3 +964,214 @@ fn per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu() {
         assert!(c.report.ssim > 0.99, "{name}: {:?}", c.report);
     }
 }
+
+/// An open vector along `cmds` of weight `weight` and `join`, whose first and last vertex carry `caps` (`Stroke::cap` stays `None`).
+fn open_vector_with_vertex_caps(t: &mut T, cmds: Vec<PathCmd>, caps: (StrokeCap, StrokeCap), weight: f32, join: StrokeJoin) -> NodeId {
+    let path = Path { cmds, fill_rule: FillRule::NonZero };
+    let mut net = VectorNetwork::from_paths(std::slice::from_ref(&path));
+    let last = net.vertices.len() - 1;
+    net.vertices[0].cap = Some(caps.0);
+    net.vertices[last].cap = Some(caps.1);
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: vec![path], network: Some(net) });
+        n.size = Vec2::new(240.0, 120.0);
+        n.fills.clear();
+        n.stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::None,
+            join,
+            ..Stroke::default()
+        };
+        n
+    })
+}
+
+/// Columns of row `y` in `x_range` that hold no ink.
+fn unpainted_columns(pm: &Pixmap, y: u32, x_range: std::ops::Range<u32>) -> Vec<u32> {
+    x_range.filter(|x| !is_ink(pm, *x, y)).collect()
+}
+
+#[test]
+fn a_filled_arrow_head_overlaps_its_shaft_with_no_gap_on_cpu_and_gpu() {
+    // each shape has a straight run along one row; the pixels of that row, from the start to the end, hold ink
+    // (3px next to a head tip and 2px next to a butt end are left out)
+    let line = (vec![PathCmd::MoveTo(Vec2::new(10.0, 60.5)), PathCmd::LineTo(Vec2::new(210.0, 60.5))], 60, 10u32, 210u32);
+    let curve_then_line = (
+        vec![
+            PathCmd::MoveTo(Vec2::new(20.0, 100.0)),
+            PathCmd::CubicTo(Vec2::new(40.0, 30.0), Vec2::new(80.0, 30.0), Vec2::new(110.0, 70.0)),
+            PathCmd::LineTo(Vec2::new(230.0, 70.0)),
+        ],
+        70,
+        112u32,
+        230u32,
+    );
+    for (shape, (cmds, row, run_start, run_end)) in [("line", line), ("curve_then_line", curve_then_line)] {
+        for (cap, cap_name) in [(StrokeCap::ArrowEquilateral, "equilateral"), (StrokeCap::TriangleFilled, "triangle")] {
+            for (caps, setup) in [((StrokeCap::None, cap), "end"), ((cap, StrokeCap::None), "start"), ((cap, cap), "both")] {
+                let mut t = T::new();
+                open_vector_with_vertex_caps(&mut t, cmds.clone(), caps, 4.0, StrokeJoin::Round);
+                // the run starts at the path start only on the line; on the curved shape it starts where the straight tail does
+                let from = run_start + if shape == "line" && caps.0 != StrokeCap::None { 3 } else { 2 };
+                let to = run_end - if caps.1 != StrokeCap::None { 3 } else { 2 };
+                let label = format!("{shape}_{cap_name}_{setup}");
+                let cpu = cpu_render(&t);
+                let gaps = unpainted_columns(&cpu, row, from..to);
+                assert!(gaps.is_empty(), "CPU {label}: {} unpainted pixels on the centerline row, first at x = {:?}", gaps.len(), gaps.first());
+
+                let Some(mut g) = gpu() else { return };
+                let c = compare(&mut g, &label, &t.doc, t.page, Viewport::default(), VIEW, 8);
+                let gaps = unpainted_columns(&c.gpu, row, from..to);
+                assert!(gaps.is_empty(), "GPU {label}: {} unpainted pixels on the centerline row, first at x = {:?}", gaps.len(), gaps.first());
+                // a curved edge antialiases differently on the two renderers; no pixel differs beyond that
+                assert_eq!(c.report_aa.mismatched, 0, "{label}: AA-forgiven mismatched pixels between CPU and GPU");
+                assert!(c.report.ratio < 0.01, "{label}: mismatch {:.3}%", c.report.ratio * 100.0);
+                assert!(c.report.ssim > 0.99, "{label}: {:?}", c.report);
+            }
+        }
+    }
+}
+
+/// Columns from the last one with ink on `rows` back to the first column holding the widest vertical run of ink.
+fn head_length_to_base(pm: &Pixmap, rows: std::ops::Range<u32>, x_range: std::ops::Range<u32>) -> u32 {
+    let widest = |x: u32| vertical_runs(pm, x, 0..pm.height()).into_iter().max().unwrap_or(0);
+    let tip = x_range.clone().rev().find(|x| rows.clone().any(|y| is_ink(pm, *x, y))).map_or(0, |x| x + 1);
+    let max = x_range.clone().map(widest).max().unwrap_or(0);
+    tip - x_range.into_iter().find(|x| widest(*x) == max).unwrap_or(tip)
+}
+
+#[test]
+fn a_resized_inside_or_outside_open_arrow_stroke_drops_its_bake_and_keeps_a_head_of_five_weights_on_cpu_and_gpu() {
+    for (align, align_name) in [(StrokeAlign::Inside, "inside"), (StrokeAlign::Outside, "outside")] {
+        let seg = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(4.0, 15.0)), PathCmd::LineTo(Vec2::new(26.0, 15.0))], fill_rule: FillRule::NonZero };
+        let net = VectorNetwork::from_paths(std::slice::from_ref(&seg));
+        let stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 2.0,
+            align,
+            cap: StrokeCap::ArrowEquilateral,
+            join: StrokeJoin::Round,
+            ..Stroke::default()
+        };
+        let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
+        let mut t = T::new();
+        let id = t.add(None, |id| {
+            let mut n = Node::new(id, NodeKind::Vector { paths: vec![seg], network: Some(net) });
+            n.transform = Affine::translate(20.0, 20.0);
+            n.size = Vec2::new(30.0, 30.0);
+            n.stroke = stroke;
+            n.stroke_geometry = Some(bake);
+            n
+        });
+        resize(&mut t.doc, id, Vec2::new(60.0, 60.0));
+        assert!(t.doc.get(id).unwrap().stroke_geometry.is_none(), "{align_name}: the baked outline is dropped on a 2x resize");
+
+        // the line runs x = 28..72 at y = 50 and the head at its end is 5 * 2 = 10px long, not the 20px of a 2x scaled bake
+        let cpu = cpu_render(&t);
+        let length = head_length_to_base(&cpu, 49..51, 45..90);
+        assert!((9..=11).contains(&length), "CPU {align_name}: the head is {length}px long, expected 10");
+
+        let Some(mut g) = gpu() else { return };
+        let label = format!("resized_open_arrow_{align_name}");
+        let c = compare(&mut g, &label, &t.doc, t.page, Viewport::default(), VIEW, 8);
+        let length = head_length_to_base(&c.gpu, 49..51, 45..90);
+        assert!((9..=11).contains(&length), "GPU {align_name}: the head is {length}px long, expected 10");
+        assert!(c.report.ratio < 0.005, "{label}: mismatch {:.3}%", c.report.ratio * 100.0);
+        assert!(c.report.ssim > 0.99, "{label}: {:?}", c.report);
+    }
+}
+
+/// Ink in the square of `half` px around `(cx, cy)`, as a sum of pixel coverage (the stroke colour has red 0x18).
+fn ink_amount(pm: &Pixmap, cx: f32, cy: f32, half: f32) -> f32 {
+    let (x0, x1, y0, y1) = ((cx - half).floor() as u32, (cx + half).ceil() as u32, (cy - half).floor() as u32, (cy + half).ceil() as u32);
+    (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).map(|(x, y)| (255.0 - pm.pixel(x, y).unwrap().red() as f32) / (255.0 - 0x18 as f32)).sum()
+}
+
+/// The area a circle of radius `r` takes off a corner of interior angle `angle` (radians).
+fn rounded_off_area(r: f32, angle: f32) -> f32 {
+    r * r * (1.0 / (angle / 2.0).tan() - (std::f32::consts::PI - angle) / 2.0)
+}
+
+#[test]
+fn a_round_join_rounds_the_corners_of_the_filled_heads_and_a_miter_join_keeps_them_sharp_on_cpu_and_gpu() {
+    let w = 9.0_f32;
+    let hw = 5.0 / 3.0_f32.sqrt() * w;
+    let r = w / 3.0;
+    let scene = |end_x: f32, cap: StrokeCap, join: StrokeJoin| {
+        let mut t = T::new();
+        let cmds = vec![PathCmd::MoveTo(Vec2::new(20.0, 50.5)), PathCmd::LineTo(Vec2::new(end_x, 50.5))];
+        open_vector_with_vertex_caps(&mut t, cmds, (StrokeCap::None, cap), w, join);
+        t
+    };
+    let mut failed = vec![];
+    // (cap, end x, probe pixel at the sharp corner, probe pixel inside the fillet, corners with their interior angle and the window half-size)
+    let tip = std::f32::consts::FRAC_PI_3;
+    let right = std::f32::consts::FRAC_PI_2;
+    let diamond_end = 145.5 - hw;
+    let outer = ((hw - 0.5 * w) / ((hw - 0.5 * w).powi(2) + (5.0 * w).powi(2)).sqrt()).acos();
+    // the diamond's back corner lies on the shaft, which covers the part that rounding takes off
+    #[allow(clippy::type_complexity)]
+    let cases: Vec<(StrokeCap, f32, &str, Option<((u32, u32), (u32, u32))>, Vec<(&str, (f32, f32), f32, f32)>)> = vec![
+        (
+            StrokeCap::ArrowEquilateral,
+            120.0,
+            "equilateral",
+            Some(((118, 50), (115, 50))),
+            vec![("tip", (120.0, 50.5), tip, 7.0), ("upper base corner", (75.0, 50.5 - hw), tip, 7.0), ("lower base corner", (75.0, 50.5 + hw), tip, 7.0)],
+        ),
+        (
+            StrokeCap::DiamondFilled,
+            diamond_end,
+            "diamond",
+            Some(((144, 50), (142, 50))),
+            vec![
+                ("front", (diamond_end + hw, 50.5), right, 5.0),
+                ("top", (diamond_end, 50.5 - hw), right, 5.0),
+                ("bottom", (diamond_end, 50.5 + hw), right, 5.0),
+            ],
+        ),
+        (
+            StrokeCap::TriangleFilled,
+            120.0,
+            "triangle",
+            None,
+            vec![("upper outer corner", (120.0, 50.5 - hw), outer, 7.0), ("lower outer corner", (120.0, 50.5 + hw), outer, 7.0)],
+        ),
+    ];
+    for (cap, end_x, name, probes, corners) in cases {
+        let (sharp_t, round_t) = (scene(end_x, cap, StrokeJoin::Miter), scene(end_x, cap, StrokeJoin::Round));
+        // a GPU keeps geometry by node id, so every scene gets a GPU of its own
+        let Some(mut g) = gpu() else { return };
+        let sharp = compare(&mut g, &format!("{name}_head_miter"), &sharp_t.doc, sharp_t.page, Viewport::default(), VIEW, 8);
+        let Some(mut g) = gpu() else { return };
+        let round = compare(&mut g, &format!("{name}_head_round"), &round_t.doc, round_t.page, Viewport::default(), VIEW, 8);
+        for (renderer, sharp_pm, round_pm) in [("CPU", &sharp.cpu, &round.cpu), ("GPU", &sharp.gpu, &round.gpu)] {
+            if let Some((apex, inside)) = probes {
+                if !is_ink(sharp_pm, apex.0, apex.1) {
+                    failed.push(format!("{renderer} {name}, Miter: the pixel at the sharp corner {apex:?} is unpainted"));
+                }
+                if is_ink(round_pm, apex.0, apex.1) {
+                    failed.push(format!("{renderer} {name}, Round: the pixel at the sharp corner {apex:?} is painted"));
+                }
+                if !is_ink(round_pm, inside.0, inside.1) {
+                    failed.push(format!("{renderer} {name}, Round: the pixel inside the fillet {inside:?} is unpainted"));
+                }
+            }
+            for (corner, (cx, cy), angle, half) in &corners {
+                let cut = ink_amount(sharp_pm, *cx, *cy, *half) - ink_amount(round_pm, *cx, *cy, *half);
+                let want = rounded_off_area(r, *angle);
+                if (cut - want).abs() >= 0.35 * want {
+                    failed.push(format!("{renderer} {name} {corner}: Round takes {cut:.2}px of ink off the corner, expected {want:.2}"));
+                }
+            }
+        }
+        for (label, c) in [("miter", &sharp), ("round", &round)] {
+            if c.report.ratio >= 0.01 || c.report.ssim <= 0.99 {
+                failed.push(format!("{name} {label}: CPU and GPU differ: {:.3}% mismatched, {:?}", c.report.ratio * 100.0, c.report));
+            }
+        }
+    }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+}

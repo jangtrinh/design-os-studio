@@ -223,6 +223,80 @@ fn an_arrow_cap_survives_a_rest_round_trip_and_drops_its_bake_on_a_resize() {
     }
 }
 
+/// `icon` without the stroke alignment: REST omits the field for the default, which is an inside stroke.
+fn icon_without_stroke_align(extra: Value) -> Value {
+    let mut v = icon(extra);
+    v.as_object_mut().unwrap().remove("strokeAlign");
+    v
+}
+
+/// The open chain `(2, 2) -> (18, 2) -> (18, 18)` with the same baked outline as `icon`.
+fn open_icon(extra: Value) -> Value {
+    let mut v = icon(extra);
+    let corner = |x: f32, y: f32| json!({"x": x, "y": y});
+    let seg = |a: usize, b: usize| json!({"start": a, "end": b, "tangentStart": {"x": 0.0, "y": 0.0}, "tangentEnd": {"x": 0.0, "y": 0.0}});
+    v["vectorNetwork"] = json!({"vertices": [corner(2.0, 2.0), corner(18.0, 2.0), corner(18.0, 18.0)], "segments": [seg(0, 1), seg(1, 2)], "regions": []});
+    v
+}
+
+const ARROW_CAPS: [&str; 5] = ["ARROW_LINES", "ARROW_EQUILATERAL", "TRIANGLE_FILLED", "DIAMOND_FILLED", "CIRCLE_FILLED"];
+
+/// Imports `vector`, which carries an arrow cap, resizes it 2x and expects the bake to be dropped.
+#[track_caller]
+fn assert_arrow_drops_its_bake(vector: Value, what: &str) {
+    let (mut doc, id) = imported(vector);
+    assert!(doc.get(id).unwrap().stroke.cap.is_arrow(), "{what}: the arrow cap is modelled");
+    resize_2x(&mut doc, id);
+    assert_centerline_stroked_live(&doc, id, what);
+}
+
+#[test]
+fn an_arrow_cap_on_an_inside_or_outside_stroke_drops_the_bake_on_a_resize() {
+    for cap in ARROW_CAPS {
+        for align in ["INSIDE", "OUTSIDE"] {
+            assert_arrow_drops_its_bake(icon(json!({"strokeCap": cap, "strokeAlign": align})), &format!("{cap} on a closed {align} stroke"));
+            assert_arrow_drops_its_bake(open_icon(json!({"strokeCap": cap, "strokeAlign": align})), &format!("{cap} on an open {align} stroke"));
+        }
+    }
+    let vertex_arrow = icon_with_vertex(json!({"strokeCap": "ARROW_EQUILATERAL", "strokeAlign": "INSIDE"}));
+    let (mut doc, id) = imported(vertex_arrow);
+    resize_2x(&mut doc, id);
+    assert_centerline_stroked_live(&doc, id, "arrow cap on a vertex of an inside stroke");
+}
+
+#[test]
+fn an_arrow_cap_on_a_stroke_with_no_alignment_given_drops_the_bake_on_a_resize() {
+    // REST leaves the alignment out for its default, an inside stroke
+    for cap in ARROW_CAPS {
+        assert_arrow_drops_its_bake(icon_without_stroke_align(json!({"strokeCap": cap})), &format!("{cap} on a closed stroke with no alignment"));
+        let mut open = open_icon(json!({"strokeCap": cap}));
+        open.as_object_mut().unwrap().remove("strokeAlign");
+        assert_arrow_drops_its_bake(open, &format!("{cap} on an open stroke with no alignment"));
+    }
+}
+
+#[test]
+fn a_stroke_without_an_arrow_cap_keeps_the_bake_rules_it_had_at_every_alignment() {
+    for align in ["INSIDE", "OUTSIDE"] {
+        let (mut doc, id) = imported(icon(json!({"strokeAlign": align})));
+        resize_2x(&mut doc, id);
+        assert_centerline_stroked_live(&doc, id, &format!("plain {align} stroke"));
+
+        let (mut doc, id) = imported(icon(json!({"strokeAlign": align, "strokeCap": "HIGHLIGHT"})));
+        resize_2x(&mut doc, id);
+        assert_outline_scaled(&doc, id, &format!("unmodelled cap on an {align} stroke"));
+    }
+}
+
+#[test]
+fn a_dashed_arrow_stroke_keeps_the_scaled_bake_at_every_alignment() {
+    for align in ["CENTER", "INSIDE", "OUTSIDE"] {
+        let (mut doc, id) = imported(icon(json!({"strokeCap": "ARROW_LINES", "strokeAlign": align, "strokeDashes": [4.0, 2.0]})));
+        resize_2x(&mut doc, id);
+        assert_outline_scaled(&doc, id, &format!("dashed {align} stroke with an arrow cap"));
+    }
+}
+
 /// `icon` with `props` set on its vertex number `index`.
 fn icon_with_vertex_at(index: usize, node_props: Value, props: Value) -> Value {
     let mut v = icon(node_props);
