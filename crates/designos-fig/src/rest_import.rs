@@ -22,6 +22,17 @@ pub(crate) fn fnum(v: &Value, k: &str) -> Option<f32> {
 /// Per-page deferred instances, pages already hydrated, instance targets and expanded instances.
 type DeferredHydration = (HashMap<NodeId, Vec<NodeId>>, HashSet<NodeId>, BTreeMap<NodeId, NodeId>, BTreeSet<NodeId>);
 
+/// A stroke cap Figma draws that [`StrokeCap`] has no name for (the arrow caps), on the node or on any
+/// vertex of its network. The baked stroke outline carries the arrowhead; the name is kept in
+/// `fig_metadata["strokeCap"]` so that a resize keeps scaling the outline instead of drawing a plain line.
+fn unmodelled_stroke_cap(v: &Value) -> Option<&str> {
+    let unmodelled = |c: &&str| !c.is_empty() && !matches!(*c, "NONE" | "ROUND" | "SQUARE");
+    fstr(v, "strokeCap").filter(unmodelled).or_else(|| {
+        let vertices = v.get("vectorNetwork")?.get("vertices")?.as_array()?;
+        vertices.iter().find_map(|x| fstr(x, "strokeCap").filter(unmodelled))
+    })
+}
+
 pub(crate) fn fstr<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
     v.get(k).and_then(Value::as_str)
 }
@@ -1303,6 +1314,11 @@ impl<'a> Ctx<'a> {
             Some("SQUARE") => StrokeCap::Square,
             _ => StrokeCap::None,
         };
+        if matches!(ty, "VECTOR" | "BRUSH") {
+            if let Some(cap) = unmodelled_stroke_cap(v) {
+                n.fig_metadata.entry("strokeCap".into()).or_insert_with(|| cap.to_string());
+            }
+        }
         n.stroke.join = match fstr(v, "strokeJoin") {
             Some("BEVEL") => StrokeJoin::Bevel,
             Some("ROUND") => StrokeJoin::Round,
@@ -2426,7 +2442,8 @@ impl<'a> Ctx<'a> {
                 self.unexpanded_instances.insert(id);
             }
             if fast_clone {
-                n.fig_metadata.clear();
+                // what decides how a resize treats the baked stroke stays with the clone
+                n.fig_metadata.retain(|k, _| matches!(k.as_str(), "strokeCap" | "brushType"));
                 if let Some(sid) = n.source_id.take() {
                     self.override_keys.entry(src).or_insert_with(|| std::sync::Arc::from(sid.rsplit(';').next().unwrap_or(&sid)));
                 }

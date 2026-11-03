@@ -1,0 +1,40 @@
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-945-icon-stroke-resize/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.54s
+     Running tests/resized_vector_stroke_weight.rs (out/cargo/debug/deps/resized_vector_stroke_weight-236926c4c166f7cb)
+
+running 5 tests
+test plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes ... ok
+test stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize ... ok
+test stroke_follows_the_network_while_the_fill_keeps_the_outline ... FAILED
+test syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override ... FAILED
+test null_control_unresized_imported_vector_renders_unchanged ... ok
+
+failures:
+
+---- stroke_follows_the_network_while_the_fill_keeps_the_outline stdout ----
+
+thread 'stroke_follows_the_network_while_the_fill_keeps_the_outline' (83110939) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:322:5:
+assertion `left == right` failed: the stroke-only chain is stroked once at its own weight
+  left: []
+ right: [2]
+
+---- syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override stdout ----
+
+thread 'syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override' (83110941) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:271:5:
+assertion `left == right` failed: paths and network are the centerline of the plain resize
+  left: ([Path { cmds: [MoveTo(Vec2 { x: 2.0, y: 2.0 }), LineTo(Vec2 { x: 38.0, y: 2.0 }), LineTo(Vec2 { x: 38.0, y: 38.0 }), LineTo(Vec2 { x: 2.0, y: 38.0 }), Close, MoveTo(Vec2 { x: 6.0, y: 6.0 }), LineTo(Vec2 { x: 6.0, y: 34.0 }), LineTo(Vec2 { x: 34.0, y: 34.0 }), LineTo(Vec2 { x: 34.0, y: 6.0 }), Close], fill_rule: NonZero }], Some(VectorNetwork { vertices: [Vertex { pos: Vec2 { x: 4.0, y: 4.0 }, corner_radius: 0.0, cap: None, join: None, mirror: None }, Vertex { pos: Vec2 { x: 36.0, y: 4.0 }, corner_radius: 0.0, cap: None, join: None, mirror: None }, Vertex { pos: Vec2 { x: 36.0, y: 36.0 }, corner_radius: 0.0, cap: None, join: None, mirror: None }, Vertex { pos: Vec2 { x: 4.0, y: 36.0 }, corner_radius: 0.0, cap: None, join: None, mirror: None }], segments: [Segment { a: 0, b: 1, ta: Vec2 { x: 0.0, y: 0.0 }, tb: Vec2 { x: 0.0, y: 0.0 } }, Segment { a: 1, b: 2, ta: Vec2 { x: 0.0, y: 0.0 }, tb: Vec2 { x: 0.0, y: 0.0 } }, Segment { a: 2, b: 3, ta: Vec2 { x: 0.0, y: 0.0 }, tb: Vec2 { x: 0.0, y: 0.0 } }, Segment { a: 3, b: 0, ta: Vec2 { x: 0.0, y: 0.0 }, tb: Vec2 { x: 0.0, y: 0.0 } }], regions: [Region { rule: NonZero, loops: [[0, 1, 2, 3]] }] }))
+ right: ([Path { cmds: [MoveTo(Vec2 { x: 4.0, y: 4.0 }), LineTo(Vec2 { x: 36.0, y: 4.0 }), LineTo(Vec2 { x: 36.0, y: 36.0 }), LineTo(Vec2 { x: 4.0, y: 36.0 }), Close], fill_rule: NonZero }], Some(VectorNetwork { vertices: [Vertex { pos: Vec2 { x: 4.0, y: 4.0 }, corner_radius: 0.0, cap: None, join: None, mirror: None }, Vertex { pos: Vec2 { x: 36.0, y: 4.0 }, corner_radius: 0.0, cap: None, join: None, mirror: None }, Vertex { pos: Vec2 { x: 36.0, y: 36.0 }, corner_radius: 0.0, cap: None, join: None, mirror: None }, Vertex { pos: Vec2 { x: 4.0, y: 36.0 }, corner_radius: 0.0, cap: None, join: None, mirror: None }], segments: [Segment { a: 0, b: 1, ta: Vec2 { x: 0.0, y: 0.0 }, tb: Vec2 { x: 0.0, y: 0.0 } }, Segment { a: 1, b: 2, ta: Vec2 { x: 0.0, y: 0.0 }, tb: Vec2 { x: 0.0, y: 0.0 } }, Segment { a: 2, b: 3, ta: Vec2 { x: 0.0, y: 0.0 }, tb: Vec2 { x: 0.0, y: 0.0 } }, Segment { a: 3, b: 0, ta: Vec2 { x: 0.0, y: 0.0 }, tb: Vec2 { x: 0.0, y: 0.0 } }], regions: [Region { rule: NonZero, loops: [[0, 1, 2, 3]] }] }))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    stroke_follows_the_network_while_the_fill_keeps_the_outline
+    syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override
+
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-render --test resized_vector_stroke_weight`

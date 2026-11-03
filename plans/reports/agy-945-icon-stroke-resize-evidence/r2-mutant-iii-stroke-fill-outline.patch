@@ -1,0 +1,13 @@
+diff --git a/crates/designos-render/src/geom.rs b/crates/designos-render/src/geom.rs
+index b0c257a7..ad48f862 100644
+--- a/crates/designos-render/src/geom.rs
++++ b/crates/designos-render/src/geom.rs
+@@ -430,7 +430,7 @@ pub fn node_shape(doc: &Document, n: &Node, tol: f32) -> Option<Shape> {
+     }
+     if let Some(sg) = n.stroke_geometry.as_deref().map(vector_paths).filter(|s| !s.paths.is_empty()) {
+         shape.stroke_paths = Some(sg.paths);
+-    } else if has_fill_geometry {
++    } else if has_fill_geometry && false {
+         stroke_network_not_fill_outline(n, &mut shape);
+     }
+     Some(shape)

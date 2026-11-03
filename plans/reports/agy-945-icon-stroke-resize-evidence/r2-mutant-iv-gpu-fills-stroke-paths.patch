@@ -1,0 +1,13 @@
+diff --git a/crates/designos-gpu/src/geom.rs b/crates/designos-gpu/src/geom.rs
+index 084a477d..e815c7b0 100644
+--- a/crates/designos-gpu/src/geom.rs
++++ b/crates/designos-gpu/src/geom.rs
+@@ -512,7 +512,7 @@ fn build_geom(doc: &Document, n: &Node, scale: f32) -> NodeGeom {
+     }
+     // boolean operations flatten with a tolerance tied to the device scale
+     let Some(shape) = outline_of(doc, n, 0.15 / scale) else { return g };
+-    g.fill = tessellate(shape.fill_paths(), tol).map(Arc::new);
++    g.fill = tessellate(&shape.paths, tol).map(Arc::new);
+     g.shape = Some(shape);
+     g
+ }

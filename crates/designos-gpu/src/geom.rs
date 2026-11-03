@@ -246,7 +246,7 @@ type StrokeMesh = Option<(Arc<Mesh>, StrokeClip)>;
 /// Cached geometry of one node at one zoom bucket.
 pub struct NodeGeom {
     pub shape: Option<NodeShape>,
-    /// Fill mesh of `shape.paths`.
+    /// Fill mesh of `shape.fill_paths()`.
     pub fill: Option<Arc<Mesh>>,
     stroke: RefCell<Option<StrokeMesh>>,
     pub text: Vec<TextGeom>,
@@ -512,7 +512,7 @@ fn build_geom(doc: &Document, n: &Node, scale: f32) -> NodeGeom {
     }
     // boolean operations flatten with a tolerance tied to the device scale
     let Some(shape) = outline_of(doc, n, 0.15 / scale) else { return g };
-    g.fill = tessellate(&shape.paths, tol).map(Arc::new);
+    g.fill = tessellate(shape.fill_paths(), tol).map(Arc::new);
     g.shape = Some(shape);
     g
 }

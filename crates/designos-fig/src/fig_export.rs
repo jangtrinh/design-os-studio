@@ -1449,6 +1449,13 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         _ => {}
     }
 
+    // The exported `strokeCap` is the modelled one. An arrow cap the stroke model has no name for rides along, so
+    // that the file read back still knows the baked outline carries it.
+    if let (NodeKind::Vector { .. }, Some(cap)) = (&node.kind, node.fig_metadata.get("strokeCap")) {
+        if !matches!(cap.as_str(), "" | "NONE" | "ROUND" | "SQUARE") {
+            carried.push(("figMetadata", json!({"strokeCap": cap})));
+        }
+    }
     pd_entries.extend(carrier::carrier_entries(&carried));
     if !pd_entries.is_empty() {
         fields.push(("pluginData", V::Array(pd_entries)));
