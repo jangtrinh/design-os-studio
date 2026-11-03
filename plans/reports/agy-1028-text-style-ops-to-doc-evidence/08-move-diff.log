@@ -1,0 +1,54 @@
+diff --git a/dev/fd/12 b/crates/designos-doc/src/text_style_ops.rs
+index 00000000..0f49557f 100644
+--- a/dev/fd/12
++++ b/crates/designos-doc/src/text_style_ops.rs
+@@ -4,8 +4,8 @@
+ //! returns a [`Command`] and leaves the document alone, so the caller decides how the change joins
+ //! the undo stack.
+ 
+-use designos_doc::lint::token_match::{same_text_style, same_text_style_props};
+-use designos_doc::*;
++use crate::lint::token_match::{same_text_style, same_text_style_props};
++use crate::*;
+ 
+ /// Key of the `style_refs` entry that links a text layer to its text style.
+ const TEXT_REF: &str = "text";
+@@ -212,4 +212,38 @@ mod tests {
+         assert!(d.styles.contains_key(&key));
+         assert_eq!(d.get(t).unwrap().kind, before);
+     }
++
++    #[test]
++    fn create_and_detach_round_trip_on_plain_document() {
++        let mut doc = Document::new("plain");
++        let page = doc.add_page("Page 1");
++        let tid = doc.alloc_id();
++        let mut text = Node::text(
++            tid,
++            Rect::new(0.0, 0.0, 120.0, 24.0),
++            "Heading",
++            TextStyle { font_size: 28.0, font_weight: 600, align_h: TextAlignH::Center, ..Default::default() },
++        );
++        if let NodeKind::Text(tp) = &mut text.kind {
++            tp.paragraph.indent = 8.0;
++        }
++        let text_id = doc.insert(page, text).unwrap();
++
++        let mut hist = History::default();
++        let (key, create_cmd) = crate::create_text_style_from_nodes(&doc, &[text_id]).unwrap();
++        hist.exec(&mut doc, create_cmd).unwrap();
++        assert_eq!(doc.get(text_id).unwrap().style_refs.get("text"), Some(&key));
++        assert!(matches!(&doc.styles[&key], Style::Text(ts) if ts.font_size == 28.0 && ts.font_weight == 600 && ts.paragraph_indent == 8.0));
++
++        let detach_cmd = crate::detach_text_style(&doc, &[text_id]).unwrap();
++        hist.exec(&mut doc, detach_cmd).unwrap();
++        assert!(!doc.get(text_id).unwrap().style_refs.contains_key("text"));
++        assert!(doc.styles.contains_key(&key));
++
++        assert!(hist.undo(&mut doc).unwrap());
++        assert_eq!(doc.get(text_id).unwrap().style_refs.get("text"), Some(&key));
++        assert!(hist.undo(&mut doc).unwrap());
++        assert!(doc.styles.is_empty());
++        assert!(!doc.get(text_id).unwrap().style_refs.contains_key("text"));
++    }
+ }
