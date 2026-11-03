@@ -36,7 +36,7 @@ pub use index::SceneIndex;
 pub use lint_env::RenderLintEnv;
 pub use mask::{apply_luminance_mask, mask_frame_box, mask_stencil, vector_mask_descendant_stencil, LUMINANCE_MASK_COEFFS};
 pub use outline::{
-    dashed_rect_center_path, decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan,
+    dashed_rect_stroke_path, decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan,
     text_outlines, NodeShape, StrokeClip, StrokePlan, TextOutline,
 };
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
@@ -912,15 +912,13 @@ impl Renderer<'_> {
                 if let Some(c) = clip {
                     mask_mul(&mut m, c);
                 }
-                if sh.is_rect && outline::has_dashes(&n.stroke) {
-                    if let Some(center_path) = outline::dashed_rect_center_path(n, a) {
-                        let st = self.make_stroke(n, w);
-                        let paths = [(center_path, sk::FillRule::Winding)];
-                        for p in paints {
-                            stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, Some(&m));
-                        }
-                        return;
+                if let Some(center_path) = outline::dashed_rect_stroke_path(n, sh) {
+                    let st = self.make_stroke(n, w);
+                    let paths = [(center_path, sk::FillRule::Winding)];
+                    for p in paints {
+                        stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, Some(&m));
                     }
+                    return;
                 }
                 let st = self.make_stroke(n, w * 2.0);
                 for p in paints {

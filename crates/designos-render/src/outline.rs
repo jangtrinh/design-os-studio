@@ -215,10 +215,26 @@ pub fn per_side_stroke_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path>
     pb.finish()
 }
 
-/// Inset (`Inside`) or outset (`Outside`) centerline path for a dashed rectangle-like shape,
-/// so each dash is stroked at its true weight `w` and dash caps (`Round`, `Square`) sit centered
-/// in the `w`-wide stroke band rather than being half-clipped `2 * w` caps on the outer boundary.
-pub fn dashed_rect_center_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path> {
+/// The outline the canvas strokes, at the stroke's own weight, for a rectangle-like shape whose
+/// dashed stroke is aligned `Inside` or `Outside`: the inset or outset centerline, so each dash is
+/// `w` wide and its caps (`Round`, `Square`) sit centered in the `w`-wide stroke band instead of
+/// being half-clipped `2 * w` caps on the boundary. The stroke still has to be clipped to the
+/// matching side of the boundary.
+///
+/// `None` for every other stroke: precomputed stroke outlines, per-side weights, solid or
+/// centered strokes, shapes that are not rectangle-like, and rectangles too thin to have an
+/// inset outline. Those are stroked along the shape boundary, at twice the weight when aligned.
+/// Every consumer that draws or expands such a stroke (canvas, GPU plan, PDF, SVG, Outline
+/// stroke) asks here, so they agree on which shapes take this path.
+pub fn dashed_rect_stroke_path(n: &Node, sh: &Shape) -> Option<sk::Path> {
+    if sh.stroke_paths.is_some() || n.stroke.side_weights.is_some() || !sh.is_rect || !has_dashes(&n.stroke) {
+        return None;
+    }
+    let align = if sh.closed { n.stroke.align } else { d::StrokeAlign::Center };
+    dashed_rect_center_path(n, align)
+}
+
+fn dashed_rect_center_path(n: &Node, align: d::StrokeAlign) -> Option<sk::Path> {
     let (w, h) = (n.size.x, n.size.y);
     let sw = n.stroke.weight;
     if w <= 0.0 || h <= 0.0 || sw <= 0.0 {
@@ -275,13 +291,11 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
     if w <= 0.0 {
         return None;
     }
-    if sh.is_rect && has_dashes(&n.stroke) && align != d::StrokeAlign::Center {
-        if let Some(center_path) = dashed_rect_center_path(n, align) {
-            let st = node_stroke_style(n, w);
-            let outline = stroke_outline(&center_path, &st, res_scale)?;
-            let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
-            return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
-        }
+    if let Some(center_path) = dashed_rect_stroke_path(n, sh) {
+        let st = node_stroke_style(n, w);
+        let outline = stroke_outline(&center_path, &st, res_scale)?;
+        let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
+        return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
     }
     let (width, clip) = match align {
         d::StrokeAlign::Center => (w, StrokeClip::None),

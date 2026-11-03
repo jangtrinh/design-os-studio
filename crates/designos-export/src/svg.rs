@@ -19,6 +19,7 @@ use crate::text;
 use crate::util::{esc, hex, num, svg_transform};
 use base64::Engine;
 use designos_doc::*;
+use designos_render::{dashed_rect_stroke_path, outline_of, vectorops::sk_to_doc};
 use std::collections::HashMap;
 use std::f32::consts::TAU;
 
@@ -155,6 +156,9 @@ fn gradient_matrix(handles: &[Vec2; 3], size: Vec2) -> Affine {
 fn matrix_attr(a: &Affine) -> String {
     format!("matrix({} {} {} {} {} {})", num(a.a), num(a.b), num(a.c), num(a.d), num(a.tx), num(a.ty))
 }
+
+/// Flattening tolerance for the node outline the stroke decision is made on (only boolean shapes use it).
+const OUTLINE_TOLERANCE: f32 = 0.05;
 
 /// Rectangle outline at (x, y) as a path.
 fn rect_geo(x: f32, y: f32, w: f32, h: f32) -> Geo {
@@ -594,10 +598,25 @@ impl Svg<'_> {
         }
         let w = st.weight;
         let aligned = geo.closed && geo.fillable;
+        // A dashed inside or outside rectangle is stroked at its own weight along the inset or outset
+        // outline, like the canvas does; it is still clipped to its side of the boundary below.
+        let dashed_outline = if aligned && st.align != StrokeAlign::Center {
+            outline_of(self.doc, n, OUTLINE_TOLERANCE).and_then(|sh| dashed_rect_stroke_path(n, &sh)).map(|p| Geo {
+                kind: GeoKind::Path,
+                paths: vec![(sk_to_doc(&p, FillRule::NonZero).cmds, FillRule::NonZero)],
+                closed: true,
+                fillable: true,
+                is_rect: false,
+                mask: None,
+            })
+        } else {
+            None
+        };
+        let aligned_width = if dashed_outline.is_some() { w } else { w * 2.0 };
         let (width, wrapper) = match (st.align, aligned) {
             (StrokeAlign::Inside, true) => {
                 let c = self.clip_def(geo);
-                (w * 2.0, Some(format!("<g clip-path=\"url(#{c})\">")))
+                (aligned_width, Some(format!("<g clip-path=\"url(#{c})\">")))
             }
             (StrokeAlign::Outside, true) => {
                 let id = self.uid("outside");
@@ -620,7 +639,7 @@ impl Svg<'_> {
                     self.def(&format!("  {l}"));
                 }
                 self.def("</mask>");
-                (w * 2.0, Some(format!("<g mask=\"url(#{id})\">")))
+                (aligned_width, Some(format!("<g mask=\"url(#{id})\">")))
             }
             _ => (w, None),
         };
@@ -656,7 +675,7 @@ impl Svg<'_> {
             if let Some(b) = blend_css(p.blend) {
                 a.push_str(&format!(" style=\"mix-blend-mode:{b}\""));
             }
-            let lines = self.shape_lines(geo, &a, false);
+            let lines = self.shape_lines(dashed_outline.as_ref().unwrap_or(geo), &a, false);
             self.emit_lines(lines);
         }
         if wrapper.is_some() {
@@ -1056,13 +1075,128 @@ mod tests {
             n.stroke.paints = vec![Paint::solid(Color::BLACK)];
             n.stroke.weight = 2.0;
             n.stroke.align = StrokeAlign::Inside;
-            n.stroke.dashes = vec![4.0, 2.0];
             d.insert(page, n).unwrap();
         });
         let s = svg(&d, id);
         assert!(s.contains("<clipPath id=\"clip0\">"), "{s}");
         assert!(s.contains("<g clip-path=\"url(#clip0)\">"), "{s}");
-        assert!(s.contains("fill=\"none\" stroke=\"#000000\" stroke-width=\"4\" stroke-dasharray=\"4 2\""), "{s}");
+        assert!(s.contains("<rect width=\"10\" height=\"10\" fill=\"none\" stroke=\"#000000\" stroke-width=\"4\"/>"), "{s}");
+    }
+
+    /// A node with a 100 x 60 dashed, round-capped, 8 wide black stroke aligned `align`.
+    fn dashed_rectangle(align: StrokeAlign, edit: impl FnOnce(&mut Node)) -> String {
+        let (d, id) = doc1(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 100.0, 60.0));
+            n.fills.clear();
+            n.stroke = Stroke {
+                paints: vec![Paint::solid(Color::BLACK)],
+                weight: 8.0,
+                align,
+                cap: StrokeCap::Round,
+                dashes: vec![10.0, 14.0],
+                miter_limit: 4.0,
+                ..Default::default()
+            };
+            edit(&mut n);
+            d.insert(page, n).unwrap();
+        });
+        svg(&d, id)
+    }
+
+    #[test]
+    fn dashed_inside_rectangle_strokes_its_inset_outline_at_its_own_weight_under_the_clip() {
+        let s = dashed_rectangle(StrokeAlign::Inside, |_| {});
+        assert!(s.contains("<g clip-path=\"url(#clip0)\">"), "{s}");
+        assert!(
+            s.contains("<path d=\"M4 4 L96 4 L96 56 L4 56 L4 4 Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"),
+            "{s}"
+        );
+        assert!(!s.contains("stroke-width=\"16\""), "{s}");
+    }
+
+    #[test]
+    fn dashed_outside_rectangle_strokes_its_outset_outline_at_its_own_weight_under_the_mask() {
+        let s = dashed_rectangle(StrokeAlign::Outside, |_| {});
+        assert!(s.contains("<g mask=\"url(#outside0)\">"), "{s}");
+        assert!(
+            s.contains("<path d=\"M-4 -4 L104 -4 L104 64 L-4 64 L-4 -4 Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"),
+            "{s}"
+        );
+        assert!(!s.contains("stroke-width=\"16\""), "{s}");
+    }
+
+    #[test]
+    fn dashed_rectangle_with_rounded_corners_strokes_a_path_with_curves() {
+        let s = dashed_rectangle(StrokeAlign::Inside, |n| n.corner_radii = [12.0; 4]);
+        // the inset outline of a 12 radius corner has radius 12 - 8 / 2 = 8
+        assert!(s.contains("<path d=\"M12 4 L88 4 C92.418 4 96 7.582 96 12 L96 48 "), "{s}");
+        assert!(s.contains("stroke-width=\"8\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"), "{s}");
+        assert!(!s.contains("<rect width=\"100\" height=\"60\" rx=\"12\" fill=\"none\""), "{s}");
+    }
+
+    #[test]
+    fn dashed_rectangle_with_imported_fill_geometry_takes_the_inset_outline_too() {
+        let outline = Path { cmds: square_rect_cmds(100.0, 60.0), fill_rule: FillRule::NonZero };
+        let s = dashed_rectangle(StrokeAlign::Inside, |n| n.fill_geometry = Some(vec![outline]));
+        assert!(s.contains("<path d=\"M4 4 L96 4 L96 56 L4 56 L4 4 Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"8\""), "{s}");
+    }
+
+    fn square_rect_cmds(w: f32, h: f32) -> Vec<PathCmd> {
+        crate::geo::rounded_rect(w, h, [0.0; 4])
+    }
+
+    /// A rectangle thinner than its stroke has no inset outline: it keeps the boundary stroke at twice the weight.
+    #[test]
+    fn dashed_rectangle_thinner_than_its_stroke_keeps_the_doubled_boundary_stroke() {
+        let s = dashed_rectangle(StrokeAlign::Inside, |n| n.size = Vec2::new(100.0, 6.0));
+        assert!(s.contains("<g clip-path=\"url(#clip0)\">"), "{s}");
+        assert!(
+            s.contains(
+                "<rect width=\"100\" height=\"6\" fill=\"none\" stroke=\"#000000\" stroke-width=\"16\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"
+            ),
+            "{s}"
+        );
+    }
+
+    /// Only rectangle layers take the inset outline; a vector with the same outline, a centered stroke
+    /// and a solid stroke keep the boundary at the old width.
+    #[test]
+    fn strokes_that_are_not_dashed_rectangle_layers_keep_the_boundary_stroke() {
+        let vector = {
+            let (d, id) = doc1(|d, page| {
+                let i = d.alloc_id();
+                let mut n =
+                    Node::new(i, NodeKind::Vector { paths: vec![Path { cmds: square_rect_cmds(100.0, 60.0), fill_rule: FillRule::NonZero }], network: None });
+                n.size = Vec2::new(100.0, 60.0);
+                n.stroke = Stroke {
+                    paints: vec![Paint::solid(Color::BLACK)],
+                    weight: 8.0,
+                    align: StrokeAlign::Inside,
+                    cap: StrokeCap::Round,
+                    dashes: vec![10.0, 14.0],
+                    miter_limit: 4.0,
+                    ..Default::default()
+                };
+                d.insert(page, n).unwrap();
+            });
+            svg(&d, id)
+        };
+        assert!(vector.contains("<path d=\"M0 0 L100 0 L100 60 L0 60 Z\" fill=\"none\" stroke=\"#000000\" stroke-width=\"16\""), "{vector}");
+        let centered = dashed_rectangle(StrokeAlign::Center, |_| {});
+        assert!(
+            centered.contains(
+                "<rect width=\"100\" height=\"60\" fill=\"none\" stroke=\"#000000\" stroke-width=\"8\" stroke-linecap=\"round\" stroke-dasharray=\"10 14\"/>"
+            ),
+            "{centered}"
+        );
+        let solid_inside = dashed_rectangle(StrokeAlign::Inside, |n| n.stroke.dashes.clear());
+        assert_eq!(
+            solid_inside,
+            format!(
+                "{HEAD} width=\"100\" height=\"60\" viewBox=\"0 0 100 60\" fill=\"none\">\n  <defs>\n    <clipPath id=\"clip0\">\n      <rect width=\"100\" height=\"60\"/>\n    </clipPath>\n  </defs>\n  <g data-name=\"Rectangle\">\n    <g clip-path=\"url(#clip0)\">\n      <rect width=\"100\" height=\"60\" fill=\"none\" stroke=\"#000000\" stroke-width=\"16\" stroke-linecap=\"round\"/>\n    </g>\n  </g>\n</svg>\n"
+            )
+        );
     }
 
     #[test]

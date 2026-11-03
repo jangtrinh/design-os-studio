@@ -738,7 +738,7 @@ mod vector_page {
         resolve_node, Affine, Color, Document, FillRule, GradientStop, Node, NodeId, NodeKind, Paint, PaintKind, PathCmd, StrokeAlign, StrokeCap, StrokeJoin,
         TextProps, Vec2,
     };
-    use designos_render::{dashed_rect_center_path, outline_of, stroke_plan, NodeShape, StrokeClip};
+    use designos_render::{dashed_rect_stroke_path, outline_of, stroke_plan, NodeShape, StrokeClip};
     use std::fmt::Write as _;
     use tiny_skia::{FillRule as SkRule, Path as SkPath, PathSegment, Point};
 
@@ -1099,7 +1099,7 @@ mod vector_page {
             let s = &n.stroke;
             let align = Self::alignment(n, sh);
             let dash = dash_pattern(&s.dashes);
-            let centerline = if sh.is_rect && dash.is_some() && align != StrokeAlign::Center { dashed_rect_center_path(n, align) } else { None };
+            let centerline = dashed_rect_stroke_path(n, sh);
             self.body.push_str("q\n");
             let clipped = match align {
                 StrokeAlign::Center => true,
