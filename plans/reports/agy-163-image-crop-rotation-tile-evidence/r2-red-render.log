@@ -1,0 +1,31 @@
+# red runs on base f4e8cfcf91b9eaa2bc1a3b06392aeab840f7fe0e with the new tests only (no source changes; refactor held in stash)
+ M crates/designos-app/src/image_jobs.rs
+ M crates/designos-fig/tests/fig_roundtrip.rs
+ M crates/designos-gpu/tests/fidelity.rs
+ M crates/designos-render/tests/render.rs
+
+## cargo test -p designos-render --locked --test render tile_scale
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.34s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 3 tests
+test tile_scale_2_doubles_the_tile_size ... ok
+test tile_scale_above_the_maximum_and_non_finite_values_clamp ... ok
+test tile_scale_zero_and_negative_render_at_the_minimum ... FAILED
+
+failures:
+
+---- tile_scale_zero_and_negative_render_at_the_minimum stdout ----
+
+thread 'tile_scale_zero_and_negative_render_at_the_minimum' (88564132) panicked at crates/designos-render/tests/render.rs:964:9:
+tile scale 0 renders as 0.01
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tile_scale_zero_and_negative_render_at_the_minimum
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 38 filtered out; finished in 0.27s
+
+error: test failed, to rerun pass `-p designos-render --test render`
