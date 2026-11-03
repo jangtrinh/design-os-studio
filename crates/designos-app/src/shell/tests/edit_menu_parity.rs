@@ -9,7 +9,7 @@ use crate::panels::menus::Action;
 use designos_doc::find::MatchCriteria;
 use designos_doc::{
     create_instance, BlendMode, Color, Effect, FrameProps, GradientStop, LineHeight, Node, NodeKind, OverrideField, Paint, PaintKind, Rect, Stroke, Style,
-    StyleMeta, StyleProperty, TextRun, TextStyle, Vec2 as DV,
+    StyleMeta, StyleProperty, TextRun, TextStyle, VariableKind, VariableStore, VariableValue, Vec2 as DV,
 };
 
 fn run_palette_command(s: &mut Sim, query: &str) {
@@ -656,6 +656,89 @@ fn paste_and_match_style_restyles_the_text_inside_a_pasted_frame() {
     assert_eq!(text.style_refs.get("text").map(String::as_str), Some("text_tgt"), "and its text style link");
     assert_eq!(text.variables.bindings.get("fontSize").map(String::as_str), Some("var_font_size"), "and its typography binding");
     assert_eq!(text.variables.bindings.get("width").map(String::as_str), Some("var_src_width"), "but not a size binding");
+}
+
+#[test]
+fn paste_and_match_style_rebinds_the_effect_colour_to_the_targets_variable() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let (red, blue) = (Color::rgb(220, 40, 40), Color::rgb(30, 80, 220));
+    let mut store = VariableStore::from_doc(&s.app().doc);
+    let theme = s.app().doc.variable_collections.values().find(|c| c.name == "Theme").expect("the demo has a Theme collection");
+    let (collection, modes) = (theme.id.clone(), theme.modes.iter().map(|m| m.id.clone()).collect::<Vec<_>>());
+    let var_a = store.add_variable(&collection, "Effect/ShadowA", VariableKind::Color).unwrap();
+    let var_b = store.add_variable(&collection, "Effect/ShadowB", VariableKind::Color).unwrap();
+    for mode in &modes {
+        store.set_value(&var_a, mode, VariableValue::Color(red));
+        store.set_value(&var_b, mode, VariableValue::Color(blue));
+    }
+    s.shell.app.commit_store(store, &[], &[]);
+
+    let shadow =
+        |color| Effect::DropShadow { color, offset: DV::new(0.0, 4.0), radius: 8.0, spread: 0.0, visible: true, show_behind: false, blend: BlendMode::Normal };
+    let src = s.shell.app.doc.alloc_id();
+    let mut source = Node::rectangle(src, Rect::new(20.0, 20.0, 60.0, 60.0));
+    source.effects = vec![shadow(red)];
+    source.variables.bindings.insert("effects/0/color".into(), var_a.clone());
+    s.shell.app.doc.insert(page, source).unwrap();
+    let dst = s.shell.app.doc.alloc_id();
+    let mut target = Node::rectangle(dst, Rect::new(300.0, 20.0, 60.0, 60.0));
+    target.effects = vec![shadow(blue)];
+    target.variables.bindings.insert("effects/0/color".into(), var_b.clone());
+    s.shell.app.doc.insert(page, target).unwrap();
+
+    s.shell.app.select_only(src);
+    s.shell.app.copy_selection();
+    s.shell.app.select_only(dst);
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, Action::PasteAndMatchStyle);
+
+    let pasted = s.app().doc.get(s.app().selection[0]).unwrap();
+    assert_eq!(pasted.variables.bindings.get("effects/0/color"), Some(&var_b), "the pasted layer drops its own effect binding for the target's");
+    let resolved = designos_doc::resolve_node(&s.app().doc, pasted);
+    let Effect::DropShadow { color, .. } = &resolved.effects[0] else { panic!("expected a drop shadow") };
+    assert_eq!(*color, blue, "after a variable pass the effect colour is the target's variable, not the source's");
+}
+
+#[test]
+fn paste_and_match_style_keeps_the_target_text_style_on_text_inside_a_pasted_instance_after_a_sync_of_its_main() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let (main, other) = (s.by_name("Primary button"), s.by_name("Learn more"));
+    let main_label = child_named(&s.app().doc, main, "Label");
+    let other_label = child_named(&s.app().doc, other, "Label");
+    let frame = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(page, Node::frame(frame, Rect::new(20.0, 400.0, 260.0, 120.0))).unwrap();
+    let cmd = create_instance(&mut s.shell.app.doc, main, frame, DV::new(10.0, 10.0));
+    cmd.apply(&mut s.shell.app.doc).unwrap();
+
+    let dst = s.shell.app.doc.alloc_id();
+    let style = TextStyle { font_family: "Inter".into(), font_size: 14.0, font_weight: 400, fills: solid(20, 180, 90), ..Default::default() };
+    s.shell.app.doc.insert(page, Node::text(dst, Rect::new(300.0, 400.0, 160.0, 30.0), "Target", style.clone())).unwrap();
+
+    s.shell.app.select_only(frame);
+    s.shell.app.copy_selection();
+    s.shell.app.select_only(dst);
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, Action::PasteAndMatchStyle);
+
+    let root = s.app().doc.get(s.app().selection[0]).unwrap();
+    let inst = root.children[0];
+    assert!(matches!(s.app().doc.get(inst).unwrap().kind, NodeKind::Instance { .. }), "the pasted frame still holds an instance");
+    let label = child_named(&s.app().doc, inst, "Label");
+    let pasted = s.app().doc.get(label).unwrap();
+    assert!(pasted.component.source.is_some(), "the label still mirrors the main's");
+    assert_eq!(pasted.kind.any_text().unwrap().style, style, "the label takes the target's text style");
+    assert!(pasted.component.overrides.contains(&OverrideField::TextStyle), "and the change is recorded as an override");
+
+    s.shell.app.edit_nodes(&[main_label], |n| {
+        if let Some(tp) = n.kind.any_text_mut() {
+            tp.style.font_size = 40.0;
+            tp.style.font_family = "Roboto".into();
+        }
+    });
+    assert_eq!(s.app().doc.get(other_label).unwrap().kind.any_text().unwrap().style.font_size, 40.0, "an instance without the override follows the main");
+    assert_eq!(s.app().doc.get(label).unwrap().kind.any_text().unwrap().style, style, "the pasted label keeps the target style after the sync");
 }
 
 #[test]

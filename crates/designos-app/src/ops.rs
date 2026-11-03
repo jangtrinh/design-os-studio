@@ -166,6 +166,7 @@ fn painted_fills_of(target: &Node) -> Vec<Paint> {
 fn is_visual_binding(key: &str) -> bool {
     key.starts_with("fills/")
         || key.starts_with("strokes/")
+        || key.starts_with("effects/")
         || matches!(
             key,
             "strokeWeight"
@@ -203,6 +204,17 @@ fn match_style_links(node: &mut Node, target: &Node, keys: &[&str]) {
                 node.style_refs.remove(*key);
             }
         }
+    }
+}
+
+/// What a pasted layer takes from the target: the root its visual set, and every text layer of the pasted subtree the
+/// target's text style when the target is text.
+fn match_pasted_style(node: &mut Node, is_root: bool, target: &Node, painted_fills: &[Paint], text: Option<&TextStyle>) {
+    if is_root {
+        match_root_style(node, target, painted_fills, text.is_some());
+    }
+    if let Some(style) = text {
+        match_text_style(node, target, style, is_root);
     }
 }
 
@@ -1087,7 +1099,8 @@ impl App {
     /// text session with the target caret/selection's text style, or pastes copied layers over the selected
     /// target layer in a single undo step. The pasted layers take the visual set `copy_properties` copies, the
     /// style links and variable bindings of those fields, and, when the target is text, its text style on every
-    /// text layer of the pasted subtree. Size, characters, layout and grid links stay the pasted layer's own.
+    /// text layer of the pasted subtree, recorded as an override on layers that mirror a main component. Size,
+    /// characters, layout and grid links stay the pasted layer's own.
     pub fn paste_and_match_style(&mut self) {
         if self.canvas.text.is_some() {
             let sys = (self.system_text)();
@@ -1144,14 +1157,18 @@ impl App {
         let mut tx = Tx::new();
         let mut new_sel = Vec::new();
         for (k, mut nodes) in lists.into_iter().enumerate() {
+            // A layer that mirrors a main component takes its style through the editor once it is inserted, so
+            // the change is recorded as an override and survives a sync of that main.
+            let mut mirrored = Vec::new();
             for (i, node) in nodes.iter_mut().enumerate() {
                 if i == 0 {
                     node.transform.tx += delta.x;
                     node.transform.ty += delta.y;
-                    match_root_style(node, &target, &painted_fills, target_text.is_some());
                 }
-                if let Some(style) = &target_text {
-                    match_text_style(node, &target, style, i == 0);
+                if is_linked(node) {
+                    mirrored.push((node.id, i == 0));
+                } else {
+                    match_pasted_style(node, i == 0, &target, &painted_fills, target_text.as_ref());
                 }
             }
             if let Some(root) = nodes.first_mut() {
@@ -1160,6 +1177,11 @@ impl App {
             }
             let index = (base_idx + k).min(self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
             let _ = tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes });
+            for (id, is_root) in mirrored {
+                if let Some(node) = tx.ed.node(&mut self.doc, id) {
+                    match_pasted_style(node, is_root, &target, &painted_fills, target_text.as_ref());
+                }
+            }
         }
         Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
         layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
