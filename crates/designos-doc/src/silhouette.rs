@@ -67,30 +67,31 @@ pub fn silhouette_source(n: &Node, shape_fillable: Option<bool>, mode: Silhouett
         if (fillable && has_visible_fills(n)) || has_visible_strokes(n) {
             return SilhouetteSource::OwnShape;
         }
-        if fillable && mode == SilhouetteMode::Knockout && has_children {
-            return match FILLLESS_KNOCKOUT {
-                FilllessKnockout::None => SilhouetteSource::Nothing,
-                FilllessKnockout::ChildrenOpaque => SilhouetteSource::ChildrenOpaque,
-            };
-        }
-        if fillable && mode.ignores_alpha() {
+        if fillable && mode == SilhouetteMode::Opaque {
             return SilhouetteSource::OwnShape;
         }
     }
     if has_children {
-        SilhouetteSource::Children
+        if mode == SilhouetteMode::Knockout {
+            match FILLLESS_KNOCKOUT {
+                FilllessKnockout::None => SilhouetteSource::Nothing,
+                FilllessKnockout::ChildrenOpaque => SilhouetteSource::ChildrenOpaque,
+            }
+        } else {
+            SilhouetteSource::Children
+        }
     } else {
         SilhouetteSource::Nothing
     }
 }
 
 fn has_visible_fills(n: &Node) -> bool {
-    n.fills.iter().any(|p| p.visible)
+    n.fills.iter().any(|p| p.visible && p.silhouette_alpha() > 0.0)
 }
 
 /// A stroke exists with a weight or with per-side weights.
 fn has_visible_strokes(n: &Node) -> bool {
-    (n.stroke.weight > 0.0 || n.stroke.side_weights.is_some()) && n.stroke.paints.iter().any(|p| p.visible)
+    (n.stroke.weight > 0.0 || n.stroke.side_weights.is_some()) && n.stroke.paints.iter().any(|p| p.visible && p.silhouette_alpha() > 0.0)
 }
 
 #[cfg(test)]
@@ -223,8 +224,30 @@ mod tests {
         assert_eq!(knock(&f), SilhouetteSource::ChildrenOpaque);
         // the opaque mode used by grain and glass still covers the rectangle
         assert_eq!(src(&f, true), SilhouetteSource::OwnShape);
-        // without children there is nothing to follow
-        assert_eq!(knock(&bare(Node::frame(NodeId(1), rect()))), SilhouetteSource::OwnShape);
+        // without children a paint-free frame adds nothing to the knockout
+        assert_eq!(knock(&bare(Node::frame(NodeId(1), rect()))), SilhouetteSource::Nothing);
+    }
+
+    #[test]
+    fn knockout_ignores_zero_alpha_fills_and_strokes() {
+        let mut zero_opacity_fill = Paint::solid(Color::WHITE);
+        zero_opacity_fill.opacity = 0.0;
+
+        let mut leaf = Node::frame(NodeId(1), rect());
+        leaf.fills = vec![zero_opacity_fill.clone()];
+        assert_eq!(knock(&leaf), SilhouetteSource::Nothing);
+        assert_eq!(src(&leaf, false), SilhouetteSource::Nothing);
+
+        let mut parent = Node::frame(NodeId(2), rect());
+        parent.fills = vec![Paint::solid(Color::TRANSPARENT)];
+        let parent = with_child(parent);
+        assert_eq!(knock(&parent), SilhouetteSource::ChildrenOpaque);
+        assert_eq!(src(&parent, false), SilhouetteSource::Children);
+
+        let mut zero_stroke = bare(Node::frame(NodeId(4), rect()));
+        zero_stroke.stroke.weight = 2.0;
+        zero_stroke.stroke.paints = vec![zero_opacity_fill];
+        assert_eq!(knock(&zero_stroke), SilhouetteSource::Nothing);
     }
 
     #[test]
@@ -234,9 +257,10 @@ mod tests {
     }
 
     #[test]
-    fn knockout_of_group_and_text_is_unchanged() {
+    fn knockout_of_group_and_text_is_children_opaque_and_text() {
         let g = with_child(Node::new(NodeId(1), NodeKind::Group));
-        assert_eq!(silhouette_source(&g, None, SilhouetteMode::Knockout), SilhouetteSource::Children);
+        assert_eq!(silhouette_source(&g, None, SilhouetteMode::Knockout), SilhouetteSource::ChildrenOpaque);
+        assert_eq!(silhouette_source(&g, None, SilhouetteMode::Alpha), SilhouetteSource::Children);
         let t = Node::text(NodeId(1), rect(), "Hi", TextStyle::default());
         assert_eq!(silhouette_source(&t, None, SilhouetteMode::Knockout), SilhouetteSource::Text);
     }
