@@ -225,6 +225,35 @@ fn shift_cmd_v_with_html_only_uses_the_in_app_copy_over_selection() {
 }
 
 #[test]
+fn shift_let_go_before_v_on_a_figma_html_only_clipboard_is_a_plain_paste() {
+    // egui-winit never forwards the V press of a paste chord and pushes no text paste for an HTML-only clipboard, so
+    // "Cmd+Shift down, V down, Shift up, V up" reaches the app exactly as "Cmd+Shift down, Shift up, V down, V up" does:
+    // the release carries Cmd alone. That is a plain Cmd+V, and it must stay one: a later change that told the two
+    // apart would also have to leave a plain Cmd+V after a let-go Shift alone.
+    counted_figma_clipboard!(READS);
+    let mut s = Sim::new();
+    let source = s.by_name("Button");
+    let target = s.by_name("Card");
+    s.shell.app.selection = vec![source];
+    s.shell.app.copy_selection().expect("copy source layers");
+    s.shell.app.system_html = counted;
+    s.shell.app.selection = vec![target];
+    let before = ids(&s);
+
+    let shift_cmd = Modifiers { shift: true, ..Modifiers::COMMAND };
+    s.mods = shift_cmd;
+    s.frame(vec![]);
+    s.mods = Modifiers::COMMAND;
+    let shift_up = Event::Key { key: Key::ShiftLeft, physical_key: Some(Key::ShiftLeft), pressed: false, repeat: false, modifiers: Modifiers::COMMAND };
+    s.frame(vec![shift_up, key_v(false, Modifiers::COMMAND)]);
+    s.mods = Modifiers::NONE;
+
+    assert_eq!(READS.load(Ordering::SeqCst), 1, "a plain paste reads the system clipboard once");
+    let names = names_added(&s, &before);
+    assert!(names.iter().any(|n| n == "Button copy"), "the Figma layers were imported, not the in-app copy: {names:?}");
+}
+
+#[test]
 fn edit_paste_reads_the_scripted_figma_html() {
     let mut s = Sim::new();
     s.shell.app.system_html = figma_payload;

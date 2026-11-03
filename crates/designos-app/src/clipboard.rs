@@ -38,9 +38,9 @@ pub fn system_figma_html() -> Option<String> {
 /// when the clipboard has plain text and into nothing at all otherwise, and never forwards that press as an
 /// `Event::Key`. A Figma copy can carry HTML alone, so the only trace of such a paste is the V *release*
 /// (`lib.rs:1018`; winit still delivers a keyUp while Cmd is held, `platform_impl/macos/app.rs:25-34`).
-/// Shift or Alt are not represented on `Event::Paste`; the shell supplies the frame modifiers when it routes the
-/// event. The V release below carries its own modifiers, or falls back to the previous frame when Cmd was released
-/// before V.
+/// Neither `Event::Copy` nor `Event::Paste` says whether Shift or Alt were held: [`chord_modifiers`] reads that off
+/// the letter's release. The V release below carries its own modifiers, or falls back to the previous frame when Cmd
+/// was released before V.
 ///
 /// Feed every key event of a frame through [`PasteChord::on_event`] and call [`PasteChord::begin_frame`] once
 /// per frame; `on_event` returns the modifiers when the clipboard HTML-only paste must be handled now.
@@ -85,6 +85,8 @@ impl PasteChord {
                     return None;
                 }
                 if modifiers.command {
+                    // Shift or Alt let go before V look the same as never held: no event marks when the swallowed
+                    // press happened, so the release is the whole chord that can be read.
                     Some(*modifiers)
                 } else if self.modifiers_last_frame.command {
                     Some(self.modifiers_last_frame)
@@ -95,6 +97,21 @@ impl PasteChord {
             _ => None,
         }
     }
+}
+
+/// The modifiers a copy or paste chord was let go with: those of the first release of `key` in `later` (the events
+/// that follow the `Event::Copy` or `Event::Paste`) while Cmd was still down, else `frame`, the modifiers of the whole
+/// frame. egui-winit stamps the release with the modifiers held at that moment, but its `Copy` and `Paste` carry none,
+/// and a frame that spans the whole tap ends with every modifier already up.
+pub fn chord_modifiers(later: &[egui::Event], key: egui::Key, frame: egui::Modifiers) -> egui::Modifiers {
+    later
+        .iter()
+        .find_map(|ev| match ev {
+            egui::Event::Key { key: released, pressed: false, modifiers, .. } if *released == key => Some(*modifiers),
+            _ => None,
+        })
+        .filter(|modifiers| modifiers.command)
+        .unwrap_or(frame)
 }
 
 /// Pastes `html` if it carries a Figma clipboard payload: the copied layers appear centered in the
@@ -799,6 +816,30 @@ pub(crate) mod tests {
         assert!(matches!(linked(&mut d, &clip, set)[0][0].kind, NodeKind::Component(_)), "a variant copied in its set is a new variant");
         let lists = linked(&mut d, &clip, page);
         assert!(matches!(lists[0][0].kind, NodeKind::Instance { component: Some(c), .. } if c == main), "a variant copied elsewhere is linked");
+    }
+
+    // ---- chord modifiers
+
+    fn released(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::Key { key, physical_key: Some(key), pressed: false, repeat: false, modifiers }
+    }
+
+    #[test]
+    fn a_chord_takes_the_modifiers_of_the_first_release_of_its_letter_that_follows() {
+        let command_alt = egui::Modifiers { alt: true, ..egui::Modifiers::COMMAND };
+        let later = [released(egui::Key::V, egui::Modifiers::COMMAND), released(egui::Key::C, command_alt), released(egui::Key::C, egui::Modifiers::COMMAND)];
+        assert_eq!(chord_modifiers(&later, egui::Key::C, egui::Modifiers::NONE), command_alt, "the first C release, not the second");
+        assert_eq!(chord_modifiers(&later, egui::Key::V, egui::Modifiers::NONE), egui::Modifiers::COMMAND);
+    }
+
+    #[test]
+    fn a_chord_without_a_release_with_cmd_keeps_the_modifiers_of_the_frame() {
+        let command_alt = egui::Modifiers { alt: true, ..egui::Modifiers::COMMAND };
+        let press = egui::Event::Key { key: egui::Key::C, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        assert_eq!(chord_modifiers(&[], egui::Key::C, command_alt), command_alt, "no release in the frame");
+        assert_eq!(chord_modifiers(&[press], egui::Key::C, command_alt), command_alt, "a press is not a release");
+        assert_eq!(chord_modifiers(&[released(egui::Key::C, egui::Modifiers::ALT)], egui::Key::C, command_alt), command_alt, "Cmd was already up");
+        assert_eq!(chord_modifiers(&[released(egui::Key::X, command_alt)], egui::Key::C, egui::Modifiers::COMMAND), egui::Modifiers::COMMAND, "another letter");
     }
 
     // ---- paste from Figma

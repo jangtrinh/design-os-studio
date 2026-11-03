@@ -1,4 +1,8 @@
 //! Clipboard command events as delivered by egui-winit.
+//!
+//! `Event::Copy` and `Event::Paste` carry no modifiers. The letter's release does, and it can share a frame with the
+//! command when the UI thread was busy across the tap, so the frame's own modifiers (the state after every change in
+//! it) may already be empty.
 
 use super::*;
 
@@ -8,6 +12,43 @@ fn command_alt() -> Modifiers {
 
 fn command_shift() -> Modifiers {
     Modifiers { shift: true, ..Modifiers::COMMAND }
+}
+
+fn released(key: Key, modifiers: Modifiers) -> Event {
+    Event::Key { key, physical_key: Some(key), pressed: false, repeat: false, modifiers }
+}
+
+/// A copied style on `Button` (opacity 0.31) with a different layer selected; returns that layer.
+fn select_a_layer_with_a_style_copied(s: &mut Sim) -> NodeId {
+    let source = s.by_name("Button");
+    s.shell.app.selection = vec![source];
+    s.shell.app.duplicate_selection();
+    let target = s.app().selection[0];
+    s.shell.app.edit_nodes(&[source], |n| n.opacity = 0.31);
+    s.shell.app.edit_nodes(&[target], |n| n.opacity = 0.82);
+    s.shell.app.selection = vec![source];
+    s.shell.app.copy_properties();
+    s.shell.app.selection = vec![target];
+    target
+}
+
+/// The in-app copy of `Dashboard` with `Welcome` selected; returns `Dashboard`, `Welcome` and the children `Welcome` has.
+fn select_a_layer_with_layers_copied(s: &mut Sim) -> (NodeId, NodeId, usize) {
+    let source = s.by_name("Dashboard");
+    let target = s.by_name("Welcome");
+    s.shell.app.selection = vec![source];
+    s.shell.app.copy_selection().expect("copy source layers");
+    s.shell.app.selection = vec![target];
+    let before = s.app().doc.get(target).unwrap().children.len();
+    (source, target, before)
+}
+
+fn assert_pasted_over(s: &Sim, source: NodeId, target: NodeId, before: usize) {
+    assert_eq!(s.app().doc.get(target).unwrap().children.len(), before + 1, "the in-app copy goes over the selection");
+    assert_eq!(s.app().selection.len(), 1);
+    let pasted = s.app().doc.get(s.app().selection[0]).unwrap();
+    assert_eq!(pasted.parent, Some(target));
+    assert_eq!(pasted.name, s.app().doc.get(source).unwrap().name, "the in-app layer, not system text, was pasted");
 }
 
 #[test]
@@ -26,15 +67,7 @@ fn copy_event_with_alt_routes_to_copy_properties() {
 #[test]
 fn paste_event_with_alt_routes_to_paste_properties() {
     let mut s = Sim::new();
-    let source = s.by_name("Button");
-    s.shell.app.selection = vec![source];
-    s.shell.app.duplicate_selection();
-    let target = s.app().selection[0];
-    s.shell.app.edit_nodes(&[source], |n| n.opacity = 0.31);
-    s.shell.app.edit_nodes(&[target], |n| n.opacity = 0.82);
-    s.shell.app.selection = vec![source];
-    s.shell.app.copy_properties();
-    s.shell.app.selection = vec![target];
+    let target = select_a_layer_with_a_style_copied(&mut s);
 
     s.mods = command_alt();
     s.frame(vec![Event::Paste("clipboard text".into())]);
@@ -46,20 +79,69 @@ fn paste_event_with_alt_routes_to_paste_properties() {
 #[test]
 fn paste_event_with_shift_routes_to_paste_over_selection() {
     let mut s = Sim::new();
-    let source = s.by_name("Dashboard");
-    let target = s.by_name("Welcome");
-    s.shell.app.selection = vec![source];
-    s.shell.app.copy_selection().expect("copy source layers");
-    s.shell.app.selection = vec![target];
-    let before = s.app().doc.get(target).unwrap().children.len();
+    let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
 
     s.mods = command_shift();
     s.frame(vec![Event::Paste("clipboard text".into())]);
     s.mods = Modifiers::NONE;
 
-    assert_eq!(s.app().doc.get(target).unwrap().children.len(), before + 1, "Cmd+Shift+V must paste the in-app copy over the selection");
-    assert_eq!(s.app().selection.len(), 1);
-    let pasted = s.app().doc.get(s.app().selection[0]).unwrap();
-    assert_eq!(pasted.parent, Some(target));
-    assert_eq!(pasted.name, s.app().doc.get(source).unwrap().name, "the in-app layer, not system text, was pasted");
+    assert_pasted_over(&s, source, target, before);
+}
+
+#[test]
+fn copy_properties_chord_whose_modifiers_are_up_by_the_end_of_the_frame_still_copies_properties() {
+    let mut s = Sim::new();
+    let id = s.by_name("Button");
+    s.shell.app.selection = vec![id];
+    s.mods = Modifiers::NONE;
+    s.frame(vec![Event::Copy, released(Key::C, command_alt())]);
+
+    assert!(s.app().copied_style.is_some(), "Cmd+Alt+C must copy properties");
+    assert!(s.app().clip.is_none(), "Cmd+Alt+C must not copy layers");
+}
+
+#[test]
+fn paste_properties_chord_whose_modifiers_are_up_by_the_end_of_the_frame_still_pastes_properties() {
+    let mut s = Sim::new();
+    let target = select_a_layer_with_a_style_copied(&mut s);
+
+    s.mods = Modifiers::NONE;
+    s.frame(vec![Event::Paste("clipboard text".into()), released(Key::V, command_alt())]);
+
+    assert!((s.app().doc.get(target).unwrap().opacity - 0.31).abs() < 1e-6, "Cmd+Alt+V must paste properties");
+}
+
+#[test]
+fn paste_over_chord_whose_modifiers_are_up_by_the_end_of_the_frame_still_pastes_over_the_selection() {
+    let mut s = Sim::new();
+    let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
+
+    s.mods = Modifiers::NONE;
+    s.frame(vec![Event::Paste("clipboard text".into()), released(Key::V, command_shift())]);
+
+    assert_pasted_over(&s, source, target, before);
+}
+
+#[test]
+fn a_release_that_came_before_the_copy_belongs_to_an_earlier_tap() {
+    let mut s = Sim::new();
+    let id = s.by_name("Button");
+    s.shell.app.selection = vec![id];
+    s.mods = Modifiers::COMMAND;
+    s.frame(vec![released(Key::C, command_alt()), Event::Copy]);
+
+    assert!(s.app().copied_style.is_none(), "the plain copy after an earlier Cmd+Alt+C tap is not a properties copy");
+    assert!(s.app().clip.is_some(), "the plain copy copies the layers");
+}
+
+#[test]
+fn a_release_without_cmd_leaves_the_modifiers_of_the_frame_in_charge() {
+    let mut s = Sim::new();
+    let id = s.by_name("Button");
+    s.shell.app.selection = vec![id];
+    s.mods = command_alt();
+    s.frame(vec![Event::Copy, released(Key::C, Modifiers::NONE)]);
+
+    assert!(s.app().copied_style.is_some(), "Cmd was let go before C, the frame still says Cmd+Alt");
+    assert!(s.app().clip.is_none());
 }
