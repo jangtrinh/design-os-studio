@@ -23,3 +23,11 @@ FACT: no Mermaid renderer exists in the workspace (no Mermaid crate in any `Carg
 
 ## Non-goals
 Editing diagrams graphically.
+
+## Spike result and owner decisions (2026-11-03)
+Spike report: `plans/reports/spike-1527-mermaid.md` (branch `spike/1527-mermaid`). Owner chose, via AskUserQuestion:
+1. **Engine: `merman` 0.9.3** (pinned `=`), features `svg`, `diagram-flowchart`, `diagram-sequence` only (no ELK/EPL), strict parse, theme from `theme.rs`, raster with resvg on a worker thread. It errors with a line number on 4/4 bad sources; mmdr drew wrong pictures for 3/4.
+2. **Toolchain bump to Rust 1.95** in its own PR before this phase (merman needs edition 2024 / rustc 1.95; repo pins 1.93.1).
+3. **Accept** about +8 MB and 3 MPL-2.0 crates (cssparser family); add them to the third-party licence register.
+4. **Tall diagrams:** card capped at 420 tall, diagram scaled to fit, plus an "Open full size" button that opens a pan-and-zoom view. Size and pixel caps are mandatory (a 1000-node chain peaked at 722 MB).
+Controller decisions: v1 allow-list is `flowchart`/`graph` and `sequenceDiagram`; error text is "Line N: <engine message>"; the "Feedback review flow" acceptance capture uses the reconstructed source, marked as reconstructed. Estimate ≈ 3.75 d.

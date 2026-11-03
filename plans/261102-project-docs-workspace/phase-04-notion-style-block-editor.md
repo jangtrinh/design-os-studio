@@ -26,3 +26,10 @@ Prototype in egui: block list with caret movement across blocks, Enter/Backspace
 
 ## Non-goals
 Comments, multi-user cursors (agents only, via 06), images other than frame embeds.
+
+## Spike result and owner decisions (2026-11-03)
+Spike report: `plans/reports/spike-1526-block-editor.md` (branch `spike/1526-block-editor`). Owner chose, via AskUserQuestion:
+1. **Custom surface over egui galleys**, not one `TextEdit` per block (custom passed 22/22 scripted checks; per-block `TextEdit` writes the Telex preedit into the document and cannot select across blocks). Build estimate revised to 10–12 d, including a 1–2 d AccessKit task inside this phase.
+2. **v1 must have:** selection across blocks (Shift+arrows, drag, Cmd+A twice selects the page), Cmd+B with a collapsed caret (typing continues bold), double click selects a word and triple click selects the block.
+3. **First task of the build:** reproduce, with a real keyboard, the lost space after Telex-composed words seen in the spike (`real-ime/real-ime-1.png`), fix the cause and add a regression test. Before merge the owner types one Vietnamese sentence by hand to confirm.
+Reuse map and corrections from the spike (FACT, checked on origin/main): `agent_composer_text.rs` holds only strings (47 lines), so caret/IME code comes from `textedit.rs`, `canvas/textsession.rs`, `richtext.rs` and `textmeasure.rs`; the workspace is on egui/eframe 0.35, not 0.31.
