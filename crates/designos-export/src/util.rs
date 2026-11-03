@@ -1,6 +1,7 @@
-//! Number, color and XML helpers shared by the SVG and CSS writers.
+//! Number, color and XML helpers shared by the SVG and CSS writers, and the overlay split shared by
+//! the native stack writers.
 
-use designos_doc::{Affine, Color};
+use designos_doc::{Affine, Color, Node};
 
 /// Shortest decimal form with at most 3 fractional digits (`12`, `0.5`, `-1.25`).
 pub fn num(v: f32) -> String {
@@ -97,6 +98,36 @@ pub fn svg_transform(a: &Affine) -> Option<String> {
     Some(format!("matrix({} {} {} {} {} {})", num(a.a), num(a.b), num(a.c), num(a.d), num(a.tx), num(a.ty)))
 }
 
+/// The children of an auto layout frame split by where they paint relative to its in-flow content,
+/// each list in child order.
+pub(crate) struct OverlaySplit<'a> {
+    /// Absolute children that come before the first in-flow child: they paint behind the content.
+    pub behind: Vec<&'a Node>,
+    /// Every child that is not absolute.
+    pub flow: Vec<&'a Node>,
+    /// The other absolute children: they paint over the content.
+    pub front: Vec<&'a Node>,
+}
+
+/// Splits `kids` (in child order) into the in-flow content and the absolute children around it. A later
+/// child paints over an earlier one, so an absolute child is emitted behind the content only when it
+/// precedes every in-flow child. Without in-flow children every absolute child is `behind`, which
+/// keeps child order.
+pub(crate) fn split_overlay_children<'a>(kids: &[&'a Node]) -> OverlaySplit<'a> {
+    let first_flow = kids.iter().position(|k| !k.layout_child.absolute).unwrap_or(kids.len());
+    let mut split = OverlaySplit { behind: Vec::new(), flow: Vec::new(), front: Vec::new() };
+    for (i, k) in kids.iter().enumerate() {
+        if !k.layout_child.absolute {
+            split.flow.push(k);
+        } else if i < first_flow {
+            split.behind.push(k);
+        } else {
+            split.front.push(k);
+        }
+    }
+    split
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +149,30 @@ mod tests {
         assert_eq!(css_color(&Color::rgb(0xD9, 0xD9, 0xD9), 1.0), "#D9D9D9");
         assert_eq!(css_color(&Color::rgba(0, 0, 0, 64), 1.0), "rgba(0, 0, 0, 0.25)");
         assert_eq!(css_color(&Color::BLACK, 0.5), "rgba(0, 0, 0, 0.5)");
+    }
+
+    #[test]
+    fn overlay_children_split_around_the_first_in_flow_child() {
+        let mut doc = designos_doc::Document::new("overlay-split");
+        let kids: Vec<Node> = [true, false, true, false, true]
+            .into_iter()
+            .map(|absolute| {
+                let id = doc.alloc_id();
+                let mut n = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 1.0, 1.0));
+                n.layout_child.absolute = absolute;
+                n
+            })
+            .collect();
+        let refs: Vec<&Node> = kids.iter().collect();
+        let ids = |v: &[&Node]| v.iter().map(|n| n.id).collect::<Vec<_>>();
+        let split = split_overlay_children(&refs);
+        assert_eq!(ids(&split.behind), vec![kids[0].id]);
+        assert_eq!(ids(&split.flow), vec![kids[1].id, kids[3].id]);
+        assert_eq!(ids(&split.front), vec![kids[2].id, kids[4].id]);
+
+        let only_absolute: Vec<&Node> = vec![&kids[0], &kids[2]];
+        let split = split_overlay_children(&only_absolute);
+        assert_eq!(ids(&split.behind), vec![kids[0].id, kids[2].id]);
+        assert!(split.flow.is_empty() && split.front.is_empty());
     }
 }

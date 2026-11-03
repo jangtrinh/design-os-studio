@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::Command;
 
 use designos_doc::{
@@ -79,6 +80,238 @@ fn add_false_flag(doc: &mut Document, var_id: &str) {
             mode_extensions: Default::default(),
         },
     );
+}
+
+fn make_absolute(doc: &mut Document, id: NodeId, x: f32, y: f32) {
+    let n = doc.get_mut(id).unwrap();
+    n.layout_child.absolute = true;
+    n.transform.tx = x;
+    n.transform.ty = y;
+}
+
+/// Hides `id` behind the boolean variable `flag` and leaves a stale position on it, as an edit that
+/// toggled the flag would.
+fn hide_by_flag(doc: &mut Document, id: NodeId, flag: &str, x: f32, y: f32) {
+    let n = doc.get_mut(id).unwrap();
+    n.variables.bindings.insert("visible".into(), flag.into());
+    n.transform.tx = x;
+    n.transform.ty = y;
+}
+
+fn solved_at(doc: &Document, id: NodeId) -> (f32, f32) {
+    let n = doc.get(id).unwrap();
+    (n.transform.tx, n.transform.ty)
+}
+
+/// Asserts that every needle occurs in `src`, each after the end of the previous one.
+fn assert_in_order(src: &str, needles: &[&str]) {
+    let mut from = 0;
+    for needle in needles {
+        match src[from..].find(needle) {
+            Some(i) => from += i + needle.len(),
+            None => panic!("missing, or out of order: {needle:?}\n{src}"),
+        }
+    }
+}
+
+/// 300x200 vertical frame, padding 16, space-between, counter axis start: two in-flow children and a
+/// corner badge placed absolutely.
+fn badge_column() -> (Document, NodeId) {
+    let al = AutoLayout {
+        direction: LayoutDirection::Vertical,
+        primary_align: LayoutAlign::SpaceBetween,
+        counter_align: LayoutAlign::Start,
+        item_spacing: 8.0,
+        padding: [16.0; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, frame) = new_stack(al, Vec2::new(300.0, 200.0));
+    add_box(&mut doc, frame, "FirstFlow", 100.0, 24.0, Sizing::Fixed, Sizing::Fixed, (0x1A, 0x33, 0x4D));
+    add_box(&mut doc, frame, "SecondFlow", 100.0, 32.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x4D, 0x66));
+    let badge = add_box(&mut doc, frame, "CornerBadge", 24.0, 16.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
+    make_absolute(&mut doc, badge, 260.0, 12.0);
+    doc.relayout_subtree(frame);
+    (doc, frame)
+}
+
+/// 280x80 horizontal frame, padding 12, counter axis centred: two in-flow children and a pin placed
+/// absolutely.
+fn pin_row() -> (Document, NodeId) {
+    let al = AutoLayout {
+        direction: LayoutDirection::Horizontal,
+        primary_align: LayoutAlign::Start,
+        counter_align: LayoutAlign::Center,
+        item_spacing: 10.0,
+        padding: [12.0; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, frame) = new_stack(al, Vec2::new(280.0, 80.0));
+    add_box(&mut doc, frame, "LeftItem", 60.0, 36.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x80, 0xCC));
+    add_box(&mut doc, frame, "RightItem", 60.0, 36.0, Sizing::Fixed, Sizing::Fixed, (0x4D, 0x99, 0xE6));
+    let pin = add_box(&mut doc, frame, "FloatingPin", 18.0, 18.0, Sizing::Fixed, Sizing::Fixed, (0xF2, 0x4D, 0x33));
+    make_absolute(&mut doc, pin, 248.0, 8.0);
+    doc.relayout_subtree(frame);
+    (doc, frame)
+}
+
+/// 240x160 frame centred on both axes whose children are all absolute. (A frame of 128 or less on both
+/// axes with only shapes inside exports as one image.)
+fn absolute_only_frame() -> (Document, NodeId) {
+    let al = AutoLayout {
+        direction: LayoutDirection::Vertical,
+        primary_align: LayoutAlign::Center,
+        counter_align: LayoutAlign::Center,
+        padding: [8.0; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, frame) = new_stack(al, Vec2::new(240.0, 160.0));
+    let dot_a = add_box(&mut doc, frame, "DotA", 10.0, 10.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
+    let dot_b = add_box(&mut doc, frame, "DotB", 10.0, 10.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x99, 0xE6));
+    make_absolute(&mut doc, dot_a, 10.0, 10.0);
+    make_absolute(&mut doc, dot_b, 200.0, 120.0);
+    doc.relayout_subtree(frame);
+    (doc, frame)
+}
+
+/// 200x120 vertical frame in Studio's child order: an absolute underlay, two in-flow children, then an
+/// absolute badge.
+fn underlay_column() -> (Document, NodeId) {
+    let al = AutoLayout {
+        direction: LayoutDirection::Vertical,
+        item_spacing: 8.0,
+        padding: [12.0; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, frame) = new_stack(al, Vec2::new(200.0, 120.0));
+    let underlay = add_box(&mut doc, frame, "Underlay", 192.0, 112.0, Sizing::Fixed, Sizing::Fixed, (0x10, 0x20, 0x30));
+    add_box(&mut doc, frame, "FlowA", 80.0, 20.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x4D, 0x66));
+    add_box(&mut doc, frame, "FlowB", 80.0, 20.0, Sizing::Fixed, Sizing::Fixed, (0x4D, 0x66, 0x80));
+    let badge = add_box(&mut doc, frame, "TopBadge", 20.0, 20.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
+    make_absolute(&mut doc, underlay, 4.0, 4.0);
+    make_absolute(&mut doc, badge, 170.0, 4.0);
+    doc.relayout_subtree(frame);
+    (doc, frame)
+}
+
+/// Vertical frame that hugs its height, and its width too unless `counter_sizing` is fixed, with a
+/// badge placed absolutely.
+fn hug_badge_column(counter_sizing: Sizing) -> (Document, NodeId) {
+    let al = AutoLayout {
+        direction: LayoutDirection::Vertical,
+        item_spacing: 8.0,
+        padding: [12.0; 4],
+        primary_sizing: Sizing::Hug,
+        counter_sizing,
+        ..Default::default()
+    };
+    let (mut doc, frame) = new_stack(al, Vec2::new(200.0, 100.0));
+    add_box(&mut doc, frame, "Label", 150.0, 24.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x4D, 0x66));
+    add_box(&mut doc, frame, "Caption", 150.0, 16.0, Sizing::Fixed, Sizing::Fixed, (0x4D, 0x66, 0x80));
+    let badge = add_box(&mut doc, frame, "Badge", 16.0, 16.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
+    make_absolute(&mut doc, badge, 158.0, 2.0);
+    doc.relayout_subtree(frame);
+    (doc, frame)
+}
+
+/// The [`badge_column`] frame with a child that a boolean variable hides (its stored position is
+/// stale) in place of the corner badge, or after it.
+fn hidden_column(with_badge: bool) -> (Document, NodeId) {
+    let al = AutoLayout {
+        direction: LayoutDirection::Vertical,
+        primary_align: LayoutAlign::SpaceBetween,
+        counter_align: LayoutAlign::Start,
+        item_spacing: 8.0,
+        padding: [16.0; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    let (mut doc, frame) = new_stack(al, Vec2::new(300.0, 200.0));
+    add_false_flag(&mut doc, "flag_hide");
+    add_box(&mut doc, frame, "FirstFlow", 100.0, 24.0, Sizing::Fixed, Sizing::Fixed, (0x1A, 0x33, 0x4D));
+    add_box(&mut doc, frame, "SecondFlow", 100.0, 32.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x4D, 0x66));
+    if with_badge {
+        let badge = add_box(&mut doc, frame, "CornerBadge", 24.0, 16.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
+        make_absolute(&mut doc, badge, 260.0, 12.0);
+    }
+    let hidden = add_box(&mut doc, frame, "HiddenBanner", 80.0, 20.0, Sizing::Fixed, Sizing::Fixed, (0x66, 0x66, 0x66));
+    hide_by_flag(&mut doc, hidden, "flag_hide", 16.0, 88.0);
+    doc.relayout_subtree(frame);
+    (doc, frame)
+}
+
+/// 220x100 grid frame, two flexible columns and one fixed row, padding 10, with the flag that hides
+/// variable-bound children registered and no children yet.
+fn empty_flex_grid() -> (Document, NodeId) {
+    let mut al = AutoLayout {
+        direction: LayoutDirection::Grid,
+        grid_columns: 2,
+        grid_rows: 1,
+        item_spacing: 10.0,
+        counter_spacing: 10.0,
+        padding: [10.0; 4],
+        primary_sizing: Sizing::Fixed,
+        counter_sizing: Sizing::Fixed,
+        ..Default::default()
+    };
+    al.grid_col_tracks = vec![GridTrack::Flex(1.0), GridTrack::Flex(1.0)].into();
+    al.grid_row_tracks = vec![GridTrack::Fixed(40.0)].into();
+    let (mut doc, grid) = new_stack(al, Vec2::new(220.0, 100.0));
+    add_false_flag(&mut doc, "flag_grid_hide");
+    (doc, grid)
+}
+
+fn add_cells(doc: &mut Document, grid: NodeId) {
+    add_box(doc, grid, "CellA", 95.0, 40.0, Sizing::Fill, Sizing::Fixed, (0x33, 0x66, 0xCC));
+    add_box(doc, grid, "CellB", 95.0, 40.0, Sizing::Fill, Sizing::Fixed, (0x4D, 0x80, 0xE6));
+}
+
+fn add_hidden_chip(doc: &mut Document, grid: NodeId) {
+    let chip = add_box(doc, grid, "HiddenChip", 60.0, 20.0, Sizing::Fixed, Sizing::Fixed, (0x80, 0x80, 0x80));
+    hide_by_flag(doc, chip, "flag_grid_hide", 14.0, 70.0);
+}
+
+fn add_tag(doc: &mut Document, grid: NodeId) {
+    let tag = add_box(doc, grid, "FloatingTag", 28.0, 16.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
+    make_absolute(doc, tag, 180.0, 6.0);
+}
+
+/// Grid with its two cells, an absolute tag and a variable-hidden chip, in that child order.
+fn tag_and_chip_grid() -> (Document, NodeId) {
+    let (mut doc, grid) = empty_flex_grid();
+    add_cells(&mut doc, grid);
+    add_tag(&mut doc, grid);
+    add_hidden_chip(&mut doc, grid);
+    doc.relayout_subtree(grid);
+    (doc, grid)
+}
+
+/// Grid whose only child besides its cells is a variable-hidden chip.
+fn chip_grid() -> (Document, NodeId) {
+    let (mut doc, grid) = empty_flex_grid();
+    add_cells(&mut doc, grid);
+    add_hidden_chip(&mut doc, grid);
+    doc.relayout_subtree(grid);
+    (doc, grid)
+}
+
+/// Grid in Studio's child order: an absolute underlay, the two cells, then an absolute tag.
+fn underlay_grid() -> (Document, NodeId) {
+    let (mut doc, grid) = empty_flex_grid();
+    let underlay = add_box(&mut doc, grid, "Underlay", 212.0, 92.0, Sizing::Fixed, Sizing::Fixed, (0x10, 0x20, 0x30));
+    make_absolute(&mut doc, underlay, 4.0, 4.0);
+    add_cells(&mut doc, grid);
+    add_tag(&mut doc, grid);
+    doc.relayout_subtree(grid);
+    (doc, grid)
 }
 
 #[test]
@@ -163,179 +396,323 @@ fn fill_width_fixed_height_and_fixed_width_fill_height_emit_valid_swiftui_frames
 }
 
 #[test]
-fn absolute_and_variable_hidden_children_in_stacks_are_emitted_in_overlay_out_of_flow() {
-    // 1. Vertical stack (VStack / Column) with SpaceBetween, padding, 2 in-flow children,
-    //    1 absolute child, and 1 variable-hidden child.
-    let v_al = AutoLayout {
-        direction: LayoutDirection::Vertical,
-        primary_align: LayoutAlign::SpaceBetween,
-        counter_align: LayoutAlign::Start,
-        item_spacing: 8.0,
-        padding: [16.0, 16.0, 16.0, 16.0],
-        primary_sizing: Sizing::Fixed,
-        counter_sizing: Sizing::Fixed,
-        ..Default::default()
-    };
-    let (mut doc, vstack) = new_stack(v_al, Vec2::new(300.0, 200.0));
-    add_false_flag(&mut doc, "flag_hide");
+fn column_with_absolute_child_keeps_in_flow_children_where_the_solver_puts_them() {
+    let (doc, frame) = badge_column();
+    let kids = doc.get(frame).unwrap().children.clone();
+    // The solver places the in-flow children at the padding edge and at the far end of the
+    // space-between axis, and the absolute badge keeps its own position.
+    assert_eq!(solved_at(&doc, kids[0]), (16.0, 16.0));
+    assert_eq!(solved_at(&doc, kids[1]), (16.0, 152.0));
+    assert_eq!(solved_at(&doc, kids[2]), (260.0, 12.0));
 
-    let first = add_box(&mut doc, vstack, "FirstFlow", 100.0, 24.0, Sizing::Fixed, Sizing::Fixed, (0x1A, 0x33, 0x4D));
-    let second = add_box(&mut doc, vstack, "SecondFlow", 100.0, 32.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x4D, 0x66));
-    let badge = add_box(&mut doc, vstack, "CornerBadge", 24.0, 16.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
-    {
-        let b = doc.get_mut(badge).unwrap();
-        b.layout_child.absolute = true;
-        b.transform.tx = 260.0;
-        b.transform.ty = 12.0;
-    }
-    let hidden = add_box(&mut doc, vstack, "HiddenBanner", 80.0, 20.0, Sizing::Fixed, Sizing::Fixed, (0x66, 0x66, 0x66));
-    {
-        let h = doc.get_mut(hidden).unwrap();
-        h.variables.bindings.insert("visible".into(), "flag_hide".into());
-        h.transform.tx = 16.0;
-        h.transform.ty = 88.0;
-    }
-    doc.relayout_subtree(vstack);
-
-    // Siblings keep their exact in-flow solver positions: (16, 16) and (16, 200 - 16 - 32 = 152).
-    let first_n = doc.get(first).unwrap();
-    let second_n = doc.get(second).unwrap();
-    assert_eq!((first_n.transform.tx, first_n.transform.ty), (16.0, 16.0));
-    assert_eq!((second_n.transform.tx, second_n.transform.ty), (16.0, 152.0));
-
-    let v_swift = swiftui_for(&doc, vstack);
-    assert!(
-        v_swift.starts_with("ZStack(alignment: .topLeading) {\n    VStack(alignment: .leading) {"),
-        "SwiftUI VStack with absolute/hidden children must be wrapped in ZStack(alignment: .topLeading):\n{v_swift}"
-    );
-    assert_eq!(v_swift.matches("Spacer()").count(), 1, "SpaceBetween VStack with 2 in-flow children must emit exactly 1 Spacer():\n{v_swift}");
-    let vstack_close = v_swift.find("    }\n        .padding(16)").expect("Inner VStack should close and carry .padding(16)");
-    let badge_pos = v_swift.find(".offset(x: 260, y: 12)").expect("Missing CornerBadge .offset(x: 260, y: 12)");
-    let hidden_pos = v_swift.find(".offset(x: 16, y: 88)").expect("Missing HiddenBanner .offset(x: 16, y: 88)");
-    let outer_frame_pos = v_swift.find("}\n    .frame(width: 300, height: 200").expect("Outer ZStack should carry the 300x200 frame modifier");
-    assert!(
-        vstack_close < badge_pos && badge_pos < hidden_pos && hidden_pos < outer_frame_pos,
-        "Absolute and variable-hidden children must be emitted after inner VStack and before outer ZStack closes in paint order:\n{v_swift}"
+    let swift = swiftui_for(&doc, frame);
+    assert!(swift.starts_with("ZStack(alignment: .topLeading) {\n    VStack(alignment: .leading) {"), "the stack sits inside a ZStack:\n{swift}");
+    assert_eq!(swift.matches("Spacer()").count(), 1, "two in-flow children share one space-between spacer:\n{swift}");
+    assert_in_order(
+        &swift,
+        &[
+            "        Spacer()\n",
+            "    }\n        .padding(16)\n        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)\n",
+            ".offset(x: 260, y: 12)",
+            "}\n    .frame(width: 300, height: 200, alignment: .topLeading)",
+        ],
     );
 
-    let v_compose = compose_for(&doc, vstack);
+    let kotlin = compose_for(&doc, frame);
     assert!(
-        v_compose.starts_with("Box(\n    modifier = Modifier\n        .size(width = 300.dp, height = 200.dp)"),
-        "Compose Column with absolute/hidden children must be wrapped in an outer Box with the frame's size:\n{v_compose}"
+        kotlin.starts_with("Box(\n    modifier = Modifier\n        .size(width = 300.dp, height = 200.dp)"),
+        "the column sits inside a Box of the frame's size:\n{kotlin}"
     );
-    let col_open = v_compose
-        .find("    Column(\n        modifier = Modifier.padding(16.dp),\n        verticalArrangement = Arrangement.SpaceBetween,\n        horizontalAlignment = Alignment.Start\n    ) {")
-        .expect("Inner Column should carry padding(16.dp) and SpaceBetween");
-    let col_close = v_compose[col_open..].find("\n    }\n    Box(").map(|i| col_open + i).expect("Inner Column must close before out-of-flow Box children");
-    let kt_badge_pos = v_compose.find(".offset(x = 260.dp, y = 12.dp)").expect("Missing CornerBadge .offset(x = 260.dp, y = 12.dp)");
-    let kt_hidden_pos = v_compose.find(".offset(x = 16.dp, y = 88.dp)").expect("Missing HiddenBanner .offset(x = 16.dp, y = 88.dp)");
+    // The column fills the box before it pads, so space-between runs across the frame's own height.
     assert!(
-        col_close < kt_badge_pos && kt_badge_pos < kt_hidden_pos,
-        "Compose out-of-flow children must appear after Column closes in paint order:\n{v_compose}"
+        kotlin.contains(
+            "    Column(\n        modifier = Modifier\n            .fillMaxSize()\n            .padding(16.dp),\n        verticalArrangement = Arrangement.SpaceBetween,\n        horizontalAlignment = Alignment.Start\n    ) {"
+        ),
+        "the inner column fills the frame before its padding:\n{kotlin}"
     );
-
-    // 2. Horizontal stack (HStack / Row) with an absolute child.
-    let h_al = AutoLayout {
-        direction: LayoutDirection::Horizontal,
-        primary_align: LayoutAlign::Start,
-        counter_align: LayoutAlign::Center,
-        item_spacing: 10.0,
-        padding: [12.0, 12.0, 12.0, 12.0],
-        primary_sizing: Sizing::Fixed,
-        counter_sizing: Sizing::Fixed,
-        ..Default::default()
-    };
-    let (mut hdoc, hstack) = new_stack(h_al, Vec2::new(280.0, 80.0));
-    add_box(&mut hdoc, hstack, "LeftItem", 60.0, 36.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x80, 0xCC));
-    add_box(&mut hdoc, hstack, "RightItem", 60.0, 36.0, Sizing::Fixed, Sizing::Fixed, (0x4D, 0x99, 0xE6));
-    let pin = add_box(&mut hdoc, hstack, "FloatingPin", 18.0, 18.0, Sizing::Fixed, Sizing::Fixed, (0xF2, 0x4D, 0x33));
-    {
-        let p = hdoc.get_mut(pin).unwrap();
-        p.layout_child.absolute = true;
-        p.transform.tx = 248.0;
-        p.transform.ty = 8.0;
-    }
-    hdoc.relayout_subtree(hstack);
-
-    let h_swift = swiftui_for(&hdoc, hstack);
-    assert!(
-        h_swift.starts_with("ZStack(alignment: .topLeading) {\n    HStack(spacing: 10) {"),
-        "SwiftUI HStack with absolute child must be wrapped in ZStack(alignment: .topLeading):\n{h_swift}"
-    );
-    let hstack_close = h_swift.find("    }\n        .padding(12)").expect("Inner HStack should close and carry .padding(12)");
-    let pin_pos = h_swift.find(".offset(x: 248, y: 8)").expect("Missing FloatingPin .offset(x: 248, y: 8)");
-    assert!(hstack_close < pin_pos, "FloatingPin must be emitted after HStack closes:\n{h_swift}");
-
-    let h_compose = compose_for(&hdoc, hstack);
-    let row_open = h_compose
-        .find("    Row(\n        modifier = Modifier.padding(12.dp),\n        horizontalArrangement = Arrangement.spacedBy(10.dp),\n        verticalAlignment = Alignment.CenterVertically\n    ) {")
-        .expect("Inner Row should carry padding(12.dp)");
-    let row_close = h_compose[row_open..].find("\n    }\n    Box(").map(|i| row_open + i).expect("Inner Row must close before FloatingPin");
-    let kt_pin_pos = h_compose.find(".offset(x = 248.dp, y = 8.dp)").expect("Missing FloatingPin .offset(x = 248.dp, y = 8.dp)");
-    assert!(row_close < kt_pin_pos, "Compose FloatingPin must appear after Row closes:\n{h_compose}");
+    assert_in_order(&kotlin, &["Column(", "\n    }\n    Box(", ".offset(x = 260.dp, y = 12.dp)"]);
 }
 
 #[test]
-fn absolute_and_variable_hidden_children_in_grid_are_emitted_in_overlay_out_of_flow() {
-    let mut g_al = AutoLayout {
-        direction: LayoutDirection::Grid,
-        grid_columns: 2,
-        grid_rows: 1,
-        item_spacing: 10.0,
-        counter_spacing: 10.0,
-        padding: [10.0, 10.0, 10.0, 10.0],
-        primary_sizing: Sizing::Fixed,
-        counter_sizing: Sizing::Fixed,
-        ..Default::default()
-    };
-    g_al.grid_col_tracks = vec![GridTrack::Flex(1.0), GridTrack::Flex(1.0)].into();
-    g_al.grid_row_tracks = vec![GridTrack::Fixed(40.0)].into();
+fn row_with_absolute_pin_keeps_centred_children_where_the_solver_puts_them() {
+    let (doc, frame) = pin_row();
+    let kids = doc.get(frame).unwrap().children.clone();
+    // Both children are centred on the counter axis inside the padded box: y = 12 + (56 - 36) / 2.
+    assert_eq!(solved_at(&doc, kids[0]), (12.0, 22.0));
+    assert_eq!(solved_at(&doc, kids[1]), (82.0, 22.0));
+    assert_eq!(solved_at(&doc, kids[2]), (248.0, 8.0));
 
-    let (mut doc, grid) = new_stack(g_al, Vec2::new(220.0, 100.0));
-    add_false_flag(&mut doc, "flag_grid_hide");
+    let swift = swiftui_for(&doc, frame);
+    assert!(swift.starts_with("ZStack(alignment: .topLeading) {\n    HStack(spacing: 10) {"), "the stack sits inside a ZStack:\n{swift}");
+    // The stack fills the ZStack and places its content by the frame's alignment (leading, centred
+    // vertically), so the ZStack stays 280x80 and the pin's offset is read from the frame's top-left.
+    assert_in_order(
+        &swift,
+        &[
+            "    }\n        .padding(12)\n        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)\n",
+            ".offset(x: 248, y: 8)",
+            "}\n    .frame(width: 280, height: 80, alignment: .topLeading)",
+        ],
+    );
 
-    add_box(&mut doc, grid, "CellA", 95.0, 40.0, Sizing::Fill, Sizing::Fixed, (0x33, 0x66, 0xCC));
-    add_box(&mut doc, grid, "CellB", 95.0, 40.0, Sizing::Fill, Sizing::Fixed, (0x4D, 0x80, 0xE6));
-    let tag = add_box(&mut doc, grid, "FloatingTag", 28.0, 16.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
-    {
-        let t = doc.get_mut(tag).unwrap();
-        t.layout_child.absolute = true;
-        t.transform.tx = 180.0;
-        t.transform.ty = 6.0;
-    }
-    let chip = add_box(&mut doc, grid, "HiddenChip", 60.0, 20.0, Sizing::Fixed, Sizing::Fixed, (0x80, 0x80, 0x80));
-    {
-        let c = doc.get_mut(chip).unwrap();
-        c.variables.bindings.insert("visible".into(), "flag_grid_hide".into());
-        c.transform.tx = 14.0;
-        c.transform.ty = 70.0;
-    }
-    doc.relayout_subtree(grid);
+    let kotlin = compose_for(&doc, frame);
+    assert!(
+        kotlin.contains(
+            "    Row(\n        modifier = Modifier\n            .fillMaxSize()\n            .padding(12.dp),\n        horizontalArrangement = Arrangement.spacedBy(10.dp),\n        verticalAlignment = Alignment.CenterVertically\n    ) {"
+        ),
+        "the inner row fills the frame before its padding, so the children centre in the frame:\n{kotlin}"
+    );
+    assert_in_order(&kotlin, &["Row(", "\n    }\n    Box(", ".offset(x = 248.dp, y = 8.dp)"]);
+}
 
+#[test]
+fn frame_with_only_absolute_children_is_sized_to_the_frame() {
+    let (doc, frame) = absolute_only_frame();
+
+    // The layout alignment is centre on both axes, which would move a ZStack that is smaller than
+    // the frame, so the children are placed from the frame's top-left instead.
+    let swift = swiftui_for(&doc, frame);
+    assert!(swift.starts_with("ZStack(alignment: .topLeading) {\n    Rectangle()"), "no stack inside the ZStack:\n{swift}");
+    assert!(!swift.contains("VStack") && !swift.contains("Spacer()"), "an absolute-only frame has no stack:\n{swift}");
+    assert_in_order(&swift, &[".offset(x: 10, y: 10)", ".offset(x: 200, y: 120)", "}\n    .frame(width: 240, height: 160, alignment: .topLeading)"]);
+
+    let kotlin = compose_for(&doc, frame);
+    assert!(kotlin.starts_with("Box(\n    modifier = Modifier\n        .size(width = 240.dp, height = 160.dp)"), "a Box of the frame's size:\n{kotlin}");
+    assert!(!kotlin.contains("Column(") && !kotlin.contains("Row("), "an absolute-only frame has no stack:\n{kotlin}");
+    assert_in_order(&kotlin, &[".offset(x = 10.dp, y = 10.dp)", ".offset(x = 200.dp, y = 120.dp)"]);
+}
+
+#[test]
+fn absolute_children_before_the_first_in_flow_child_paint_behind_the_stack() {
+    let (doc, frame) = underlay_column();
+
+    let swift = swiftui_for(&doc, frame);
+    assert_in_order(
+        &swift,
+        &[
+            "ZStack(alignment: .topLeading) {",
+            ".offset(x: 4, y: 4)",
+            "VStack(alignment: .leading, spacing: 8) {",
+            "    }\n        .padding(12)\n        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)\n",
+            ".offset(x: 170, y: 4)",
+        ],
+    );
+
+    let kotlin = compose_for(&doc, frame);
+    assert_in_order(&kotlin, &["Box(", ".offset(x = 4.dp, y = 4.dp)", "Column(", "\n    }\n    Box(", ".offset(x = 170.dp, y = 4.dp)"]);
+}
+
+#[test]
+fn hugging_frame_with_absolute_child_does_not_fill_its_container() {
+    // A frame that hugs both axes takes its content's size: nothing in the export may stretch it.
+    let (doc, frame) = hug_badge_column(Sizing::Hug);
+    let swift = swiftui_for(&doc, frame);
+    assert!(swift.starts_with("ZStack(alignment: .topLeading) {\n    VStack(alignment: .leading, spacing: 8) {"), "{swift}");
+    assert!(!swift.contains(".infinity"), "a hugging frame must not fill:\n{swift}");
+    assert_in_order(&swift, &["    }\n        .padding(12)\n", ".offset(x: 158, y: 2)"]);
+    let kotlin = compose_for(&doc, frame);
+    assert!(!kotlin.contains("fillMax"), "a hugging frame must not fill:\n{kotlin}");
+    assert!(kotlin.contains("    Column(\n        modifier = Modifier.padding(12.dp),"), "{kotlin}");
+
+    // Fixed width, hugging height: only the width fills.
+    let (doc, frame) = hug_badge_column(Sizing::Fixed);
+    let swift = swiftui_for(&doc, frame);
+    assert_in_order(
+        &swift,
+        &[
+            "    }\n        .padding(12)\n        .frame(maxWidth: .infinity, alignment: .topLeading)\n",
+            ".offset(x: 158, y: 2)",
+            "}\n    .frame(width: 200, alignment: .topLeading)",
+        ],
+    );
+    assert!(!swift.contains("maxHeight: .infinity"), "the hugging height must not fill:\n{swift}");
+    let kotlin = compose_for(&doc, frame);
+    assert!(kotlin.contains("    Column(\n        modifier = Modifier\n            .fillMaxWidth()\n            .padding(12.dp),"), "{kotlin}");
+    assert!(!kotlin.contains("fillMaxSize") && !kotlin.contains("fillMaxHeight"), "the hugging height must not fill:\n{kotlin}");
+}
+
+#[test]
+fn variable_hidden_child_stays_in_the_stack_flow() {
+    // Without an absolute sibling nothing leaves the flow: the export is the same text as before a
+    // frame could carry an overlay, and the hidden child is an ordinary stack item with no offset.
+    let (doc, frame) = hidden_column(false);
+    let expected_swift = "\
+VStack(alignment: .leading) {
+    Rectangle()
+        .fill(Color(red: 0.102, green: 0.2, blue: 0.302))
+        .frame(width: 100, height: 24)
+    Spacer()
+    Rectangle()
+        .fill(Color(red: 0.2, green: 0.302, blue: 0.4))
+        .frame(width: 100, height: 32)
+    Spacer()
+    Rectangle()
+        .fill(Color(red: 0.4, green: 0.4, blue: 0.4))
+        .frame(width: 80, height: 20)
+}
+    .padding(16)
+    .frame(width: 300, height: 200, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))";
+    assert_eq!(swiftui_for(&doc, frame), expected_swift);
+    let expected_compose = "\
+Column(
+    modifier = Modifier
+        .size(width = 300.dp, height = 200.dp)
+        .clip(RoundedCornerShape(8.dp))
+        .background(Color(0xFFF5F5FA), RoundedCornerShape(8.dp))
+        .padding(16.dp),
+    verticalArrangement = Arrangement.SpaceBetween,
+    horizontalAlignment = Alignment.Start
+) {
+    Box(
+        modifier = Modifier
+            .size(width = 100.dp, height = 24.dp)
+            .background(Color(0xFF1A334D))
+    )
+    Box(
+        modifier = Modifier
+            .size(width = 100.dp, height = 32.dp)
+            .background(Color(0xFF334D66))
+    )
+    Box(
+        modifier = Modifier
+            .size(width = 80.dp, height = 20.dp)
+            .background(Color(0xFF666666))
+    )
+}";
+    assert_eq!(compose_for(&doc, frame), expected_compose);
+
+    // Next to an absolute badge the hidden child still sits in the stack, and only the badge overlays.
+    let (doc, frame) = hidden_column(true);
+    let swift = swiftui_for(&doc, frame);
+    assert_eq!(swift.matches("Spacer()").count(), 2, "three in-flow children, two spacers:\n{swift}");
+    assert!(!swift.contains(".offset(x: 16, y: 88)"), "a hidden child keeps no stale offset:\n{swift}");
+    assert_in_order(
+        &swift,
+        &[
+            "ZStack(alignment: .topLeading) {\n    VStack(alignment: .leading) {",
+            "Color(red: 0.4, green: 0.4, blue: 0.4)",
+            "    }\n        .padding(16)\n",
+            ".offset(x: 260, y: 12)",
+        ],
+    );
+    let kotlin = compose_for(&doc, frame);
+    assert!(!kotlin.contains(".offset(x = 16.dp, y = 88.dp)"), "a hidden child keeps no stale offset:\n{kotlin}");
+    assert_in_order(&kotlin, &["Column(", ".background(Color(0xFF666666))", "\n    }\n    Box(", ".offset(x = 260.dp, y = 12.dp)"]);
+}
+
+#[test]
+fn grid_overlays_its_absolute_child_and_leaves_a_variable_hidden_child_in_place() {
+    let (doc, grid) = tag_and_chip_grid();
+
+    // SwiftUI: the hidden chip stays inside the Grid after its rows, with no offset; the tag overlays.
     let swift = swiftui_for(&doc, grid);
     assert!(
         swift.starts_with("ZStack(alignment: .topLeading) {\n    Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {"),
-        "SwiftUI Grid with absolute/hidden children must be wrapped in ZStack(alignment: .topLeading):\n{swift}"
+        "the grid sits inside a ZStack:\n{swift}"
     );
-    let grid_close = swift.find("    }\n        .padding(10)").expect("Inner SwiftUI Grid should close and carry .padding(10)");
-    let tag_pos = swift.find(".offset(x: 180, y: 6)").expect("Missing FloatingTag .offset(x: 180, y: 6)");
-    let chip_pos = swift.find(".offset(x: 14, y: 70)").expect("Missing HiddenChip .offset(x: 14, y: 70)");
-    let outer_frame = swift.find("}\n    .frame(width: 220, height: 100").expect("Outer ZStack should carry the 220x100 frame modifier");
-    assert!(
-        grid_close < tag_pos && tag_pos < chip_pos && chip_pos < outer_frame,
-        "SwiftUI Grid out-of-flow children must appear after Grid closes and before ZStack closes in paint order:\n{swift}"
+    assert!(!swift.contains(".offset(x: 14, y: 70)"), "a hidden chip keeps no stale offset:\n{swift}");
+    assert_in_order(
+        &swift,
+        &[
+            "GridRow {",
+            "Color(red: 0.502, green: 0.502, blue: 0.502)",
+            "    }\n        .padding(10)\n        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)\n",
+            ".offset(x: 180, y: 6)",
+            "}\n    .frame(width: 220, height: 100, alignment: .topLeading)",
+        ],
     );
 
-    let compose = compose_for(&doc, grid);
-    let kt_grid_pos = compose.find("    LazyVerticalGrid(").expect("Missing LazyVerticalGrid");
-    let kt_grid_close =
-        compose[kt_grid_pos..].find("\n    }\n    Box(").map(|i| kt_grid_pos + i).expect("LazyVerticalGrid must close before out-of-flow children");
-    let kt_tag_pos = compose.find(".offset(x = 180.dp, y = 6.dp)").expect("Missing FloatingTag .offset(x = 180.dp, y = 6.dp)");
-    let kt_chip_pos = compose.find(".offset(x = 14.dp, y = 70.dp)").expect("Missing HiddenChip .offset(x = 14.dp, y = 70.dp)");
-    assert!(
-        kt_grid_close < kt_tag_pos && kt_tag_pos < kt_chip_pos,
-        "Compose Grid out-of-flow and variable-hidden children must appear after LazyVerticalGrid closes with offsets:\n{compose}"
+    // Compose: the tag keeps its offset and the chip has none.
+    let kotlin = compose_for(&doc, grid);
+    assert!(!kotlin.contains(".offset(x = 14.dp, y = 70.dp)"), "a hidden chip keeps no stale offset:\n{kotlin}");
+    assert_in_order(&kotlin, &["Box(", "LazyVerticalGrid(", "\n    }\n    Box(", ".offset(x = 180.dp, y = 6.dp)", ".background(Color(0xFF808080))"]);
+}
+
+#[test]
+fn variable_hidden_grid_child_exports_where_it_was_without_an_overlay() {
+    let (doc, grid) = chip_grid();
+    let expected_swift = "\
+Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 10) {
+    GridRow {
+        Rectangle()
+            .fill(Color(red: 0.2, green: 0.4, blue: 0.8))
+            .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+            .frame(width: 95, height: 40, alignment: .topLeading)
+        Rectangle()
+            .fill(Color(red: 0.302, green: 0.502, blue: 0.902))
+            .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+            .frame(width: 95, height: 40, alignment: .topLeading)
+    }
+    Rectangle()
+        .fill(Color(red: 0.502, green: 0.502, blue: 0.502))
+        .frame(width: 60, height: 20)
+}
+    .padding(10)
+    .frame(width: 220, height: 100, alignment: .topLeading)
+    .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.961, green: 0.961, blue: 0.98)))
+    .clipShape(RoundedRectangle(cornerRadius: 8))";
+    assert_eq!(swiftui_for(&doc, grid), expected_swift);
+
+    let expected_compose = "\
+Box(
+    modifier = Modifier
+        .size(width = 220.dp, height = 100.dp)
+        .clip(RoundedCornerShape(8.dp))
+        .background(Color(0xFFF5F5FA), RoundedCornerShape(8.dp))
+) {
+    LazyVerticalGrid(
+        columns = object : GridCells { override fun Density.calculateCrossAxisCellSizes(availableSize: Int, spacing: Int): List<Int> = listOf(95.dp, 95.dp).map { it.roundToPx() } },
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        userScrollEnabled = false
+    ) {
+        item {
+            Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+                Box(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .fillMaxWidth()
+                        .background(Color(0xFF3366CC))
+                )
+            }
+        }
+        item {
+            Box(Modifier.height(40.dp), contentAlignment = Alignment.TopStart) {
+                Box(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .fillMaxWidth()
+                        .background(Color(0xFF4D80E6))
+                )
+            }
+        }
+    }
+    Box(
+        modifier = Modifier
+            .size(width = 60.dp, height = 20.dp)
+            .background(Color(0xFF808080))
+    )
+}";
+    assert_eq!(compose_for(&doc, grid), expected_compose);
+}
+
+#[test]
+fn grid_absolute_child_before_the_cells_paints_behind_the_grid() {
+    let (doc, grid) = underlay_grid();
+
+    let swift = swiftui_for(&doc, grid);
+    assert_in_order(
+        &swift,
+        &["ZStack(alignment: .topLeading) {", ".offset(x: 4, y: 4)", "Grid(alignment: .topLeading", "    }\n        .padding(10)\n", ".offset(x: 180, y: 6)"],
     );
+
+    let kotlin = compose_for(&doc, grid);
+    assert_in_order(&kotlin, &["Box(", ".offset(x = 4.dp, y = 4.dp)", "LazyVerticalGrid(", "\n    }\n    Box(", ".offset(x = 180.dp, y = 6.dp)"]);
 }
 
 #[test]
@@ -618,60 +995,44 @@ fn build_swiftui_fixtures_for_typecheck() -> Vec<(&'static str, String)> {
         doc.relayout_subtree(h);
         out.push(("10_stack_fixed_width_fill_height", swiftui_for(&doc, h)));
     }
-    // 11. vstack_with_absolute_child
-    {
-        let al = AutoLayout {
-            direction: LayoutDirection::Vertical,
-            primary_align: LayoutAlign::SpaceBetween,
-            item_spacing: 8.0,
-            padding: [16.0; 4],
-            primary_sizing: Sizing::Fixed,
-            counter_sizing: Sizing::Fixed,
-            ..Default::default()
-        };
-        let (mut doc, v) = new_stack(al, Vec2::new(300.0, 200.0));
-        add_box(&mut doc, v, "Item1", 100.0, 24.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x4D, 0x66));
-        add_box(&mut doc, v, "Item2", 100.0, 32.0, Sizing::Fixed, Sizing::Fixed, (0x4D, 0x66, 0x80));
-        let abs = add_box(&mut doc, v, "Pin", 24.0, 16.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x33, 0x33));
-        {
-            let a = doc.get_mut(abs).unwrap();
-            a.layout_child.absolute = true;
-            a.transform.tx = 260.0;
-            a.transform.ty = 12.0;
-        }
-        doc.relayout_subtree(v);
-        out.push(("11_vstack_with_absolute_child", swiftui_for(&doc, v)));
-    }
-    // 12. hstack_with_absolute_child
-    {
-        let al = AutoLayout {
-            direction: LayoutDirection::Horizontal,
-            item_spacing: 10.0,
-            padding: [12.0; 4],
-            primary_sizing: Sizing::Fixed,
-            counter_sizing: Sizing::Fixed,
-            ..Default::default()
-        };
-        let (mut doc, h) = new_stack(al, Vec2::new(280.0, 80.0));
-        add_box(&mut doc, h, "Left", 60.0, 36.0, Sizing::Fixed, Sizing::Fixed, (0x33, 0x80, 0xCC));
-        let abs = add_box(&mut doc, h, "Pin", 18.0, 18.0, Sizing::Fixed, Sizing::Fixed, (0xE6, 0x4D, 0x33));
-        {
-            let a = doc.get_mut(abs).unwrap();
-            a.layout_child.absolute = true;
-            a.transform.tx = 248.0;
-            a.transform.ty = 8.0;
-        }
-        doc.relayout_subtree(h);
-        out.push(("12_hstack_with_absolute_child", swiftui_for(&doc, h)));
-    }
+    // 11. column_with_absolute_child
+    out.push(("11_column_with_absolute_child", swiftui_for_fixture(badge_column())));
+    // 12. row_with_absolute_pin
+    out.push(("12_row_with_absolute_pin", swiftui_for_fixture(pin_row())));
+    // 13. frame_with_only_absolute_children
+    out.push(("13_frame_with_only_absolute_children", swiftui_for_fixture(absolute_only_frame())));
+    // 14. column_with_absolute_underlay_first
+    out.push(("14_column_with_absolute_underlay_first", swiftui_for_fixture(underlay_column())));
+    // 15. hugging_column_with_absolute_badge
+    out.push(("15_hugging_column_with_absolute_badge", swiftui_for_fixture(hug_badge_column(Sizing::Hug))));
+    // 16. fixed_width_hugging_height_column_with_absolute_badge
+    out.push(("16_fixed_width_hugging_height_column_with_absolute_badge", swiftui_for_fixture(hug_badge_column(Sizing::Fixed))));
+    // 17. column_with_variable_hidden_child_and_badge
+    out.push(("17_column_with_variable_hidden_child_and_badge", swiftui_for_fixture(hidden_column(true))));
+    // 18. grid_with_absolute_tag_and_variable_hidden_chip
+    out.push(("18_grid_with_absolute_tag_and_variable_hidden_chip", swiftui_for_fixture(tag_and_chip_grid())));
+    // 19. grid_with_absolute_underlay_and_tag
+    out.push(("19_grid_with_absolute_underlay_and_tag", swiftui_for_fixture(underlay_grid())));
 
     out
 }
 
+fn swiftui_for_fixture((doc, root): (Document, NodeId)) -> String {
+    swiftui_for(&doc, root)
+}
+
+const SWIFTC: &str = "/usr/bin/swiftc";
+
 #[test]
 fn every_swiftui_test_fixture_passes_swiftc_typecheck() {
     let fixtures = build_swiftui_fixtures_for_typecheck();
-    assert_eq!(fixtures.len(), 12);
+    assert_eq!(fixtures.len(), 19);
+
+    // CI images without a Swift toolchain (Linux, Windows) cannot typecheck: say so and pass.
+    if !Path::new(SWIFTC).exists() {
+        eprintln!("swiftc_typecheck_summary: skipped, {SWIFTC} is not installed on this machine");
+        return;
+    }
 
     let tmp = std::env::temp_dir().join(format!("designos-swiftc-check-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -683,7 +1044,7 @@ fn every_swiftui_test_fixture_passes_swiftc_typecheck() {
         let swift_src = format!("import SwiftUI\n\nstruct Fixture_{idx}: View {{\n    var body: some View {{\n{indented}\n    }}\n}}\n");
         let path = tmp.join(format!("{name}.swift"));
         std::fs::write(&path, &swift_src).expect("write swift file");
-        let output = Command::new("/usr/bin/swiftc").arg("-typecheck").arg(&path).output().expect("invoke /usr/bin/swiftc");
+        let output = Command::new(SWIFTC).arg("-typecheck").arg(&path).output().expect("invoke swiftc");
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             failures.push((name.to_string(), stderr));

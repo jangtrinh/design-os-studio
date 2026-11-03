@@ -2,7 +2,7 @@
 
 use crate::codegen::*;
 use crate::slots::*;
-use crate::util::num;
+use crate::util::{num, split_overlay_children};
 use designos_doc::*;
 
 /// A SwiftUI view for `node` and its descendants. Auto layout becomes `HStack`/`VStack` with
@@ -330,6 +330,28 @@ fn layout_frame_align(al: &AutoLayout, horizontal: bool) -> Option<String> {
     (al_s != ".center").then_some(al_s)
 }
 
+/// Padding and frame modifiers of an auto layout frame, as `(outer, inner)`: `outer` sits on the frame's
+/// view and `inner` on its in-flow content.
+///
+/// A frame that overlays absolute children (`overlay`) is a `ZStack` around that content. The content
+/// carries the padding and a frame that fills the `ZStack` and places the content by the layout
+/// alignment `align`, so the `ZStack` keeps the frame's size and an absolute child's offset reads from
+/// the frame's top-left whatever the alignment. An axis the frame hugs does not fill. The `ZStack`
+/// itself is placed at the frame's top-left. Otherwise padding and alignment sit on the frame itself.
+fn layout_frame_mods(doc: &Document, n: &Node, al: &AutoLayout, sz: &Sizes, align: Option<String>, overlay: bool) -> (Vec<String>, Vec<String>) {
+    let (mut outer, mut inner) = (Vec::new(), Vec::new());
+    if overlay {
+        padding_mods(doc, n, al, &mut inner);
+        let fill = |d: Dim| if d == Dim::Hug { Dim::Hug } else { Dim::Fill };
+        inner.extend(frame_args(fill(sz.w), fill(sz.h), align.as_deref(), n, doc));
+        outer.extend(frame_args(sz.w, sz.h, Some(".topLeading"), n, doc));
+    } else {
+        padding_mods(doc, n, al, &mut outer);
+        outer.extend(frame_args(sz.w, sz.h, align.as_deref(), n, doc));
+    }
+    (outer, inner)
+}
+
 fn padding_mods(doc: &Document, n: &Node, al: &AutoLayout, m: &mut Vec<String>) {
     let keys = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"];
     let p = al.padding;
@@ -382,7 +404,8 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let mut head: Vec<String> = Vec::new(); // lines of the view expression before modifiers
     let mut body: Option<Vec<NodeId>> = None; // children inside braces
     let mut stack: Option<String> = None; // "HStack(...) {"
-    let mut oof_ids: Vec<NodeId> = Vec::new();
+    let mut behind_ids: Vec<NodeId> = Vec::new(); // absolute children that paint behind the in-flow content
+    let mut front_ids: Vec<NodeId> = Vec::new(); // absolute children that paint over it
     let mut inner_mods: Vec<String> = Vec::new();
     let mut grid_body: Option<(&AutoLayout, SolvedGrid, String, String)> = None;
     let mut spacers = (false, false, false); // before, between, after
@@ -444,21 +467,18 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     } else if let Some((al, grid)) = own_al.filter(|_| site.is_none()).and_then(|al| solved_grid(doc, n, al).map(|g| (al, g))) {
         let col_gap_s = dimension(doc, n, "itemSpacing", grid.col_gap);
         let row_gap_s = dimension(doc, n, grid_row_gap_key(doc, n, al), grid.row_gap);
-        oof_ids = kids.iter().filter(|k| !grid.children.iter().any(|(cid, _)| *cid == k.id)).map(|k| k.id).collect();
-        if oof_ids.is_empty() {
-            padding_mods(doc, n, al, &mut mods);
-        } else {
-            padding_mods(doc, n, al, &mut inner_mods);
-        }
+        let split = split_overlay_children(&kids);
+        behind_ids = split.behind.iter().map(|k| k.id).collect();
+        front_ids = split.front.iter().map(|k| k.id).collect();
+        let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
+        let (outer, inner) = layout_frame_mods(doc, n, al, &sz, layout_frame_align(al, true), overlay);
+        mods.extend(outer);
+        inner_mods = inner;
         grid_body = Some((al, grid, col_gap_s, row_gap_s));
-        let align = layout_frame_align(al, true);
-        if let Some(f) = frame_args(sz.w, sz.h, align.as_deref(), n, doc) {
-            mods.push(f);
-        }
         container_style(doc, n, &radius_shape, &mut mods);
     } else if let Some(al) = own_al.filter(|_| !kids.is_empty() || site.is_some()) {
         let horizontal = al.direction == LayoutDirection::Horizontal;
-        let (flow_kids, oof_kids): (Vec<&Node>, Vec<&Node>) = kids.iter().copied().partition(|k| doc.flow_child_input(k.id, horizontal).is_some());
+        let split = split_overlay_children(&kids);
         let counter = match (al.counter_align, horizontal) {
             (LayoutAlign::Center, _) => "center",
             (LayoutAlign::End, true) => "bottom",
@@ -487,17 +507,13 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             LayoutAlign::SpaceBetween => (false, true, false),
             _ => (false, false, false),
         };
-        body = Some(flow_kids.iter().map(|k| k.id).collect());
-        oof_ids = oof_kids.iter().map(|k| k.id).collect();
-        if oof_ids.is_empty() {
-            padding_mods(doc, n, al, &mut mods);
-        } else {
-            padding_mods(doc, n, al, &mut inner_mods);
-        }
-        let align = layout_frame_align(al, horizontal);
-        if let Some(f) = frame_args(sz.w, sz.h, align.as_deref(), n, doc) {
-            mods.push(f);
-        }
+        body = Some(split.flow.iter().map(|k| k.id).collect());
+        behind_ids = split.behind.iter().map(|k| k.id).collect();
+        front_ids = split.front.iter().map(|k| k.id).collect();
+        let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
+        let (outer, inner) = layout_frame_mods(doc, n, al, &sz, layout_frame_align(al, horizontal), overlay);
+        mods.extend(outer);
+        inner_mods = inner;
         container_style(doc, n, &radius_shape, &mut mods);
     } else if n.kind.is_container() && (!kids.is_empty() || site.is_some()) {
         stack = Some("ZStack(alignment: .topLeading) {".into());
@@ -562,15 +578,18 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
         o.line(depth, h);
     }
     if let Some((al, grid, col_gap_s, row_gap_s)) = &grid_body {
-        let has_oof = !oof_ids.is_empty();
-        let g_depth = if has_oof {
+        let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
+        let me = Parent::of(n);
+        let g_depth = if overlay {
             o.line(depth, "ZStack(alignment: .topLeading) {");
+            for cid in &behind_ids {
+                view(doc, *cid, me, depth + 1, o);
+            }
             depth + 1
         } else {
             depth
         };
         o.line(g_depth, format!("Grid(alignment: .topLeading, horizontalSpacing: {col_gap_s}, verticalSpacing: {row_gap_s}) {{"));
-        let me = Parent::of(n);
         let cols = grid.widths.len();
         for r in 0..grid.rows.len() {
             o.line(g_depth + 1, "GridRow {");
@@ -637,29 +656,36 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             }
             o.line(g_depth + 1, "}");
         }
+        // A child the grid does not place and no absolute position takes out of the flow (a variable
+        // hides it) stays a row of the grid.
+        for k in kids.iter().filter(|k| !k.layout_child.absolute && !grid.children.iter().any(|(cid, _)| *cid == k.id)) {
+            view(doc, k.id, me, g_depth + 1, o);
+        }
         o.line(g_depth, "}");
         for m in &inner_mods {
             o.line(g_depth + 1, m);
         }
-        if has_oof {
-            let oof_parent = Parent { al: None, root: false };
-            for cid in &oof_ids {
-                view(doc, *cid, oof_parent, depth + 1, o);
+        if overlay {
+            for cid in &front_ids {
+                view(doc, *cid, me, depth + 1, o);
             }
             o.line(depth, "}");
         }
     }
     if let (Some(open), Some(children)) = (&stack, &body) {
-        let has_oof = !oof_ids.is_empty();
-        let s_depth = if has_oof {
+        let overlay = !behind_ids.is_empty() || !front_ids.is_empty();
+        let me = Parent::of(n);
+        let s_depth = if overlay {
             o.line(depth, "ZStack(alignment: .topLeading) {");
+            for cid in &behind_ids {
+                view(doc, *cid, me, depth + 1, o);
+            }
             depth + 1
         } else {
             depth
         };
-        if !has_oof || !children.is_empty() || site.is_some() {
+        if !overlay || !children.is_empty() || site.is_some() {
             o.line(s_depth, open);
-            let me = Parent::of(n);
             if spacers.0 {
                 o.line(s_depth + 1, "Spacer()");
             }
@@ -691,10 +717,9 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
                 o.line(s_depth + 1, m);
             }
         }
-        if has_oof {
-            let oof_parent = Parent { al: None, root: false };
-            for cid in &oof_ids {
-                view(doc, *cid, oof_parent, depth + 1, o);
+        if overlay {
+            for cid in &front_ids {
+                view(doc, *cid, me, depth + 1, o);
             }
             o.line(depth, "}");
         }
