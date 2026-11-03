@@ -4,11 +4,14 @@
 //! another child asked for, whatever the child order:
 //!
 //! 1. children pinned to both a row and a column;
-//! 2. children locked to a row (with auto column), in child order;
+//! 2. children locked to a row (with auto column), in child order, each past the child this pass
+//!    placed before it in the same row;
 //! 3. column-locked and auto children together in child order, advancing a sparse `(row, col)` cursor.
 //!
 //! A column pin past the last column (a deleted column, a narrower grid) is no pin at all: the
 //! child keeps any row lock and falls back to the free cells.
+
+use std::collections::HashMap;
 
 use crate::layout_solver_types::ChildIn;
 
@@ -98,11 +101,18 @@ pub fn place_children(kids: &[ChildIn], cols: usize) -> Vec<Placed> {
             put(i, row, col, &mut occupied);
         }
     }
-    // pass 2: locked to a row only, in child order.
+    // pass 2: locked to a row only, in child order. A child starts past the one this pass placed
+    // before it in the same row, so it never takes a hole that child left in front of itself.
+    let mut row_cursor: HashMap<usize, usize> = HashMap::new();
     for (i, w) in wants.iter().enumerate() {
-        if let (Some(row), None) = (w.row, w.column) {
-            let (row, col) = first_free_cell(&mut occupied, row, 0, None, cols, w.col_span, w.row_span);
+        if let (Some(locked_row), None) = (w.row, w.column) {
+            let start_col = row_cursor.get(&locked_row).copied().unwrap_or(0);
+            let (row, col) = first_free_cell(&mut occupied, locked_row, start_col, None, cols, w.col_span, w.row_span);
             put(i, row, col, &mut occupied);
+            // a child with no room past the cursor moves down; it leaves the cursor of its locked row alone
+            if row == locked_row {
+                row_cursor.insert(locked_row, col + w.col_span);
+            }
         }
     }
     // pass 3: column-locked and auto children together in child order, using a sparse cursor.
@@ -194,6 +204,30 @@ mod tests {
         assert_eq!(cells(&[wide], 3), [(0, 1)]);
         let too_wide = ChildIn { cell: GridCell { column: Some(2), col_span: 2, ..Default::default() }, ..Default::default() };
         assert_eq!(cells(&[too_wide], 3), [(0, 1)]);
+    }
+
+    #[test]
+    fn a_row_locked_child_starts_past_the_row_locked_children_placed_before_it() {
+        // rows 0 and 1 of five columns: the rowspan-2 child blocks (1, 1), so the colspan-2 child
+        // starts at column 2 and leaves (1, 0) empty; the next child of row 1 goes after it, not into the hole
+        let kids = [span(Some(0), None, 1, 1), span(Some(0), None, 1, 2), span(Some(1), None, 2, 1), span(Some(1), None, 1, 1)];
+        assert_eq!(cells(&kids, 5), [(0, 0), (0, 1), (1, 2), (1, 4)]);
+    }
+
+    #[test]
+    fn a_row_locked_child_with_no_room_past_the_previous_one_moves_down() {
+        // a pin in front of a wide child leaves a hole at (0, 0); the wide child sits at column 2 and
+        // the grid has no implicit columns, so the next row-locked child takes the first free cell below
+        let kids = [kid(Some(0), Some(1)), span(Some(0), None, 2, 1), span(Some(0), None, 1, 1)];
+        assert_eq!(cells(&kids, 4), [(0, 1), (0, 2), (1, 0)]);
+    }
+
+    #[test]
+    fn a_row_locked_child_that_moves_down_does_not_close_its_own_row() {
+        // the wide child cannot start past column 0 of row 0 and drops to row 1; the next narrow
+        // child still takes the free cell next to the first one in row 0, as before
+        let kids = [kid(Some(0), None), span(Some(0), None, 3, 1), kid(Some(0), None)];
+        assert_eq!(cells(&kids, 3), [(0, 0), (1, 0), (0, 1)]);
     }
 
     #[test]
