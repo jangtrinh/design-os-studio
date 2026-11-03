@@ -863,6 +863,13 @@ mod tests {
         assert!(scope_allows(&["ALL_FILLS".into()], "fills/0", &text));
         assert!(scope_allows(&["STROKE".into()], "strokes/0", &frame), "Figma editor scope STROKE must allow stroke colours");
         assert!(scope_allows(&["STROKE_COLOR".into()], "strokes/0", &frame), "REST scope STROKE_COLOR must allow stroke colours");
+        for spelling in ["STROKE", "STROKE_COLOR"] {
+            let scopes = [spelling.to_string()];
+            assert!(!scope_allows(&scopes, "fills/0", &frame), "{spelling} is a stroke colour scope, not a frame fill scope");
+            assert!(!scope_allows(&scopes, "fills/0", &text), "{spelling} is a stroke colour scope, not a text fill scope");
+            assert!(!scope_allows(&scopes, "strokeWeight", &frame), "{spelling} is a stroke colour scope, not a stroke weight scope");
+            assert!(!scope_allows(&scopes, "strokes/0/opacity", &frame), "{spelling} does not cover paint opacity");
+        }
     }
 
     #[test]
