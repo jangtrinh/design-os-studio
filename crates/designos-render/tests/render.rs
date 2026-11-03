@@ -803,22 +803,22 @@ fn thin_inside_dashed_rect_keeps_stroke() {
     let mut t = T::new();
     // The inset centerline of a 4px tall rectangle with weight 4 collapses, so the stroke is drawn on the
     // outline at twice the weight and clipped to the inside. The first dash covers x = 10..18 along the top edge
-    // and its round end cap, radius 4, is centered at (18, 10). The dash period is 48 and the outline is 408 long,
-    // so the dashes on the bottom edge sit at x = 22..30, 70..78 and so on, clear of that cap and of the gap middle.
+    // and its round end cap, radius 4, is centered at (18, 10). The dash period is 68 and the outline is 408 long,
+    // so the first dash on the bottom edge sits at x = 66..74, far from that cap and from the gap middle.
     t.add(None, |id| {
         let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 200.0, 4.0));
         n.fills.clear();
         n.stroke.paints = vec![Paint::solid(RED)];
         n.stroke.weight = 4.0;
         n.stroke.align = StrokeAlign::Inside;
-        n.stroke.dashes = vec![8.0, 40.0];
+        n.stroke.dashes = vec![8.0, 60.0];
         n.stroke.cap = StrokeCap::Round;
         n
     });
     let pm = t.render(220, 24);
     assert_eq!(px(&pm, 14, 12), [255, 0, 0, 255], "thin inside dashed rectangle paints the first dash at (14, 12)");
     assert_eq!(px(&pm, 19, 11), [255, 0, 0, 255], "thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)");
-    assert_eq!(px(&pm, 44, 12), WHITE, "thin inside dashed rectangle leaves the middle of the gap unpainted at (44, 12)");
+    assert_eq!(px(&pm, 40, 12), WHITE, "thin inside dashed rectangle leaves the middle of the gap unpainted at (40, 12)");
 }
 
 #[test]

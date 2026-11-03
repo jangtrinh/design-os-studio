@@ -660,7 +660,7 @@ fn thin_inside_dashed_rect_keeps_stroke_gpu() {
         n.stroke.paints = vec![Paint::solid(red)];
         n.stroke.weight = 4.0;
         n.stroke.align = StrokeAlign::Inside;
-        n.stroke.dashes = vec![8.0, 40.0];
+        n.stroke.dashes = vec![8.0, 60.0];
         n.stroke.cap = StrokeCap::Round;
         n
     });
@@ -679,11 +679,11 @@ fn thin_inside_dashed_rect_keeps_stroke_gpu() {
         [255, 0, 0, 255],
         "GPU thin inside dashed rectangle paints the round cap just past the dash end at (19, 11)"
     );
-    let gap_px = c.gpu.pixel(44, 12).unwrap();
+    let gap_px = c.gpu.pixel(40, 12).unwrap();
     assert_eq!(
         [gap_px.red(), gap_px.green(), gap_px.blue(), gap_px.alpha()],
         [255, 255, 255, 255],
-        "GPU thin inside dashed rectangle leaves the middle of the gap white at (44, 12)"
+        "GPU thin inside dashed rectangle leaves the middle of the gap white at (40, 12)"
     );
 }
 
