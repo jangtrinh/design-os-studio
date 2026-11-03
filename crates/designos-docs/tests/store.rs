@@ -221,3 +221,75 @@ fn a_lock_held_by_another_program_fails_fast_with_an_error_that_names_the_fix() 
     holder.unlock().unwrap();
     store.write_page("b.md", &page("b\n"), Expect::Absent).unwrap();
 }
+
+#[test]
+fn a_page_over_the_size_limit_is_a_typed_error_that_names_the_limit_and_the_fix() {
+    let (_tmp, store) = store();
+    std::fs::create_dir_all(store.dir()).unwrap();
+    std::fs::write(store.dir().join("big.md"), vec![b'a'; 8 * 1024 * 1024 + 1]).unwrap();
+    let err = store.read_page("big.md").unwrap_err();
+    assert!(format!("{err:?}").starts_with("TooLarge { ") && format!("{err:?}").contains("limit: 8388608"), "{err:?}");
+    let text = err.to_string();
+    assert!(text.contains("big.md") && text.contains("8388608") && text.contains("fix: split the page"), "{text}");
+}
+
+#[cfg(unix)]
+mod symlinks {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    /// A docs folder holding `spec/real.md`, with `secret.md` and a `private/` folder outside the docs folder.
+    fn with_outside() -> (tempfile::TempDir, DocsStore, std::path::PathBuf) {
+        let (tmp, store) = store();
+        std::fs::create_dir_all(store.dir().join("spec")).unwrap();
+        std::fs::write(store.dir().join("spec/real.md"), "# real\n").unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(outside.join("private")).unwrap();
+        std::fs::write(outside.join("secret.md"), "# SECRET\n").unwrap();
+        std::fs::write(outside.join("private/notes.md"), "# NOTES\n").unwrap();
+        (tmp, store, outside)
+    }
+
+    fn assert_refused(err: DocsError, what: &str) {
+        assert!(format!("{err:?}").starts_with("OutsideDocs { "), "{what}: {err:?}");
+        let text = err.to_string();
+        assert!(text.contains("outside the docs folder") && text.contains("fix:"), "{what}: {text}");
+    }
+
+    #[test]
+    fn a_file_symlink_to_outside_the_docs_folder_is_refused_for_read_and_write() {
+        let (_tmp, store, outside) = with_outside();
+        symlink(outside.join("secret.md"), store.dir().join("spec/leak.md")).unwrap();
+        assert_refused(store.read_page("spec/leak.md").unwrap_err(), "read");
+        let hash = ContentHash::of(b"# SECRET\n");
+        assert_refused(store.write_page("spec/leak.md", &page("# overwritten\n"), Expect::Hash(hash)).unwrap_err(), "write");
+        assert_eq!(std::fs::read_to_string(outside.join("secret.md")).unwrap(), "# SECRET\n", "nothing was written through the link");
+    }
+
+    #[test]
+    fn a_folder_symlink_to_outside_the_docs_folder_is_refused() {
+        let (_tmp, store, outside) = with_outside();
+        symlink(&outside, store.dir().join("linked")).unwrap();
+        assert_refused(store.read_page("linked/secret.md").unwrap_err(), "read through a folder link");
+        assert_refused(store.read_page("linked/private/notes.md").unwrap_err(), "read through a nested folder");
+        assert_refused(store.write_page("linked/new.md", &page("# x\n"), Expect::Absent).unwrap_err(), "create through a folder link");
+        assert!(!outside.join("new.md").exists());
+    }
+
+    #[test]
+    fn a_manifest_symlinked_outside_is_refused() {
+        let (_tmp, store, outside) = with_outside();
+        std::fs::write(outside.join("m.json"), Manifest::new().to_json_pretty().unwrap()).unwrap();
+        symlink(outside.join("m.json"), store.dir().join(MANIFEST_FILE)).unwrap();
+        assert_refused(store.read_manifest().unwrap_err(), "manifest");
+    }
+
+    #[test]
+    fn a_symlink_that_stays_inside_the_docs_folder_still_reads_and_a_missing_page_is_just_missing() {
+        let (_tmp, store, _outside) = with_outside();
+        symlink(store.dir().join("spec/real.md"), store.dir().join("alias.md")).unwrap();
+        assert!(store.read_page("alias.md").is_ok());
+        assert!(matches!(store.read_page("spec/missing.md").unwrap_err(), DocsError::NotFound { .. }));
+        assert!(matches!(store.read_page("nope/missing.md").unwrap_err(), DocsError::NotFound { .. }));
+    }
+}

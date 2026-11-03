@@ -37,6 +37,14 @@ pub enum DocsError {
     #[error("{0}")]
     Manifest(ManifestError),
 
+    /// A page or manifest larger than the size the store reads. Nothing was read.
+    #[error("{path} is over the {limit} byte limit; fix: split the page")]
+    TooLarge { path: String, limit: u64 },
+
+    /// The path leads, through a symlink, to a place outside the docs folder. Nothing was read or written.
+    #[error("{path} resolves to a place outside the docs folder, so it was not touched; fix: remove the symlink, or replace it with a real file inside the docs folder")]
+    OutsideDocs { path: String },
+
     #[error("block {index} does not exist; the page has {len} blocks; fix: read the page again and use an index below {len}")]
     BlockIndex { index: usize, len: usize },
 
