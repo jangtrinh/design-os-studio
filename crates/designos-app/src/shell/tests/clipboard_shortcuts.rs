@@ -2,11 +2,14 @@
 //!
 //! `Event::Copy` and `Event::Paste` carry no modifiers. The letter's release does, and it can share a frame with the
 //! command when the UI thread was busy across the tap, so the frame's own modifiers (the state after every change in
-//! it) may already be empty. A Shift or Alt let go before the letter shows only in its own key release: winit's macOS
-//! backend queues that key event before the modifier change, so it is still stamped with the modifier while the
-//! letter's release is not.
+//! it) may already be empty. A modifier let go before the letter shows only in its own key release, and which key
+//! releases are stamped with what depends on the backend: winit's macOS backend queues a modifier's key event before
+//! the modifier change (its stamp still has the modifier), its Windows backend changes the modifiers first (it does
+//! not). The command key is Super on macOS and Control elsewhere; the tests that depend on it set the platform the
+//! context reports.
 
 use super::*;
+use egui::os::OperatingSystem;
 
 fn command_alt() -> Modifiers {
     Modifiers { alt: true, ..Modifiers::COMMAND }
@@ -199,4 +202,103 @@ fn a_copy_whose_letter_is_still_down_takes_the_modifiers_of_the_frame() {
 
     assert!(s.app().copied_style.is_some(), "the letter is still down, so the frame is the chord");
     assert!(s.app().clip.is_none());
+}
+
+/// The in-app layer was pasted over `target`, not the clipboard text.
+fn assert_pasted_text_not_layers(s: &Sim, source: NodeId, target: NodeId) {
+    assert!(s.app().doc.nodes.values().any(|n| n.name == "text"), "the clipboard text was pasted");
+    let source_name = s.app().doc.get(source).unwrap().name.clone();
+    let children = &s.app().doc.get(target).unwrap().children;
+    assert!(children.iter().all(|c| s.app().doc.get(*c).unwrap().name != source_name), "the in-app layer was not pasted over the selection");
+}
+
+#[test]
+fn a_shift_let_go_after_cmd_on_macos_still_pastes_over_the_selection_and_not_the_clipboard_text() {
+    let mut s = Sim::new();
+    s.ctx.set_os(OperatingSystem::Mac);
+    let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
+
+    s.mods = Modifiers::NONE;
+    s.frame(vec![
+        Event::Paste("clipboard text".into()),
+        released(Key::SuperLeft, command_shift()),
+        released(Key::ShiftLeft, Modifiers::SHIFT),
+        released(Key::V, Modifiers::NONE),
+    ]);
+
+    assert_pasted_over(&s, source, target, before);
+    assert!(s.app().doc.nodes.values().all(|n| n.name != "clipboard text"), "the clipboard text was not inserted");
+}
+
+#[test]
+fn an_alt_let_go_after_cmd_on_macos_still_copies_properties() {
+    let mut s = Sim::new();
+    s.ctx.set_os(OperatingSystem::Mac);
+    let id = s.by_name("Button");
+    s.shell.app.selection = vec![id];
+    s.mods = Modifiers::NONE;
+    s.frame(vec![Event::Copy, released(Key::SuperLeft, command_alt()), released(Key::AltLeft, Modifiers::ALT), released(Key::C, Modifiers::NONE)]);
+
+    assert!(s.app().copied_style.is_some(), "Cmd+Alt+C must copy properties");
+    assert!(s.app().clip.is_none(), "Cmd+Alt+C must not copy layers");
+}
+
+#[test]
+fn a_shift_let_go_after_ctrl_on_windows_still_pastes_over_the_selection_and_not_the_clipboard_text() {
+    let mut s = Sim::new();
+    // the context decides which key is the command key; egui-winit stamps by the platform it was built for
+    s.ctx.set_os(OperatingSystem::Windows);
+    let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
+
+    s.mods = Modifiers::NONE;
+    s.frame(vec![
+        Event::Paste("clipboard text".into()),
+        released(Key::ControlLeft, Modifiers::SHIFT),
+        released(Key::ShiftLeft, Modifiers::NONE),
+        released(Key::V, Modifiers::NONE),
+    ]);
+
+    assert_pasted_over(&s, source, target, before);
+    assert!(s.app().doc.nodes.values().all(|n| n.name != "clipboard text"), "the clipboard text was not inserted");
+}
+
+#[test]
+fn a_shift_let_go_while_v_is_still_down_adds_to_the_frame_modifiers() {
+    let mut s = Sim::new();
+    let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
+
+    s.mods = Modifiers::COMMAND;
+    s.frame(vec![Event::Paste("clipboard text".into()), released(Key::ShiftLeft, command_shift())]);
+    s.mods = Modifiers::NONE;
+
+    assert_pasted_over(&s, source, target, before);
+}
+
+#[test]
+fn a_shift_released_with_the_shift_bit_already_clear_still_counts() {
+    let mut s = Sim::new();
+    let (source, target, before) = select_a_layer_with_layers_copied(&mut s);
+
+    s.mods = Modifiers::NONE;
+    s.frame(vec![Event::Paste("clipboard text".into()), released(Key::ShiftLeft, Modifiers::COMMAND), released(Key::V, Modifiers::COMMAND)]);
+
+    assert_pasted_over(&s, source, target, before);
+}
+
+#[test]
+fn a_paste_with_shift_and_no_command_stays_a_plain_system_paste() {
+    // Shift+Insert on Windows and Linux: an `Event::Paste` with Shift held and no V
+    let mut s = Sim::new();
+    let (source, target, _) = select_a_layer_with_layers_copied(&mut s);
+    s.mods = Modifiers::SHIFT;
+    s.frame(vec![Event::Paste("text".into())]);
+    s.mods = Modifiers::NONE;
+    assert_pasted_text_not_layers(&s, source, target);
+
+    let mut s = Sim::new();
+    let (source, target, _) = select_a_layer_with_layers_copied(&mut s);
+    s.mods = Modifiers::SHIFT;
+    s.frame(vec![Event::Paste("text".into()), released(Key::ShiftLeft, Modifiers::SHIFT)]);
+    s.mods = Modifiers::NONE;
+    assert_pasted_text_not_layers(&s, source, target);
 }

@@ -793,6 +793,7 @@ impl Shell {
             return;
         }
         let events = ctx.input(|i| i.events.clone());
+        let mac = ctx.os().is_mac();
         for (at, ev) in events.iter().enumerate() {
             // egui-winit emits `Event::Paste` only for a non-empty `text/plain` and never a V press for a paste chord;
             // a Figma copy can carry HTML alone, which only the V release reveals (see `PasteChord`).
@@ -804,7 +805,7 @@ impl Shell {
             }
             match ev {
                 Event::Copy if !editing_text => {
-                    let held = crate::clipboard::chord_modifiers(&events[at + 1..], Key::C, frame_modifiers);
+                    let held = crate::clipboard::chord_modifiers(&events[at + 1..], Key::C, frame_modifiers, mac);
                     self.route_system_copy(ctx, held);
                 }
                 Event::Cut if !editing_text => {
@@ -813,7 +814,7 @@ impl Shell {
                     }
                 }
                 Event::Paste(s) if !editing_text => {
-                    let held = crate::clipboard::chord_modifiers(&events[at + 1..], Key::V, frame_modifiers);
+                    let held = crate::clipboard::chord_modifiers(&events[at + 1..], Key::V, frame_modifiers, mac);
                     self.route_system_paste(ctx, held, Some(s.as_str()));
                 }
                 Event::Key { key, pressed: true, modifiers, .. } => {
