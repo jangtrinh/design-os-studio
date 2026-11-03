@@ -7,7 +7,7 @@ use designos_doc::*;
 use designos_fig::container::{self, Compression};
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, solid, st, vec2};
-use designos_fig::{import_fig, import_fig_node_changes, import_rest_json};
+use designos_fig::{decode_fig_to_json, export_fig, import_fig, import_fig_node_changes, import_rest_json};
 use serde_json::{json, Value};
 
 fn file(vector: Value) -> String {
@@ -359,4 +359,50 @@ fn an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized() 
         assert_eq!(n.size, Vec2::new(40.0, 40.0), "padding {padding}: the icon scales with its instance");
         assert!(n.stroke_geometry.is_none(), "padding {padding}: a plain stroked icon draws its own weight at the new size");
     }
+}
+
+/// Saved as a `.fig` file and opened again.
+fn saved_and_reopened(doc: &Document) -> Document {
+    import_fig(&export_fig(doc).expect("export the .fig file")).expect("reopen the .fig file")
+}
+
+#[test]
+fn an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_keeps_its_bake_on_a_resize() {
+    for (what, doc, marker) in [
+        ("node cap", fig_icon(json!({"strokeCap": "ARROW_LINES"}), 0), "ARROW_LINES"),
+        (
+            "vertex cap",
+            fig_icon(
+                json!({"vectorData": {
+                    "vectorNetworkBlob": 1,
+                    "normalizedSize": {"x": 20.0, "y": 20.0},
+                    "styleOverrideTable": [{"styleID": 1, "strokeCap": "ARROW_EQUILATERAL"}]
+                }}),
+                1,
+            ),
+            "ARROW_EQUILATERAL",
+        ),
+    ] {
+        let cap_before = doc.nodes.values().find(|n| n.name == "Icon").unwrap().stroke.cap;
+        let decoded = decode_fig_to_json(&export_fig(&doc).unwrap()).unwrap();
+        let written = decoded["message"]["nodeChanges"].as_array().unwrap().iter().find(|nc| nc["name"] == "Icon").unwrap()["strokeCap"].clone();
+        assert_eq!(written, if cap_before == StrokeCap::Round { "ROUND" } else { "NONE" }, "{what}: the cap written to the file is the modelled one");
+        let mut reopened = saved_and_reopened(&doc);
+        let id = reopened.nodes.values().find(|n| n.name == "Icon").unwrap().id;
+        let n = reopened.get(id).unwrap();
+        assert_eq!(n.fig_metadata.get("strokeCap").map(String::as_str), Some(marker), "{what}: the arrow cap is still known");
+        assert_eq!(n.stroke.cap, cap_before, "{what}: the exported stroke cap is the modelled one, as before");
+        resize_2x(&mut reopened, id);
+        assert_outline_scaled(&reopened, id, what);
+    }
+}
+
+#[test]
+fn a_saved_fig_file_of_a_plain_icon_carries_no_cap_marker_and_still_drops_its_bake() {
+    let doc = fig_icon(json!({}), 0);
+    let mut reopened = saved_and_reopened(&doc);
+    let id = reopened.nodes.values().find(|n| n.name == "Icon").unwrap().id;
+    assert!(reopened.get(id).unwrap().fig_metadata.is_empty(), "nothing is carried for an icon without an arrow cap");
+    resize_2x(&mut reopened, id);
+    assert_centerline_stroked_live(&reopened, id, "reopened plain icon");
 }

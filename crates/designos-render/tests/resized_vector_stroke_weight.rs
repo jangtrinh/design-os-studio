@@ -167,7 +167,7 @@ fn stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize() {
 }
 
 #[test]
-fn null_control_unresized_imported_vector_renders_unchanged() {
+fn unresized_imported_vector_renders_unchanged() {
     let mut t = T::new();
     let id = imported_stroke_only_icon(&mut t, Vec2::new(20.0, 20.0), true);
     let pm = t.render(60, 60);
@@ -181,9 +181,9 @@ fn null_control_unresized_imported_vector_renders_unchanged() {
     let diff = render_diff_image(&before_doc, &t.doc, t.page, Rect::new(0.0, 0.0, 60.0, 60.0), 1.0).unwrap();
     assert_eq!(diff.changed_pixels, 0, "unresized imported vector renders identical pixels");
 
-    // Optional evidence capture when DESIGNOS_KIT_FIG_PATH and DESIGNOS_EVIDENCE_DIR are set.
-    if let (Ok(kit_path), Ok(ev_dir)) = (std::env::var("DESIGNOS_KIT_FIG_PATH"), std::env::var("DESIGNOS_EVIDENCE_DIR")) {
-        let tag = std::env::var("DESIGNOS_EVIDENCE_TAG").unwrap_or_else(|_| "after".into());
+    // Optional capture of the kit icon when DESIGNOS_KIT_FIG_PATH and DESIGNOS_KIT_CAPTURE_DIR are set.
+    if let (Ok(kit_path), Ok(ev_dir)) = (std::env::var("DESIGNOS_KIT_FIG_PATH"), std::env::var("DESIGNOS_KIT_CAPTURE_DIR")) {
+        let tag = std::env::var("DESIGNOS_KIT_CAPTURE_TAG").unwrap_or_else(|_| "after".into());
         let bytes = std::fs::read(&kit_path).expect("read kit .fig");
         let doc = designos_fig::import_fig(&bytes).expect("import kit .fig");
         // Find the first stroke-only 20x18 or 20x20 imported "Icon" vector with both network and stroke_geometry.
@@ -282,17 +282,21 @@ fn plain_resize_node(n: &mut Node, new_size: Vec2) {
     apply_constrained_geometry(n, tf, new_size);
 }
 
-/// Imported like Figma writes a filled square with a stroked whisker next to it: the fill outline is the
-/// square, the network also holds an open, bent chain (stroke only), and the baked stroke covers both.
-fn square_with_whisker(t: &mut T, fills: bool) -> NodeId {
+/// Imported like Figma writes a filled square, with a stroked whisker next to it when `whisker` is set: the fill
+/// outline is the square, the network also holds an open, bent chain (stroke only), and the baked stroke covers both
+/// at the given alignment.
+fn square_with_whisker(t: &mut T, fills: bool, align: StrokeAlign, whisker: bool) -> NodeId {
     let square = Path { cmds: rect_subpath(6.0, 2.0, 16.0, 12.0, false), fill_rule: FillRule::NonZero };
-    let whisker = Path {
-        cmds: vec![PathCmd::MoveTo(Vec2::new(2.0, 14.0)), PathCmd::LineTo(Vec2::new(2.0, 18.0)), PathCmd::LineTo(Vec2::new(18.0, 18.0))],
-        fill_rule: FillRule::NonZero,
-    };
-    let net = VectorNetwork::from_paths(&[square.clone(), whisker]);
-    assert!(net.is_valid() && net.has_stroke_only_segments(), "the whisker is a stroke-only chain");
-    let stroke = Stroke { weight: 2.0, align: StrokeAlign::Center, ..Stroke::default() };
+    let mut chains = vec![square.clone()];
+    if whisker {
+        chains.push(Path {
+            cmds: vec![PathCmd::MoveTo(Vec2::new(2.0, 14.0)), PathCmd::LineTo(Vec2::new(2.0, 18.0)), PathCmd::LineTo(Vec2::new(18.0, 18.0))],
+            fill_rule: FillRule::NonZero,
+        });
+    }
+    let net = VectorNetwork::from_paths(&chains);
+    assert!(net.is_valid() && net.has_stroke_only_segments() == whisker, "the whisker is a stroke-only chain");
+    let stroke = Stroke { weight: 2.0, align, ..Stroke::default() };
     let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
     t.add(None, |id| {
         let mut n = Node::new(id, NodeKind::Vector { paths: vec![square.clone()], network: Some(net) });
@@ -301,17 +305,40 @@ fn square_with_whisker(t: &mut T, fills: bool) -> NodeId {
         n.fills = if fills { vec![Paint::solid(Color::rgb(0xF2, 0x4E, 0x1E))] } else { vec![] };
         n.stroke.paints = vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))];
         n.stroke.weight = 2.0;
-        n.stroke.align = StrokeAlign::Center;
+        n.stroke.align = align;
         n.fill_geometry = Some(vec![square]);
         n.stroke_geometry = Some(bake);
         n
     })
 }
 
+fn bake_bounds(n: &Node) -> (f32, f32, f32, f32) {
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for cmd in n.stroke_geometry.as_ref().expect("a baked stroke").iter().flat_map(|p| &p.cmds) {
+        if let PathCmd::MoveTo(p) | PathCmd::LineTo(p) = *cmd {
+            (x0, y0, x1, y1) = (x0.min(p.x), y0.min(p.y), x1.max(p.x), y1.max(p.y));
+        } else if let PathCmd::QuadTo(c, p) = *cmd {
+            for q in [c, p] {
+                (x0, y0, x1, y1) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y));
+            }
+        } else if let PathCmd::CubicTo(c1, c2, p) = *cmd {
+            for q in [c1, c2, p] {
+                (x0, y0, x1, y1) = (x0.min(q.x), y0.min(q.y), x1.max(q.x), y1.max(q.y));
+            }
+        }
+    }
+    (x0, y0, x1, y1)
+}
+
+fn is_ink(pm: &Pixmap, x: u32, y: u32) -> bool {
+    let p = px(pm, x, y);
+    p[0] < 128 && p[1] < 128 && p[2] < 128
+}
+
 #[test]
 fn stroke_follows_the_network_while_the_fill_keeps_the_outline() {
     let mut t = T::new();
-    let icon = square_with_whisker(&mut t, true);
+    let icon = square_with_whisker(&mut t, true, StrokeAlign::Center, true);
     plain_resize(&mut t.doc, icon, Vec2::new(40.0, 40.0));
     assert!(t.doc.get(icon).unwrap().stroke_geometry.is_none());
 
@@ -338,13 +365,45 @@ fn stroke_follows_the_network_while_the_fill_keeps_the_outline() {
     assert_eq!(filled.data(), reference.render(100, 100).data(), "the fill pixels equal a plain 2x scale of the square");
 }
 
-/// Null control across builds. With `DESIGNOS_KIT_FIG_PATH` and `DESIGNOS_NULL_CONTROL_OUT` set, renders the
-/// unresized kit vectors one by one (the first ones in the file, and the ones that keep Figma's fill outline
-/// without a baked stroke) and writes one `id name hash` line each. The lines of two builds are diffed: a line
-/// that differs is a vector that no longer renders the same pixels.
 #[test]
-fn unresized_kit_vectors_hash_for_a_cross_build_null_control() {
-    let (Ok(kit_path), Ok(out)) = (std::env::var("DESIGNOS_KIT_FIG_PATH"), std::env::var("DESIGNOS_NULL_CONTROL_OUT")) else { return };
+fn an_inside_or_outside_stroke_of_a_network_with_an_open_chain_keeps_its_scaled_bake() {
+    for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
+        let mut t = T::new();
+        let icon = square_with_whisker(&mut t, true, align, true);
+        let (x0, y0, x1, y1) = bake_bounds(t.doc.get(icon).unwrap());
+        plain_resize(&mut t.doc, icon, Vec2::new(40.0, 40.0));
+        let n = t.doc.get(icon).unwrap();
+        assert_eq!(bake_bounds(n), (x0 * 2.0, y0 * 2.0, x1 * 2.0, y1 * 2.0), "{align:?}: the baked outline stays and is scaled with the shape");
+
+        // the square's left edge sits at x = 32; the bake of an inside stroke lies inside it and an outside one outside it
+        let pm = t.render(100, 100);
+        match align {
+            StrokeAlign::Inside => assert!(!is_ink(&pm, 31, 34), "inside: a pixel just outside the square edge is not stroked"),
+            _ => assert!(!is_ink(&pm, 33, 34), "outside: a pixel just inside the square edge is not stroked"),
+        }
+        let edge = if align == StrokeAlign::Inside { 33 } else { 31 };
+        assert!(is_ink(&pm, edge, 34), "{align:?}: the stroke is drawn on its own side of the edge");
+    }
+}
+
+#[test]
+fn an_inside_stroke_of_a_closed_network_still_drops_its_bake_and_stays_inside() {
+    let mut t = T::new();
+    let icon = square_with_whisker(&mut t, true, StrokeAlign::Inside, false);
+    plain_resize(&mut t.doc, icon, Vec2::new(40.0, 40.0));
+    assert!(t.doc.get(icon).unwrap().stroke_geometry.is_none(), "the live stroke draws a closed inside stroke");
+    let pm = t.render(100, 100);
+    assert_eq!(horizontal_ink_runs(&pm, 34, 25..60), vec![2, 2], "one 2px band inside each vertical edge");
+    assert!(!is_ink(&pm, 31, 34), "nothing outside the edge");
+}
+
+/// With `DESIGNOS_KIT_FIG_PATH` and `DESIGNOS_KIT_RENDER_HASHES_OUT` set, renders the unresized kit vectors one by
+/// one (the first ones in the file, and the ones that keep Figma's fill outline without a baked stroke) and writes
+/// one `id name hash` line each. The lines of two builds can be compared: a line that differs is a vector that
+/// renders other pixels.
+#[test]
+fn unresized_kit_vector_renders_are_hashed_into_a_file() {
+    let (Ok(kit_path), Ok(out)) = (std::env::var("DESIGNOS_KIT_FIG_PATH"), std::env::var("DESIGNOS_KIT_RENDER_HASHES_OUT")) else { return };
     let bytes = std::fs::read(&kit_path).expect("read kit .fig");
     let doc = designos_fig::import_fig(&bytes).expect("import kit .fig");
     let mut ids: Vec<_> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Vector { .. })).map(|n| n.id).collect();
@@ -358,7 +417,7 @@ fn unresized_kit_vectors_hash_for_a_cross_build_null_control() {
     let mut lines = String::new();
     for id in sample {
         let mut node = doc.get(id).unwrap().clone();
-        let mut d = Document::new("null-control");
+        let mut d = Document::new("kit-vector");
         let page = d.add_page("p");
         d.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
         let name = node.name.clone();

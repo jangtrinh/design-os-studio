@@ -183,15 +183,18 @@ fn scale_paths(paths: &mut [Path], kx: f32, ky: f32) {
 /// The live stroke has one weight and one cap and join for the whole node. It cannot reproduce
 /// side weights, a brush, an arrow cap Figma draws but the stroke model has no name for (recorded
 /// at import in `fig_metadata["strokeCap"]`, on the node or on any vertex), a vertex with its own
-/// cap or join, or dashes on an inside or outside stroke.
+/// cap or join, dashes on an inside or outside stroke, or an inside or outside stroke of a network
+/// that has an open chain (an open chain is stroked centered, and the shape stops being closed).
 fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>, net: &VectorNetwork) -> bool {
+    let centered = stroke.align == StrokeAlign::Center;
     !net.is_empty()
         && net.is_valid()
         && stroke.side_weights.is_none()
         && !meta.contains_key("brushType")
         && !meta.contains_key("strokeCap")
         && net.vertices.iter().all(|v| v.cap.is_none_or(|c| c == stroke.cap) && v.join.is_none_or(|j| j == stroke.join))
-        && (stroke.dashes.is_empty() || stroke.align == StrokeAlign::Center)
+        && (stroke.dashes.is_empty() || centered)
+        && (centered || net.open_chain_ends().is_empty())
 }
 
 /// Applies `(new_transform, new_size)` from [`constrain_child`] / [`plan_constraint_pass`]

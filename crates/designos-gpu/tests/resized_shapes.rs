@@ -284,8 +284,8 @@ fn is_white(pm: &Pixmap, x: u32, y: u32) -> bool {
 }
 
 /// A filled square next to a bent, stroke-only chain, the way Figma writes it: the fill outline is the
-/// square, the network also holds the chain, and the baked stroke covers both.
-fn square_with_bent_whisker(t: &mut T, at: Vec2) -> NodeId {
+/// square, the network also holds the chain, and the baked stroke covers both at the given alignment.
+fn square_with_bent_whisker(t: &mut T, at: Vec2, align: StrokeAlign) -> NodeId {
     let square = Path { cmds: rect_subpath(6.0, 2.0, 16.0, 12.0, false), fill_rule: FillRule::NonZero };
     let whisker = Path {
         cmds: vec![PathCmd::MoveTo(Vec2::new(2.0, 14.0)), PathCmd::LineTo(Vec2::new(2.0, 18.0)), PathCmd::LineTo(Vec2::new(18.0, 18.0))],
@@ -293,7 +293,7 @@ fn square_with_bent_whisker(t: &mut T, at: Vec2) -> NodeId {
     };
     let net = VectorNetwork::from_paths(&[square.clone(), whisker]);
     assert!(net.is_valid() && net.has_stroke_only_segments());
-    let stroke = Stroke { weight: 2.0, align: StrokeAlign::Center, ..Stroke::default() };
+    let stroke = Stroke { weight: 2.0, align, ..Stroke::default() };
     let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
     t.add(None, |id| {
         let mut n = Node::new(id, NodeKind::Vector { paths: vec![square.clone()], network: Some(net) });
@@ -302,7 +302,7 @@ fn square_with_bent_whisker(t: &mut T, at: Vec2) -> NodeId {
         n.fills = vec![Paint::solid(Color::rgb(0xF2, 0x4E, 0x1E))];
         n.stroke.paints = vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))];
         n.stroke.weight = 2.0;
-        n.stroke.align = StrokeAlign::Center;
+        n.stroke.align = align;
         n.fill_geometry = Some(vec![square]);
         n.stroke_geometry = Some(bake);
         n
@@ -312,7 +312,7 @@ fn square_with_bent_whisker(t: &mut T, at: Vec2) -> NodeId {
 #[test]
 fn resized_vector_strokes_its_network_and_fills_its_outline_like_cpu() {
     let mut t = T::new();
-    let icon = square_with_bent_whisker(&mut t, Vec2::new(20.0, 20.0));
+    let icon = square_with_bent_whisker(&mut t, Vec2::new(20.0, 20.0), StrokeAlign::Center);
     resize(&mut t.doc, icon, Vec2::new(40.0, 40.0));
 
     // the chain's bottom run (x = 28) is one band of the stroke's own weight; the area between its two
@@ -327,4 +327,29 @@ fn resized_vector_strokes_its_network_and_fills_its_outline_like_cpu() {
     assert!(is_white(&c.gpu, 34, 53), "GPU: the stroke-only chain is not filled");
     assert!(c.report.ratio < 0.005, "mismatch {:.3}%", c.report.ratio * 100.0);
     assert!(c.report.ssim > 0.98, "{:?}", c.report);
+}
+
+fn is_ink(pm: &Pixmap, x: u32, y: u32) -> bool {
+    let p = pm.pixel(x, y).unwrap();
+    p.red() < 128 && p.green() < 128 && p.blue() < 128
+}
+
+#[test]
+fn resized_inside_and_outside_strokes_with_an_open_chain_keep_their_bake_like_cpu() {
+    for (align, name) in [(StrokeAlign::Inside, "resized_inside_chain"), (StrokeAlign::Outside, "resized_outside_chain")] {
+        let mut t = T::new();
+        let icon = square_with_bent_whisker(&mut t, Vec2::new(20.0, 20.0), align);
+        resize(&mut t.doc, icon, Vec2::new(40.0, 40.0));
+        assert!(t.doc.get(icon).unwrap().stroke_geometry.is_some(), "{align:?}: the baked outline stays");
+
+        // the square's left edge sits at x = 32: an inside stroke lies to its right, an outside one to its left
+        let (clear, stroked) = if align == StrokeAlign::Inside { (31, 33) } else { (33, 31) };
+        let cpu = cpu_render(&t);
+        assert!(!is_ink(&cpu, clear, 34) && is_ink(&cpu, stroked, 34), "CPU {align:?}: the stroke stays on its own side of the edge");
+        let Some(mut g) = gpu() else { return };
+        let c = compare(&mut g, name, &t.doc, t.page, Viewport::default(), VIEW, 8);
+        assert!(!is_ink(&c.gpu, clear, 34) && is_ink(&c.gpu, stroked, 34), "GPU {align:?}: the stroke stays on its own side of the edge");
+        assert!(c.report.ratio < 0.005, "{align:?}: mismatch {:.3}%", c.report.ratio * 100.0);
+        assert!(c.report.ssim > 0.98, "{align:?}: {:?}", c.report);
+    }
 }

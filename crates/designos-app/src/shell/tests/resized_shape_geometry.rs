@@ -643,12 +643,12 @@ fn stroke_only_imported_vector_whose_outline_is_its_path_draws_once_after_resize
 
 #[test]
 fn resized_imported_vector_cpu_and_gpu_renders_match() {
-    // (d) CPU and GPU renders of (a) match, and null control unresized vector is unchanged.
+    // (d) CPU and GPU renders of (a) match, and an unresized vector is unchanged.
     let mut s = Sim::new();
     let icon = imported_icon_vector(&mut s, true);
     let before_doc = s.app().doc.clone();
     let null_diff = designos_render::diff_image::render_diff_image(&before_doc, &s.app().doc, s.app().page, DRect::new(290.0, 290.0, 80.0, 80.0), 1.0).unwrap();
-    assert_eq!(null_diff.changed_pixels, 0, "null control: unresized imported vector has 0 changed pixels");
+    assert_eq!(null_diff.changed_pixels, 0, "an unresized imported vector has 0 changed pixels");
 
     type_into(&mut s, "w", "40");
     type_into(&mut s, "h", "40");
