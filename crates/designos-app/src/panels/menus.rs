@@ -70,8 +70,10 @@ pub enum Action {
     Paste,
     PasteOverSelection,
     PasteToReplace,
+    PasteAndMatchStyle,
     CopyProperties,
     PasteProperties,
+    SwapFillAndStroke,
     InsertTableRow,
     DeleteTableRow,
     InsertTableColumn,
@@ -231,8 +233,10 @@ pub fn run(app: &mut App, ctx: &Context, a: Action) {
         Action::Paste => app.paste_from_system(None),
         Action::PasteOverSelection => app.paste_over_selection(),
         Action::PasteToReplace => app.paste_to_replace(),
+        Action::PasteAndMatchStyle => app.paste_and_match_style(),
         Action::CopyProperties => app.copy_properties(),
         Action::PasteProperties => app.paste_properties(),
+        Action::SwapFillAndStroke => app.swap_fill_and_stroke(),
         Action::InsertTableRow => app.insert_table_row(),
         Action::DeleteTableRow => app.delete_table_row(),
         Action::InsertTableColumn => app.insert_table_column(),
@@ -453,6 +457,7 @@ fn stub_sub(label: &str) -> Node {
 /// "Select all with same ..." entries (the Edit menu's submenu; the palette lists them flat).
 fn same_nodes(app: &App) -> Vec<Node> {
     let has_sel = !app.selection.is_empty();
+    let can_text = designos_doc::find::can_select_same_text(&app.doc, &app.selection) || app.canvas.text.is_some();
     let can_inst = designos_doc::find::can_select_same_instance(&app.doc, &app.selection);
     let can_var = designos_doc::find::can_select_same_variant(&app.doc, &app.selection);
     [
@@ -460,8 +465,8 @@ fn same_nodes(app: &App) -> Vec<Node> {
         ("Select all with same fill", MatchCriteria::Fill, has_sel),
         ("Select all with same stroke", MatchCriteria::Stroke, has_sel),
         ("Select all with same effect", MatchCriteria::Effect, has_sel),
-        ("Select all with same text properties", MatchCriteria::TextProperties, has_sel),
-        ("Select all with same font", MatchCriteria::Font, has_sel),
+        ("Select all with same text properties", MatchCriteria::TextProperties, can_text),
+        ("Select all with same font", MatchCriteria::Font, can_text),
         ("Select all with same instance", MatchCriteria::Instance, can_inst),
         ("Select all with same variant", MatchCriteria::Variant, can_var),
     ]
@@ -524,6 +529,8 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Paste properties", "Ctrl+Alt+V", Action::PasteProperties).off(!has_sel),
         leaf("Paste over selection", "Ctrl+Shift+V", Action::PasteOverSelection).off(app.clip.is_none()),
         leaf("Paste to replace", "Ctrl+Shift+R", Action::PasteToReplace).off(!has_sel || app.clip.is_none()),
+        leaf("Paste and match style", "Ctrl+Shift+Alt+V", Action::PasteAndMatchStyle).off((!has_sel || app.clip.is_none()) && app.canvas.text.is_none()).sep(),
+        leaf("Swap fill and stroke", "Shift+X", Action::SwapFillAndStroke).off(!has_sel),
     ];
     let view = vec![
         leaf("Zoom in", "Ctrl+=", Action::ZoomIn),
@@ -955,6 +962,11 @@ fn commands(app: &App) -> Vec<Command> {
         disabled: app.selection.is_empty(),
     });
     out
+}
+
+#[cfg(test)]
+pub(crate) fn palette_command_info(app: &App, label: &str) -> Option<(String, bool)> {
+    commands(app).into_iter().find(|c| c.label == label).map(|c| (c.shortcut, c.disabled))
 }
 
 const PALETTE_ROWS: usize = 8;

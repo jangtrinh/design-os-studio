@@ -1,0 +1,37 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-doc)
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-mcp)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-svg)
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-export)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-fig)
+   Compiling designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-library)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.33s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 4 tests
+
+thread 'shell::tests::edit_menu_parity::select_same_text_style_and_variant_match_exact_unlocked_visible_siblings' (78216744) panicked at crates/designos-app/src/shell/tests/edit_menu_parity.rs:300:5:
+assertion `left == right` failed: SelectSame(TextProperties) selects only visible unlocked matching text nodes
+  left: [NodeId(39), NodeId(38), NodeId(37)]
+ right: [NodeId(38), NodeId(37)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test shell::tests::edit_menu_parity::select_same_text_style_and_variant_match_exact_unlocked_visible_siblings ... FAILED
+test shell::tests::edit_menu_parity::edit_menu_and_palette_expose_all_five_commands_with_labels_shortcuts_and_enabled_states ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_layer_and_text_carries_target_style_and_undoes_in_one_step ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_single_and_multi_selection_preserves_gradients_and_bindings_and_round_trips ... ok
+
+failures:
+
+failures:
+    shell::tests::edit_menu_parity::select_same_text_style_and_variant_match_exact_unlocked_visible_siblings
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 4219 filtered out; finished in 0.84s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

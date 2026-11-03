@@ -26,6 +26,7 @@ fn select_layer_submenu_lists_parents_first() -> bool {
 /// The "Select" submenu: structural selection and the "same ..." family.
 fn select_submenu(app: &App, sep_after: bool) -> Entry {
     let has = !app.selection.is_empty();
+    let can_text = designos_doc::find::can_select_same_text(&app.doc, &app.selection) || app.canvas.text.is_some();
     let can_inst = designos_doc::find::can_select_same_instance(&app.doc, &app.selection);
     let can_var = designos_doc::find::can_select_same_variant(&app.doc, &app.selection);
     let same = |label: &str, c: MatchCriteria, en: bool| (MenuItem::new(label).disabled(!en), Action::SelectSame(c));
@@ -40,8 +41,8 @@ fn select_submenu(app: &App, sep_after: bool) -> Entry {
         same("Select all with same fill", MatchCriteria::Fill, has),
         same("Select all with same stroke", MatchCriteria::Stroke, has),
         same("Select all with same effect", MatchCriteria::Effect, has),
-        same("Select all with same text properties", MatchCriteria::TextProperties, has),
-        same("Select all with same font", MatchCriteria::Font, has),
+        same("Select all with same text properties", MatchCriteria::TextProperties, can_text),
+        same("Select all with same font", MatchCriteria::Font, can_text),
         same("Select all with same instance", MatchCriteria::Instance, can_inst),
         same("Select all with same variant", MatchCriteria::Variant, can_var),
     ]);

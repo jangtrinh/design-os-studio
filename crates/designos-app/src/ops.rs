@@ -975,6 +975,170 @@ impl App {
         self.show_toast("Pasted properties", false);
     }
 
+    /// `Cmd+Shift+Alt+V` (`PasteAndMatchStyle`): pastes clipboard text into an active text session
+    /// with the target caret/selection's text style, or pastes copied layers over the selected target
+    /// layer while adopting the target layer's visual and typography style in a single undo step.
+    pub fn paste_and_match_style(&mut self) {
+        if self.canvas.text.is_some() {
+            let sys = (self.system_text)();
+            let plain = match sys.as_deref() {
+                Some(s) if !s.is_empty() && clipboard::from_json(s).is_none() => Some(s.to_owned()),
+                _ => {
+                    let clip = sys.as_deref().and_then(clipboard::from_json).or_else(|| self.clip.clone());
+                    clip.and_then(|c| {
+                        let parts: Vec<&str> = c.nodes.iter().filter_map(|n| n.kind.any_text().map(|t| t.content.as_str())).collect();
+                        (!parts.is_empty()).then(|| parts.join("\n"))
+                    })
+                }
+            };
+            if let Some(text) = plain {
+                if let Some(sess) = self.canvas.text.as_mut() {
+                    sess.typing = None;
+                }
+                crate::canvas::textsession::insert_text(self, &text, crate::textedit::EditKind::Other);
+            }
+            return;
+        }
+        let Some(clip) = self.clip.clone() else { return };
+        let Some(&target_id) = self.selection.first() else { return };
+        let Some(target) = self.doc.get(target_id) else { return };
+        let target_fills = if matches!(target.kind, NodeKind::Text(_)) && target.fills.is_empty() {
+            target.kind.any_text().map(|t| t.style.fills.clone()).unwrap_or_default()
+        } else {
+            target.fills.clone()
+        };
+        let target_stroke = target.stroke.clone();
+        let target_effects = target.effects.clone();
+        let target_opacity = target.opacity;
+        let target_blend = target.blend;
+        let target_corner_radii = target.corner_radii;
+        let target_corner_smoothing = target.corner_smoothing;
+        let target_style_refs = target.style_refs.clone();
+        let target_var_bindings = target.variables.bindings.clone();
+        let target_text = target.kind.any_text().map(|t| (t.style.clone(), t.paragraph.clone()));
+
+        let container = self.container_for_insert();
+        let parent = clipboard::paste_parent(&self.doc, &clip, container);
+        let over = if parent == container { self.selection.first().copied() } else { child_holding(&self.doc, parent, container) };
+        let (target_local, base_idx) = if let Some(sel_id) = over {
+            if sel_id == parent {
+                (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+            } else if let Some(n) = self.doc.get(sel_id) {
+                let idx = self
+                    .doc
+                    .get(parent)
+                    .and_then(|p| p.children.iter().position(|&c| c == sel_id).map(|i| i + 1))
+                    .unwrap_or_else(|| self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
+                (v2(n.transform.tx, n.transform.ty), idx)
+            } else {
+                (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+            }
+        } else {
+            (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+        };
+        let lists = clipboard::instantiate(&mut self.doc, &clip);
+        let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
+        if !self.slot_insert_allowed(parent, &roots) {
+            return;
+        }
+        let first_orig = lists.first().and_then(|l| l.first()).map(|r| v2(r.transform.tx, r.transform.ty)).unwrap_or(v2(0.0, 0.0));
+        let delta = v2(target_local.x - first_orig.x, target_local.y - first_orig.y);
+        let mut tx = Tx::new();
+        let mut new_sel = Vec::new();
+        for (k, mut nodes) in lists.into_iter().enumerate() {
+            if let Some(root) = nodes.first_mut() {
+                root.transform.tx += delta.x;
+                root.transform.ty += delta.y;
+                root.stroke = target_stroke.clone();
+                root.effects = target_effects.clone();
+                root.opacity = target_opacity;
+                root.blend = target_blend;
+                root.corner_radii = target_corner_radii;
+                root.corner_smoothing = target_corner_smoothing;
+                root.style_refs = target_style_refs.clone();
+                root.variables.bindings = target_var_bindings.clone();
+                let is_text = matches!(root.kind, NodeKind::Text(_));
+                if is_text {
+                    root.fills.clear();
+                    if let Some(tp) = root.kind.any_text_mut() {
+                        if let Some((t_style, t_para)) = &target_text {
+                            crate::richtext::apply_all(tp, |st| *st = t_style.clone());
+                            tp.paragraph = t_para.clone();
+                        } else {
+                            crate::richtext::apply_all(tp, |st| st.fills = target_fills.clone());
+                        }
+                        root.size = layout::fit_text(tp, root.size);
+                    }
+                } else {
+                    root.fills = target_fills.clone();
+                    if let (Some((t_style, t_para)), Some(tp)) = (&target_text, root.kind.any_text_mut()) {
+                        crate::richtext::apply_all(tp, |st| *st = t_style.clone());
+                        tp.paragraph = t_para.clone();
+                    }
+                }
+                apply_slot_stretch_on_insert(&self.doc, parent, root);
+                new_sel.push(root.id);
+            }
+            let index = (base_idx + k).min(self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
+            let _ = tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes });
+        }
+        Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
+        layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
+        self.run_tx(tx);
+        self.selection = new_sel;
+        self.show_toast("Pasted and matched style", false);
+    }
+
+    /// `Shift+X` (`SwapFillAndStroke`): swaps fill and stroke paint arrays, `fills/*` <-> `strokes/*`
+    /// variable bindings, and `"fill"` <-> `"stroke"` shared style refs across all selected layers in one undo step.
+    pub fn swap_fill_and_stroke(&mut self) {
+        let ids: Vec<NodeId> =
+            self.selection.iter().copied().filter(|&id| self.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Page { .. } | NodeKind::Group))).collect();
+        if ids.is_empty() {
+            return;
+        }
+        let mut tx = Tx::new();
+        for id in ids {
+            let Some(n) = tx.ed.node(&mut self.doc, id) else { continue };
+            if let NodeKind::Text(tp) = &mut n.kind {
+                if n.fills.is_empty() {
+                    let new_fills = std::mem::replace(&mut n.stroke.paints, tp.style.fills.clone());
+                    tp.style.fills = new_fills.clone();
+                    for run in &mut tp.runs {
+                        run.style.fills = new_fills.clone();
+                    }
+                } else {
+                    std::mem::swap(&mut n.fills, &mut n.stroke.paints);
+                }
+            } else {
+                std::mem::swap(&mut n.fills, &mut n.stroke.paints);
+            }
+            if !n.stroke.paints.is_empty() && n.stroke.weight == 0.0 {
+                n.stroke.weight = 1.0;
+            }
+            let old_bindings = std::mem::take(&mut n.variables.bindings);
+            for (k, v) in old_bindings {
+                let new_k = if let Some(rest) = k.strip_prefix("fills/") {
+                    format!("strokes/{rest}")
+                } else if let Some(rest) = k.strip_prefix("strokes/") {
+                    format!("fills/{rest}")
+                } else {
+                    k
+                };
+                n.variables.bindings.insert(new_k, v);
+            }
+            let fill_ref = n.style_refs.remove("fill");
+            let stroke_ref = n.style_refs.remove("stroke");
+            if let Some(r) = stroke_ref {
+                n.style_refs.insert("fill".into(), r);
+            }
+            if let Some(r) = fill_ref {
+                n.style_refs.insert("stroke".into(), r);
+            }
+        }
+        self.run_tx(tx);
+    }
+
     /// `Q` or `Cmd/Ctrl + Alt + A`: Multi-Edit / Select Matching Layers across top-level frames
     /// and component variants on the active page.
     pub fn select_matching_layers(&mut self) -> usize {

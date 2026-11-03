@@ -1,0 +1,150 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.36s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 47 tests
+test agent_permissions::tests::ask_risky_launch_matches_ask_and_skip_is_unchanged ... ok
+test agent_permissions::tests::ask_mode_drops_each_skip_flag ... ok
+test agent_permissions::tests::ask_risky_gate_follows_the_tier_table ... ok
+test agent_permissions::tests::an_ask_launch_that_still_names_the_session_hooks_file_is_caught_in_debug_builds - should panic ... ok
+test agent_permissions::tests::an_ask_launch_that_still_names_the_session_mcp_config_is_caught_in_debug_builds - should panic ... ok
+test agent_permissions::tests::fingerprint_uses_node_id_before_path ... ok
+test agent_permissions::tests::grant_store_matches_one_target_expires_revokes_and_refuses_other_tiers ... ok
+test agent_permissions::tests::an_answer_file_cannot_create_a_grant ... ok
+test agent_permissions::tests::claude_settings_value_is_the_private_hooks_file_or_inline_empty_settings ... ok
+test agent_permissions::tests::claude_mcp_config_value_is_the_private_copy_or_inline_empty_servers ... ok
+test agent_permissions::tests::a_fresh_terminal_launches_every_cli_in_ask_mode ... ok
+test agent_permissions::tests::a_stale_session_hooks_json_goes_only_when_it_names_the_approval_hook ... ok
+test agent_permissions::tests::auto_allow_log_skips_a_malformed_line_and_drops_oldest_past_the_cap ... ok
+test agent_permissions::tests::claude_plugin_value_is_the_private_plugin_once_it_is_complete_and_never_empty ... ok
+test agent_permissions::tests::generated_auto_allow_names_are_exactly_the_read_and_additive_rows ... ok
+test agent_permissions::tests::default_mode_is_ask ... ok
+test agent_permissions::tests::no_fixture_or_preview_command_carries_a_skip_or_bypass_flag ... ok
+test agent_permissions::tests::parse_answer_scope_defaults_to_once_and_rejects_a_bad_scope ... ok
+test agent_permissions::tests::parse_returns_ask_risky_only_for_the_word_ask_risky ... ok
+test agent_permissions::tests::parse_returns_skip_only_for_the_word_skip ... ok
+test agent_permissions::tests::hook_ask_risky_read_writes_an_auto_allow_row ... ok
+test agent_permissions::tests::risky_hook_omits_auto_allow_when_the_log_path_is_missing ... ok
+/private/tmp/ag1477/t/designos-approval-channels-test/4c9bde74aa5c8b97/approve-hook.sh: line 92: /private/tmp/ag1477/h/Library/Application Support/designos/auto-allow/4c9bde74aa5c8b97/auto-allow.jsonl: Is a directory
+test agent_permissions::tests::hook_tags_rows_with_the_tab_id_from_approvals_dir ... ok
+test agent_permissions::tests::hook_ask_risky_delete_writes_no_auto_allow_row ... ok
+test agent_permissions::tests::settle_granted_request_writes_a_grant_row ... ok
+test agent_permissions::tests::hook_asks_when_the_payload_names_two_tools ... ok
+test agent_permissions::tests::hook_script_allow_prints_the_documented_decision ... ok
+test agent_permissions::tests::skip_mode_launch_commands_unchanged ... ok
+test agent_permissions::tests::settle_leaves_the_request_when_the_grant_row_cannot_be_written ... ok
+test agent_permissions::tests::the_approval_handler_names_an_absolute_sh_on_unix_and_sh_on_windows ... ok
+test agent_permissions::tests::hook_script_deny_carries_a_message ... ok
+test agent_permissions::tests::the_hook_script_puts_the_system_commands_first_on_path ... ok
+test agent_permissions::tests::hook_fails_closed_when_the_log_cannot_be_appended ... ok
+test agent_permissions::tests::hook_auto_allows_a_read_and_still_asks_for_a_delete ... ok
+test agent_permissions::tests::hook_script_preserves_multibyte_utf8_at_200_char_boundary ... ok
+test agent_permissions::tests::hook_script_preserves_escaped_quotes_in_command_summary ... ok
+test agent_permissions::tests::settle_writes_allow_for_a_matching_grant_and_leaves_a_different_target ... ok
+test agent_permissions::tests::settings_json_resolves_to_a_mode_and_fails_closed ... ok
+test agent_permissions::tests::the_deny_text_survives_the_shell_quoting ... ok
+test agent_permissions::tests::settle_on_a_tab_folder_logs_the_grant_on_the_session ... ok
+test agent_permissions::tests::request_file_holds_only_a_summary ... ok
+test agent_permissions::tests::the_private_plugin_holds_only_the_manifest_and_the_skill_and_is_owner_only ... ok
+test agent_permissions::tests::hook_script_timeout_prints_nothing ... ok
+test agent_permissions::tests::hook_script_timeout_exits_zero_so_the_cli_prompts ... ok
+test agent_permissions::tests::hook_rejects_a_malformed_scope_and_accepts_session_text ... ok
+test agent_permissions::tests::a_bound_window_falls_back_to_ask_when_the_saved_mode_is_unreadable ... ok
+test agent_permissions::tests::auto_allow_log_keeps_every_concurrent_append ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 4176 filtered out; finished in 8.34s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.92s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 28 tests
+test agent_turn_ledger::tests::a_turn_opened_after_the_stop_stays_open_when_the_stop_closes ... ok
+test agent_turn_ledger::tests::a_heuristic_turn_opened_after_the_stop_closes_with_it ... ok
+test agent_turn_ledger::tests::log_reader_reports_line_start_offsets ... ok
+test agent_turn_ledger::tests::hook_command_writes_the_current_log_size ... ok
+test agent_turn_ledger::tests::no_card_for_a_turn_without_changes ... ok
+test agent_turn_ledger::tests::a_large_patch_and_a_mark_never_interleave ... ok
+test agent_turn_ledger::tests::codex_heuristic_turns_are_marked_approximate ... ok
+test agent_turn_ledger::tests::revert_of_an_auto_allowed_write_restores_the_document_and_keeps_the_row ... ok
+test agent_turn_ledger::tests::revert_preserves_user_edit_that_matches_earlier_agent_step_pre_fingerprint ... ok
+test agent_turn_ledger::tests::marks_assign_patches_by_byte_offset ... ok
+test agent_turn_ledger::tests::keep_leaves_normal_undo_history ... ok
+test agent_turn_ledger::tests::revert_keeps_layers_the_user_changed_afterwards ... ok
+test agent_turn_ledger::tests::ledger_groups_patches_between_marks ... ok
+test agent_turn_ledger::tests::edits_with_no_marks_and_no_status_change_make_one_approximate_turn_whatever_the_cli ... ok
+test agent_turn_ledger::tests::inspector_width_change_on_fixed_child_after_turn_is_kept ... ok
+test agent_turn_ledger::tests::codex_working_turn_stays_one_turn_across_3s_patch_gap ... ok
+test agent_turn_ledger::tests::revert_keeps_edits_on_other_layers ... ok
+test agent_turn_ledger::tests::turn_card_hides_keep_and_revert_when_the_turn_has_no_canvas_edits ... ok
+test agent_turn_ledger::tests::revert_restores_the_document_in_one_step ... ok
+test agent_turn_ledger::tests::turn_card_lists_auto_allow_rows ... ok
+test agent_turn_ledger::tests::works_for_each_cli_hook_file ... ok
+test agent_turn_ledger::tests::reverted_card_shows_removed_with_frame_without_kept_zero ... ok
+test agent_turn_ledger::tests::select_layer_action_does_not_mark_canvas_dirty ... ok
+test agent_turn_ledger::tests::summary_lists_changed_layers_and_selects_on_click ... ok
+test agent_turn_ledger::tests::revert_undoes_earlier_step_after_intervening_auto_layout_reflow ... ok
+test agent_turn_ledger::tests::user_drag_of_auto_layout_frame_between_two_agent_writes_survives_revert ... ok
+test agent_turn_ledger::tests::user_resizes_sibling_between_two_agent_writes_to_same_child_still_reverts_both_agent_writes ... ok
+test agent_turn_ledger::tests::ledger_is_capped ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 4195 filtered out; finished in 3.75s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.80s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 25 tests
+test terminal::ask_mode_tests::a_tab_started_without_a_prepared_command_asks ... ok
+test terminal::ask_mode_tests::bind_session_to_a_different_id_clears_grants_and_the_next_call_asks ... ok
+test terminal::ask_mode_tests::a_session_dir_change_clears_grants_and_the_next_call_asks ... ok
+test terminal::ask_mode_tests::golden::unix_paths_are_normalized_as_before ... ok
+test terminal::ask_mode_tests::golden::windows_paths_are_normalized_in_every_spelling_they_are_written_in ... ok
+test terminal::ask_mode_tests::bind_session_on_a_library_file_with_a_held_lock_clears_grants_and_keeps_the_dir ... ok
+test terminal::ask_mode_tests::shutdown_clears_grants_and_the_next_call_asks ... ok
+test terminal::ask_mode_tests::ask_risky_keeps_turn_marks_and_auto_allows_only_safe_tool_names ... ok
+test terminal::ask_mode_tests::the_scanner_flags_every_auto_approve_shape_and_ignores_inert_ones ... ok
+test terminal::ask_mode_tests::closing_the_last_tab_clears_grants_and_the_next_call_asks ... ok
+test terminal::ask_mode_tests::codex_ask_launches_without_the_bypass_flag_and_sets_no_approval_override ... ok
+test terminal::ask_mode_tests::claude_ask_launches_without_the_skip_flag_and_writes_no_allow_rule ... ok
+test terminal::ask_mode_tests::golden::gemini_launch_and_config_match_the_golden_and_never_trust_the_server ... ok
+test terminal::ask_mode_tests::gemini_launches_in_the_mode_asked_for_and_never_trusts_the_server ... ok
+test terminal::ask_mode_tests::golden::codex_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::golden::claude_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::grok_ask_launches_without_always_approve_and_writes_no_permission_rule ... ok
+test terminal::ask_mode_tests::golden::antigravity_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::antigravity_ask_launches_without_the_skip_flag_and_its_plugin_config_trusts_nothing ... ok
+test terminal::ask_mode_tests::golden::grok_launch_and_config_match_the_golden ... ok
+test terminal::ask_mode_tests::auto_allow_rows_from_a_background_tab_stay_on_that_tab ... ok
+test terminal::ask_mode_tests::the_private_plugin_skill_has_a_fixed_frontmatter_and_names_neither_the_file_nor_its_page ... ok
+test terminal::ask_mode_tests::closing_one_of_several_tabs_does_not_clear_grants ... ok
+test terminal::ask_mode_tests::gemini_settings_stay_untrusted_when_the_mode_changes_under_a_running_tab ... ok
+test terminal::ask_mode_tests::what_each_cli_loads_by_itself_is_the_same_whatever_the_document_and_page_are_named ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 4198 filtered out; finished in 5.12s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1477-edit-menu/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.08s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4222 filtered out; finished in 1.50s
+
