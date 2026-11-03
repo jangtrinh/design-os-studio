@@ -1,0 +1,61 @@
+# red run: the two new tests against production code at 613529a4 (only the test module differs from head)
+$ cargo test -p designos-doc --locked --lib delete_style
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.27
+   Compiling quote v1.0.47
+   Compiling serde_core v1.0.229
+   Compiling memchr v2.8.3
+   Compiling zmij v1.0.23
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling thiserror v2.0.21
+   Compiling regex-syntax v0.8.11
+   Compiling itoa v1.0.18
+   Compiling aho-corasick v1.1.5
+   Compiling regex-automata v0.4.18
+   Compiling syn v3.0.9
+   Compiling regex v1.13.1
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1136-delete-style-edges/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.28s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 9 tests
+test styles_ops::tests::delete_style_keeps_the_mode_sum_when_an_alias_chain_stays_inside_one_collection ... ok
+test styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections ... ok
+test styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look ... ok
+test styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_aliases_to_different_variables_per_parent_mode ... ok
+test styles_ops::tests::delete_style_keeps_every_look_when_one_variable_aliases_to_different_variables_per_parent_mode ... ok
+test styles_ops::tests::delete_style_keeps_every_look_when_a_same_collection_hop_aliases_to_different_variables_per_mode ... FAILED
+test styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_hops_inside_one_collection_to_different_variables_per_mode ... FAILED
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok
+test styles_ops::tests::delete_style_caps_shared_collection_mode_product_at_4096_and_keeps_binding ... ok
+
+failures:
+
+---- styles_ops::tests::delete_style_keeps_every_look_when_a_same_collection_hop_aliases_to_different_variables_per_mode stdout ----
+
+thread 'styles_ops::tests::delete_style_keeps_every_look_when_a_same_collection_hop_aliases_to_different_variables_per_mode' (87063533) panicked at crates/designos-doc/src/styles_ops.rs:4132:9:
+the 0.4 that showed in (b, y) before the delete must survive it
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_hops_inside_one_collection_to_different_variables_per_mode stdout ----
+
+thread 'styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_hops_inside_one_collection_to_different_variables_per_mode' (87063530) panicked at crates/designos-doc/src/styles_ops.rs:4177:9:
+assertion `left == right` failed: the style value is 70 in (b, y) and 40 elsewhere where it wins, so the layer is counted
+  left: []
+ right: [(NodeId(2), "fills/0/opacity")]
+
+
+failures:
+    styles_ops::tests::delete_style_counts_a_fallback_when_the_style_variable_hops_inside_one_collection_to_different_variables_per_mode
+    styles_ops::tests::delete_style_keeps_every_look_when_a_same_collection_hop_aliases_to_different_variables_per_mode
+
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 729 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+rc=101
