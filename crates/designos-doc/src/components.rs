@@ -783,12 +783,20 @@ fn mirrored_values<'a>(doc: &'a Document, n: &Node) -> Option<&'a BTreeMap<Strin
     n.component.source.and_then(|s| doc.get(s)).map(|sn| &sn.component.values)
 }
 
-/// The exposed nested instances of `outer` whose property values differ from those of the main-side instance they mirror.
+/// The properties of nested instance `n` whose value of its own differs from the main-side instance it mirrors. A
+/// property `n` holds no value for is inherited: it follows the main-side instance, so it is not an override, even when
+/// the main-side instance has a value for it.
+fn overriding_value_keys(doc: &Document, n: &Node) -> Vec<String> {
+    let source = mirrored_values(doc, n);
+    n.component.values.iter().filter(|(name, value)| source.is_none_or(|v| v.get(*name) != Some(*value))).map(|(name, _)| name.clone()).collect()
+}
+
+/// The exposed nested instances of `outer` with a property value that overrides the main-side instance they mirror.
 /// These values are changes of `outer`: "Reset all changes" takes them back. The values of a nested instance that is
 /// not exposed are not, and stay.
 pub fn exposed_nested_value_overrides(doc: &Document, outer: NodeId) -> Vec<NodeId> {
     let mut found = exposed_nested_instances(doc, outer);
-    found.retain(|&id| doc.get(id).is_some_and(|n| mirrored_values(doc, n).map_or(!n.component.values.is_empty(), |v| *v != n.component.values)));
+    found.retain(|&id| doc.get(id).is_some_and(|n| !overriding_value_keys(doc, n).is_empty()));
     found
 }
 
@@ -805,12 +813,12 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
     let exposed_values = exposed_nested_value_overrides(c.s, instance);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        let values_back = exposed_values.contains(&id);
-        if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] || values_back {
+        let own_values = if exposed_values.contains(&id) { overriding_value_keys(c.s, &n) } else { Vec::new() };
+        if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] || !own_values.is_empty() {
             n.component.overrides.clear();
             n.component.grid_align_overrides = [false, false];
-            if values_back {
-                n.component.values = mirrored_values(c.s, &n).cloned().unwrap_or_default();
+            for name in &own_values {
+                n.component.values.remove(name);
             }
             n.plugin_data.remove("pen:explicit_width");
             n.plugin_data.remove("pen:explicit_height");
@@ -1779,6 +1787,10 @@ pub fn set_nested_instance_prop(doc: &mut Document, nested: NodeId, name: &str, 
             c.update(n);
         }
     }
+    // The layers of the new variant start from the variant itself: the other values of the nested instance (an instance
+    // swap, a boolean, a text) are applied to them in this command. The variant is not resolved or swapped again, as the
+    // nested instance is not a top instance and holds its swap.
+    sync_one(&mut c, nested);
     c.finish()
 }
 
@@ -7331,5 +7343,195 @@ mod tests {
         apply(&mut d, c);
         assert!(!d.get(child_named(&d, nested, "Dot")).unwrap().visible, "a sync of the outer main keeps the value");
         assert!(!expose_flag(&d, nested), "the outer copy never carries the flag");
+    }
+
+    /// The outer instance and the nested badge of an outer instance of a `Card` that holds one exposed `Leading badge`.
+    fn expose_outer_with_badge(d: &mut Document, page: NodeId) -> (NodeId, NodeId, NodeId, NodeId) {
+        let (v_sm, _, _) = expose_badge_set(d, page);
+        let (card, kids) = expose_main_holding(d, page, "Card", v_sm, &["Leading badge"]);
+        let c = set_expose_nested_instance(d, kids[0], true);
+        apply(d, c);
+        let c = create_instance(d, card, page, Vec2::new(0.0, 200.0));
+        apply(d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(d, outer, "Leading badge");
+        (card, kids[0], outer, nested)
+    }
+
+    fn dot_visible(d: &Document, badge: NodeId) -> bool {
+        d.get(child_named(d, badge, "Dot")).unwrap().visible
+    }
+
+    /// Sets a value on the main-side badge and syncs the card, as an edit of the main does.
+    fn set_main_badge_value(d: &mut Document, card: NodeId, badge: NodeId, name: &str, value: PropValue) {
+        let c = set_instance_prop(d, badge, name, Some(value));
+        apply(d, c);
+        let c = sync_instances(d, card);
+        apply(d, c);
+    }
+
+    fn override_opacity(d: &mut Document, id: NodeId) {
+        let n = d.get_mut(id).unwrap();
+        n.opacity = 0.5;
+        n.component.overrides.insert(OverrideField::Opacity);
+    }
+
+    #[test]
+    fn a_nested_value_inherited_from_the_main_side_badge_is_not_a_change() {
+        let mut d = Document::new("expose-inherited-value");
+        let page = d.add_page("P");
+        let (card, main_badge, outer, nested) = expose_outer_with_badge(&mut d, page);
+
+        set_main_badge_value(&mut d, card, main_badge, "Show dot", PropValue::Bool(false));
+        assert!(!dot_visible(&d, nested), "the outer instance's badge follows the main-side badge");
+        assert!(d.get(nested).unwrap().component.values.is_empty(), "the badge in the outer instance holds no value of its own");
+        assert!(exposed_nested_value_overrides(&d, outer).is_empty(), "a value that is inherited is not a change of the outer instance");
+    }
+
+    #[test]
+    fn reset_leaves_an_inherited_nested_value_inheriting() {
+        let mut d = Document::new("expose-inherited-reset");
+        let page = d.add_page("P");
+        let (card, main_badge, outer, nested) = expose_outer_with_badge(&mut d, page);
+        set_main_badge_value(&mut d, card, main_badge, "Show dot", PropValue::Bool(false));
+
+        // Another change of the outer instance, so that Reset has something to take back.
+        override_opacity(&mut d, outer);
+        let c = reset_instance(&mut d, outer);
+        apply(&mut d, c);
+        assert_eq!(d.get(outer).unwrap().opacity, 1.0, "Reset took the other change back");
+        assert!(d.get(nested).unwrap().component.values.is_empty(), "Reset does not write the main-side value onto the badge");
+
+        set_main_badge_value(&mut d, card, main_badge, "Show dot", PropValue::Bool(true));
+        assert!(dot_visible(&d, nested), "the badge in the outer instance still follows the main-side badge");
+        set_main_badge_value(&mut d, card, main_badge, "Show dot", PropValue::Bool(false));
+        assert!(!dot_visible(&d, nested));
+    }
+
+    #[test]
+    fn a_nested_badge_made_after_the_main_side_value_holds_an_equal_map_that_is_no_change() {
+        let mut d = Document::new("expose-cloned-value");
+        let page = d.add_page("P");
+        let (card, main_badge, _, _) = expose_outer_with_badge(&mut d, page);
+        let c = set_instance_prop(&mut d, main_badge, "Show dot", Some(PropValue::Bool(false)));
+        apply(&mut d, c);
+
+        // An outer instance made now copies the main-side badge, values included.
+        let c = create_instance(&mut d, card, page, Vec2::new(300.0, 200.0));
+        apply(&mut d, c);
+        let later = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, later, "Leading badge");
+        let main_values = d.get(main_badge).unwrap().component.values.clone();
+        assert_eq!(d.get(nested).unwrap().component.values, main_values, "the copy starts with the values of what it copies");
+        assert!(exposed_nested_value_overrides(&d, later).is_empty(), "an equal map is no change");
+
+        override_opacity(&mut d, later);
+        let c = reset_instance(&mut d, later);
+        apply(&mut d, c);
+        assert_eq!(d.get(nested).unwrap().component.values, main_values, "Reset leaves an equal map as it is");
+    }
+
+    #[test]
+    fn reset_takes_back_the_nested_values_that_differ_from_the_main_side_badge_and_the_badge_follows_again() {
+        let mut d = Document::new("expose-overriding-value");
+        let page = d.add_page("P");
+        let (card, main_badge, outer, nested) = expose_outer_with_badge(&mut d, page);
+        set_main_badge_value(&mut d, card, main_badge, "Show dot", PropValue::Bool(false));
+
+        // The outer instance shows the dot again and has its own label.
+        let c = set_instance_prop(&mut d, nested, "Show dot", Some(PropValue::Bool(true)));
+        apply(&mut d, c);
+        let c = set_instance_prop(&mut d, nested, "Label", Some(PropValue::Text("Pro".into())));
+        apply(&mut d, c);
+        assert!(dot_visible(&d, nested));
+        assert_eq!(exposed_nested_value_overrides(&d, outer), vec![nested], "values that differ from the main-side badge are changes");
+
+        let c = reset_instance(&mut d, outer);
+        apply(&mut d, c);
+        assert!(d.get(nested).unwrap().component.values.is_empty(), "Reset removed the values that differed");
+        assert!(!dot_visible(&d, nested), "the badge shows what the main-side badge shows");
+        assert_eq!(text_of(&d, child_named(&d, nested, "Text")), "Badge");
+        assert!(exposed_nested_value_overrides(&d, outer).is_empty());
+
+        set_main_badge_value(&mut d, card, main_badge, "Show dot", PropValue::Bool(true));
+        assert!(dot_visible(&d, nested), "after Reset the badge follows a later change of the main-side badge");
+    }
+
+    /// The icon the `Glyph` instance in `badge` shows.
+    fn glyph_of(d: &Document, badge: NodeId) -> Option<NodeId> {
+        instance_component(d.get(child_named(d, badge, "Glyph")).unwrap())
+    }
+
+    /// A `Badge` set (`Size=Sm`, `Size=Lg`) whose variants each hold a `Glyph` instance of `Icon A`, bound to the
+    /// instance-swap property `Glyph`. Returns the two variants, the set and the two icons.
+    fn expose_glyph_badge_set(d: &mut Document, page: NodeId) -> (NodeId, NodeId, NodeId, NodeId, NodeId) {
+        let mut icons = Vec::new();
+        for (name, x) in [("Icon A", 200.0), ("Icon B", 240.0)] {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, 12.0, 12.0));
+            f.name = name.into();
+            let icon = d.insert(page, f).unwrap();
+            let c = create_component(d, icon);
+            apply(d, c);
+            icons.push(icon);
+        }
+        let (icon_a, icon_b) = (icons[0], icons[1]);
+        let mut variants = Vec::new();
+        for (name, x, w) in [("Size=Sm", 0.0, 60.0), ("Size=Lg", 80.0, 90.0)] {
+            let (comp, _, _) = expose_badge_variant(d, page, name, x, w);
+            let c = create_instance(d, icon_a, comp, Vec2::new(40.0, 6.0));
+            apply(d, c);
+            let glyph = *d.get(comp).unwrap().children.last().unwrap();
+            d.get_mut(glyph).unwrap().name = "Glyph".into();
+            variants.push((comp, glyph));
+        }
+        let c = combine_as_variants(d, &[variants[0].0, variants[1].0]);
+        apply(d, c);
+        let set = d.get(variants[0].0).unwrap().parent.unwrap();
+        d.get_mut(set).unwrap().name = "Badge".into();
+        let c = add_prop(
+            d,
+            set,
+            ComponentPropDef { name: "Glyph".into(), kind: PropKind::InstanceSwap { preferred: vec![icon_a, icon_b] }, default: PropValue::Instance(icon_a) },
+        );
+        apply(d, c);
+        for (_, glyph) in &variants {
+            let c = bind_prop(d, *glyph, OverrideField::MainComponent, Some("Glyph"));
+            apply(d, c);
+        }
+        (variants[0].0, variants[1].0, set, icon_a, icon_b)
+    }
+
+    #[test]
+    fn a_variant_edit_on_an_exposed_nested_instance_applies_the_instance_swap_chosen_before_it_at_once() {
+        let mut d = Document::new("expose-variant-after-swap");
+        let page = d.add_page("P");
+        let (v_sm, v_lg, _, icon_a, icon_b) = expose_glyph_badge_set(&mut d, page);
+        let (card, kids) = expose_main_holding(&mut d, page, "Card", v_sm, &["Leading badge"]);
+        let c = set_expose_nested_instance(&mut d, kids[0], true);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, outer, "Leading badge");
+        let glyph_def = prop_defs(&d, v_sm).into_iter().find(|p| p.name == "Glyph").expect("the Glyph property");
+
+        let c = set_nested_instance_prop(&mut d, nested, "Glyph", Some(PropValue::Instance(icon_b)));
+        apply(&mut d, c);
+        assert_eq!(glyph_of(&d, nested), Some(icon_b), "the instance swap shows Icon B");
+        assert_eq!(glyph_of(&d, kids[0]), Some(icon_a), "the main-side badge keeps Icon A");
+
+        // One command: the variant changes, and the badge in the new variant shows Icon B at once.
+        let c = set_nested_instance_prop(&mut d, nested, "Size", Some(PropValue::Variant("Lg".into())));
+        let undo = apply(&mut d, c);
+        assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_lg), "the badge is on the Lg variant");
+        assert_eq!(glyph_of(&d, nested), Some(icon_b), "the glyph of the new variant shows the chosen icon without another sync");
+        assert_eq!(prop_value(&d, nested, &glyph_def), PropValue::Instance(icon_b), "the dropdown shows the same icon");
+
+        // One undo step returns to Sm, still with Icon B.
+        apply(&mut d, undo);
+        assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_sm), "undo returns to the Sm variant");
+        assert_eq!(glyph_of(&d, nested), Some(icon_b), "undo keeps the chosen icon");
+        assert_eq!(prop_value(&d, nested, &glyph_def), PropValue::Instance(icon_b));
     }
 }

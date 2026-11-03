@@ -353,3 +353,30 @@ fn reset_all_changes_takes_back_a_variant_edit_made_from_the_outer_instance() {
     assert_eq!(designos_doc::instance_component(s.app().doc.get(inst_leading).unwrap()), Some(v_sm), "Reset all changes puts the nested badge back");
     assert!(!crate::panels::components::has_changes(s.app(), card_inst));
 }
+
+#[test]
+fn reset_all_changes_leaves_a_nested_value_the_outer_instance_inherits() {
+    let (mut s, card, leading, _, card_inst, _, _) = setup_nested_expose_scene();
+    s.shell.app.set_expose_nested_instance(leading, true);
+    let inst_leading = child_of(&s.app().doc, card_inst, "Leading badge");
+    let inst_dot = child_of(&s.app().doc, inst_leading, "Dot");
+
+    // The main-side badge hides its dot after the outer instance exists, and the card syncs.
+    s.shell.app.set_instance_prop(leading, "Show dot", Some(PropValue::Bool(false)));
+    let card_bg = child_of(&s.app().doc, card, "CardBg");
+    s.shell.app.edit_nodes(&[card_bg], |n| n.opacity = 0.9);
+    assert!(!s.app().doc.get(inst_dot).unwrap().visible, "the outer instance's badge follows the main-side badge");
+    assert!(s.app().doc.get(inst_leading).unwrap().component.values.is_empty(), "the badge in the outer instance holds no value of its own");
+    assert!(!crate::panels::components::has_changes(s.app(), card_inst), "an inherited value is not a change of the outer instance");
+
+    // Another change makes Reset available; it must not pin the inherited value.
+    s.shell.app.edit_nodes(&[card_inst], |n| n.opacity = 0.5);
+    assert!(crate::panels::components::has_changes(s.app(), card_inst), "the other change is offered for Reset");
+    s.shell.app.selection = vec![card_inst];
+    s.shell.app.reset_selection();
+    assert!(s.app().doc.get(inst_leading).unwrap().component.values.is_empty(), "Reset all changes does not copy the main-side value onto the badge");
+
+    s.shell.app.set_instance_prop(leading, "Show dot", Some(PropValue::Bool(true)));
+    s.shell.app.edit_nodes(&[card_bg], |n| n.opacity = 0.8);
+    assert!(s.app().doc.get(inst_dot).unwrap().visible, "the badge still follows the main-side badge after Reset");
+}
