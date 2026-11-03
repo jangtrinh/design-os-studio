@@ -568,3 +568,133 @@ fn an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_li
 fn an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu() {
     assert_open_stroke_with_per_vertex_joins_caps_outward_like_cpu(StrokeCap::Square, "open_mixed_join_square_caps");
 }
+
+fn polyline(points: &[(f32, f32)]) -> Vec<PathCmd> {
+    let mut cmds = vec![PathCmd::MoveTo(Vec2::new(points[0].0, points[0].1))];
+    cmds.extend(points[1..].iter().map(|p| PathCmd::LineTo(Vec2::new(p.0, p.1))));
+    cmds
+}
+
+/// An open path stroked live at weight 10 at `(20, 20)`, node join Bevel and no cap, with a Miter join on the vertex at
+/// `miter` and a Round join on the vertex at `round`.
+fn open_stroke_with_a_miter_and_a_round_vertex(t: &mut T, cmds: Vec<PathCmd>, miter: (f32, f32), round: (f32, f32)) -> NodeId {
+    let path = Path { cmds, fill_rule: FillRule::NonZero };
+    let mut net = VectorNetwork::from_paths(std::slice::from_ref(&path));
+    for v in &mut net.vertices {
+        let on = |p: (f32, f32)| (v.pos.x - p.0).abs() < 1e-3 && (v.pos.y - p.1).abs() < 1e-3;
+        v.join = if on(miter) {
+            Some(StrokeJoin::Miter)
+        } else if on(round) {
+            Some(StrokeJoin::Round)
+        } else {
+            None
+        };
+    }
+    let bounds = net.bounds();
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(bounds.x + bounds.w, bounds.y + bounds.h);
+        n.fills.clear();
+        n.stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 10.0,
+            align: StrokeAlign::Center,
+            cap: StrokeCap::None,
+            join: StrokeJoin::Bevel,
+            miter_limit: 4.0,
+            ..Stroke::default()
+        };
+        n
+    })
+}
+
+/// A path with a Miter vertex and a Round vertex, and what each pixel centre (node space) must show: the Miter corner
+/// reaches its square apex, the Round corner is an arc that is neither a bevel nor a square.
+struct JoinCase {
+    name: &'static str,
+    cmds: Vec<PathCmd>,
+    miter: (f32, f32),
+    round: (f32, f32),
+    /// `(what, x, y, ink)` in node space.
+    probes: Vec<(&'static str, f32, f32, bool)>,
+}
+
+fn join_cases() -> Vec<JoinCase> {
+    vec![
+        JoinCase {
+            name: "right_then_down_on_the_axis",
+            cmds: polyline(&[(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (80.0, 40.0)]),
+            miter: (40.0, 0.0),
+            round: (40.0, 40.0),
+            probes: vec![("miter apex", 44.5, -3.5, true), ("round arc", 36.5, 42.5, true), ("round outer corner", 35.5, 44.5, false)],
+        },
+        JoinCase {
+            name: "right_then_down_off_the_axis",
+            cmds: polyline(&[(8.0, 8.0), (48.0, 8.0), (48.0, 48.0), (88.0, 48.0)]),
+            miter: (48.0, 8.0),
+            round: (48.0, 48.0),
+            probes: vec![("miter apex", 52.5, 4.5, true), ("round arc", 44.5, 50.5, true), ("round outer corner", 43.5, 52.5, false)],
+        },
+        JoinCase {
+            name: "curve_then_right_then_down",
+            cmds: vec![
+                PathCmd::MoveTo(Vec2::new(0.0, 40.0)),
+                PathCmd::CubicTo(Vec2::new(0.0, 16.0), Vec2::new(16.0, 0.0), Vec2::new(40.0, 0.0)),
+                PathCmd::LineTo(Vec2::new(40.0, 40.0)),
+                PathCmd::LineTo(Vec2::new(80.0, 40.0)),
+            ],
+            miter: (40.0, 0.0),
+            round: (40.0, 40.0),
+            probes: vec![
+                ("curve", 11.5, 11.5, true),
+                ("miter apex", 44.5, -3.5, true),
+                ("round arc", 36.5, 42.5, true),
+                ("round outer corner", 35.5, 44.5, false),
+            ],
+        },
+        JoinCase {
+            name: "down_then_right_on_the_axis",
+            cmds: polyline(&[(0.0, 0.0), (0.0, 40.0), (40.0, 40.0), (40.0, 80.0)]),
+            miter: (0.0, 40.0),
+            round: (40.0, 40.0),
+            probes: vec![("miter apex", -4.5, 44.5, true), ("round arc", 42.5, 36.5, true), ("round outer corner", 44.5, 35.5, false)],
+        },
+    ]
+}
+
+fn page_pixel(x: f32, y: f32) -> (u32, u32) {
+    ((20.0 + x).floor() as u32, (20.0 + y).floor() as u32)
+}
+
+/// The probes of `case` that `pm` does not show as expected.
+fn failed_join_probes(pm: &Pixmap, case: &JoinCase, what: &str) -> Vec<String> {
+    case.probes
+        .iter()
+        .filter_map(|(probe, x, y, ink)| {
+            let (px_x, px_y) = page_pixel(*x, *y);
+            (is_ink(pm, px_x, px_y) != *ink)
+                .then(|| format!("{what} {}: {probe} at node ({x}, {y}) should be {}", case.name, if *ink { "inked" } else { "white" }))
+        })
+        .collect()
+}
+
+#[test]
+fn a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu() {
+    let mut failed = vec![];
+    for case in join_cases() {
+        let mut t = T::new();
+        open_stroke_with_a_miter_and_a_round_vertex(&mut t, case.cmds.clone(), case.miter, case.round);
+        let Some(mut g) = gpu() else {
+            failed.extend(failed_join_probes(&cpu_render(&t), &case, "CPU"));
+            continue;
+        };
+        let c = compare(&mut g, &format!("miter_round_joins_{}", case.name), &t.doc, t.page, Viewport::default(), VIEW, 8);
+        failed.extend(failed_join_probes(&c.gpu, &case, "GPU"));
+        failed.extend(failed_join_probes(&c.cpu, &case, "CPU"));
+        if c.report.ratio >= 0.005 || c.report.ssim <= 0.98 {
+            failed.push(format!("{}: CPU and GPU differ, mismatch {:.3}% {:?}", case.name, c.report.ratio * 100.0, c.report));
+        }
+    }
+    assert!(failed.is_empty(), "{}", failed.join("\n"));
+}
