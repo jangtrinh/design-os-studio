@@ -6,7 +6,7 @@
 2. **Plan & Ground** — Choose components/tokens via `designos_get_variables` and `designos_get_guidelines`. Place new frames beside existing ones — never stack at `(0, 0)`.
 
 3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, `var:` / `style:` tokens, and auto layout (`layout`).
-4. **Verify (`issues` + screenshot)** — Render the finished frame with `designos_render_png` (<= 1024px) or `diff_image` and inspect for hierarchy, alignment, clipping, and contrast.
+4. **Verify (`issues` + screenshot)** — Render the frame with `designos_render_png` (<= 1024px) or `diff_image` and inspect for hierarchy, alignment, clipping, and contrast.
 5. **Fix in place** — Update with (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
 6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
@@ -215,7 +215,7 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 
 ### `designos_docs_read`
 - **Purpose:** Read one doc page as blocks.
-- **Args:** required: `page` (optional: `project`, `range`)
+- **Args:** required: `page` (optional: `page_hash`, `project`, `range`)
 - **Errors:** `INVALID_ARGUMENTS`, `MISSING_FIELD`, `VALUE_OUT_OF_RANGE`, `FILE_TOO_LARGE`, `DOCUMENT_INVALID`
 - **Example:** `{"page":"spec/checkout.md"}`
 

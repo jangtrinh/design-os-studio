@@ -38,6 +38,8 @@ struct ReadArgs {
     page: String,
     project: Option<String>,
     range: Option<RangeArg>,
+    /// The `page_hash` of the read this one continues. When given, it must still be the page's hash.
+    page_hash: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +55,7 @@ pub fn docs_read(root: &Path, open_file: Option<&str>, args: Value) -> Result<Va
     let project = resolve_project(root, a.project.as_deref(), open_file)?;
     let store = DocsStore::for_project(root, &project.id).map_err(|e| docs_error("/project", e))?;
     let versioned = store.read_page(&a.page).map_err(|e| docs_error("/page", e))?;
+    check_page_hash(a.page_hash.as_deref(), &versioned.hash.to_string())?;
     let page = &versioned.value;
     let total = page.blocks.len();
     let (start, end) = range_bounds(a.range.as_ref(), total)?;
@@ -101,6 +104,24 @@ pub fn docs_read(root: &Path, open_file: Option<&str>, args: Value) -> Result<Va
     out["next_start"] = json!(next_start);
     out["blocks"] = Value::Array(blocks);
     Ok(out)
+}
+
+/// A continuation that names the `page_hash` it was made from is refused when the page has changed since: block indices
+/// shift when text above them is edited, so a stale `next_start` would repeat or skip blocks.
+fn check_page_hash(given: Option<&str>, current: &str) -> Result<(), ToolError> {
+    let Some(given) = given else { return Ok(()) };
+    let bad = |message: &str| {
+        ToolError::new(ErrorCode::ValueOutOfRange, "/page_hash", message)
+            .with_received(fence_capped(given, 200))
+            .with_expected("the page_hash of the previous designos_docs_read call, or omit page_hash")
+    };
+    if given.len() != current.len() || !given.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return Err(bad("page_hash is not a page_hash from designos_docs_read; fix: pass page_hash exactly as returned, or omit it"));
+    }
+    if given != current {
+        return Err(bad("the page changed since that page_hash; read it again from the start (omit range and page_hash)"));
+    }
+    Ok(())
 }
 
 /// One block as a result entry, its Markdown cut (and flagged) only if the entry cannot fit in `budget` bytes.
