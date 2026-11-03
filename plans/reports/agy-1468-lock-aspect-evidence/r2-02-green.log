@@ -1,0 +1,56 @@
+1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+/dev/disk3s1s1   926Gi    12Gi   122Gi     9%    459k  1.3G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1468-lock-aspect/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.14s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 41 tests
+test check_designs::tests::an_ordinary_frame_and_an_instance_are_not_detached ... ok
+test check_designs::tests::instances::a_disabled_library_style_applied_inside_an_instance_is_reported_on_that_layer ... ok
+test check_designs::tests::instances::an_instance_mirroring_an_unstyled_main_text_reports_no_text_style_once_on_the_main_component ... ok
+test clipboard::tests::a_main_copied_in_its_own_file_becomes_an_instance_where_the_original_stood ... ok
+test proto::player::tests::change_to_on_something_that_is_not_an_instance_does_nothing ... ok
+test proto::player::tests::click_on_an_instance_swaps_it_and_stays_swapped ... ok
+test check_designs::tests::instances::a_reconnect_aimed_at_a_mirror_inside_an_instance_is_refused ... ok
+test check_designs::tests::reconnecting_swaps_the_frame_for_an_instance_in_place_and_undoes_in_one_step ... ok
+test canvas::interact::tests::a_main_holding_an_instance_of_b_alt_dragged_onto_b_lands_beside_b ... ok
+test canvas::interact::tests::alt_drag_of_a_main_and_a_plain_frame_makes_an_instance_of_the_main_and_a_copy_of_the_frame ... ok
+test canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked ... ok
+test comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock ... ok
+test canvas::interact::tests::a_main_alt_dragged_into_a_component_set_is_a_new_variant_not_an_instance_in_the_set ... ok
+test canvas::interact::tests::a_variant_alt_dragged_out_of_its_set_becomes_an_instance_of_that_variant ... ok
+test comp_ops::tests::resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main ... ok
+test comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main ... ok
+test canvas::interact::tests::multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target ... ok
+test check_designs::tests::instances::fixing_an_instance_child_records_override_without_mutating_main_component_and_undoes_cleanly ... ok
+test canvas::interact::tests::locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag ... ok
+test panels::properties::tests::lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first ... ok
+test panels::properties::tests::lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first ... ok
+test shell::tests::components::editing_inside_an_instance_records_overrides ... ok
+test shell::tests::dev_code_panel::colors_of_an_instance_list_what_its_component_paints ... ok
+test shell::tests::components_main_copies::pasting_a_main_that_holds_an_instance_of_b_with_b_selected_does_not_make_b_hold_itself ... ok
+test shell::tests::components_cycles::an_instance_swap_property_that_would_make_a_main_hold_itself_changes_nothing ... ok
+test styles::instance_refit_tests::a_style_edit_on_an_instance_label_is_one_undo_step ... ok
+test shell::tests::components_main_copies::swapping_an_instance_in_b_to_a_main_that_holds_b_changes_nothing ... ok
+test shell::tests::components_main_copies::pasting_a_main_that_holds_an_instance_of_b_with_a_layer_of_b_selected_does_not_make_b_hold_itself ... ok
+test shell::tests::components_main_copies::pasting_a_plain_frame_that_holds_an_instance_of_b_with_b_selected_does_not_make_b_hold_itself ... ok
+test shell::tests::components_main_copies::a_layers_panel_drop_of_an_instance_of_a_into_b_is_refused_when_a_holds_b ... ok
+test shell::tests::components::alt_drag_duplicate_of_an_instance_stays_an_instance ... ok
+test shell::tests::slot_canvas_edits::an_instance_goes_into_the_selected_slot_only_when_dropped_on_it ... ok
+test shell::tests::components_main_copies::a_plain_layer_and_an_instance_copy_as_before ... ok
+test shell::tests::components_main_copies::dropping_an_instance_on_its_own_main_leaves_it_beside_the_main ... ok
+test shell::tests::components_main_copies::pasting_a_set_makes_an_instance_of_its_default_variant ... ok
+test shell::tests::components_main_copies::pasting_a_main_with_the_main_still_selected_makes_an_instance_beside_it ... ok
+test shell::tests::components::layers_inside_an_instance_are_hidden_not_deleted ... ok
+test shell::tests::components_main_copies::alt_drag_of_a_set_makes_an_instance_of_its_default_variant ... ok
+test shell::tests::components_main_copies::ctrl_d_on_a_set_makes_an_instance_of_its_default_variant ... ok
+test shell::tests::layer_drag_fast::a_fast_multi_selection_drag_moves_the_same_layers_as_a_slow_one ... ok
+test shell::tests::deferred_page_instances::select_by_id_of_an_instance_on_a_deferred_page_shows_that_page_expanded ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 4.08s
+
+green_rc=0

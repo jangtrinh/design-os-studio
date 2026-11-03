@@ -294,6 +294,7 @@ fn instance_overrides(doc: &Document, inst_id: NodeId) -> Vec<Value> {
                 OverrideField::Name => fields.push("name"),
                 OverrideField::Visible => fields.push("visible"),
                 OverrideField::Locked => fields.push("locked"),
+                OverrideField::LockAspect => fields.push("preserveRatio"),
                 OverrideField::Opacity => fields.push("opacity"),
                 OverrideField::Blend => fields.push("blendMode"),
                 OverrideField::Size => fields.push("size"),
@@ -506,6 +507,9 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 };
                 json!({"horizontal": h, "vertical": v})
             });
+            if node.lock_aspect {
+                m.insert("preserveRatio".into(), true.into());
+            }
             if node.is_mask {
                 m.insert("isMask".into(), true.into());
             }

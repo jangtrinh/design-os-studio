@@ -2203,6 +2203,11 @@ fn convert_override(o: &Value, lk: &Lk) -> Map<String, Value> {
                     m.insert("strokeDashes".into(), Value::Array(arr.clone()));
                 }
             }
+            "proportionsConstrained" => {
+                if let Some(locked) = val.as_bool() {
+                    m.insert("preserveRatio".into(), locked.into());
+                }
+            }
             "mask" => {
                 m.insert("isMask".into(), val.clone());
             }

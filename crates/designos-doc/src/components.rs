@@ -17,7 +17,7 @@ use crate::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl OverrideField {
-    pub const ALL: [OverrideField; 16] = [
+    pub const ALL: [OverrideField; 17] = [
         OverrideField::Name,
         OverrideField::Visible,
         OverrideField::Locked,
@@ -34,6 +34,7 @@ impl OverrideField {
         OverrideField::Layout,
         OverrideField::MainComponent,
         OverrideField::SlotContent,
+        OverrideField::LockAspect,
     ];
 }
 
@@ -454,6 +455,7 @@ pub fn record_override(before: &Node, after: &Node) -> BTreeSet<OverrideField> {
     add(before.name != after.name, OverrideField::Name);
     add(before.visible != after.visible, OverrideField::Visible);
     add(before.locked != after.locked, OverrideField::Locked);
+    add(before.lock_aspect != after.lock_aspect, OverrideField::LockAspect);
     add(before.opacity != after.opacity, OverrideField::Opacity);
     add(before.blend != after.blend, OverrideField::Blend);
     add(before.size != after.size, OverrideField::Size);
@@ -1043,6 +1045,7 @@ fn copy_field(f: OverrideField, from: &Node, to: &mut Node) {
             to.layout_child = from.layout_child;
             copy_style_ref_key("grid", from, to);
         }
+        OverrideField::LockAspect => to.lock_aspect = from.lock_aspect,
         OverrideField::MainComponent | OverrideField::SlotContent => {}
     }
     copy_variable_bindings_for_field(f, from, to);
@@ -3228,6 +3231,64 @@ mod tests {
         let c = set_instance_prop(&mut f.d, i, "Label", Some(PropValue::Text("Pay now".into())));
         apply(&mut f.d, c);
         assert!(!size_comes_from_main(&f.d, label_i), "the property drives the characters: the copy keeps its fitted size");
+    }
+
+    fn set_aspect_lock(d: &mut Document, id: NodeId, locked: bool) {
+        let mut n = d.get(id).unwrap().clone();
+        n.lock_aspect = locked;
+        apply(d, Command::Update { node: Box::new(n) });
+    }
+
+    #[test]
+    fn record_override_flags_an_aspect_lock_change_and_nothing_else() {
+        let f = fx();
+        let a = f.d.get(f.bg).unwrap().clone();
+        let mut b = a.clone();
+        b.lock_aspect = true;
+        assert_eq!(record_override(&a, &b), BTreeSet::from([OverrideField::LockAspect]));
+        assert!(record_override(&b, &b).is_empty());
+    }
+
+    #[test]
+    fn sync_gives_every_mirrored_node_the_main_aspect_lock_unless_it_overrides_it() {
+        let mut f = fx();
+        let i = inst(&mut f, (200.0, 0.0));
+        let bg = child_named(&f.d, i, "bg");
+
+        // The root of the instance and a node inside it follow the main.
+        set_aspect_lock(&mut f.d, f.comp, true);
+        set_aspect_lock(&mut f.d, f.bg, true);
+        let c = sync_instances(&mut f.d, f.comp);
+        apply(&mut f.d, c);
+        assert!(f.d.get(i).unwrap().lock_aspect, "the instance root follows its main");
+        assert!(f.d.get(bg).unwrap().lock_aspect, "a node inside the instance follows its main node");
+
+        // Once a node overrides the lock, the main no longer decides it.
+        let mut own = f.d.get(bg).unwrap().clone();
+        own.lock_aspect = false;
+        own.component.overrides.insert(OverrideField::LockAspect);
+        apply(&mut f.d, Command::Update { node: Box::new(own) });
+        set_aspect_lock(&mut f.d, f.bg, false);
+        set_aspect_lock(&mut f.d, f.bg, true);
+        let c = sync_instances(&mut f.d, f.comp);
+        apply(&mut f.d, c);
+        assert!(!f.d.get(bg).unwrap().lock_aspect, "a node that overrides the lock keeps its own value");
+        assert!(f.d.get(i).unwrap().lock_aspect, "the instance root keeps following the main");
+
+        // Resetting the override hands the decision back to the main.
+        let c = reset_overrides(&mut f.d, bg, &[OverrideField::LockAspect]);
+        apply(&mut f.d, c);
+        assert!(f.d.get(bg).unwrap().lock_aspect, "reset restores the main's lock");
+        assert!(!f.d.get(bg).unwrap().component.overrides.contains(&OverrideField::LockAspect));
+    }
+
+    #[test]
+    fn an_aspect_lock_set_on_the_main_before_an_instance_is_made_reaches_the_new_instance() {
+        let mut f = fx();
+        set_aspect_lock(&mut f.d, f.comp, true);
+        let i = inst(&mut f, (200.0, 0.0));
+        assert!(f.d.get(i).unwrap().lock_aspect);
+        assert!(f.d.get(i).unwrap().component.overrides.is_empty(), "a copied lock is not an override");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use designos_doc::*;
 use designos_fig::testkit::sample_fig;
-use designos_fig::{commands_blob_to_path, export_fig, import_fig, import_fig_node_changes, path_to_commands_blob};
+use designos_fig::{commands_blob_to_path, decode_fig_to_json, export_fig, import_fig, import_fig_node_changes, path_to_commands_blob};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -4406,4 +4406,68 @@ fn rest_export_import_preserves_dash_cap() {
     let rt_inst = find(&roundtripped, "RestDashedInst");
     let rt_inst_child = roundtripped.get(rt_inst.children[0]).expect("instance child after REST import + sync");
     assert_eq!(rt_inst_child.stroke.cap, StrokeCap::Round, "instance child preserves overridden Round dash cap across REST export + import + sync_instances");
+}
+
+#[test]
+fn lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest() {
+    let mut doc = Document::new("lock-aspect-rt");
+    let page = doc.add_page("Page 1");
+
+    let locked_id = doc.alloc_id();
+    let mut locked = Node::rectangle(locked_id, Rect::new(0.0, 0.0, 160.0, 90.0));
+    locked.name = "LockedRect".into();
+    locked.lock_aspect = true;
+    doc.insert(page, locked).unwrap();
+
+    let unlocked_id = doc.alloc_id();
+    let mut unlocked = Node::rectangle(unlocked_id, Rect::new(200.0, 0.0, 120.0, 80.0));
+    unlocked.name = "UnlockedRect".into();
+    unlocked.lock_aspect = false;
+    doc.insert(page, unlocked).unwrap();
+
+    // 1. Binary .fig export -> import preserves lock_aspect on both nodes.
+    let fig_bytes = export_fig(&doc).expect("export_fig");
+    let fig_rt = import_fig(&fig_bytes).expect("import_fig");
+    assert!(find(&fig_rt, "LockedRect").lock_aspect, ".fig round-trip must preserve lock_aspect = true");
+    assert!(!find(&fig_rt, "UnlockedRect").lock_aspect, ".fig round-trip must preserve lock_aspect = false");
+
+    // 2. REST JSON export -> import preserves preserveRatio / lock_aspect on both nodes.
+    let rest_val = designos_fig::export_rest_json(&doc);
+    let rest_rt = designos_fig::import_rest_json(&rest_val.to_string()).expect("import_rest_json");
+    assert!(find(&rest_rt, "LockedRect").lock_aspect, "REST export -> import must preserve preserveRatio / lock_aspect = true");
+    assert!(!find(&rest_rt, "UnlockedRect").lock_aspect, "REST export -> import must preserve lock_aspect = false");
+}
+
+#[test]
+fn an_instance_aspect_lock_override_is_written_as_proportions_constrained() {
+    let mut doc = Document::new("lock-aspect-override");
+    let page = doc.add_page("Page 1");
+    let frame_id = doc.alloc_id();
+    let main = doc.insert(page, Node::frame(frame_id, Rect::new(0.0, 0.0, 100.0, 50.0))).unwrap();
+    create_component(&mut doc, main).apply(&mut doc).unwrap();
+    let mut place = |name: &str, x: f32| {
+        create_instance(&mut doc, main, page, Vec2::new(x, 0.0)).apply(&mut doc).unwrap();
+        let id = *doc.get(page).unwrap().children.last().unwrap();
+        doc.get_mut(id).unwrap().name = name.into();
+        id
+    };
+    let own_lock = place("OwnLock", 200.0);
+    let own_unlock = place("OwnUnlock", 350.0);
+    let follower = place("Follower", 500.0);
+    let n = doc.get_mut(own_lock).unwrap();
+    n.lock_aspect = true;
+    n.component.overrides.insert(OverrideField::LockAspect);
+    doc.get_mut(own_unlock).unwrap().component.overrides.insert(OverrideField::LockAspect);
+    assert!(!doc.get(follower).unwrap().component.overrides.contains(&OverrideField::LockAspect));
+
+    let decoded = decode_fig_to_json(&export_fig(&doc).expect("export_fig")).expect("decode_fig_to_json");
+    let changes = decoded["message"]["nodeChanges"].as_array().expect("node changes");
+    let own_entry = |name: &str| -> Option<Value> {
+        let sd = changes.iter().find(|n| n["name"] == name).unwrap_or_else(|| panic!("no node change named {name}"))["symbolData"].clone();
+        let symbol = sd["symbolID"].clone();
+        sd["symbolOverrides"].as_array().cloned().unwrap_or_default().into_iter().find(|o| o["guidPath"]["guids"] == json!([symbol]))
+    };
+    assert_eq!(own_entry("OwnLock").expect("entry for the locked instance")["proportionsConstrained"], json!(true));
+    assert_eq!(own_entry("OwnUnlock").expect("entry for the unlocked instance")["proportionsConstrained"], json!(false));
+    assert!(own_entry("Follower").is_none_or(|e| e.get("proportionsConstrained").is_none()), "an instance that follows its main writes no lock override");
 }

@@ -1,0 +1,271 @@
+# every file:line in plans/reports/agy-1468-lock-aspect.md (all three rounds), grep-checked
+# round 1 tokens are read from 81a197c5 (git show); round 2 and 3 tokens from the working tree, whose crates/ and scripts/ are the gated code commit ed4d2e96, except tokens marked at a named commit in the text; evidence logs from the tree
+# OK = file and line exist and the line text is shown; OK-EXPECT = the line also contains the text the report relies on; FAIL = missing
+$ python3 cite.py <worktree> plans/reports/agy-1468-lock-aspect.md 81a197c5 <expectations>
+OK        [round1@81a197c5] crates/designos-doc/src/node.rs:143 | pub lock_aspect: bool,
+OK        [round1@81a197c5] crates/designos-doc/src/node.rs:142 | #[serde(default, skip_serializing_if = "is_false")]
+OK        [round1@81a197c5] crates/designos-doc/src/node.rs:404 | lock_aspect: false,
+OK        [round1@81a197c5] crates/designos-fig/src/fig.rs:1461-1468 | if nc.get("proportionsConstrained").and_then(Value::as_bool) == Some(true) ⏎ || nc.get("targetAspectRatio").and_then(|v| v.get("value")).is_some() ⏎ || nc.get("targetAspectRatio").and_then(Value::as_object).is_some_and(|o| !o.is_empty())
+OK        [round1@81a197c5] crates/designos-fig/src/fig.rs:902 | "proportionsConstrained",
+OK        [round1@81a197c5] crates/designos-fig/src/fig.rs:904 | "targetAspectRatio",
+OK        [round1@81a197c5] crates/designos-fig/src/fig.rs:903 | "preserveRatio",
+OK        [round1@81a197c5] crates/designos-fig/src/rest_import.rs:1194 | n.lock_aspect = fbool(v, "preserveRatio").or_else(|| fbool(v, "lockAspect")).unwrap_or(false);
+OK        [round1@81a197c5] crates/designos-fig/src/fig_export.rs:807-809 | if node.lock_aspect { ⏎ fields.push(("proportionsConstrained", V::Bool(true))); ⏎ }
+OK        [round1@81a197c5] crates/designos-fig/src/export.rs:374 | fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: usize) -> Option<Value> {
+OK        [round1@81a197c5] crates/designos-fig/src/export.rs:460-462 | if node.lock_aspect { ⏎ m.insert("preserveRatio".into(), true.into()); ⏎ }
+OK        [round1@81a197c5] crates/designos-doc/src/branch_diff.rs:625 | node.lock_aspect.hash(&mut h);
+OK        [round1@81a197c5] crates/designos-doc/src/branch_diff.rs:839 | && a.lock_aspect == b.lock_aspect
+OK        [round1@81a197c5] crates/designos-doc/src/branch_merge.rs:1028 | dst.lock_aspect = src.lock_aspect;
+OK        [round1@81a197c5] crates/designos-app/src/edit.rs:147 | lock_aspect,
+OK        [round1@81a197c5] crates/designos-app/src/edit.rs:165 | || *lock_aspect != cur.lock_aspect
+OK        [round1@81a197c5] crates/designos-app/src/home/session.rs:525 | &node.lock_aspect,
+OK        [round1@81a197c5] crates/designos-app/src/node_field_diff.rs:101 | prototype, variables, export_settings, dev, slide, lock_aspect, hyperlink, plugin_data, detached_symbol_id,
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1453-1476 | fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is_line: bool) { ⏎ sublabel(ui, pane, "Dimensions"); ⏎ let ws = common(app, sel, |n| n.size.x);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1038 | dimensions_ui(app, ui, pane, sel, is_line);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1596 | dimensions_ui(app, ui, pane, sel, false);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1455 | let ws = common(app, sel, |n| n.size.x);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1456 | let hs = common(app, sel, inspector_height);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1458 | let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui, r| field::num_field(ui, r, "w", Prefix::Text(
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1459 | let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui, r| field::num_fie
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1461 | resize_selection(app, sel, w_new, h_new);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1420-1441 | fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32>) { ⏎ let mut tx = Tx::new(); ⏎ for id in sel {
+OK        [round1@81a197c5] crates/designos-app/src/ops.rs:27-69 | pub fn apply_resize(doc: &mut Document, ed: &mut Edit, id: NodeId, size: Vec2, transform: Affine, relayout: bo ⏎ let Some(old) = doc.get(id).map(|n| n.size) else { return }; ⏎ let counter_horiz = doc.get(id).and_then(|n| n.parent).and_then(|p| doc.get(p)).and_then(LayoutChild::counter_
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1439 | app.run_tx(tx);
+OK        [round1@81a197c5] crates/designos-app/src/ops.rs:32-55 | layout::set_box(doc, ed, id, transform, size); ⏎ if let Some(n) = ed.node(doc, id) { ⏎ if w_changed {
+OK        [round1@81a197c5] crates/designos-doc/src/layout_solver_types.rs:151-167 | pub fn set_axis_sizing(&mut self, horizontal: bool, sizing: Sizing, counter_horizontal: Option<bool>) { ⏎ if horizontal { ⏎ self.horizontal = sizing;
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:1463-1513 | fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) { ⏎ r.tx.ed.revert(&mut app.doc); ⏎ let mut mouse = cur;
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:1493 | let lock_aspect = is_scale_tool || ((inp.mods.shift || node_locked) && !is_line) || (is_text && r.handle.is_co
+OK        [round1@81a197c5] crates/designos-app/src/canvas/handles.rs:437-472 | pub fn resize_local(size0: Vec2, h: Handle, mouse_l: Vec2, keep_ratio: bool, from_center: bool) -> (Vec2, Vec2 ⏎ let (hx, hy) = h.norm(); ⏎ let (w0, h0) = (size0.x.max(1e-3), size0.y.max(1e-3));
+OK        [round1@81a197c5] crates/designos-app/src/canvas/handles.rs:458-469 | if keep_ratio { ⏎ let ratio = w0 / h0; ⏎ if h.affects_x() && h.affects_y() {
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1099 | let toggle_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANE
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1259 | let ios_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_A
+OK-EXPECT [round1@81a197c5] crates/designos-app/src/theme.rs:525 | want 'pub const PANEL_ACTION_BUTTON:' | pub const PANEL_ACTION_BUTTON: f32 = TARGET_MIN;
+OK-EXPECT [round1@81a197c5] crates/designos-app/src/theme.rs:594 | want 'pub const SECTION_TRAILING_X: ' | pub const SECTION_TRAILING_X: f32 = 209.0;
+OK-EXPECT [round1@81a197c5] crates/designos-app/src/theme.rs:447 | want 'pub const SPACE_FACT: f32 = 4.' | pub const SPACE_FACT: f32 = 4.0;
+OK-EXPECT [round1@81a197c5] crates/designos-app/src/theme.rs:451 | want 'pub const SPACE_INLINE: f32 = ' | pub const SPACE_INLINE: f32 = 8.0;
+OK        [round1@81a197c5] crates/designos-app/src/theme.rs:596-597 | pub const FIELD_WIDTH_HALF: f32 = 88.0; ⏎ pub const FIELD_COL_X: [f32; 2] = [17.0, 113.0];
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1382-1394 | fn sizing_of_with_parent(n: &Node, horizontal: bool, counter_horizontal: Option<bool>) -> Sizing { ⏎ if let Some(al) = n.kind.frame_props().and_then(|f| f.auto_layout.as_ref()) { ⏎ if al.sizing_along(horizontal) == Sizing::Hug {
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1468 | widgets::record(ui, "lock-aspect", lock_r);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1464 | remove_test_rect(ui.ctx(), "lock-aspect");
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1453 | fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is_line: bool) {
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1466 | let all_locked = !sel.is_empty() && sel.iter().all(|id| app.doc.get(*id).is_some_and(|n| n.lock_aspect));
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1467 | let lock_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1469-1470 | let icon = if all_locked { Icon::Lock } else { Icon::Unlock }; ⏎ if widgets::icon_button(ui, lock_r, "lock-aspect", icon, all_locked, "Lock aspect ratio").clicked() {
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1471-1472 | let next = !all_locked; ⏎ app.edit_nodes(sel, |n| n.lock_aspect = next);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1420 | fn resize_selection(app: &mut App, sel: &[NodeId], w: Option<f32>, h: Option<f32>) {
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1428 | if n.lock_aspect && !is_line {
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1429 | if w.is_some() && h.is_none() && sizing_of_with_parent(n, false, counter_horiz) == Sizing::Fixed {
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1430 | nh = (nw * (n.size.y.max(1e-3) / n.size.x.max(1e-3))).max(1.0);
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1431 | } else if h.is_some() && w.is_none() && sizing_of_with_parent(n, true, counter_horiz) == Sizing::Fixed {
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1432 | nw = (nh * (n.size.x.max(1e-3) / n.size.y.max(1e-3))).max(1.0);
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:1490-1494 | let is_text = matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Text(_))); ⏎ let is_line = matches!(app.doc.get(*id).map(|n| &n.kind), Some(NodeKind::Line)); ⏎ let node_locked = app.doc.get(*id).is_some_and(|n| n.lock_aspect);
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:1463 | fn update_resize(app: &mut App, r: &mut ResizeState, cur: DV, inp: &Inp) {
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:1492 | let node_locked = app.doc.get(*id).is_some_and(|n| n.lock_aspect);
+OK        [round1@81a197c5] crates/designos-fig/tests/fig_roundtrip.rs:4276-4303 | fn lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest() { ⏎ let mut doc = Document::new("lock-aspect-rt"); ⏎ let page = doc.add_page("Page 1");
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:3423-3630 | fn lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step() { ⏎ let mut doc = designos_doc::Document::new("lock-aspect-toggle"); ⏎ let page = doc.add_page("Page 1");
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:3390-3472 | fn handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift() { ⏎ let (mut app, a, _b) = app_with_two(); ⏎ app.doc.get_mut(a).unwrap().transform = Affine::translate(100.0, 100.0);
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:9-82 | running 5 tests ⏎ test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... FAILE ⏎ test panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:9-15 | running 5 tests ⏎ test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... FAILE ⏎ test panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:56 | test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4195 filtered out; finished in 0.06s
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:66-68 | running 1 test ⏎ test lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest ... FAILED ⏎ 
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:81 | test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 40 filtered out; finished in 0.03s
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:9-28 | running 5 tests ⏎ test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... ok ⏎ test panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:9-16 | running 5 tests ⏎ test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... ok ⏎ test panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:24-27 | running 1 test ⏎ test lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest ... ok ⏎ 
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/03-mutant-1-drag.log:10-24 | test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... FAILE ⏎  ⏎ failures:
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:3437 | (sz.x - expected_size.x).abs() < 1e-3 && (sz.y - expected_size.y).abs() < 1e-3,
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:1472 | app.edit_nodes(sel, |n| n.lock_aspect = next);
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/04-mutant-2-toggle.log:10-24 | test panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_st ⏎  ⏎ failures:
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:3484 | 
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:3423-3500 | fn lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_step() { ⏎ let mut doc = designos_doc::Document::new("lock-aspect-toggle"); ⏎ let page = doc.add_page("Page 1");
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:13 | test panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_st
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:40-41 | thread 'panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo ⏎ clicking lock-aspect when any selected node is unlocked must lock every selected node
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:13 | test panels::properties::tests::lock_aspect_toggle_shows_on_only_when_all_locked_and_writes_all_in_one_undo_st
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:3502-3542 | fn w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_axis() { ⏎ let mut doc = designos_doc::Document::new("lock-aspect-wh"); ⏎ let page = doc.add_page("Page 1");
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:11 | test panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:26-29 | thread 'panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edit ⏎ assertion `left == right` failed: locked node A (100x50) must scale H to 100 when W=200 is committed ⏎ left: Vec2 { x: 200.0, y: 50.0 }
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:11 | test panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:10 | test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... FAILE
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:20-21 | thread 'canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift' (7080 ⏎ handle TL (shift=false) on locked 100x50 node must resize to Vec2 { x: 140.0, y: 70.0 }, got Vec2 { x: 140.0, 
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:10 | test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... ok
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:3544-3576 | fn locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit() { ⏎ // 1. Horizontal auto-layout frame (200x100) with a child whose height is Fill (stretched to 100). ⏎ let (mut app, cid) = app_with_imported_stretch_child(LayoutDirection::Horizontal);
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:12 | test panels::properties::tests::locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit ... F
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:33-36 | thread 'panels::properties::tests::locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit' ( ⏎ assertion `left == right` failed: locked W edit with Fixed height must scale H to keep ratio ⏎ left: Vec2 { x: 120.0, y: 30.0 }
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:12 | test panels::properties::tests::locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit ... o
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:3578-3630 | fn lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio() { ⏎ let mut doc = designos_doc::Document::new("lock-aspect-roundtrip"); ⏎ let page = doc.add_page("Page 1");
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:14 | test panels::properties::tests::lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio .
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:67 | test lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest ... FAILED
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:14 | test panels::properties::tests::lock_aspect_roundtrips_through_fig_export_and_import_and_rest_preserve_ratio .
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/02-green.log:25 | test lock_aspect_and_preserve_ratio_roundtrip_fig_and_rest ... ok
+OK-EXPECT [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/11-idle-check.log:1 | want 'HIDIdleTime=0' | HIDIdleTime=0
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:3742-3828 | fn render_headless_kit_panel_evidence_when_requested() { ⏎ let Ok(kit_path) = std::env::var("DESIGNOS_1468_KIT_COPY") else { return }; ⏎ let bytes = std::fs::read(&kit_path).expect("read kit copy");
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/05-fmt.log:1 | fmt_rc=0
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/06-clippy.log:372-413 | warning: unneeded `return` statement ⏎ --> crates/designos-app/src/agent_permissions.rs:1176:9 ⏎ |
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/07-test-designos.log:4249 | test result: FAILED. 4186 passed; 2 failed; 13 ignored; 0 measured; 0 filtered out; finished in 379.57s
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/07b-test-designos-rerun.log:10-15 | test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok ⏎ test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok ⏎ 
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/08-test-workspace-lib.log:1657 | workspace_lib_rc=0
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/09-zero-fake-ui.log:24 | Gate Verdict: PASS (17/17 invariants satisfied)
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/10-cleanup-cargo.log:1-2 | ls: out/cargo: No such file or directory ⏎ ls_out_cargo_rc=1
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/06-clippy.log:399-413 | warning: `designos-app` (bin "designos-studio") generated 2 warnings (run `cargo clippy --fix --bin "designos- ⏎ warning: `designos-app` (bin "designos") generated 2 warnings (2 duplicates) ⏎ warning: very complex type used. Consider factoring parts into `type` definitions
+OK        [round1@81a197c5] crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181 | let multi_docs: Vec<(&str, Vec<(VariableKind, Vec<String>)>)> = vec![
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/07-test-designos.log:4233-4252 | ---- agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root stdout ---- ⏎  ⏎ thread 'agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root' (70875552) 
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/07b-test-designos-rerun.log:9-15 | running 2 tests ⏎ test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok ⏎ test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/08-test-workspace-lib.log:101-1657 | test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s ⏎  ⏎ Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-043d4392435df81c)
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/09-zero-fake-ui.log:23-25 | ------------------------------------------------------------------------------------------------------------ ⏎ Gate Verdict: PASS (17/17 invariants satisfied) ⏎ ============================================================================================================
+OK        [round1@81a197c5] crates/designos-app/src/panels/properties.rs:3760-3770 | .find(|&id| { ⏎ app.doc.get(id).is_some_and(|n| { ⏎ matches!(n.kind, NodeKind::Frame(_) | NodeKind::Component(_) | NodeKind::Instance { .. })
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/01-red-base.log:10-81 | test canvas::interact::tests::handle_drag_on_locked_node_keeps_ratio_from_every_handle_without_shift ... FAILE ⏎ test panels::properties::tests::w_or_h_commit_on_locked_node_keeps_own_ratio_and_unlocked_changes_only_edited_ ⏎ test panels::properties::tests::locked_node_with_fill_or_hug_other_axis_keeps_sizing_mode_on_w_or_h_edit ... F
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/03-mutant-1-drag.log:17 | handle TL (shift=false) on locked 100x50 node must resize to Vec2 { x: 140.0, y: 70.0 }, got Vec2 { x: 140.0, 
+OK        [round1@tree] plans/reports/agy-1468-lock-aspect-evidence/04-mutant-2-toggle.log:17 | clicking lock-aspect when any selected node is unlocked must lock every selected node
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:1513-1536 | } ⏎ ResizeKind::Multi { bbox0, nodes } => { ⏎ let ml = sub(mouse, v2(bbox0.x, bbox0.y));
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:1515 | let ml = sub(mouse, v2(bbox0.x, bbox0.y));
+OK        [round1@81a197c5] crates/designos-app/src/canvas/interact.rs:1487-1494 | ResizeKind::Single { id, world0, t0, size0 } => { ⏎ let Some(inv) = world0.invert() else { return }; ⏎ let ml = inv.apply(mouse);
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-18-idle-samples.log:1-39 | want '15:46:36Z HIDIdleTime=0 studio' | 15:46:36Z HIDIdleTime=0 studio_pids=[] designos_pids=[] ⏎ 15:47:36Z HIDIdleTime=0 studio_pids=[] designos_pids=[] ⏎ 15:48:36Z HIDIdleTime=42 studio_pids=[] designos_pids=[]
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:2 | want 'idle=0' | idle=0
+OK-EXPECT [round2@tree] crates/designos-app/src/panels/properties.rs:3806 | want 'let Ok(kit_path) = std::env::v' | let Ok(kit_path) = std::env::var("DESIGNOS_KIT_PANEL_COPY") else { return };
+OK-EXPECT [round2@tree] crates/designos-fig/src/fig_export.rs:1660 | want 'ov.push(("proportionsConstrain' | ov.push(("proportionsConstrained", V::Bool(n.lock_aspect)));
+OK-EXPECT [round2@d297959c] crates/designos-fig/src/fig.rs:2194 | want '"name" | "visible" | "locked" ' | "name" | "visible" | "locked" | "opacity" | "blendMode" | "size" | "strokeWeight" | "strokeAlign" | "cornerRad
+OK-EXPECT [round2@d297959c] crates/designos-fig/src/rest_import.rs:3572 | want 'pub(crate) fn override_field(k' | pub(crate) fn override_field(key: &str, is_text: bool) -> Option<OverrideField> {
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:3 | want 'crates/designos-app/src/edit.r' | crates/designos-app/src/edit.rs:296: let cmd = crate::comp_ops::with_sync(doc, cmd);
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:5 | want 'crates/designos-app/src/comp_o' | crates/designos-app/src/comp_ops.rs:155: let s = sync_instances(doc, o);
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:6 | want 'crates/designos-doc/src/librar' | crates/designos-doc/src/library_ops.rs:1191: let c = sync_instances(t.doc, root);
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-21-sync-callers.log:9 | want 'grep_rc=1 (1 = no file in the ' | grep_rc=1 (1 = no file in the importers, the library crate or the open/save code calls a sync)
+OK-EXPECT [round2@tree] crates/designos-doc/src/components.rs:1136 | want 'if ov.contains(&f) || matches!' | if ov.contains(&f) || matches!(f, OverrideField::MainComponent | OverrideField::SlotContent) {
+OK-EXPECT [round2@tree] crates/designos-doc/src/node.rs:223 | want 'LockAspect,' | LockAspect,
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/07-test-designos.log:4221 | want 'test vecops::tests::two_deferr' | test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/07-test-designos.log:4227 | want 'test vecops::tests::text_to_ve' | test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope 
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4232 | want 'test vecops::tests::two_deferr' | test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4089 | want 'test vecops::tests::text_to_ve' | test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope 
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:4266 | want 'test result: FAILED. 4194 pass' | test result: FAILED. 4194 passed; 3 failed; 13 ignored; 0 measured; 0 filtered out; finished in 412.65s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4089 | want 'test vecops::tests::text_to_ve' | test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope 
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4129 | want 'test vecops::tests::two_deferr' | test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:15 | want 'test vecops::tests::text_to_ve' | test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope 
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13c-test-vecops-module.log:47 | want 'test result: ok. 33 passed; 0 ' | test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 4177 filtered out; finished in 1.48s
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:3504 | want 'fn grab_handle(app: &mut App, ' | fn grab_handle(app: &mut App, ids: &[NodeId], handle: Handle, at: DV, targets: Vec<Rect>) -> ResizeState {
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:3 | want 'a98ec2b1bcd6668092cbb4e97d8c82' | a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:10 | want '0' | 0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-19-final-state.log:11 | want '$ gh pr view 1540 --json url,s' | $ gh pr view 1540 --json url,state,isDraft,headRefOid   (before the push of this round)
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:1479 | want 'let locked_ratio = match &r.ki' | let locked_ratio = match &r.kind {
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:1464 | want 'fn keeps_aspect_in_drag(doc: &' | fn keeps_aspect_in_drag(doc: &Document, id: NodeId) -> bool {
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:1526 | want 'let (ns, d) = handles::resize_' | let (ns, d) = handles::resize_local(v2(bbox0.w, bbox0.h), r.handle, ml, inp.mods.shift || is_scale_tool || loc
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:3526 | want 'fn multi_selection_drag_keeps_' | fn multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_node_is_locked() {
+OK-EXPECT [round2@tree] crates/designos-doc/src/components.rs:37 | want 'OverrideField::LockAspect,' | OverrideField::LockAspect,
+OK-EXPECT [round2@tree] crates/designos-doc/src/components.rs:1048 | want 'OverrideField::LockAspect => t' | OverrideField::LockAspect => to.lock_aspect = from.lock_aspect,
+OK-EXPECT [round2@tree] crates/designos-doc/src/components.rs:458 | want 'add(before.lock_aspect != afte' | add(before.lock_aspect != after.lock_aspect, OverrideField::LockAspect);
+OK-EXPECT [round2@tree] crates/designos-app/src/panels/components.rs:464 | want 'OverrideField::LockAspect => "' | OverrideField::LockAspect => "aspect lock",
+OK-EXPECT [round2@tree] crates/designos-app/src/comp_ops.rs:738 | want 'fn an_instance_follows_a_chang' | fn an_instance_follows_a_change_of_its_main_aspect_lock() {
+OK-EXPECT [round2@tree] crates/designos-app/src/comp_ops.rs:751 | want 'fn an_instance_that_set_its_ow' | fn an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_main() {
+OK-EXPECT [round2@tree] crates/designos-app/src/comp_ops.rs:777 | want 'fn resetting_overrides_returns' | fn resetting_overrides_returns_an_instance_to_the_aspect_lock_of_its_main() {
+OK-EXPECT [round2@tree] crates/designos-doc/src/components.rs:3243 | want 'fn record_override_flags_an_as' | fn record_override_flags_an_aspect_lock_change_and_nothing_else() {
+OK-EXPECT [round2@tree] crates/designos-doc/src/components.rs:3253 | want 'fn sync_gives_every_mirrored_n' | fn sync_gives_every_mirrored_node_the_main_aspect_lock_unless_it_overrides_it() {
+OK-EXPECT [round2@tree] crates/designos-doc/src/components.rs:3286 | want 'fn an_aspect_lock_set_on_the_m' | fn an_aspect_lock_set_on_the_main_before_an_instance_is_made_reaches_the_new_instance() {
+OK-EXPECT [round2@tree] crates/designos-fig/tests/fig_roundtrip.rs:4306 | want 'fn an_instance_aspect_lock_ove' | fn an_instance_aspect_lock_override_is_written_as_proportions_constrained() {
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:1483 | want 'if axis_aligned && !inp.mods.c' | if axis_aligned && !inp.mods.command && !inp.mods.shift && !locked_ratio {
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:1503 | want 'let lock_aspect = is_scale_too' | let lock_aspect = is_scale_tool || (inp.mods.shift && !is_line) || locked_ratio || (is_text && r.handle.is_cor
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:3569 | want 'fn locked_single_drag_beside_a' | fn locked_single_drag_beside_a_snap_target_gives_the_same_size_as_a_shift_drag() {
+OK-EXPECT [round2@tree] crates/designos-app/src/canvas/interact.rs:3551 | want 'fn multi_selection_drag_with_a' | fn multi_selection_drag_with_a_locked_node_resizes_like_a_shift_drag_beside_a_snap_target() {
+OK-EXPECT [round2@tree] crates/designos-app/src/panels/properties.rs:1464 | want 'let lockable = |app: &App, id:' | let lockable = |app: &App, id: NodeId| app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Line));
+OK-EXPECT [round2@tree] crates/designos-app/src/panels/properties.rs:1472 | want 'app.edit_nodes(&ids, |n| n.loc' | app.edit_nodes(&ids, |n| n.lock_aspect = next);
+OK-EXPECT [round2@tree] crates/designos-app/src/panels/properties.rs:3555 | want 'fn lock_aspect_toggle_shows_an' | fn lock_aspect_toggle_shows_and_leaves_the_line_unlocked_when_the_line_is_selected_first() {
+OK-EXPECT [round2@tree] crates/designos-app/src/panels/properties.rs:3560 | want 'fn lock_aspect_toggle_never_lo' | fn lock_aspect_toggle_never_locks_the_line_when_the_rectangle_is_selected_first() {
+OK-EXPECT [round2@tree] crates/designos-app/src/panels/properties.rs:3505 | want 'fn check_lock_aspect_toggle_wi' | fn check_lock_aspect_toggle_with_a_line_in_the_selection(line_first: bool) {
+OK-EXPECT [round2@tree] crates/designos-app/src/panels/properties.rs:1469 | want 'if widgets::icon_button(ui, lo' | if widgets::icon_button(ui, lock_r, "lock-aspect", Icon::Link, all_locked, "Lock aspect ratio").clicked() {
+OK-EXPECT [round2@tree] crates/designos-app/src/icons.rs:31 | want 'Link,' | Link,
+OK-EXPECT [round2@tree] crates/designos-app/src/icons.rs:173 | want 'Icon::Link,' | Icon::Link,
+OK-EXPECT [round2@tree] crates/designos-app/src/icons.rs:298 | want 'Icon::Link => "link",' | Icon::Link => "link",
+OK-EXPECT [round2@tree] crates/designos-app/src/icons.rs:481 | want '"link",' | "link",
+OK-EXPECT [round2@tree] crates/designos-app/src/icons.rs:652 | want 'fn link_maps_to_the_phosphor_c' | fn link_maps_to_the_phosphor_chain_link() {
+OK-EXPECT [round2@tree] crates/designos-app/src/icons.rs:648 | want 'assert_eq!(seen.len(), 120);' | assert_eq!(seen.len(), 120);
+OK-EXPECT [round2@tree] crates/designos-app/assets/icons/phosphor/README.md:3 | want 'Icon set: [Phosphor Icons](htt' | Icon set: [Phosphor Icons](https://phosphoricons.com/) (`@phosphor-icons/core@2.1.1`, MIT license, see `LICENS
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-09-glyph-source.log:2 | want '526d89480e3064c614b7d46a93888c' | 526d89480e3064c614b7d46a93888c187696d7776f684527d48eb94e2d7cd5d4  crates/designos-app/assets/icons/phosphor/li
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-09-glyph-source.log:6 | want 'IDENTICAL_TO_CORE_2.1.1' | IDENTICAL_TO_CORE_2.1.1
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:450 | want 'test result: FAILED. 33 passed' | test result: FAILED. 33 passed; 7 failed; 0 ignored; 0 measured; 4168 filtered out; finished in 4.22s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:367-374 | want 'test canvas::interact::tests::' | test canvas::interact::tests::multi_selection_drag_keeps_the_box_ratio_from_every_handle_when_any_selected_nod ⏎ test comp_ops::tests::an_instance_follows_a_change_of_its_main_aspect_lock ... FAILED ⏎ test comp_ops::tests::an_instance_that_set_its_own_aspect_lock_keeps_it_while_another_instance_follows_the_mai
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-01-red.log:1 | want '81a197c5064d7aa019a2e12c3cd27c' | 81a197c5064d7aa019a2e12c3cd27c904e494332
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-01b-red-line-first.log:31 | want 'test result: FAILED. 0 passed;' | test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 4208 filtered out; finished in 0.04s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-01b-red-line-first.log:18 | want 'the toggle must show when any ' | the toggle must show when any selected node has width and height (line first)
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-01b-red-line-first.log:24 | want 'a line must never get an aspec' | a line must never get an aspect lock (rectangle first)
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-02-green.log:54 | want 'test result: ok. 41 passed; 0 ' | test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 4169 filtered out; finished in 4.08s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-02-green.log:1 | want '1462d2db5a8c4e474daf59c0b3c8db' | 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-03-mutant-1-multi-drag.log:2 | want 'MUTANT 1: multi-selection drag' | MUTANT 1: multi-selection drag ignores aspect locks
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-03-mutant-1-multi-drag.log:40 | want 'failed' | test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.71s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-04-mutant-2-main-lock-sync.log:30 | want 'failed' | test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 720 filtered out; finished in 0.01s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-04-mutant-2-main-lock-sync.log:69 | want 'failed' | test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.02s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-05-mutant-3-no-override-recorded.log:29 | want 'failed' | test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 0.02s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-06-mutant-4-fig-export.log:27 | want 'failed' | test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 41 filtered out; finished in 0.03s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-08-mutant-files-unchanged.log:1-7 | want 'crates/designos-app/src/canvas' | crates/designos-app/src/canvas/interact.rs: identical to HEAD after the mutant runs (git diff HEAD is empty) ⏎ crates/designos-doc/src/components.rs: identical to HEAD after the mutant runs (git diff HEAD is empty) ⏎ crates/designos-fig/src/fig_export.rs: identical to HEAD after the mutant runs (git diff HEAD is empty)
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:13 | want 'test result: ok. 1 passed; 0 f' | test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4209 filtered out; finished in 31.49s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-07-headless-render.log:1 | want '1462d2db5a8c4e474daf59c0b3c8db' | 1462d2db5a8c4e474daf59c0b3c8db1e8dc8d12e
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:8 | want 'ls: out/kit-clone: No such fil' | ls: out/kit-clone: No such file or directory
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-10-fmt.log:2 | want 'fmt_rc=0' | fmt_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-11-clippy.log:417 | want 'clippy_rc=0' | clippy_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-12-test-doc.log:746-780 | want 'test result: ok. 723 passed; 0' | test result: ok. 723 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.56s ⏎  ⏎ Running tests/auto_layout_wrap_fields_compat.rs (out/cargo/debug/deps/auto_layout_wrap_fields_compat-c3f526bb6
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13b-test-designos-rerun.log:17 | want 'test result: ok. 3 passed; 0 f' | test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4207 filtered out; finished in 1.48s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-14-test-workspace-lib.log:1662 | want 'workspace_lib_rc=0' | workspace_lib_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-15-test-fig.log:870 | want 'fig_rc=0' | fig_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-15b-test-mcp-export-library.log:1320 | want 'mcp_export_library_rc=0' | mcp_export_library_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-16-zero-fake-ui.log:25 | want 'Gate Verdict: PASS (17/17 inva' | Gate Verdict: PASS (17/17 invariants satisfied)
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:3-5 | want '$ rm -rf out/cargo out/kit-clo' | $ rm -rf out/cargo out/kit-clone  (the kit clone was a fresh APFS copy of the Untitled kit, used only by the h ⏎ $ ls out/cargo ⏎ ls: out/cargo: No such file or directory
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-20-cleanup.log:10 | want 'code_diff_since_gated_rc=0' | code_diff_since_gated_rc=0
+OK-EXPECT [round2@tree] crates/designos-app/src/theme.rs:594 | want 'pub const SECTION_TRAILING_X: ' | pub const SECTION_TRAILING_X: f32 = 209.0;
+OK-EXPECT [round2@tree] crates/designos-app/src/theme.rs:447 | want 'pub const SPACE_FACT: f32 = 4.' | pub const SPACE_FACT: f32 = 4.0;
+OK-EXPECT [round2@tree] crates/designos-app/src/theme.rs:525 | want 'pub const PANEL_ACTION_BUTTON:' | pub const PANEL_ACTION_BUTTON: f32 = TARGET_MIN;
+OK-EXPECT [round2@tree] crates/designos-app/src/theme.rs:596 | want 'pub const FIELD_WIDTH_HALF: f3' | pub const FIELD_WIDTH_HALF: f32 = 88.0;
+OK-EXPECT [round2@tree] crates/designos-app/src/theme.rs:597 | want 'pub const FIELD_COL_X: [f32; 2' | pub const FIELD_COL_X: [f32; 2] = [17.0, 113.0];
+OK-EXPECT [round2@tree] crates/designos-app/src/theme.rs:451 | want 'pub const SPACE_INLINE: f32 = ' | pub const SPACE_INLINE: f32 = 8.0;
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2955 | want 'layout_unchanged_' | test shell::tests::layout_unchanged::d::layout_unchanged_d ... ok
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2926 | want 'layout_unchanged_' | test shell::tests::layout_unchanged::e::layout_unchanged_e ... ok
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2997 | want 'layout_unchanged_' | test shell::tests::layout_unchanged::f::layout_unchanged_f ... ok
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2941 | want 'layout_unchanged_' | test shell::tests::layout_unchanged::g::layout_unchanged_g ... ok
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2921 | want 'layout_unchanged_' | test shell::tests::layout_unchanged::h::layout_unchanged_h ... ok
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2966 | want 'layout_unchanged_' | test shell::tests::layout_unchanged::i::layout_unchanged_i ... ok
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2971 | want 'layout_unchanged_' | test shell::tests::layout_unchanged::j::layout_unchanged_j ... ok
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13-test-designos.log:2944 | want 'layout_unchanged_' | test shell::tests::layout_unchanged::k::layout_unchanged_k ... ok
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/11-idle-check.log:1 | want 'HIDIdleTime=0' | HIDIdleTime=0
+OK        [round2@81a197c5] crates/designos-app/src/panels/properties.rs:1439 | app.run_tx(tx);
+OK        [round2@81a197c5] crates/designos-app/src/panels/properties.rs:3742-3828 | fn render_headless_kit_panel_evidence_when_requested() { ⏎ let Ok(kit_path) = std::env::var("DESIGNOS_1468_KIT_COPY") else { return }; ⏎ let bytes = std::fs::read(&kit_path).expect("read kit copy");
+OK-EXPECT [round2@tree] crates/designos-doc/src/components.rs:1139 | want 'if top && matches!(f, Override' | if top && matches!(f, OverrideField::Name | OverrideField::Transform | OverrideField::Visible | OverrideField:
+OK-EXPECT [round2@tree] crates/designos-app/src/comp_ops.rs:68 | want 'if is_top_instance(node) {' | if is_top_instance(node) {
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:4411 | want 'test result: FAILED. 4171 pass' | test result: FAILED. 4171 passed; 25 failed; 13 ignored; 0 measured; 0 filtered out; finished in 648.39s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-13x-test-designos-sandbox-under-slash-tmp.log:1 | want '7cc90b292d8c6e0b675184a6db7cdf' | 7cc90b292d8c6e0b675184a6db7cdfb6ddfb1317
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-17-design-checks.log:5 | want 'spacing_rc=0' | spacing_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r2-17-design-checks.log:7 | want 'chrome_colour_rc=0' | chrome_colour_rc=0
+OK        [round2@tree] crates/designos-app/src/panels/properties.rs:3536 | let _ = step(&mut app, vec![]);
+OK        [round2@tree] crates/designos-app/src/panels/properties.rs:3540 | click(&mut app, lock_r.center());
+OK        [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/06-clippy.log:372-413 | warning: unneeded `return` statement ⏎ --> crates/designos-app/src/agent_permissions.rs:1176:9 ⏎ |
+OK        [round2@tree] crates/designos-app/src/agent_permissions.rs:1176 | return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join(
+OK        [round2@tree] crates/designos-app/src/agent_permissions.rs:1194 | return std::env::var_os("HOME").filter(|p| !p.is_empty()).map(|home| PathBuf::from(home).join("Library").join(
+OK        [round2@tree] crates/designos-app/src/shell/tests/inspector_var_binds.rs:1181 | let multi_docs: Vec<(&str, Vec<(VariableKind, Vec<String>)>)> = vec![
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-21-scope.log:8 | want 'scope_rc=0  (1 = none outside ' | scope_rc=0  (1 = none outside the list)
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-20-rest-export-no-overrides.log:4 | want 'grep_rc=0  (the only match abo' | grep_rc=0  (the only match above is the node-level preserveRatio of a locked node; nothing writes an overrides
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-20-rest-export-no-overrides.log:2 | want '$ grep -n "overriddenFields\\|\\' | $ grep -n "overriddenFields\|\"overrides\"\|symbolOverrides\|proportionsConstrained\|preserveRatio" crates/des
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-21-scope.log:9 | want '$ git diff --stat d297959c ed4' | $ git diff --stat d297959c ed4d2e96 -- crates/designos-app crates/designos-doc   (app and doc code: empty)
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-22-final-state.log:3 | want 'a98ec2b1bcd6668092cbb4e97d8c82' | a98ec2b1bcd6668092cbb4e97d8c82f305be8d54
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-22-final-state.log:12 | want '0' | 0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-22-final-state.log:13 | want '$ gh pr view 1540 --json url,s' | $ gh pr view 1540 --json url,state,isDraft,headRefOid   (before the Round 3 push)
+OK-EXPECT [round2@tree] crates/designos-fig/src/fig.rs:2197 | want '"proportionsConstrained" => {' | "proportionsConstrained" => {
+OK-EXPECT [round2@tree] crates/designos-fig/src/rest_import.rs:3580 | want '"preserveRatio" | "lockAspect"' | "preserveRatio" | "lockAspect" => OverrideField::LockAspect,
+OK-EXPECT [round2@tree] crates/designos-fig/src/rest_import.rs:2853 | want 'if let Some(b) = fbool(set, "p' | if let Some(b) = fbool(set, "preserveRatio").or_else(|| fbool(set, "lockAspect")) {
+OK-EXPECT [round2@tree] crates/designos-fig/tests/fig_instance_lock_aspect_override_roundtrip.rs:68 | want 'fn an_instance_whose_lock_diff' | fn an_instance_whose_lock_differs_from_its_main_keeps_both_the_lock_and_the_override_through_a_fig_reopen() {
+OK-EXPECT [round2@tree] crates/designos-fig/tests/fig_instance_lock_aspect_override_roundtrip.rs:81 | want 'fn a_reopened_instance_keeps_i' | fn a_reopened_instance_keeps_its_own_lock_when_its_main_is_locked_or_unlocked_and_synced() {
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-03-mutant-importer-drops-field.log:2 | want 'MUTANT: the .fig importer drop' | MUTANT: the .fig importer drops the instance's proportionsConstrained override (the whole arm in convert_overr
+OK-EXPECT [round2@tree] crates/designos-doc/src/node.rs:221 | want 'SlotContent,' | SlotContent,
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-01-red.log:32 | want 'test result: FAILED. 0 passed;' | test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-01-red.log:1 | want 'd297959cb663e1cc225855df2cdde8' | d297959cb663e1cc225855df2cdde89a7e656c3c
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-01-red.log:19 | want 'the lock is recorded as the in' | the lock is recorded as the instance's own
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-01-red.log:25 | want 'the own lock survives the main' | the own lock survives the main being unlocked and synced
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-02-green.log:13 | want 'test result: ok. 2 passed; 0 f' | test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-02-green.log:1 | want 'ed4d2e96123d39a033a018843ca74e' | ed4d2e96123d39a033a018843ca74e9741ee3f29
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-03-mutant-importer-drops-field.log:38 | want 'test result: FAILED. 0 passed;' | test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-04-mutant-file-restored.log:1 | want 'crates/designos-fig/src/fig.rs' | crates/designos-fig/src/fig.rs restored: identical to HEAD (git diff HEAD is empty)
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-10-fmt.log:2 | want 'fmt_rc=0' | fmt_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-11-clippy.log:419 | want 'clippy_rc=0' | clippy_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-12-test-fig.log:816 | want 'fig_rc=0' | fig_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-13-test-doc.log:781 | want 'doc_rc=0' | doc_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-14-test-workspace-lib.log:1786 | want 'workspace_lib_rc=0' | workspace_lib_rc=0
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-23-cleanup.log:3-5 | want '$ rm -rf out/cargo' | $ rm -rf out/cargo ⏎ $ ls out/cargo ⏎ ls: out/cargo: No such file or directory
+OK-EXPECT [round2@tree] plans/reports/agy-1468-lock-aspect-evidence/r3-23-cleanup.log:8 | want 'code_diff_since_gated_rc=0' | code_diff_since_gated_rc=0
+OK-EXPECT [round2@tree] crates/designos-fig/src/rest_import.rs:1194 | want 'n.lock_aspect = fbool(v, "pres' | n.lock_aspect = fbool(v, "preserveRatio").or_else(|| fbool(v, "lockAspect")).unwrap_or(false);
+OK        [round2@tree] crates/designos-fig/tests/fig_instance_lock_aspect_override_roundtrip.rs:72 | assert!(flagged(&doc, "LockedOverOpenMain"), "the lock is recorded as the instance's own");
+OK        [round2@tree] crates/designos-fig/tests/fig_instance_lock_aspect_override_roundtrip.rs:102 | assert!(find(&doc, "LockedOverOpenMain").lock_aspect, "the own lock survives the main being unlocked and synce
+citations checked: 265; failures: 0
+cite_rc=0
