@@ -281,7 +281,7 @@ pub fn generate_rules_pack_with_inputs(
     render_nodespec_schema_section(&mut out, schemas, &active_names);
 
     // 4. Per-call issues block (E15-12) and structured error/retry rules (E15-5) (§3.1)
-    render_issues_and_errors_section(&mut out, &active_names, has_write_tools);
+    render_issues_and_errors_section(&mut out, has_write_tools);
 
     // 5. Design quality & anti-generic rules (§3.3)
     let quality_body = strip_leading_html_comment(design_quality_md).trim();
@@ -471,7 +471,7 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
-const MAX_PURPOSE_CHARS: usize = 72;
+const MAX_PURPOSE_CHARS: usize = 92;
 
 /// First sentence of a tool description, capped at [`MAX_PURPOSE_CHARS`] so the full tool list stays inside the rules budget.
 fn purpose_summary(desc: &str) -> String {
@@ -581,7 +581,10 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_new_document" => &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
         "designos_get_metadata" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_libraries" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
-        "designos_docs_read" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`FILE_TOO_LARGE`", "`TOOL_DISABLED`"],
+        "designos_docs_list" => &["`INVALID_ARGUMENTS`", "`MISSING_FIELD`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"],
+        "designos_docs_read" => {
+            &["`INVALID_ARGUMENTS`", "`MISSING_FIELD`", "`VALUE_OUT_OF_RANGE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
+        }
         "designos_get_screenshot" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_search_design_system" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_design_context" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`TOOL_DISABLED`"],
@@ -640,9 +643,8 @@ fn tool_worked_example(tool_name: &str) -> &'static str {
 
 fn render_nodespec_schema_section(out: &mut String, schemas: &SpecSchemas, active_tools: &BTreeSet<String>) {
     out.push_str("## `NodeSpec` Reference\n\n");
-    if active_tools.contains("designos_apply_spec") {
-        out.push_str("Used by `designos_apply_spec` / `designos_export_spec`.\n\n");
-    } else {
+    // With `designos_apply_spec` on, the schema's own first line already says which tools use the spec.
+    if !active_tools.contains("designos_apply_spec") {
         out.push_str("Declarative spec for `$DESIGNOS_LIVE_SPEC`.\n\n");
     }
 
@@ -721,19 +723,13 @@ fn summarize_schema_type(prop: &Value) -> String {
     "object".to_string()
 }
 
-fn render_issues_and_errors_section(out: &mut String, active_tools: &BTreeSet<String>, has_write_tools: bool) {
+fn render_issues_and_errors_section(out: &mut String, has_write_tools: bool) {
     out.push_str("## Per-Call `issues` Block & Error Recovery\n\n");
     if has_write_tools {
-        out.push_str(
-            "- **Per-call `issues`:** Mutating replies attach `issues: {total, new_in_this_call, truncated, items}`. Resolve `new_in_this_call > 0` first.\n",
-        );
-        if active_tools.contains("designos_configure_session") {
-            out.push_str("- **Session lint:** `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false`.\n");
-        }
+        out.push_str("- **Per-call `issues`:** Mutating replies attach `issues`. Resolve `new_in_this_call > 0` first.\n");
     }
     out.push_str(
-        "- **Structured errors:** `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.\n\
-         - **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
+        "- **Loop hint:** Repeat successful reads attach a `warning` with code `LOOP_SUSPECTED`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
     );
 }
 

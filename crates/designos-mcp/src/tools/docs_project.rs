@@ -4,20 +4,40 @@
 use crate::tools::errors::{ErrorCode, ToolError};
 use designos_library::{Library, Project};
 use serde_json::json;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-/// The projects of the library at `root`. A missing library has none; nothing is created.
-fn projects_of(root: &Path) -> Vec<Project> {
-    if !root.is_dir() {
-        return Vec::new();
-    }
-    Library::open(root).map(|lib| lib.list_projects()).unwrap_or_default()
+/// An id the library makes (`new_id`): lowercase hex.
+fn is_library_id(name: &str) -> bool {
+    !name.is_empty() && name.len() <= 64 && name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// The id of the project folder `file` sits in (`<root>/projects/<id>/...`), if it sits in one.
+/// The projects of the library at `root`, oldest first. A missing library has none; nothing is created. A project is
+/// listed only when its folder is named with a library id and its `project.json` says that same id: the id is a path
+/// segment and is echoed in results, so one that disagrees with its folder, or is free text, is not trusted.
+fn projects_of(root: &Path) -> Vec<Project> {
+    let Ok(entries) = std::fs::read_dir(root.join("projects")) else { return Vec::new() };
+    let Ok(lib) = Library::open(root) else { return Vec::new() };
+    let mut out: Vec<Project> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_str()?.to_string();
+            let project = lib.project(&name).ok().filter(|_| is_library_id(&name))?;
+            (project.id == name).then_some(project)
+        })
+        .collect();
+    out.sort_by(|a, b| a.created.cmp(&b.created).then_with(|| a.name.cmp(&b.name)));
+    out
+}
+
+/// The id of the project folder `file` sits in (`<root>/projects/<id>/...`), if it sits in one. Both sides are compared
+/// with their symlinks resolved (a library reached through `/tmp` or a linked folder), and as given.
 fn project_id_of_file(root: &Path, file: &str) -> Option<String> {
-    let rel = Path::new(file).strip_prefix(root.join("projects")).ok()?;
-    Some(rel.components().next()?.as_os_str().to_str()?.to_string())
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let projects = root.join("projects");
+    [(real(&projects), real(Path::new(file))), (projects, PathBuf::from(file))].into_iter().find_map(|(base, file)| {
+        let rel = file.strip_prefix(&base).ok()?;
+        Some(rel.components().next()?.as_os_str().to_str()?.to_string())
+    })
 }
 
 /// Resolves the project. `requested` matches a project id, or else a project name that exactly one project has.
