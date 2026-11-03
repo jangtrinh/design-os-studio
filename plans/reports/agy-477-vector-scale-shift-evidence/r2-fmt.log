@@ -1,0 +1,3 @@
+# r2 gate: fmt (head 8ac06082b3733e5be7d6949fbf0cf2112feecbe3)
+# cmd: cargo fmt --all -- --check
+fmt_rc=0
