@@ -1,0 +1,13 @@
+# mutant: remove the wrap (a tiled drag is clamped into the bitmap again) in framing bitmap_region
+HEAD 72583762
+## null control (unmutated)
+test result: ok. 48 passed; 0 failed; 0 ignored; 0 measured; 4241 filtered out; finished in 1.38s
+## mutated
+test image_jobs::framing_tests::tile_erase_drag::a_drag_on_a_later_copy_maps_to_the_pixels_of_that_copy ... FAILED
+test image_jobs::framing_tests::tile_erase_drag::a_drag_that_leaves_the_layer_is_cut_to_the_layer ... FAILED
+test image_jobs::framing_tests::tile_erase_drag::a_drag_ending_exactly_on_a_tile_edge_stays_inside_its_copy ... FAILED
+test image_jobs::framing_tests::tile_erase_drag::a_drag_across_a_tile_edge_takes_the_whole_bitmap_on_that_axis ... FAILED
+test image_jobs::framing_tests::tile_erase_drag::a_half_scale_tile_maps_a_drag_in_the_third_column_copy ... FAILED
+test image_jobs::framing_tests::tile_erase_drag::the_overlay_of_a_tile_drag_is_the_dragged_rectangle ... FAILED
+test result: FAILED. 42 passed; 6 failed; 0 ignored; 0 measured; 4241 filtered out; finished in 1.40s
+error: test failed, to rerun pass `-p designos-app --bin designos`
