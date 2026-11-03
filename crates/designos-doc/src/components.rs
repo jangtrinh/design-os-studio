@@ -410,6 +410,11 @@ pub fn prop_defs(doc: &Document, comp: NodeId) -> Vec<ComponentPropDef> {
 /// (for variants: the value in the current variant's name).
 pub fn prop_value(doc: &Document, inst: NodeId, def: &ComponentPropDef) -> PropValue {
     let Some(n) = doc.get(inst) else { return def.default.clone() };
+    prop_value_of(doc, n, def)
+}
+
+/// [`prop_value`] for the instance node `n`, which need not be the one `doc` holds under its id.
+fn prop_value_of(doc: &Document, n: &Node, def: &ComponentPropDef) -> PropValue {
     if let Some(v) = n.component.values.get(&def.name) {
         return v.clone();
     }
@@ -701,6 +706,21 @@ pub fn duplicate_subtree(doc: &mut Document, src: NodeId) -> Vec<Node> {
 // Detach / reset
 // ---------------------------------------------------------------------------
 
+/// Points the instance `n` at `source`. A boolean, text or instance-swap value that `n` holds none of itself, and
+/// reads through the source it has now but would not read through `source`, is written onto `n` first. The instance
+/// keeps showing it, and every property `source` still gives a value keeps following that source.
+fn relink_keeping_values(doc: &Document, n: &mut Node, source: Option<NodeId>) {
+    let defs = instance_component(n).map(|comp| prop_defs(doc, comp)).unwrap_or_default();
+    let read_before: Vec<PropValue> = defs.iter().map(|def| prop_value_of(doc, n, def)).collect();
+    n.component.source = source;
+    for (def, before) in defs.into_iter().zip(read_before) {
+        let carried = matches!(def.kind, PropKind::Boolean | PropKind::Text | PropKind::InstanceSwap { .. });
+        if carried && !n.component.values.contains_key(&def.name) && prop_value_of(doc, n, &def) != before {
+            n.component.values.insert(def.name, before);
+        }
+    }
+}
+
 fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
     let Some(mut n) = c.s.get(id).cloned() else { return };
     let NodeKind::Instance { frame, .. } = &n.kind else { return };
@@ -724,9 +744,9 @@ fn detach_into(c: &mut Ctx, id: NodeId, as_component: bool) {
         let is_inst = matches!(dn.kind, NodeKind::Instance { .. });
         if in_nested {
             let grand = dn.component.source.and_then(|s| c.s.get(s)).and_then(|m| m.component.source);
-            dn.component.source = grand;
+            relink_keeping_values(c.s, &mut dn, grand);
         } else if is_inst {
-            dn.component.source = None;
+            relink_keeping_values(c.s, &mut dn, None);
             dn.component.overrides.clear();
             dn.component.grid_align_overrides = [false, false];
         } else {
@@ -7567,5 +7587,144 @@ mod tests {
         assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_sm), "undo returns to the Sm variant");
         assert_eq!(glyph_of(&d, nested), Some(icon_b), "undo keeps the chosen icon");
         assert_eq!(prop_value(&d, nested, &glyph_def), PropValue::Instance(icon_b));
+    }
+
+    /// The `Badge` set of [`expose_glyph_badge_set`] with a Boolean `Show dot` and a Text `Label` bound to the `Dot` and
+    /// `Text` of both variants, and a Boolean `Pinned` that no layer is bound to. Returns the two variants, the set and
+    /// the two icons.
+    fn detach_badge_set(d: &mut Document, page: NodeId) -> (NodeId, NodeId, NodeId, NodeId, NodeId) {
+        let (v_sm, v_lg, set, icon_a, icon_b) = expose_glyph_badge_set(d, page);
+        for def in [
+            ComponentPropDef { name: "Show dot".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) },
+            ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Badge".into()) },
+            ComponentPropDef { name: "Pinned".into(), kind: PropKind::Boolean, default: PropValue::Bool(false) },
+        ] {
+            let c = add_prop(d, set, def);
+            apply(d, c);
+        }
+        for variant in [v_sm, v_lg] {
+            let dot = child_named(d, variant, "Dot");
+            let c = bind_prop(d, dot, OverrideField::Visible, Some("Show dot"));
+            apply(d, c);
+            let text = child_named(d, variant, "Text");
+            let c = bind_prop(d, text, OverrideField::Characters, Some("Label"));
+            apply(d, c);
+        }
+        (v_sm, v_lg, set, icon_a, icon_b)
+    }
+
+    /// Sets a boolean, a text and an instance swap on `badge`, which sits in the main `holder`, and syncs the holder.
+    fn set_badge_values(d: &mut Document, badge: NodeId, holder: NodeId, icon: NodeId) {
+        for (name, value) in [("Show dot", PropValue::Bool(false)), ("Label", PropValue::Text("Pro".into())), ("Glyph", PropValue::Instance(icon))] {
+            let c = set_instance_prop(d, badge, name, Some(value));
+            apply(d, c);
+        }
+        let c = sync_instances(d, holder);
+        apply(d, c);
+    }
+
+    /// What `badge` shows: whether its dot is visible, its label and the icon of its glyph.
+    fn badge_shows(d: &Document, badge: NodeId) -> (bool, String, Option<NodeId>) {
+        (dot_visible(d, badge), text_of(d, child_named(d, badge, "Text")), glyph_of(d, badge))
+    }
+
+    /// The value of the properties `Show dot`, `Label` and `Glyph` of `badge`, as its panel reads them.
+    fn badge_panel_values(d: &Document, badge: NodeId) -> Vec<PropValue> {
+        let comp = instance_component(d.get(badge).unwrap()).unwrap();
+        ["Show dot", "Label", "Glyph"]
+            .into_iter()
+            .map(|name| {
+                let def = prop_defs(d, comp).into_iter().find(|p| p.name == name).expect("the property");
+                prop_value(d, badge, &def)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn detaching_an_outer_instance_keeps_the_values_its_nested_badge_inherited() {
+        let mut d = Document::new("detach-inherited-values");
+        let page = d.add_page("P");
+        let (v_sm, _, set, _, icon_b) = detach_badge_set(&mut d, page);
+        let (card, kids) = expose_main_holding(&mut d, page, "Card", v_sm, &["Leading badge"]);
+        set_badge_values(&mut d, kids[0], card, icon_b);
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, outer, "Leading badge");
+        let shown = (false, "Pro".to_string(), Some(icon_b));
+        let panel = vec![PropValue::Bool(false), PropValue::Text("Pro".into()), PropValue::Instance(icon_b)];
+        assert!(d.get(nested).unwrap().component.values.is_empty(), "the copy inherits the values instead of holding them");
+        assert_eq!(badge_shows(&d, nested), shown, "the copy shows what the main-side badge shows");
+
+        let c = detach_instance(&mut d, outer);
+        apply(&mut d, c);
+        assert!(matches!(d.get(outer).unwrap().kind, NodeKind::Frame(_)));
+        assert_eq!(d.get(nested).unwrap().component.source, None, "the badge is an instance of the Badge main on its own");
+        assert_eq!(badge_shows(&d, nested), shown, "detaching changes nothing the badge shows");
+        assert_eq!(badge_panel_values(&d, nested), panel, "the panel reads the same values after the detach");
+
+        let c = sync_instances(&mut d, set);
+        apply(&mut d, c);
+        assert_eq!(badge_shows(&d, nested), shown, "a sync of the Badge keeps what the badge showed");
+        assert_eq!(badge_panel_values(&d, nested), panel);
+
+        let c = set_instance_prop(&mut d, nested, "Pinned", Some(PropValue::Bool(true)));
+        apply(&mut d, c);
+        assert_eq!(badge_shows(&d, nested), shown, "an edit of another property keeps the rest");
+        assert_eq!(badge_panel_values(&d, nested), panel);
+    }
+
+    #[test]
+    fn detaching_an_outer_instance_keeps_the_values_of_a_badge_nested_two_levels_down() {
+        let mut d = Document::new("detach-inherited-values-deep");
+        let page = d.add_page("P");
+        let (v_sm, _, set, _, icon_b) = detach_badge_set(&mut d, page);
+        let (chip, chip_kids) = expose_main_holding(&mut d, page, "Chip", v_sm, &["Chip badge"]);
+        let (card, card_kids) = expose_main_holding(&mut d, page, "Card", chip, &["Status chip"]);
+        let badge_in_chip = chip_kids[0];
+        let badge_in_card = child_named(&d, card_kids[0], "Chip badge");
+
+        // The Chip's own badge pins `Pinned`; the badge the Card holds in its Chip instance carries the three other values.
+        let c = set_instance_prop(&mut d, badge_in_chip, "Pinned", Some(PropValue::Bool(true)));
+        apply(&mut d, c);
+        set_badge_values(&mut d, badge_in_card, card, icon_b);
+
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let chip_copy = child_named(&d, outer, "Status chip");
+        let nested = child_named(&d, chip_copy, "Chip badge");
+        let shown = (false, "Pro".to_string(), Some(icon_b));
+        let panel = vec![PropValue::Bool(false), PropValue::Text("Pro".into()), PropValue::Instance(icon_b)];
+        assert_eq!(badge_shows(&d, nested), shown, "the copy shows what the badge in the Card shows");
+        assert_eq!(badge_panel_values(&d, nested), panel);
+
+        let c = detach_instance(&mut d, outer);
+        apply(&mut d, c);
+        assert_eq!(d.get(chip_copy).unwrap().component.source, None, "the Chip instance is an instance of the Chip main on its own");
+        assert_eq!(d.get(nested).unwrap().component.source, Some(badge_in_chip), "the badge keeps mirroring the badge of the Chip main");
+        assert_eq!(badge_shows(&d, nested), shown, "detaching changes nothing the badge shows");
+        assert_eq!(badge_panel_values(&d, nested), panel, "the panel reads the same values after the detach");
+
+        for owner in [set, chip] {
+            let c = sync_instances(&mut d, owner);
+            apply(&mut d, c);
+            assert_eq!(badge_shows(&d, nested), shown, "a sync of {owner:?} keeps what the badge showed");
+            assert_eq!(badge_panel_values(&d, nested), panel);
+        }
+
+        let c = set_instance_prop(&mut d, nested, "Label", Some(PropValue::Text("Other".into())));
+        apply(&mut d, c);
+        assert_eq!(badge_shows(&d, nested), (false, "Other".to_string(), Some(icon_b)), "an edit of one property keeps the rest");
+
+        // What the badge of the Chip main still gives it is not copied onto it: it keeps following that badge.
+        let pinned = prop_defs(&d, v_sm).into_iter().find(|p| p.name == "Pinned").expect("the Pinned property");
+        assert!(!d.get(nested).unwrap().component.values.contains_key("Pinned"));
+        assert_eq!(prop_value(&d, nested, &pinned), PropValue::Bool(true));
+        let c = set_instance_prop(&mut d, badge_in_chip, "Pinned", Some(PropValue::Bool(false)));
+        apply(&mut d, c);
+        let c = sync_instances(&mut d, chip);
+        apply(&mut d, c);
+        assert_eq!(prop_value(&d, nested, &pinned), PropValue::Bool(false));
     }
 }
