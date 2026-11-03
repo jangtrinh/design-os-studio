@@ -361,3 +361,37 @@ mod links_r2 {
         assert_eq!(leaks, 0, "the outside file was read through the swapped link");
     }
 }
+
+/// Studio saves a page by writing a temporary file and renaming it over the page. A read that overlaps such a save must
+/// return a page, or ask for another read; it must never report the page as outside the docs folder.
+#[test]
+fn a_page_saved_by_rename_while_it_is_read_is_never_reported_as_outside_the_docs_folder() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (_tmp, store) = store();
+    std::fs::create_dir_all(store.dir()).unwrap();
+    std::fs::write(store.dir().join("x.md"), "# v0\n").unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let saver = {
+        let (stop, dir) = (stop.clone(), store.dir().to_path_buf());
+        std::thread::spawn(move || {
+            let mut n = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                n += 1;
+                std::fs::write(dir.join(".x.tmp"), format!("# v{n}\n")).unwrap();
+                std::fs::rename(dir.join(".x.tmp"), dir.join("x.md")).unwrap();
+            }
+        })
+    };
+    let (mut ok, mut changed, mut other) = (0, 0, Vec::new());
+    for _ in 0..3_000 {
+        match store.read_page("x.md") {
+            Ok(_) => ok += 1,
+            Err(DocsError::ChangedDuringRead { .. }) => changed += 1,
+            Err(e) => other.push(e.to_string()),
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    saver.join().unwrap();
+    assert!(other.is_empty(), "reads that failed for another reason ({ok} ok, {changed} changed): {:?}", &other[..other.len().min(3)]);
+    assert!(ok > 2_000, "most reads succeed: {ok} ok, {changed} changed");
+}
