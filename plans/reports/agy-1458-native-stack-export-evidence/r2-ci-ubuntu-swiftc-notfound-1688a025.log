@@ -1,0 +1,3 @@
+# GitHub Actions run 41619823124 (head 1688a025), job Test (ubuntu-latest): the old swiftc test panics because the binary is missing
+Test (ubuntu-latest)	Test workspace (Linux)	2026-11-03T10:50:44.4106277Z   TRY 1 FAIL [   0.006s] (───────────) designos-export::native_stack_export every_swiftui_test_fixture_passes_swiftc_typecheck
+Test (ubuntu-latest)	Test workspace (Linux)	2026-11-03T10:50:44.4110906Z     invoke /usr/bin/swiftc: Os { code: 2, kind: NotFound, message: "No such file or directory" }
