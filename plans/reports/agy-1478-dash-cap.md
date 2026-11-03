@@ -846,3 +846,67 @@ Report-only commits follow the gated commit `6aabc599`; the final message pastes
 - The canvas (`designos-render` CPU) is the reference and is right: the GPU renderer already follows the same outline through `stroke_plan`, and the PR's purpose is the dash cap on that outline. Confidence high. Evidence that would flip it: a Figma reference where an inside dashed rectangle's caps are drawn at radius `w`.
 
 Status: DONE_WITH_CONCERNS (PDF fix and tests are done; the SVG exporter and Outline stroke have the same divergence, see finding 5)
+
+## Round 5
+
+The canvas strokes an inside or outside dashed rectangle along its inset or outset outline at the stroke's own weight (`dashed_rect_center_path`). After round 4 two consumers still stroked the node boundary at twice the weight, so their dash phase and cap size differed from the canvas: SVG export and the Outline stroke action. Both now follow the canvas. `origin/main` (`f0123d99`) was merged first (`a7da7e00`, merge not rebase, no conflicts; it only deletes two `out/evidence` PNGs). Code is `ddf87421`; evidence is in `plans/reports/agy-1478-dash-cap-evidence/r5-*`.
+
+### One rule in one place
+
+`outline::dashed_rect_stroke_path(n, sh)` (`crates/designos-render/src/outline.rs:229`, re-exported at `lib.rs:39`) returns the inset or outset outline when the canvas draws the node's aligned dashed stroke that way, else `None`. It checks the shape (`Shape::is_rect`, `closed`), the dash pattern, per-side weights, precomputed stroke outlines and thin rectangles. Consumers:
+- canvas `draw_strokes` (`lib.rs:915`) and GPU `stroke_plan` (`outline.rs:294`): switched. `designos-render` (289 passed) and `designos-gpu` (105 passed) tests are unchanged and green, so the canvas path stays bit-identical on everything they render;
+- PDF (`pdf.rs:1102`): round 4's own gating replaced by the helper (same decisions; the dash check was already the canvas rule);
+- SVG export (`svg.rs:604`) and Outline stroke (`vectorops.rs:384`): new.
+
+`dashed_rect_center_path` is private again; round 4's re-export now carries the new name (nothing outside the crate used the old one).
+
+### What changed
+
+- SVG export (`svg.rs:601-615` and `:678`): for such a node the stroke element is the helper's outline as `<path>` at weight `w`, still under the node's clip (Inside) or mask (Outside), as the canvas, GPU and PDF keep their clip. Everything else is byte for byte as before. Shape and closedness come from `outline_of`, like the canvas, not from `Geo::is_rect` (which is false whenever `fill_geometry` exists, while the canvas treats a rectangle layer as a rectangle regardless).
+- Outline stroke: new `vectorops::outline_node_stroke(doc, n)` (`vectorops.rs:378`). The app's call site (`designos-app/src/vecops.rs:433`) passes the node. `outline_stroke(paths, stroke, network)` itself is unchanged. The wrapper takes the helper's decision (node kind, not geometry); a rectangle-shaped Vector keeps the doubled boundary stroke.
+- The Outline stroke result keeps the stroker's exact curves whenever the inset or outset stroke already lies on its side of the shape (checked with `leaves_its_side`, slack 0.2). Only where it crosses the boundary (a corner radius below half the weight with a miter join) does it clip with the polygon overlay and refit curves as every aligned outline stroke does. Reason: the refit is imprecise on round caps (measured up to 0.4 doc px), which showed as 0.3% of pixels differing; with the exact path the straight-corner cases match the canvas to 1 level on every pixel (`max=1`).
+
+### Tests, red on `efe2d977` and green after
+
+New: `svg.rs` (6 tests), `crates/designos-svg/tests/dashed_rectangle_stroke_alignment.rs` (3, resvg vs canvas, the repo's existing SVG raster path), `crates/designos-render/tests/outline_stroke_of_dashed_rectangles.rs` (5), `designos-app` `vecops::tests::outline_stroke_of_a_dashed_inside_rectangle_matches_the_canvas_stroke` (1). `golden_inside_stroke_uses_clip_and_double_width` is now a solid stroke (clip + 2w), so it is also the solid guard; the dashed case is new, with literal path data (`M4 4 L96 4 L96 56 L4 56 L4 4 Z` at weight 8 for a 100 x 60 inside rectangle, `M-4 -4 ... Z` outside).
+
+Null control (`r5-null.log`): all green on `ddf87421`. Red (`r5-red.log`), each consumer on the behaviour of `efe2d977` (SVG: `efe2d977` non-test code of `svg.rs`; Outline stroke: `efe2d977` render crate plus a wrapper that delegates to `outline_stroke`, the call the app made; app: the `efe2d977` call site):
+```text
+svg.rs: 4 failed (inside, outside, rounded corners, imported fill geometry); the thin-rectangle, non-rectangle and solid-guard tests stay green
+designos-svg raster: Inside svg: its round cap: expected ink at (46.5, 34.0), found [227, 142, 142];  Outside Round: 1692 of 96000 pixels differ
+designos-render: 3 failed: Inside Round 3459, Outside Round 4197, Outside None (radius 12) 3458 of 96000 pixels differ; gap probe; tight-corner test
+designos-app: the outline covers what the canvas strokes: 3279 pixels differ strongly (left: 3279, right: 0)
+```
+Pictures: `r5-before-after.png` (canvas | SVG | Outline stroke, inside and outside, before and after; recount: 7406 and 7440 of 216000 pixels differ before for inside, 8967 and 9004 for outside, 0 after on all four).
+
+### Mutants (`r5-mutants.log`, all after the green null control)
+
+- (a) SVG export strokes dashed rectangles on the boundary at 2w again: killed, same 4 `svg.rs` tests and 2 raster tests fail.
+- (b) the Outline stroke wrapper decides by geometry (any single closed path counts as a rectangle): killed by `a_rectangle_shaped_vector_keeps_the_doubled_boundary_stroke` alone (the other four stay green).
+- (c) extra: the Outline stroke never clips to its side: killed by `outline_of_a_dashed_inside_stroke_is_clipped_at_a_tight_rounded_corner` (ink at (129.7, 30.3), outside the rounded corner).
+
+### Gates on `ddf87421` (`r5-gates.log`)
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all -- --check` | rc=0 |
+| `cargo clippy --workspace --all-targets --locked` | rc=0; only the three known `designos-app` lints (`agent_permissions.rs:1176`, `:1194`, `shell/tests/inspector_var_binds.rs:1181`) |
+| `cargo test -p designos-render --locked` | 289 passed, 0 failed, 5 ignored |
+| `cargo test -p designos-gpu --locked -- --skip large_file_compile_benchmarks` | 105 passed, 0 failed |
+| `cargo test -p designos-export --locked` | 347 passed, 0 failed, 5 ignored (includes the PDF fidelity tests that now use the helper) |
+| `cargo test -p designos-fig --locked` | 527 passed, 0 failed, 6 ignored |
+| `cargo test -p designos-svg --locked` | 24 passed, 0 failed, 1 ignored |
+| `cargo test -p designos-app --bin designos --locked` | 4209 passed, 1 failed, 13 ignored; the failure is `vecops::tests::two_deferred_text_commands_both_convert_in_order` ("both texts still waiting for slow fonts", the known slow-font timing test under load); alone it passes twice (1.52 s, 1.51 s) |
+| `cargo test --workspace --locked --lib` | 1507 passed, 0 failed, 3 ignored |
+
+### Deviations, residual differences, open concerns
+
+1. Files outside round 4's list were changed with the controller's grants: `designos-app/src/vecops.rs` (call site, import, one test), `designos-render/src/{outline,lib}.rs`, `designos-export/src/pdf.rs` (helper swap), new `designos-svg/tests/dashed_rectangle_stroke_alignment.rs`.
+2. With round corners the dashes along the curves sit a fraction of a pixel apart from the canvas: tiny-skia's dash and stroke approximation depends on the stroker scale (the canvas uses the zoom, the outline 1:1; resvg has its own). Outside, no cap, radius 12: 480 of 96000 pixels differ by more than 24 against the canvas at 2x. The tests allow 1% for rounded corners and 0.1% for straight corners; the straight cases measure 0. I tried a finer stroker scale for the new path (4 and 8): it moved the mismatch between cases (Inside Square 74 to 404 and 380 pixels, Outside None 480 to 49 and 242) instead of removing it, so it stays at the existing 1.0.
+3. `leaves_its_side` ignores overflow below 0.2 doc px (a corner radius within 0.2 of half the weight). That tip is under 0.05 square px.
+4. The Outline stroke wrapper and the SVG exporter compute the node shape once more (`node_shape` / `outline_of`); for a boolean group with an aligned stroke that is a second boolean evaluation. Both are one-off exports or an explicit action, not a frame path.
+5. The Outline stroke action still ignores per-side weights and precomputed stroke outlines (unchanged); the helper returns `None` for them, so they take the old path.
+6. Red for the Outline stroke wrapper is measured against a stub that delegates to `outline_stroke` because the wrapper did not exist on `efe2d977`; the app test is red against the real `efe2d977` call.
+7. Visual evidence is synthetic rectangles only (`r5-before-after.png`); no real file was used.
+
+Status: DONE_WITH_CONCERNS (all rulings applied; the one gate failure is the known timing test, green alone)

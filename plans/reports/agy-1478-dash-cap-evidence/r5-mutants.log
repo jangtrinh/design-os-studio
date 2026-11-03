@@ -1,0 +1,124 @@
+# mutants on the committed tree (the null control is r5-null.log: all green)
+ddf874215ab442bc5abe3defc4e9f99cbd204e74
+jangtrinh/agy-1478-dash-cap
+# git status --short -- crates (empty = clean):
+
+
+# mutant (a): svg.rs strokes the dashed rectangle boundary at twice the weight again
+diff --git a/crates/designos-export/src/svg.rs b/crates/designos-export/src/svg.rs
+index 4c7e824b..c6b2c6d3 100644
+--- a/crates/designos-export/src/svg.rs
++++ b/crates/designos-export/src/svg.rs
+@@ -603 +603 @@ impl Svg<'_> {
+-        let dashed_outline = if aligned && st.align != StrokeAlign::Center {
++        let dashed_outline = if false && aligned && st.align != StrokeAlign::Center {
+
+
+## mutant (a)
+$ cargo test -p designos-export --locked --lib svg::tests::
+running 19 tests
+test svg::tests::noise_and_texture_become_filter_primitives_and_glass_is_skipped ... ok
+test svg::tests::mask_node_masks_following_siblings ... ok
+test svg::tests::golden_ellipse_and_linear_gradient ... ok
+test svg::tests::golden_independent_radii_become_a_path ... ok
+test svg::tests::golden_rect_with_radius_and_opacity ... ok
+test svg::tests::dashed_rectangle_thinner_than_its_stroke_keeps_the_doubled_boundary_stroke ... ok
+test svg::tests::outside_stroke_grows_viewbox_and_masks ... ok
+test svg::tests::golden_inside_stroke_uses_clip_and_double_width ... ok
+test svg::tests::frame_clips_children_and_groups_nest ... ok
+test svg::tests::golden_shadow_filter_and_blur ... ok
+test svg::tests::star_vector_evenodd_and_image_fill ... ok
+test svg::tests::strokes_that_are_not_dashed_rectangle_layers_keep_the_boundary_stroke ... ok
+test svg::tests::union_boolean_joins_operands ... ok
+test svg::tests::dashed_inside_rectangle_strokes_its_inset_outline_at_its_own_weight_under_the_clip ... FAILED
+test svg::tests::dashed_rectangle_with_rounded_corners_strokes_a_path_with_curves ... FAILED
+test svg::tests::dashed_rectangle_with_imported_fill_geometry_takes_the_inset_outline_too ... FAILED
+test svg::tests::dashed_outside_rectangle_strokes_its_outset_outline_at_its_own_weight_under_the_mask ... FAILED
+test svg::tests::image_fill_is_embedded_as_base64_pattern ... ok
+test svg::tests::text_as_text_element_and_as_outlines ... ok
+---- svg::tests::dashed_inside_rectangle_strokes_its_inset_outline_at_its_own_weight_under_the_clip stdout ----
+thread 'svg::tests::dashed_inside_rectangle_strokes_its_inset_outline_at_its_own_weight_under_the_clip' (78373299) panicked at crates/designos-export/src/svg.rs:1111:9:
+---- svg::tests::dashed_rectangle_with_rounded_corners_strokes_a_path_with_curves stdout ----
+thread 'svg::tests::dashed_rectangle_with_rounded_corners_strokes_a_path_with_curves' (78373303) panicked at crates/designos-export/src/svg.rs:1133:9:
+---- svg::tests::dashed_rectangle_with_imported_fill_geometry_takes_the_inset_outline_too stdout ----
+thread 'svg::tests::dashed_rectangle_with_imported_fill_geometry_takes_the_inset_outline_too' (78373302) panicked at crates/designos-export/src/svg.rs:1142:9:
+---- svg::tests::dashed_outside_rectangle_strokes_its_outset_outline_at_its_own_weight_under_the_mask stdout ----
+thread 'svg::tests::dashed_outside_rectangle_strokes_its_outset_outline_at_its_own_weight_under_the_mask' (78373300) panicked at crates/designos-export/src/svg.rs:1122:9:
+test result: FAILED. 15 passed; 4 failed; 0 ignored; 0 measured; 146 filtered out; finished in 0.05s
+error: test failed, to rerun pass `-p designos-export --lib`
+rc=101
+$ cargo test -p designos-svg --locked --test dashed_rectangle_stroke_alignment
+running 3 tests
+test dashed_inside_and_outside_rectangles_with_round_caps_match_the_canvas ... FAILED
+test solid_inside_rectangle_still_matches_the_canvas ... ok
+test dashed_inside_and_outside_rectangles_with_rounded_corners_match_the_canvas ... FAILED
+---- dashed_inside_and_outside_rectangles_with_round_caps_match_the_canvas stdout ----
+thread 'dashed_inside_and_outside_rectangles_with_round_caps_match_the_canvas' (78375703) panicked at crates/designos-svg/tests/dashed_rectangle_stroke_alignment.rs:80:5:
+Inside svg: its round cap: expected ink at (46.5, 34.0), found [227, 142, 142]
+---- dashed_inside_and_outside_rectangles_with_rounded_corners_match_the_canvas stdout ----
+thread 'dashed_inside_and_outside_rectangles_with_rounded_corners_match_the_canvas' (78375704) panicked at crates/designos-svg/tests/dashed_rectangle_stroke_alignment.rs:114:9:
+Outside Round dashed rectangle: 1692 of 96000 pixels differ from the canvas
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+error: test failed, to rerun pass `-p designos-svg --test dashed_rectangle_stroke_alignment`
+rc=101
+# after restore: git status --short -- crates (empty = clean):
+
+
+# mutant (b): the Outline stroke wrapper takes the inset outline for any single closed path (geometry), not by node kind
+diff --git a/crates/designos-render/src/vectorops.rs b/crates/designos-render/src/vectorops.rs
+index 42b64032..cecdb8c1 100644
+--- a/crates/designos-render/src/vectorops.rs
++++ b/crates/designos-render/src/vectorops.rs
+@@ -384 +384,5 @@ pub fn outline_node_stroke(doc: &Document, n: &Node) -> Vec<d::Path> {
+-    let aligned_outline = node_shape(doc, n, 0.05).and_then(|sh| crate::outline::dashed_rect_stroke_path(n, &sh));
++    let looks_like_a_rectangle = paths.len() == 1 && matches!(paths[0].cmds.last(), Some(d::PathCmd::Close));
++    let aligned_outline = node_shape(doc, n, 0.05).and_then(|mut sh| {
++        sh.is_rect = looks_like_a_rectangle;
++        crate::outline::dashed_rect_stroke_path(n, &sh)
++    });
+
+
+## mutant (b)
+$ cargo test -p designos-render --locked --test outline_stroke_of_dashed_rectangles
+running 5 tests
+test outline_of_a_dashed_inside_rectangle_keeps_the_cap_size_and_the_gap ... ok
+test other_strokes_outline_as_the_geometry_stroke ... ok
+test a_rectangle_shaped_vector_keeps_the_doubled_boundary_stroke ... FAILED
+test outline_of_a_dashed_inside_stroke_is_clipped_at_a_tight_rounded_corner ... ok
+test outline_of_a_dashed_inside_or_outside_rectangle_covers_what_the_canvas_strokes ... ok
+---- a_rectangle_shaped_vector_keeps_the_doubled_boundary_stroke stdout ----
+thread 'a_rectangle_shaped_vector_keeps_the_doubled_boundary_stroke' (78380866) panicked at crates/designos-render/tests/outline_stroke_of_dashed_rectangles.rs:191:9:
+  left: [Path { cmds: [MoveTo(Vec2 { x: 28.0, y: 0.0 }), LineTo(Vec2 { x: 38.0, y: 0.0 }), QuadTo(Vec2 { x: 39.656853, y: 0.0 }, Vec2 { x: 40.828426, y: 1.1715728 }), QuadTo(Vec2 { x: 42.0, y: 2.3431456 }, Vec2 { x: 42.0, y: 4.0 }), QuadTo(Vec2 { x: 42.0, y: 5.656854 }, Vec2 { x: 40.828426, y: 6.828427 }), QuadTo(Vec2 { x: 39.656853, y: 7.9999995 }, Vec2 { x: 38.0, y: 8.0 }), LineTo(Vec2 { x: 28.0, y: 8.0 }), QuadTo(Vec2 { x: 26.343143, y: 7.9999995 }, Vec2 { x: 25.171572, y: 6.828427 }), QuadTo(Vec2 { x: 23.999998, y: 5.656854 }, Vec2 { x: 24.0, y: 4.0 }), QuadTo(Vec2 { x: 23.999998, y: 2.3431456 }, Vec2 { x: 25.171572, y: 1.1715728 }), QuadTo(Vec2 { x: 26.343143, y: 0.0 }, Vec2 { x: 28.0, y: 0.0 }), Close, MoveTo(Vec2 { x: 52.0, y: 0.0 }), LineTo(Vec2 { x: 62.000004, y: 0.0 }), QuadTo(Vec2 { x: 63.656853, y: 0.0 }, Vec2 { x: 64.82842, y: 1.1715728 }), QuadTo(Vec2 { x: 66.0, y: 2.3431456 }, Vec2 { x: 66.0, y: 4.0 }), QuadTo(Vec2 { x: 66.0, y: 5.656854 }, Vec2 { x: 64.82842, y: 6.828427 }), QuadTo(Vec2 { x: 63.656853, y: 7.9999995 }, Vec2 { x: 62.000004, y: 8.0 }), LineTo(Vec2 { x: 52.0, y: 8.0 }), QuadTo(Vec2 { x: 50.343143, y: 7.9999995 }, Vec2 { x: 49.17157, y: 6.828427 }), QuadTo(Vec2 { x: 47.999996, y: 5.656854 }, Vec2 { x: 48.0, y: 4.0 }), QuadTo(Vec2 { x: 47.999996, y: 2.3431456 }, Vec2 { x: 49.17157, y: 1.1715728 }), QuadTo(Vec2 { x: 50.343143, y: 0.0 }, Vec2 { x: 52.0, y: 0.0 }), Close, MoveTo(Vec2 { x: 76.0, y: 0.0 }), LineTo(Vec2 { x: 86.0, y: 0.0 }), QuadTo(Vec2 { x: 87.65685, y: 0.0 }, Vec2 { x: 88.82842, y: 1.1715728 }), QuadTo(Vec2 { x: 90.0, y: 2.3431456 }, Vec2 { x: 90.0, y: 4.0 }), QuadTo(Vec2 { x: 90.0, y: 5.656854 }, Vec2 { x: 88.82842, y: 6.828427 }), QuadTo(Vec2 { x: 87.65685, y: 7.9999995 }, Vec2 { x: 86.0, y: 8.0 }), LineTo(Vec2 { x: 76.0, y: 8.0 }), QuadTo(Vec2 { x: 74.34314, y: 7.9999995 }, Vec2 { x: 73.17156, y: 6.828427 }), QuadTo(Vec2 { x: 71.99999, y: 5.656854 }, Vec2 { x: 72.0, y: 4.0 }), QuadTo(Vec2 { x: 71.99999, y: 2.3431456 }, Vec2 { x: 73.17156, y: 1.1715728 }), QuadTo(Vec2 { x: 74.34314, y: 0.0 }, Vec2 { x: 76.0, y: 0.0 }), Close, MoveTo(Vec2 { x: 100.0, y: 8.0 }), LineTo(Vec2 { x: 100.0, y: 18.0 }), QuadTo(Vec2 { x: 99.99999, y: 19.656855 }, Vec2 { x: 98.82842, y: 20.828426 }), QuadTo(Vec2 { x: 97.656845, y: 22.0 }, Vec2 { x: 96.0, y: 22.0 }), QuadTo(Vec2 { x: 94.34315, y: 22.0 }, Vec2 { x: 93.17157, y: 20.828426 }), QuadTo(Vec2 { x: 92.0, y: 19.656855 }, Vec2 { x: 92.0, y: 18.0 }), LineTo(Vec2 { x: 92.0, y: 8.0 }), QuadTo(Vec2 { x: 92.0, y: 6.3431454 }, Vec2 { x: 93.17157, y: 5.1715727 }), QuadTo(Vec2 { x: 94.34315, y: 4.0 }, Vec2 { x: 96.0, y: 4.0 }), QuadTo(Vec2 { x: 97.656845, y: 4.0 }, Vec2 { x: 98.82842, y: 5.1715727 }), QuadTo(Vec2 { x: 99.99999, y: 6.3431454 }, Vec2 { x: 100.0, y: 8.0 }), Close, MoveTo(Vec2 { x: 100.0, y: 32.0 }), LineTo(Vec2 { x: 100.0, y: 42.0 }), QuadTo(Vec2 { x: 99.99999, y: 43.656853 }, Vec2 { x: 98.82842, y: 44.828426 }), QuadTo(Vec2 { x: 97.656845, y: 46.0 }, Vec2 { x: 96.0, y: 46.0 }), QuadTo(Vec2 { x: 94.34315, y: 46.0 }, Vec2 { x: 93.17157, y: 44.828426 }), QuadTo(Vec2 { x: 92.0, y: 43.656853 }, Vec2 { x: 92.0, y: 42.0 }), LineTo(Vec2 { x: 92.0, y: 32.0 }), QuadTo(Vec2 { x: 92.0, y: 30.343143 }, Vec2 { x: 93.17157, y: 29.17157 }), QuadTo(Vec2 { x: 94.34315, y: 28.0 }, Vec2 { x: 96.0, y: 28.0 }), QuadTo(Vec2 { x: 97.656845, y: 28.0 }, Vec2 { x: 98.82842, y: 29.17157 }), QuadTo(Vec2 { x: 99.99999, y: 30.343143 }, Vec2 { x: 100.0, y: 32.0 }), Close, MoveTo(Vec2 { x: 100.0, y: 56.0 }), LineTo(Vec2 { x: 100.0, y: 60.0 }), LineTo(Vec2 { x: 86.0, y: 60.0 }), QuadTo(Vec2 { x: 84.34314, y: 59.999996 }, Vec2 { x: 83.17157, y: 58.828423 }), QuadTo(Vec2 { x: 81.99999, y: 57.65685 }, Vec2 { x: 82.0, y: 56.0 }), QuadTo(Vec2 { x: 81.99999, y: 54.34314 }, Vec2 { x: 83.17157, y: 53.171566 }), QuadTo(Vec2 { x: 84.34314, y: 52.0 }, Vec2 { x: 86.0, y: 52.0 }), LineTo(Vec2 { x: 96.0, y: 52.0 }), LineTo(Vec2 { x: 96.0, y: 56.0 }), LineTo(Vec2 { x: 92.0, y: 56.0 }), LineTo(Vec2 { x: 92.0, y: 56.0 }), QuadTo(Vec2 { x: 92.0, y: 54.34314 }, Vec2 { x: 93.17157, y: 53.171566 }), QuadTo(Vec2 { x: 94.34315, y: 52.0 }, Vec2 { x: 96.0, y: 52.0 }), QuadTo(Vec2 { x: 97.656845, y: 52.0 }, Vec2 { x: 98.82842, y: 53.171566 }), QuadTo(Vec2 { x: 99.99999, y: 54.34314 }, Vec2 { x: 100.0, y: 56.0 }), Close, MoveTo(Vec2 { x: 72.0, y: 60.0 }), LineTo(Vec2 { x: 62.0, y: 60.0 }), QuadTo(Vec2 { x: 60.34314, y: 59.999996 }, Vec2 { x: 59.17157, y: 58.828423 }), QuadTo(Vec2 { x: 57.999996, y: 57.65685 }, Vec2 { x: 58.0, y: 56.0 }), QuadTo(Vec2 { x: 57.999996, y: 54.34314 }, Vec2 { x: 59.17157, y: 53.171566 }), QuadTo(Vec2 { x: 60.34314, y: 52.0 }, Vec2 { x: 62.0, y: 52.0 }), LineTo(Vec2 { x: 72.0, y: 52.0 }), QuadTo(Vec2 { x: 73.656845, y: 52.0 }, Vec2 { x: 74.82842, y: 53.171566 }), QuadTo(Vec2 { x: 75.99999, y: 54.34314 }, Vec2 { x: 76.0, y: 56.0 }), QuadTo(Vec2 { x: 75.99999, y: 57.65685 }, Vec2 { x: 74.82842, y: 58.828423 }), QuadTo(Vec2 { x: 73.656845, y: 59.999996 }, Vec2 { x: 72.0, y: 60.0 }), Close, MoveTo(Vec2 { x: 48.0, y: 60.0 }), LineTo(Vec2 { x: 37.999996, y: 60.0 }), QuadTo(Vec2 { x: 36.34314, y: 59.999996 }, Vec2 { x: 35.17157, y: 58.828423 }), QuadTo(Vec2 { x: 33.999996, y: 57.65685 }, Vec2 { x: 33.999996, y: 56.0 }), QuadTo(Vec2 { x: 33.999996, y: 54.34314 }, Vec2 { x: 35.17157, y: 53.171566 }), QuadTo(Vec2 { x: 36.34314, y: 52.0 }, Vec2 { x: 37.999996, y: 52.0 }), LineTo(Vec2 { x: 48.0, y: 52.0 }), QuadTo(Vec2 { x: 49.65685, y: 52.0 }, Vec2 { x: 50.82842, y: 53.171566 }), QuadTo(Vec2 { x: 51.999992, y: 54.34314 }, Vec2 { x: 52.0, y: 56.0 }), QuadTo(Vec2 { x: 51.999992, y: 57.65685 }, Vec2 { x: 50.82842, y: 58.828423 }), QuadTo(Vec2 { x: 49.65685, y: 59.999996 }, Vec2 { x: 48.0, y: 60.0 }), Close, MoveTo(Vec2 { x: 24.0, y: 60.0 }), LineTo(Vec2 { x: 14.0, y: 60.0 }), QuadTo(Vec2 { x: 12.343145, y: 59.999996 }, Vec2 { x: 11.171572, y: 58.828423 }), QuadTo(Vec2 { x: 9.999999, y: 57.65685 }, Vec2 { x: 10.0, y: 56.0 }), QuadTo(Vec2 { x: 9.999999, y: 54.34314 }, Vec2 { x: 11.171572, y: 53.171566 }), QuadTo(Vec2 { x: 12.343145, y: 52.0 }, Vec2 { x: 14.0, y: 52.0 }), LineTo(Vec2 { x: 24.0, y: 52.0 }), QuadTo(Vec2 { x: 25.656853, y: 52.0 }, Vec2 { x: 26.828424, y: 53.171566 }), QuadTo(Vec2 { x: 27.999998, y: 54.34314 }, Vec2 { x: 28.0, y: 56.0 }), QuadTo(Vec2 { x: 27.999998, y: 57.65685 }, Vec2 { x: 26.828424, y: 58.828423 }), QuadTo(Vec2 { x: 25.656853, y: 59.999996 }, Vec2 { x: 24.0, y: 60.0 }), Close, MoveTo(Vec2 { x: 0.0, y: 52.0 }), LineTo(Vec2 { x: 0.0, y: 42.0 }), QuadTo(Vec2 { x: 0.0, y: 40.343143 }, Vec2 { x: 1.1715728, y: 39.17157 }), QuadTo(Vec2 { x: 2.3431456, y: 38.0 }, Vec2 { x: 4.0, y: 38.0 }), QuadTo(Vec2 { x: 5.656854, y: 38.0 }, Vec2 { x: 6.828427, y: 39.17157 }), QuadTo(Vec2 { x: 7.9999995, y: 40.343143 }, Vec2 { x: 8.0, y: 42.0 }), LineTo(Vec2 { x: 8.0, y: 52.0 }), QuadTo(Vec2 { x: 7.9999995, y: 53.65685 }, Vec2 { x: 6.828427, y: 54.828423 }), QuadTo(Vec2 { x: 5.656854, y: 55.999996 }, Vec2 { x: 4.0, y: 56.0 }), QuadTo(Vec2 { x: 2.3431456, y: 55.999996 }, Vec2 { x: 1.1715728, y: 54.828423 }), QuadTo(Vec2 { x: 0.0, y: 53.65685 }, Vec2 { x: 0.0, y: 52.0 }), Close, MoveTo(Vec2 { x: 0.0, y: 27.999998 }), LineTo(Vec2 { x: 0.0, y: 18.0 }), QuadTo(Vec2 { x: 0.0, y: 16.343143 }, Vec2 { x: 1.1715728, y: 15.171572 }), QuadTo(Vec2 { x: 2.3431456, y: 14.0 }, Vec2 { x: 4.0, y: 14.0 }), QuadTo(Vec2 { x: 5.656854, y: 14.0 }, Vec2 { x: 6.828427, y: 15.171572 }), QuadTo(Vec2 { x: 7.9999995, y: 16.343143 }, Vec2 { x: 8.0, y: 18.0 }), LineTo(Vec2 { x: 8.0, y: 27.999998 }), QuadTo(Vec2 { x: 7.9999995, y: 29.656849 }, Vec2 { x: 6.828427, y: 30.828424 }), QuadTo(Vec2 { x: 5.656854, y: 31.999994 }, Vec2 { x: 4.0, y: 31.999998 }), QuadTo(Vec2 { x: 2.3431456, y: 31.999994 }, Vec2 { x: 1.1715728, y: 30.828424 }), QuadTo(Vec2 { x: 0.0, y: 29.656849 }, Vec2 { x: 0.0, y: 27.999998 }), Close, MoveTo(Vec2 { x: 4.0, y: 0.0 }), LineTo(Vec2 { x: 14.0, y: 0.0 }), QuadTo(Vec2 { x: 15.656853, y: 0.0 }, Vec2 { x: 16.828424, y: 1.1715728 }), QuadTo(Vec2 { x: 17.999998, y: 2.3431456 }, Vec2 { x: 18.0, y: 4.0 }), QuadTo(Vec2 { x: 17.999998, y: 5.656854 }, Vec2 { x: 16.828424, y: 6.828427 }), QuadTo(Vec2 { x: 15.656853, y: 7.9999995 }, Vec2 { x: 14.0, y: 8.0 }), LineTo(Vec2 { x: 4.0, y: 8.0 }), QuadTo(Vec2 { x: 2.3431456, y: 7.9999995 }, Vec2 { x: 1.1715728, y: 6.828427 }), QuadTo(Vec2 { x: 0.0, y: 5.656854 }, Vec2 { x: 0.0, y: 4.0 }), QuadTo(Vec2 { x: 0.0, y: 2.3431456 }, Vec2 { x: 1.1715728, y: 1.1715728 }), QuadTo(Vec2 { x: 2.3431456, y: 0.0 }, Vec2 { x: 4.0, y: 0.0 }), Close], fill_rule: NonZero }]
+ right: [Path { cmds: [MoveTo(Vec2 { x: 0.0, y: 60.0 }), LineTo(Vec2 { x: 0.0, y: 0.0 }), LineTo(Vec2 { x: 100.0, y: 0.0 }), LineTo(Vec2 { x: 100.0, y: 60.0 }), Close, MoveTo(Vec2 { x: 3.878348, y: 39.0 }), CubicTo(Vec2 { x: 5.1844525, y: 39.98638 }, Vec2 { x: 4.253175, y: 38.939465 }, Vec2 { x: 5.656854, y: 40.343143 }), CubicTo(Vec2 { x: 8.852992, y: 43.539276 }, Vec2 { x: 8.0, y: 48.13299 }, Vec2 { x: 8.0, y: 52.259624 }), CubicTo(Vec2 { x: 12.401331, y: 51.68828 }, Vec2 { x: 13.560661, y: 51.946526 }, Vec2 { x: 20.0, y: 52.0 }), CubicTo(Vec2 { x: 22.62319, y: 52.021786 }, Vec2 { x: 24.923073, y: 53.230656 }, Vec2 { x: 26.500387, y: 55.31923 }), LineTo(Vec2 { x: 26.999998, y: 56.121643 }), LineTo(Vec2 { x: 27.49961, y: 55.31922 }), CubicTo(Vec2 { x: 29.076918, y: 53.230656 }, Vec2 { x: 31.376814, y: 52.021782 }, Vec2 { x: 34.0, y: 52.0 }), LineTo(Vec2 { x: 44.0, y: 52.0 }), CubicTo(Vec2 { x: 46.62319, y: 52.021786 }, Vec2 { x: 48.923084, y: 53.230663 }, Vec2 { x: 50.50039, y: 55.31923 }), LineTo(Vec2 { x: 50.999996, y: 56.121647 }), LineTo(Vec2 { x: 51.49961, y: 55.31922 }), CubicTo(Vec2 { x: 53.076916, y: 53.230656 }, Vec2 { x: 55.376823, y: 52.021782 }, Vec2 { x: 58.0, y: 52.0 }), LineTo(Vec2 { x: 68.0, y: 52.0 }), CubicTo(Vec2 { x: 70.62319, y: 52.021786 }, Vec2 { x: 72.92308, y: 53.230675 }, Vec2 { x: 74.50039, y: 55.31923 }), LineTo(Vec2 { x: 74.99999, y: 56.121635 }), LineTo(Vec2 { x: 75.4996, y: 55.31922 }), CubicTo(Vec2 { x: 77.07691, y: 53.230663 }, Vec2 { x: 79.37682, y: 52.021782 }, Vec2 { x: 82.0, y: 52.0 }), LineTo(Vec2 { x: 92.0, y: 52.0 }), CubicTo(Vec2 { x: 92.0, y: 47.630566 }, Vec2 { x: 90.81941, y: 41.866867 }, Vec2 { x: 94.34315, y: 38.343143 }), CubicTo(Vec2 { x: 95.74678, y: 36.939514 }, Vec2 { x: 94.8156, y: 37.986347 }, Vec2 { x: 96.12166, y: 37.0 }), LineTo(Vec2 { x: 95.31923, y: 36.500385 }), CubicTo(Vec2 { x: 93.230675, y: 34.92309 }, Vec2 { x: 92.02178, y: 32.623173 }, Vec2 { x: 92.0, y: 30.0 }), LineTo(Vec2 { x: 92.0, y: 20.0 }), CubicTo(Vec2 { x: 92.02178, y: 17.376818 }, Vec2 { x: 93.230675, y: 15.07691 }, Vec2 { x: 95.31924, y: 13.499613 }), LineTo(Vec2 { x: 96.12166, y: 13.0 }), LineTo(Vec2 { x: 95.31923, y: 12.500385 }), CubicTo(Vec2 { x: 93.267914, y: 10.951214 }, Vec2 { x: 92.556854, y: 9.408747 }, Vec2 { x: 92.070526, y: 6.968166 }), CubicTo(Vec2 { x: 91.11174, y: 6.240317 }, Vec2 { x: 90.24704, y: 5.6704626 }, Vec2 { x: 89.49962, y: 4.6807737 }), LineTo(Vec2 { x: 89.0, y: 3.8783436 }), LineTo(Vec2 { x: 88.50039, y: 4.6807737 }), CubicTo(Vec2 { x: 86.92309, y: 6.769332 }, Vec2 { x: 84.623184, y: 7.9782166 }, Vec2 { x: 82.0, y: 8.0 }), LineTo(Vec2 { x: 72.0, y: 8.0 }), CubicTo(Vec2 { x: 69.37681, y: 7.9782166 }, Vec2 { x: 67.07693, y: 6.76934 }, Vec2 { x: 65.49962, y: 4.6807737 }), LineTo(Vec2 { x: 65.0, y: 3.8783467 }), LineTo(Vec2 { x: 64.50038, y: 4.6807737 }), CubicTo(Vec2 { x: 62.923073, y: 6.7693415 }, Vec2 { x: 60.6232, y: 7.9782166 }, Vec2 { x: 58.0, y: 8.0 }), LineTo(Vec2 { x: 48.0, y: 8.0 }), CubicTo(Vec2 { x: 45.376812, y: 7.9782166 }, Vec2 { x: 43.07692, y: 6.7693434 }, Vec2 { x: 41.49961, y: 4.6807737 }), LineTo(Vec2 { x: 41.0, y: 3.8783495 }), LineTo(Vec2 { x: 40.50039, y: 4.6807737 }), CubicTo(Vec2 { x: 38.923084, y: 6.7693343 }, Vec2 { x: 36.62318, y: 7.9782166 }, Vec2 { x: 34.0, y: 8.0 }), LineTo(Vec2 { x: 24.0, y: 8.0 }), CubicTo(Vec2 { x: 21.376816, y: 7.9782166 }, Vec2 { x: 19.076916, y: 6.7693357 }, Vec2 { x: 17.499613, y: 4.6807737 }), LineTo(Vec2 { x: 17.0, y: 3.8783474 }), LineTo(Vec2 { x: 16.500385, y: 4.6807737 }), CubicTo(Vec2 { x: 14.1391325, y: 7.8073883 }, Vec2 { x: 11.641088, y: 8.0 }, Vec2 { x: 8.0, y: 8.0 }), CubicTo(Vec2 { x: 7.7988076, y: 10.761959 }, Vec2 { x: 6.950299, y: 12.786415 }, Vec2 { x: 4.6807737, y: 14.500387 }), LineTo(Vec2 { x: 3.8783507, y: 15.0 }), LineTo(Vec2 { x: 4.6807737, y: 15.499613 }), CubicTo(Vec2 { x: 6.769337, y: 17.076916 }, Vec2 { x: 7.9782166, y: 19.376818 }, Vec2 { x: 8.0, y: 22.0 }), LineTo(Vec2 { x: 8.0, y: 32.0 }), CubicTo(Vec2 { x: 7.9782166, y: 34.623177 }, Vec2 { x: 6.769334, y: 36.92308 }, Vec2 { x: 4.6807737, y: 38.500385 }), Close], fill_rule: EvenOdd }]
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+error: test failed, to rerun pass `-p designos-render --test outline_stroke_of_dashed_rectangles`
+rc=101
+# after restore: git status --short -- crates (empty = clean):
+
+
+# mutant (c): the Outline stroke never clips a dashed inside or outside stroke to its side of the shape
+diff --git a/crates/designos-render/src/vectorops.rs b/crates/designos-render/src/vectorops.rs
+index 42b64032..659e46e5 100644
+--- a/crates/designos-render/src/vectorops.rs
++++ b/crates/designos-render/src/vectorops.rs
+@@ -487 +487 @@ fn leaves_its_side(ring: &Shapes, fill: &Shapes, boundary: &[d::Path], align: d:
+-    !wrong.is_empty()
++    false && !wrong.is_empty()
+
+
+## mutant (c)
+$ cargo test -p designos-render --locked --test outline_stroke_of_dashed_rectangles
+running 5 tests
+test outline_of_a_dashed_inside_rectangle_keeps_the_cap_size_and_the_gap ... ok
+test outline_of_a_dashed_inside_stroke_is_clipped_at_a_tight_rounded_corner ... FAILED
+test other_strokes_outline_as_the_geometry_stroke ... ok
+test outline_of_a_dashed_inside_or_outside_rectangle_covers_what_the_canvas_strokes ... ok
+test a_rectangle_shaped_vector_keeps_the_doubled_boundary_stroke ... ok
+---- outline_of_a_dashed_inside_stroke_is_clipped_at_a_tight_rounded_corner stdout ----
+thread 'outline_of_a_dashed_inside_stroke_is_clipped_at_a_tight_rounded_corner' (78387412) panicked at crates/designos-render/tests/outline_stroke_of_dashed_rectangles.rs:91:5:
+outline: outside the rounded corner: expected the frame's white at (129.7, 30.3), found [200, 30, 30]
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+error: test failed, to rerun pass `-p designos-render --test outline_stroke_of_dashed_rectangles`
+rc=101
+# after restore: git status --short -- crates (empty = clean):
+
