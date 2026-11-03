@@ -166,7 +166,6 @@ fn painted_fills_of(target: &Node) -> Vec<Paint> {
 fn is_visual_binding(key: &str) -> bool {
     key.starts_with("fills/")
         || key.starts_with("strokes/")
-        || key.starts_with("effects/")
         || matches!(
             key,
             "strokeWeight"
