@@ -198,7 +198,7 @@ fn job_result_keeps_the_original_adjustments_and_flags() {
     let tmp = TestDir::new("frame-carry");
     let (mut app, node, key) = sample_app_with_image_layer(tmp.path());
     let adjust = ImageAdjust { exposure: 0.25, contrast: -0.5, vibrance: 0.75, brightness: 0.125, ..Default::default() };
-    let params = ImageParams { adjust, color_manage: Some(true), tile_scale: 0.4, original_size: Some((400, 200)), ..Default::default() };
+    let params = ImageParams { adjust, color_manage: Some(true), tile_scale: 0.4, original_size: Some((1440, 960)), ..Default::default() };
     picture_layer(&mut app, node, &key, &coordinate_picture(400, 200), Vec2::new(100.0, 100.0), ImageScaleMode::Crop, params);
 
     run_identity_job(&mut app, &tmp, node, erase());
@@ -210,7 +210,7 @@ fn job_result_keeps_the_original_adjustments_and_flags() {
     assert_eq!(got.tile_scale, 0.4, "tile scale is carried");
     assert!(is_identity(got.transform), "the whole picture was sent, so the transform stays identity");
     assert_eq!(got.rotation, 0.0);
-    assert_eq!(got.original_size, Some((400, 200)), "the result bitmap has the size of the original");
+    assert_eq!(got.original_size, Some((400, 200)), "the recorded original size follows the bitmap that replaced the picture");
 }
 
 #[test]
