@@ -110,7 +110,9 @@ each typed block without changing it and requires the page to keep the same bloc
   (`DocsError::OutsideDocs`) for reads and writes of pages and of the manifest. The file that is read is the one that was
   checked: it is opened by its real path, and the open handle's device and inode must match that path (a link swapped in
   between is refused). A regular file with more than one hard link is refused (`DocsError::HardLinked`), because a hard
-  link cannot be told apart from the outside file it names; replace it with a copy.
+  link cannot be told apart from the outside file it names; replace it with a copy. A save by rename during a read
+  (the inode under the name changes, the path stays inside the folder) is not an escape: the read starts over, up to
+  three more times, and then fails with `DocsError::ChangedDuringRead`, which is safe to retry.
 
 ## Layout drift
 

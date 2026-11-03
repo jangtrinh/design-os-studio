@@ -50,6 +50,11 @@ pub enum DocsError {
     #[error("{path} has more than one hard link, so it may be another name for a file outside the docs folder and was not read; fix: replace it with a copy of the file (a hard link cannot be told apart from the file it points to)")]
     HardLinked { path: String },
 
+    /// The page was replaced (an atomic save) every time it was opened, so no read could be matched to one file. The page is
+    /// fine; reading it again works. Nothing was read.
+    #[error("{path} changed while it was read; fix: read it again")]
+    ChangedDuringRead { path: String },
+
     #[error("block {index} does not exist; the page has {len} blocks; fix: read the page again and use an index below {len}")]
     BlockIndex { index: usize, len: usize },
 
