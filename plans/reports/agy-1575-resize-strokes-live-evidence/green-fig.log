@@ -1,0 +1,22 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running tests/resized_vector_stroke_model.rs (out/cargo/debug/deps/resized_vector_stroke_model-87b6562e1729e120)
+
+running 12 tests
+test the_kit_icon_drops_its_bake_and_draws_its_own_weight ... ok
+test an_arrow_cap_on_the_node_keeps_the_scaled_bake ... ok
+test an_arrow_cap_on_a_vertex_keeps_the_scaled_bake ... ok
+test fig_icon_without_an_arrow_cap_drops_its_bake ... ok
+test a_vertex_cap_equal_to_the_nodes_and_dashes_on_a_centered_stroke_still_drop_the_bake ... ok
+test a_brush_and_side_weights_keep_the_scaled_bake ... ok
+test a_vertex_cap_of_its_own_and_dashes_inside_keep_the_scaled_bake_while_a_vertex_join_drops_it ... ok
+test fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake ... ok
+test an_arrow_cap_survives_a_rest_round_trip_and_keeps_its_bake_on_a_resize ... ok
+test a_saved_fig_file_of_a_plain_icon_carries_no_cap_marker_and_still_drops_its_bake ... ok
+test an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_keeps_its_bake_on_a_resize ... ok
+test an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+

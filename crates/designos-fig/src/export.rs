@@ -569,7 +569,7 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             m.insert(
                 "strokeCap".into(),
                 match s.cap {
-                    StrokeCap::None => "NONE",
+                    StrokeCap::None => unmodelled_stroke_cap(node).unwrap_or("NONE"),
                     StrokeCap::Round => "ROUND",
                     StrokeCap::Square => "SQUARE",
                 }
@@ -707,7 +707,15 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 m.insert("fillGeometry".into(), geometry(paths));
             }
             if let Some(net) = network {
-                m.insert("vectorNetwork".into(), crate::vecnet::network_to_json(net));
+                let mut vn = crate::vecnet::network_to_json(net);
+                if node.stroke.cap != StrokeCap::None {
+                    if let Some(cap) = unmodelled_stroke_cap(node) {
+                        if let Some(vx) = vn["vertices"].as_array_mut().and_then(|a| a.iter_mut().find(|v| v.get("strokeCap").is_none())) {
+                            vx["strokeCap"] = cap.into();
+                        }
+                    }
+                }
+                m.insert("vectorNetwork".into(), vn);
             }
         }
         NodeKind::Sticky(_) | NodeKind::Connector(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => {
@@ -824,4 +832,8 @@ pub fn export_rest_json(doc: &Document) -> Value {
         out["editorType"] = "figjam".into();
     }
     out
+}
+
+fn unmodelled_stroke_cap(node: &Node) -> Option<&str> {
+    node.fig_metadata.get("strokeCap").map(String::as_str).filter(|s| !matches!(*s, "" | "NONE" | "ROUND" | "SQUARE"))
 }

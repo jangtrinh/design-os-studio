@@ -1,0 +1,21 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/resized_vector_stroke_weight.rs (out/cargo/debug/deps/resized_vector_stroke_weight-236926c4c166f7cb)
+
+running 11 tests
+test unresized_kit_vector_renders_are_hashed_into_a_file ... ok
+test unresized_imported_vector_renders_unchanged ... ok
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins ... ok
+test stroke_follows_the_network_while_the_fill_keeps_the_outline ... ok
+test syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override ... ok
+test equal_cap_open_stroke_draws_through_the_same_path_as_node_cap ... ok
+test plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes ... ok
+test stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize ... ok
+test an_inside_stroke_of_a_closed_network_still_drops_its_bake_and_stays_inside ... ok
+test an_inside_or_outside_stroke_of_a_network_with_an_open_chain_drops_its_bake_and_strokes_live ... ok
+test file_type_network_resized_2x_strokes_closed_outline_inside_and_open_fold_centered ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

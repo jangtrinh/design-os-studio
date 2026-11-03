@@ -1,13 +1,13 @@
 //! A plain resize drops a vector's baked stroke outline and lets the renderers stroke the scaled centerline
 //! only when that live stroke draws what the outline drew. Everything the stroke model cannot carry keeps
 //! its outline, scaled with the shape: arrow caps (recorded at import, because `StrokeCap` has no name for
-//! them), brushes, side weights, vertex caps and joins of their own, dashes on inside or outside strokes.
+//! them), brushes, side weights, vertex caps of their own, dashes on inside or outside strokes.
 
 use designos_doc::*;
 use designos_fig::container::{self, Compression};
 use designos_fig::kiwi::KiwiValue as V;
 use designos_fig::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, solid, st, vec2};
-use designos_fig::{decode_fig_to_json, export_fig, import_fig, import_fig_node_changes, import_rest_json};
+use designos_fig::{decode_fig_to_json, export_fig, export_rest_json, import_fig, import_fig_node_changes, import_rest_json};
 use serde_json::{json, Value};
 
 fn file(vector: Value) -> String {
@@ -154,18 +154,36 @@ fn a_brush_and_side_weights_keep_the_scaled_bake() {
 }
 
 #[test]
-fn a_vertex_cap_or_join_of_its_own_and_dashes_inside_keep_the_scaled_bake() {
+fn a_vertex_cap_of_its_own_and_dashes_inside_keep_the_scaled_bake_while_a_vertex_join_drops_it() {
     let (mut doc, id) = imported(icon_with_vertex(json!({"strokeCap": "SQUARE"})));
     resize_2x(&mut doc, id);
     assert_outline_scaled(&doc, id, "vertex cap that differs from the node's");
 
     let (mut doc, id) = imported(icon_with_vertex(json!({"strokeJoin": "BEVEL"})));
     resize_2x(&mut doc, id);
-    assert_outline_scaled(&doc, id, "vertex join that differs from the node's");
+    assert_centerline_stroked_live(&doc, id, "vertex join that differs from the node's");
 
     let (mut doc, id) = imported(icon(json!({"strokeAlign": "INSIDE", "strokeDashes": [4.0, 2.0]})));
     resize_2x(&mut doc, id);
     assert_outline_scaled(&doc, id, "dashes on an inside stroke");
+}
+
+#[test]
+fn an_arrow_cap_survives_a_rest_round_trip_and_keeps_its_bake_on_a_resize() {
+    for (what, (doc, _), marker) in [
+        ("node arrow cap", imported(icon(json!({"strokeCap": "ARROW_LINES"}))), "ARROW_LINES"),
+        ("vertex arrow cap", imported(icon_with_vertex(json!({"strokeCap": "ARROW_EQUILATERAL"}))), "ARROW_EQUILATERAL"),
+    ] {
+        let cap_before = doc.nodes.values().find(|n| n.name == "Icon").unwrap().stroke.cap;
+        let rest_json = export_rest_json(&doc);
+        let mut reopened = import_rest_json(&rest_json.to_string()).expect("reimport the REST JSON");
+        let id = reopened.nodes.values().find(|n| n.name == "Icon").unwrap().id;
+        let n = reopened.get(id).unwrap();
+        assert_eq!(n.fig_metadata.get("strokeCap").map(String::as_str), Some(marker), "{what}: the arrow cap survives the REST round trip");
+        assert_eq!(n.stroke.cap, cap_before, "{what}: the modelled stroke cap is preserved");
+        resize_2x(&mut reopened, id);
+        assert_outline_scaled(&reopened, id, what);
+    }
 }
 
 // ---- `.fig` files ---------------------------------------------------------------------------------

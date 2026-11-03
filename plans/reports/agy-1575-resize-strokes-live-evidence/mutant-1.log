@@ -1,0 +1,105 @@
+=== MUTANT 1: open chains forced back to the node alignment ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.47s
+     Running tests/resized_vector_stroke_weight.rs (out/cargo/debug/deps/resized_vector_stroke_weight-236926c4c166f7cb)
+
+running 11 tests
+test unresized_kit_vector_renders_are_hashed_into_a_file ... ok
+
+thread 'an_inside_or_outside_stroke_of_a_network_with_an_open_chain_drops_its_bake_and_strokes_live' (88943519) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:368:9:
+assertion `left == right` failed: Inside: one 2px centered band on the open chain
+  left: []
+ right: [2]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins ... 
+thread 'file_type_network_resized_2x_strokes_closed_outline_inside_and_open_fold_centered' (88943522) panicked at crates/designos-render/tests/resized_vector_stroke_weight.rs:424:5:
+assertion `left == right` failed: fold leg is 1.5px centered, not 3px at x = 58
+  left: [139, 142, 147, 255]
+ right: [255, 255, 255, 255]
+ok
+test equal_cap_open_stroke_draws_through_the_same_path_as_node_cap ... ok
+test stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize ... ok
+test stroke_follows_the_network_while_the_fill_keeps_the_outline ... ok
+test plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes ... ok
+test an_inside_stroke_of_a_closed_network_still_drops_its_bake_and_stays_inside ... ok
+test unresized_imported_vector_renders_unchanged ... ok
+test syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override ... ok
+test an_inside_or_outside_stroke_of_a_network_with_an_open_chain_drops_its_bake_and_strokes_live ... FAILED
+test file_type_network_resized_2x_strokes_closed_outline_inside_and_open_fold_centered ... FAILED
+
+failures:
+
+failures:
+    an_inside_or_outside_stroke_of_a_network_with_an_open_chain_drops_its_bake_and_strokes_live
+    file_type_network_resized_2x_strokes_closed_outline_inside_and_open_fold_centered
+
+test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-render --test resized_vector_stroke_weight`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1575-resize-strokes-live/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.24s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 9 tests
+
+thread 'resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu' (88947521) panicked at crates/designos-gpu/tests/resized_shapes.rs:349:9:
+assertion `left == right` failed: CPU Inside: one 2px centered band on the open chain
+  left: []
+ right: [2]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu' (88947516) panicked at crates/designos-gpu/tests/resized_shapes.rs:406:5:
+CPU: 1.5px centered stroke on fold leg
+test resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu ... FAILED
+test file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu ... FAILED
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+mixed_join_resized_2x: mismatch 0.0192% (7 px of 36400) at tolerance 8, ssim 1.0000
+resized_star: mismatch 0.9505% (346 px of 36400) at tolerance 8, ssim 0.9990
+equal_cap_open_stroke: mismatch 0.0549% (20 px of 36400) at tolerance 8, ssim 0.9999
+resized_union: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_imported_shapes: mismatch 1.1566% (421 px of 36400) at tolerance 8, ssim 0.9984
+resized_vector_network_stroke: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_imported_vector: mismatch 0.0220% (8 px of 36400) at tolerance 8, ssim 0.9997
+mixed_join_resized_2x: 0.0000% with AA pixels forgiven (0 px)
+equal_cap_open_stroke: 0.0000% with AA pixels forgiven (0test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu ...  px)
+ok
+test equal_cap_open_stroke_draws_identically_on_cpu_and_gpu ... resized_star: 0.0000% with AA pixels forgiven (0 px)
+okresized_union: 0.0000% with AA pixels forgiven (0 px)
+
+resized_imported_shapes: 0.0000test resized_flattened_star_matches_cpu ... % with AA pixels forgiven (0 px)
+ok
+resized_vector_network_stroke: 0.0000test resized_union_matches_cpu ... % with AA pixels forgiven (0 px)
+ok
+resized_imported_vector: 0.0000% with AA pixels forgiven (0 px)
+test resized_imported_ellipse_and_star_match_cpu ... ok
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+
+failures:
+
+failures:
+    file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu
+    resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu
+
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+error: test failed, to rerun pass `-p designos-gpu --test resized_shapes`
