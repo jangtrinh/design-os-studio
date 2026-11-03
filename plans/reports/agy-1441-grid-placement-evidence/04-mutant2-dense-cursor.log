@@ -1,0 +1,50 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1441-grid-placement/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1441-grid-placement/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1441-grid-placement/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.11s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-7be93aa4a35cfa60)
+
+running 8 tests
+test layout_solver_grid_placement::tests::auto_children_never_take_a_cell_a_later_child_pinned ... ok
+test layout_solver_grid_placement::tests::a_missing_column_keeps_the_row_lock_and_a_wide_span_is_pulled_back_in ... ok
+test layout_solver_grid_placement::tests::b_row_locked_child_is_still_placed_before_auto_children ... ok
+test layout_solver_grid_placement::tests::explicit_cells_may_overlap_each_other_as_in_css ... ok
+test layout_solver_grid_placement::tests::null_control_all_auto_and_all_pinned_grids_match_base ... ok
+test layout_solver_grid_placement::tests::d_column_locked_child_with_column_span_places_in_child_order ... FAILED
+test layout_solver_grid_placement::tests::a_auto_children_before_and_after_column_locked_child_match_css_grid ... FAILED
+test layout_solver_grid_placement::tests::c_column_locked_child_after_cursor_passed_its_column_goes_to_next_row_sparse ... FAILED
+
+failures:
+
+---- layout_solver_grid_placement::tests::d_column_locked_child_with_column_span_places_in_child_order stdout ----
+
+thread 'layout_solver_grid_placement::tests::d_column_locked_child_with_column_span_places_in_child_order' (80267185) panicked at crates/designos-doc/src/layout_solver_grid_placement.rs:177:9:
+assertion `left == right` failed
+  left: [(0, 0), (0, 1), (1, 1), (0, 2)]
+ right: [(0, 0), (0, 1), (1, 1), (2, 0)]
+
+---- layout_solver_grid_placement::tests::a_auto_children_before_and_after_column_locked_child_match_css_grid stdout ----
+
+thread 'layout_solver_grid_placement::tests::a_auto_children_before_and_after_column_locked_child_match_css_grid' (80267180) panicked at crates/designos-doc/src/layout_solver_grid_placement.rs:143:9:
+assertion `left == right` failed
+  left: [(0, 0), (1, 0), (0, 1)]
+ right: [(0, 0), (1, 0), (1, 1)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- layout_solver_grid_placement::tests::c_column_locked_child_after_cursor_passed_its_column_goes_to_next_row_sparse stdout ----
+
+thread 'layout_solver_grid_placement::tests::c_column_locked_child_after_cursor_passed_its_column_goes_to_next_row_sparse' (80267184) panicked at crates/designos-doc/src/layout_solver_grid_placement.rs:164:9:
+assertion `left == right` failed
+  left: [(0, 2), (0, 0), (0, 1)]
+ right: [(0, 2), (1, 0), (1, 1)]
+
+
+failures:
+    layout_solver_grid_placement::tests::a_auto_children_before_and_after_column_locked_child_match_css_grid
+    layout_solver_grid_placement::tests::c_column_locked_child_after_cursor_passed_its_column_goes_to_next_row_sparse
+    layout_solver_grid_placement::tests::d_column_locked_child_with_column_span_places_in_child_order
+
+test result: FAILED. 5 passed; 3 failed; 0 ignored; 0 measured; 719 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
