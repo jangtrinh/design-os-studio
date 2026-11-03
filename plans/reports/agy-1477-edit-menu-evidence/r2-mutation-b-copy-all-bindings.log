@@ -1,0 +1,39 @@
+# mutant (b): paste and match style copies every binding of the target again
+diff --git a/crates/designos-app/src/ops.rs b/crates/designos-app/src/ops.rs
+index da699372..67128de6 100644
+--- a/crates/designos-app/src/ops.rs
++++ b/crates/designos-app/src/ops.rs
+@@ -222 +222,2 @@ fn match_root_style(root: &mut Node, target: &Node, painted_fills: &[Paint], tar
+-    match_bindings(root, target, |key| is_visual_binding(key) || (typography && is_typography_binding(key)));
++    let _ = typography;
++    root.variables.bindings = target.variables.bindings.clone();
+running 11 tests
+test shell::tests::edit_menu_parity::paste_and_match_style_restyles_the_text_inside_a_pasted_frame ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_copies_only_the_visual_bindings_and_style_refs ... FAILED
+test shell::tests::edit_menu_parity::select_same_text_style_and_variant_match_exact_unlocked_visible_siblings ... ok
+test shell::tests::edit_menu_parity::edit_menu_and_palette_expose_all_five_commands_with_labels_shortcuts_and_enabled_states ... ok
+test shell::tests::edit_menu_parity::the_old_paste_and_match_style_chord_does_nothing ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_leaves_text_with_different_run_fills_unchanged_and_swaps_the_rest ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_gives_a_stroke_with_every_width_zero_a_visible_width ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_on_instance_text_survives_a_sync_of_its_main ... ok
+test shell::tests::edit_menu_parity::paste_and_match_style_layer_and_text_carries_target_style_and_undoes_in_one_step ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_on_uniform_text_exchanges_the_painted_fills_with_the_stroke_and_round_trips ... ok
+test shell::tests::edit_menu_parity::swap_fill_and_stroke_single_and_multi_selection_preserves_gradients_and_bindings_and_round_trips ... ok
+
+failures:
+
+---- shell::tests::edit_menu_parity::paste_and_match_style_copies_only_the_visual_bindings_and_style_refs stdout ----
+
+thread 'shell::tests::edit_menu_parity::paste_and_match_style_copies_only_the_visual_bindings_and_style_refs' (79007561) panicked at crates/designos-app/src/shell/tests/edit_menu_parity.rs:605:5:
+assertion `left == right` failed: the pasted layer keeps its own size binding, not the target's
+  left: Some("var_width")
+ right: Some("var_src_width")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    shell::tests::edit_menu_parity::paste_and_match_style_copies_only_the_visual_bindings_and_style_refs
+
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 4224 filtered out; finished in 1.58s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

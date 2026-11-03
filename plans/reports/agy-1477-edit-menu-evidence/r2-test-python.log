@@ -1,0 +1,4 @@
+# python3 -B -m unittest discover -s scripts/tests (PYTHONDONTWRITEBYTECODE=1)
+py_rc=0
+Ran 2207 tests in 78.470s
+OK
