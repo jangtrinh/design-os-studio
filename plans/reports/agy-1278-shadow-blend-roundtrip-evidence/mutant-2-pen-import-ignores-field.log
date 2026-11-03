@@ -1,0 +1,29 @@
+=== MUTANT 2: PEN IMPORT IGNORES BLEND_MODE ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1278-shadow-blend-roundtrip/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.81s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-11e9f1ea5f7ddc4e)
+
+running 1 test
+test pen::export::tests::shadow_blend_mode_survives_pen_roundtrip ... FAILED
+
+failures:
+
+---- pen::export::tests::shadow_blend_mode_survives_pen_roundtrip stdout ----
+
+thread 'pen::export::tests::shadow_blend_mode_survives_pen_roundtrip' (85238445) panicked at crates/designos-fig/src/pen/export.rs:825:17:
+assertion `left == right` failed
+  left: Normal
+ right: Multiply
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    pen::export::tests::shadow_blend_mode_survives_pen_roundtrip
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 144 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-fig --lib`
+mutant2_fig_rc=101

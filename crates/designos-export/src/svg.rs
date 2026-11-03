@@ -112,6 +112,27 @@ pub(crate) fn blend_css(b: BlendMode) -> Option<&'static str> {
     })
 }
 
+fn fe_blend_mode(b: BlendMode) -> &'static str {
+    match b {
+        BlendMode::Normal | BlendMode::PassThrough | BlendMode::LinearBurn | BlendMode::LinearDodge => "normal",
+        BlendMode::Darken => "darken",
+        BlendMode::Multiply => "multiply",
+        BlendMode::ColorBurn => "color-burn",
+        BlendMode::Lighten => "lighten",
+        BlendMode::Screen => "screen",
+        BlendMode::ColorDodge => "color-dodge",
+        BlendMode::Overlay => "overlay",
+        BlendMode::SoftLight => "soft-light",
+        BlendMode::HardLight => "hard-light",
+        BlendMode::Difference => "difference",
+        BlendMode::Exclusion => "exclusion",
+        BlendMode::Hue => "hue",
+        BlendMode::Saturation => "saturation",
+        BlendMode::Color => "color",
+        BlendMode::Luminosity => "luminosity",
+    }
+}
+
 fn visible_paints(paints: &[Paint]) -> impl Iterator<Item = &Paint> {
     paints.iter().filter(|p| p.visible && p.opacity > 0.0)
 }
@@ -711,11 +732,15 @@ impl Svg<'_> {
             num(n.size.x + l + r),
             num(n.size.y + t + b)
         ));
+        let has_blended_drop = n.effects.iter().any(|e| matches!(e, Effect::DropShadow { visible: true, blend, .. } if !blend.is_normal()));
+        if has_blended_drop {
+            self.def("  <feFlood flood-opacity=\"0\" result=\"BackgroundImageFix\"/>");
+        }
         let colorize = |c: &Color| format!("0 0 0 0 {} 0 0 0 0 {} 0 0 0 0 {} 0 0 0 {} 0", num(c.r), num(c.g), num(c.b), num(c.a));
         self.def("  <feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"/>");
         let mut shadows = Vec::new();
         for (i, e) in n.effects.iter().enumerate() {
-            if let Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, .. } = e {
+            if let Effect::DropShadow { color, offset, radius, spread, visible: true, show_behind, blend } = e {
                 let mut input = "hardAlpha".to_string();
                 if *spread != 0.0 {
                     let op = if *spread > 0.0 { "dilate" } else { "erode" };
@@ -733,6 +758,9 @@ impl Svg<'_> {
                     input = format!("knockout{i}");
                 }
                 self.def(&format!("  <feColorMatrix in=\"{input}\" type=\"matrix\" values=\"{}\" result=\"shadow{i}\"/>", colorize(color)));
+                if !blend.is_normal() {
+                    self.def(&format!("  <feBlend mode=\"{}\" in=\"shadow{i}\" in2=\"BackgroundImageFix\" result=\"shadow{i}\"/>", fe_blend_mode(*blend)));
+                }
                 shadows.push(format!("shadow{i}"));
             }
         }
@@ -747,7 +775,7 @@ impl Svg<'_> {
             current = "withShadows".into();
         }
         for (i, e) in n.effects.iter().enumerate() {
-            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, .. } = e {
+            if let Effect::InnerShadow { color, offset, radius, spread, visible: true, blend } = e {
                 let mut input = "hardAlpha".to_string();
                 if *spread > 0.0 {
                     self.def(&format!("  <feMorphology in=\"{input}\" operator=\"erode\" radius=\"{}\" result=\"inset{i}\"/>", num(*spread)));
@@ -761,7 +789,7 @@ impl Svg<'_> {
                 }
                 self.def(&format!("  <feComposite in=\"hardAlpha\" in2=\"{input}\" operator=\"arithmetic\" k2=\"1\" k3=\"-1\" result=\"innerCut{i}\"/>"));
                 self.def(&format!("  <feColorMatrix in=\"innerCut{i}\" type=\"matrix\" values=\"{}\" result=\"innerShadow{i}\"/>", colorize(color)));
-                self.def(&format!("  <feBlend mode=\"normal\" in=\"innerShadow{i}\" in2=\"{current}\" result=\"withInner{i}\"/>"));
+                self.def(&format!("  <feBlend mode=\"{}\" in=\"innerShadow{i}\" in2=\"{current}\" result=\"withInner{i}\"/>", fe_blend_mode(*blend)));
                 current = format!("withInner{i}");
             }
         }
@@ -1414,5 +1442,110 @@ mod tests {
         assert!(s2.contains("<mask id=\"subtract0\""), "{s2}");
         assert!(s2.contains("fill=\"black\""), "{s2}");
         assert!(s2.contains("mask=\"url(#subtract0)\""), "{s2}");
+    }
+
+    #[test]
+    fn shadow_filter_exports_multiply_and_screen_blend_modes() {
+        for (mode, token) in [(BlendMode::Multiply, "multiply"), (BlendMode::Screen, "screen")] {
+            let (d, id) = doc1(|d, page| {
+                let i = d.alloc_id();
+                let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 40.0, 30.0));
+                n.effects = vec![
+                    Effect::DropShadow {
+                        color: Color::rgba(0, 0, 0, 128),
+                        offset: Vec2::new(0.0, 4.0),
+                        radius: 8.0,
+                        spread: 0.0,
+                        visible: true,
+                        show_behind: false,
+                        blend: mode,
+                    },
+                    Effect::InnerShadow {
+                        color: Color::rgba(255, 255, 255, 128),
+                        offset: Vec2::new(1.0, 2.0),
+                        radius: 4.0,
+                        spread: 0.0,
+                        visible: true,
+                        blend: mode,
+                    },
+                ];
+                d.insert(page, n).unwrap();
+            });
+            let s = svg(&d, id);
+            assert!(
+                s.contains(&format!("<feBlend mode=\"{token}\" in=\"shadow0\" in2=\"BackgroundImageFix\" result=\"shadow0\"/>")),
+                "expected drop shadow feBlend mode={token} in:\n{s}"
+            );
+            assert!(
+                s.contains(&format!("<feBlend mode=\"{token}\" in=\"innerShadow1\" in2=\"withShadows\" result=\"withInner1\"/>")),
+                "expected inner shadow feBlend mode={token} in:\n{s}"
+            );
+        }
+    }
+
+    #[test]
+    fn shadow_filter_unsupported_svg_blend_modes_fall_back_to_normal() {
+        for mode in [BlendMode::LinearBurn, BlendMode::LinearDodge, BlendMode::PassThrough] {
+            let (d, id) = doc1(|d, page| {
+                let i = d.alloc_id();
+                let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 40.0, 30.0));
+                n.effects = vec![
+                    Effect::DropShadow {
+                        color: Color::rgba(0, 0, 0, 128),
+                        offset: Vec2::new(0.0, 4.0),
+                        radius: 8.0,
+                        spread: 0.0,
+                        visible: true,
+                        show_behind: false,
+                        blend: mode,
+                    },
+                    Effect::InnerShadow {
+                        color: Color::rgba(255, 255, 255, 128),
+                        offset: Vec2::new(1.0, 2.0),
+                        radius: 4.0,
+                        spread: 0.0,
+                        visible: true,
+                        blend: mode,
+                    },
+                ];
+                d.insert(page, n).unwrap();
+            });
+            let s = svg(&d, id);
+            assert!(
+                s.contains("<feBlend mode=\"normal\" in=\"shadow0\" in2=\"BackgroundImageFix\" result=\"shadow0\"/>"),
+                "expected drop shadow fallback to feBlend mode=\"normal\" for {mode:?} in:\n{s}"
+            );
+            assert!(
+                s.contains("<feBlend mode=\"normal\" in=\"innerShadow1\" in2=\"withShadows\" result=\"withInner1\"/>"),
+                "expected inner shadow fallback to feBlend mode=\"normal\" for {mode:?} in:\n{s}"
+            );
+            assert!(!s.contains("linear-burn") && !s.contains("linear-dodge") && !s.contains("plus-lighter") && !s.contains("pass-through"), "{s}");
+        }
+    }
+
+    #[test]
+    fn normal_shadow_filter_output_is_byte_identical_to_base() {
+        let (d, id) = doc1(|d, page| {
+            let i = d.alloc_id();
+            let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 10.0, 10.0));
+            n.effects = vec![
+                Effect::DropShadow {
+                    color: Color::rgba(0, 0, 0, 64),
+                    offset: Vec2::new(0.0, 4.0),
+                    radius: 4.0,
+                    spread: 0.0,
+                    visible: true,
+                    show_behind: false,
+                    blend: BlendMode::Normal,
+                },
+                Effect::InnerShadow { color: Color::WHITE, offset: Vec2::new(1.0, 1.0), radius: 2.0, spread: 0.0, visible: true, blend: BlendMode::Normal },
+            ];
+            d.insert(page, n).unwrap();
+        });
+        let s = svg(&d, id);
+        let expected = format!(
+            "{HEAD} width=\"18\" height=\"18\" viewBox=\"-4 0 18 18\" fill=\"none\">\n  <defs>\n    <filter id=\"shadow0\" x=\"-4\" y=\"0\" width=\"18\" height=\"18\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\">\n      <feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"/>\n      <feOffset in=\"hardAlpha\" dx=\"0\" dy=\"4\" result=\"offset0\"/>\n      <feGaussianBlur in=\"offset0\" stdDeviation=\"2\" result=\"blur0\"/>\n      <feComposite in=\"blur0\" in2=\"hardAlpha\" operator=\"out\" result=\"knockout0\"/>\n      <feColorMatrix in=\"knockout0\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.251 0\" result=\"shadow0\"/>\n      <feMerge result=\"withShadows\">\n        <feMergeNode in=\"shadow0\"/>\n        <feMergeNode in=\"SourceGraphic\"/>\n      </feMerge>\n      <feOffset in=\"hardAlpha\" dx=\"1\" dy=\"1\" result=\"innerOffset1\"/>\n      <feGaussianBlur in=\"innerOffset1\" stdDeviation=\"1\" result=\"innerBlur1\"/>\n      <feComposite in=\"hardAlpha\" in2=\"innerBlur1\" operator=\"arithmetic\" k2=\"1\" k3=\"-1\" result=\"innerCut1\"/>\n      <feColorMatrix in=\"innerCut1\" type=\"matrix\" values=\"0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0\" result=\"innerShadow1\"/>\n      <feBlend mode=\"normal\" in=\"innerShadow1\" in2=\"withShadows\" result=\"withInner1\"/>\n    </filter>\n  </defs>\n  <g data-name=\"Rectangle\">\n    <g filter=\"url(#shadow0)\">\n      <rect width=\"10\" height=\"10\" fill=\"#D9D9D9\"/>\n    </g>\n  </g>\n</svg>\n"
+        );
+        assert_eq!(s, expected);
     }
 }
