@@ -1,0 +1,77 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-doc)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.62s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 16 tests
+test resized_2x_arrow_vectors_drop_bake_keep_head_size_and_match_cpu ... FAILED
+test all_five_arrow_caps_match_cpu_on_lines_and_open_vectors ... FAILED
+test kit_arrow_vectors_match_figma_bake_at_1x_and_keep_head_size_when_resized_2x_on_cpu_and_gpu ... FAILED
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu ... ok
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test equal_cap_open_stroke_draws_identically_on_cpu_and_gpu ... ok
+test file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu ... ok
+test resized_union_matches_cpu ... ok
+test resized_imported_ellipse_and_star_match_cpu ... ok
+test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+test per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu ... FAILED
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu ... ok
+test resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu ... ok
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu ... ok
+
+failures:
+
+---- resized_2x_arrow_vectors_drop_bake_keep_head_size_and_match_cpu stdout ----
+
+thread 'resized_2x_arrow_vectors_drop_bake_keep_head_size_and_match_cpu' (90545373) panicked at crates/designos-gpu/tests/resized_shapes.rs:788:9:
+CPU resized_arrow_lines: head ink at 1x head span (y = 46)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- all_five_arrow_caps_match_cpu_on_lines_and_open_vectors stdout ----
+
+thread 'all_five_arrow_caps_match_cpu_on_lines_and_open_vectors' (90545365) panicked at crates/designos-gpu/tests/resized_shapes.rs:740:13:
+CPU arrow_lines (line=false): expected head ink at (70, 40)
+
+---- kit_arrow_vectors_match_figma_bake_at_1x_and_keep_head_size_when_resized_2x_on_cpu_and_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+kit_1143-83664_bake_1x: mismatch 1.3600% (94 px of 6912) at tolerance 8, ssim 0.9993
+kit_1143-83664_bake_1x: 0.1302% with AA pixels forgiven (9 px)
+kit_1143-83664_live_1x: mismatch 0.0000% (0 px of 6912) at tolerance 8, ssim 1.0000
+kit_1143-83664_live_1x: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'kit_arrow_vectors_match_figma_bake_at_1x_and_keep_head_size_when_resized_2x_on_cpu_and_gpu' (90545370) panicked at crates/designos-gpu/tests/resized_shapes.rs:910:9:
+1143-83664 1x CPU: live-drawn ArrowLines matches Figma's baked strokeGeometry pixel-for-pixel
+
+---- per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+per_vertex_square_cap: mismatch 0.3956% (144 px of 36400) at tolerance 8, ssim 0.9890
+per_vertex_square_cap: 0.3956% with AA pixels forgiven (144 px)
+
+thread 'per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu' (90545372) panicked at crates/designos-gpu/tests/resized_shapes.rs:961:9:
+assertion `left == right` failed: GPU per_vertex_square_cap: paints x = 4..66 (62px run) on y = 20
+  left: [50]
+ right: [62]
+
+
+failures:
+    all_five_arrow_caps_match_cpu_on_lines_and_open_vectors
+    kit_arrow_vectors_match_figma_bake_at_1x_and_keep_head_size_when_resized_2x_on_cpu_and_gpu
+    per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu
+    resized_2x_arrow_vectors_drop_bake_keep_head_size_and_match_cpu
+
+test result: FAILED. 12 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+error: test failed, to rerun pass `-p designos-gpu --test resized_shapes`
