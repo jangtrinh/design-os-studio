@@ -383,20 +383,38 @@ fn scaling_selected_points_bounding_box_scales_only_selected_points() {
     assert!((p3_undo.x - 335.0).abs() < 1.0 && (p3_undo.y - 820.0).abs() < 1.0, "{p3_undo:?}");
 }
 
-/// 100x100 square at (300, 800)..(400, 900) in vector edit mode with its 4 corners selected
-/// and a 5th unselected vertex at (350, 800) on the top edge as a null control.
-fn editing_square_with_unselected_point() -> (Sim, NodeId) {
+/// 100x100 square at (300, 800)..(400, 900) in vector edit mode. The top segment (0 -> 1) is
+/// split at `t` so vertex 4 sits on the top edge, and `selected` are the selected vertices.
+fn editing_square_split_at(t: f32, selected: &[usize]) -> (Sim, NodeId) {
     let mut s = Sim::new();
     let id = add_rect(&mut s, "Sq", 300.0, 800.0, 100.0, 100.0);
     let p = at(&s, 350.0, 850.0);
     s.click(p);
     s.click(p);
     assert_eq!(s.app().canvas.vedit.as_ref().map(|v| v.id), Some(id));
-    // Split top segment (0 -> 1) at t = 0.5 so vertex 4 sits at (350, 800) and stays unselected.
-    crate::canvas::vector::insert_point(&mut s.shell.app, 0, 0.5);
-    s.shell.app.canvas.vedit.as_mut().unwrap().sel = BTreeSet::from([0, 1, 2, 3]);
+    crate::canvas::vector::insert_point(&mut s.shell.app, 0, t);
+    s.shell.app.canvas.vedit.as_mut().unwrap().sel = selected.iter().copied().collect();
     s.frame(vec![]);
     (s, id)
+}
+
+/// The square with its 4 corners selected and a 5th unselected vertex at (350, 800) on the top
+/// edge as a null control.
+fn editing_square_with_unselected_point() -> (Sim, NodeId) {
+    editing_square_split_at(0.5, &[0, 1, 2, 3])
+}
+
+/// World positions of every vertex of the vector `id`, in vertex order.
+fn world_vertices(s: &Sim, id: NodeId) -> Vec<DV> {
+    let w = s.app().doc.world_transform(id);
+    network(s, id).vertices.iter().map(|v| w.apply(v.pos)).collect()
+}
+
+fn assert_vertices_at(got: &[DV], want: &[DV], what: &str) {
+    assert_eq!(got.len(), want.len(), "{what}: vertex count");
+    for (i, (g, w)) in got.iter().zip(want).enumerate() {
+        assert!((g.x - w.x).abs() < 1.0 && (g.y - w.y).abs() < 1.0, "{what}: vertex {i} should be at {w:?}, got {g:?}");
+    }
 }
 
 fn selected_bounds_world(s: &Sim, id: NodeId, indices: &[usize]) -> (f32, f32, f32, f32) {
@@ -514,6 +532,70 @@ fn alt_shift_dragging_an_edge_scale_handle_scales_uniformly_about_the_centre() {
     let (x0, y0, x1, y1) = selected_bounds_world(&s, id, &[0, 1, 2, 3]);
     assert!((x0 - 250.0).abs() < 1.0 && (x1 - 450.0).abs() < 1.0, "Alt+Shift+T scaled X about 350 to [250,450], got [{x0},{x1}]");
     assert!((y0 - 750.0).abs() < 1.0 && (y1 - 950.0).abs() < 1.0, "Alt+Shift+T scaled Y about 850 to [750,950], got [{y0},{y1}]");
+}
+
+/// Pointer travel on screen for a page-space move of `(dx, dy)`.
+fn page_travel(s: &Sim, dx: f32, dy: f32) -> Vec2 {
+    at(s, 500.0 + dx, 500.0 + dy) - at(s, 500.0, 500.0)
+}
+
+/// Drags the scale handle `h` by the page-space travel `(dx, dy)` with `m` held.
+fn drag_scale_handle(s: &mut Sim, h: crate::canvas::handles::Handle, m: Modifiers, (dx, dy): (f32, f32)) {
+    mods(s, m);
+    let from = scale_handle_at(s, h);
+    let travel = page_travel(s, dx, dy);
+    s.drag(from, from + travel);
+    mods(s, Modifiers::NONE);
+}
+
+#[test]
+fn shift_dragging_an_edge_scale_handle_past_the_anchor_mirrors_only_the_dragged_axis() {
+    use crate::canvas::handles::Handle;
+    let (mut s, id) = editing_square_split_at(0.25, &[0, 1, 2, 3, 4]);
+    let before = world_vertices(&s, id);
+    let corners = [DV::new(300.0, 800.0), DV::new(400.0, 800.0), DV::new(400.0, 900.0), DV::new(300.0, 900.0)];
+    assert_vertices_at(&before[..4], &corners, "start");
+    assert!(before[4].y == 800.0 && before[4].x > 301.0 && before[4].x < 349.0, "vertex 4 starts on the top edge off the centre line, got {:?}", before[4]);
+
+    // Shift + R dragged 200 to the left (and 20 down) carries the right edge past the left edge at x = 300:
+    // x mirrors about x = 300 while y keeps its size and direction, so no vertex changes its y.
+    drag_scale_handle(&mut s, Handle::R, Modifiers::SHIFT, (-200.0, 20.0));
+    let after = world_vertices(&s, id);
+    let want: Vec<DV> = before.iter().map(|p| DV::new(600.0 - p.x, p.y)).collect();
+    assert_vertices_at(&after, &want, "Shift+R past the left edge");
+    assert_vertices_at(&after[..1], &[DV::new(300.0, 800.0)], "the top-left corner on the anchor line keeps its y");
+    assert_vertices_at(&after[3..4], &[DV::new(300.0, 900.0)], "the bottom-left corner on the anchor line keeps its y");
+    s.cmd_key(Key::Z);
+    assert_vertices_at(&world_vertices(&s, id), &before, "one undo restores the square");
+
+    // Shift + T dragged 200 down (and 20 right) carries the top edge past the bottom edge at y = 900:
+    // y mirrors about y = 900 while x keeps its size and direction, so no vertex changes its x.
+    drag_scale_handle(&mut s, Handle::T, Modifiers::SHIFT, (20.0, 200.0));
+    let after = world_vertices(&s, id);
+    let want: Vec<DV> = before.iter().map(|p| DV::new(p.x, 1800.0 - p.y)).collect();
+    assert_vertices_at(&after, &want, "Shift+T past the bottom edge");
+    assert_vertices_at(&after[..1], &[DV::new(300.0, 1000.0)], "the top-left corner keeps its x");
+    assert_vertices_at(&after[1..2], &[DV::new(400.0, 1000.0)], "the top-right corner keeps its x");
+    s.cmd_key(Key::Z);
+    assert_vertices_at(&world_vertices(&s, id), &before, "one undo restores the square");
+}
+
+#[test]
+fn alt_shift_dragging_an_edge_scale_handle_across_the_centre_mirrors_only_the_dragged_axis() {
+    use crate::canvas::handles::Handle;
+    let (mut s, id) = editing_square_split_at(0.25, &[0, 1, 2, 3, 4]);
+    let before = world_vertices(&s, id);
+
+    // Alt + Shift + R dragged 100 to the left (and 15 down) puts the right edge on the left edge: x mirrors
+    // about the centre x = 350 while y keeps its size and direction.
+    drag_scale_handle(&mut s, Handle::R, Modifiers::ALT | Modifiers::SHIFT, (-100.0, 15.0));
+    let after = world_vertices(&s, id);
+    let want: Vec<DV> = before.iter().map(|p| DV::new(700.0 - p.x, p.y)).collect();
+    assert_vertices_at(&after, &want, "Alt+Shift+R across the centre");
+    assert_vertices_at(&after[..1], &[DV::new(400.0, 800.0)], "the top-left corner lands top-right");
+    assert_vertices_at(&after[3..4], &[DV::new(400.0, 900.0)], "the bottom-left corner lands bottom-right");
+    s.cmd_key(Key::Z);
+    assert_vertices_at(&world_vertices(&s, id), &before, "one undo restores the square");
 }
 
 #[test]

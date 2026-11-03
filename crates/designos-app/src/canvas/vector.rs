@@ -592,9 +592,10 @@ pub fn drag(app: &mut App, cur: DV, mods: Modifiers) {
                     sx = s;
                     sy = s;
                 } else if handle.affects_x() {
-                    sy = sx;
+                    // the dragged axis keeps its sign, so crossing the anchor mirrors only that axis; the other follows its size
+                    sy = sx.abs();
                 } else if handle.affects_y() {
-                    sx = sy;
+                    sx = sy.abs();
                 }
             }
             for &i in &v.sel {
