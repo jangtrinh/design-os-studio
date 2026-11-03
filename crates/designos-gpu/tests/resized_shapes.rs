@@ -259,3 +259,72 @@ fn resized_imported_vector_keeps_stroke_weight_and_matches_cpu() {
     assert!(c.report.ratio < 0.02, "mismatch {:.3}%", c.report.ratio * 100.0);
     assert!(c.report.ssim > 0.97, "{:?}", c.report);
 }
+
+fn vertical_runs(pm: &Pixmap, x: u32, y_range: std::ops::Range<u32>) -> Vec<u32> {
+    let mut runs = Vec::new();
+    let mut cur = 0u32;
+    for y in y_range {
+        let p = pm.pixel(x, y).unwrap();
+        if p.red() < 128 && p.green() < 128 && p.blue() < 128 {
+            cur += 1;
+        } else if cur > 0 {
+            runs.push(cur);
+            cur = 0;
+        }
+    }
+    if cur > 0 {
+        runs.push(cur);
+    }
+    runs
+}
+
+fn is_white(pm: &Pixmap, x: u32, y: u32) -> bool {
+    let p = pm.pixel(x, y).unwrap();
+    p.red() > 250 && p.green() > 250 && p.blue() > 250
+}
+
+/// A filled square next to a bent, stroke-only chain, the way Figma writes it: the fill outline is the
+/// square, the network also holds the chain, and the baked stroke covers both.
+fn square_with_bent_whisker(t: &mut T, at: Vec2) -> NodeId {
+    let square = Path { cmds: rect_subpath(6.0, 2.0, 16.0, 12.0, false), fill_rule: FillRule::NonZero };
+    let whisker = Path {
+        cmds: vec![PathCmd::MoveTo(Vec2::new(2.0, 14.0)), PathCmd::LineTo(Vec2::new(2.0, 18.0)), PathCmd::LineTo(Vec2::new(18.0, 18.0))],
+        fill_rule: FillRule::NonZero,
+    };
+    let net = VectorNetwork::from_paths(&[square.clone(), whisker]);
+    assert!(net.is_valid() && net.has_stroke_only_segments());
+    let stroke = Stroke { weight: 2.0, align: StrokeAlign::Center, ..Stroke::default() };
+    let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: vec![square.clone()], network: Some(net) });
+        n.transform = Affine::translate(at.x, at.y);
+        n.size = Vec2::new(20.0, 20.0);
+        n.fills = vec![Paint::solid(Color::rgb(0xF2, 0x4E, 0x1E))];
+        n.stroke.paints = vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))];
+        n.stroke.weight = 2.0;
+        n.stroke.align = StrokeAlign::Center;
+        n.fill_geometry = Some(vec![square]);
+        n.stroke_geometry = Some(bake);
+        n
+    })
+}
+
+#[test]
+fn resized_vector_strokes_its_network_and_fills_its_outline_like_cpu() {
+    let mut t = T::new();
+    let icon = square_with_bent_whisker(&mut t, Vec2::new(20.0, 20.0));
+    resize(&mut t.doc, icon, Vec2::new(40.0, 40.0));
+
+    // the chain's bottom run (x = 28) is one band of the stroke's own weight; the area between its two
+    // legs and the diagonal (34, 53) is not a fill
+    let cpu = cpu_render(&t);
+    assert_eq!(vertical_runs(&cpu, 28, 15..95), vec![2], "CPU: one band on the stroke-only chain");
+    assert!(is_white(&cpu, 34, 53), "CPU: the stroke-only chain is not filled");
+
+    let Some(mut g) = gpu() else { return };
+    let c = compare(&mut g, "resized_vector_network_stroke", &t.doc, t.page, Viewport::default(), VIEW, 8);
+    assert_eq!(vertical_runs(&c.gpu, 28, 15..95), vec![2], "GPU: one band on the stroke-only chain");
+    assert!(is_white(&c.gpu, 34, 53), "GPU: the stroke-only chain is not filled");
+    assert!(c.report.ratio < 0.005, "mismatch {:.3}%", c.report.ratio * 100.0);
+    assert!(c.report.ssim > 0.98, "{:?}", c.report);
+}

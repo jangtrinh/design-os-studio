@@ -4,7 +4,8 @@
 //! `Stretch`, and `Scale` across both unrotated and rotated/skewed children,
 //! including half-away-from-zero extent rounding and sub-1px sizes.
 
-use crate::{Affine, Constraint, Constraints, Document, Node, NodeId, NodeKind, Path, PathCmd, Vec2};
+use crate::{Affine, Constraint, Constraints, Document, Node, NodeId, NodeKind, Path, PathCmd, Stroke, StrokeAlign, Vec2, VectorNetwork};
+use std::collections::BTreeMap;
 
 /// Minimum axis extent (`2^-12`) below which per-axis scale falls back to `1.0`.
 const MIN_EXTENT: f64 = 1.0 / 4096.0;
@@ -175,6 +176,24 @@ fn scale_paths(paths: &mut [Path], kx: f32, ky: f32) {
     }
 }
 
+/// Whether stroking the centerline `net` live, at the node's own stroke, draws what the baked
+/// `stroke_geometry` draws. Only then may a plain resize drop the bake and let the renderers stroke
+/// the scaled centerline at the unscaled weight; otherwise the bake is scaled with the shape.
+///
+/// The live stroke has one weight and one cap and join for the whole node. It cannot reproduce
+/// side weights, a brush, an arrow cap Figma draws but the stroke model has no name for (recorded
+/// at import in `fig_metadata["strokeCap"]`, on the node or on any vertex), a vertex with its own
+/// cap or join, or dashes on an inside or outside stroke.
+fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>, net: &VectorNetwork) -> bool {
+    !net.is_empty()
+        && net.is_valid()
+        && stroke.side_weights.is_none()
+        && !meta.contains_key("brushType")
+        && !meta.contains_key("strokeCap")
+        && net.vertices.iter().all(|v| v.cap.is_none_or(|c| c == stroke.cap) && v.join.is_none_or(|j| j == stroke.join))
+        && (stroke.dashes.is_empty() || stroke.align == StrokeAlign::Center)
+}
+
 /// Applies `(new_transform, new_size)` from [`constrain_child`] / [`plan_constraint_pass`]
 /// to `node`, scaling local vector/boolean path geometry or clearing stale analytical outlines
 /// whenever `node.size` changes.
@@ -190,8 +209,9 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
     let ky = if old_size.y.abs() > 1e-6 { new_size.y / old_size.y } else { 1.0 };
     match &mut node.kind {
         NodeKind::Vector { paths, network } => {
-            let outline_only =
-                network.as_ref().is_none_or(|n| !n.is_valid()) && node.stroke_geometry.as_ref().is_some_and(|sg| paths.is_empty() || paths == sg);
+            // Decided on the geometry as it is before any scaling.
+            let drop_bake =
+                node.stroke_geometry.is_some() && network.as_ref().is_some_and(|net| live_stroke_reproduces_bake(&node.stroke, &node.fig_metadata, net));
             scale_paths(paths, kx, ky);
             if let Some(net) = network {
                 for v in &mut net.vertices {
@@ -201,19 +221,17 @@ pub fn apply_constrained_geometry(node: &mut Node, new_transform: Affine, new_si
                     s.ta = scale_vec2(s.ta, kx, ky);
                     s.tb = scale_vec2(s.tb, kx, ky);
                 }
-                if net.is_valid() && (node.stroke_geometry.is_some() || net.vertices.iter().any(|v| v.corner_radius > 0.0)) {
+                if net.is_valid() && (drop_bake || net.vertices.iter().any(|v| v.corner_radius > 0.0)) {
                     *paths = net.to_paths();
                 }
             }
             if let Some(fg) = &mut node.fill_geometry {
                 scale_paths(fg, kx, ky);
             }
-            if outline_only {
-                if let Some(sg) = &mut node.stroke_geometry {
-                    scale_paths(sg, kx, ky);
-                }
-            } else {
+            if drop_bake {
                 node.stroke_geometry = None;
+            } else if let Some(sg) = &mut node.stroke_geometry {
+                scale_paths(sg, kx, ky);
             }
         }
         NodeKind::BooleanOp(_) => {

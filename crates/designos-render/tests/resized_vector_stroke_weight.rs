@@ -1,4 +1,4 @@
-//! Acceptance tests for #945: resizing an imported stroked vector scales its path
+//! Resizing an imported stroked vector scales its path
 //! (`paths` and `network`) while keeping its `stroke.weight` and without drawing
 //! a stale or doubled stroke outline.
 
@@ -38,6 +38,10 @@ fn rect_subpath(x0: f32, y0: f32, x1: f32, y1: f32, reversed: bool) -> Vec<PathC
 /// - `paths`: clone of `stroke_geometry` (matching `designos-fig`'s `rest_import.rs` when
 ///   `fillGeometry` is empty and `strokeGeometry` is non-empty).
 fn imported_stroke_only_icon(t: &mut T, at: Vec2, with_network: bool) -> NodeId {
+    imported_stroke_only_icon_in(t, None, at, with_network)
+}
+
+fn imported_stroke_only_icon_in(t: &mut T, parent: Option<NodeId>, at: Vec2, with_network: bool) -> NodeId {
     let mut cmds = rect_subpath(1.0, 1.0, 19.0, 19.0, false);
     cmds.extend(rect_subpath(3.0, 3.0, 17.0, 17.0, true));
     let stroke_geo = vec![Path { cmds, fill_rule: FillRule::NonZero }];
@@ -47,7 +51,7 @@ fn imported_stroke_only_icon(t: &mut T, at: Vec2, with_network: bool) -> NodeId 
         VectorNetwork::from_paths(&centerline)
     });
 
-    t.add(None, |id| {
+    t.add(parent, |id| {
         let mut n = Node::new(id, NodeKind::Vector { paths: stroke_geo.clone(), network });
         n.name = "Icon".into();
         n.transform = Affine::translate(at.x, at.y);
@@ -227,4 +231,147 @@ fn null_control_unresized_imported_vector_renders_unchanged() {
         let pm_2x = render_isolated(sample, Some(sz_2x));
         pm_2x.save_png(out.join(format!("kit-icon-2x-{tag}.png"))).unwrap();
     }
+}
+
+/// A closed 20x20 outline icon on a page frame turned into a main component, plus one instance of it at
+/// `(20, 20)`. Returns `(component, instance, main icon, instance icon)`.
+fn component_with_instance(t: &mut T) -> (NodeId, NodeId, NodeId, NodeId) {
+    let frame = t.add(None, |id| Node::frame(id, Rect::new(200.0, 0.0, 60.0, 60.0)));
+    let main_icon = imported_stroke_only_icon_in(t, Some(frame), Vec2::ZERO, true);
+    create_component(&mut t.doc, frame).apply(&mut t.doc).unwrap();
+    let page = t.page;
+    create_instance(&mut t.doc, frame, page, Vec2::new(20.0, 20.0)).apply(&mut t.doc).unwrap();
+    let instance = *t.doc.get(page).unwrap().children.last().unwrap();
+    let inst_icon = t.doc.get(instance).unwrap().children[0];
+    (frame, instance, main_icon, inst_icon)
+}
+
+fn vector_geometry(n: &Node) -> (&[Path], Option<&VectorNetwork>) {
+    let NodeKind::Vector { paths, network } = &n.kind else { panic!("expected a vector") };
+    (paths, network.as_ref())
+}
+
+#[test]
+fn syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override() {
+    let mut t = T::new();
+    let (comp, _instance, main_icon, inst_icon) = component_with_instance(&mut t);
+
+    // the instance child is resized on its own, which leaves it without a baked stroke
+    plain_resize(&mut t.doc, inst_icon, Vec2::new(40.0, 40.0));
+    t.node(inst_icon).component.overrides.insert(OverrideField::Size);
+    assert!(t.doc.get(inst_icon).unwrap().stroke_geometry.is_none(), "the resize left the instance child without a bake");
+
+    sync_instances(&mut t.doc, comp).apply(&mut t.doc).unwrap();
+
+    // what a plain resize of the main's own icon to the same size gives
+    let mut expected = t.doc.get(main_icon).unwrap().clone();
+    plain_resize_node(&mut expected, Vec2::new(40.0, 40.0));
+    let got = t.doc.get(inst_icon).unwrap();
+    assert_eq!(got.size, Vec2::new(40.0, 40.0));
+    assert_eq!(vector_geometry(got), vector_geometry(&expected), "paths and network are the centerline of the plain resize");
+    assert_eq!(got.stroke_geometry, expected.stroke_geometry);
+
+    // drawn as one band of the stroke's own weight per edge, not the scaled ring's two
+    let pm = t.render(100, 100);
+    assert_eq!(horizontal_ink_runs(&pm, 40, 15..65), vec![2, 2], "one 2px band on each vertical edge");
+    assert_eq!(vertical_ink_runs(&pm, 40, 15..65), vec![2, 2], "one 2px band on each horizontal edge");
+}
+
+fn plain_resize_node(n: &mut Node, new_size: Vec2) {
+    let tf = n.transform;
+    apply_constrained_geometry(n, tf, new_size);
+}
+
+/// Imported like Figma writes a filled square with a stroked whisker next to it: the fill outline is the
+/// square, the network also holds an open, bent chain (stroke only), and the baked stroke covers both.
+fn square_with_whisker(t: &mut T, fills: bool) -> NodeId {
+    let square = Path { cmds: rect_subpath(6.0, 2.0, 16.0, 12.0, false), fill_rule: FillRule::NonZero };
+    let whisker = Path {
+        cmds: vec![PathCmd::MoveTo(Vec2::new(2.0, 14.0)), PathCmd::LineTo(Vec2::new(2.0, 18.0)), PathCmd::LineTo(Vec2::new(18.0, 18.0))],
+        fill_rule: FillRule::NonZero,
+    };
+    let net = VectorNetwork::from_paths(&[square.clone(), whisker]);
+    assert!(net.is_valid() && net.has_stroke_only_segments(), "the whisker is a stroke-only chain");
+    let stroke = Stroke { weight: 2.0, align: StrokeAlign::Center, ..Stroke::default() };
+    let bake = designos_render::vectorops::outline_stroke(&net.to_paths(), &stroke, Some(&net));
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: vec![square.clone()], network: Some(net) });
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(20.0, 20.0);
+        n.fills = if fills { vec![Paint::solid(Color::rgb(0xF2, 0x4E, 0x1E))] } else { vec![] };
+        n.stroke.paints = vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))];
+        n.stroke.weight = 2.0;
+        n.stroke.align = StrokeAlign::Center;
+        n.fill_geometry = Some(vec![square]);
+        n.stroke_geometry = Some(bake);
+        n
+    })
+}
+
+#[test]
+fn stroke_follows_the_network_while_the_fill_keeps_the_outline() {
+    let mut t = T::new();
+    let icon = square_with_whisker(&mut t, true);
+    plain_resize(&mut t.doc, icon, Vec2::new(40.0, 40.0));
+    assert!(t.doc.get(icon).unwrap().stroke_geometry.is_none());
+
+    // the whisker's bottom run, off the square: one band of the stroke's own weight
+    let pm = t.render(100, 100);
+    assert_eq!(vertical_ink_runs(&pm, 28, 15..95), vec![2], "the stroke-only chain is stroked once at its own weight");
+
+    // the fill is the plain 2x scale of the square, untouched by the network
+    let mut no_stroke = t.doc.clone();
+    no_stroke.get_mut(icon).unwrap().stroke.paints.clear();
+    let mut reference = T::new();
+    reference.add(None, |id| {
+        let mut n = Node::new(
+            id,
+            NodeKind::Vector { paths: vec![Path { cmds: rect_subpath(12.0, 4.0, 32.0, 24.0, false), fill_rule: FillRule::NonZero }], network: None },
+        );
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(40.0, 40.0);
+        n.fills = vec![Paint::solid(Color::rgb(0xF2, 0x4E, 0x1E))];
+        n
+    });
+    let mut filled = Pixmap::new(100, 100).unwrap();
+    render_page(&no_stroke, t.page, &Viewport::default(), &mut filled);
+    assert_eq!(filled.data(), reference.render(100, 100).data(), "the fill pixels equal a plain 2x scale of the square");
+}
+
+/// Null control across builds. With `DESIGNOS_KIT_FIG_PATH` and `DESIGNOS_NULL_CONTROL_OUT` set, renders the
+/// unresized kit vectors one by one (the first ones in the file, and the ones that keep Figma's fill outline
+/// without a baked stroke) and writes one `id name hash` line each. The lines of two builds are diffed: a line
+/// that differs is a vector that no longer renders the same pixels.
+#[test]
+fn unresized_kit_vectors_hash_for_a_cross_build_null_control() {
+    let (Ok(kit_path), Ok(out)) = (std::env::var("DESIGNOS_KIT_FIG_PATH"), std::env::var("DESIGNOS_NULL_CONTROL_OUT")) else { return };
+    let bytes = std::fs::read(&kit_path).expect("read kit .fig");
+    let doc = designos_fig::import_fig(&bytes).expect("import kit .fig");
+    let mut ids: Vec<_> = doc.nodes.values().filter(|n| matches!(n.kind, NodeKind::Vector { .. })).map(|n| n.id).collect();
+    ids.sort_by_key(|id| id.0);
+    let keeps_outline = |id: &NodeId| doc.get(*id).is_some_and(|n| n.fill_geometry.is_some() && n.stroke_geometry.is_none());
+    let mut sample: Vec<NodeId> = ids.iter().copied().take(300).collect();
+    sample.extend(ids.iter().copied().filter(keeps_outline).take(300));
+    sample.sort_by_key(|id| id.0);
+    sample.dedup();
+
+    let mut lines = String::new();
+    for id in sample {
+        let mut node = doc.get(id).unwrap().clone();
+        let mut d = Document::new("null-control");
+        let page = d.add_page("p");
+        d.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::WHITE };
+        let name = node.name.clone();
+        node.id = d.alloc_id();
+        node.parent = Some(page);
+        node.transform = Affine::translate(4.0, 4.0);
+        let zoom = 2.0f32;
+        let (w, h) = (((node.size.x + 8.0) * zoom).ceil().clamp(1.0, 2048.0) as u32, ((node.size.y + 8.0) * zoom).ceil().clamp(1.0, 2048.0) as u32);
+        d.insert(page, node).unwrap();
+        let mut pm = Pixmap::new(w, h).unwrap();
+        render_page(&d, page, &Viewport { offset: Vec2::ZERO, zoom, ..Viewport::default() }, &mut pm);
+        let hash = pm.data().iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3));
+        lines.push_str(&format!("{} {} {hash:016x}\n", id.0, name.replace(' ', "_")));
+    }
+    std::fs::write(out, lines).unwrap();
 }

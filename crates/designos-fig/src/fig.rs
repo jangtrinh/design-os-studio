@@ -1095,6 +1095,10 @@ fn clean_json_floats(v: &Value) -> Value {
     }
 }
 
+fn is_modelled_stroke_cap(c: &str) -> bool {
+    c.is_empty() || matches!(c, "NONE" | "ROUND" | "SQUARE")
+}
+
 fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<Value> {
     let obj = nc.as_object()?;
     let mut meta = Map::new();
@@ -1121,6 +1125,20 @@ fn extract_fig_metadata(nc: &Value, orig_ty: &str, large_file: bool) -> Option<V
                 if let Some(swt) = val.as_str().filter(|s| !s.is_empty()) {
                     meta.insert("shapeWithTextType".into(), Value::String(swt.to_string()));
                     has_swt = true;
+                }
+            }
+            // The arrow caps are mapped to NONE for the stroke model; the baked outline keeps the arrowhead,
+            // so the name stays in the metadata for the resize to see (on the node, or on any vertex).
+            "strokeCap" if matches!(orig_ty, "VECTOR" | "BRUSH") => {
+                if let Some(c) = val.as_str().filter(|c| !is_modelled_stroke_cap(c)) {
+                    meta.insert("strokeCap".into(), Value::String(c.to_string()));
+                }
+            }
+            "vectorData" => {
+                let table = val.get("styleOverrideTable").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+                let on_vertex = table.iter().filter_map(|e| fstr(e, "strokeCap")).find(|c| !is_modelled_stroke_cap(c));
+                if let Some(c) = on_vertex {
+                    meta.entry("strokeCap".to_string()).or_insert_with(|| Value::String(c.to_string()));
                 }
             }
             "shapeType" if orig_ty == "SHAPE_WITH_TEXT" && !has_swt => {

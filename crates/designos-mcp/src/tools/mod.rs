@@ -281,7 +281,12 @@ pub(crate) fn build_updated_node(doc: &mut Document, id: NodeId, u: UpdateFields
         }
     }
     geometry(new_transform.tx, new_transform.ty, new_size.x, new_size.y)?;
-    designos_doc::apply_constrained_geometry(&mut node, new_transform, new_size);
+    if matches!(node.kind, NodeKind::Vector { .. }) {
+        designos_doc::apply_constrained_geometry(&mut node, new_transform, new_size);
+    } else {
+        node.transform = new_transform;
+        node.size = new_size;
+    }
     if let Some(visible) = u.visible {
         node.visible = visible;
     }
