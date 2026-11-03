@@ -6,7 +6,7 @@
 2. **Plan & Ground** — Choose components/tokens via `designos_get_variables` and `designos_get_guidelines`. Place new frames beside existing ones — never stack at `(0, 0)`.
 
 3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, `var:` / `style:` tokens, and auto layout (`layout`).
-4. **Verify (`issues` + screenshot)** — Render the finished frame with `designos_render_png` (<= 1024px) or `diff_image` and inspect it.
+4. **Verify (`issues` + screenshot)** — Render the finished frame with `designos_render_png` (<= 1024px) or `diff_image` and inspect for hierarchy, alignment, clipping, and contrast.
 5. **Fix in place** — Update with (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
 6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
@@ -209,10 +209,9 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 - **Example:** `{}`
 
 ### `designos_docs_list`
-- **Purpose:** List a project's docs: groups, pages, pins.
-- **Args:** required: none (optional: `project`)
-- **Errors:** `INVALID_ARGUMENTS`, `MISSING_FIELD`, `DOCUMENT_INVALID`
-- **Example:** `{}`
+- **Purpose:** List a project's doc pages and pins.
+- **Args:** required: none (optional: `cursor`, `project`)
+- **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`, `DOCUMENT_INVALID`
 
 ### `designos_docs_read`
 - **Purpose:** Read one doc page as blocks.
@@ -359,7 +358,7 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 ## Per-Call `issues` Block & Error Recovery
 
 - **Per-call `issues`:** Mutating replies attach `issues`. Resolve `new_in_this_call > 0` first.
-- **Loop hint:** Repeat successful reads attach a `warning` with code `LOOP_SUSPECTED`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
+- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
 
 ## Design Quality & Anti-Generic Rules
 

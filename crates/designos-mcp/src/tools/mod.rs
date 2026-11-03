@@ -10,6 +10,7 @@ pub mod docs_errors;
 pub mod docs_fence;
 #[cfg(test)]
 mod docs_hostile_tests;
+pub mod docs_list;
 pub mod docs_project;
 #[cfg(test)]
 mod docs_tests;

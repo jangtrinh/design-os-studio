@@ -23,7 +23,7 @@ pub(super) struct Fixture {
 }
 
 fn pin(id: &str, name: &str, group: Group, parent: Option<&str>) -> Pin {
-    Pin { id: id.into(), file_id: "file-1".into(), node_id: format!("{id}-node"), name: name.into(), group, parent_screen: parent.map(str::to_string) }
+    Pin { id: id.into(), file_id: "a1b2c3".into(), node_id: "42".into(), name: name.into(), group, parent_screen: parent.map(str::to_string) }
 }
 
 /// A library with one project "Checkout": a page in every group and two pins (a screen and one of its states).
@@ -61,8 +61,13 @@ pub(super) fn call(fx: &Fixture, tool: &str, args: Value) -> Result<Value, ToolE
 pub(super) fn assert_nothing_loose(v: &Value, what: &str) {
     let mut all = Vec::new();
     strings(v, false, &mut all);
-    let loose: Vec<&String> =
-        all.iter().filter(|(s, fenced)| !fenced && (s.to_lowercase().contains("ignore all previous") || s.contains("<ignore me>"))).map(|(s, _)| s).collect();
+    let loose: Vec<&String> = all
+        .iter()
+        .filter(|(s, fenced)| {
+            !fenced && (s.to_lowercase().contains("ignore all previous") || s.to_lowercase().contains("ignore-all-previous") || s.contains("<ignore me>"))
+        })
+        .map(|(s, _)| s)
+        .collect();
     assert!(loose.is_empty(), "{what}: doc text outside the fence: {loose:?}");
 }
 
@@ -109,7 +114,7 @@ fn list_returns_the_five_groups_their_pages_and_the_pins() {
     assert!(groups.iter().all(|g| g["pages"].as_array().unwrap().len() == 1));
 
     let prd = &groups[1]["pages"][0];
-    assert_eq!(prd["path"], json!("spec/prd.md"));
+    assert_eq!(prd["path"], json!({"untrusted": true, "origin": "doc_text", "value": "spec/prd.md"}), "a page path is always fenced");
     assert_eq!(prd["title"]["value"], json!("Checkout PRD"), "front matter title");
     assert_eq!(prd["blocks"], json!(7));
     let cart = &groups[2]["pages"][0];
@@ -118,8 +123,9 @@ fn list_returns_the_five_groups_their_pages_and_the_pins() {
 
     let pins = out["pins"].as_array().unwrap();
     assert_eq!(pins.len(), 2);
-    assert_eq!((pins[0]["id"].as_str(), pins[0]["group"].as_str(), pins[0]["parent_screen"].is_null()), (Some("cart"), Some("screens"), true));
-    assert_eq!((pins[1]["id"].as_str(), pins[1]["parent_screen"].as_str()), (Some("cart-empty"), Some("cart")));
+    assert_eq!((pins[0]["id"]["value"].as_str(), pins[0]["group"].as_str(), pins[0]["parent_screen"].is_null()), (Some("cart"), Some("screens"), true));
+    assert_eq!((pins[1]["id"]["value"].as_str(), pins[1]["parent_screen"]["value"].as_str()), (Some("cart-empty"), Some("cart")));
+    assert_eq!((pins[0]["file_id"].as_str(), pins[0]["node_id"].as_str()), (Some("a1b2c3"), Some("42")), "machine-format ids stay plain");
     assert_eq!(pins[0]["name"]["value"], json!("Cart <ignore me>"), "a pin name is user text: fenced");
 }
 
@@ -297,7 +303,7 @@ fn a_page_over_the_size_limit_is_refused_with_a_fix_and_does_not_break_the_listi
     fx.store.write_manifest(&manifest.value, Expect::Hash(manifest.hash)).unwrap();
     let listed = ok(&fx, "designos_docs_list", json!({}));
     let entry = &listed["groups"][1]["pages"][1];
-    assert_eq!(entry["path"], json!("spec/huge.md"));
+    assert_eq!(entry["path"]["value"], json!("spec/huge.md"));
     assert_eq!(entry["error"]["untrusted"], json!(true), "the error text holds the page path");
     assert!(entry["error"]["value"].as_str().unwrap().contains("fix: split the page"));
     assert_eq!(listed["groups"][1]["pages"][0]["title"]["value"], json!("Checkout PRD"), "the other pages still list");

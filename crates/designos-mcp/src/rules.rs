@@ -461,13 +461,17 @@ fn render_tool_section(out: &mut String, tool: &Tool) {
     let opt_str = if opt.is_empty() { String::new() } else { format!(" (optional: {})", opt.join(", ")) };
     // `TOOL_DISABLED` applies to every tool and is described once in the error-recovery section.
     let errors = tool_error_codes(name).iter().copied().filter(|code| *code != "`TOOL_DISABLED`").collect::<Vec<_>>().join(", ");
-    let example = tool_worked_example(name);
+    // Every argument of the listing is optional and the Args line names them: a `{}` example would only cost budget.
+    let example = (name != "designos_docs_list").then(|| tool_worked_example(name));
 
     out.push_str(&format!("### `{name}`\n"));
     out.push_str(&format!("- **Purpose:** {}\n", purpose_summary(desc)));
     out.push_str(&format!("- **Args:** required: {req_str}{opt_str}\n"));
     out.push_str(&format!("- **Errors:** {errors}\n"));
-    out.push_str(&format!("- **Example:** `{example}`\n\n"));
+    match example {
+        Some(example) => out.push_str(&format!("- **Example:** `{example}`\n\n")),
+        None => out.push('\n'),
+    }
 }
 
 /// Maximum characters kept from a tool description in the rules pack (the budget in [`MAX_RULES_TOKENS`] is shared by every tool).
@@ -581,7 +585,7 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_new_document" => &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
         "designos_get_metadata" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_libraries" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
-        "designos_docs_list" => &["`INVALID_ARGUMENTS`", "`MISSING_FIELD`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"],
+        "designos_docs_list" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"],
         "designos_docs_read" => {
             &["`INVALID_ARGUMENTS`", "`MISSING_FIELD`", "`VALUE_OUT_OF_RANGE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
         }
@@ -729,7 +733,7 @@ fn render_issues_and_errors_section(out: &mut String, has_write_tools: bool) {
         out.push_str("- **Per-call `issues`:** Mutating replies attach `issues`. Resolve `new_in_this_call > 0` first.\n");
     }
     out.push_str(
-        "- **Loop hint:** Repeat successful reads attach a `warning` with code `LOOP_SUSPECTED`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
+        "- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
     );
 }
 

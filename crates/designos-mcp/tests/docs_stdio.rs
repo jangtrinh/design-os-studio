@@ -21,7 +21,11 @@ fn strings(v: &Value, fenced: bool, out: &mut Vec<(String, bool)>) {
 fn assert_nothing_loose(v: &Value, what: &str) {
     let mut all = Vec::new();
     strings(v, false, &mut all);
-    let loose: Vec<&String> = all.iter().filter(|(s, fenced)| !fenced && s.to_lowercase().contains("ignore all previous")).map(|(s, _)| s).collect();
+    let loose: Vec<&String> = all
+        .iter()
+        .filter(|(s, fenced)| !fenced && s.to_lowercase().contains("ignore all previous") || s.to_lowercase().contains("ignore-all-previous"))
+        .map(|(s, _)| s)
+        .collect();
     assert!(loose.is_empty(), "{what}: doc text outside the fence: {loose:?}");
 }
 
@@ -49,8 +53,8 @@ async fn docs_tools_list_and_read_over_stdio_with_doc_text_fenced() {
     manifest.group_mut(Group::Spec).pages.extend(["spec/prd.md".to_string(), hostile_page.clone()]);
     manifest.pins.push(Pin {
         id: "cart".into(),
-        file_id: "file-1".into(),
-        node_id: "n-1".into(),
+        file_id: "a1b2c3".into(),
+        node_id: "7".into(),
         name: INJECTION.into(),
         group: Group::Screens,
         parent_screen: None,
@@ -67,7 +71,8 @@ async fn docs_tools_list_and_read_over_stdio_with_doc_text_fenced() {
         assert_eq!(listed.is_error, Some(false));
         let listed = check_both(&listed, "list");
         assert_eq!(listed["project"]["id"], json!(project.id));
-        assert_eq!(listed["groups"][1]["pages"][0]["path"], json!("spec/prd.md"), "a slug stays plain");
+        assert_eq!(listed["groups"][1]["pages"][0]["path"]["value"], json!("spec/prd.md"));
+        assert_eq!(listed["groups"][1]["pages"][0]["path"]["untrusted"], json!(true), "every path is fenced");
         let fenced_path = &listed["groups"][1]["pages"][1]["path"];
         assert_eq!(fenced_path["untrusted"], json!(true), "a free-text file name is fenced");
         assert_eq!(listed["pins"][0]["name"]["value"], json!(INJECTION));
