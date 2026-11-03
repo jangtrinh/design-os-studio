@@ -328,16 +328,15 @@ Status: NEEDS_CONTEXT — Z16 (`scripts/zero_fake_ui_gate.py`) requires adding F
 
 ## Round 2
 
-Supersedes round 1 where they differ: Paste and match style has no shortcut (the `Ctrl+Shift+Alt+V` claims above are void), and Z16 is 17/17 through an allowlist instead of NEEDS_CONTEXT. Merged `origin/main` (88677245) first, merge commit ca11b508. Evidence: `plans/reports/agy-1477-edit-menu-evidence/r2-*`.
+Supersedes round 1 where they differ: Paste and match style has no shortcut (the `Ctrl+Shift+Alt+V` claims above are void), and Z16 is 17/17 through an allowlist instead of NEEDS_CONTEXT. Merged `origin/main` (88677245) first, merge commit ca11b508. Code commits: a314fd0b (fixes), 7c033f12 (leaves `effects/*` bindings out of paste and match, per the ruling's key list). Evidence: `plans/reports/agy-1477-edit-menu-evidence/r2-*`.
 
 ### Ledger
 - FACT: egui-winit 0.35.0 `is_paste_command` is `command && V` (`lib.rs:1406-1410`); the press becomes `Event::Paste` and is never forwarded as `Event::Key` (`lib.rs:1007-1017`). Same for copy (`lib.rs:1004`).
 - FACT: the instance test and the select-same tests were already green on the base; only the new asserts below were red.
 - INFERENCE: no other command binds the removed chord, so removing it frees it for Figma's paste-to-replace chord later.
-- ASSUMPTION (medium): `effects/*` bindings belong to "those fields" because effects are copied; flip if the owner wants the ruling's list literally.
 
 ### Per ruling: red then green
-Red = `r2-red-edit-menu-parity.log` (merged base, 7 failed / 4 passed) and `r2-red-ux-writing.log` (2 failed). Green = `r2-test-designos-app.log` and `r2-green-ux-writing.log`.
+Red = `r2-red-edit-menu-parity.log` (merged base, 7 failed / 4 passed) and `r2-red-ux-writing.log` (2 failed). Green = `r2-test-designos-app.log` and `r2-green-ux-writing.log`. Mutant and parity runs were on a314fd0b; 7c033f12 only removes the `effects/` prefix from `is_visual_binding`, which no mutant or parity test touches, and the 11 parity tests pass again on it.
 
 | # | Ruling | Red (base) | Green (a314fd0b) |
 |---|---|---|---|
@@ -355,9 +354,10 @@ Red = `r2-red-edit-menu-parity.log` (merged base, 7 failed / 4 passed) and `r2-r
 
 ### Decisions the controller should know
 - Paste and match style copies exactly what `copy_properties` copies. That drops `TextProps::paragraph`, which round 1 copied.
-- Added beyond the ruling's key list: `effects/*` bindings (stale source effect bindings would override the copied effects at the next variable pass). Typography bindings and the `text` link go only to text layers; a rectangle root gets neither.
+- Bindings copied are exactly the ruling's list. Typography bindings and the `text` link go only to text layers; a rectangle root gets neither.
 - Below the root of a pasted subtree, a text layer also takes the target's `fill` link and `fills/*` bindings, because the text style carries the fills.
 - A text target's painted fills (its text style fills, never `Node::fills`) become a non-text root's fills, as in round 1.
+- Gap, not fixed: `effects/*` bindings are not in the ruling's list, so a pasted root keeps the source's own `effects/*` bindings while its effects come from the target; the next variable pass can override the copied effects. The controller decides whether to widen the list.
 - Gap, not fixed: text whose runs paint different fills is left unchanged by Swap (per ruling 2). Runs are not flattened.
 - Gap, not fixed: text nested inside an instance that is part of a pasted subtree gets the target style without a recorded override, so a later sync of that main would restore the main's style. Round 1 had the same property for the root.
 
@@ -368,13 +368,13 @@ Red = `r2-red-edit-menu-parity.log` (merged base, 7 failed / 4 passed) and `r2-r
 - The arm is reachable from the menu and palette only. `Sim::key` injects `Event::Key` itself (`shell/tests.rs:197-199`), so the unit tests cannot see it.
 - Same class, not changed: `Ctrl/Cmd+Alt+V` Paste properties (`shell.rs:953`) and `Ctrl/Cmd+Alt+C` Copy properties (`shell.rs:952`, copy goes through `lib.rs:1004` as `Event::Copy`).
 
-### Gates on a314fd0b
+### Gates on code head 7c033f12 (later commits touch only `plans/`)
 - fmt: rc=0. clippy workspace `--all-targets --locked`: rc=0, only main's three lints (`agent_permissions.rs:1176`, `:1194`, `inspector_var_binds.rs:1182`) (`r2-fmt-clippy-gate.log`).
 - `cargo test -p designos-doc --locked`: 723 + 3 + 5 + 2 passed, 0 failed (`r2-test-designos-doc.log`).
 - `cargo test -p designos-app --bin designos --locked` (short HOME/TMPDIR): 4221 passed, 1 failed: `vecops::tests::two_deferred_text_commands_both_convert_in_order` (main's known slow-font test); rerun alone: passed (`r2-test-designos-app.log`). The socket-path and close-and-save tests passed.
 - `cargo test --workspace --locked --lib`: 12 test binaries ok, 0 failed (`r2-test-workspace-lib.log`).
 - `python3 -B -m unittest discover -s scripts/tests`: 2207 tests OK (`r2-test-python.log`).
-- `python3 -B scripts/zero_fake_ui_gate.py`: 17/17.
+- `python3 -B scripts/zero_fake_ui_gate.py`: 17/17 (`r2-zero-fake-ui-gate.log`).
 - Capture: `r2-edit-menu-cropped.png` (starter file, Edit menu, `Paste and match style` has no shortcut and is dimmed because the clipboard is empty; `Swap fill and stroke` shows `Shift+X`).
 
-Status: DONE_WITH_CONCERNS (see the two gaps and the `effects/*` addition above).
+Status: DONE_WITH_CONCERNS (see the three gaps above).
