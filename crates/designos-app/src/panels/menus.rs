@@ -529,7 +529,7 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Paste properties", "Ctrl+Alt+V", Action::PasteProperties).off(!has_sel),
         leaf("Paste over selection", "Ctrl+Shift+V", Action::PasteOverSelection).off(app.clip.is_none()),
         leaf("Paste to replace", "Ctrl+Shift+R", Action::PasteToReplace).off(!has_sel || app.clip.is_none()),
-        leaf("Paste and match style", "Ctrl+Shift+Alt+V", Action::PasteAndMatchStyle).off((!has_sel || app.clip.is_none()) && app.canvas.text.is_none()).sep(),
+        leaf("Paste and match style", "", Action::PasteAndMatchStyle).off((!has_sel || app.clip.is_none()) && app.canvas.text.is_none()).sep(),
         leaf("Swap fill and stroke", "Shift+X", Action::SwapFillAndStroke).off(!has_sel),
     ];
     let view = vec![

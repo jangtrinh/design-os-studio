@@ -818,9 +818,6 @@ impl Shell {
                         continue;
                     }
                     if editing_text {
-                        if modifiers.command && modifiers.shift && modifiers.alt && key == Key::V {
-                            menus::run(&mut self.app, ctx, Action::PasteAndMatchStyle);
-                        }
                         continue;
                     }
                     self.key(ctx, key, modifiers);
@@ -955,7 +952,6 @@ impl Shell {
                 (Key::C, false, true) => Some(Action::CopyProperties),
                 (Key::V, false, true) => Some(Action::PasteProperties),
                 (Key::V, true, false) => Some(Action::PasteOverSelection),
-                (Key::V, true, true) => Some(Action::PasteAndMatchStyle),
                 (Key::R, true, false) => Some(Action::PasteToReplace),
                 (Key::R, true, true) => Some(Action::ResizeToFit),
                 (Key::G, false, false) => Some(Action::Group),

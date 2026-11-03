@@ -1,5 +1,5 @@
-//! Issue #1477: Edit menu parity tests for:
-//! - `Paste and match style` (`Ctrl+Shift+Alt+V` / `⇧⌥⌘V`)
+//! Edit menu parity tests for:
+//! - `Paste and match style` (no shortcut)
 //! - `Swap fill and stroke` (`Shift+X` / `⇧X`)
 //! - `Select all with same text properties`, `Select all with same properties`, `Select all with same variant`
 //! - Edit menu, context menu, and command palette labels, shortcuts, and enabled states.
@@ -8,8 +8,8 @@ use super::*;
 use crate::panels::menus::Action;
 use designos_doc::find::MatchCriteria;
 use designos_doc::{
-    create_instance, BlendMode, Color, Effect, FrameProps, GradientStop, LineHeight, Node, NodeKind, Paint, PaintKind, Rect, Stroke, Style, StyleMeta,
-    StyleProperty, TextStyle, Vec2 as DV,
+    create_instance, BlendMode, Color, Effect, FrameProps, GradientStop, LineHeight, Node, NodeKind, OverrideField, Paint, PaintKind, Rect, Stroke, Style,
+    StyleMeta, StyleProperty, TextRun, TextStyle, Vec2 as DV,
 };
 
 fn run_palette_command(s: &mut Sim, query: &str) {
@@ -129,13 +129,11 @@ fn paste_and_match_style_layer_and_text_carries_target_style_and_undoes_in_one_s
     assert_eq!(s.app().hist.undo_depth(), undo_before);
     assert!(s.app().doc.get(pasted_id).is_none(), "single undo removes the pasted node");
 
-    // Also verify shortcut Cmd+Shift+Alt+V inside an open text editing session pastes plain text with the target run's style.
+    // Inside an open text editing session the command pastes plain text with the target run's style.
     crate::canvas::textsession::begin_text_edit(&mut s.shell.app, dst_id);
     assert!(s.app().canvas.text.is_some());
-    let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
-    s.mods = Modifiers { alt: true, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
-    s.key(Key::V);
-    s.mods = Modifiers::NONE;
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, Action::PasteAndMatchStyle);
     crate::canvas::textsession::finish_text(&mut s.shell.app, true);
 
     let dst_after = s.app().doc.get(dst_id).unwrap().kind.any_text().unwrap();
@@ -365,7 +363,7 @@ fn edit_menu_and_palette_expose_all_five_commands_with_labels_shortcuts_and_enab
         crate::panels::menus::palette_command_info(app, label).unwrap_or_else(|| panic!("missing command in Edit menu / palette: {label}"))
     };
 
-    assert_eq!(check_cmd(s.app(), "Paste and match style"), ("Ctrl+Shift+Alt+V".into(), true));
+    assert_eq!(check_cmd(s.app(), "Paste and match style"), ("".into(), true));
     assert_eq!(check_cmd(s.app(), "Swap fill and stroke"), ("Shift+X".into(), true));
     assert_eq!(check_cmd(s.app(), "Select all with same text properties"), ("".into(), true));
     assert_eq!(check_cmd(s.app(), "Select all with same properties"), ("".into(), true));
@@ -376,17 +374,307 @@ fn edit_menu_and_palette_expose_all_five_commands_with_labels_shortcuts_and_enab
     s.shell.app.select_only(rect_id);
     assert_eq!(check_cmd(s.app(), "Swap fill and stroke"), ("Shift+X".into(), false));
     assert_eq!(check_cmd(s.app(), "Select all with same properties"), ("".into(), false));
-    assert_eq!(check_cmd(s.app(), "Paste and match style"), ("Ctrl+Shift+Alt+V".into(), true));
+    assert_eq!(check_cmd(s.app(), "Paste and match style"), ("".into(), true));
     assert_eq!(check_cmd(s.app(), "Select all with same text properties"), ("".into(), true));
     assert_eq!(check_cmd(s.app(), "Select all with same variant"), ("".into(), true));
 
     // Copy rectangle, then select text node: Paste and match style and Select same text properties enabled.
     s.shell.app.copy_selection();
     s.shell.app.select_only(text_id);
-    assert_eq!(check_cmd(s.app(), "Paste and match style"), ("Ctrl+Shift+Alt+V".into(), false));
+    assert_eq!(check_cmd(s.app(), "Paste and match style"), ("".into(), false));
     assert_eq!(check_cmd(s.app(), "Select all with same text properties"), ("".into(), false));
 
     // Select variant instance: Select all with same variant enabled.
     s.shell.app.select_only(var_inst_id);
     assert_eq!(check_cmd(s.app(), "Select all with same variant"), ("".into(), false));
+}
+
+fn solid(r: u8, g: u8, b: u8) -> Vec<Paint> {
+    vec![Paint::solid(Color::rgb(r, g, b))]
+}
+
+fn child_named(d: &designos_doc::Document, parent: NodeId, name: &str) -> NodeId {
+    *d.get(parent).unwrap().children.iter().find(|c| d.get(**c).unwrap().name == name).unwrap_or_else(|| panic!("no child {name}"))
+}
+
+/// A five-character text layer whose base style paints `base` and whose two runs differ in weight and paint `run_fills`.
+fn insert_text_with_runs(s: &mut Sim, base: Vec<Paint>, run_fills: &[Vec<Paint>]) -> NodeId {
+    let page = s.app().page;
+    let id = s.shell.app.doc.alloc_id();
+    let style = TextStyle { fills: base, ..Default::default() };
+    let mut node = Node::text(id, Rect::new(10.0, 10.0, 120.0, 24.0), "Hello", style.clone());
+    if let NodeKind::Text(tp) = &mut node.kind {
+        tp.runs = run_fills
+            .iter()
+            .enumerate()
+            .map(|(i, f)| TextRun { start: i * 2, end: i * 2 + 2, style: TextStyle { fills: f.clone(), font_weight: 400 + 300 * i as u16, ..style.clone() } })
+            .collect();
+    }
+    s.shell.app.doc.insert(page, node).unwrap();
+    id
+}
+
+#[test]
+fn swap_fill_and_stroke_on_uniform_text_exchanges_the_painted_fills_with_the_stroke_and_round_trips() {
+    let mut s = Sim::new();
+    let (red, green, stale) = (solid(220, 40, 40), solid(20, 180, 90), solid(128, 128, 128));
+    let id = insert_text_with_runs(&mut s, red.clone(), &[red.clone(), red.clone()]);
+    {
+        let n = s.shell.app.doc.get_mut(id).unwrap();
+        n.stroke = Stroke { paints: green.clone(), weight: 2.0, ..Default::default() };
+        // Paste properties leaves a list here; a text layer never paints it.
+        n.fills = stale.clone();
+    }
+    s.shell.app.select_only(id);
+    let undo = s.app().hist.undo_depth();
+
+    shift_key(&mut s, Key::X);
+    assert_eq!(s.app().hist.undo_depth(), undo + 1, "one undo step");
+    let n = s.app().doc.get(id).unwrap();
+    let tp = n.kind.any_text().unwrap();
+    assert_eq!(tp.style.fills, green, "the base style paints the old stroke");
+    assert!(tp.runs.iter().all(|r| r.style.fills == green), "every run paints the old stroke");
+    assert_eq!(tp.runs[1].style.font_weight, 700, "a run keeps the rest of its own style");
+    assert_eq!(n.stroke.paints, red, "the stroke takes the painted text fills");
+    assert_eq!(n.fills, stale, "Node::fills paints nothing on text and is left alone");
+
+    shift_key(&mut s, Key::X);
+    let n = s.app().doc.get(id).unwrap();
+    let tp = n.kind.any_text().unwrap();
+    assert_eq!(tp.style.fills, red, "the second swap restores the base style");
+    assert!(tp.runs.iter().all(|r| r.style.fills == red), "the second swap restores every run");
+    assert_eq!(n.stroke.paints, green, "the second swap restores the stroke");
+}
+
+#[test]
+fn swap_fill_and_stroke_leaves_text_with_different_run_fills_unchanged_and_swaps_the_rest() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let (red, blue, green) = (solid(220, 40, 40), solid(30, 80, 220), solid(20, 180, 90));
+    let mixed = insert_text_with_runs(&mut s, red.clone(), &[red.clone(), blue.clone()]);
+    {
+        let n = s.shell.app.doc.get_mut(mixed).unwrap();
+        n.stroke = Stroke { paints: green.clone(), weight: 2.0, ..Default::default() };
+        n.variables.bindings.insert("fills/0".into(), "var_text_fill".into());
+        n.variables.bindings.insert("strokes/0".into(), "var_text_stroke".into());
+        n.style_refs.insert("fill".into(), "style_text_fill".into());
+    }
+    let rect = s.shell.app.doc.alloc_id();
+    let mut r = Node::rectangle(rect, Rect::new(200.0, 10.0, 60.0, 60.0));
+    r.fills = red.clone();
+    r.stroke = Stroke { paints: blue.clone(), weight: 1.0, ..Default::default() };
+    s.shell.app.doc.insert(page, r).unwrap();
+    let before = s.app().doc.get(mixed).unwrap().clone();
+
+    s.shell.app.selection = vec![mixed, rect];
+    let undo = s.app().hist.undo_depth();
+    shift_key(&mut s, Key::X);
+
+    assert_eq!(s.app().hist.undo_depth(), undo + 1, "the rest of the selection still swaps in one undo step");
+    assert_eq!(s.app().doc.get(mixed).unwrap(), &before, "a text layer whose runs paint different fills is left exactly as it was");
+    let r = s.app().doc.get(rect).unwrap();
+    assert_eq!((&r.fills, &r.stroke.paints), (&blue, &red), "the rectangle in the same selection swapped");
+}
+
+#[test]
+fn swap_fill_and_stroke_on_instance_text_survives_a_sync_of_its_main() {
+    let mut s = Sim::new();
+    let (inst, other, main) = (s.by_name("Get started"), s.by_name("Learn more"), s.by_name("Primary button"));
+    let label = child_named(&s.app().doc, inst, "Label");
+    let other_label = child_named(&s.app().doc, other, "Label");
+    let main_label = child_named(&s.app().doc, main, "Label");
+    let white = s.app().doc.get(label).unwrap().kind.any_text().unwrap().style.fills.clone();
+    assert!(!white.is_empty() && s.app().doc.get(label).unwrap().stroke.paints.is_empty());
+
+    s.shell.app.select_only(label);
+    shift_key(&mut s, Key::X);
+    let n = s.app().doc.get(label).unwrap();
+    assert_eq!(n.stroke.paints, white, "the instance label now has the old text fill as its stroke");
+    assert!(n.kind.any_text().unwrap().style.fills.is_empty());
+    assert!(n.component.overrides.contains(&OverrideField::TextStyle), "the text fills are recorded as an override");
+    assert!(n.component.overrides.contains(&OverrideField::Stroke), "the stroke is recorded as an override");
+
+    let (red, green) = (solid(255, 0, 0), solid(0, 160, 0));
+    s.shell.app.edit_nodes(&[main_label], |n| {
+        if let Some(tp) = n.kind.any_text_mut() {
+            tp.style.fills = red.clone();
+        }
+        n.stroke = Stroke { paints: green.clone(), weight: 1.0, ..Default::default() };
+    });
+    let follower = s.app().doc.get(other_label).unwrap();
+    assert_eq!(follower.kind.any_text().unwrap().style.fills, red, "an instance without the override follows the main");
+    assert_eq!(follower.stroke.paints, green);
+    let n = s.app().doc.get(label).unwrap();
+    assert!(n.kind.any_text().unwrap().style.fills.is_empty(), "the swapped fills survive the sync");
+    assert_eq!(n.stroke.paints, white, "the swapped stroke survives the sync");
+}
+
+#[test]
+fn swap_fill_and_stroke_gives_a_stroke_with_every_width_zero_a_visible_width() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let red = solid(220, 40, 40);
+    let rect_with = |s: &mut Sim, weight: f32, sides: Option<[f32; 4]>| {
+        let id = s.shell.app.doc.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(10.0, 10.0, 80.0, 60.0));
+        n.fills = red.clone();
+        n.stroke = Stroke { paints: vec![], weight, side_weights: sides, ..Default::default() };
+        s.shell.app.doc.insert(page, n).unwrap();
+        id
+    };
+    let all_sides_zero = rect_with(&mut s, 1.0, Some([0.0; 4]));
+    let one_side = rect_with(&mut s, 0.0, Some([2.0, 0.0, 0.0, 0.0]));
+    let no_sides = rect_with(&mut s, 0.0, None);
+    let visible = |s: &Sim, id: NodeId| {
+        let n = s.app().doc.get(id).unwrap();
+        let shape = designos_render::outline_of(&s.app().doc, n, 0.25).expect("a rectangle has a shape");
+        designos_render::stroke_plan(n, &shape, 1.0).is_some()
+    };
+
+    s.shell.app.selection = vec![all_sides_zero, one_side, no_sides];
+    shift_key(&mut s, Key::X);
+
+    let n = s.app().doc.get(all_sides_zero).unwrap();
+    assert_eq!(n.stroke.paints, red);
+    assert_eq!((n.stroke.weight, n.stroke.side_weights), (1.0, Some([1.0; 4])), "all four sides were 0, so each becomes 1");
+    assert!(visible(&s, all_sides_zero), "the swapped stroke is drawn");
+    let n = s.app().doc.get(one_side).unwrap();
+    assert_eq!((n.stroke.weight, n.stroke.side_weights), (0.0, Some([2.0, 0.0, 0.0, 0.0])), "a side that already has a width keeps every side as it was");
+    assert!(visible(&s, one_side));
+    let n = s.app().doc.get(no_sides).unwrap();
+    assert_eq!((n.stroke.weight, n.stroke.side_weights), (1.0, None), "a zero uniform weight becomes 1");
+    assert!(visible(&s, no_sides));
+}
+
+/// A rectangle copied and pasted over a bound, linked text layer that also binds layout and content.
+#[test]
+fn paste_and_match_style_copies_only_the_visual_bindings_and_style_refs() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let src = s.shell.app.doc.alloc_id();
+    let mut source = Node::rectangle(src, Rect::new(20.0, 20.0, 60.0, 60.0));
+    source.variables.bindings.insert("width".into(), "var_src_width".into());
+    source.variables.bindings.insert("fills/0".into(), "var_src_fill".into());
+    source.variables.bindings.insert("itemSpacing".into(), "var_src_gap".into());
+    source.style_refs.insert("grid".into(), "grid_src".into());
+    source.style_refs.insert("fill".into(), "fill_src".into());
+    s.shell.app.doc.insert(page, source).unwrap();
+
+    let dst = s.shell.app.doc.alloc_id();
+    let style = TextStyle { font_family: "Inter".into(), font_size: 14.0, fills: solid(20, 180, 90), ..Default::default() };
+    let mut target = Node::text(dst, Rect::new(300.0, 20.0, 160.0, 30.0), "Target", style);
+    for (k, v) in [
+        ("width", "var_width"),
+        ("characters", "var_characters"),
+        ("itemSpacing", "var_gap"),
+        ("fontSize", "var_font_size"),
+        ("fills/0", "var_fill"),
+        ("strokes/0", "var_stroke"),
+        ("strokeWeight", "var_weight"),
+        ("strokeTopWeight", "var_top"),
+        ("opacity", "var_opacity"),
+        ("topLeftRadius", "var_radius"),
+    ] {
+        target.variables.bindings.insert(k.into(), v.into());
+    }
+    for (k, v) in [("fill", "fill_tgt"), ("stroke", "stroke_tgt"), ("effect", "effect_tgt"), ("text", "text_tgt"), ("grid", "grid_tgt")] {
+        target.style_refs.insert(k.into(), v.into());
+    }
+    s.shell.app.doc.insert(page, target).unwrap();
+
+    s.shell.app.select_only(src);
+    s.shell.app.copy_selection();
+    s.shell.app.select_only(dst);
+    let undo = s.app().hist.undo_depth();
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, Action::PasteAndMatchStyle);
+
+    assert_eq!(s.app().hist.undo_depth(), undo + 1, "one undo step");
+    let pasted = s.app().doc.get(s.app().selection[0]).unwrap();
+    let bound = |k: &str| pasted.variables.bindings.get(k).map(String::as_str);
+    for (k, v) in [
+        ("fills/0", "var_fill"),
+        ("strokes/0", "var_stroke"),
+        ("strokeWeight", "var_weight"),
+        ("strokeTopWeight", "var_top"),
+        ("opacity", "var_opacity"),
+        ("topLeftRadius", "var_radius"),
+    ] {
+        assert_eq!(bound(k), Some(v), "the target's {k} binding is copied");
+    }
+    assert_eq!(bound("width"), Some("var_src_width"), "the pasted layer keeps its own size binding, not the target's");
+    assert_eq!(bound("itemSpacing"), Some("var_src_gap"), "the pasted layer keeps its own layout binding, not the target's");
+    assert_eq!(bound("characters"), None, "a rectangle has no characters to bind");
+    assert_eq!(bound("fontSize"), None, "a rectangle takes no typography binding");
+    let linked = |k: &str| pasted.style_refs.get(k).map(String::as_str);
+    assert_eq!(linked("fill"), Some("fill_tgt"));
+    assert_eq!(linked("stroke"), Some("stroke_tgt"));
+    assert_eq!(linked("effect"), Some("effect_tgt"));
+    assert_eq!(linked("text"), None, "a rectangle takes no text style");
+    assert_eq!(linked("grid"), Some("grid_src"), "a grid style is never copied");
+}
+
+#[test]
+fn paste_and_match_style_restyles_the_text_inside_a_pasted_frame() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let frame = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(page, Node::frame(frame, Rect::new(20.0, 20.0, 200.0, 100.0))).unwrap();
+    let inner = s.shell.app.doc.alloc_id();
+    let src_style = TextStyle { font_family: "Roboto".into(), font_size: 30.0, fills: solid(220, 40, 40), ..Default::default() };
+    let mut child = Node::text(inner, Rect::new(10.0, 10.0, 120.0, 40.0), "Inner", src_style);
+    child.variables.bindings.insert("fontSize".into(), "var_src_font".into());
+    child.variables.bindings.insert("width".into(), "var_src_width".into());
+    child.style_refs.insert("text".into(), "text_src".into());
+    s.shell.app.doc.insert(frame, child).unwrap();
+
+    let dst = s.shell.app.doc.alloc_id();
+    let style = TextStyle { font_family: "Inter".into(), font_size: 14.0, font_weight: 400, fills: solid(20, 180, 90), ..Default::default() };
+    let mut target = Node::text(dst, Rect::new(300.0, 20.0, 160.0, 30.0), "Target", style.clone());
+    target.variables.bindings.insert("fontSize".into(), "var_font_size".into());
+    target.style_refs.insert("text".into(), "text_tgt".into());
+    s.shell.app.doc.insert(page, target).unwrap();
+
+    s.shell.app.select_only(frame);
+    s.shell.app.copy_selection();
+    s.shell.app.select_only(dst);
+    let undo = s.app().hist.undo_depth();
+    let ctx = s.ctx.clone();
+    crate::panels::menus::run(&mut s.shell.app, &ctx, Action::PasteAndMatchStyle);
+
+    assert_eq!(s.app().hist.undo_depth(), undo + 1, "one undo step");
+    let root = s.app().doc.get(s.app().selection[0]).unwrap();
+    assert!(matches!(root.kind, NodeKind::Frame(_)), "the frame is pasted, not its text");
+    let text = s.app().doc.get(root.children[0]).unwrap();
+    let tp = text.kind.any_text().unwrap();
+    assert_eq!(tp.content, "Inner", "the text keeps its own characters");
+    assert_eq!(
+        (tp.style.font_family.as_str(), tp.style.font_size, &tp.style.fills),
+        ("Inter", 14.0, &style.fills),
+        "the text child takes the target's text style"
+    );
+    assert_eq!(text.style_refs.get("text").map(String::as_str), Some("text_tgt"), "and its text style link");
+    assert_eq!(text.variables.bindings.get("fontSize").map(String::as_str), Some("var_font_size"), "and its typography binding");
+    assert_eq!(text.variables.bindings.get("width").map(String::as_str), Some("var_src_width"), "but not a size binding");
+}
+
+#[test]
+fn the_old_paste_and_match_style_chord_does_nothing() {
+    let mut s = Sim::new();
+    let page = s.app().page;
+    let src = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(page, Node::rectangle(src, Rect::new(20.0, 20.0, 60.0, 60.0))).unwrap();
+    let dst = s.shell.app.doc.alloc_id();
+    s.shell.app.doc.insert(page, Node::text(dst, Rect::new(300.0, 20.0, 160.0, 30.0), "Target", TextStyle::default())).unwrap();
+    s.shell.app.select_only(src);
+    s.shell.app.copy_selection();
+    s.shell.app.select_only(dst);
+    let (undo, count) = (s.app().hist.undo_depth(), s.count());
+
+    let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+    s.mods = Modifiers { alt: true, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+    s.key(Key::V);
+    s.mods = Modifiers::NONE;
+
+    assert_eq!((s.app().hist.undo_depth(), s.count()), (undo, count), "no key claims Paste and match style");
 }
