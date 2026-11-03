@@ -550,3 +550,74 @@ fn unresized_kit_vector_renders_are_hashed_into_a_file() {
     }
     std::fs::write(out, lines).unwrap();
 }
+
+/// An open path `(0, 0) -> (40, 0) -> (40, 40) -> (80, 40)` at `(20, 20)`, stroked live at weight 10 with the node
+/// join Bevel and its own join on each inner vertex (Miter at `(40, 0)`, Round at `(40, 40)`).
+fn open_path_with_mixed_vertex_joins(t: &mut T, cap: StrokeCap) -> NodeId {
+    let path = Path {
+        cmds: vec![
+            PathCmd::MoveTo(Vec2::new(0.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(40.0, 0.0)),
+            PathCmd::LineTo(Vec2::new(40.0, 40.0)),
+            PathCmd::LineTo(Vec2::new(80.0, 40.0)),
+        ],
+        fill_rule: FillRule::NonZero,
+    };
+    let mut net = VectorNetwork::from_paths(std::slice::from_ref(&path));
+    for v in &mut net.vertices {
+        let on = |x: f32, y: f32| (v.pos.x - x).abs() < 1e-3 && (v.pos.y - y).abs() < 1e-3;
+        v.join = if on(40.0, 0.0) {
+            Some(StrokeJoin::Miter)
+        } else if on(40.0, 40.0) {
+            Some(StrokeJoin::Round)
+        } else {
+            None
+        };
+    }
+    t.add(None, |id| {
+        let mut n = Node::new(id, NodeKind::Vector { paths: net.to_paths(), network: Some(net) });
+        n.transform = Affine::translate(20.0, 20.0);
+        n.size = Vec2::new(80.0, 40.0);
+        n.fills.clear();
+        n.stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(0x18, 0x1D, 0x27))],
+            weight: 10.0,
+            align: StrokeAlign::Center,
+            cap,
+            join: StrokeJoin::Bevel,
+            miter_limit: 4.0,
+            ..Stroke::default()
+        };
+        n
+    })
+}
+
+/// Both ends of the open path carry the node cap pointing away from the stroke: a Round cap reaches half a
+/// weight past each end point, a Square cap fills the square beyond it.
+#[track_caller]
+fn assert_caps_point_outward(pm: &Pixmap, cap: StrokeCap, what: &str) {
+    // the path starts at page (20, 20) heading right and ends at page (100, 60) heading right
+    assert!(is_ink(pm, 16, 20), "{what} {cap:?}: the start cap reaches left of the start point");
+    assert!(is_ink(pm, 104, 60), "{what} {cap:?}: the end cap reaches right of the end point");
+    assert!(!is_ink(pm, 13, 20), "{what} {cap:?}: the start cap stops half a weight from the start point");
+    assert!(!is_ink(pm, 106, 60), "{what} {cap:?}: the end cap stops half a weight from the end point");
+    let square = cap == StrokeCap::Square;
+    assert_eq!(is_ink(pm, 16, 15), square, "{what} {cap:?}: the start cap fills its corner only when square");
+    assert_eq!(is_ink(pm, 104, 64), square, "{what} {cap:?}: the end cap fills its corner only when square");
+}
+
+fn assert_open_stroke_with_per_vertex_joins_caps_outward(cap: StrokeCap) {
+    let mut t = T::new();
+    open_path_with_mixed_vertex_joins(&mut t, cap);
+    assert_caps_point_outward(&t.render(130, 90), cap, "CPU");
+}
+
+#[test]
+fn an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round() {
+    assert_open_stroke_with_per_vertex_joins_caps_outward(StrokeCap::Round);
+}
+
+#[test]
+fn an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square() {
+    assert_open_stroke_with_per_vertex_joins_caps_outward(StrokeCap::Square);
+}

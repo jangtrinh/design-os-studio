@@ -353,11 +353,12 @@ fn expand_subpath(sub: &d::Path, stroke: &d::Stroke, width: f32, base_cap: d::St
             }
             Vec2::new(1.0, 0.0)
         };
+        // both directions run from an end point into the path; a cap points the opposite way
         let (first, last) = (&cs[0], &cs[n - 1]);
         let s_in = dir(first[0], [first[1], first[2], first[3]]);
-        let e_out = dir(last[3], [last[2], last[1], last[0]]);
+        let e_in = dir(last[3], [last[2], last[1], last[0]]);
         push_outward_cap(&mut all_pb, first[0], Vec2::new(-s_in.x, -s_in.y), width, base_cap);
-        push_outward_cap(&mut all_pb, last[3], e_out, width, base_cap);
+        push_outward_cap(&mut all_pb, last[3], Vec2::new(-e_in.x, -e_in.y), width, base_cap);
     }
     all_pb.finish()
 }
