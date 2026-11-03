@@ -209,13 +209,28 @@ fn stroke_expr(doc: &Document, n: &Node) -> Option<String> {
 
 fn frame_args(w: Dim, h: Dim, align: Option<&str>, n: &Node, doc: &Document) -> Option<String> {
     let mut a: Vec<String> = Vec::new();
+    let has_fill = matches!(w, Dim::Fill) || matches!(h, Dim::Fill);
     match w {
-        Dim::Fixed(px) => a.push(format!("width: {}", dimension(doc, n, "width", px))),
+        Dim::Fixed(px) => {
+            let expr = dimension(doc, n, "width", px);
+            if has_fill {
+                a.push(format!("minWidth: {expr}, maxWidth: {expr}"));
+            } else {
+                a.push(format!("width: {expr}"));
+            }
+        }
         Dim::Fill => a.push("maxWidth: .infinity".into()),
         Dim::Hug => {}
     }
     match h {
-        Dim::Fixed(px) => a.push(format!("height: {}", dimension(doc, n, "height", px))),
+        Dim::Fixed(px) => {
+            let expr = dimension(doc, n, "height", px);
+            if has_fill {
+                a.push(format!("minHeight: {expr}, maxHeight: {expr}"));
+            } else {
+                a.push(format!("height: {expr}"));
+            }
+        }
         Dim::Fill => a.push("maxHeight: .infinity".into()),
         Dim::Hug => {}
     }
