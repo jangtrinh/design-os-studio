@@ -36,8 +36,8 @@ pub use index::SceneIndex;
 pub use lint_env::RenderLintEnv;
 pub use mask::{apply_luminance_mask, mask_frame_box, mask_stencil, vector_mask_descendant_stencil, LUMINANCE_MASK_COEFFS};
 pub use outline::{
-    decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
-    StrokeClip, StrokePlan, TextOutline,
+    dashed_rect_center_path, decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan,
+    text_outlines, NodeShape, StrokeClip, StrokePlan, TextOutline,
 };
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
 pub use text::{
