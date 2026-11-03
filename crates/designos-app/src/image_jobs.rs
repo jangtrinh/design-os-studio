@@ -16,6 +16,7 @@ use crate::widgets;
 use crate::widgets::field::{self, Prefix};
 use designos_doc::{Affine, BlendMode, Command, Document, ImageScaleMode, Node, NodeId, NodeKind, Paint, PaintKind, Vec2};
 use egui::{Align2, Area, Color32, Context, Id, Key, Order, Pos2, Rect, Sense, Stroke, StrokeKind};
+use framing::{bitmap_region_to_local_rect, cut_job_bitmap, expand_refusal, frame_uv_map, local_rect_to_bitmap_region, plan_image_job_frame, ImageJobFrame};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -23,8 +24,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod framing;
+
 /// Tooltip shown on disabled AI image commands when no agent CLI is installed.
 pub const DISABLED_TOOLTIP: &str = "Needs an agent CLI. Set one up in Agents.";
+
+/// Shown when the canvas shows no part of the layer's picture, so there is nothing to send.
+const NO_VISIBLE_IMAGE: &str = "This layer shows no part of its image";
 
 /// Maximum padding per side for `Expand…` (px).
 pub const EXPAND_MAX_SIDE_PX: u32 = 4096;
@@ -129,6 +135,10 @@ pub struct ImageJob {
     pub request_path: PathBuf,
     /// Dimensions of the exported visible `input.png` crop in image pixels.
     pub input_crop_size: (u32, u32),
+    /// Scale mode of the fill when the job started; the result layer keeps it.
+    pub scale_mode: ImageScaleMode,
+    /// The bitmap sent and the paint parameters the result layer needs to frame it as the original was framed.
+    pub frame: ImageJobFrame,
     pub expected_size: (u32, u32),
     pub started_at: Instant,
     pub state: ImageJobState,
@@ -169,8 +179,8 @@ pub struct ErasePopoverState {
     pub anchor: Rect,
     pub instruction: String,
     pub focus_requested: bool,
-    /// Cached visible crop dimensions `(w, h)` in image pixels so canvas rendering never decodes `doc.images` per frame.
-    pub crop_dims: (u32, u32),
+    /// Cached bitmap the job will send, so canvas rendering never decodes `doc.images` per frame.
+    pub frame: ImageJobFrame,
     pub scale_mode: ImageScaleMode,
     /// Optional mask rectangle in exported crop pixel coordinates `[x, y, w, h]`.
     pub region: Option<[u32; 4]>,
@@ -361,115 +371,42 @@ fn decode_doc_image(doc: &Document, image_ref: &str) -> Result<image::RgbaImage,
 /// Reads the header dimensions `(w, h)` of an image in `doc.images` without decoding every pixel when possible.
 fn doc_image_dimensions(doc: &Document, image_ref: &str) -> Option<(u32, u32)> {
     let bytes = doc.images.get(image_ref)?;
-    if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format() {
-        if let Ok(dims) = reader.into_dimensions() {
-            return Some((dims.0.max(1), dims.1.max(1)));
-        }
-    }
-    decode_doc_image(doc, image_ref).ok().map(|img| img.dimensions())
+    image_dimensions(bytes).or_else(|| decode_doc_image(doc, image_ref).ok().map(|img| img.dimensions()))
 }
 
-/// Computes the visible crop rectangle `(crop_x, crop_y, crop_w, crop_h)` in source image pixels
-/// matching `designos-render`'s `PaintKind::Image` shader (`Fill` / `Crop` center-cover vs `Fit`).
-pub fn visible_image_crop_rect(raw_w: u32, raw_h: u32, layer_size: Vec2, scale_mode: ImageScaleMode) -> (u32, u32, u32, u32) {
-    let rw = raw_w.max(1);
-    let rh = raw_h.max(1);
-    let iw = rw as f32;
-    let ih = rh as f32;
-    let lx = layer_size.x.max(1.0);
-    let ly = layer_size.y.max(1.0);
-    match scale_mode {
-        ImageScaleMode::Fill | ImageScaleMode::Crop => {
-            let s = (lx / iw).max(ly / ih).max(1e-6);
-            let crop_w = (lx / s).round().clamp(1.0, iw) as u32;
-            let crop_h = (ly / s).round().clamp(1.0, ih) as u32;
-            let crop_x = rw.saturating_sub(crop_w) / 2;
-            let crop_y = rh.saturating_sub(crop_h) / 2;
-            (crop_x, crop_y, crop_w, crop_h)
-        }
-        ImageScaleMode::Fit | ImageScaleMode::Tile => (0, 0, rw, rh),
-    }
+/// Header dimensions `(w, h)` of encoded image bytes, without decoding the pixels.
+fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    let dims = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()?;
+    Some((dims.0.max(1), dims.1.max(1)))
 }
 
-/// Extracts the visible crop of `decoded` at native pixel resolution (`E5-10` §3 rule 3, §8.1).
-fn crop_visible_image(decoded: &image::RgbaImage, layer_size: Vec2, scale_mode: ImageScaleMode) -> image::RgbaImage {
-    let (raw_w, raw_h) = decoded.dimensions();
-    let (cx, cy, cw, ch) = visible_image_crop_rect(raw_w, raw_h, layer_size, scale_mode);
-    if cx == 0 && cy == 0 && cw == raw_w && ch == raw_h {
-        decoded.clone()
-    } else {
-        image::imageops::crop_imm(decoded, cx, cy, cw, ch).to_image()
-    }
-}
-
-/// Computes the cached visible crop dimensions `(crop_w, crop_h)` and `ImageScaleMode` for `(node, fill_index)`.
-fn node_fill_visible_crop_dims(doc: &Document, node: NodeId, fill_index: usize) -> Option<((u32, u32), ImageScaleMode)> {
+/// Plans the bitmap `(node, fill_index)` sends to an image job: the part of its picture the canvas shows.
+fn node_fill_job_frame(doc: &Document, node: NodeId, fill_index: usize) -> Option<(ImageJobFrame, ImageScaleMode)> {
     let n = doc.get(node)?;
-    let paint = n.fills.get(fill_index)?;
-    let PaintKind::Image { image_ref, scale_mode, .. } = &paint.kind else {
+    let PaintKind::Image { image_ref, scale_mode, params } = &n.fills.get(fill_index)?.kind else {
         return None;
     };
     let (raw_w, raw_h) = doc_image_dimensions(doc, image_ref).unwrap_or_else(|| (n.size.x.round().max(1.0) as u32, n.size.y.round().max(1.0) as u32));
-    let (_, _, cw, ch) = visible_image_crop_rect(raw_w, raw_h, n.size, *scale_mode);
-    Some(((cw, ch), *scale_mode))
+    plan_image_job_frame(raw_w, raw_h, n.size, *scale_mode, params).map(|frame| (frame, *scale_mode))
 }
 
-/// Returns `(x, y, w, h)` in node-local coordinates for the rendered image content rect inside `layer_size`.
-fn local_image_content_rect(layer_size: Vec2, scale_mode: ImageScaleMode, crop_dims: (u32, u32)) -> (f32, f32, f32, f32) {
-    let lx = layer_size.x.max(1.0);
-    let ly = layer_size.y.max(1.0);
-    let cw = crop_dims.0.max(1) as f32;
-    let ch = crop_dims.1.max(1) as f32;
-    match scale_mode {
-        ImageScaleMode::Fit => {
-            let s = (lx / cw).min(ly / ch).max(1e-6);
-            let w = cw * s;
-            let h = ch * s;
-            ((lx - w) * 0.5, (ly - h) * 0.5, w.max(1e-6), h.max(1e-6))
-        }
-        _ => (0.0, 0.0, lx, ly),
-    }
-}
-
-/// Maps a canvas drag `(start_page, cur_page)` through `world.invert()` into the exported crop's pixel grid `(0..crop_w, 0..crop_h)`.
+/// Maps a canvas drag `(start_page, cur_page)` through `world.invert()` into the pixel grid of the bitmap `frame` sends.
 pub fn page_drag_to_image_region(
     world: Affine,
     layer_size: Vec2,
     scale_mode: ImageScaleMode,
-    crop_dims: (u32, u32),
+    frame: &ImageJobFrame,
     start_page: Pos2,
     cur_page: Pos2,
 ) -> Option<[u32; 4]> {
     let inv = world.invert()?;
     let p0 = inv.apply(Vec2::new(start_page.x, start_page.y));
     let p1 = inv.apply(Vec2::new(cur_page.x, cur_page.y));
-
-    let (cx, cy, cw_local, ch_local) = local_image_content_rect(layer_size, scale_mode, crop_dims);
-    let min_x = (p0.x.min(p1.x) - cx).clamp(0.0, cw_local);
-    let min_y = (p0.y.min(p1.y) - cy).clamp(0.0, ch_local);
-    let max_x = (p0.x.max(p1.x) - cx).clamp(0.0, cw_local);
-    let max_y = (p0.y.max(p1.y) - cy).clamp(0.0, ch_local);
-    if (max_x - min_x) < 1.0 || (max_y - min_y) < 1.0 {
+    if (p1.x - p0.x).abs() < 1.0 || (p1.y - p0.y).abs() < 1.0 {
         return None;
     }
-
-    let cw = crop_dims.0.max(1) as f32;
-    let ch = crop_dims.1.max(1) as f32;
-    let sx = cw / cw_local;
-    let sy = ch / ch_local;
-    let min_ix: f32 = min_x * sx;
-    let min_iy: f32 = min_y * sy;
-    let max_ix: f32 = max_x * sx;
-    let max_iy: f32 = max_y * sy;
-
-    if (max_ix - min_ix) < 1.0 || (max_iy - min_iy) < 1.0 {
-        return None;
-    }
-    let rx = (min_ix.floor() as u32).min(crop_dims.0.saturating_sub(1));
-    let ry = (min_iy.floor() as u32).min(crop_dims.1.saturating_sub(1));
-    let rw = ((max_ix - min_ix).ceil().max(1.0) as u32).min(crop_dims.0.saturating_sub(rx));
-    let rh = ((max_iy - min_iy).ceil().max(1.0) as u32).min(crop_dims.1.saturating_sub(ry));
-    Some([rx, ry, rw, rh])
+    let map = frame_uv_map(layer_size, scale_mode, frame)?;
+    local_rect_to_bitmap_region(&map, frame.dims(), p0, p1)
 }
 
 /// Encodes an [`image::RgbaImage`] as PNG bytes.
@@ -541,7 +478,15 @@ impl App {
         if !self.check_image_fill_editable(node, fill_index) {
             return;
         }
-        let ((crop_w, crop_h), _) = node_fill_visible_crop_dims(&self.doc, node, fill_index).unwrap_or(((100, 100), ImageScaleMode::Fill));
+        let Some((frame, scale_mode)) = node_fill_job_frame(&self.doc, node, fill_index) else {
+            self.show_toast(NO_VISIBLE_IMAGE, true);
+            return;
+        };
+        if let Some(reason) = expand_refusal(scale_mode, &frame) {
+            self.show_toast(reason, true);
+            return;
+        }
+        let (crop_w, crop_h) = frame.dims();
         let pad_x = ((crop_w as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
         let pad_y = ((crop_h as f32 * 0.25).round() as u32).clamp(1, EXPAND_MAX_SIDE_PX);
         self.image_jobs.erase_popover = None;
@@ -558,7 +503,10 @@ impl App {
         if !self.check_image_fill_editable(node, fill_index) {
             return;
         }
-        let (crop_dims, scale_mode) = node_fill_visible_crop_dims(&self.doc, node, fill_index).unwrap_or(((100, 100), ImageScaleMode::Fill));
+        let Some((frame, scale_mode)) = node_fill_job_frame(&self.doc, node, fill_index) else {
+            self.show_toast(NO_VISIBLE_IMAGE, true);
+            return;
+        };
         self.image_jobs.expand_popover = None;
         self.image_jobs.erase_popover = Some(ErasePopoverState {
             node,
@@ -566,7 +514,7 @@ impl App {
             anchor,
             instruction: String::new(),
             focus_requested: true,
-            crop_dims,
+            frame,
             scale_mode,
             region: None,
             drag_start_page: None,
@@ -624,9 +572,9 @@ impl App {
             }
         }
 
-        let (image_ref, scale_mode, layer_size) = match self.doc.get(node) {
+        let (image_ref, scale_mode, params, layer_size) = match self.doc.get(node) {
             Some(n) => match n.fills.get(fill_index).map(|p| &p.kind) {
-                Some(PaintKind::Image { image_ref, scale_mode, .. }) => (image_ref.clone(), *scale_mode, n.size),
+                Some(PaintKind::Image { image_ref, scale_mode, params }) => (image_ref.clone(), *scale_mode, *params, n.size),
                 _ => return None,
             },
             None => return None,
@@ -639,7 +587,17 @@ impl App {
                 return None;
             }
         };
-        let cropped = crop_visible_image(&decoded, layer_size, scale_mode);
+        let Some(frame) = plan_image_job_frame(decoded.width(), decoded.height(), layer_size, scale_mode, &params) else {
+            self.show_toast(NO_VISIBLE_IMAGE, true);
+            return None;
+        };
+        if matches!(op, ImageOp::Expand { .. }) {
+            if let Some(reason) = expand_refusal(scale_mode, &frame) {
+                self.show_toast(reason, true);
+                return None;
+            }
+        }
+        let cropped = cut_job_bitmap(&decoded, &frame);
         let (orig_w, orig_h) = cropped.dimensions();
         let expected_size = match &op {
             ImageOp::Expand { top, right, bottom, left } => {
@@ -732,6 +690,8 @@ impl App {
             output_path,
             request_path,
             input_crop_size: (orig_w, orig_h),
+            scale_mode,
+            frame,
             expected_size,
             started_at: Instant::now(),
             state: ImageJobState::Queued,
@@ -984,20 +944,19 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
     new_node.visible = true;
     new_node.kind = NodeKind::Rectangle;
 
-    let (orig_scale_mode, orig_opacity, orig_blend) = orig
-        .fills
-        .get(job.fill_index)
-        .and_then(|p| match &p.kind {
-            PaintKind::Image { scale_mode, .. } => Some((*scale_mode, p.opacity, p.blend)),
-            _ => None,
-        })
-        .unwrap_or((ImageScaleMode::Fill, 1.0, BlendMode::Normal));
+    let (orig_opacity, orig_blend) =
+        orig.fills.get(job.fill_index).filter(|p| matches!(p.kind, PaintKind::Image { .. })).map(|p| (p.opacity, p.blend)).unwrap_or((1.0, BlendMode::Normal));
 
+    // The result bitmap replaces the picture, so the recorded original size follows it.
+    let mut params = job.frame.params;
+    if params.original_size.is_some() {
+        params.original_size = image_dimensions(&png_bytes);
+    }
     let new_paint = Paint {
         visible: true,
         opacity: orig_opacity,
         blend: orig_blend,
-        kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: orig_scale_mode, params: Default::default() },
+        kind: PaintKind::Image { image_ref: new_image_key.clone(), scale_mode: job.scale_mode, params },
     };
     if job.fill_index < new_node.fills.len() {
         new_node.fills[job.fill_index] = new_paint;
@@ -1008,7 +967,7 @@ fn build_completed_image_job_tx(doc: &mut Document, job: &ImageJob, png_bytes: V
     if let ImageOp::Expand { top, right, bottom, left } = job.op {
         let cw = job.input_crop_size.0.max(1) as f32;
         let ch = job.input_crop_size.1.max(1) as f32;
-        let (scale_x, scale_y) = match orig_scale_mode {
+        let (scale_x, scale_y) = match job.scale_mode {
             ImageScaleMode::Fit => {
                 let s = (orig.size.x.max(1.0) / cw).min(orig.size.y.max(1.0) / ch);
                 (s, s)
@@ -1547,7 +1506,6 @@ fn show_erase_popover(app: &mut App, ctx: &Context) {
 }
 
 fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, popover_rect: Rect, pop: &mut ErasePopoverState) {
-    let image_dims = pop.crop_dims;
     let world = app.doc.world_transform(node.id);
     let node_size = Vec2::new(node.size.x.max(1.0), node.size.y.max(1.0));
 
@@ -1562,7 +1520,7 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
             let start = pop.drag_start_page.unwrap();
             let cur_v = app.view.to_page(app.canvas_rect.min, pos);
             let cur = Pos2::new(cur_v.x, cur_v.y);
-            if let Some(region) = page_drag_to_image_region(world, node_size, pop.scale_mode, image_dims, start, cur) {
+            if let Some(region) = page_drag_to_image_region(world, node_size, pop.scale_mode, &pop.frame, start, cur) {
                 pop.region = Some(region);
             }
             if released {
@@ -1572,15 +1530,13 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
     }
 
     if let Some([rx, ry, rw, rh]) = pop.region {
-        let (cx, cy, cw_local, ch_local) = local_image_content_rect(node_size, pop.scale_mode, image_dims);
-        let sx = cw_local / image_dims.0.max(1) as f32;
-        let sy = ch_local / image_dims.1.max(1) as f32;
-        let local_x0 = cx + rx as f32 * sx;
-        let local_y0 = cy + ry as f32 * sy;
-        let local_x1 = cx + (rx + rw) as f32 * sx;
-        let local_y1 = cy + (ry + rh) as f32 * sy;
-        let p0 = world.apply(Vec2::new(local_x0, local_y0));
-        let p1 = world.apply(Vec2::new(local_x1, local_y1));
+        let Some((local_x, local_y, local_w, local_h)) =
+            frame_uv_map(node_size, pop.scale_mode, &pop.frame).and_then(|map| bitmap_region_to_local_rect(&map, pop.frame.dims(), [rx, ry, rw, rh]))
+        else {
+            return;
+        };
+        let p0 = world.apply(Vec2::new(local_x, local_y));
+        let p1 = world.apply(Vec2::new(local_x + local_w, local_y + local_h));
         let s0 = app.view.to_screen(app.canvas_rect.min, p0);
         let s1 = app.view.to_screen(app.canvas_rect.min, p1);
         let mask_screen = Rect::from_two_pos(s0, s1);
@@ -1593,16 +1549,19 @@ fn draw_and_interact_erase_mask_overlay(app: &App, ctx: &Context, node: &Node, p
 }
 
 #[cfg(test)]
+mod framing_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use designos_doc::Rect as DRect;
     use std::path::Path;
     use std::sync::atomic::AtomicU64;
 
-    struct TestDir(PathBuf);
+    pub(super) struct TestDir(PathBuf);
 
     impl TestDir {
-        fn new(label: &str) -> Self {
+        pub(super) fn new(label: &str) -> Self {
             static NEXT: AtomicU64 = AtomicU64::new(1);
             let n = NEXT.fetch_add(1, Ordering::Relaxed);
             let dir = std::env::temp_dir().join(format!("designos-e5-10-test-{}-{label}-{n}", std::process::id()));
@@ -1611,7 +1570,7 @@ mod tests {
             Self(dir)
         }
 
-        fn path(&self) -> &Path {
+        pub(super) fn path(&self) -> &Path {
             &self.0
         }
     }
@@ -1623,7 +1582,7 @@ mod tests {
     }
 
     /// Builds a test `App` with one 100x100 layer at `(0, 0)` holding an opaque RGBA PNG fill.
-    fn sample_app_with_image_layer(temp_dir: &Path) -> (App, NodeId, String) {
+    pub(super) fn sample_app_with_image_layer(temp_dir: &Path) -> (App, NodeId, String) {
         let mut doc = Document::new("Image Tools Spec");
         let page = doc.add_page("Page 1");
         let mut img = image::RgbaImage::from_pixel(100, 100, image::Rgba([220, 40, 40, 255]));
@@ -1669,7 +1628,7 @@ mod tests {
         std::fs::write(path, bytes).unwrap();
     }
 
-    fn wait_for_job_completion(app: &mut App) {
+    pub(super) fn wait_for_job_completion(app: &mut App) {
         let deadline = Instant::now() + Duration::from_secs(4);
         while Instant::now() < deadline {
             if app.poll_image_jobs() {
@@ -1946,8 +1905,8 @@ mod tests {
         let tmp = TestDir::new("crop-hidpi");
         let (mut app, orig_id, img_key) = sample_app_with_image_layer(tmp.path());
 
-        // Replace source bitmap with a 400x200 hi-DPI landscape image on the 100x100 layer using ImageScaleMode::Crop.
-        // Center cover crop of 400x200 into 100x100 aspect ratio is the middle 200x200 square (x in 100..300, y in 0..200).
+        // Replace the source bitmap with a 400x200 hi-DPI landscape image on the 100x100 layer using ImageScaleMode::Crop.
+        // An identity crop stretches the whole picture into the layer, so the whole 400x200 picture is what the canvas shows.
         let mut wide = image::RgbaImage::from_pixel(400, 200, image::Rgba([10, 20, 30, 255]));
         for y in 0..200 {
             for x in 100..300 {
@@ -1957,36 +1916,43 @@ mod tests {
         app.doc.images.insert(img_key.clone(), encode_png(&wide).unwrap());
         app.doc.get_mut(orig_id).unwrap().fills[0].kind = PaintKind::Image { image_ref: img_key, scale_mode: ImageScaleMode::Crop, params: Default::default() };
 
-        // Expand by 50 image px each side on the 200x200 visible crop -> expected output is 300x300 image px,
-        // and the 100x100 layer (0.5 layer units per image px) grows by 25 layer units each side to 150x150 at (-25, -25).
-        let expanded_png = tmp.path().join("expanded_300x300.png");
-        write_rgba_png(&expanded_png, 300, 300, false);
+        // Expand by 50 image px each side of the 400x200 picture -> expected output is 500x300 image px,
+        // and the 100x100 layer (0.25 layer units per image px across, 0.5 down) grows by 12.5 and 25 layer units
+        // per side to 125x150 at (-12.5, -25).
+        let expanded_png = tmp.path().join("expanded_500x300.png");
+        write_rgba_png(&expanded_png, 500, 300, false);
         app.image_jobs.agent_script = Some(format!("cp \"{}\" \"$DESIGNOS_IMAGE_OUTPUT\"", expanded_png.display()));
 
         let job_id = app.start_image_job(orig_id, 0, ImageOp::Expand { top: 50, right: 50, bottom: 50, left: 50 }).expect("expand starts");
         let input_img = image::open(tmp.path().join("image-jobs").join(&job_id).join("input.png")).unwrap().to_rgba8();
-        assert_eq!(input_img.dimensions(), (200, 200), "input.png must be the 200x200 visible center crop, not the raw 400x200 bitmap");
-        assert_eq!(input_img.get_pixel(0, 0).0, [200, 100, 50, 255], "cropped input.png must come from center x=100..300");
+        assert_eq!(input_img.dimensions(), (400, 200), "input.png must be the whole 400x200 picture the identity crop shows");
+        assert_eq!(input_img.get_pixel(0, 0).0, [10, 20, 30, 255], "input.png starts at the picture's left edge, not a centred cover window");
 
         wait_for_job_completion(&mut app);
 
         let page_children = &app.doc.get(app.page).unwrap().children;
         assert_eq!(page_children.len(), 2);
         let new_node = app.doc.get(page_children[1]).unwrap();
-        assert_eq!(new_node.size, Vec2::new(150.0, 150.0), "layer size must scale expansion by layer-units-per-image-pixel (150/300 == 100/200)");
-        assert_eq!((new_node.transform.tx, new_node.transform.ty), (-25.0, -25.0));
+        assert_eq!(
+            new_node.size,
+            Vec2::new(125.0, 150.0),
+            "layer size must scale expansion by layer-units-per-image-pixel (125/500 == 100/400, 150/300 == 100/200)"
+        );
+        assert_eq!((new_node.transform.tx, new_node.transform.ty), (-12.5, -25.0));
         match &new_node.fills[0].kind {
             PaintKind::Image { scale_mode, .. } => assert_eq!(*scale_mode, ImageScaleMode::Crop, "source scale_mode must be preserved"),
             other => panic!("expected image fill, got {other:?}"),
         }
+    }
 
-        // Also verify `page_drag_to_image_region` respects both world scale/translation and Fit letterbox rect:
+    #[test]
+    fn drag_region_follows_the_world_transform_and_the_fit_letterbox() {
         // 400x200 image in a 100x100 layer under Fit occupies local y in 25..75, x in 0..100.
         // With a 2x scaled world transform at (50, 100), local (10, 35)..(60, 60) maps to page (70, 170)..(170, 220).
         let world = Affine { a: 2.0, b: 0.0, c: 0.0, d: 2.0, tx: 50.0, ty: 100.0 };
-        let region =
-            page_drag_to_image_region(world, Vec2::new(100.0, 100.0), ImageScaleMode::Fit, (400, 200), Pos2::new(70.0, 170.0), Pos2::new(170.0, 220.0))
-                .expect("drag within Fit image content rect resolves");
+        let frame = plan_image_job_frame(400, 200, Vec2::new(100.0, 100.0), ImageScaleMode::Fit, &Default::default()).expect("Fit shows the picture");
+        let region = page_drag_to_image_region(world, Vec2::new(100.0, 100.0), ImageScaleMode::Fit, &frame, Pos2::new(70.0, 170.0), Pos2::new(170.0, 220.0))
+            .expect("drag within Fit image content rect resolves");
         // local x: 10..60 of 0..100 -> 40..240 px (width 200); local y: 35..60 within 25..75 (10..35 of 50) -> 40..140 px (height 100).
         assert_eq!(region, [40, 40, 200, 100]);
     }
