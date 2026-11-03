@@ -1,0 +1,13 @@
+diff --git a/crates/designos-render/src/vectorops.rs b/crates/designos-render/src/vectorops.rs
+index 6989decdc..472286643 100644
+--- a/crates/designos-render/src/vectorops.rs
++++ b/crates/designos-render/src/vectorops.rs
+@@ -299,7 +299,7 @@ fn cubic_eval(c: &[Vec2; 4], t: f32) -> Vec2 {
+ /// Bézier parameter is not proportional to distance (the point at parameter `t` lies at `3t² - 2t³` of the way). A curve
+ /// is measured by sampling its points.
+ fn cubic_arc_len_and_t(c: &[Vec2; 4], target_dist: Option<f32>) -> (f32, f32) {
+-    if is_straight(c) {
++    if false && is_straight(c) {
+         let len = (c[3].x - c[0].x).hypot(c[3].y - c[0].y);
+         let t = match target_dist {
+             Some(d) if len > 1e-6 => (d / len).clamp(0.0, 1.0),

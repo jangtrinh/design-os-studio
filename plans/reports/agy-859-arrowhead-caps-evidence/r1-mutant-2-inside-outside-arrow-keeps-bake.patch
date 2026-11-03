@@ -1,0 +1,14 @@
+diff --git a/crates/designos-doc/src/layout_constraints.rs b/crates/designos-doc/src/layout_constraints.rs
+index 9db545461..4b7d78f40 100644
+--- a/crates/designos-doc/src/layout_constraints.rs
++++ b/crates/designos-doc/src/layout_constraints.rs
+@@ -200,7 +200,8 @@ fn live_stroke_reproduces_bake(stroke: &Stroke, meta: &BTreeMap<String, String>,
+         && !meta.contains_key("brushType")
+         && !meta.contains_key("strokeCap")
+         && (has_arrow || net.vertices.iter().all(|v| v.cap.is_none_or(|c| c == stroke.cap)))
+-        && (stroke.dashes.is_empty() || (centered && !has_arrow && net.vertices.iter().all(|v| v.join.is_none_or(|j| j == stroke.join))))
++        && ((!has_arrow && stroke.dashes.is_empty())
++            || (centered && (stroke.dashes.is_empty() || (!has_arrow && net.vertices.iter().all(|v| v.join.is_none_or(|j| j == stroke.join))))))
+ }
+ 
+ /// Applies `(new_transform, new_size)` from [`constrain_child`] / [`plan_constraint_pass`]
