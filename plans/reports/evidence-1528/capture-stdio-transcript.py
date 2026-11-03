@@ -15,7 +15,7 @@ binary = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else repo / "target/debu
 
 tmp = pathlib.Path(tempfile.mkdtemp(prefix="docs-evidence-"))
 lib = tmp / "library"
-pid = "p1f00d"
+pid = "a1f00d"
 proj = lib / "projects" / pid
 docs = proj / "docs"
 (docs / "spec").mkdir(parents=True)
@@ -35,15 +35,20 @@ pages = {
     "screens/cart.md": "# Cart\n\nThe cart screen.\n",
     "states/cart-empty.md": "# Empty cart\n",
     "discovery/interviews.md": "# Interviews\n\nFive calls.\n",
+    "spec/Needs Review.md": "# A page whose file name is not a plain slug\n",
 }
 for rel, text in pages.items():
     (docs / rel).write_text(text)
 (docs / "spec" / "huge.md").write_bytes(b"a" * (8 * 1024 * 1024 + 1))
+outside = tmp / "outside"
+outside.mkdir()
+(outside / "secret.md").write_text("# SECRET-OUTSIDE\n")
+os.symlink(outside / "secret.md", docs / "spec" / "leak.md")  # a link out of the docs folder
 manifest = {
     "schema_version": 1,
     "groups": [
         {"id": "overview", "pages": ["about.md"]},
-        {"id": "spec", "pages": ["spec/prd.md", "spec/bad-front.md", "spec/huge.md"]},
+        {"id": "spec", "pages": ["spec/prd.md", "spec/bad-front.md", "spec/huge.md", "spec/Needs Review.md", "spec/leak.md"]},
         {"id": "screens", "pages": ["screens/cart.md"]},
         {"id": "states", "pages": ["states/cart-empty.md"]},
         {"id": "discovery", "pages": ["discovery/interviews.md"]},
@@ -107,6 +112,8 @@ call("designos_docs_read", {"page": "spec/prd.md", "range": {"start": 1, "end": 
 call("designos_docs_read", {"page": "spec/bad-front.md"}, "designos_docs_read: front-matter problems returned, body still reads")
 call("designos_docs_read", {"page": "spec/nope.md"}, "designos_docs_read: unknown page names the fix")
 call("designos_docs_read", {"page": "spec/huge.md"}, "designos_docs_read: over-size page refused with a fix")
+call("designos_docs_read", {"page": "spec/Needs Review.md"}, "designos_docs_read: the string inside a fenced path is passed back")
+call("designos_docs_read", {"page": "spec/leak.md"}, "designos_docs_read: a symlink out of the docs folder is refused")
 call("designos_docs_list", {"project": "no-such-project"}, "designos_docs_list: unknown project names the fix")
 proc.stdin.close()
 proc.wait(timeout=10)
