@@ -114,6 +114,19 @@ fn a_new_list_next_to_a_list_stays_a_separate_list() {
     assert_eq!(reparsed_names(&page), ["bullet_list", "bullet_list", "bullet_list"], "{:?}", page.render());
 }
 
+#[test]
+fn a_numbered_list_between_a_dot_list_and_a_paren_list_is_kept_apart_by_a_comment() {
+    let mut page = parse("1. a\n\n1) b\n");
+    page.insert_block(1, BlockKind::NumberedList { start: 1, items: vec![ListItem::new(text("mid"))] });
+    let again = parse(&page.render());
+    let lists: Vec<&BlockKind> = again.blocks.iter().map(|b| b.kind()).filter(|k| matches!(k, BlockKind::NumberedList { .. })).collect();
+    assert_eq!(lists.len(), 3, "three separate lists must survive: {:?}", page.render());
+    for (kind, expected) in lists.iter().zip(["a", "mid", "b"]) {
+        let BlockKind::NumberedList { items, .. } = kind else { unreachable!() };
+        assert_eq!(items.len(), 1, "{expected}: {:?}", page.render());
+    }
+}
+
 // ------------------------------------------------------------------ m1, m2 front matter detection
 
 #[test]

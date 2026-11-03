@@ -160,6 +160,11 @@ impl Block {
     /// SHA-256 of the block's text: the text it was parsed from, or the canonical text once edited. Two reads of
     /// an unchanged block give the same hash wherever the block sits in the page, so a writer can check the one
     /// block it means to change (block-level compare-and-swap) while other blocks are edited around it.
+    ///
+    /// An edited block's hash is final only after the page is saved and read again: the page may write the block
+    /// with another line ending or another list marker than the in-memory canonical text used here (to match the
+    /// file or to keep neighbouring lists apart). A hash taken from memory can therefore differ from the one read
+    /// back after saving. That is a false conflict (the writer re-reads and retries), never a missed one.
     pub fn hash(&self) -> ContentHash {
         match &self.source {
             Some(source) => ContentHash::of(source.as_bytes()),

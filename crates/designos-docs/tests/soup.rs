@@ -140,6 +140,9 @@ const BLOCK_PIECES: &[&str] = &[
     "\u{FEFF}",
     "\t- tab\n",
     "    indented\n",
+    "  para\n",
+    "  3. three\n",
+    "  -\n",
     "<div>\n",
     "[ref]: http://x\n",
     "---\n",
@@ -174,6 +177,10 @@ fn touching_a_block_without_changing_it_leaves_the_blocks_as_they_were() {
             let after = Page::parse(&after_text);
             let names: Vec<&str> = after.blocks.iter().map(|b| b.kind().name()).collect();
             assert_eq!(names, before, "case {case}: touching block {i} of {src:?} gave {after_text:?}");
+            // Deeply: items and their children are the same too, and so is every other block.
+            // (A file that mixes line endings keeps stray carriage returns in text; compare those by name only.)
+            let same = src.contains('\r') || after.blocks.iter().zip(&page.blocks).all(|(a, b)| a.kind() == b.kind());
+            assert!(same, "case {case}: touching block {i} of {src:?} changed a block's content: {after_text:?}");
             checked += 1;
         }
     }

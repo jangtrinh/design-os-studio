@@ -97,6 +97,11 @@ fn list_item(inner: &[Ev], item: &Range<usize>, src: &str) -> Option<ParsedItem>
     lo += span.len() - span.trim_start_matches([' ', '\t']).len();
     let hi = lo.max(bound - (span.len() - span.trim_end().len()));
     let content = if lo >= hi { Vec::new() } else { tidy_continuations(parse_inlines(content_events, src, lo, hi))? };
+    // An item whose first line is empty but whose text starts on the next line cannot be written back the same way
+    // (`- ` and then the text would read as an item holding a paragraph), so such a list stays raw.
+    if !content.is_empty() && after_marker.starts_with(['\n', '\r']) {
+        return None;
+    }
 
     // Text the parser consumed without an event (a link definition inside the item) would be lost on a rewrite.
     let mut children = Vec::new();

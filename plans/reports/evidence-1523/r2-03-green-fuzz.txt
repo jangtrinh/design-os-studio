@@ -1,0 +1,9 @@
+DOCS_TOUCH_CASES=200000 DOCS_SOUP_CASES=1000000 DOCS_NESTED_CASES=1000000 (release, after final edit)
+test touching_a_block_without_changing_it_leaves_the_blocks_as_they_were ... ok
+test random_markdown_soup_is_always_lossless_and_the_canonical_form_is_stable ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.33s
+test a_nested_list_that_cannot_interrupt_a_paragraph_is_built_with_a_blank_line ... ok
+test touching_a_nested_list_keeps_it_a_list ... ok
+test touching_an_indented_list_keeps_the_paragraph_after_it ... ok
+test random_nested_list_soup_keeps_its_structure_when_touched ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.44s

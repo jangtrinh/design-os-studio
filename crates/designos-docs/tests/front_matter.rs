@@ -15,6 +15,17 @@ fn front_matter_is_read_and_kept_verbatim() {
 }
 
 #[test]
+fn replacing_a_block_scalar_title_removes_its_continuation_lines() {
+    let mut page = parse("---\ntitle: |\n  multi\n  line\ngroup: spec\n---\n# Body\n");
+    page.set_title(Some("x"));
+    let out = page.render();
+    assert_eq!(out, "---\ntitle: x\ngroup: spec\n---\n# Body\n");
+    let mut page = parse("---\ntitle: |\n  multi\n  line\ngroup: spec\n---\n# Body\n");
+    page.set_title(None);
+    assert_eq!(page.render(), "---\ngroup: spec\n---\n# Body\n");
+}
+
+#[test]
 fn front_matter_after_a_byte_order_mark_is_found_and_not_duplicated() {
     let src = "\u{FEFF}---\ntitle: Hello\ngroup: spec\n---\n# H\n";
     let mut page = parse(src);

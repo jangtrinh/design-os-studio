@@ -76,6 +76,13 @@ each typed block without changing it and requires the page to keep the same bloc
 - **Looseness and delimiter style are not modelled.** A loose list (blank lines between items) is written tight, and
   `__bold__` / `_italic_` become `**` / `*` when that block is edited. A rewritten list takes a bullet (`-` / `*` /
   `+`) or delimiter (`.` / `)`) that neither the list before it nor the list after it uses, so neighbours never merge.
+  A numbered list inserted between a `.` list and a `)` list has no free delimiter: an `<!-- -->` comment is written
+  next to the neighbour it would otherwise merge with (it reads back as one extra raw block).
+- **Block hashes.** `Block::hash` of an edited block is final only after the page is saved and read again (the page
+  may write it with the file's line ending or another list marker). A hash from memory can differ from the one read
+  back: a false conflict, never a missed one.
+- **Linked specs.** `linked_specs` may hold absolute paths (picked with the system folder picker). Whoever reads them
+  must confine every read to inside the linked folder.
 - **Line endings.** A page keeps its first line ending (`\n` or `\r\n`) for edited blocks; a file that mixes both is
   written back unchanged until a block is edited. A byte order mark is kept.
 - **Front matter** is read as one-line scalars (plain, single or double quoted) for `title`, `description`, `group`;
@@ -91,11 +98,13 @@ each typed block without changing it and requires the page to keep the same bloc
   batched and the folder is compared by size and time, hashing only what changed. Only when the system watcher cannot
   start or reports a failure does it look every 400 ms (`mode()` says which; `start_polling` forces it for network
   shares). The first look at the folder runs on the watcher thread, so `start` does no disk work; a file written right
-  after `start` is still reported. Pages over 8 MiB are skipped. Studio's own writes are reported too: compare
+  after `start` is still reported. The 8 MiB cap is applied to the read itself, so a file that is still growing is never read whole. The watch follows
+  the docs folder when it is created level by level, deleted or replaced (inotify drops a deleted folder's watch
+  without any error, so the folder's identity is checked after every batch of events). Studio's own writes are reported too: compare
   `DocChange::hash` with the hash `write_*` returned. If the wake callback panics the thread ends and
   `stopped_flag()` turns true.
 - **Locking.** A write waits up to 2 s for `.docs.lock` (`DocsStore::with_lock_timeout`), then fails with `Busy`, an
-  error that says to close the other window or delete the stale lock.
+  error that says to close the other window or agent and retry (the lock frees itself when its holder exits).
 - Pages over 8 MiB are refused; symlinked pages are not listed or watched (an explicit path still follows a symlink).
 
 ## Layout drift
