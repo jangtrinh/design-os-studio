@@ -1,0 +1,1 @@
+head 50d555e15ea03386fa1180b8462f993b82c68b0e branch jangtrinh/agy-1575-resize-strokes-live

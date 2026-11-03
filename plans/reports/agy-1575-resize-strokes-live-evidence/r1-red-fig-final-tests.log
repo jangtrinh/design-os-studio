@@ -1,0 +1,30 @@
+## source of crates/designos-fig/src and layout_constraints.rs at 0c5a1d27, tests of 50d555e1
+test an_arrow_cap_on_the_node_keeps_the_scaled_bake ... ok
+test an_arrow_cap_on_a_vertex_keeps_the_scaled_bake ... ok
+test a_brush_and_side_weights_keep_the_scaled_bake ... ok
+test a_vertex_cap_equal_to_the_nodes_and_dashes_on_a_centered_stroke_still_drop_the_bake ... ok
+test dashes_on_a_centered_stroke_whose_vertex_join_differs_from_the_nodes_keep_the_scaled_bake ... FAILED
+test fig_arrow_caps_on_the_node_and_on_a_vertex_keep_the_scaled_bake ... ok
+test the_kit_icon_drops_its_bake_and_draws_its_own_weight ... ok
+test a_rest_export_keeps_a_vertex_arrow_off_a_plain_node ... FAILED
+test a_rest_export_writes_a_vertex_arrow_back_onto_its_vertex_when_the_node_has_a_cap ... FAILED
+test a_vertex_cap_of_its_own_and_dashes_inside_keep_the_scaled_bake_while_a_vertex_join_drops_it ... ok
+test fig_icon_without_an_arrow_cap_drops_its_bake ... ok
+test an_instance_clone_of_an_arrow_icon_writes_the_arrow_back_onto_its_vertex_at_any_file_size ... FAILED
+test a_document_recorded_without_the_cap_source_keeps_writing_the_arrow_where_it_always_did ... ok
+test an_arrow_cap_survives_a_rest_round_trip_and_keeps_its_bake_on_a_resize ... ok
+test a_rest_export_writes_a_node_arrow_into_the_nodes_stroke_cap ... ok
+test a_saved_fig_file_of_a_plain_icon_carries_no_cap_marker_and_still_drops_its_bake ... ok
+test an_arrow_cap_survives_a_saved_fig_file_and_the_reopened_vector_keeps_its_bake_on_a_resize ... ok
+test an_arrow_vector_in_an_instance_keeps_its_bake_when_the_instance_is_resized ... ok
+thread 'dashes_on_a_centered_stroke_whose_vertex_join_differs_from_the_nodes_keep_the_scaled_bake' (90126934) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:95:59:
+thread 'a_rest_export_keeps_a_vertex_arrow_off_a_plain_node' (90126922) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:283:5:
+  left: "ARROW_LINES"
+ right: "NONE"
+thread 'a_rest_export_writes_a_vertex_arrow_back_onto_its_vertex_when_the_node_has_a_cap' (90126924) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:273:5:
+  left: [Some("ARROW_EQUILATERAL"), None, None, None]
+ right: [None, None, None, Some("ARROW_EQUILATERAL")]
+thread 'an_instance_clone_of_an_arrow_icon_writes_the_arrow_back_onto_its_vertex_at_any_file_size' (90126933) panicked at crates/designos-fig/tests/resized_vector_stroke_model.rs:320:9:
+  left: ("ROUND", [Some("ARROW_EQUILATERAL"), None, None, None])
+ right: ("ROUND", [None, None, None, Some("ARROW_EQUILATERAL")])
+test result: FAILED. 14 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
