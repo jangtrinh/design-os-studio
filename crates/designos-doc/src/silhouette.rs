@@ -343,7 +343,7 @@ mod tests {
         let mut hidden = Paint::solid(Color::BLACK);
         hidden.visible = false;
         // Alpha: the most opaque visible fill
-        assert_eq!(run_alpha(SilhouetteMode::Alpha, &[half.clone()], None), 0.5);
+        assert_eq!(run_alpha(SilhouetteMode::Alpha, std::slice::from_ref(&half), None), 0.5);
         assert_eq!(run_alpha(SilhouetteMode::Alpha, &[zero_opacity_paint(), half.clone()], None), 0.5);
         assert_eq!(run_alpha(SilhouetteMode::Alpha, &[hidden.clone()], None), 0.0);
         assert_eq!(run_alpha(SilhouetteMode::Alpha, &[], None), 0.0);
@@ -363,7 +363,7 @@ mod tests {
         let mut hidden = Paint::solid(Color::BLACK);
         hidden.visible = false;
         // any fill that paints something covers the glyph fully, whatever its alpha
-        assert_eq!(run_alpha(mode, &[half.clone()], None), 1.0);
+        assert_eq!(run_alpha(mode, std::slice::from_ref(&half), None), 1.0);
         assert_eq!(run_alpha(mode, &[zero_opacity_paint(), half], None), 1.0);
         // no fill, a hidden fill or a 0% fill paints nothing
         assert_eq!(run_alpha(mode, &[], None), 0.0);
