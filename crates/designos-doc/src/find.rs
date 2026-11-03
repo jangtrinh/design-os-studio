@@ -368,6 +368,12 @@ pub fn can_select_same_variant(doc: &Document, selection: &[NodeId]) -> bool {
     selection.len() == 1 && variant_set_of(doc, selection[0]).is_some()
 }
 
+/// True when `Select all with same text properties` or `Select all with same font`
+/// should be enabled for `selection` (at least one selected node is a text layer).
+pub fn can_select_same_text(doc: &Document, selection: &[NodeId]) -> bool {
+    selection.iter().any(|&id| doc.get(id).is_some_and(|n| has_criteria(doc, n, MatchCriteria::TextProperties)))
+}
+
 fn same_kind(a: &Node, b: &Node) -> bool {
     std::mem::discriminant(&a.kind) == std::mem::discriminant(&b.kind)
 }

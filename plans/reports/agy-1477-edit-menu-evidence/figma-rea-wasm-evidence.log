@@ -1,0 +1,1411 @@
+=== 1. REA analyze-javascript-application Evidence ===
+{"rea_progress":{"phase":"analyze_javascript_application","completed":0,"total":1,"message":"Inventorying and parsing application artifacts","sequence":1}}
+{"rea_progress":{"phase":"read_javascript_artifacts","completed":0,"total":1,"message":"Reading inventoried JavaScript application sources","sequence":2}}
+{"rea_progress":{"phase":"parse_javascript_sources","completed":0,"total":1,"message":"Parsing and projecting 3 selected application source files","sequence":3}}
+{"rea_progress":{"phase":"parse_javascript_source","completed":0,"total":1,"message":"Parsing and projecting 9a625d73e63287bd_0__85743-236ad693470d06fb.min.js (1/3)","sequence":4}}
+{"rea_progress":{"phase":"parse_javascript_source","completed":0,"total":1,"message":"Parsing and projecting desktop_shell.js (2/3)","sequence":5}}
+{"rea_progress":{"phase":"parse_javascript_source","completed":0,"total":1,"message":"Parsing and projecting package.json (3/3)","sequence":6}}
+{"rea_progress":{"phase":"build_javascript_application_graph","completed":0,"total":1,"message":"Constructing application and Electron boundary relationships","sequence":7}}
+{"rea_progress":{"phase":"seal_javascript_application_graph","completed":0,"total":1,"message":"Sealing the validated application graph","sequence":8}}
+{"rea_progress":{"phase":"build_javascript_semantic_graph","completed":0,"total":1,"message":"Binding and validating static semantic relationships","sequence":9}}
+{"rea_progress":{"phase":"seal_javascript_semantic_graph","completed":0,"total":1,"message":"Validating and sealing the semantic graph","sequence":10}}
+{"rea_progress":{"phase":"validate_javascript_application_result","completed":0,"total":1,"message":"Validating result metadata and cross-graph bindings","sequence":11}}
+{"rea_progress":{"phase":"create_javascript_application_evidence","completed":0,"total":1,"message":"Creating and hashing application analysis Evidence","sequence":12}}
+{"rea_progress":{"phase":"seal_javascript_application_result","completed":0,"total":1,"message":"Sealing the complete application analysis result","sequence":13}}
+{"rea_progress":{"phase":"validate_javascript_application_evidence","completed":0,"total":1,"message":"Validating the immutable application Evidence JSON","sequence":14}}
+{"rea_progress":{"phase":"hash_javascript_application_evidence","completed":0,"total":1,"message":"Hashing the complete application analysis Evidence","sequence":15}}
+{"rea_progress":{"phase":"analyze_javascript_application","completed":1,"total":1,"message":"Application graph and Electron boundaries reconstructed","terminal":true,"sequence":16}}
+{"evidence_id":"ev_9ce6d706cab536374076b47814259cbc3d6d4b7ab7df4eb4257dde6a889d93cd","subject":{"name":"figma-rea-target","digest":{"sha256":"029545f5d34e366a6893101fcf6993479de8c9b608e42c2a63d49d67ce0f24b8"},"local_path":"/Users/jangtrinh/.gemini/antigravity-cli/brain/fe96c725-c562-4e71-a668-9c1e9e1d1b94/scratch/figma-rea-target","format":"directory","architecture":null},"provider":{"id":"rea-javascript-application","name":"REA JavaScript application analyzer","version":"1"},"analysis_profile":null,"predicate_type":"rea.javascript-application-analysis","operation":"analyze_javascript_application","parameters":{"format":"auto","integrity_policy":"fail"},"raw_result":null,"normalized_result":{"input_path":"/Users/jangtrinh/.gemini/antigravity-cli/brain/fe96c725-c562-4e71-a668-9c1e9e1d1b94/scratch/figma-rea-target","format":"directory","root_artifact_sha256":"029545f5d34e366a6893101fcf6993479de8c9b608e42c2a63d49d67ce0f24b8","inventory_manifest_id":"agm_a0cb3e6d340cde62e9cbb171df7970b4287b4458f8882ca4e0467602b6fb73e0","inventory_graph_sha256":"b56782e5a0e9ed40c32007208d165eff7d8074504ae74d7403c637df59c861d6","integrity_contradictions":[],"graph":{"schema":"JavaScriptApplicationGraph", ... [truncated single-line JSON]
+
+=== 2. Figma i18n Strings (18b103ae06d13a46_0__figma_app-b446bd325f74b39b.min.en.json) ===
+@1980312: ,"fullscreen_actions.paste-and-match-style":{"string":"Paste and match style"},"fullscreen_actions.paste-animati
+@1995736: ,"fullscreen_actions.select-same-style":{"string":"Select all with same properties"},"fullscreen_actions.select-
+@1995416: ,"fullscreen_actions.select-same-fill":{"string":"Select all with same fill"},"fullscreen_actions.select-same-fo
+@1995655: ,"fullscreen_actions.select-same-stroke":{"string":"Select all with same stroke"},"fullscreen_actions.select-sam
+@1995335: ,"fullscreen_actions.select-same-effect":{"string":"Select all with same effect"},"fullscreen_actions.select-sam
+@1995820: ,"fullscreen_actions.select-same-text":{"string":"Select all with same text properties"},"fullscreen_actions.sel
+@1995493: ,"fullscreen_actions.select-same-font":{"string":"Select all with same font"},"fullscreen_actions.select-same-in
+@1995570: ,"fullscreen_actions.select-same-instance":{"string":"Select all with same instance"},"fullscreen_actions.select
+@1995908: ,"fullscreen_actions.select-same-variant":{"string":"Select all with same variant"},"fullscreen_actions.send-bac
+@2010775: ,"fullscreen_actions.swap-fill-and-stroke":{"string":"Swap fill and stroke"},"fullscreen_actions.swap-nodes":{"s
+
+=== 3. Figma Menu Tree (9a625d73e63287bd_0__85743-236ad693470d06fb.min.js) ===
+@77758..82100 (Edit menu): tV.rH,flags:["edit","!dev_handoff","!figmake","!rfd_view","!figspec"],featureFlags:[],children:[{action:"undo",searchSynonyms:["go back"],featureFlags:[]},{action:"redo",searchSynonyms:["step forward"],featureFlags:[]},{separator:!0},{name:"cut",flags:["desktop_os_menu"],featureFlags:[]},{name:"copy",flags:["desktop_os_menu"],featureFlags:[]},{action:"copy-as-menu",flags:["view_restricted"],featureFlags:[],children:[{action:"copy-text",searchSynonyms:["copy plain text"],iconType:i.createElement(d.B),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"copy-as-css",searchSynonyms:["copy css","copy as css"],iconType:i.createElement(u.i),flags:["design","sites"],callback:()=>{(0,eX.sx)("edit_menu_copy_as_css_clicked")},featureFlags:[]},{action:"copy-as-css-recursive",searchSynonyms:["copy all css"],flags:["design","sites"],callback:()=>{(0,eX.sx)("edit_menu_copy_as_css_all_layers_clicked")},featureFlags:[]},{action:"copy-as-svg",searchSynonyms:["svg markup"],iconType:i.createElement(u.i),flags:["design","sites"],featureFlags:[]},{action:"copy-as-animated-svg",searchSynonyms:["svg animation"],iconType:i.createElement(u.i),flags:["design","sites"],featureFlags:[]},{action:"copy-as-png",searchSynonyms:["copy as image","copy image"],iconType:i.createElement(a.T),featureFlags:[]}]},{name:"paste",flags:["desktop_os_menu"],featureFlags:[]},{action:"paste-over-selection",searchSynonyms:["paste in place","paste in front","paste on top"],iconType:i.createElement(p.E),featureFlags:[]},{action:"paste-to-replace",searchSynonyms:["paste and replace"],iconType:i.createElement(p.E),featureFlags:[]},{action:"duplicate-in-place",searchSynonyms:["copy layer","clone","dupe"],iconType:i.createElement(h.Z),featureFlags:[]},{action:"delete-selection",searchSynonyms:["delete layer"],featureFlags:[]},{separator:!0},{action:"canvas-search",searchSynonyms:["find text"],featureFlags:[]},{action:"canvas-search-next",searchSynonyms:["next result"],featureFlags:[]},{action:"canvas-search-prev",searchSynonyms:["previous match","previous result"],featureFlags:[]},{action:"canvas-search-replace",searchSynonyms:["search and replace","replace text","replace all"],iconType:i.createElement(f.W),featureFlags:[]},{separator:!0},{action:"set-default-style",searchSynonyms:["use as default"],flags:["design","sites"],featureFlags:[]},{action:"copy-properties",searchSynonyms:["copy styles"],iconType:i.createElement(o.h),flags:["design","sites"],featureFlags:[]},{action:"paste-properties",searchSynonyms:["paste formatting"],iconType:i.createElement(p.E),flags:["design","sites"],featureFlags:[]},{separator:!0},{action:"toggle-dropper",searchSynonyms:["color picker","colour picker","eyedropper","pipette"],flags:["design","sites"],featureFlags:[]},{separator:!0},{action:"select-all",searchSynonyms:["select everything","select all layers"],iconType:i.createElement(l.A),featureFlags:[]},{action:"select-matching",searchSynonyms:["select similar","select same","select all similar"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"deselect-all",searchSynonyms:["clear selection"],featureFlags:[]},{action:"select-inverse",searchSynonyms:["invert selection"],featureFlags:[]},{name:"select-all-with-menu-options",flags:["design","sites","slides","cooper"],featureFlags:[],children:[{action:"select-same-style",searchSynonyms:["select similar","same appearance"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-fill",searchSynonyms:["select same color","select by color","same swatch"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-stroke",iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-effect",searchSynonyms:["same blur"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-text",searchSynonyms:["same text style"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-font",searchSynonyms:["select font","same font","select typeface","replace fonts","missing fonts"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"se
+@100250..100600 (swap-fill-and-stroke menu item): on:"remove-stroke",searchSynonyms:["remove border"],flags:["design","sites","edit","slides","cooper"],featureFlags:[]},{action:"swap-fill-and-stroke",searchSynonyms:["switch fill stroke"],iconType:i.createElement(X.F),flags:["design","edit","slides","cooper","sites"],featureFlags:[]},{action:"remove-interactions-on-selection",searchSynonyms:["remov
+
+=== 4. Figma Enabled Predicates (a6f2bcc873943b57_0__6413-8e031fdc4fad2bf8.min.js) ===
+@1317150..1317500 (eO / eC / ek predicates): TEXT,ex=e=>{let t=e.appFrameworkState.editMode;return t===B.m1T.DESIGN_LAYOUT||t===B.m1T.SITES_LAYOUT||t===B.m1T.SLIDE_LAYOUT||t===B.m1T.VECTOR||t===B.m1T.BUZZ_LAYOUT&&e.appFrameworkState.interopToolMode===U.nQ7.DESIGN};function eS(e){let t=1===e.directlySelectedCounts.firstInCanvasGridRowCount&&1===e.directlySelectedCounts.nodeCount,n=e.directlySe
+@1865900..1867600 (action definitions): TopLevelModes:K,enabled:eO,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"swap-fill-and-stroke",isEdit:!0,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:K,enabled:eO,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-fill",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:eC,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-stroke",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:eC,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-effect",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:eC,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-text",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:ek,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-font",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:ek,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-style",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:eC,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-instance",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:e=>e.singleNodeSelection?.isOrInInstance===!0&&e.appFrameworkState.isSelectionMode,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-variant",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),
+
+=== 5. Figma Context Menu & Paste-and-Match-Style (b14e95537840f572_0__23242-a098d58d7265f1cd.min.js) ===
+@574650..575350 (getCopyPasteMenu): css-recursive"},{action:"copy-as-ios"},{action:"copy-as-android"},...!this.props.canAccessDevMode&&this.props.canAccessDevModeEntryPoint?[{separator:!0},{render:()=>(0,s.jsx)(co,{}),optionHeight:40}]:[]]},M=a?this.getCopyHyperlinkMenu():null,O=this.getCopyAsMarkdownMenu(),D=(0,cE.WI)([{action:"copy-text"},O,...M?[M]:[],...this.props.canCopyLink?[this.getCopyLinkMenu()]:[],P,this.props.canShowExportControls?{action:"copy-as-svg",disabled:this.props.isExportBlockedByApprovals,disabledAndForceVisible:this.props.isExportBlockedByApprovals}:null,...this.props.canShowExportControls&&p.v.getFeatureGate("metronome")?[{action:"copy-as-animated-svg",disabled:this.props.isExportBlockedByApprovals,disab
+
+=== 6. Figma WASM Disassembly: swap-fill-and-stroke (func[25245] & func[52668]) ===
+=== func[25245] (23681664..23683367, len=1703) ===
+  @23681669: global.get 0
+  @23681671: i32.const 80
+  @23681674: i32.sub
+  @23681675: local.tee 2
+  @23681677: global.set 0
+  @23681679: local.get 2
+  @23681681: i32.const -64
+  @23681683: i32.sub
+  @23681684: block
+  @23681686: block
+  @23681688: local.get 0
+  @23681690: i32.load offset=4
+  @23681693: local.tee 1
+  @23681695: i32.eqz
+  @23681696: br_if 0
+  @23681698: local.get 1
+  @23681700: local.get 0
+  @23681702: i32.load offset=0
+  @23681705: local.tee 3
+  @23681707: i32.load offset=0
+  @23681710: i32.ne
+  @23681711: br_if 0
+  @23681713: i32.const 4635064
+  @23681718: i32.const 4635064
+  @23681723: i32.load offset=0
+  @23681726: i32.const 1
+  @23681728: i32.add
+  @23681729: local.tee 1
+  @23681731: i32.store offset=0
+  @23681734: local.get 1
+  @23681736: i32.const 1023
+  @23681739: i32.and
+  @23681740: i32.eqz
+  @23681741: if
+  @23681743: i32.const 4635064
+  @23681748: i32.const 0
+  @23681750: i32.store offset=0
+  @23681753: call func[1781]
+  @23681756: end
+  @23681757: local.get 3
+  @23681759: i32.const 4
+  @23681761: i32.add
+  @23681762: br 1
+  @23681764: end
+  @23681765: local.get 0
+  @23681767: call func[1782]
+  @23681770: end
+  @23681771: i32.const 352
+  @23681774: i32.add
+  @23681775: i32.const 0
+  @23681777: call func[1940]
+  @23681780: local.get 2
+  @23681782: i32.const 60
+  @23681784: i32.add
+  @23681785: block
+  @23681787: block
+  @23681789: local.get 0
+  @23681791: i32.load offset=4
+  @23681794: local.tee 1
+  @23681796: i32.eqz
+  @23681797: br_if 0
+  @23681799: local.get 1
+  @23681801: local.get 0
+  @23681803: i32.load offset=0
+  @23681806: local.tee 3
+  @23681808: i32.load offset=0
+  @23681811: i32.ne
+  @23681812: br_if 0
+  @23681814: i32.const 4635064
+  @23681819: i32.const 4635064
+  @23681824: i32.load offset=0
+  @23681827: i32.const 1
+  @23681829: i32.add
+  @23681830: local.tee 1
+  @23681832: i32.store offset=0
+  @23681835: local.get 1
+  @23681837: i32.const 1023
+  @23681840: i32.and
+  @23681841: i32.eqz
+  @23681842: if
+  @23681844: i32.const 4635064
+  @23681849: i32.const 0
+  @23681851: i32.store offset=0
+  @23681854: call func[1781]
+  @23681857: end
+  @23681858: local.get 3
+  @23681860: i32.const 4
+  @23681862: i32.add
+  @23681863: br 1
+  @23681865: end
+  @23681866: local.get 0
+  @23681868: call func[1782]
+  @23681871: end
+  @23681872: i32.const 352
+  @23681875: i32.add
+  @23681876: call func[2030]
+  @23681879: local.get 2
+  @23681881: i32.const 48
+  @23681883: i32.add
+  @23681884: block
+  @23681886: block
+  @23681888: local.get 0
+  @23681890: i32.load offset=4
+  @23681893: local.tee 1
+  @23681895: i32.eqz
+  @23681896: br_if 0
+  @23681898: local.get 1
+  @23681900: local.get 0
+  @23681902: i32.load offset=0
+  @23681905: local.tee 3
+  @23681907: i32.load offset=0
+  @23681910: i32.ne
+  @23681911: br_if 0
+  @23681913: i32.const 4635064
+  @23681918: i32.const 4635064
+  @23681923: i32.load offset=0
+  @23681926: i32.const 1
+  @23681928: i32.add
+  @23681929: local.tee 1
+  @23681931: i32.store offset=0
+  @23681934: local.get 1
+  @23681936: i32.const 1023
+  @23681939: i32.and
+  @23681940: i32.eqz
+  @23681941: if
+  @23681943: i32.const 4635064
+  @23681948: i32.const 0
+  @23681950: i32.store offset=0
+  @23681953: call func[1781]
+  @23681956: end
+  @23681957: local.get 3
+  @23681959: i32.const 4
+  @23681961: i32.add
+  @23681962: br 1
+  @23681964: end
+  @23681965: local.get 0
+  @23681967: call func[1782]
+  @23681970: end
+  @23681971: i32.const 4
+  @23681973: i32.add
+  @23681974: i32.const 0
+  @23681976: call func[3043]
+  @23681979: local.get 2
+  @23681981: i32.const 32
+  @23681983: i32.add
+  @23681984: block
+  @23681986: block
+  @23681988: local.get 0
+  @23681990: i32.load offset=4
+  @23681993: local.tee 1
+  @23681995: i32.eqz
+  @23681996: br_if 0
+  @23681998: local.get 1
+  @23682000: local.get 0
+  @23682002: i32.load offset=0
+  @23682005: local.tee 3
+  @23682007: i32.load offset=0
+  @23682010: i32.ne
+  @23682011: br_if 0
+  @23682013: i32.const 4635064
+  @23682018: i32.const 4635064
+  @23682023: i32.load offset=0
+  @23682026: i32.const 1
+  @23682028: i32.add
+  @23682029: local.tee 1
+  @23682031: i32.store offset=0
+  @23682034: local.get 1
+  @23682036: i32.const 1023
+  @23682039: i32.and
+  @23682040: i32.eqz
+  @23682041: if
+  @23682043: i32.const 4635064
+  @23682048: i32.const 0
+  @23682050: i32.store offset=0
+  @23682053: call func[1781]
+  @23682056: end
+  @23682057: local.get 3
+  @23682059: i32.const 4
+  @23682061: i32.add
+  @23682062: br 1
+  @23682064: end
+  @23682065: local.get 0
+  @23682067: call func[1782]
+  @23682070: end
+  @23682071: i32.const 4
+  @23682073: i32.add
+  @23682074: i32.const 1
+  @23682076: call func[3043]
+  @23682079: block
+  @23682081: block
+  @23682083: local.get 0
+  @23682085: i32.load offset=4
+  @23682088: local.tee 1
+  @23682090: i32.eqz
+  @23682091: br_if 0
+  @23682093: local.get 1
+  @23682095: local.get 0
+  @23682097: i32.load offset=0
+  @23682100: local.tee 3
+  @23682102: i32.load offset=0
+  @23682105: i32.ne
+  @23682106: br_if 0
+  @23682108: i32.const 4635064
+  @23682113: i32.const 4635064
+  @23682118: i32.load offset=0
+  @23682121: i32.const 1
+  @23682123: i32.add
+  @23682124: local.tee 1
+  @23682126: i32.store offset=0
+  @23682129: local.get 1
+  @23682131: i32.const 1023
+  @23682134: i32.and
+  @23682135: i32.eqz
+  @23682136: if
+  @23682138: i32.const 4635064
+  @23682143: i32.const 0
+  @23682145: i32.store offset=0
+  @23682148: call func[1781]
+  @23682151: end
+  @23682152: local.get 3
+  @23682154: i32.const 4
+  @23682156: i32.add
+  @23682157: br 1
+  @23682159: end
+  @23682160: local.get 0
+  @23682162: call func[1782]
+  @23682165: end
+  @23682166: i32.const 352
+  @23682169: i32.add
+  @23682170: local.get 2
+  @23682172: i32.const 28
+  @23682174: i32.add
+  @23682175: local.tee 3
+  @23682177: local.get 2
+  @23682179: i32.load offset=60
+  @23682182: local.tee 1
+  @23682184: i32.store offset=0
+  @23682187: local.get 1
+  @23682189: if
+  @23682191: local.get 1
+  @23682193: local.get 1
+  @23682195: i32.load offset=0
+  @23682198: i32.const 1
+  @23682200: i32.add
+  @23682201: i32.store offset=0
+  @23682204: end
+  @23682205: local.get 3
+  @23682207: call func[3591]
+  @23682210: local.get 3
+  @23682212: call func[1807]
+  @23682215: drop
+  @23682216: block
+  @23682218: block
+  @23682220: local.get 0
+  @23682222: i32.load offset=4
+  @23682225: local.tee 1
+  @23682227: i32.eqz
+  @23682228: br_if 0
+  @23682230: local.get 1
+  @23682232: local.get 0
+  @23682234: i32.load offset=0
+  @23682237: local.tee 3
+  @23682239: i32.load offset=0
+  @23682242: i32.ne
+  @23682243: br_if 0
+  @23682245: i32.const 4635064
+  @23682250: i32.const 4635064
+  @23682255: i32.load offset=0
+  @23682258: i32.const 1
+  @23682260: i32.add
+  @23682261: local.tee 1
+  @23682263: i32.store offset=0
+  @23682266: local.get 1
+  @23682268: i32.const 1023
+  @23682271: i32.and
+  @23682272: i32.eqz
+  @23682273: if
+  @23682275: i32.const 4635064
+  @23682280: i32.const 0
+  @23682282: i32.store offset=0
+  @23682285: call func[1781]
+  @23682288: end
+  @23682289: local.get 3
+  @23682291: i32.const 4
+  @23682293: i32.add
+  @23682294: br 1
+  @23682296: end
+  @23682297: local.get 0
+  @23682299: call func[1782]
+  @23682302: end
+  @23682303: i32.const 352
+  @23682306: i32.add
+  @23682307: local.get 2
+  @23682309: i32.const 24
+  @23682311: i32.add
+  @23682312: local.tee 3
+  @23682314: local.get 2
+  @23682316: i32.const -64
+  @23682318: i32.sub
+  @23682319: i32.load offset=0
+  @23682322: local.tee 1
+  @23682324: i32.store offset=0
+  @23682327: local.get 1
+  @23682329: if
+  @23682331: local.get 1
+  @23682333: local.get 1
+  @23682335: i32.load offset=0
+  @23682338: i32.const 1
+  @23682340: i32.add
+  @23682341: i32.store offset=0
+  @23682344: end
+  @23682345: local.get 3
+  @23682347: call func[5654]
+  @23682350: local.get 3
+  @23682352: call func[1807]
+  @23682355: drop
+  @23682356: local.get 2
+  @23682358: i32.const 72
+  @23682361: i32.add
+  @23682362: block
+  @23682364: block
+  @23682366: local.get 0
+  @23682368: i32.load offset=4
+  @23682371: local.tee 1
+  @23682373: i32.eqz
+  @23682374: br_if 0
+  @23682376: local.get 1
+  @23682378: local.get 0
+  @23682380: i32.load offset=0
+  @23682383: local.tee 3
+  @23682385: i32.load offset=0
+  @23682388: i32.ne
+  @23682389: br_if 0
+  @23682391: i32.const 4635064
+  @23682396: i32.const 4635064
+  @23682401: i32.load offset=0
+  @23682404: i32.const 1
+  @23682406: i32.add
+  @23682407: local.tee 1
+  @23682409: i32.store offset=0
+  @23682412: local.get 1
+  @23682414: i32.const 1023
+  @23682417: i32.and
+  @23682418: i32.eqz
+  @23682419: if
+  @23682421: i32.const 4635064
+  @23682426: i32.const 0
+  @23682428: i32.store offset=0
+  @23682431: call func[1781]
+  @23682434: end
+  @23682435: local.get 3
+  @23682437: i32.const 4
+  @23682439: i32.add
+  @23682440: br 1
+  @23682442: end
+  @23682443: local.get 0
+  @23682445: call func[1782]
+  @23682448: end
+  @23682449: i32.const 352
+  @23682452: i32.add
+  @23682453: call func[2030]
+  @23682456: block
+  @23682458: local.get 2
+  @23682460: i32.load offset=72
+  @23682463: i32.const 8
+  @23682465: i32.add
+  @23682466: call func[4394]
+  @23682469: if
+  @23682471: block
+  @23682473: block
+  @23682475: local.get 0
+  @23682477: i32.load offset=4
+  @23682480: local.tee 1
+  @23682482: i32.eqz
+  @23682483: br_if 0
+  @23682485: local.get 1
+  @23682487: local.get 0
+  @23682489: i32.load offset=0
+  @23682492: local.tee 3
+  @23682494: i32.load offset=0
+  @23682497: i32.ne
+  @23682498: br_if 0
+  @23682500: i32.const 4635064
+  @23682505: i32.const 4635064
+  @23682510: i32.load offset=0
+  @23682513: i32.const 1
+  @23682515: i32.add
+  @23682516: local.tee 1
+  @23682518: i32.store offset=0
+  @23682521: local.get 1
+  @23682523: i32.const 1023
+  @23682526: i32.and
+  @23682527: i32.eqz
+  @23682528: if
+  @23682530: i32.const 4635064
+  @23682535: i32.const 0
+  @23682537: i32.store offset=0
+  @23682540: call func[1781]
+  @23682543: end
+  @23682544: local.get 3
+  @23682546: i32.const 4
+  @23682548: i32.add
+  @23682549: br 1
+  @23682551: end
+  @23682552: local.get 0
+  @23682554: call func[1782]
+  @23682557: end
+  @23682558: i32.const 352
+  @23682561: i32.add
+  @23682562: local.set 1
+  @23682564: block
+  @23682566: local.get 1
+  @23682568: i32.const 308
+  @23682571: i32.sub
+  @23682572: local.tee 1
+  @23682574: i32.load8_u offset=61
+  @23682577: i32.const 64
+  @23682580: i32.and
+  @23682581: i32.eqz
+  @23682582: br_if 0
+  @23682584: local.get 1
+  @23682586: i32.load offset=84
+  @23682589: local.tee 1
+  @23682591: i32.eqz
+  @23682592: br_if 0
+  @23682594: local.get 1
+  @23682596: f32.load offset=16
+  @23682599: local.set 6
+  @23682601: end
+  @23682602: local.get 2
+  @23682604: i32.const 72
+  @23682607: i32.add
+  @23682608: call func[1807]
+  @23682611: drop
+  @23682612: local.get 6
+  @23682614: f32.const 0.0
+  @23682619: f32.ne
+  @23682620: br_if 1
+  @23682622: block
+  @23682624: block
+  @23682626: local.get 0
+  @23682628: i32.load offset=4
+  @23682631: local.tee 1
+  @23682633: i32.eqz
+  @23682634: br_if 0
+  @23682636: local.get 1
+  @23682638: local.get 0
+  @23682640: i32.load offset=0
+  @23682643: local.tee 3
+  @23682645: i32.load offset=0
+  @23682648: i32.ne
+  @23682649: br_if 0
+  @23682651: i32.const 4635064
+  @23682656: i32.const 4635064
+  @23682661: i32.load offset=0
+  @23682664: i32.const 1
+  @23682666: i32.add
+  @23682667: local.tee 1
+  @23682669: i32.store offset=0
+  @23682672: local.get 1
+  @23682674: i32.const 1023
+  @23682677: i32.and
+  @23682678: i32.eqz
+  @23682679: if
+  @23682681: i32.const 4635064
+  @23682686: i32.const 0
+  @23682688: i32.store offset=0
+  @23682691: call func[1781]
+  @23682694: end
+  @23682695: local.get 3
+  @23682697: i32.const 4
+  @23682699: i32.add
+  @23682700: br 1
+  @23682702: end
+  @23682703: local.get 0
+  @23682705: call func[1782]
+  @23682708: end
+  @23682709: i32.const 352
+  @23682712: i32.add
+  @23682713: f32.const 1.0
+  @23682718: call func[3633]
+  @23682721: br 1
+  @23682723: end
+  @23682724: local.get 2
+  @23682726: i32.const 72
+  @23682729: i32.add
+  @23682730: call
+
+=== 7. Figma WASM Disassembly: select-same-* (func[25339], func[25340], func[25341]) ===
+=== func[5640] @3185320..3187050 ===
+  @3185320: local.get 4
+  @3185322: i32.load offset=4940
+  @3185326: local.get 1
+  @3185328: i32.ne
+  @3185329: br_if 0
+  @3185331: end
+  @3185332: br 10
+  @3185334: end
+  @3185335: i32.const 1
+  @3185337: local.set 1
+  @3185339: br 4
+  @3185341: end
+  @3185342: i32.const 2
+  @3185344: local.set 1
+  @3185346: br 3
+  @3185348: end
+  @3185349: i32.const 3
+  @3185351: local.set 1
+  @3185353: br 2
+  @3185355: end
+  @3185356: i32.const 4
+  @3185358: local.set 1
+  @3185360: br 1
+  @3185362: end
+  @3185363: i32.const 6
+  @3185365: local.set 1
+  @3185367: end
+  @3185368: local.get 4
+  @3185370: local.get 4
+  @3185372: i64.load offset=6368
+  @3185376: local.tee 24
+  @3185378: i64.store offset=704
+  @3185382: local.get 4
+  @3185384: local.get 24
+  @3185386: i64.store offset=328
+  @3185390: local.get 4
+  @3185392: i32.const 328
+  @3185395: i32.add
+  @3185396: local.get 1
+  @3185398: call func[25341]
+  @3185402: i32.eqz
+  @3185403: br_if 7
+  @3185405: local.get 0
+  @3185407: i32.load offset=0
+  @3185410: i32.const 283
+  @3185413: local.get 4
+  @3185415: i32.const 4968
+  @3185418: i32.add
+  @3185419: i32.const 0
+  @3185421: call func[1802]
+  @3185424: local.tee 0
+  @3185426: i32.const 0
+  @3185428: call func[1920]
+  @3185431: local.get 0
+  @3185433: call func[1784]
+  @3185436: drop
+  @3185437: br 7
+  @3185439: end
+  @3185440: local.get 4
+  @3185442: local.get 4
+  @3185444: i64.load offset=6368
+  @3185448: local.tee 24
+  @3185450: i64.store offset=696
+  @3185454: local.get 4
+  @3185456: local.get 24
+  @3185458: i64.store offset=312
+  @3185462: global.get 0
+  @3185464: i32.const 736
+  @3185467: i32.sub
+  @3185468: local.tee 3
+  @3185470: global.set 0
+  @3185472: local.get 3
+  @3185474: i32.const 696
+  @3185477: i32.add
+  @3185478: block
+  @3185480: block
+  @3185482: local.get 4
+  @3185484: i32.const 312
+  @3185487: i32.add
+  @3185488: local.tee 7
+  @3185490: i32.load offset=4
+  @3185493: local.tee 1
+  @3185495: i32.eqz
+  @3185496: br_if 0
+  @3185498: local.get 1
+  @3185500: local.get 7
+  @3185502: i32.load offset=0
+  @3185505: local.tee 2
+  @3185507: i32.load offset=0
+  @3185510: i32.ne
+  @3185511: br_if 0
+  @3185513: i32.const 4635064
+  @3185518: i32.const 4635064
+  @3185523: i32.load offset=0
+  @3185526: i32.const 1
+  @3185528: i32.add
+  @3185529: local.tee 1
+  @3185531: i32.store offset=0
+  @3185534: local.get 1
+  @3185536: i32.const 1023
+  @3185539: i32.and
+  @3185540: i32.eqz
+  @3185541: if
+  @3185543: i32.const 4635064
+  @3185548: i32.const 0
+  @3185550: i32.store offset=0
+  @3185553: call func[1781]
+  @3185556: end
+  @3185557: local.get 2
+  @3185559: i32.const 4
+  @3185561: i32.add
+  @3185562: br 1
+  @3185564: end
+  @3185565: local.get 7
+  @3185567: call func[1782]
+  @3185570: end
+  @3185571: i32.const 4
+  @3185573: i32.add
+  @3185574: call func[1831]
+  @3185577: local.tee 8
+  @3185579: block
+  @3185581: block
+  @3185583: local.get 7
+  @3185585: i32.load offset=4
+  @3185588: local.tee 1
+  @3185590: i32.eqz
+  @3185591: br_if 0
+  @3185593: local.get 1
+  @3185595: local.get 7
+  @3185597: i32.load offset=0
+  @3185600: local.tee 2
+  @3185602: i32.load offset=0
+  @3185605: i32.ne
+  @3185606: br_if 0
+  @3185608: i32.const 4635064
+  @3185613: i32.const 4635064
+  @3185618: i32.load offset=0
+  @3185621: i32.const 1
+  @3185623: i32.add
+  @3185624: local.tee 1
+  @3185626: i32.store offset=0
+  @3185629: local.get 1
+  @3185631: i32.const 1023
+  @3185634: i32.and
+  @3185635: i32.eqz
+  @3185636: if
+  @3185638: i32.const 4635064
+  @3185643: i32.const 0
+  @3185645: i32.store offset=0
+  @3185648: call func[1781]
+  @3185651: end
+  @3185652: local.get 2
+  @3185654: i32.const 4
+  @3185656: i32.add
+  @3185657: br 1
+  @3185659: end
+  @3185660: local.get 7
+  @3185662: call func[1782]
+  @3185665: end
+  @3185666: i32.load offset=28
+  @3185669: call func[1931]
+  @3185672: i32.const 0
+  @3185674: local.set 2
+  @3185676: block
+  @3185678: local.get 3
+  @3185680: i32.load offset=700
+  @3185684: local.tee 1
+  @3185686: i32.eqz
+  @3185687: br_if 0
+  @3185689: block
+  @3185691: local.get 1
+  @3185693: local.get 3
+  @3185695: i32.load offset=696
+  @3185699: local.tee 5
+  @3185701: i32.load offset=0
+  @3185704: i32.eq
+  @3185705: if
+  @3185707: i32.const 4635064
+  @3185712: i32.const 4635064
+  @3185717: i32.load offset=0
+  @3185720: i32.const 1
+  @3185722: i32.add
+  @3185723: local.tee 1
+  @3185725: i32.store offset=0
+  @3185728: local.get 1
+  @3185730: i32.const 1023
+  @3185733: i32.and
+  @3185734: i32.eqz
+  @3185735: if
+  @3185737: i32.const 4635064
+  @3185742: i32.const 0
+  @3185744: i32.store offset=0
+  @3185747: call func[1781]
+  @3185750: end
+  @3185751: local.get 5
+  @3185753: i32.const 4
+  @3185755: i32.add
+  @3185756: br 1
+  @3185758: end
+  @3185759: local.get 3
+  @3185761: i32.const 696
+  @3185764: i32.add
+  @3185765: call func[1782]
+  @3185768: end
+  @3185769: i32.load offset=264
+  @3185773: i32.const 63
+  @3185775: i32.and
+  @3185776: i32.const 6
+  @3185778: i32.ne
+  @3185779: br_if 0
+  @3185781: local.get 3
+  @3185783: i32.const 688
+  @3185786: i32.add
+  @3185787: block
+  @3185789: block
+  @3185791: local.get 3
+  @3185793: i32.load offset=700
+  @3185797: local.tee 1
+  @3185799: i32.eqz
+  @3185800: br_if 0
+  @3185802: local.get 1
+  @3185804: local.get 3
+  @3185806: i32.load offset=696
+  @3185810: local.tee 2
+  @3185812: i32.load offset=0
+  @3185815: i32.ne
+  @3185816: br_if 0
+  @3185818: i32.const 4635064
+  @3185823: i32.const 4635064
+  @3185828: i32.load offset=0
+  @3185831: i32.const 1
+  @3185833: i32.add
+  @3185834: local.tee 1
+  @3185836: i32.store offset=0
+  @3185839: local.get 1
+  @3185841: i32.const 1023
+  @3185844: i32.and
+  @3185845: i32.eqz
+  @3185846: if
+  @3185848: i32.const 4635064
+  @3185853: i32.const 0
+  @3185855: i32.store offset=0
+  @3185858: call func[1781]
+  @3185861: end
+  @3185862: local.get 2
+  @3185864: i32.const 4
+  @3185866: i32.add
+  @3185867: br 1
+  @3185869: end
+  @3185870: local.get 3
+  @3185872: i32.const 696
+  @3185875: i32.add
+  @3185876: call func[1782]
+  @3185879: end
+  @3185880: i32.const 305
+  @3185883: i32.add
+  @3185884: call func[4775]
+  @3185887: local.get 3
+  @3185889: i32.load offset=692
+  @3185893: i32.eqz
+  @3185894: if
+  @3185896: i32.const 1219912 ('Backing product component not found for selected instance')
+  @3185901: call func[1786]
+  @3185904: i32.const 0
+  @3185906: local.set 2
+  @3185908: br 1
+  @3185910: end
+  @3185911: local.get 3
+  @3185913: i64.const -1
+  @3185915: i64.store offset=376
+  @3185919: local.get 3
+  @3185921: i64.const 0
+  @3185923: i64.store offset=368
+  @3185927: local.get 3
+  @3185929: i64.const 4294967295
+  @3185935: i64.store offset=360
+  @3185939: local.get 3
+  @3185941: i64.const -1
+  @3185943: i64.store offset=384
+  @3185947: local.get 3
+  @3185949: i64.const 0
+  @3185951: i64.store offset=392
+  @3185955: local.get 3
+  @3185957: i64.const 0
+  @3185959: i64.store offset=400
+  @3185963: local.get 3
+  @3185965: i64.const 0
+  @3185967: i64.store offset=424
+  @3185971: local.get 3
+  @3185973: i64.const 4607182418800017408
+  @3185983: i64.store offset=416
+  @3185987: local.get 3
+  @3185989: i32.const 1065353216
+  @3185995: i32.store offset=408
+  @3185999: local.get 3
+  @3186001: i64.const 0
+  @3186003: i64.store offset=432
+  @3186007: local.get 3
+  @3186009: i64.const 0
+  @3186011: i64.store offset=440
+  @3186015: local.get 3
+  @3186017: i32.const 0
+  @3186019: i32.store8 offset=508
+  @3186023: local.get 3
+  @3186025: i32.const 0
+  @3186027: i32.store8 offset=504
+  @3186031: local.get 3
+  @3186033: i32.const 0
+  @3186035: i32.store8 offset=500
+  @3186039: local.get 3
+  @3186041: i32.const 0
+  @3186043: i32.store8 offset=464
+  @3186047: local.get 3
+  @3186049: i64.const 0
+  @3186051: i64.store offset=456
+  @3186055: local.get 3
+  @3186057: i64.const 4607182418800017408
+  @3186067: i64.store offset=448
+  @3186071: local.get 3
+  @3186073: i64.const 0
+  @3186075: i64.store offset=520
+  @3186079: local.get 3
+  @3186081: i64.const 0
+  @3186083: i64.store offset=512
+  @3186087: local.get 3
+  @3186089: i32.const 1065353216
+  @3186095: i32.store offset=528
+  @3186099: local.get 3
+  @3186101: i64.const 0
+  @3186103: i64.store offset=540
+  @3186107: local.get 3
+  @3186109: i64.const -1
+  @3186111: i64.store offset=532
+  @3186115: local.get 3
+  @3186117: i64.const 0
+  @3186119: i64.store offset=548
+  @3186123: local.get 3
+  @3186125: i32.const 1065353216
+  @3186131: i32.store offset=556
+  @3186135: local.get 3
+  @3186137: i64.const 0
+  @3186139: i64.store offset=568
+  @3186143: local.get 3
+  @3186145: i64.const 0
+  @3186147: i64.store offset=560
+  @3186151: local.get 3
+  @3186153: i32.const 1065353216
+  @3186159: i32.store offset=576
+  @3186163: local.get 3
+  @3186165: i64.const 0
+  @3186167: i64.store offset=588
+  @3186171: local.get 3
+  @3186173: i64.const 0
+  @3186175: i64.store offset=580
+  @3186179: local.get 3
+  @3186181: i32.const 1065353216
+  @3186187: i32.store offset=596
+  @3186191: local.get 3
+  @3186193: i64.const -1
+  @3186195: i64.store offset=624
+  @3186199: local.get 3
+  @3186201: i64.const -1
+  @3186203: i64.store offset=616
+  @3186207: local.get 3
+  @3186209: i64.const -1
+  @3186211: i64.store offset=608
+  @3186215: local.get 3
+  @3186217: i64.const -1
+  @3186219: i64.store offset=600
+  @3186223: local.get 3
+  @3186225: i64.const 0
+  @3186227: i64.store offset=644
+  @3186231: local.get 3
+  @3186233: i64.const -1
+  @3186235: i64.store offset=636
+  @3186239: local.get 3
+  @3186241: i32.const 0
+  @3186243: i32.store16 offset=632
+  @3186247: local.get 3
+  @3186249: i64.const 0
+  @3186251: i64.store offset=652
+  @3186255: local.get 3
+  @3186257: i64.const 0
+  @3186259: i64.store offset=664
+  @3186263: local.get 3
+  @3186265: i32.const 1065353216
+  @3186271: i32.store offset=660
+  @3186275: local.get 3
+  @3186277: i64.const 0
+  @3186279: i64.store offset=672
+  @3186283: local.get 3
+  @3186285: i32.const 1065353216
+  @3186291: i32.store offset=680
+  @3186295: local.get 7
+  @3186297: i64.load offset=0
+  @3186300: local.set 25
+  @3186302: local.get 3
+  @3186304: local.get 3
+  @3186306: i32.const 360
+  @3186309: i32.add
+  @3186310: i32.store offset=356
+  @3186314: local.get 3
+  @3186316: local.get 3
+  @3186318: i32.const 688
+  @3186321: i32.add
+  @3186322: i32.store offset=352
+  @3186326: i32.const 4640020
+  @3186331: i32.load8_u offset=0
+  @3186334: i32.const 1
+  @3186336: i32.and
+  @3186337: i32.eqz
+  @3186338: if
+  @3186340: i32.const 4640000
+  @3186345: i64.const 0
+  @3186347: i64.store offset=0
+  @3186350: i32.const 4639992
+  @3186355: i64.const 34359738624
+  @3186362: i64.store offset=0
+  @3186365: i32.const 4639984
+  @3186370: i64.const 274877906944
+  @3186377: i64.store offset=0
+  @3186380: i32.const 4639976
+  @3186385: i64.const 0
+  @3186387: i64.store offset=0
+  @3186390: i32.const 4640008
+  @3186395: i64.const 0
+  @3186397: i64.store offset=0
+  @3186400: i32.const 4640016
+  @3186405: i32.const 0
+  @3186407: i32.store offset=0
+  @3186410: i32.const 4640020
+  @3186415: i32.const 1
+  @3186417: i32.store8 offset=0
+  @3186420: end
+  @3186421: local.get 3
+  @3186423: i32.const 720
+  @3186426: i32.add
+  @3186427: i32.const 4639976
+  @3186432: call func[1896]
+  @3186435: local.get 3
+  @3186437: local.get 25
+  @3186439: i64.store offset=16
+  @3186442: local.get 3
+  @3186444: local.get 25
+  @3186446: i64.store offset=712
+  @3186450: local.get 3
+  @3186452: i32.const 352
+  @3186455: i32.add
+  @3186456: local.get 3
+  @3186458: i32.const 16
+  @3186460: i32.add
+  @3186461: call func[25342]
+  @3186465: local.set 2
+  @3186467: loop
+  @3186469: block
+  @3186471: block
+  @3186473: block
+  @3186475: local.get 2
+  @3186477: br_table (count=2, labels=[0, 2, 1])
+  @3186482: end
+  @3186483: local.get 3
+  @3186485: i32.load offset=724
+  @3186489: local.set 5
+  @3186491: local.get 3
+  @3186493: local.get 25
+  @3186495: i64.store offset=728
+  @3186499: block
+  @3186501: block
+  @3186503: local.get 25
+  @3186505: i64.const 32
+  @3186508: local.tee 24
+  @3186511: br_if 0
+  @3186513: local.get 25
+  @3186516: local.te
+
+=== 8. Figma WASM Disassembly: paste-and-match-style (func[27742]) ===
+=== func[27742] (27096872..27105011, len=8139) ===
+  @27096877: global.get 0
+  @27096879: i32.const 1504
+  @27096882: i32.sub
+  @27096883: local.tee 5
+  @27096885: global.set 0
+  @27096887: local.get 5
+  @27096889: i32.const 0
+  @27096891: i32.store8 offset=1503
+  @27096895: local.get 5
+  @27096897: i32.const 0
+  @27096899: i32.store8 offset=1496
+  @27096903: local.get 5
+  @27096905: i32.const 0
+  @27096907: i32.store8 offset=1484
+  @27096911: local.get 5
+  @27096913: i32.const 1472
+  @27096916: i32.add
+  @27096917: local.get 1
+  @27096919: call func[4156]
+  @27096922: block
+  @27096924: local.get 5
+  @27096926: i32.load offset=1476
+  @27096930: i32.eqz
+  @27096931: if
+  @27096933: local.get 0
+  @27096935: i32.const 0
+  @27096937: i32.store8 offset=12
+  @27096940: local.get 0
+  @27096942: i32.const 0
+  @27096944: i32.store8 offset=0
+  @27096947: br 1
+  @27096949: end
+  @27096950: local.get 5
+  @27096952: i32.const 40
+  @27096954: i32.store8 offset=1412
+  @27096958: local.get 5
+  @27096960: i32.const 775422 ('paste-text')
+  @27096964: i64.load offset=0
+  @27096967: i64.store offset=1413
+  @27096971: local.get 5
+  @27096973: i32.const 775429 ('ext')
+  @27096977: i32.load offset=0
+  @27096980: i32.store offset=1420
+  @27096984: local.get 5
+  @27096986: i32.const 1424
+  @27096989: i32.add
+  @27096990: local.get 5
+  @27096992: i32.const 1412
+  @27096995: i32.add
+  @27096996: call func[2268]
+  @27096999: block
+  @27097001: local.get 5
+  @27097003: i32.load8_u offset=1412
+  @27097007: i32.const 3
+  @27097009: i32.and
+  @27097010: i32.const 1
+  @27097012: i32.ne
+  @27097013: br_if 0
+  @27097015: local.get 5
+  @27097017: i32.load offset=1420
+  @27097021: i32.const 4
+  @27097023: i32.sub
+  @27097024: local.tee 7
+  @27097026: local.get 7
+  @27097028: i32.load offset=0
+  @27097031: i32.const 1
+  @27097033: i32.sub
+  @27097034: local.tee 6
+  @27097036: i32.store offset=0
+  @27097039: local.get 6
+  @27097041: br_if 0
+  @27097043: local.get 7
+  @27097045: call func[1780]
+  @27097048: end
+  @27097049: local.get 1
+  @27097051: i32.load offset=12
+  @27097054: local.tee 6
+  @27097056: i32.load offset=760
+  @27097060: local.tee 7
+  @27097062: i32.eqz
+  @27097063: if
+  @27097065: i32.const 1425936 ('operator*')
+  @27097070: call func[1795]
+  @27097073: local.get 6
+  @27097075: i32.load offset=760
+  @27097079: local.set 7
+  @27097081: end
+  @27097082: block
+  @27097084: local.get 5
+  @27097086: i32.load offset=1476
+  @27097090: local.tee 8
+  @27097092: i32.eqz
+  @27097093: if
+  @27097095: i32.const 5407532
+  @27097100: i32.load8_u offset=0
+  @27097103: i32.eqz
+  @27097104: if
+  @27097106: i32.const 5407532
+  @27097111: i32.const 1
+  @27097113: i32.store8 offset=0
+  @27097116: i32.const 5407528
+  @27097121: i32.const -8388608
+  @27097126: i32.store offset=0
+  @27097129: end
+  @27097130: local.get 5
+  @27097132: i32.const 1404
+  @27097135: i32.add
+  @27097136: local.tee 11
+  @27097138: i32.const 0
+  @27097140: i32.store offset=4
+  @27097143: local.get 11
+  @27097145: i32.const 5407528
+  @27097150: i32.store offset=0
+  @27097153: br 1
+  @27097155: end
+  @27097156: local.get 5
+  @27097158: i32.load offset=1472
+  @27097162: local.set 11
+  @27097164: block
+  @27097166: local.get 5
+  @27097168: i64.load offset=1472
+  @27097172: i64.const 32
+  @27097175: local.tee 25
+  @27097177: i64.const 0
+  @27097180: if
+  @27097182: local.get 11
+  @27097184: i32.load offset=0
+  @27097187: local.get 25
+  @27097190: i32.eq
+  @27097191: br_if 1
+  @27097193: end
+  @27097194: i32.const 1469084 ('Assertion failure: isValidBestEffort()')
+  @27097199: call func[1786]
+  @27097202: end
+  @27097203: local.get 5
+  @27097205: local.get 8
+  @27097207: i32.store offset=1408
+  @27097211: local.get 5
+  @27097213: local.get 11
+  @27097215: i32.store offset=1404
+  @27097219: end
+  @27097220: local.get 0
+  @27097222: local.get 6
+  @27097224: local.get 2
+  @27097226: local.get 3
+  @27097228: local.get 7
+  @27097230: local.get 5
+  @27097232: i32.const 1404
+  @27097235: i32.add
+  @27097236: i32.const 0
+  @27097238: call func[20070]
+  @27097242: block
+  @27097244: local.get 0
+  @27097246: i32.load8_u offset=12
+  @27097249: br_if 0
+  @27097251: local.get 1
+  @27097253: i32.load offset=12
+  @27097256: local.tee 7
+  @27097258: i32.load offset=760
+  @27097262: local.tee 11
+  @27097264: i32.eqz
+  @27097265: if
+  @27097267: i32.const 1425936 ('operator*')
+  @27097272: call func[1795]
+  @27097275: local.get 7
+  @27097277: i32.load offset=760
+  @27097281: local.set 11
+  @27097283: end
+  @27097284: block
+  @27097286: local.get 11
+  @27097288: i32.load offset=72
+  @27097291: local.tee 7
+  @27097293: if
+  @27097295: local.get 7
+  @27097297: i32.load offset=8
+  @27097300: else
+  @27097301: i32.const 0
+  @27097303: end
+  @27097304: local.tee 7
+  @27097306: if
+  @27097308: local.get 5
+  @27097310: i32.const 536
+  @27097313: i32.add
+  @27097314: local.get 7
+  @27097316: call func[1989]
+  @27097319: local.get 5
+  @27097321: i32.const 1396
+  @27097324: i32.add
+  @27097325: block
+  @27097327: block
+  @27097329: local.get 5
+  @27097331: i32.load offset=540
+  @27097335: local.tee 7
+  @27097337: i32.eqz
+  @27097338: br_if 0
+  @27097340: local.get 7
+  @27097342: local.get 5
+  @27097344: i32.load offset=536
+  @27097348: local.tee 6
+  @27097350: i32.load offset=0
+  @27097353: i32.ne
+  @27097354: br_if 0
+  @27097356: i32.const 4635064
+  @27097361: i32.const 4635064
+  @27097366: i32.load offset=0
+  @27097369: i32.const 1
+  @27097371: i32.add
+  @27097372: local.tee 7
+  @27097374: i32.store offset=0
+  @27097377: local.get 7
+  @27097379: i32.const 1023
+  @27097382: i32.and
+  @27097383: i32.eqz
+  @27097384: if
+  @27097386: i32.const 4635064
+  @27097391: i32.const 0
+  @27097393: i32.store offset=0
+  @27097396: call func[1781]
+  @27097399: end
+  @27097400: local.get 6
+  @27097402: i32.const 4
+  @27097404: i32.add
+  @27097405: br 1
+  @27097407: end
+  @27097408: local.get 5
+  @27097410: i32.const 536
+  @27097413: i32.add
+  @27097414: call func[1782]
+  @27097417: end
+  @27097418: i32.const 0
+  @27097420: call func[2157]
+  @27097423: br 1
+  @27097425: end
+  @27097426: i32.const 5407532
+  @27097431: i32.load8_u offset=0
+  @27097434: i32.eqz
+  @27097435: if
+  @27097437: i32.const 5407532
+  @27097442: i32.const 1
+  @27097444: i32.store8 offset=0
+  @27097447: i32.const 5407528
+  @27097452: i32.const -8388608
+  @27097457: i32.store offset=0
+  @27097460: end
+  @27097461: local.get 5
+  @27097463: i32.const 1396
+  @27097466: i32.add
+  @27097467: local.tee 7
+  @27097469: i32.const 0
+  @27097471: i32.store offset=4
+  @27097474: local.get 7
+  @27097476: i32.const 5407528
+  @27097481: i32.store offset=0
+  @27097484: end
+  @27097485: block
+  @27097487: block
+  @27097489: local.get 5
+  @27097491: i32.load offset=1400
+  @27097495: local.tee 7
+  @27097497: i32.eqz
+  @27097498: br_if 0
+  @27097500: block
+  @27097502: local.get 7
+  @27097504: local.get 5
+  @27097506: i32.load offset=1396
+  @27097510: local.tee 6
+  @27097512: i32.load offset=0
+  @27097515: i32.eq
+  @27097516: if
+  @27097518: i32.const 4635064
+  @27097523: i32.const 4635064
+  @27097528: i32.load offset=0
+  @27097531: i32.const 1
+  @27097533: i32.add
+  @27097534: local.tee 7
+  @27097536: i32.store offset=0
+  @27097539: local.get 7
+  @27097541: i32.const 1023
+  @27097544: i32.and
+  @27097545: i32.eqz
+  @27097546: if
+  @27097548: i32.const 4635064
+  @27097553: i32.const 0
+  @27097555: i32.store offset=0
+  @27097558: call func[1781]
+  @27097561: end
+  @27097562: local.get 6
+  @27097564: i32.const 4
+  @27097566: i32.add
+  @27097567: br 1
+  @27097569: end
+  @27097570: local.get 5
+  @27097572: i32.const 1396
+  @27097575: i32.add
+  @27097576: call func[1782]
+  @27097579: end
+  @27097580: local.tee 7
+  @27097582: i32.load offset=16
+  @27097585: local.get 7
+  @27097587: i32.load offset=12
+  @27097590: i32.sub
+  @27097591: i32.const 8
+  @27097593: i32.ne
+  @27097594: br_if 0
+  @27097596: local.get 5
+  @27097598: i32.const 1384
+  @27097601: i32.add
+  @27097602: block
+  @27097604: block
+  @27097606: local.get 5
+  @27097608: i32.load offset=1400
+  @27097612: local.tee 7
+  @27097614: i32.eqz
+  @27097615: br_if 0
+  @27097617: local.get 7
+  @27097619: local.get 5
+  @27097621: i32.load offset=1396
+  @27097625: local.tee 6
+  @27097627: i32.load offset=0
+  @27097630: i32.ne
+  @27097631: br_if 0
+  @27097633: i32.const 4635064
+  @27097638: i32.const 4635064
+  @27097643: i32.load offset=0
+  @27097646: i32.const 1
+  @27097648: i32.add
+  @27097649: local.tee 7
+  @27097651: i32.store offset=0
+  @27097654: local.get 7
+  @27097656: i32.const 1023
+  @27097659: i32.and
+  @27097660: i32.eqz
+  @27097661: if
+  @27097663: i32.const 4635064
+  @27097668: i32.const 0
+  @27097670: i32.store offset=0
+  @27097673: call func[1781]
+  @27097676: end
+  @27097677: local.get 6
+  @27097679: i32.const 4
+  @27097681: i32.add
+  @27097682: br 1
+  @27097684: end
+  @27097685: local.get 5
+  @27097687: i32.const 1396
+  @27097690: i32.add
+  @27097691: call func[1782]
+  @27097694: end
+  @27097695: i32.const 0
+  @27097697: call func[2157]
+  @27097700: br 1
+  @27097702: end
+  @27097703: i32.const 5407532
+  @27097708: i32.load8_u offset=0
+  @27097711: i32.eqz
+  @27097712: if
+  @27097714: i32.const 5407532
+  @27097719: i32.const 1
+  @27097721: i32.store8 offset=0
+  @27097724: i32.const 5407528
+  @27097729: i32.const -8388608
+  @27097734: i32.store offset=0
+  @27097737: end
+  @27097738: local.get 5
+  @27097740: i32.const 1384
+  @27097743: i32.add
+  @27097744: local.tee 7
+  @27097746: i32.const 0
+  @27097748: i32.store offset=4
+  @27097751: local.get 7
+  @27097753: i32.const 5407528
+  @27097758: i32.store offset=0
+  @27097761: end
+  @27097762: block
+  @27097764: local.get 5
+  @27097766: i32.load offset=1388
+  @27097770: local.tee 7
+  @27097772: i32.eqz
+  @27097773: br_if 0
+  @27097775: block
+  @27097777: local.get 7
+  @27097779: local.get 5
+  @27097781: i32.load offset=1384
+  @27097785: local.tee 6
+  @27097787: i32.load offset=0
+  @27097790: i32.eq
+  @27097791: if
+  @27097793: i32.const 4635064
+  @27097798: i32.const 4635064
+
+=== 9. Additional Exact Bundle & WASM Data-Segment Offsets ===
+9a625d73e63287bd_0__85743-236ad693470d06fb.min.js @81000..82500: ame:"select-all-with-menu-options",flags:["design","sites","slides","cooper"],featureFlags:[],children:[{action:"select-same-style",searchSynonyms:["select similar","same appearance"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-fill",searchSynonyms:["select same color","select by color","same swatch"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-stroke",iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-effect",searchSynonyms:["same blur"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-text",searchSynonyms:["same text style"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-font",searchSynonyms:["select font","same font","select typeface","replace fonts","missing fonts"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-instance",searchSynonyms:["select same component","select all instances","find all instances","component instances"],iconType:i.createElement(c.D),flags:["design","sites","slides","cooper"],featureFlags:[]},{action:"select-same-variant",searchSynonyms:["select variant instances"],iconType:i.createElement(l.A),flags:["design","sites","slides","cooper"],featureFlags:[]}]}]},{name:tV.rH,fla
+a6f2bcc873943b57_0__6413-8e031fdc4fad2bf8.min.js @1316850..1317450: de)===B.m1T.DESIGN_LAYOUT||t===B.m1T.SITES_LAYOUT||t===B.m1T.TEXT)&&0===e.recursiveSelectionCounts.widgetCount)||e.singleNodeSelection?.textEditorHasEmptyRange)},ev=e=>1===e.directlySelectedCounts.nodeCount&&1===e.directlySelectedCounts.textOrTextPathCount,eE=e=>e.appFrameworkState.editMode===B.m1T.TEXT,ex=e=>{let t=e.appFrameworkState.editMode;return t===B.m1T.DESIGN_LAYOUT||t===B.m1T.SITES_LAYOUT||t===B.m1T.SLIDE_LAYOUT||t===B.m1T.VECTOR||t===B.m1T.BUZZ_LAYOUT&&e.appFrameworkState.interopToolMode===U.nQ7.DESIGN};function eS(e){let t=1===e.directlySelectedCounts.firstInCanvasGridRowCount&&1==
+a6f2bcc873943b57_0__6413-8e031fdc4fad2bf8.min.js @1867200..1867750: 8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-instance",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:e=>e.singleNodeSelection?.isOrInInstance===!0&&e.appFrameworkState.isSelectionMode,handler:G.g8,team:G.Rd},{fullscreen:!0,jsonName:"select-same-variant",isEdit:!1,allowedEditorTypes:new Set([B._YF.SLIDES,B._YF.COOPER,B._YF.SITES]),allowedTopLevelModes:z,enabled:e=>e.singleNodeSelection?.isInstanceBackedByStateSymbol===!0&&e.appFrameworkState.isSelectionMode,handler:G.g8,team:G.R
+b14e95537840f572_0__23242-a098d58d7265f1cd.min.js @575350..576350: ledAndForceVisible:this.props.isExportBlockedByApprovals}]:[],this.props.canShowExportControls?{action:"copy-as-png",disabled:this.props.isExportBlockedByApprovals,disabledAndForceVisible:this.props.isExportBlockedByApprovals}:null,{separator:!0},{action:"copy-properties",flags:["view_restricted"]},{action:"paste-properties",flags:["edit"]},...p.v.getFeatureGate("metronome")?[{action:"paste-animation",flags:["edit","design"]}]:[]]),L=v.A.windows?"Ctrl+":"\u2318";switch(this.props.selectedView.editorType){case lk.n.Design:case lk.n.Illustration:case lk.n.Figmake:case lk.n.Sites:case lk.n.Slides:case lk.n.Cooper:e=[navigator.clipboard&&navigator.clipboard.write?{action:"copy",shortcutText:`${L}C`}:null,r?{action:"paste-here",flags:["edit"],displayText:(0,d.t)("fullscreen_actions.paste-here"),shortcutText:i?`${L}V`:void 0}:this.props.isSingleSlideViewCarousel?{action:"paste",flags:["edit"],displayText:(0,d.t)("fullscreen_actions.paste"),shortcutText:`${L}V`}:null,n?{action:"paste-to-repla
+d48a6add9e1dc400_0__compiled_wasm.wasm @48425800..48428400: igjam"]]}],"paste-over-selection":[{"editModes":["GLOBAL"],"shortcuts":[["Meta+Shift+V","mac"],["Control+Shift+V","!mac"]]}],"paste-to-replace":[{"editModes":["GLOBAL"],"shortcuts":[["Meta+Shift+R","mac","!safari"],["Control+Shift+R","!mac"],["Meta+Shift+Alt+V","mac"],["Control+Shift+Alt+V","!mac"]]}],"duplicate-in-place":[{"editModes":["GLOBAL"],"shortcuts":[["Meta+D","mac"],["Control+D","!mac"]]}],"quick-create":[{"editModes":["GLOBAL"],"shortcuts":[["Meta+Enter","mac","figjam"],["Control+Enter","!mac","figjam"]]}],"quick-create-diagram-sibling":[{"editModes":["GLOBAL"],"shortcuts":[["Meta+Shift+Enter","mac","figjam"],["Control+Shift+Enter","!mac","figjam"]]}],"flip-horizontal":[{"editModes":["GLOBAL","!TEXT"],"shortcuts":["Shift+H"]}],"flip-vertical":[{"editModes":["GLOBAL","!TEXT"],"shortcuts":["Shift+V"]}],"copy-properties":[{"editModes":["GLOBAL"],"shortcuts":[["Meta+Alt+C","mac"],["Control+Alt+C","!mac"]]}],"paste-properties":[{"editModes":["GLOBAL"],"shortcuts":[["Meta+Alt+V","mac"],["Control+Alt+V","!mac"]]}],"copy-as-png":[{"editModes":["GLOBAL","!TEXT"],"shortcuts":[["Meta+Shift+C","mac"],["Control+Shift+C","!mac"]]}],"copy-link":[{"editModes":["GLOBAL","!TEXT"],"shortcuts":[["Meta+L","desktop","mac"],["Control+L","desktop","!mac"]]}],"remove-fill":[{"editModes":["GLOBAL","!TEXT"],"shortcuts":[["Alt+/","layout:unknown"],["Alt+/","layout:us_qwerty"],["Alt+/","layout:dvorak"],["Alt+/","layout:hiragana_kana"],["Alt+/","layout:uk_mac"],["Alt+/","layout:uk_pc"],["Alt+/","layout:korean"],["Alt+,","layout:german"],["Alt+,","layout:danish"],["Alt+,","layout:norwegian"],["Alt+,","layout:italian"],["Alt+,","layout:spanish"],["Alt+,","layout:spanish_latam"],["Alt+,","layout:portuguese"],["Alt+:","layout:french_azerty"],["Alt+Å","layout:swedish"]]}],"remove-stroke":[{"editModes":["GLOBAL","!TEXT"],"shortcuts":[["Shift+/","!figjam","layout:unknown"],["Shift+/","!figjam","layout:us_qwerty"],["Shift+/","!figjam","layout:dvorak"],["Shift+/","!figjam","layout:hiragana_kana"],["Shift+/","!figjam","layout:uk_mac"],["Shift+/","!figjam","layout:uk_pc"],["Shift+/","!figjam","layout:korean"],["Shift+,","!figjam","layout:german"],["Shift+,","!figjam","layout:danish"],["Shift+,","!figjam","layout:norwegian"],["Shift+,","!figjam","layout:italian"],["Shift+,","!figjam","layout:spanish"],["Shift+,","!figjam","layout:spanish_latam"],["Shift+,","!figjam","layout:portuguese"],["Shift+:","!figjam","layout:french_azerty"],["Shift+Å","!figjam","layout:swedish"]]}],"swap-fill-and-stroke":[{"editModes":["GLOBAL","!TEXT"],"shortcuts":["Shift+X"]}],"redo":[{"editModes":["GLOBAL"
+a6f2bcc873943b57_0__6413-8e031fdc4fad2bf8.min.js @1317450..1318200: =e.directlySelectedCounts.nodeCount,n=e.directlySelectedCounts.nodeCount===e.directlySelectedCounts.buzzFrameCount||e.directlySelectedCounts.nodeCount===e.directlySelectedCounts.slideCount;return!t&&n&&e.appFrameworkState.isLayoutEditMode}function eT(e){return e.directlySelectedCounts.nodeCount===e.directlySelectedCounts.slideCount||e.directlySelectedCounts.nodeCount===e.directlySelectedCounts.buzzFrameCount}let ew=e=>e.recursiveSelectionCounts.nodeCount>0&&e.recursiveSelectionCounts.nodeCount!==e.recursiveSelectionCounts.publishedAndFirstPartyWidgetCount&&(e.appFrameworkState.editMode===B.m1T.DESIGN_LAYOUT||e.appFrameworkState.editMode===B.m1T.SLIDE_LAYOUT||e.appFrameworkState.editMode===B.m1T.SITES_LAYOUT||e.appFrameworkState.editMode===B
+b14e95537840f572_0__23242-a098d58d7265f1cd.min.js @576300..576800: ortcutText:`${L}V`}:null,n?{action:"paste-to-replace",flags:["edit"],displayText:i?(0,d.t)("fullscreen_actions.paste-and-match-style"):void 0,shortcutText:i?`${L}\u21E7V`:void 0}:null,{action:"copy-paste-menu",flags:["edit"],children:D},{action:"copy-as-menu",flags:["!edit"],children:D},this.props.shouldShowPostCodeLayerToGallery?{name:"post-code-layer-to-gallery",displayText:(0,d.t)("gallery.code_layer_post"),callback:this.props.onPostCodeLayerToGallery,disabled:!this.props.onPostCodeLayerToGal
+a6f2bcc873943b57_0__6413-8e031fdc4fad2bf8.min.js @1321096..1321696: eO=e=>(e.recursiveSelectionCounts.geometryNodeCount>0||e.recursiveSelectionCounts.frameCount>0)&&0===e.recursiveSelectionCounts.widgetCount&&0===e.directlySelectedCounts.webpageCount&&0===e.recursiveSelectionCounts.responsiveNodeSetCount&&!e.productState.cooperDisableFocusedEdits,eD=e=>e.appFrameworkState.currentTool!==B.NLJ.DROPPER_COLOR,eF=e=>e.appFrameworkState.editMode!==B.m1T.COMMENTS,eM=e=>e===B.m1T.DESIGN_LAYOUT||e===B.m1T.SITES_LAYOUT,eL=e=>0===e.directlySelectedCounts.specOrSpecNodeCount&&eM(e.appFrameworkState.editMode)&&e.directlySelectedCounts.nodeCount>0&&e.directlySelectedCounts.
+a6f2bcc873943b57_0__6413-8e031fdc4fad2bf8.min.js @1318261..1318611: eC=e=>e.recursiveSelectionCounts.geometryNodeCount>0&&e.appFrameworkState.isSelectionMode,ek=e=>e.recursiveSelectionCounts.textNodeCount>0&&(e.appFrameworkState.isSelectionMode||e.appFrameworkState.editMode===B.m1T.TEXT),eR=e=>{if(e.directlySelectedCounts.specOrSpecNodeCount>0)return!1;let t=e.directlySelectedCounts.transformNodeCount>=1&&e.directl

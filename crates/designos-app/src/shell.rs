@@ -1167,6 +1167,7 @@ impl Shell {
             Key::D if m.shift && !m.alt && !app.is_board() => app.set_dev_mode(!app.ui.dev_mode),
             Key::H if m.shift && !m.alt => app.flip_selection(true),
             Key::V if m.shift && !m.alt => app.flip_selection(false),
+            Key::X if m.shift && !m.alt => menus::run(app, ctx, Action::SwapFillAndStroke),
             Key::H | Key::V if m.shift && m.alt => menus::run(app, ctx, Action::Distribute),
             Key::H if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::HCenter)),
             Key::V if m.alt && !m.shift => menus::run(app, ctx, Action::Align(crate::ops::Align::VCenter)),

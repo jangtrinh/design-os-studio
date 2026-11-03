@@ -134,6 +134,126 @@ pub(crate) fn slot_edit_error(doc: &Document, leaving: &[(NodeId, usize)], enter
     check_slot_replace(doc, slot, removing, roots).err()
 }
 
+/// Whether `kind` is text whose runs paint a different fill list than its base style.
+fn text_runs_paint_different_fills(kind: &NodeKind) -> bool {
+    matches!(kind, NodeKind::Text(tp) if tp.runs.iter().any(|r| r.style.fills != tp.style.fills))
+}
+
+/// A stroke with paint but no width draws nothing, so a stroke that every width leaves at 0 gets width 1; a
+/// stroke with at least one non-zero side keeps all of its sides.
+fn give_zero_width_stroke_a_width(stroke: &mut Stroke) {
+    let no_width = match stroke.side_weights {
+        Some(sides) => sides.iter().all(|w| *w <= 0.0),
+        None => stroke.weight <= 0.0,
+    };
+    if no_width {
+        stroke.weight = 1.0;
+        if let Some(sides) = &mut stroke.side_weights {
+            *sides = [1.0; 4];
+        }
+    }
+}
+
+/// The fills `target` paints: a text layer paints its text style's fills, never `Node::fills`.
+fn painted_fills_of(target: &Node) -> Vec<Paint> {
+    match &target.kind {
+        NodeKind::Text(tp) => tp.style.fills.clone(),
+        _ => target.fills.clone(),
+    }
+}
+
+/// Variable binding keys of the visual set a paste that matches style takes from its target.
+fn is_visual_binding(key: &str) -> bool {
+    key.starts_with("fills/")
+        || key.starts_with("strokes/")
+        || key.starts_with("effects/")
+        || matches!(
+            key,
+            "strokeWeight"
+                | "strokeTopWeight"
+                | "strokeRightWeight"
+                | "strokeBottomWeight"
+                | "strokeLeftWeight"
+                | "opacity"
+                | "topLeftRadius"
+                | "topRightRadius"
+                | "bottomRightRadius"
+                | "bottomLeftRadius"
+        )
+}
+
+/// Variable binding keys of a text layer's typography.
+fn is_typography_binding(key: &str) -> bool {
+    matches!(key, "fontSize" | "fontFamily" | "fontStyle" | "fontWeight" | "lineHeight" | "letterSpacing" | "paragraphSpacing" | "paragraphIndent")
+}
+
+/// Replaces the bindings of `node` that `takes` accepts with those of `target`; every other binding stays.
+fn match_bindings(node: &mut Node, target: &Node, takes: impl Fn(&str) -> bool) {
+    node.variables.bindings.retain(|key, _| !takes(key));
+    node.variables.bindings.extend(target.variables.bindings.iter().filter(|(key, _)| takes(key)).map(|(key, id)| (key.clone(), id.clone())));
+}
+
+/// Links `node` to the style `target` links for each of `keys`, or to none where `target` has none.
+fn match_style_links(node: &mut Node, target: &Node, keys: &[&str]) {
+    for key in keys {
+        match target.style_refs.get(*key) {
+            Some(style) => {
+                node.style_refs.insert((*key).into(), style.clone());
+            }
+            None => {
+                node.style_refs.remove(*key);
+            }
+        }
+    }
+}
+
+/// What a pasted layer takes from the target: the root its visual set, and every text layer of the pasted subtree the
+/// target's text style when the target is text.
+fn match_pasted_style(node: &mut Node, is_root: bool, target: &Node, painted_fills: &[Paint], text: Option<&TextStyle>) {
+    if is_root {
+        match_root_style(node, target, painted_fills, text.is_some());
+    }
+    if let Some(style) = text {
+        match_text_style(node, target, style, is_root);
+    }
+}
+
+/// The pasted root takes the visual set `copy_properties` copies from `target`, with the style links and bindings
+/// of those fields. A root that holds text but whose target is not text paints the target's fills as its text colour.
+fn match_root_style(root: &mut Node, target: &Node, painted_fills: &[Paint], target_is_text: bool) {
+    root.stroke = target.stroke.clone();
+    root.effects = target.effects.clone();
+    root.opacity = target.opacity;
+    root.blend = target.blend;
+    root.corner_radii = target.corner_radii;
+    root.corner_smoothing = target.corner_smoothing;
+    root.fills = if matches!(root.kind, NodeKind::Text(_)) { Vec::new() } else { painted_fills.to_vec() };
+    match_style_links(root, target, &["fill", "stroke", "effect"]);
+    let typography = target_is_text && root.kind.any_text().is_some();
+    match_bindings(root, target, |key| is_visual_binding(key) || (typography && is_typography_binding(key)));
+    if !target_is_text {
+        if let Some(tp) = root.kind.any_text_mut() {
+            crate::richtext::apply_all(tp, |st| st.fills = painted_fills.to_vec());
+        }
+    }
+}
+
+/// A text layer of the pasted subtree takes the text style of the target. Its `text` link and typography
+/// bindings follow; below the root its fill link and fill bindings do too, as the style carries the fills.
+fn match_text_style(node: &mut Node, target: &Node, style: &TextStyle, is_root: bool) {
+    let Some(tp) = node.kind.any_text_mut() else { return };
+    crate::richtext::apply_all(tp, |st| *st = style.clone());
+    if let NodeKind::Text(tp) = &node.kind {
+        node.size = layout::fit_text(tp, node.size);
+    }
+    if is_root {
+        match_style_links(node, target, &["text"]);
+    } else {
+        match_style_links(node, target, &["text", "fill"]);
+        match_bindings(node, target, |key| key.starts_with("fills/") || is_typography_binding(key));
+    }
+}
+
 impl App {
     /// Mirrors the selection across the centre of its bounding box.
     pub fn flip_selection(&mut self, horizontal: bool) {
@@ -973,6 +1093,156 @@ impl App {
         }
         self.run_tx(tx);
         self.show_toast("Pasted properties", false);
+    }
+
+    /// `PasteAndMatchStyle` (Edit menu and command palette, no shortcut): pastes clipboard text into an active
+    /// text session with the target caret/selection's text style, or pastes copied layers over the selected
+    /// target layer in a single undo step. The pasted layers take the visual set `copy_properties` copies, the
+    /// style links and variable bindings of those fields, and, when the target is text, its text style on every
+    /// text layer of the pasted subtree, recorded as an override on layers that mirror a main component. Size,
+    /// characters, layout and grid links stay the pasted layer's own.
+    pub fn paste_and_match_style(&mut self) {
+        if self.canvas.text.is_some() {
+            let sys = (self.system_text)();
+            let plain = match sys.as_deref() {
+                Some(s) if !s.is_empty() && clipboard::from_json(s).is_none() => Some(s.to_owned()),
+                _ => {
+                    let clip = sys.as_deref().and_then(clipboard::from_json).or_else(|| self.clip.clone());
+                    clip.and_then(|c| {
+                        let parts: Vec<&str> = c.nodes.iter().filter_map(|n| n.kind.any_text().map(|t| t.content.as_str())).collect();
+                        (!parts.is_empty()).then(|| parts.join("\n"))
+                    })
+                }
+            };
+            if let Some(text) = plain {
+                if let Some(sess) = self.canvas.text.as_mut() {
+                    sess.typing = None;
+                }
+                crate::canvas::textsession::insert_text(self, &text, crate::textedit::EditKind::Other);
+            }
+            return;
+        }
+        let Some(clip) = self.clip.clone() else { return };
+        let Some(&target_id) = self.selection.first() else { return };
+        let Some(target) = self.doc.get(target_id).cloned() else { return };
+        let painted_fills = painted_fills_of(&target);
+        let target_text = target.kind.any_text().map(|t| t.style.clone());
+
+        let container = self.container_for_insert();
+        let parent = clipboard::paste_parent(&self.doc, &clip, container);
+        let over = if parent == container { self.selection.first().copied() } else { child_holding(&self.doc, parent, container) };
+        let (target_local, base_idx) = if let Some(sel_id) = over {
+            if sel_id == parent {
+                (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+            } else if let Some(n) = self.doc.get(sel_id) {
+                let idx = self
+                    .doc
+                    .get(parent)
+                    .and_then(|p| p.children.iter().position(|&c| c == sel_id).map(|i| i + 1))
+                    .unwrap_or_else(|| self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
+                (v2(n.transform.tx, n.transform.ty), idx)
+            } else {
+                (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+            }
+        } else {
+            (v2(0.0, 0.0), self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0))
+        };
+        let lists = clipboard::instantiate(&mut self.doc, &clip);
+        let roots: Vec<&Node> = lists.iter().filter_map(|l| l.first()).collect();
+        if !self.slot_insert_allowed(parent, &roots) {
+            return;
+        }
+        let first_orig = lists.first().and_then(|l| l.first()).map(|r| v2(r.transform.tx, r.transform.ty)).unwrap_or(v2(0.0, 0.0));
+        let delta = v2(target_local.x - first_orig.x, target_local.y - first_orig.y);
+        let mut tx = Tx::new();
+        let mut new_sel = Vec::new();
+        for (k, mut nodes) in lists.into_iter().enumerate() {
+            // A layer that mirrors a main component takes its style through the editor once it is inserted, so
+            // the change is recorded as an override and survives a sync of that main.
+            let mut mirrored = Vec::new();
+            for (i, node) in nodes.iter_mut().enumerate() {
+                if i == 0 {
+                    node.transform.tx += delta.x;
+                    node.transform.ty += delta.y;
+                }
+                if is_linked(node) {
+                    mirrored.push((node.id, i == 0));
+                } else {
+                    match_pasted_style(node, i == 0, &target, &painted_fills, target_text.as_ref());
+                }
+            }
+            if let Some(root) = nodes.first_mut() {
+                apply_slot_stretch_on_insert(&self.doc, parent, root);
+                new_sel.push(root.id);
+            }
+            let index = (base_idx + k).min(self.doc.get(parent).map(|p| p.children.len()).unwrap_or(0));
+            let _ = tx.cmd(&mut self.doc, Command::Insert { parent, index, nodes });
+            for (id, is_root) in mirrored {
+                if let Some(node) = tx.ed.node(&mut self.doc, id) {
+                    match_pasted_style(node, is_root, &target, &painted_fills, target_text.as_ref());
+                }
+            }
+        }
+        Self::mark_slot_content_override(&mut self.doc, &mut tx.ed, parent);
+        layout::relayout_around(&mut self.doc, &mut tx.ed, parent);
+        self.run_tx(tx);
+        self.selection = new_sel;
+        self.show_toast("Pasted and matched style", false);
+    }
+
+    /// `Shift+X` (`SwapFillAndStroke`): swaps fill and stroke paint arrays, `fills/*` <-> `strokes/*`
+    /// variable bindings, and `"fill"` <-> `"stroke"` shared style refs across all selected layers in one undo step.
+    /// A text layer swaps the fills it paints (its text style and every run) with the stroke; one whose runs paint
+    /// different fills is left as it is, since one stroke cannot hold them without flattening the runs.
+    pub fn swap_fill_and_stroke(&mut self) {
+        let ids: Vec<NodeId> = self
+            .selection
+            .iter()
+            .copied()
+            .filter(|&id| {
+                self.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Page { .. } | NodeKind::Group) && !text_runs_paint_different_fills(&n.kind))
+            })
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        let mut tx = Tx::new();
+        for id in ids {
+            let Some(n) = tx.ed.node(&mut self.doc, id) else { continue };
+            if let NodeKind::Text(tp) = &mut n.kind {
+                // `Node::fills` is never painted on text; the text style and its runs hold the colour.
+                let text_fills = std::mem::replace(&mut n.stroke.paints, std::mem::take(&mut tp.style.fills));
+                for run in &mut tp.runs {
+                    run.style.fills = text_fills.clone();
+                }
+                tp.style.fills = text_fills;
+            } else {
+                std::mem::swap(&mut n.fills, &mut n.stroke.paints);
+            }
+            if !n.stroke.paints.is_empty() {
+                give_zero_width_stroke_a_width(&mut n.stroke);
+            }
+            let old_bindings = std::mem::take(&mut n.variables.bindings);
+            for (k, v) in old_bindings {
+                let new_k = if let Some(rest) = k.strip_prefix("fills/") {
+                    format!("strokes/{rest}")
+                } else if let Some(rest) = k.strip_prefix("strokes/") {
+                    format!("fills/{rest}")
+                } else {
+                    k
+                };
+                n.variables.bindings.insert(new_k, v);
+            }
+            let fill_ref = n.style_refs.remove("fill");
+            let stroke_ref = n.style_refs.remove("stroke");
+            if let Some(r) = stroke_ref {
+                n.style_refs.insert("fill".into(), r);
+            }
+            if let Some(r) = fill_ref {
+                n.style_refs.insert("stroke".into(), r);
+            }
+        }
+        self.run_tx(tx);
     }
 
     /// `Q` or `Cmd/Ctrl + Alt + A`: Multi-Edit / Select Matching Layers across top-level frames
