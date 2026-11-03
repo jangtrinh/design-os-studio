@@ -117,6 +117,7 @@ fn copy_rec(d: &mut Document, src: NodeId, parent: Option<NodeId>, link: bool, o
         n.component.grid_align_overrides = [false, false];
         n.component.props.clear();
         n.component.slot_configs.clear();
+        n.component.expose_nested_instances = false;
     }
     let idx = out.len();
     out.push(n);
@@ -414,6 +415,22 @@ pub fn prop_value(doc: &Document, inst: NodeId, def: &ComponentPropDef) -> PropV
                 return PropValue::Variant(v);
             }
         }
+    }
+    let mut cur_src = n.component.source;
+    let mut hops = 0usize;
+    while let Some(sid) = cur_src {
+        hops += 1;
+        if hops > 64 {
+            break;
+        }
+        let Some(sn) = doc.get(sid) else { break };
+        if !matches!(sn.kind, NodeKind::Instance { .. }) {
+            break;
+        }
+        if let Some(v) = sn.component.values.get(&def.name) {
+            return v.clone();
+        }
+        cur_src = sn.component.source;
     }
     def.default.clone()
 }
@@ -773,9 +790,18 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
     }
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] {
+        let inherited_vals = if id == instance {
+            BTreeMap::new()
+        } else {
+            n.component.source.and_then(|s| c.s.get(s)).map(|sn| sn.component.values.clone()).unwrap_or_default()
+        };
+        let vals_changed = id != instance && n.component.values != inherited_vals;
+        if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] || vals_changed {
             n.component.overrides.clear();
             n.component.grid_align_overrides = [false, false];
+            if vals_changed {
+                n.component.values = inherited_vals;
+            }
             n.plugin_data.remove("pen:explicit_width");
             n.plugin_data.remove("pen:explicit_height");
             n.plugin_data.remove("pen:explicit_stroke_fields");
@@ -877,9 +903,9 @@ fn main_of_reference(n: &Node) -> Option<NodeId> {
     }
 }
 
-/// Sibling variant that `inst`'s variant property values select, if different.
-fn variant_target(d: &Document, inst: &Node) -> Option<NodeId> {
-    let comp = d.get(instance_component(inst)?)?;
+/// Sibling variant that `values`'s variant property assignments select starting from `base_comp`, if different.
+fn variant_target_from(d: &Document, base_comp: NodeId, values: &BTreeMap<String, PropValue>) -> Option<NodeId> {
+    let comp = d.get(base_comp)?;
     let set = d.get(comp.parent?).filter(|p| matches!(p.kind, NodeKind::ComponentSet(_)))?;
     let mut want = parse_variant_name(&comp.name);
     if want.is_empty() {
@@ -890,7 +916,7 @@ fn variant_target(d: &Document, inst: &Node) -> Option<NodeId> {
         if !matches!(def.kind, PropKind::Variant { .. }) {
             continue;
         }
-        if let Some(PropValue::Variant(v)) = inst.component.values.get(&def.name) {
+        if let Some(PropValue::Variant(v)) = values.get(&def.name) {
             match want.iter_mut().find(|(k, _)| *k == def.name) {
                 Some(slot) => slot.1 = v.clone(),
                 None => want.push((def.name.clone(), v.clone())),
@@ -1481,10 +1507,8 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
                 desired = *sw;
             }
         }
-        if top {
-            if let Some(v) = variant_target(&c.s, &inode) {
-                desired = v;
-            }
+        if let Some(v) = variant_target_from(&c.s, desired, &inode.component.values) {
+            desired = v;
         }
         // not a main that would hold itself: the instance stays on the main it has
         if desired != cur && would_hold_itself(c.s, desired, i) {
@@ -1716,6 +1740,201 @@ fn refused_swaps(doc: &mut Document, instance: NodeId) -> Vec<(NodeId, NodeId)> 
     let refused = std::mem::take(&mut c.refused_swap);
     c.finish();
     refused
+}
+
+/// A primary nested instance inside a main `Component` or `ComponentSet` that can have its
+/// properties exposed on outer instances (`propsAreBubbled` / `expose_nested_instances`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExposeNestedCandidate {
+    /// Representative primary nested instance node id.
+    pub id: NodeId,
+    /// All connected primary nested instances across sibling variants of a `ComponentSet`.
+    pub connected_ids: Vec<NodeId>,
+    /// Layer name of the nested instance.
+    pub name: String,
+    /// Whether `expose_nested_instances` (`propsAreBubbled`) is enabled on this nested instance.
+    pub exposed: bool,
+    /// Names of deeper exposed nested instances inside this nested instance's backing component.
+    pub deeper_exposed_names: Vec<String>,
+}
+
+fn component_family_root(doc: &Document, comp: NodeId) -> NodeId {
+    doc.get(comp).and_then(|n| n.parent).filter(|&p| matches!(doc.get(p).map(|pn| &pn.kind), Some(NodeKind::ComponentSet(_)))).unwrap_or(comp)
+}
+
+fn instance_family_root(doc: &Document, inst: NodeId) -> Option<NodeId> {
+    let comp = doc.get(inst).and_then(instance_component)?;
+    Some(component_family_root(doc, comp))
+}
+
+fn instance_has_exposable_props(doc: &Document, inst: NodeId) -> bool {
+    let Some(comp) = doc.get(inst).and_then(instance_component) else { return false };
+    let has_own = prop_defs(doc, comp).iter().any(|d| !matches!(d.kind, PropKind::Slot));
+    has_own || !exposed_nested_instances(doc, inst).is_empty()
+}
+
+fn primary_instances_in_component(doc: &Document, comp: NodeId) -> Vec<(Vec<String>, NodeId)> {
+    fn walk(doc: &Document, id: NodeId, path: &mut Vec<String>, out: &mut Vec<(Vec<String>, NodeId)>) {
+        let Some(n) = doc.get(id) else { return };
+        for &cid in &n.children {
+            if is_slot_container(doc, cid) {
+                continue;
+            }
+            let Some(cn) = doc.get(cid) else { continue };
+            path.push(cn.name.clone());
+            if matches!(cn.kind, NodeKind::Instance { .. }) {
+                if instance_has_exposable_props(doc, cid) {
+                    out.push((path.clone(), cid));
+                }
+            } else if cn.kind.is_container() {
+                walk(doc, cid, path, out);
+            }
+            path.pop();
+        }
+    }
+    let mut out = Vec::new();
+    let mut path = Vec::new();
+    walk(doc, comp, &mut path, &mut out);
+    out
+}
+
+/// Lists the primary nested instances inside `comp_or_set` (a `Component` or `ComponentSet`) that
+/// can be chosen under "Expose properties from" -> "Nested instances".
+pub fn expose_nested_candidates(doc: &Document, comp_or_set: NodeId) -> Vec<ExposeNestedCandidate> {
+    let Some(node) = doc.get(comp_or_set) else { return Vec::new() };
+    let variants: Vec<NodeId> = match &node.kind {
+        NodeKind::ComponentSet(_) => {
+            node.children.iter().copied().filter(|&cid| matches!(doc.get(cid).map(|c| &c.kind), Some(NodeKind::Component(_)))).collect()
+        }
+        NodeKind::Component(_) => {
+            if let Some(set_id) = node.parent.filter(|&p| matches!(doc.get(p).map(|pn| &pn.kind), Some(NodeKind::ComponentSet(_)))) {
+                let mut v = vec![comp_or_set];
+                if let Some(set) = doc.get(set_id) {
+                    for &cid in &set.children {
+                        if cid != comp_or_set && matches!(doc.get(cid).map(|c| &c.kind), Some(NodeKind::Component(_))) {
+                            v.push(cid);
+                        }
+                    }
+                }
+                v
+            } else {
+                vec![comp_or_set]
+            }
+        }
+        _ => return Vec::new(),
+    };
+
+    type ExposeGroupKey = (Vec<String>, Option<NodeId>);
+    let mut groups: Vec<(ExposeGroupKey, ExposeNestedCandidate)> = Vec::new();
+    for v in variants {
+        for (rel_path, nid) in primary_instances_in_component(doc, v) {
+            let fam = instance_family_root(doc, nid);
+            let key = (rel_path, fam);
+            let is_bub = doc.get(nid).is_some_and(|n| n.component.expose_nested_instances);
+            if let Some((_, existing)) = groups.iter_mut().find(|(k, _)| *k == key) {
+                if !existing.connected_ids.contains(&nid) {
+                    existing.connected_ids.push(nid);
+                }
+                existing.exposed |= is_bub;
+            } else {
+                let name = doc.get(nid).map(|n| n.name.clone()).unwrap_or_default();
+                let deeper_exposed_names = exposed_nested_instances(doc, nid).into_iter().filter_map(|did| doc.get(did).map(|dn| dn.name.clone())).collect();
+                groups.push((key, ExposeNestedCandidate { id: nid, connected_ids: vec![nid], name, exposed: is_bub, deeper_exposed_names }));
+            }
+        }
+    }
+    groups.into_iter().map(|(_, cand)| cand).collect()
+}
+
+/// Sets `expose_nested_instances` (`propsAreBubbled`) on a primary nested instance inside a main
+/// `Component` (and on all connected primary nested instances across sibling variants when the
+/// component belongs to a `ComponentSet`). Turning expose off leaves any existing overrides on
+/// outer instances intact.
+pub fn set_expose_nested_instance(doc: &mut Document, nested_inst: NodeId, expose: bool) -> Command {
+    let Some(n) = doc.get(nested_inst) else { return nothing() };
+    if !matches!(n.kind, NodeKind::Instance { .. }) || n.component.is_slot_content {
+        return nothing();
+    }
+    let Some(comp) = enclosing_component(doc, nested_inst) else { return nothing() };
+    // Must be a primary nested instance of `comp` (not inside another nested instance or slot inside `comp`).
+    let mut cur = n.parent;
+    while let Some(p) = cur {
+        if p == comp {
+            break;
+        }
+        let Some(pn) = doc.get(p) else { return nothing() };
+        if matches!(pn.kind, NodeKind::Instance { .. }) || is_slot_container(doc, p) || pn.component.is_slot_content {
+            return nothing();
+        }
+        cur = pn.parent;
+    }
+
+    let cands = expose_nested_candidates(doc, comp);
+    let targets: Vec<NodeId> = cands.into_iter().find(|c| c.connected_ids.contains(&nested_inst)).map(|c| c.connected_ids).unwrap_or_else(|| vec![nested_inst]);
+
+    let mut c = Ctx::new(doc);
+    for tid in targets {
+        if let Some(mut tn) = c.s.get(tid).cloned() {
+            if tn.component.expose_nested_instances != expose {
+                tn.component.expose_nested_instances = expose;
+                c.update(tn);
+            }
+        }
+    }
+    c.finish()
+}
+
+fn is_nested_instance_exposed_in(doc: &Document, nested_inst: NodeId, enclosing_inst: NodeId) -> bool {
+    let Some(n) = doc.get(nested_inst) else { return false };
+    if let Some(enclosing_main) = doc.get(enclosing_inst).and_then(instance_component) {
+        let enclosing_family = component_family_root(doc, enclosing_main);
+        let mut cur_src = n.component.source;
+        let mut hops = 0usize;
+        while let Some(sid) = cur_src {
+            hops += 1;
+            if hops > 64 {
+                break;
+            }
+            let Some(sn) = doc.get(sid) else { break };
+            if let Some(sc) = enclosing_component(doc, sid) {
+                if component_family_root(doc, sc) == enclosing_family {
+                    return sn.component.expose_nested_instances;
+                }
+            }
+            cur_src = sn.component.source;
+        }
+    }
+    n.component.expose_nested_instances
+}
+
+/// Returns the exposed nested `Instance` nodes inside `outer_inst` in pre-order (Figma's
+/// `bubbledNestedInstanceGUIDs` order). Deeper nested instances (an exposed instance inside an
+/// exposed instance) are included immediately after their parent exposed instance; nested instances
+/// inside an unexposed instance are not included.
+pub fn exposed_nested_instances(doc: &Document, outer_inst: NodeId) -> Vec<NodeId> {
+    fn walk(doc: &Document, container: NodeId, enclosing_inst: NodeId, out: &mut Vec<NodeId>, depth: usize) {
+        if depth > 64 {
+            return;
+        }
+        let Some(n) = doc.get(container) else { return };
+        for &cid in &n.children {
+            if is_slot_container(doc, cid) {
+                continue;
+            }
+            let Some(cn) = doc.get(cid) else { continue };
+            if matches!(cn.kind, NodeKind::Instance { .. }) {
+                if is_nested_instance_exposed_in(doc, cid, enclosing_inst) {
+                    out.push(cid);
+                    walk(doc, cid, cid, out, depth + 1);
+                }
+            } else if cn.kind.is_container() {
+                walk(doc, cid, enclosing_inst, out, depth + 1);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(doc, outer_inst, outer_inst, &mut out, 0);
+    out
 }
 
 /// Adds a property definition to a component or component set.
@@ -6510,5 +6729,236 @@ mod tests {
         }
         let g1 = d.get(child_named(&d, si, "Glyph")).unwrap();
         assert_eq!(g1.stroke_geometry, None, "vector->frame with carried Size keeps stroke_geometry == None after 1 sync");
+    }
+
+    #[test]
+    fn expose_nested_instances_toggles_bubbles_edits_survives_sync_and_preserves_overrides_when_unexposed() {
+        let mut d = Document::new("expose-nested");
+        let page = d.add_page("P");
+
+        // 1. Build a component set `Badge` with two variants (`Size=Sm`, `Size=Lg`), a Boolean prop `Show dot`, and a Text prop `Label`.
+        let mut make_badge_variant = |name: &str, x: f32, w: f32| {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(x, 0.0, w, 24.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let dot_id = d.alloc_id();
+            let mut dot = Node::ellipse(dot_id, Rect::new(4.0, 8.0, 8.0, 8.0));
+            dot.name = "Dot".into();
+            let dot = d.insert(comp, dot).unwrap();
+            let txt_id = d.alloc_id();
+            let mut txt = Node::text(txt_id, Rect::new(16.0, 4.0, 40.0, 16.0), "Badge", TextStyle::default());
+            txt.name = "Text".into();
+            let txt = d.insert(comp, txt).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            (comp, dot, txt)
+        };
+        let (v_sm, dot_sm, txt_sm) = make_badge_variant("Size=Sm", 0.0, 60.0);
+        let (v_lg, dot_lg, txt_lg) = make_badge_variant("Size=Lg", 80.0, 90.0);
+        let c = combine_as_variants(&mut d, &[v_sm, v_lg]);
+        apply(&mut d, c);
+        let badge_set = d.get(v_sm).unwrap().parent.unwrap();
+        d.get_mut(badge_set).unwrap().name = "Badge".into();
+
+        let c = add_prop(&mut d, badge_set, ComponentPropDef { name: "Show dot".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) });
+        apply(&mut d, c);
+        let c = add_prop(&mut d, badge_set, ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Badge".into()) });
+        apply(&mut d, c);
+        for (dot, txt) in [(dot_sm, txt_sm), (dot_lg, txt_lg)] {
+            let c = bind_prop(&mut d, dot, OverrideField::Visible, Some("Show dot"));
+            apply(&mut d, c);
+            let c = bind_prop(&mut d, txt, OverrideField::Characters, Some("Label"));
+            apply(&mut d, c);
+        }
+
+        // Plain component without any properties (should not appear in expose_nested_candidates).
+        let plain_id = d.alloc_id();
+        let mut plain = Node::frame(plain_id, Rect::new(200.0, 0.0, 20.0, 20.0));
+        plain.name = "PlainDivider".into();
+        let plain = d.insert(page, plain).unwrap();
+        let c = create_component(&mut d, plain);
+        apply(&mut d, c);
+
+        // 2. Build outer main component `Card` with two nested Badge instances (`Leading badge`, `Trailing badge`) and one `PlainDivider` instance.
+        let card_id = d.alloc_id();
+        let mut card = Node::frame(card_id, Rect::new(0.0, 100.0, 240.0, 60.0));
+        card.name = "Card".into();
+        let card = d.insert(page, card).unwrap();
+        let c = create_component(&mut d, card);
+        apply(&mut d, c);
+
+        let c = create_instance(&mut d, v_sm, card, Vec2::new(8.0, 8.0));
+        apply(&mut d, c);
+        let leading = *d.get(card).unwrap().children.last().unwrap();
+        d.get_mut(leading).unwrap().name = "Leading badge".into();
+
+        let c = create_instance(&mut d, v_sm, card, Vec2::new(80.0, 8.0));
+        apply(&mut d, c);
+        let trailing = *d.get(card).unwrap().children.last().unwrap();
+        d.get_mut(trailing).unwrap().name = "Trailing badge".into();
+
+        let c = create_instance(&mut d, plain, card, Vec2::new(160.0, 8.0));
+        apply(&mut d, c);
+
+        // Candidates list only nested instances whose component has properties.
+        let cands = expose_nested_candidates(&d, card);
+        assert_eq!(cands.len(), 2);
+        assert_eq!(cands[0].id, leading);
+        assert_eq!(cands[0].name, "Leading badge");
+        assert!(!cands[0].exposed);
+        assert_eq!(cands[1].id, trailing);
+        assert_eq!(cands[1].name, "Trailing badge");
+        assert!(!cands[1].exposed);
+
+        // 3. Create two outer instances of `Card`.
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let card_inst_1 = *d.get(page).unwrap().children.last().unwrap();
+        let c = create_instance(&mut d, card, page, Vec2::new(260.0, 200.0));
+        apply(&mut d, c);
+        let card_inst_2 = *d.get(page).unwrap().children.last().unwrap();
+
+        assert!(exposed_nested_instances(&d, card_inst_1).is_empty(), "nothing exposed before toggling");
+
+        // 4. Toggle `Leading badge` exposed on `Card` in one undoable command.
+        let toggle_on = set_expose_nested_instance(&mut d, leading, true);
+        let toggle_inv = apply(&mut d, toggle_on);
+        assert!(d.get(leading).unwrap().component.expose_nested_instances);
+        assert!(!d.get(trailing).unwrap().component.expose_nested_instances);
+
+        let inst1_leading = child_named(&d, card_inst_1, "Leading badge");
+        let inst2_leading = child_named(&d, card_inst_2, "Leading badge");
+        assert_eq!(exposed_nested_instances(&d, card_inst_1), vec![inst1_leading]);
+
+        // Undo and redo the expose toggle in one step.
+        let toggle_redo = apply(&mut d, toggle_inv);
+        assert!(!d.get(leading).unwrap().component.expose_nested_instances);
+        assert!(exposed_nested_instances(&d, card_inst_1).is_empty());
+        apply(&mut d, toggle_redo);
+        assert!(d.get(leading).unwrap().component.expose_nested_instances);
+        assert_eq!(exposed_nested_instances(&d, card_inst_1), vec![inst1_leading]);
+
+        // 5. Edit Variant, Boolean, and Text properties on the exposed nested instance inside `card_inst_1`.
+        let c = set_instance_prop(&mut d, inst1_leading, "Size", Some(PropValue::Variant("Lg".into())));
+        apply(&mut d, c);
+        let c = set_instance_prop(&mut d, inst1_leading, "Show dot", Some(PropValue::Bool(false)));
+        apply(&mut d, c);
+        let c = set_instance_prop(&mut d, inst1_leading, "Label", Some(PropValue::Text("Featured".into())));
+        apply(&mut d, c);
+
+        assert_eq!(instance_component(d.get(inst1_leading).unwrap()), Some(v_lg), "nested instance in card_inst_1 switched to Lg variant");
+        assert!(!d.get(child_named(&d, inst1_leading, "Dot")).unwrap().visible, "nested instance in card_inst_1 hid Dot");
+        assert_eq!(text_of(&d, child_named(&d, inst1_leading, "Text")), "Featured");
+
+        // Main component's nested instance and sibling outer instance are untouched.
+        assert_eq!(instance_component(d.get(leading).unwrap()), Some(v_sm));
+        assert!(d.get(child_named(&d, leading, "Dot")).unwrap().visible);
+        assert_eq!(text_of(&d, child_named(&d, leading, "Text")), "Badge");
+        assert_eq!(instance_component(d.get(inst2_leading).unwrap()), Some(v_sm));
+        assert!(d.get(child_named(&d, inst2_leading, "Dot")).unwrap().visible);
+        assert_eq!(text_of(&d, child_named(&d, inst2_leading, "Text")), "Badge");
+
+        // 6. Syncing the outer main component preserves all nested instance overrides.
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+        assert_eq!(instance_component(d.get(inst1_leading).unwrap()), Some(v_lg), "variant override on nested instance survives sync_instances");
+        assert!(!d.get(child_named(&d, inst1_leading, "Dot")).unwrap().visible, "boolean override on nested instance survives sync_instances");
+        assert_eq!(text_of(&d, child_named(&d, inst1_leading, "Text")), "Featured", "text override on nested instance survives sync_instances");
+
+        // 7. Turning expose off hides the nested instance from `exposed_nested_instances` but preserves existing overrides on instances.
+        let toggle_off = set_expose_nested_instance(&mut d, leading, false);
+        apply(&mut d, toggle_off);
+        assert!(exposed_nested_instances(&d, card_inst_1).is_empty());
+        assert_eq!(instance_component(d.get(inst1_leading).unwrap()), Some(v_lg));
+        assert!(!d.get(child_named(&d, inst1_leading, "Dot")).unwrap().visible);
+        assert_eq!(text_of(&d, child_named(&d, inst1_leading, "Text")), "Featured");
+
+        // 8. Resetting the outer instance resets the nested instance overrides back to the main component's nested instance defaults.
+        let c = reset_instance(&mut d, card_inst_1);
+        apply(&mut d, c);
+        assert_eq!(instance_component(d.get(inst1_leading).unwrap()), Some(v_sm));
+        assert!(d.get(child_named(&d, inst1_leading, "Dot")).unwrap().visible);
+        assert_eq!(text_of(&d, child_named(&d, inst1_leading, "Text")), "Badge");
+    }
+
+    #[test]
+    fn exposed_nested_instances_handles_multi_level_hierarchy_and_variant_sets() {
+        let mut d = Document::new("expose-multi-level");
+        let page = d.add_page("P");
+
+        // Inner component with a Boolean property.
+        let inner_id = d.alloc_id();
+        let mut inner = Node::frame(inner_id, Rect::new(0.0, 0.0, 16.0, 16.0));
+        inner.name = "Icon".into();
+        let inner = d.insert(page, inner).unwrap();
+        let glyph_id = d.alloc_id();
+        let mut glyph = Node::rectangle(glyph_id, Rect::new(2.0, 2.0, 12.0, 12.0));
+        glyph.name = "Glyph".into();
+        let glyph = d.insert(inner, glyph).unwrap();
+        let c = create_component(&mut d, inner);
+        apply(&mut d, c);
+        let c = add_prop(&mut d, inner, ComponentPropDef { name: "Show glyph".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) });
+        apply(&mut d, c);
+        let c = bind_prop(&mut d, glyph, OverrideField::Visible, Some("Show glyph"));
+        apply(&mut d, c);
+
+        // Middle component containing an instance of `Icon` (exposed).
+        let mid_id = d.alloc_id();
+        let mut mid = Node::frame(mid_id, Rect::new(40.0, 0.0, 48.0, 24.0));
+        mid.name = "Chip".into();
+        let mid = d.insert(page, mid).unwrap();
+        let c = create_component(&mut d, mid);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, inner, mid, Vec2::new(4.0, 4.0));
+        apply(&mut d, c);
+        let icon_in_mid = d.get(mid).unwrap().children[0];
+        d.get_mut(icon_in_mid).unwrap().name = "Chip icon".into();
+        let c = set_expose_nested_instance(&mut d, icon_in_mid, true);
+        apply(&mut d, c);
+
+        // Outer component set with two variants, each containing a `Chip` instance.
+        let mut make_outer_var = |name: &str, y: f32| {
+            let id = d.alloc_id();
+            let mut f = Node::frame(id, Rect::new(120.0, y, 120.0, 40.0));
+            f.name = name.into();
+            let comp = d.insert(page, f).unwrap();
+            let c = create_component(&mut d, comp);
+            apply(&mut d, c);
+            let c = create_instance(&mut d, mid, comp, Vec2::new(8.0, 8.0));
+            apply(&mut d, c);
+            let chip = d.get(comp).unwrap().children[0];
+            d.get_mut(chip).unwrap().name = "Status chip".into();
+            (comp, chip)
+        };
+        let (ov1, chip1) = make_outer_var("State=Default", 0.0);
+        let (ov2, chip2) = make_outer_var("State=Active", 60.0);
+        let c = combine_as_variants(&mut d, &[ov1, ov2]);
+        apply(&mut d, c);
+        let outer_set = d.get(ov1).unwrap().parent.unwrap();
+
+        let c = create_instance(&mut d, ov1, page, Vec2::new(300.0, 0.0));
+        apply(&mut d, c);
+        let outer_inst = *d.get(page).unwrap().children.last().unwrap();
+
+        // While `Status chip` is NOT exposed in `outer_set`, the deeper `Chip icon` (even though exposed in `Chip`) must NOT bubble to `outer_inst`.
+        assert!(exposed_nested_instances(&d, outer_inst).is_empty());
+
+        // Exposing `Status chip` on `ov1` syncs across sibling variants of `outer_set` and bubbles both `Status chip` and `Chip icon`.
+        let c = set_expose_nested_instance(&mut d, chip1, true);
+        apply(&mut d, c);
+        assert!(d.get(chip1).unwrap().component.expose_nested_instances);
+        assert!(d.get(chip2).unwrap().component.expose_nested_instances, "toggling expose in a variant set updates matching nested instances across variants");
+
+        let cands = expose_nested_candidates(&d, outer_set);
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].name, "Status chip");
+        assert!(cands[0].exposed);
+        assert_eq!(cands[0].deeper_exposed_names, vec!["Chip icon".to_string()]);
+
+        let exposed_in_outer = exposed_nested_instances(&d, outer_inst);
+        let chip_in_outer = child_named(&d, outer_inst, "Status chip");
+        let icon_in_outer = child_named(&d, chip_in_outer, "Chip icon");
+        assert_eq!(exposed_in_outer, vec![chip_in_outer, icon_in_outer]);
     }
 }

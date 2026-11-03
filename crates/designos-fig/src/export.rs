@@ -607,6 +607,9 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             } else if let Some(k) = component_key {
                 m.insert("componentKey".into(), k.clone().into());
             }
+            if node.component.expose_nested_instances {
+                m.insert("propsAreBubbled".into(), true.into());
+            }
         }
         NodeKind::Ellipse(a) => {
             m.insert("arcData".into(), json!({"startingAngle": n(a.start), "endingAngle": n(a.end), "innerRadius": n(a.inner_radius)}));

@@ -453,9 +453,15 @@ impl App {
         let mut tx = Tx::new();
         let cmd = set_instance_prop(&mut self.doc, inst, name, value);
         if self.push_cmd(&mut tx, cmd) {
-            self.refit_texts(&mut tx, inst);
+            let root = instance_root_of(&self.doc, inst).unwrap_or(inst);
+            self.refit_texts(&mut tx, root);
             self.run_tx(tx);
         }
+    }
+
+    /// Sets whether a primary nested instance inside a main component exposes its properties on outer instances.
+    pub fn set_expose_nested_instance(&mut self, nested_inst: NodeId, expose: bool) {
+        self.comp_edit(|d| set_expose_nested_instance(d, nested_inst, expose));
     }
 
     /// Swaps an instance to another component.

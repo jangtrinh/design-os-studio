@@ -1626,6 +1626,14 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
             path.push(step_g);
         }
 
+        let nested_comp_differs = !own
+            && match (&n.kind, n.component.source.and_then(|s| cx.doc.get(s)).map(|sn| &sn.kind)) {
+                (NodeKind::Instance { component: Some(c), .. }, Some(NodeKind::Instance { component: sc, .. })) => Some(*c) != *sc,
+                _ => false,
+            };
+        let has_nested_prop_ov =
+            !own && !n.component.values.is_empty() && n.component.source.and_then(|s| cx.doc.get(s)).is_none_or(|sn| sn.component.values != n.component.values);
+
         // The instance's own bindings, override level and detached id are fields of its node change already, so
         // only a flagged field makes an entry for it; they are left out of it below.
         if !n.component.overrides.is_empty()
@@ -1633,7 +1641,9 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
                 && (!n.variables.bindings.is_empty()
                     || !n.variables.modes.is_empty()
                     || n.component.override_level.is_some()
-                    || n.component.detached_symbol_id.is_some()))
+                    || n.component.detached_symbol_id.is_some()
+                    || nested_comp_differs
+                    || has_nested_prop_ov))
         {
             let mut ov: Vec<(&'static str, V)> = Vec::new();
             let mut carried: carrier::Carried = Vec::new();
@@ -1852,11 +1862,33 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
                 ov.push(("stackChildMarginLeft", fl(lc.margin[3])));
             }
             // The instance's own main is its `symbolID`; naming it again would make the reader swap it for itself.
-            if ovs.contains(&OverrideField::MainComponent) && !own {
+            if (ovs.contains(&OverrideField::MainComponent) || nested_comp_differs) && !own {
                 if let NodeKind::Instance { component: Some(comp_id), .. } = &n.kind {
                     if let Some(cg) = cx.node_guids.get(comp_id).copied() {
                         ov.push(("overriddenSymbolID", guid(cg.0, cg.1)));
                     }
+                }
+            }
+            if has_nested_prop_ov {
+                let mut prop_assigns = Vec::new();
+                for (prop_name, pval) in &n.component.values {
+                    let def_g = cx.resolve_prop_guid(cid, prop_name);
+                    let val_msg = match pval {
+                        PropValue::Bool(b) => msg(vec![("boolValue", V::Bool(*b))]),
+                        PropValue::Text(s) | PropValue::Variant(s) => msg(vec![("textValue", msg(vec![("characters", V::String(s.clone()))]))]),
+                        PropValue::Instance(tid) => {
+                            let tg = cx.node_guids.get(tid).copied().unwrap_or((0, 0));
+                            msg(vec![("guidValue", guid(tg.0, tg.1))])
+                        }
+                        PropValue::Slot(ids) => {
+                            let s = ids.iter().filter_map(|i| cx.node_guids.get(i).map(|g| format!("{}:{}", g.0, g.1))).collect::<Vec<_>>().join(",");
+                            msg(vec![("textValue", msg(vec![("characters", V::String(s))]))])
+                        }
+                    };
+                    prop_assigns.push(msg(vec![("defID", guid(def_g.0, def_g.1)), ("value", val_msg)]));
+                }
+                if !prop_assigns.is_empty() {
+                    ov.push(("componentPropAssignments", V::Array(prop_assigns)));
                 }
             }
             if ovs.contains(&OverrideField::SlotContent) {

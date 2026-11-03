@@ -4335,3 +4335,99 @@ fn an_instance_aspect_lock_override_is_written_as_proportions_constrained() {
     assert_eq!(own_entry("OwnUnlock").expect("entry for the unlocked instance")["proportionsConstrained"], json!(false));
     assert!(own_entry("Follower").is_none_or(|e| e.get("proportionsConstrained").is_none()), "an instance that follows its main writes no lock override");
 }
+
+#[test]
+fn expose_nested_instances_and_nested_overrides_roundtrip_fig_and_rest() {
+    let mut doc = Document::new("expose-nested-rt");
+    let page = doc.add_page("Page 1");
+
+    let mut make_variant = |name: &str, x: f32, w: f32| {
+        let id = doc.alloc_id();
+        let mut f = Node::frame(id, Rect::new(x, 0.0, w, 24.0));
+        f.name = name.into();
+        let comp = doc.insert(page, f).unwrap();
+        let dot_id = doc.alloc_id();
+        let mut dot = Node::ellipse(dot_id, Rect::new(4.0, 8.0, 8.0, 8.0));
+        dot.name = "Dot".into();
+        let dot = doc.insert(comp, dot).unwrap();
+        let txt_id = doc.alloc_id();
+        let mut txt = Node::text(txt_id, Rect::new(16.0, 4.0, 40.0, 16.0), "Badge", TextStyle::default());
+        txt.name = "Text".into();
+        let txt = doc.insert(comp, txt).unwrap();
+        create_component(&mut doc, comp).apply(&mut doc).unwrap();
+        (comp, dot, txt)
+    };
+    let (v_sm, dot_sm, txt_sm) = make_variant("Size=Sm", 0.0, 60.0);
+    let (v_lg, dot_lg, txt_lg) = make_variant("Size=Lg", 80.0, 90.0);
+    combine_as_variants(&mut doc, &[v_sm, v_lg]).apply(&mut doc).unwrap();
+    let badge_set = doc.get(v_sm).unwrap().parent.unwrap();
+    doc.get_mut(badge_set).unwrap().name = "Badge".into();
+
+    add_prop(&mut doc, badge_set, ComponentPropDef { name: "Show dot".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) })
+        .apply(&mut doc)
+        .unwrap();
+    add_prop(&mut doc, badge_set, ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Badge".into()) })
+        .apply(&mut doc)
+        .unwrap();
+    for (dot, txt) in [(dot_sm, txt_sm), (dot_lg, txt_lg)] {
+        bind_prop(&mut doc, dot, OverrideField::Visible, Some("Show dot")).apply(&mut doc).unwrap();
+        bind_prop(&mut doc, txt, OverrideField::Characters, Some("Label")).apply(&mut doc).unwrap();
+    }
+
+    let card_id = doc.alloc_id();
+    let mut card = Node::frame(card_id, Rect::new(0.0, 100.0, 200.0, 48.0));
+    card.name = "Card".into();
+    let card = doc.insert(page, card).unwrap();
+    create_component(&mut doc, card).apply(&mut doc).unwrap();
+
+    create_instance(&mut doc, v_sm, card, Vec2::new(8.0, 8.0)).apply(&mut doc).unwrap();
+    let exposed_in_card = *doc.get(card).unwrap().children.last().unwrap();
+    doc.get_mut(exposed_in_card).unwrap().name = "ExposedBadge".into();
+
+    create_instance(&mut doc, v_sm, card, Vec2::new(100.0, 8.0)).apply(&mut doc).unwrap();
+    let hidden_in_card = *doc.get(card).unwrap().children.last().unwrap();
+    doc.get_mut(hidden_in_card).unwrap().name = "HiddenBadge".into();
+
+    set_expose_nested_instance(&mut doc, exposed_in_card, true).apply(&mut doc).unwrap();
+
+    create_instance(&mut doc, card, page, Vec2::new(0.0, 200.0)).apply(&mut doc).unwrap();
+    let card_inst = *doc.get(page).unwrap().children.last().unwrap();
+    doc.get_mut(card_inst).unwrap().name = "CardInst".into();
+
+    let inst_exposed_badge = *doc.get(card_inst).unwrap().children.iter().find(|c| doc.get(**c).unwrap().name == "ExposedBadge").unwrap();
+    set_instance_prop(&mut doc, inst_exposed_badge, "Size", Some(PropValue::Variant("Lg".into()))).apply(&mut doc).unwrap();
+    set_instance_prop(&mut doc, inst_exposed_badge, "Show dot", Some(PropValue::Bool(false))).apply(&mut doc).unwrap();
+    set_instance_prop(&mut doc, inst_exposed_badge, "Label", Some(PropValue::Text("Pro".into()))).apply(&mut doc).unwrap();
+
+    // 1. Binary .fig export -> import preserves expose_nested_instances (propsAreBubbled) and nested overrides.
+    let fig_bytes = export_fig(&doc).expect("export_fig");
+    let fig_rt = import_fig(&fig_bytes).expect("import_fig");
+    let card_rt = find(&fig_rt, "Card");
+    let card_exposed_rt = card_rt.children.iter().filter_map(|id| fig_rt.get(*id)).find(|n| n.name == "ExposedBadge").unwrap();
+    let card_hidden_rt = card_rt.children.iter().filter_map(|id| fig_rt.get(*id)).find(|n| n.name == "HiddenBadge").unwrap();
+    assert!(card_exposed_rt.component.expose_nested_instances, ".fig round-trip must preserve expose_nested_instances = true");
+    assert!(!card_hidden_rt.component.expose_nested_instances, ".fig round-trip must preserve expose_nested_instances = false");
+
+    let card_inst_rt = find(&fig_rt, "CardInst");
+    let inst_exposed_rt = card_inst_rt.children.iter().filter_map(|id| fig_rt.get(*id)).find(|n| n.name == "ExposedBadge").unwrap();
+    assert_eq!(exposed_nested_instances(&fig_rt, card_inst_rt.id), vec![inst_exposed_rt.id]);
+    let v_lg_rt = find(&fig_rt, "Size=Lg").id;
+    assert_eq!(instance_component(inst_exposed_rt), Some(v_lg_rt), ".fig round-trip must preserve nested instance variant override");
+    let dot_in_inst = inst_exposed_rt.children.iter().filter_map(|id| fig_rt.get(*id)).find(|n| n.name == "Dot").unwrap();
+    assert!(!dot_in_inst.visible, ".fig round-trip must preserve nested instance boolean prop override");
+    let txt_in_inst = inst_exposed_rt.children.iter().filter_map(|id| fig_rt.get(*id)).find(|n| n.name == "Text").unwrap();
+    assert!(matches!(&txt_in_inst.kind, NodeKind::Text(t) if t.content == "Pro"), ".fig round-trip must preserve nested instance text prop override");
+
+    // 2. REST JSON export -> import preserves propsAreBubbled / expose_nested_instances on the primary nested instance only.
+    let rest_val = designos_fig::export_rest_json(&doc);
+    let rest_rt = designos_fig::import_rest_json(&rest_val.to_string()).expect("import_rest_json");
+    let rest_card = find(&rest_rt, "Card");
+    let rest_card_exposed = rest_card.children.iter().filter_map(|id| rest_rt.get(*id)).find(|n| n.name == "ExposedBadge").unwrap();
+    let rest_card_hidden = rest_card.children.iter().filter_map(|id| rest_rt.get(*id)).find(|n| n.name == "HiddenBadge").unwrap();
+    assert!(rest_card_exposed.component.expose_nested_instances, "REST round-trip must preserve expose_nested_instances = true on main component child");
+    assert!(!rest_card_hidden.component.expose_nested_instances, "REST round-trip must preserve expose_nested_instances = false");
+    let rest_inst = find(&rest_rt, "CardInst");
+    let rest_inst_exposed = rest_inst.children.iter().filter_map(|id| rest_rt.get(*id)).find(|n| n.name == "ExposedBadge").unwrap();
+    assert!(!rest_inst_exposed.component.expose_nested_instances, "REST expand_instance must keep expose_nested_instances = false on outer instance copies");
+    assert_eq!(exposed_nested_instances(&rest_rt, rest_inst.id), vec![rest_inst_exposed.id]);
+}
