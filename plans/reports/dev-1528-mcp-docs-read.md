@@ -222,3 +222,58 @@ The 5 chars of rules-pack room: the second of #1318 and this change to merge mus
 Status: DONE_WITH_CONCERNS
 Summary: N1-N5 and the rules-pack restore done test-first; fmt, clippy (two crates), `designos-mcp`, `designos-docs` and workspace lib tests are green after the last edit; the r2 probes and the round-1 repro are clean; stdio transcript regenerated.
 Concerns/Blockers: F13 whole-page reads in `list`; rules pack at 22,995/23,000; Windows handle check not run; workspace clippy fails on 3 pre-existing `designos-app` errors.
+
+---
+
+# Fix round 3 (from 06ab8eb1; re-review M1 and M2)
+
+## NOT verified / not done (read first)
+- Under the reviewer's saver (a Python loop that renames as fast as it can) 77 of 3,000 reads (2.6%) still end in `ChangedDuringRead` after the one read and three reruns. They are correct (retryable, "changed while it was read; fix: read it again"), but 0 are `OutsideDocs` now (656 before). Studio's real autosave is much slower than that loop; I did not measure it. Raising `READ_RERUNS` above the ruled 3 would lower the rate; I left it at the ruling.
+- `ChangedDuringRead` is mapped to the existing code `INVALID_ARGUMENTS` with `error_kind: retryable` and `safe_to_retry: true`, with its own `next_step`. The catalogue has no "changed during read" code, and a new code (or `CURSOR_STALE` in the per-tool list) would cost rules-pack budget I do not have. The message and next step carry the meaning.
+- Windows: the inode comparison is `cfg(unix)`; on Windows only the canonical-path comparison runs. Not run there.
+- Workspace `cargo clippy` still fails on 3 pre-existing `designos-app` errors (untouched).
+
+## Red run (tests first)
+- `designos-docs` lib (`r3-red-docs.log`): `saved_by_rename_during_read` 3 of 3 FAILED, e.g. `a page replaced by an atomic save is not an escape: OutsideDocs { path: "a.md" }` and `inside the folder: OutsideDocs { path: "a.md" }`; test result `4 passed; 3 failed`.
+- `designos-docs` stress test (writer thread, 3,000 reads): FAILED, `reads that failed for another reason (2990 ok, 0 changed): ["x.md resolves to a place outside the docs folder, so it was not touched; fix: remove the symlink, ..."]`.
+- `designos-mcp` (`r3-red-mcp.log`): 4 of 18 `docs_hostile` tests FAILED: the `ChangedDuringRead` mapping, the stale `list` cursor, the `read` `page_hash`, and the string cursor shape (`list_is_bounded...`).
+
+## Green run (after the last edit)
+- `cargo test -p designos-docs --locked`: exit 0, 0 failed; 105 tests across the unit and integration binaries, including the 3 new unit tests, the stress test and the 3 swap tests that still refuse.
+- `cargo test -p designos-mcp --locked`: exit 0; lib 362 passed, 0 failed (359 before + 3 new); 28 test binaries `ok`.
+- `cargo clippy -p designos-mcp -p designos-docs --all-targets --locked -- -D warnings`: exit 0.
+- `cargo fmt --all --check`: exit 0.
+- `cargo test --workspace --lib --locked`: exit 0; passed/failed per binary: 13/0, 745/0, 7/0, 1/0, 164/0, 143/0, 30/0, 5/0, 37/0, 362/0, 56/0, 1/0, 8/0.
+- Reviewer's probes (`evidence-1528/repro-1528-r3.py`, output `repro-1528-r3-output-after-fix.txt`):
+  - R1 atomic save during read: `{'ok': 2921, 'INVALID_ARGUMENTS': 77, 'LOOP_SUSPECTED': 2}`; the 77 all say "the page changed while it was read; fix: read it again". No "outside the docs folder" message. (`LOOP_SUSPECTED` is the loop guard on the probe's repeated identical calls.)
+  - R2: both the insert-before and the delete-before cases now return `VALUE_OUT_OF_RANGE` at `/cursor` ("cursor is from an earlier manifest: the manifest changed; list again from the start"); listing again from the start returns a fresh cursor (`9623caec67f8:130`). The probe script's R2 section was changed to the new cursor shape.
+  - R3, R4 unchanged and clean (ids gated as before, hostile arguments never in the message).
+- Round-2 probes K1-K15 rerun: all clean; K11 symlink swapper 3,000 reads, 0 leaks (2,847 refused, 153 inside).
+- Round-1 repro rerun clean; stdio transcript regenerated (`transcript-stdio.txt`).
+
+## What changed
+| # | Fix | Where |
+|---|-----|-------|
+| M1 | `read_confined` runs confine, open, verify. `verify_handle` now says `Same`, `Changed` or an error: a path that canonicalizes outside the docs folder is `OutsideDocs`; a path that moved or whose inode changed but is still inside the folder (an atomic save, or a link to another inside page) is `Changed`; a file that vanished mid-replace is `Changed`. `Changed` reruns the whole read up to 3 more times (`READ_RERUNS`), then `DocsError::ChangedDuringRead` ("{path} changed while it was read; fix: read it again"). Hard links are still refused. Tests: an `AFTER_OPEN` test hook (cfg(test), beside `BEFORE_OPEN`) renames a file over the page after the open (read succeeds with the new content in 2 attempts), renames on every attempt (`ChangedDuringRead` after exactly 4 attempts), puts a link to an inside page in the way (followed); plus the 3,000-read stress test with a writer thread. The three symlink-swap tests are untouched and still refuse. | `designos-docs` `store.rs`, `error.rs`, `tests/store.rs`, `README.md`; MCP mapping in `docs_errors.rs` |
+| M2 list | `next_cursor` is `"<first 12 hex of manifest_hash>:<index>"` (a string); `cursor` is the same string. A cursor from another manifest, or one that does not parse, is `VALUE_OUT_OF_RANGE` at `/cursor`; a stale one says "the manifest changed; list again from the start". The cursor text is never echoed in the message (fenced in `received`). | `docs_list.rs`, `docs_descriptors.rs` |
+| M2 read | I chose an optional extra `page_hash` input over a string-shaped `next_start`: `range.start` stays an integer (existing callers and the schema keep working), and the continuation is bound to the hash the previous call returned. When `page_hash` is given and the page changed, `VALUE_OUT_OF_RANGE` at `/page_hash` ("the page changed since that page_hash; read it again from the start"); a value that is not a hash of the right shape is refused the same way. Without it a plain slice by index still works. Both descriptions say to pass it. | `docs.rs`, `docs_descriptors.rs` |
+
+## Rules pack
+`generated/rules.md` is **22,999 chars** (limit 23,000). The `page_hash` argument added 13 chars to the Args line (23,008); I paid with "Render the finished frame" -> "Render the frame" in `workflow.md` step 4. "inspect for hierarchy, alignment, clipping, and contrast" is kept.
+
+## Ledger (this round)
+- FACT: after a rename over a page, `canonicalize(real)` still equals `real` and only the inode differs, which is what the old check read as an escape (the red run shows it).
+- FACT: the escape cases still refuse because their canonical path leaves the docs folder (symlink to an outside file, folder swapped for an outside link).
+- INFERENCE: a link to another page inside the folder is harmless to follow, because the rerun reads the real file the link resolves to, inside the folder, through the full confine again.
+- ASSUMPTION (medium): 3 reruns is enough for Studio's autosave rate; the tight probe loop is the worst case.
+
+## Weakest link
+The 1 char of rules-pack room, and the 2.6% `ChangedDuringRead` rate under a saver that never sleeps.
+
+## Unresolved questions
+- F13 (still open): partial-read API in `designos-docs`, or accept whole-page reads for `list`?
+- Rules-pack budget: who decides once for both #1318 and this change?
+
+Status: DONE_WITH_CONCERNS
+Summary: M1 and M2 fixed test-first. An atomic save during a read is no longer reported as an escape (656 to 0 `OutsideDocs`; the rest retry or ask for a retry). List cursors are bound to the manifest hash and read continuations to `page_hash`. All gates green after the last edit; probes and transcript regenerated.
+Concerns/Blockers: 2.6% of reads under a never-sleeping saver end in a retryable `ChangedDuringRead`; F13 whole-page reads in `list`; rules pack at 22,999/23,000; Windows inode check not run; 3 pre-existing `designos-app` clippy errors.
