@@ -846,3 +846,96 @@ fn inside_dashed_ellipse_round_cap_extends_past_dash_end() {
     assert_eq!(px(&pm_butt, 83, 68), [255, 0, 0, 255], "butt dash body is painted at (83, 68)");
     assert_eq!(px(&pm_butt, 68, 83), WHITE, "butt dash ends at the dash end so (68, 83) is unpainted");
 }
+
+#[test]
+fn rotation_90_is_exact_on_a_2x2_image() {
+    let mut t = T::new();
+    t.doc.images.insert(
+        "quad".into(),
+        png_bytes(2, 2, |x, y| match (x, y) {
+            (0, 0) => [255, 0, 0, 255],
+            (1, 0) => [0, 255, 0, 255],
+            (0, 1) => [0, 0, 255, 255],
+            _ => [255, 255, 0, 255],
+        }),
+    );
+    let r = t.rect(None, Rect::new(0.0, 0.0, 2.0, 2.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "quad".into(),
+        scale_mode: ImageScaleMode::Fill,
+        params: ImageParams { rotation: 90.0, ..Default::default() },
+    })];
+    let pm = t.render(2, 2);
+    assert_eq!(px(&pm, 0, 0), [0, 0, 255, 255]);
+    assert_eq!(px(&pm, 1, 0), [255, 0, 0, 255]);
+    assert_eq!(px(&pm, 0, 1), [255, 255, 0, 255]);
+    assert_eq!(px(&pm, 1, 1), [0, 255, 0, 255]);
+}
+
+#[test]
+fn tile_scale_2_doubles_the_tile_size() {
+    let mut t = T::new();
+    t.doc.images.insert("tile_rb".into(), png_bytes(20, 10, |x, _| if (5..15).contains(&x) { [0, 0, 255, 255] } else { [255, 0, 0, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "tile_rb".into(),
+        scale_mode: ImageScaleMode::Tile,
+        params: ImageParams { tile_scale: 2.0, ..Default::default() },
+    })];
+    let pm = t.render(40, 20);
+    assert!(near(px(&pm, 7, 5), [255, 0, 0, 255], 4), "x=7 is inside the doubled red band (0..10): {:?}", px(&pm, 7, 5));
+    assert!(near(px(&pm, 20, 5), [0, 0, 255, 255], 4), "x=20 is inside the doubled blue band (10..30): {:?}", px(&pm, 20, 5));
+}
+
+#[test]
+fn crop_with_identity_transform_stretches_the_image() {
+    let mut t = T::new();
+    t.doc.images.insert(
+        "bands".into(),
+        png_bytes(40, 40, |x, _| {
+            if x < 8 {
+                [255, 0, 0, 255]
+            } else if x < 32 {
+                [0, 255, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            }
+        }),
+    );
+    let r = t.rect(None, Rect::new(0.0, 0.0, 20.0, 40.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "bands".into(), scale_mode: ImageScaleMode::Crop, params: ImageParams::default() })];
+    let pm = t.render(20, 40);
+    assert!(near(px(&pm, 1, 20), [255, 0, 0, 255], 4), "left edge of stretched crop shows red band: {:?}", px(&pm, 1, 20));
+    assert!(near(px(&pm, 19, 20), [0, 0, 255, 255], 4), "right edge of stretched crop shows blue band: {:?}", px(&pm, 19, 20));
+}
+
+#[test]
+fn crop_transform_maps_uv_through_the_affine() {
+    let mut t = T::new();
+    t.doc.images.insert("half_rb".into(), png_bytes(20, 20, |x, _| if x < 10 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), WHITE.into_iter().collect::<Vec<_>>().as_slice().first().map(|_| Color::TRANSPARENT).unwrap());
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "half_rb".into(),
+        scale_mode: ImageScaleMode::Crop,
+        params: ImageParams { transform: Some([2.0, 0.0, -0.5, 0.0, 2.0, -0.5]), ..Default::default() },
+    })];
+    let pm = t.render(40, 40);
+    assert_eq!(px(&pm, 3, 20), WHITE, "UV < 0 outside cropped image is transparent over white page");
+    assert_eq!(px(&pm, 37, 20), WHITE, "UV > 1 outside cropped image is transparent over white page");
+    assert!(near(px(&pm, 15, 20), [255, 0, 0, 255], 4), "inner left is red: {:?}", px(&pm, 15, 20));
+    assert!(near(px(&pm, 25, 20), [0, 0, 255, 255], 4), "inner right is blue: {:?}", px(&pm, 25, 20));
+}
+
+#[test]
+fn singular_crop_transform_draws_nothing() {
+    let mut t = T::new();
+    t.doc.images.insert("solid_red".into(), png_bytes(20, 20, |_, _| [255, 0, 0, 255]));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), Color::TRANSPARENT);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "solid_red".into(),
+        scale_mode: ImageScaleMode::Crop,
+        params: ImageParams { transform: Some([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ..Default::default() },
+    })];
+    let pm = t.render(40, 40);
+    assert_eq!(px(&pm, 20, 20), WHITE, "singular crop transform draws nothing");
+}
