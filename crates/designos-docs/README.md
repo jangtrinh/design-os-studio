@@ -12,11 +12,13 @@ atomic storage and a disk watcher. No UI. `designos-app` (phases 02, 04) and `de
 
 | Module | Public surface |
 |---|---|
-| `model`, `markdown`, `render` | `Page::parse` / `render` / `render_canonical`, `Block`, `BlockKind`, `Inline`, block edits |
+| `model`, `markdown`, `render`, `page_edit` | `Page::parse` (never fails) / `render` / `render_canonical`, `Block` (`hash()`), `BlockKind`, `ListItem`, `Inline`, `push_block` / `insert_block` / `remove_block` (an error for a bad index), `block_hashes()` for block-level compare-and-swap |
+| `escape` | `escape_plain(text, TextContext)`, `plain_inlines`, `paragraphs_from_plain`: plain text typed by a person or an agent to Markdown that reads back as exactly that text (`- not a list` stays a paragraph) |
+| `front_matter` | `Page::front_matter()` with `title()`, `description()`, `group()` and `problems()`: a bad key is left unset and reported next to the page, the body still reads |
 | `outline` | `Page::headings()`, `plain_text(&[Inline])` for "On this page", search and titles |
 | `manifest`, `group` | `Manifest::{new, parse, validate, to_json_pretty}`, `Group`, `Pin` |
 | `store` | `DocsStore::{for_project, at, read_page, write_page, read_manifest, write_manifest, list_page_files}`, `Expect`, `Versioned`, `ContentHash` |
-| `watch` | `DocsWatcher::start(dir, wake)`, `drain()`, `DocChange { rel, hash }` |
+| `watch` | `DocsWatcher::start(dir, wake)` / `start_polling`, `drain()`, `mode()`, `DocChange { rel, hash }` |
 
 ## Markdown library: pulldown-cmark as a span oracle, not a writer
 
@@ -30,8 +32,11 @@ verbatim. A parse-then-print library cannot promise that, so the model never pri
   writes those back, so unedited content is byte-identical for **any** input, not only for text in Studio's own style.
 - A block that is not exactly one of the v1 types (heading 1 to 3 in `#` form, paragraph, bullet / numbered list,
   checklist, `> [!kind]` callout, table, frame embed, fenced `mermaid`, fenced code) becomes `Raw` with its text kept.
-  This covers setext and deeper headings, HTML, nested lists, footnote and link definitions, indented code, plain
-  quotes, titled or multi-paragraph callouts, mixed task lists.
+  This covers setext and deeper headings, HTML, footnote and link definitions, indented code, plain quotes, titled or
+  multi-paragraph callouts, mixed task lists, lists whose items hold code, quotes or tables, and a table whose row has
+  text after its last cell.
+- List items hold their text plus child blocks (`ListItem::children`): nested bullet, numbered and task lists, and
+  further paragraphs. Indentation of continuation lines carries no meaning and is not kept in the model.
 - Editing a block (`Block::kind_mut`) drops its kept text; only that block is then written canonically
   (`- ` bullets, `1.` numbers, `**bold**`, `*italic*`, `| a | b |` tables, longer fence when the code holds backticks).
   `render_canonical()` writes every block that way and is what proves the typed model carries the whole file.
@@ -57,26 +62,40 @@ the repo; the fixtures it ran are committed, and `every_v1_fixture_round_trips_b
 Public-API tests only (`tests/`): every fixture round-trips and also re-renders canonically; every prefix of every
 fixture (about 2,400 cut points: unterminated fences, half tables, broken links) round-trips without panic; a
 deterministic random Markdown soup (`DOCS_SOUP_CASES`, default 40,000) must round-trip with `render()`, and its
-canonical form must be stable. At 2,000,000 cases `render()` was lossless every time; the canonical form was not
-stable for 1 input, listed below.
+canonical form must be stable; a second property (`DOCS_TOUCH_CASES`, default 30,000) takes block-shaped pieces, touches
+each typed block without changing it and requires the page to keep the same blocks. Run at 1,000,000 soup cases and
+200,000 touch cases, both hold.
 
 ## Known limits
 
 - **Canonical output of pathological text.** `render_canonical()` / an edited block can read differently on a second
-  pass when the source has stray underscore emphasis next to other delimiters, backticks mixed into running text, or
-  indented list lines continuing a paragraph. Unedited blocks are never affected (they are written from source).
+  pass when the source has stray underscore emphasis next to other delimiters or backticks mixed into running text.
+  Unedited blocks are never affected (they are written from source). A rewritten list that is followed by a block kept
+  with its indentation writes that block without the indentation, so the two cannot merge; a list in front of an
+  indented raw block is kept raw.
 - **Looseness and delimiter style are not modelled.** A loose list (blank lines between items) is written tight, and
-  `__bold__` / `_italic_` become `**` / `*` when that block is edited. Two adjacent lists are kept apart by
-  alternating the bullet (`-` / `*`) or delimiter (`.` / `)`).
-- **Front matter** is read only as one-line scalars for `title`, `description`, `group`; other keys are kept
-  verbatim and ignored. A page that opens with `---` and has another `---` line later is front matter, as in every
-  Markdown tool.
+  `__bold__` / `_italic_` become `**` / `*` when that block is edited. A rewritten list takes a bullet (`-` / `*` /
+  `+`) or delimiter (`.` / `)`) that neither the list before it nor the list after it uses, so neighbours never merge.
+- **Line endings.** A page keeps its first line ending (`\n` or `\r\n`) for edited blocks; a file that mixes both is
+  written back unchanged until a block is edited. A byte order mark is kept.
+- **Front matter** is read as one-line scalars (plain, single or double quoted) for `title`, `description`, `group`;
+  other keys are kept verbatim and ignored. A bad value leaves its key unset and shows up in `problems()`. A page that
+  opens with a `---` rule and has no `key: value` lines before the next `---` is a page, not front matter.
+- **Text typed into a block** must go through `escape_plain` (or `plain_inlines`): `Inline::Text` is Markdown source.
+  Newlines in a heading or a table cell become spaces, and blank lines in a paragraph split it (`paragraphs_from_plain`).
 - **Write race with programs that do not use this crate.** Studio and `designos-mcp` serialise on `.docs.lock`.
   An editor that saves without the lock can win the few microseconds between the final hash check and the rename;
   the next read then sees its content and the watcher reports it.
-- **Watcher** polls the folder on its own thread every 400 ms (stat only, hash only on change), like the library's
-  `DiskWatcher`; an edit is reported within about half a second. It misses a rewrite that keeps both the size and
-  the modification time. Studio's own writes are reported too: compare `DocChange::hash` with the hash `write_*` returned.
+- **Watcher** sleeps until the system reports a change (FSEvents on macOS, inotify on Linux) via the `notify` crate, so
+  an idle project uses no CPU: 0.00 s over 20 s with 200 pages (`tests/watch_idle_cpu.rs`, `ps -o time=`). Events are
+  batched and the folder is compared by size and time, hashing only what changed. Only when the system watcher cannot
+  start or reports a failure does it look every 400 ms (`mode()` says which; `start_polling` forces it for network
+  shares). The first look at the folder runs on the watcher thread, so `start` does no disk work; a file written right
+  after `start` is still reported. Pages over 8 MiB are skipped. Studio's own writes are reported too: compare
+  `DocChange::hash` with the hash `write_*` returned. If the wake callback panics the thread ends and
+  `stopped_flag()` turns true.
+- **Locking.** A write waits up to 2 s for `.docs.lock` (`DocsStore::with_lock_timeout`), then fails with `Busy`, an
+  error that says to close the other window or delete the stale lock.
 - Pages over 8 MiB are refused; symlinked pages are not listed or watched (an explicit path still follows a symlink).
 
 ## Layout drift

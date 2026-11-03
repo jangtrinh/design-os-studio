@@ -20,6 +20,8 @@ fn rig(seed: &[(&str, &str)]) -> Rig {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, text).unwrap();
     }
+    // Files written in the instant before `start` count as changes (see `DocsWatcher::start`), so let these settle.
+    std::thread::sleep(Duration::from_millis(40));
     let wake_threads = Arc::new(Mutex::new(Vec::new()));
     let sink = wake_threads.clone();
     let watcher = DocsWatcher::start(dir.clone(), move || sink.lock().unwrap().push(std::thread::current().id()));
@@ -85,7 +87,7 @@ fn temp_files_hidden_files_and_other_extensions_are_ignored() {
 fn studios_own_atomic_write_is_reported_once_as_one_page_change() {
     let r = rig(&[("a.md", "# One\n")]);
     let h = ContentHash::of(b"# One\n");
-    let new_hash = r.store.write_page("a.md", &Page::parse("# Two\n").unwrap(), Expect::Hash(h)).unwrap();
+    let new_hash = r.store.write_page("a.md", &Page::parse("# Two\n"), Expect::Hash(h)).unwrap();
     // The consumer recognises its own write by the hash it got back from the store.
     assert_eq!(next(&r).unwrap(), DocChange { rel: "a.md".into(), hash: Some(new_hash) });
     assert!(r.watcher.recv_timeout(Duration::from_millis(700)).is_none(), "no second event for the same write");

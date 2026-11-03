@@ -5,13 +5,12 @@
 //! does not know (those blocks are [`BlockKind::Raw`]). Changing a block (through [`Block::kind_mut`]) drops its
 //! kept text, and only that block is then written the way Studio writes it ([`Page::render_canonical`]).
 
-use crate::error::Result;
 use crate::front_matter::FrontMatter;
-use crate::group::Group;
+use crate::hash::ContentHash;
 
 /// Inline content. `Text` is Markdown source, not unescaped text: `2 \* 3` stays `2 \* 3`, so no escaping
-/// rules are needed to write it back. Anything inline the model does not structure (images, HTML, `~~strike~~`,
-/// reference links, hard breaks) is simply part of a `Text`.
+/// rules are needed to write it back. Typed plain text goes through [`crate::plain_inlines`] first. Anything inline
+/// the model does not structure (images, HTML, `~~strike~~`, reference links, hard breaks) is simply part of a `Text`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Inline {
     Text(String),
@@ -34,10 +33,32 @@ pub enum Align {
     Right,
 }
 
+/// One bullet or numbered item: its own text, then nested lists and extra paragraphs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ListItem {
+    pub content: Vec<Inline>,
+    /// Nested lists and further paragraphs of this item, in order (`BulletList`, `NumberedList`, `Checklist`,
+    /// `Paragraph`). Indenting an item moves it into the previous item's children; outdenting moves it out.
+    pub children: Vec<BlockKind>,
+}
+
+impl ListItem {
+    pub fn new(content: Vec<Inline>) -> Self {
+        Self { content, children: Vec::new() }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ChecklistItem {
     pub checked: bool,
     pub content: Vec<Inline>,
+    pub children: Vec<BlockKind>,
+}
+
+impl ChecklistItem {
+    pub fn new(checked: bool, content: Vec<Inline>) -> Self {
+        Self { checked, content, children: Vec::new() }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -48,10 +69,10 @@ pub enum BlockKind {
         content: Vec<Inline>,
     },
     Paragraph(Vec<Inline>),
-    BulletList(Vec<Vec<Inline>>),
+    BulletList(Vec<ListItem>),
     NumberedList {
         start: u64,
-        items: Vec<Vec<Inline>>,
+        items: Vec<ListItem>,
     },
     Checklist(Vec<ChecklistItem>),
     /// `> [!kind]` followed by `> ` lines of one paragraph.
@@ -135,79 +156,26 @@ impl Block {
     pub fn source(&self) -> Option<&str> {
         self.source.as_deref()
     }
+
+    /// SHA-256 of the block's text: the text it was parsed from, or the canonical text once edited. Two reads of
+    /// an unchanged block give the same hash wherever the block sits in the page, so a writer can check the one
+    /// block it means to change (block-level compare-and-swap) while other blocks are edited around it.
+    pub fn hash(&self) -> ContentHash {
+        match &self.source {
+            Some(source) => ContentHash::of(source.as_bytes()),
+            None => ContentHash::of(crate::render::render_kind(&self.kind, &[]).as_bytes()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Page {
+    /// The file started with a byte order mark; it is written back first.
+    pub(crate) bom: bool,
+    /// The file uses `\r\n` line endings; new and edited text follows it.
+    pub(crate) crlf: bool,
     pub(crate) front: Option<FrontMatter>,
     pub blocks: Vec<Block>,
     /// Everything after the last block (normally the final newline).
     pub(crate) tail: String,
-}
-
-impl Page {
-    /// Reads a page. Never fails on Markdown: unknown syntax becomes `Raw` blocks. It fails only on front matter
-    /// that sets `title`, `description` or `group` to something Studio cannot use, naming the field and the fix.
-    pub fn parse(text: &str) -> Result<Page> {
-        crate::markdown::parse_page(text)
-    }
-
-    /// The page as Markdown. Unedited blocks come back byte for byte.
-    pub fn render(&self) -> String {
-        crate::render::render_page(self, false)
-    }
-
-    /// The page with every block written the way Studio writes new content, ignoring kept text. Raw blocks and
-    /// front matter stay verbatim.
-    pub fn render_canonical(&self) -> String {
-        crate::render::render_page(self, true)
-    }
-
-    pub fn front_matter(&self) -> Option<&FrontMatter> {
-        self.front.as_ref()
-    }
-
-    pub fn set_title(&mut self, title: Option<&str>) {
-        self.front.get_or_insert_with(FrontMatter::empty).set("title", title);
-    }
-
-    pub fn set_description(&mut self, description: Option<&str>) {
-        self.front.get_or_insert_with(FrontMatter::empty).set("description", description);
-    }
-
-    pub fn set_group(&mut self, group: Option<Group>) {
-        self.front.get_or_insert_with(FrontMatter::empty).set("group", group.map(Group::as_str));
-    }
-
-    pub fn push_block(&mut self, kind: BlockKind) {
-        self.insert_block(self.blocks.len(), kind);
-    }
-
-    /// Inserts a block written canonically, with a blank line around it.
-    pub fn insert_block(&mut self, index: usize, kind: BlockKind) {
-        let index = index.min(self.blocks.len());
-        let mut block = Block::new(kind);
-        if index == 0 {
-            // The first block's gap is the leading whitespace of the page; it moves to the new first block and
-            // the old one gets the canonical blank line.
-            if let Some(old_first) = self.blocks.first_mut() {
-                block.gap = old_first.gap.take();
-            }
-        }
-        self.blocks.insert(index, block);
-        if self.tail.is_empty() {
-            self.tail = "\n".into();
-        }
-    }
-
-    /// Removes a block; the next block inherits the removed block's leading whitespace when it was first.
-    pub fn remove_block(&mut self, index: usize) -> Block {
-        let removed = self.blocks.remove(index);
-        if index == 0 {
-            if let Some(next) = self.blocks.first_mut() {
-                next.gap = removed.gap.clone();
-            }
-        }
-        removed
-    }
 }

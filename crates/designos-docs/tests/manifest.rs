@@ -166,3 +166,27 @@ fn building_an_invalid_manifest_in_code_is_caught_before_it_is_written() {
     m.group_mut(Group::Overview).pages.push("../x.md".into());
     assert!(matches!(m.validate(), Err(DocsError::Manifest(_))));
 }
+
+#[test]
+fn linked_specs_must_be_real_distinct_paths() {
+    let with_specs = |list: &str| with(r#"["/Users/me/specs/checkout-spec"]"#, list);
+    for (list, needle) in
+        [(r#"[""]"#, "is empty"), (r#"["../elsewhere"]"#, ".."), (r#"["/a/../b"]"#, ".."), (r#"["/a", "/a"]"#, "again"), (r#"["bad\u0000path"]"#, "control")]
+    {
+        let e = err_of(&with_specs(list));
+        assert!(e.field.starts_with("linked_specs["), "{list}: {e}");
+        assert!(e.to_string().contains(needle), "{list}: {e}");
+        assert!(e.fix.contains("spec folder"), "{list}: {e}");
+    }
+    // Absolute and project-relative folders are both fine.
+    assert_eq!(Manifest::parse(&with_specs(r#"["/a/b", "specs/c"]"#)).unwrap().linked_specs, ["/a/b", "specs/c"]);
+}
+
+#[test]
+fn pages_that_differ_only_in_case_are_one_file_on_macos_and_are_refused() {
+    let e = err_of(&with(r#""pages": ["notes.md"]"#, r#""pages": ["notes.md", "Notes.md"]"#));
+    assert_eq!(e.field, "groups[4].pages[1]");
+    assert!(e.to_string().contains("already listed"), "{e}");
+    let e = err_of(&with(r#""pages": ["notes.md"]"#, r#""pages": ["About.md"]"#));
+    assert!(e.to_string().contains("already listed under overview"), "{e}");
+}

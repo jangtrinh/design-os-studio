@@ -101,29 +101,54 @@ fn non_empty(node: Inline) -> Option<Inline> {
 
 /// Canonical Markdown for inline nodes.
 pub(crate) fn render_inlines(nodes: &[Inline]) -> String {
+    render(nodes, false)
+}
+
+/// Like `render_inlines`, for a table cell: a `|` that is not already escaped is written `\|`, in text, code and
+/// link targets, because a bare pipe ends the cell.
+pub(crate) fn render_cell_inlines(nodes: &[Inline]) -> String {
+    render(nodes, true)
+}
+
+fn render(nodes: &[Inline], cell: bool) -> String {
+    let pipes = |s: &str| if cell { escape_pipes(s) } else { s.to_string() };
     let mut out = String::new();
     for node in nodes {
         match node {
-            Inline::Text(t) => out.push_str(t),
+            Inline::Text(t) => out.push_str(&pipes(t)),
             Inline::Bold(c) => {
-                let inner = render_inlines(c);
+                let inner = render(c, cell);
                 let mark = emphasis_mark(&inner).to_string().repeat(2);
                 out.push_str(&format!("{mark}{inner}{mark}"));
             }
             Inline::Italic(c) => {
-                let inner = render_inlines(c);
+                let inner = render(c, cell);
                 let mark = emphasis_mark(&inner);
                 out.push_str(&format!("{mark}{inner}{mark}"));
             }
-            Inline::Code(c) => out.push_str(&render_code_span(c)),
+            Inline::Code(c) => out.push_str(&render_code_span(&pipes(c))),
             Inline::Link { content, target } => {
                 out.push('[');
-                out.push_str(&render_inlines(content));
+                out.push_str(&render(content, cell));
                 out.push_str("](");
-                out.push_str(target);
+                out.push_str(&pipes(target));
                 out.push(')');
             }
         }
+    }
+    out
+}
+
+/// `|` becomes `\|` unless a backslash already escapes it.
+pub(crate) fn escape_pipes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut backslashes = 0usize;
+    for c in s.chars() {
+        if c == '|' && backslashes.is_multiple_of(2) {
+            out.push('\\');
+        }
+        out.push(c);
+        backslashes = if c == '\\' { backslashes + 1 } else { 0 };
     }
     out
 }

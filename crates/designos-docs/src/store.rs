@@ -13,9 +13,11 @@ use crate::model::Page;
 use crate::paths::{page_path_problem, project_id_problem};
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// A page or manifest larger than this is refused instead of read into memory.
-const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
+pub(crate) const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
+const LOCK_TIMEOUT: Duration = Duration::from_secs(2);
 const LOCK_FILE: &str = ".docs.lock";
 const MAX_DEPTH: usize = 8;
 
@@ -38,12 +40,19 @@ pub struct Versioned<T> {
 #[derive(Clone, Debug)]
 pub struct DocsStore {
     dir: PathBuf,
+    lock_timeout: Duration,
 }
 
 impl DocsStore {
     /// A store over an explicit docs folder (it need not exist yet).
     pub fn at(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self { dir: dir.into(), lock_timeout: LOCK_TIMEOUT }
+    }
+
+    /// How long a write waits for another program's hold on `.docs.lock` before failing with `Busy`.
+    pub fn with_lock_timeout(mut self, timeout: Duration) -> Self {
+        self.lock_timeout = timeout;
+        self
     }
 
     /// The docs folder of a library project: `<library_root>/projects/<project_id>/docs`. This is the layout
@@ -61,7 +70,7 @@ impl DocsStore {
 
     pub fn read_page(&self, rel: &str) -> Result<Versioned<Page>> {
         let (text, hash) = self.read_text(&self.page_path(rel)?, rel)?;
-        Ok(Versioned { value: Page::parse(&text)?, hash })
+        Ok(Versioned { value: Page::parse(&text), hash })
     }
 
     /// Writes `page` (as `Page::render` gives it). Returns the hash of the bytes now on disk; identical content is
@@ -107,7 +116,7 @@ impl DocsStore {
 
     fn write_bytes(&self, path: &Path, shown: &str, bytes: &[u8], expect: Expect) -> Result<ContentHash> {
         std::fs::create_dir_all(&self.dir).map_err(|e| DocsError::io(self.dir.display().to_string(), e))?;
-        let _lock = DirLock::acquire(&self.dir)?;
+        let _lock = DirLock::acquire(&self.dir, self.lock_timeout)?;
         let found = match read_limited(path, shown) {
             Ok(current) => Some(current),
             Err(DocsError::NotFound { .. }) => None,
@@ -130,7 +139,7 @@ impl DocsStore {
     }
 }
 
-fn read_limited(path: &Path, shown: &str) -> Result<Vec<u8>> {
+pub(crate) fn read_limited(path: &Path, shown: &str) -> Result<Vec<u8>> {
     let meta = std::fs::metadata(path).map_err(|e| DocsError::io(shown, e))?;
     if !meta.is_file() {
         return Err(DocsError::io(shown, std::io::Error::new(std::io::ErrorKind::InvalidInput, "is not a file")));
@@ -171,14 +180,20 @@ fn collect_pages(dir: &Path, prefix: &str, depth: usize, out: &mut Vec<String>) 
 struct DirLock(File);
 
 impl DirLock {
-    fn acquire(dir: &Path) -> Result<Self> {
+    fn acquire(dir: &Path, timeout: Duration) -> Result<Self> {
         let path = dir.join(LOCK_FILE);
-        let file = File::options().create(true).truncate(false).write(true).open(&path).map_err(|e| DocsError::io(path.display().to_string(), e))?;
-        match file.lock() {
-            Ok(()) => {}
-            // A filesystem without locks still gets the hash check, just not the cross-process exclusion.
-            Err(e) if e.kind() == std::io::ErrorKind::Unsupported => {}
-            Err(e) => return Err(DocsError::io(path.display().to_string(), e)),
+        let shown = path.display().to_string();
+        let file = File::options().create(true).truncate(false).write(true).open(&path).map_err(|e| DocsError::io(&shown, e))?;
+        let deadline = Instant::now() + timeout;
+        loop {
+            match file.try_lock() {
+                Ok(()) => break,
+                // A filesystem without locks still gets the hash check, just not the cross-process exclusion.
+                Err(std::fs::TryLockError::Error(e)) if e.kind() == std::io::ErrorKind::Unsupported => break,
+                Err(std::fs::TryLockError::Error(e)) => return Err(DocsError::io(&shown, e)),
+                Err(std::fs::TryLockError::WouldBlock) if Instant::now() >= deadline => return Err(DocsError::Busy { path: shown }),
+                Err(std::fs::TryLockError::WouldBlock) => std::thread::sleep(Duration::from_millis(10)),
+            }
         }
         Ok(Self(file))
     }

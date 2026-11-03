@@ -89,7 +89,7 @@ impl Manifest {
         if self.schema_version != SCHEMA_VERSION {
             return Err(version_error(self.schema_version));
         }
-        let mut seen: Vec<(&str, Group)> = Vec::new();
+        let mut seen: Vec<(String, Group)> = Vec::new();
         for (i, (entry, expected)) in self.groups.iter().zip(Group::ALL).enumerate() {
             if entry.id != expected {
                 return Err(ManifestError::error(
@@ -107,17 +107,38 @@ impl Manifest {
                         "list pages as relative paths ending in .md, such as \"spec/checkout.md\"",
                     ));
                 }
-                if let Some((_, other)) = seen.iter().find(|(s, _)| s == page) {
+                // Compared without regard to case: `Spec.md` and `spec.md` are one file on macOS and Windows.
+                if let Some((_, other)) = seen.iter().find(|(s, _)| *s == page.to_lowercase()) {
                     return Err(ManifestError::error(
                         field,
                         format!("lists {page:?}, which is already listed under {}", other.as_str()),
                         "list each page once, in the group it belongs to",
                     ));
                 }
-                seen.push((page, entry.id));
+                seen.push((page.to_lowercase(), entry.id));
             }
         }
+        self.validate_linked_specs()?;
         self.validate_pins()
+    }
+
+    /// Spec folders may be absolute (chosen with the system folder picker) or relative to the project, but must be
+    /// a real path: not empty, no `..` segments, no control characters, each listed once.
+    fn validate_linked_specs(&self) -> Result<()> {
+        for (i, path) in self.linked_specs.iter().enumerate() {
+            let field = format!("linked_specs[{i}]");
+            let fix = "list each spec folder once, as a path without `..`, such as \"/Users/me/specs/checkout\"";
+            if path.trim().is_empty() {
+                return Err(ManifestError::error(field, "is empty", fix));
+            }
+            if path.chars().any(char::is_control) || path.split(['/', '\\']).any(|part| part == "..") {
+                return Err(ManifestError::error(field, format!("is {path:?}, which has a `..` segment or a control character"), fix));
+            }
+            if self.linked_specs[..i].contains(path) {
+                return Err(ManifestError::error(field, format!("lists {path:?} again"), fix));
+            }
+        }
+        Ok(())
     }
 
     fn validate_pins(&self) -> Result<()> {

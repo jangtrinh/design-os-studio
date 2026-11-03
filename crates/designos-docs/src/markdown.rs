@@ -3,11 +3,11 @@
 //! blocks is kept as the next block's gap, so the file is the concatenation of what was read. Anything that does
 //! not fit the v1 block types exactly becomes `Raw`.
 
-use crate::error::Result;
+use crate::escape::line_starts_block;
 use crate::front_matter::FrontMatter;
 use crate::inline::{matching_end, parse_inlines, Ev};
 use crate::markdown_structures::{callout, list, table};
-use crate::model::{Block, BlockKind, Page};
+use crate::model::{Block, BlockKind, Inline, Page};
 use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag};
 
 fn options() -> Options {
@@ -18,10 +18,15 @@ pub(crate) fn events(src: &str) -> Vec<Ev<'_>> {
     Parser::new_ext(src, options()).into_offset_iter().collect()
 }
 
-pub(crate) fn parse_page(text: &str) -> Result<Page> {
-    let (front, body) = FrontMatter::split(text)?;
+pub(crate) fn parse_page(text: &str) -> Page {
+    let (bom, text) = match text.strip_prefix('\u{FEFF}') {
+        Some(rest) => (true, rest),
+        None => (false, text),
+    };
+    let crlf = text.find('\n').is_some_and(|i| text[..i].ends_with('\r'));
+    let (front, body) = FrontMatter::split(text);
     let (blocks, tail) = parse_blocks(body);
-    Ok(Page { front, blocks, tail })
+    Page { bom, crlf, front, blocks, tail }
 }
 
 fn parse_blocks(src: &str) -> (Vec<Block>, String) {
@@ -47,7 +52,24 @@ fn parse_blocks(src: &str) -> (Vec<Block>, String) {
         i = last + 1;
     }
     let leftover = split_gap(&src[cursor..], gap_for_next, &mut blocks);
+    keep_lists_before_indented_raw_blocks_raw(&mut blocks);
     (blocks, leftover)
+}
+
+/// A raw block cannot be re-indented. If it follows a list with indentation, rewriting the list with other
+/// marker widths could pull the raw text into the list's last item, so such a list is kept as it was written.
+fn keep_lists_before_indented_raw_blocks_raw(blocks: &mut [Block]) {
+    // Back to front, so that a run of lists in front of a raw block is kept raw as a whole.
+    for i in (0..blocks.len().saturating_sub(1)).rev() {
+        let is_list = matches!(blocks[i].kind(), BlockKind::BulletList(_) | BlockKind::NumberedList { .. } | BlockKind::Checklist(_));
+        let next_indented_raw = matches!(blocks[i + 1].kind(), BlockKind::Raw(t) if t.starts_with([' ', '\t']));
+        if is_list && next_indented_raw {
+            if let Some(source) = blocks[i].source().map(str::to_string) {
+                *blocks[i].kind_mut() = BlockKind::Raw(source.clone());
+                blocks[i].source = Some(source);
+            }
+        }
+    }
 }
 
 fn trim_newlines(src: &str, start: usize, mut end: usize) -> usize {
@@ -91,9 +113,9 @@ fn classify(evs: &[Ev], src: &str, start: usize, end: usize, raw_start: usize) -
     let Some((first, _)) = evs.first() else { return raw() };
     let inner = if evs.len() >= 2 { &evs[1..evs.len() - 1] } else { &[][..] };
     let typed = match first {
-        Event::Start(Tag::Paragraph) => paragraph(inner, src, start, end),
+        Event::Start(Tag::Paragraph) => paragraph(inner, src, raw_start, end),
         Event::Start(Tag::Heading { level, .. }) => heading(*level, src, start, end, inner),
-        Event::Start(Tag::List(first_number)) => list(*first_number, inner, src),
+        Event::Start(Tag::List(first_number)) => list(*first_number, inner, src, &(start..end)),
         Event::Start(Tag::BlockQuote(_)) => callout(&src[start..end]),
         Event::Start(Tag::Table(aligns)) => table(aligns, inner, src),
         Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_))) => Some(code(&src[start..end], inner)),
@@ -102,12 +124,47 @@ fn classify(evs: &[Ev], src: &str, start: usize, end: usize, raw_start: usize) -
     typed.unwrap_or_else(raw)
 }
 
-fn paragraph(inner: &[Ev], src: &str, start: usize, end: usize) -> Option<BlockKind> {
+pub(crate) fn paragraph(inner: &[Ev], src: &str, start: usize, end: usize) -> Option<BlockKind> {
     if let Some(embed) = frame_embed(inner, src) {
         return Some(embed);
     }
     let (lo, hi) = trimmed_span(src, start, end);
-    Some(BlockKind::Paragraph(parse_inlines(inner, src, lo, hi)))
+    // Indentation hid a block marker on the first line (`    - x` after a definition): written without the
+    // indentation it would become a list, so the block stays raw.
+    if lo > start && line_starts_block(src[lo..hi].lines().next().unwrap_or("")) {
+        return None;
+    }
+    Some(BlockKind::Paragraph(tidy_continuations(parse_inlines(inner, src, lo, hi))?))
+}
+
+/// Indentation of continuation lines carries no meaning and would grow each time the text is nested, so it is
+/// dropped from the text. `None` when dropping it would let a line start a block (`foo` then `    - bar`).
+pub(crate) fn tidy_continuations(inlines: Vec<Inline>) -> Option<Vec<Inline>> {
+    inlines
+        .into_iter()
+        .map(|node| match node {
+            Inline::Text(t) => {
+                let mut lines = t.split('\n');
+                let mut out = lines.next().unwrap_or("").to_string();
+                for line in lines {
+                    let trimmed = line.trim_start_matches([' ', '\t']);
+                    // A lazy `===` is text; indented under its item it would underline the line above.
+                    let underline = !trimmed.is_empty() && trimmed.trim_end().chars().all(|c| c == '=');
+                    // A lazy table row is text; indented under its item it would start a table.
+                    if underline || trimmed.starts_with('|') || (trimmed.len() != line.len() && line_starts_block(trimmed)) {
+                        return None;
+                    }
+                    out.push('\n');
+                    out.push_str(trimmed);
+                }
+                Some(Inline::Text(out))
+            }
+            Inline::Bold(c) => Some(Inline::Bold(tidy_continuations(c)?)),
+            Inline::Italic(c) => Some(Inline::Italic(tidy_continuations(c)?)),
+            Inline::Link { content, target } => Some(Inline::Link { content: tidy_continuations(content)?, target }),
+            code @ Inline::Code(_) => Some(code),
+        })
+        .collect()
 }
 
 /// `src[start..end]` without its leading and trailing whitespace, as absolute offsets.

@@ -37,8 +37,12 @@ pub enum DocsError {
     #[error("{0}")]
     Manifest(ManifestError),
 
-    #[error("front matter: `{field}` {problem}; fix: {fix}")]
-    FrontMatter { field: String, problem: String, fix: String },
+    #[error("block {index} does not exist; the page has {len} blocks; fix: read the page again and use an index below {len}")]
+    BlockIndex { index: usize, len: usize },
+
+    /// Another program holds the docs folder's write lock and did not let go in time. Nothing was written.
+    #[error("{path} is locked by another program, so nothing was written; fix: close the other Studio window or agent that is saving this project's docs, or delete the stale lock file if no program is running")]
+    Busy { path: String },
 
     #[error("invalid path {path:?}: {problem}; fix: {fix}")]
     InvalidPath { path: String, problem: String, fix: String },
