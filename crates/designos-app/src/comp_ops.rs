@@ -453,8 +453,19 @@ impl App {
         let mut tx = Tx::new();
         let cmd = set_instance_prop(&mut self.doc, inst, name, value);
         if self.push_cmd(&mut tx, cmd) {
-            let root = instance_root_of(&self.doc, inst).unwrap_or(inst);
-            self.refit_texts(&mut tx, root);
+            self.refit_texts(&mut tx, inst);
+            self.run_tx(tx);
+        }
+    }
+
+    /// Sets (or with `None` resets) a component property on an instance nested in an outer instance: an edit made from
+    /// the outer instance's panel of exposed properties. Text that grew or shrank is refitted in the outer instance.
+    pub fn set_nested_instance_prop(&mut self, nested: NodeId, name: &str, value: Option<PropValue>) {
+        let mut tx = Tx::new();
+        let cmd = set_nested_instance_prop(&mut self.doc, nested, name, value);
+        if self.push_cmd(&mut tx, cmd) {
+            let outer = instance_root_of(&self.doc, nested).unwrap_or(nested);
+            self.refit_texts(&mut tx, outer);
             self.run_tx(tx);
         }
     }

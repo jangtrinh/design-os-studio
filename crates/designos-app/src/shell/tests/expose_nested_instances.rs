@@ -1,4 +1,5 @@
-//! Acceptance tests for #1471: Expose properties from nested instances.
+//! Expose properties from nested instances: the main component's toggles, the outer instance's property rows, and
+//! what edits, syncs and resets do to them.
 
 use super::*;
 use designos_doc::{ComponentPropDef, OverrideField, PropKind, PropValue};
@@ -13,6 +14,12 @@ fn recorded_rect(s: &Sim, name: &str) -> Option<Rect> {
 
 fn clear_recorded_rect(s: &mut Sim, name: &str) {
     s.ctx.data_mut(|d| d.remove::<Rect>(egui::Id::new(("test-rect", name.to_string()))));
+}
+
+/// The toggle of one nested instance in a main component's "Nested instances" list. It is keyed by the node, so two
+/// nested instances with one name have two toggles.
+fn expose_toggle_key(nested: NodeId) -> String {
+    format!("expose-nested:{}", nested.0)
 }
 
 /// Builds a scene with:
@@ -126,8 +133,8 @@ fn expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose() {
     s.frame(vec![]);
     assert!(s.rect_of("expose-nested-heading").width() > 0.0);
     assert!(s.rect_of("nested-instances-heading").width() > 0.0);
-    let leading_tog = s.rect_of("expose:Leading badge");
-    let trailing_tog = s.rect_of("expose:Trailing badge");
+    let leading_tog = s.rect_of(&expose_toggle_key(leading));
+    let trailing_tog = s.rect_of(&expose_toggle_key(trailing));
     assert!(leading_tog.width() > 0.0 && trailing_tog.width() > 0.0);
     assert!(!s.app().doc.get(leading).unwrap().component.expose_nested_instances);
 
@@ -139,7 +146,7 @@ fn expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose() {
     assert!(!s.app().doc.get(leading).unwrap().component.expose_nested_instances, "Cmd+Z undoes expose toggle in one step");
 
     // Re-enable expose on Leading badge.
-    let leading_tog = s.rect_of("expose:Leading badge");
+    let leading_tog = s.rect_of(&expose_toggle_key(leading));
     s.click(leading_tog.center());
     assert!(s.app().doc.get(leading).unwrap().component.expose_nested_instances);
 
@@ -206,6 +213,12 @@ fn expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose() {
     s.click(s.rect_of("menu-row-0-1").center());
     assert_eq!(designos_doc::instance_component(s.app().doc.get(inst_leading).unwrap()), Some(v_lg), "outer instance's nested badge switched to Size=Lg");
     assert_eq!(designos_doc::instance_component(s.app().doc.get(leading).unwrap()), Some(v_sm), "main component's nested badge stays on Size=Sm");
+    assert!(
+        s.app().doc.get(inst_leading).unwrap().component.overrides.contains(&OverrideField::MainComponent),
+        "the variant edit is recorded on the nested instance as a swap, the way a swap of a nested layer is"
+    );
+    let size_def = designos_doc::prop_defs(&s.app().doc, v_sm).into_iter().find(|d| d.name == "Size").expect("the Size property");
+    assert_eq!(designos_doc::prop_value(&s.app().doc, inst_leading, &size_def), PropValue::Variant("Lg".into()), "the panel reads the new variant back");
 
     // One undo step restores the variant change.
     s.cmd_key(Key::Z);
@@ -235,7 +248,7 @@ fn expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose() {
     s.shell.app.selection = vec![card];
     s.frame(vec![]);
     s.frame(vec![]);
-    let leading_tog = s.rect_of("expose:Leading badge");
+    let leading_tog = s.rect_of(&expose_toggle_key(leading));
     s.click(leading_tog.center());
     assert!(!s.app().doc.get(leading).unwrap().component.expose_nested_instances);
 
@@ -250,4 +263,93 @@ fn expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose() {
     assert!(recorded_rect(&s, "prop:Leading badge/Size").is_none(), "turning expose off hides the nested instance properties from the outer instance panel");
     assert_eq!(designos_doc::instance_component(s.app().doc.get(inst_leading).unwrap()), Some(v_lg), "turning expose off keeps variant override intact");
     assert!(!s.app().doc.get(inst_dot_after_sync).unwrap().visible, "turning expose off keeps boolean override intact");
+}
+
+#[test]
+fn same_named_nested_instances_have_their_own_expose_toggles_and_property_rows() {
+    let (mut s, card, leading, trailing, card_inst, _, _) = setup_nested_expose_scene();
+    // Both nested badges are called "Leading badge", in the main and in its instance.
+    let inst_leading = child_of(&s.app().doc, card_inst, "Leading badge");
+    let inst_trailing = child_of(&s.app().doc, card_inst, "Trailing badge");
+    for id in [trailing, inst_trailing] {
+        s.shell.app.doc.get_mut(id).unwrap().name = "Leading badge".into();
+    }
+
+    s.shell.app.selection = vec![card];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let trailing_tog = s.rect_of(&expose_toggle_key(trailing));
+    assert!(s.rect_of(&expose_toggle_key(leading)).width() > 0.0, "each of the two same-named nested instances has a toggle");
+
+    s.click(trailing_tog.center());
+    assert!(s.app().doc.get(trailing).unwrap().component.expose_nested_instances, "the toggle exposes the nested instance it sits on");
+    assert!(!s.app().doc.get(leading).unwrap().component.expose_nested_instances, "the other nested instance is not exposed with it");
+
+    let row_of = |nested: NodeId| format!("prop-node:{}/Show dot", nested.0);
+    for id in [inst_leading, inst_trailing] {
+        clear_recorded_rect(&mut s, &row_of(id));
+    }
+    s.shell.app.selection = vec![card_inst];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    assert!(recorded_rect(&s, &row_of(inst_trailing)).is_some(), "the exposed nested instance lists its properties");
+    assert!(recorded_rect(&s, &row_of(inst_leading)).is_none(), "the unexposed one, with the same name, does not");
+
+    // Exposing the other one too lists both; an edit on one row changes that nested instance only.
+    s.shell.app.selection = vec![card];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let leading_tog = s.rect_of(&expose_toggle_key(leading));
+    s.click(leading_tog.center());
+    s.shell.app.selection = vec![card_inst];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let trailing_dot = child_of(&s.app().doc, inst_trailing, "Dot");
+    let leading_dot = child_of(&s.app().doc, inst_leading, "Dot");
+    let toggle = s.rect_of(&row_of(inst_trailing));
+    s.click(toggle.left_center() + Vec2::new(10.0, 0.0));
+    assert!(!s.app().doc.get(trailing_dot).unwrap().visible, "the edited nested instance hides its dot");
+    assert!(s.app().doc.get(leading_dot).unwrap().visible, "the same-named one keeps its dot");
+}
+
+#[test]
+fn reset_all_changes_counts_nested_values_only_while_the_nested_instance_is_exposed() {
+    let (mut s, _, leading, _, card_inst, _, _) = setup_nested_expose_scene();
+    let inst_leading = child_of(&s.app().doc, card_inst, "Leading badge");
+    s.shell.app.set_instance_prop(inst_leading, "Show dot", Some(PropValue::Bool(false)));
+    assert!(!crate::panels::components::has_changes(s.app(), card_inst), "a value on an unexposed nested instance is not a change of the outer instance");
+
+    s.shell.app.set_expose_nested_instance(leading, true);
+    assert!(crate::panels::components::has_changes(s.app(), card_inst), "once the nested instance is exposed the same value is a change");
+
+    s.shell.app.selection = vec![card_inst];
+    s.shell.app.reset_selection();
+    assert!(s.app().doc.get(inst_leading).unwrap().component.values.is_empty(), "Reset all changes takes the exposed value back");
+    assert!(!crate::panels::components::has_changes(s.app(), card_inst));
+}
+
+#[test]
+fn reset_all_changes_takes_back_a_variant_edit_made_from_the_outer_instance() {
+    let (mut s, card, leading, _, card_inst, v_sm, _) = setup_nested_expose_scene();
+    s.shell.app.set_expose_nested_instance(leading, true);
+    s.shell.app.selection = vec![card_inst];
+    s.frame(vec![]);
+    s.frame(vec![]);
+    let inst_leading = child_of(&s.app().doc, card_inst, "Leading badge");
+
+    let var_dd = s.rect_of("prop:Leading badge/Size");
+    s.click(var_dd.center());
+    s.click(s.rect_of("menu-row-0-1").center());
+    assert_ne!(designos_doc::instance_component(s.app().doc.get(inst_leading).unwrap()), Some(v_sm), "the edit switched the nested badge");
+
+    // Editing the main syncs every instance of it; the switch stays.
+    let card_bg = child_of(&s.app().doc, card, "CardBg");
+    s.shell.app.edit_nodes(&[card_bg], |n| n.opacity = 0.5);
+    assert_ne!(designos_doc::instance_component(s.app().doc.get(inst_leading).unwrap()), Some(v_sm), "a sync of the main keeps the switch");
+    assert!(crate::panels::components::has_changes(s.app(), card_inst), "the switch is a change of the outer instance");
+
+    s.shell.app.selection = vec![card_inst];
+    s.shell.app.reset_selection();
+    assert_eq!(designos_doc::instance_component(s.app().doc.get(inst_leading).unwrap()), Some(v_sm), "Reset all changes puts the nested badge back");
+    assert!(!crate::panels::components::has_changes(s.app(), card_inst));
 }

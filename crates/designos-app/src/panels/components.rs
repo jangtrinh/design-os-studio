@@ -232,7 +232,10 @@ fn instance_boolean_toggle(ui: &mut Ui, rect: Rect, key: &str, on: bool) -> egui
     crate::widgets::kit::toggle(ui, track, key, on, true)
 }
 
-fn has_changes(app: &App, inst: NodeId) -> bool {
+/// Whether "Reset all changes" has anything to take back on `inst`: an override anywhere in it, a property value of its
+/// own, or a value on an exposed nested instance. The values of a nested instance that is not exposed are not changes.
+pub(crate) fn has_changes(app: &App, inst: NodeId) -> bool {
+    let exposed_values = exposed_nested_value_overrides(&app.doc, inst);
     let mut stack = vec![inst];
     let mut visited = 0usize;
     while let Some(id) = stack.pop() {
@@ -241,10 +244,7 @@ fn has_changes(app: &App, inst: NodeId) -> bool {
         }
         let Some(n) = app.doc.get(id) else { continue };
         visited += 1;
-        let nested_vals_changed = n.id != inst
-            && !n.component.values.is_empty()
-            && n.component.source.and_then(|s| app.doc.get(s)).is_none_or(|sn| sn.component.values != n.component.values);
-        if !n.component.overrides.is_empty() || (n.id == inst && !n.component.values.is_empty()) || nested_vals_changed {
+        if !n.component.overrides.is_empty() || (n.id == inst && !n.component.values.is_empty()) || exposed_values.contains(&n.id) {
             return true;
         }
         stack.extend(n.children.iter().copied());
@@ -264,6 +264,15 @@ fn kind_rank(kind: &PropKind) -> u8 {
 
 fn sort_props_by_kind(defs: &mut [ComponentPropDef]) {
     defs.sort_by_key(|def| kind_rank(&def.kind));
+}
+
+/// One edit of a property row: on the instance the row belongs to, or on a nested instance it exposes.
+fn edit_prop(app: &mut App, target: NodeId, nested: bool, name: &str, value: Option<PropValue>) {
+    if nested {
+        app.set_nested_instance_prop(target, name, value);
+    } else {
+        app.set_instance_prop(target, name, value);
+    }
 }
 
 fn render_instance_prop_rows(
@@ -316,12 +325,12 @@ fn render_instance_prop_rows(
                 }
                 if instance_boolean_toggle(ui, ctl, &key, *b).clicked() {
                     let v = !*b;
-                    app.set_instance_prop(target_inst, &def.name, Some(PropValue::Bool(v)));
+                    edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Bool(v)));
                 }
             }
             (PropKind::Text, PropValue::Text(s)) => {
                 if let Some(v) = field::text_input(ui, ctl, &key, s) {
-                    app.set_instance_prop(target_inst, &def.name, Some(PropValue::Text(v)));
+                    edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Text(v)));
                 }
             }
             (PropKind::Variant { options }, v) => {
@@ -330,7 +339,7 @@ fn render_instance_prop_rows(
                     _ => String::new(),
                 };
                 if let Some(i) = dropdown(ui, ctl, &key, &cur, options) {
-                    app.set_instance_prop(target_inst, &def.name, Some(PropValue::Variant(options[i].clone())));
+                    edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Variant(options[i].clone())));
                 }
             }
             (PropKind::InstanceSwap { .. }, v) => {
@@ -342,7 +351,7 @@ fn render_instance_prop_rows(
                     let comps = all_components_cached(app);
                     let names: Vec<String> = comps.iter().map(|c| comp_label(&app.doc, *c)).collect();
                     if let Some(i) = dropdown(ui, ctl, &key, &cur, &names) {
-                        app.set_instance_prop(target_inst, &def.name, Some(PropValue::Instance(comps[i])));
+                        edit_prop(app, target_inst, nested_scope.is_some(), &def.name, Some(PropValue::Instance(comps[i])));
                     }
                 } else {
                     let _ = dropdown(ui, ctl, &key, &cur, &[]);
@@ -374,11 +383,11 @@ fn instance_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, inst: NodeId) {
     render_instance_prop_rows(app, ui, pane, inst, &defs, None, &mut seen_bare_names);
     for (idx, (nid, nname, ndefs)) in exposed.iter().enumerate() {
         if !defs.is_empty() || idx > 0 {
-            pane.y += 4.0;
+            pane.y += theme::SPACE_ROW;
         }
         let hdr = pane.rect(theme::SECTION_CONTENT_X, 0.0, theme::SECTION_CONTENT_W, theme::FIELD_HEIGHT);
         widgets::record(ui, &format!("exposed-heading:{nname}"), hdr);
-        let shown = widgets::elide(ui.painter(), nname, &theme::font_body_medium(), hdr.width() - 4.0);
+        let shown = widgets::elide(ui.painter(), nname, &theme::font_body_medium(), hdr.width() - theme::SPACE_FACT);
         ui.painter().text(Pos2::new(hdr.left(), hdr.center().y), Align2::LEFT_CENTER, &shown, theme::font_body_medium(), theme::TEXT);
         row_end(pane);
         render_instance_prop_rows(app, ui, pane, *nid, ndefs, Some(nname.as_str()), &mut seen_bare_names);
@@ -633,7 +642,7 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
         row_end(pane);
         for cand in &nested_candidates {
             let lab = pane.rect(theme::SECTION_CONTENT_X, 0.0, 92.0, theme::FIELD_HEIGHT);
-            let shown = widgets::elide(ui.painter(), &cand.name, &theme::font_body(), lab.width() - 4.0);
+            let shown = widgets::elide(ui.painter(), &cand.name, &theme::font_body(), lab.width() - theme::SPACE_FACT);
             ui.painter().text(
                 Pos2::new(lab.left(), lab.center().y),
                 Align2::LEFT_CENTER,
@@ -646,22 +655,23 @@ fn component_props(app: &mut App, ui: &mut Ui, pane: &mut Pane, id: NodeId) {
             }
             let ctl = pane.col(1, 0.0);
             let track = Rect::from_min_size(Pos2::new(ctl.left(), ctl.center().y - theme::SPACE_INLINE), Vec2::new(theme::BADGE_LG, theme::LAYER_ICON_SIZE));
-            let key = format!("expose:{}", cand.name);
+            // Keyed by the nested instance, not its name: two nested instances can share one.
+            let key = format!("expose-nested:{}", cand.id.0);
             widgets::record(ui, &key, track);
-            widgets::record(ui, &format!("expose-nested:{}", cand.id.0), track);
             if instance_boolean_toggle(ui, ctl, &key, cand.exposed).clicked() {
                 app.set_expose_nested_instance(cand.id, !cand.exposed);
             }
             row_end(pane);
             if cand.exposed {
                 for dname in &cand.deeper_exposed_names {
-                    let dlab = pane.rect(theme::SECTION_CONTENT_X + 12.0, 0.0, theme::SECTION_CONTENT_W - 12.0, theme::FIELD_HEIGHT);
+                    let dlab =
+                        pane.rect(theme::SECTION_CONTENT_X + theme::SPACE_GROUP, 0.0, theme::SECTION_CONTENT_W - theme::SPACE_GROUP, theme::FIELD_HEIGHT);
                     ui.painter().text(Pos2::new(dlab.left(), dlab.center().y), Align2::LEFT_CENTER, dname, theme::font_body(), theme::TEXT_SECONDARY);
                     row_end(pane);
                 }
             }
         }
-        pane.y += 4.0;
+        pane.y += theme::SPACE_ROW;
     }
     if let Some(anchor) = app.ui.prop_menu {
         let items = [MenuItem::new("Boolean"), MenuItem::new("Text"), MenuItem::new("Instance swap"), MenuItem::new("Slot")];

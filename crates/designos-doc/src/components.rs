@@ -778,6 +778,20 @@ pub fn reset_overrides(doc: &mut Document, node: NodeId, fields: &[OverrideField
     c.finish()
 }
 
+/// The property values of the main-side instance that `n` mirrors, if it mirrors one.
+fn mirrored_values<'a>(doc: &'a Document, n: &Node) -> Option<&'a BTreeMap<String, PropValue>> {
+    n.component.source.and_then(|s| doc.get(s)).map(|sn| &sn.component.values)
+}
+
+/// The exposed nested instances of `outer` whose property values differ from those of the main-side instance they mirror.
+/// These values are changes of `outer`: "Reset all changes" takes them back. The values of a nested instance that is
+/// not exposed are not, and stay.
+pub fn exposed_nested_value_overrides(doc: &Document, outer: NodeId) -> Vec<NodeId> {
+    let mut found = exposed_nested_instances(doc, outer);
+    found.retain(|&id| doc.get(id).is_some_and(|n| mirrored_values(doc, n).map_or(!n.component.values.is_empty(), |v| *v != n.component.values)));
+    found
+}
+
 /// "Reset all changes": every override and property value of an instance.
 pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
     let mut ids = Vec::new();
@@ -788,19 +802,15 @@ pub fn reset_instance(doc: &mut Document, instance: NodeId) -> Command {
         n.component.slot_content_ids.clear();
         c.update(n);
     }
+    let exposed_values = exposed_nested_value_overrides(c.s, instance);
     for id in ids {
         let Some(mut n) = c.s.get(id).cloned() else { continue };
-        let inherited_vals = if id == instance {
-            BTreeMap::new()
-        } else {
-            n.component.source.and_then(|s| c.s.get(s)).map(|sn| sn.component.values.clone()).unwrap_or_default()
-        };
-        let vals_changed = id != instance && n.component.values != inherited_vals;
-        if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] || vals_changed {
+        let values_back = exposed_values.contains(&id);
+        if !n.component.overrides.is_empty() || n.component.grid_align_overrides != [false, false] || values_back {
             n.component.overrides.clear();
             n.component.grid_align_overrides = [false, false];
-            if vals_changed {
-                n.component.values = inherited_vals;
+            if values_back {
+                n.component.values = mirrored_values(c.s, &n).cloned().unwrap_or_default();
             }
             n.plugin_data.remove("pen:explicit_width");
             n.plugin_data.remove("pen:explicit_height");
@@ -901,6 +911,11 @@ fn main_of_reference(n: &Node) -> Option<NodeId> {
     } else {
         instance_component(n)
     }
+}
+
+/// Sibling variant that `inst`'s variant property values select, if different.
+fn variant_target(d: &Document, inst: &Node) -> Option<NodeId> {
+    variant_target_from(d, instance_component(inst)?, &inst.component.values)
 }
 
 /// Sibling variant that `values`'s variant property assignments select starting from `base_comp`, if different.
@@ -1507,8 +1522,10 @@ fn sync_pair(c: &mut Ctx, r: NodeId, i: NodeId, top: bool, holder: NodeId, seen:
                 desired = *sw;
             }
         }
-        if let Some(v) = variant_target_from(&c.s, desired, &inode.component.values) {
-            desired = v;
+        if top {
+            if let Some(v) = variant_target(&c.s, &inode) {
+                desired = v;
+            }
         }
         // not a main that would hold itself: the instance stays on the main it has
         if desired != cur && would_hold_itself(c.s, desired, i) {
@@ -1679,21 +1696,30 @@ pub fn swap_instance(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> 
 
 fn swap_instance_inner(doc: &mut Document, instance: NodeId, new_comp: NodeId) -> (Command, usize) {
     let mut c = Ctx::new(doc);
-    let Some(n) = c.s.get(instance) else { return (nothing(), 0) };
-    if instance_component(n) == Some(new_comp) || !matches!(c.s.get(new_comp).map(|x| &x.kind), Some(NodeKind::Component(_))) {
+    if !swap_recorded(&mut c, instance, new_comp) {
         return (nothing(), 0);
+    }
+    let dropped = c.dropped_inner_swaps;
+    (c.finish(), dropped)
+}
+
+/// Swaps `instance` to `new_comp` and records the swap as a `MainComponent` override. False when nothing changed: the
+/// instance already shows `new_comp`, `new_comp` is no main, or it would hold itself.
+fn swap_recorded(c: &mut Ctx, instance: NodeId, new_comp: NodeId) -> bool {
+    let Some(n) = c.s.get(instance) else { return false };
+    if instance_component(n) == Some(new_comp) || !matches!(c.s.get(new_comp).map(|x| &x.kind), Some(NodeKind::Component(_))) {
+        return false;
     }
     // not inside the new component, nor inside a main it holds an instance of: that main would hold itself
     if new_comp == instance || would_hold_itself(c.s, new_comp, instance) {
-        return (nothing(), 0);
+        return false;
     }
-    swap_main(&mut c, instance, new_comp);
+    swap_main(c, instance, new_comp);
     if let Some(mut n) = c.s.get(instance).cloned() {
         n.component.overrides.insert(OverrideField::MainComponent);
         c.update(n);
     }
-    let dropped = c.dropped_inner_swaps;
-    (c.finish(), dropped)
+    true
 }
 
 /// Sets (or with `None` clears) a component property value on an instance
@@ -1731,6 +1757,29 @@ fn set_instance_prop_inner(doc: &mut Document, instance: NodeId, name: &str, val
     } else {
         (cmd, dropped)
     }
+}
+
+/// Sets (or with `None` clears) a component property on an instance nested in an outer instance, the way the outer
+/// instance's panel edits one of the properties a nested instance exposes. A variant property switches the nested
+/// instance to the sibling variant that the choice selects, as a swap of that nested layer does: the switch is recorded
+/// on the nested instance as a `MainComponent` override, so a sync of the outer main keeps it and "Reset all changes"
+/// takes it back. Any other property is stored as a value, as [`set_instance_prop`] does.
+pub fn set_nested_instance_prop(doc: &mut Document, nested: NodeId, name: &str, value: Option<PropValue>) -> Command {
+    let Some(PropValue::Variant(choice)) = &value else { return set_instance_prop(doc, nested, name, value) };
+    let Some(current) = doc.get(nested).and_then(instance_component) else { return nothing() };
+    let chosen = BTreeMap::from([(name.to_string(), PropValue::Variant(choice.clone()))]);
+    let Some(target) = variant_target_from(doc, current, &chosen) else { return nothing() };
+    let mut c = Ctx::new(doc);
+    if !swap_recorded(&mut c, nested, target) {
+        return nothing();
+    }
+    // The component the nested instance shows now names its variant; a value kept for it would read as the old choice.
+    if let Some(mut n) = c.s.get(nested).cloned() {
+        if n.component.values.remove(name).is_some() {
+            c.update(n);
+        }
+    }
+    c.finish()
 }
 
 /// The swaps a sync of `instance`, as it stands, refuses. The sync's writes are taken back.
@@ -1773,15 +1822,25 @@ fn instance_has_exposable_props(doc: &Document, inst: NodeId) -> bool {
     has_own || !exposed_nested_instances(doc, inst).is_empty()
 }
 
-fn primary_instances_in_component(doc: &Document, comp: NodeId) -> Vec<(Vec<String>, NodeId)> {
-    fn walk(doc: &Document, id: NodeId, path: &mut Vec<String>, out: &mut Vec<(Vec<String>, NodeId)>) {
+/// One step of the path to a nested instance: the layer name, and which of the parent's same-named children it is
+/// (the first `Icon` is 0, the second 1), so two layers that share a name are two places.
+type NestedStep = (String, usize);
+
+/// The primary nested instances of `comp` that have properties to expose, each with its path from `comp`.
+fn primary_instances_in_component(doc: &Document, comp: NodeId) -> Vec<(Vec<NestedStep>, NodeId)> {
+    fn walk(doc: &Document, id: NodeId, path: &mut Vec<NestedStep>, out: &mut Vec<(Vec<NestedStep>, NodeId)>) {
         let Some(n) = doc.get(id) else { return };
+        let mut seen_names: BTreeMap<&str, usize> = BTreeMap::new();
         for &cid in &n.children {
+            let Some(cn) = doc.get(cid) else { continue };
+            // Every child counts, the slots too, so the same layout reads the same in every variant.
+            let seen = seen_names.entry(cn.name.as_str()).or_insert(0);
+            let occurrence = *seen;
+            *seen += 1;
             if is_slot_container(doc, cid) {
                 continue;
             }
-            let Some(cn) = doc.get(cid) else { continue };
-            path.push(cn.name.clone());
+            path.push((cn.name.clone(), occurrence));
             if matches!(cn.kind, NodeKind::Instance { .. }) {
                 if instance_has_exposable_props(doc, cid) {
                     out.push((path.clone(), cid));
@@ -1824,22 +1883,35 @@ pub fn expose_nested_candidates(doc: &Document, comp_or_set: NodeId) -> Vec<Expo
         _ => return Vec::new(),
     };
 
-    type ExposeGroupKey = (Vec<String>, Option<NodeId>);
+    // Within one variant every nested instance is a row of its own. Across the variants of a set, the nested instances at
+    // the same path and of the same component family are one row: they are exposed together.
+    type ExposeGroupKey = (Vec<NestedStep>, Option<NodeId>);
     let mut groups: Vec<(ExposeGroupKey, ExposeNestedCandidate)> = Vec::new();
     for v in variants {
         for (rel_path, nid) in primary_instances_in_component(doc, v) {
             let fam = instance_family_root(doc, nid);
             let key = (rel_path, fam);
             let is_bub = doc.get(nid).is_some_and(|n| n.component.expose_nested_instances);
-            if let Some((_, existing)) = groups.iter_mut().find(|(k, _)| *k == key) {
-                if !existing.connected_ids.contains(&nid) {
-                    existing.connected_ids.push(nid);
+            let row = match groups.iter().position(|(k, _)| *k == key) {
+                Some(row) => row,
+                None => {
+                    let name = doc.get(nid).map(|n| n.name.clone()).unwrap_or_default();
+                    groups.push((key, ExposeNestedCandidate { id: nid, connected_ids: Vec::new(), name, exposed: false, deeper_exposed_names: Vec::new() }));
+                    groups.len() - 1
                 }
-                existing.exposed |= is_bub;
-            } else {
-                let name = doc.get(nid).map(|n| n.name.clone()).unwrap_or_default();
-                let deeper_exposed_names = exposed_nested_instances(doc, nid).into_iter().filter_map(|did| doc.get(did).map(|dn| dn.name.clone())).collect();
-                groups.push((key, ExposeNestedCandidate { id: nid, connected_ids: vec![nid], name, exposed: is_bub, deeper_exposed_names }));
+            };
+            let cand = &mut groups[row].1;
+            if !cand.connected_ids.contains(&nid) {
+                cand.connected_ids.push(nid);
+            }
+            cand.exposed |= is_bub;
+            // The names below a row come from every variant it connects: one variant may hold a kind of the nested
+            // component that exposes something another does not.
+            for did in exposed_nested_instances(doc, nid) {
+                let Some(deeper) = doc.get(did).map(|dn| dn.name.clone()) else { continue };
+                if !cand.deeper_exposed_names.contains(&deeper) {
+                    cand.deeper_exposed_names.push(deeper);
+                }
             }
         }
     }
@@ -6840,8 +6912,12 @@ mod tests {
         assert_eq!(exposed_nested_instances(&d, card_inst_1), vec![inst1_leading]);
 
         // 5. Edit Variant, Boolean, and Text properties on the exposed nested instance inside `card_inst_1`.
-        let c = set_instance_prop(&mut d, inst1_leading, "Size", Some(PropValue::Variant("Lg".into())));
+        let c = set_nested_instance_prop(&mut d, inst1_leading, "Size", Some(PropValue::Variant("Lg".into())));
         apply(&mut d, c);
+        assert!(
+            d.get(inst1_leading).unwrap().component.overrides.contains(&OverrideField::MainComponent),
+            "the variant edit is recorded as a swap on the nested instance"
+        );
         let c = set_instance_prop(&mut d, inst1_leading, "Show dot", Some(PropValue::Bool(false)));
         apply(&mut d, c);
         let c = set_instance_prop(&mut d, inst1_leading, "Label", Some(PropValue::Text("Featured".into())));
@@ -6874,7 +6950,9 @@ mod tests {
         assert!(!d.get(child_named(&d, inst1_leading, "Dot")).unwrap().visible);
         assert_eq!(text_of(&d, child_named(&d, inst1_leading, "Text")), "Featured");
 
-        // 8. Resetting the outer instance resets the nested instance overrides back to the main component's nested instance defaults.
+        // 8. While the nested instance is exposed, resetting the outer instance takes back its variant, boolean and text.
+        let toggle_on = set_expose_nested_instance(&mut d, leading, true);
+        apply(&mut d, toggle_on);
         let c = reset_instance(&mut d, card_inst_1);
         apply(&mut d, c);
         assert_eq!(instance_component(d.get(inst1_leading).unwrap()), Some(v_sm));
@@ -6960,5 +7038,298 @@ mod tests {
         let chip_in_outer = child_named(&d, outer_inst, "Status chip");
         let icon_in_outer = child_named(&d, chip_in_outer, "Chip icon");
         assert_eq!(exposed_in_outer, vec![chip_in_outer, icon_in_outer]);
+    }
+
+    fn expose_badge_variant(d: &mut Document, page: NodeId, name: &str, x: f32, w: f32) -> (NodeId, NodeId, NodeId) {
+        let id = d.alloc_id();
+        let mut f = Node::frame(id, Rect::new(x, 0.0, w, 24.0));
+        f.name = name.into();
+        let comp = d.insert(page, f).unwrap();
+        let dot_id = d.alloc_id();
+        let mut dot = Node::ellipse(dot_id, Rect::new(4.0, 8.0, 8.0, 8.0));
+        dot.name = "Dot".into();
+        let dot = d.insert(comp, dot).unwrap();
+        let txt_id = d.alloc_id();
+        let mut txt = Node::text(txt_id, Rect::new(16.0, 4.0, 40.0, 16.0), "Badge", TextStyle::default());
+        txt.name = "Text".into();
+        let txt = d.insert(comp, txt).unwrap();
+        let c = create_component(d, comp);
+        apply(d, c);
+        (comp, dot, txt)
+    }
+
+    /// A `Badge` set (`Size=Sm`, `Size=Lg`) with a Boolean `Show dot` and a Text `Label`, each bound to a layer of both
+    /// variants. Returns the two variants and the set.
+    fn expose_badge_set(d: &mut Document, page: NodeId) -> (NodeId, NodeId, NodeId) {
+        let (v_sm, dot_sm, txt_sm) = expose_badge_variant(d, page, "Size=Sm", 0.0, 60.0);
+        let (v_lg, dot_lg, txt_lg) = expose_badge_variant(d, page, "Size=Lg", 80.0, 90.0);
+        let c = combine_as_variants(d, &[v_sm, v_lg]);
+        apply(d, c);
+        let set = d.get(v_sm).unwrap().parent.unwrap();
+        d.get_mut(set).unwrap().name = "Badge".into();
+        let c = add_prop(d, set, ComponentPropDef { name: "Show dot".into(), kind: PropKind::Boolean, default: PropValue::Bool(true) });
+        apply(d, c);
+        let c = add_prop(d, set, ComponentPropDef { name: "Label".into(), kind: PropKind::Text, default: PropValue::Text("Badge".into()) });
+        apply(d, c);
+        for (dot, txt) in [(dot_sm, txt_sm), (dot_lg, txt_lg)] {
+            let c = bind_prop(d, dot, OverrideField::Visible, Some("Show dot"));
+            apply(d, c);
+            let c = bind_prop(d, txt, OverrideField::Characters, Some("Label"));
+            apply(d, c);
+        }
+        (v_sm, v_lg, set)
+    }
+
+    /// A main component `name` holding one instance of `of` per entry of `children`, each named as given.
+    fn expose_main_holding(d: &mut Document, page: NodeId, name: &str, of: NodeId, children: &[&str]) -> (NodeId, Vec<NodeId>) {
+        let id = d.alloc_id();
+        let mut main = Node::frame(id, Rect::new(0.0, 100.0, 240.0, 60.0));
+        main.name = name.into();
+        let main = d.insert(page, main).unwrap();
+        let c = create_component(d, main);
+        apply(d, c);
+        let mut ids = Vec::new();
+        for (i, child) in children.iter().enumerate() {
+            let c = create_instance(d, of, main, Vec2::new(8.0 + 60.0 * i as f32, 8.0));
+            apply(d, c);
+            let inst = *d.get(main).unwrap().children.last().unwrap();
+            d.get_mut(inst).unwrap().name = (*child).into();
+            ids.push(inst);
+        }
+        (main, ids)
+    }
+
+    fn expose_flag(d: &Document, id: NodeId) -> bool {
+        d.get(id).unwrap().component.expose_nested_instances
+    }
+
+    #[test]
+    fn same_named_nested_instances_in_one_component_are_exposed_one_by_one() {
+        let mut d = Document::new("expose-same-name");
+        let page = d.add_page("P");
+        let (v_sm, _, _) = expose_badge_set(&mut d, page);
+        let (card, icons) = expose_main_holding(&mut d, page, "Card", v_sm, &["Icon", "Icon"]);
+        let (first, second) = (icons[0], icons[1]);
+
+        let cands = expose_nested_candidates(&d, card);
+        assert_eq!(cands.iter().map(|c| c.id).collect::<Vec<_>>(), vec![first, second], "each same-named nested instance is its own row");
+        assert!(cands.iter().all(|c| c.connected_ids.len() == 1), "a row sets one nested instance within a single variant");
+
+        let c = set_expose_nested_instance(&mut d, second, true);
+        apply(&mut d, c);
+        assert!(!expose_flag(&d, first) && expose_flag(&d, second), "exposing the second Icon leaves the first alone");
+        let c = set_expose_nested_instance(&mut d, first, true);
+        apply(&mut d, c);
+        let c = set_expose_nested_instance(&mut d, first, false);
+        apply(&mut d, c);
+        assert!(!expose_flag(&d, first) && expose_flag(&d, second), "turning the first Icon off keeps the second exposed");
+
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let listed = exposed_nested_instances(&d, outer);
+        assert_eq!(listed.len(), 1, "the outer instance lists the one exposed Icon only");
+        assert_eq!(d.get(listed[0]).unwrap().component.source, Some(second));
+    }
+
+    #[test]
+    fn one_nested_instance_per_variant_stays_one_row_that_sets_every_variant() {
+        let mut d = Document::new("expose-per-variant");
+        let page = d.add_page("P");
+        let (v_sm, _, _) = expose_badge_set(&mut d, page);
+        let (a, a_kids) = expose_main_holding(&mut d, page, "State=Default", v_sm, &["Icon"]);
+        let (b, b_kids) = expose_main_holding(&mut d, page, "State=Active", v_sm, &["Icon"]);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+        let outer_set = d.get(a).unwrap().parent.unwrap();
+
+        let cands = expose_nested_candidates(&d, outer_set);
+        assert_eq!(cands.len(), 1, "the Icon of each variant is one row");
+        assert_eq!(cands[0].connected_ids.len(), 2);
+
+        let c = set_expose_nested_instance(&mut d, a_kids[0], true);
+        apply(&mut d, c);
+        assert!(expose_flag(&d, a_kids[0]) && expose_flag(&d, b_kids[0]), "the row sets the Icon of both variants");
+    }
+
+    #[test]
+    fn same_named_nested_instances_connect_across_variants_by_their_position_among_same_names() {
+        let mut d = Document::new("expose-same-name-variants");
+        let page = d.add_page("P");
+        let (v_sm, _, _) = expose_badge_set(&mut d, page);
+        let (a, a_kids) = expose_main_holding(&mut d, page, "State=Default", v_sm, &["Icon", "Icon"]);
+        let (b, b_kids) = expose_main_holding(&mut d, page, "State=Active", v_sm, &["Icon", "Icon"]);
+        let c = combine_as_variants(&mut d, &[a, b]);
+        apply(&mut d, c);
+        let outer_set = d.get(a).unwrap().parent.unwrap();
+
+        let cands = expose_nested_candidates(&d, outer_set);
+        assert_eq!(cands.len(), 2, "two Icons per variant make two rows");
+        let ids = |c: &ExposeNestedCandidate| c.connected_ids.iter().copied().collect::<BTreeSet<_>>();
+        assert_eq!(ids(&cands[0]), BTreeSet::from([a_kids[0], b_kids[0]]), "the first Icon of each variant is connected");
+        assert_eq!(ids(&cands[1]), BTreeSet::from([a_kids[1], b_kids[1]]), "the second Icon of each variant is connected");
+
+        let c = set_expose_nested_instance(&mut d, b_kids[1], true);
+        apply(&mut d, c);
+        assert!(expose_flag(&d, a_kids[1]) && expose_flag(&d, b_kids[1]));
+        assert!(!expose_flag(&d, a_kids[0]) && !expose_flag(&d, b_kids[0]), "the first Icons are not touched");
+    }
+
+    #[test]
+    fn nested_variant_values_do_not_switch_a_nested_instance_while_expose_is_off() {
+        let mut d = Document::new("expose-off-variant-values");
+        let page = d.add_page("P");
+        let (v_sm, _, _) = expose_badge_set(&mut d, page);
+        let (card, kids) = expose_main_holding(&mut d, page, "Card", v_sm, &["Leading badge"]);
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, outer, "Leading badge");
+        assert!(!expose_flag(&d, kids[0]));
+
+        // A value an import or an older build left on the nested copy.
+        d.get_mut(nested).unwrap().component.values.insert("Size".into(), PropValue::Variant("Lg".into()));
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+        assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_sm), "a nested variant value is inert until the nested instance is swapped");
+    }
+
+    #[test]
+    fn nested_values_are_overrides_only_while_the_nested_instance_is_exposed() {
+        let mut d = Document::new("expose-off-reset");
+        let page = d.add_page("P");
+        let (v_sm, _, _) = expose_badge_set(&mut d, page);
+        let (card, kids) = expose_main_holding(&mut d, page, "Card", v_sm, &["Leading badge"]);
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, outer, "Leading badge");
+        let c = set_instance_prop(&mut d, nested, "Show dot", Some(PropValue::Bool(false)));
+        apply(&mut d, c);
+        let c = set_instance_prop(&mut d, nested, "Label", Some(PropValue::Text("Pro".into())));
+        apply(&mut d, c);
+        assert!(!d.get(child_named(&d, nested, "Dot")).unwrap().visible);
+
+        // Expose off: Reset leaves the nested values, as it always did.
+        let c = reset_instance(&mut d, outer);
+        apply(&mut d, c);
+        assert_eq!(d.get(nested).unwrap().component.values.len(), 2, "Reset all changes leaves the values of an unexposed nested instance");
+        assert!(!d.get(child_named(&d, nested, "Dot")).unwrap().visible);
+        assert_eq!(text_of(&d, child_named(&d, nested, "Text")), "Pro");
+
+        // Expose on: the same values are overrides and Reset takes them back.
+        let c = set_expose_nested_instance(&mut d, kids[0], true);
+        apply(&mut d, c);
+        let c = reset_instance(&mut d, outer);
+        apply(&mut d, c);
+        assert!(d.get(nested).unwrap().component.values.is_empty(), "Reset all changes reverts the values of an exposed nested instance");
+        assert!(d.get(child_named(&d, nested, "Dot")).unwrap().visible);
+        assert_eq!(text_of(&d, child_named(&d, nested, "Text")), "Badge");
+    }
+
+    #[test]
+    fn deeper_exposed_names_of_a_row_are_the_union_over_its_variants() {
+        let mut d = Document::new("expose-deeper-union");
+        let page = d.add_page("P");
+        let (v_sm, _, _) = expose_badge_set(&mut d, page);
+
+        // `Chip` set: variant A exposes `Alpha badge`, variant B exposes `Beta badge`.
+        let (chip_a, alpha) = expose_main_holding(&mut d, page, "Kind=A", v_sm, &["Alpha badge"]);
+        let (chip_b, beta) = expose_main_holding(&mut d, page, "Kind=B", v_sm, &["Beta badge"]);
+        let c = combine_as_variants(&mut d, &[chip_a, chip_b]);
+        apply(&mut d, c);
+        for nested in [alpha[0], beta[0]] {
+            let c = set_expose_nested_instance(&mut d, nested, true);
+            apply(&mut d, c);
+        }
+
+        // `Panel` set: both variants hold a `Chip` at the same place, one of each kind.
+        let (panel_one, _) = expose_main_holding(&mut d, page, "View=One", chip_a, &["Chip"]);
+        let (panel_two, _) = expose_main_holding(&mut d, page, "View=Two", chip_b, &["Chip"]);
+        let c = combine_as_variants(&mut d, &[panel_one, panel_two]);
+        apply(&mut d, c);
+        let panel_set = d.get(panel_one).unwrap().parent.unwrap();
+
+        let cands = expose_nested_candidates(&d, panel_set);
+        assert_eq!(cands.len(), 1, "the Chip of both variants is one row");
+        assert_eq!(cands[0].connected_ids.len(), 2);
+        assert_eq!(
+            cands[0].deeper_exposed_names,
+            vec!["Alpha badge".to_string(), "Beta badge".to_string()],
+            "the names below a row come from every variant it connects"
+        );
+    }
+
+    #[test]
+    fn a_variant_edit_on_an_exposed_nested_instance_is_a_swap_that_a_sync_keeps_and_reset_takes_back() {
+        let mut d = Document::new("expose-variant-edit");
+        let page = d.add_page("P");
+        let (v_sm, v_lg, badge_set) = expose_badge_set(&mut d, page);
+        let (card, kids) = expose_main_holding(&mut d, page, "Card", v_sm, &["Leading badge"]);
+        let c = set_expose_nested_instance(&mut d, kids[0], true);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, outer, "Leading badge");
+        let size_def = prop_defs(&d, v_sm).into_iter().find(|p| p.name == "Size").expect("the Size property");
+
+        // A value an earlier edit or an import left for the variant property would read as the old choice.
+        d.get_mut(nested).unwrap().component.values.insert("Size".into(), PropValue::Variant("Sm".into()));
+        let edit = set_nested_instance_prop(&mut d, nested, "Size", Some(PropValue::Variant("Lg".into())));
+        let undo = apply(&mut d, edit);
+        assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_lg), "the nested instance shows the variant that was chosen");
+        assert!(d.get(nested).unwrap().component.overrides.contains(&OverrideField::MainComponent), "the switch is recorded as a swap on the nested instance");
+        assert!(!d.get(nested).unwrap().component.values.contains_key("Size"), "no stale value of the variant property is kept");
+        assert_eq!(prop_value(&d, nested, &size_def), PropValue::Variant("Lg".into()), "the panel reads the chosen variant back");
+        assert_eq!(instance_component(d.get(kids[0]).unwrap()), Some(v_sm), "the main component's nested instance is not touched");
+
+        // One undo step takes the edit back; its inverse does it again.
+        let redo = apply(&mut d, undo);
+        assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_sm), "undo puts the variant before the edit back");
+        assert!(d.get(nested).unwrap().component.overrides.is_empty());
+        apply(&mut d, redo);
+        assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_lg), "redo chooses the variant again");
+
+        // Syncing the outer main, or the nested instance's own set, keeps the switch.
+        for owner in [card, badge_set] {
+            let c = sync_instances(&mut d, owner);
+            apply(&mut d, c);
+            assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_lg), "a sync of {owner:?} keeps the switch");
+        }
+
+        // Choosing what is already shown, or an option the set has no variant for, changes nothing.
+        assert!(is_nothing(&set_nested_instance_prop(&mut d, nested, "Size", Some(PropValue::Variant("Lg".into())))));
+        assert!(is_nothing(&set_nested_instance_prop(&mut d, nested, "Size", Some(PropValue::Variant("Xl".into())))));
+
+        // Reset all changes takes the switch back.
+        let c = reset_instance(&mut d, outer);
+        apply(&mut d, c);
+        assert_eq!(instance_component(d.get(nested).unwrap()), Some(v_sm));
+        assert!(d.get(nested).unwrap().component.overrides.is_empty());
+    }
+
+    #[test]
+    fn a_property_other_than_a_variant_is_stored_on_the_nested_instance_as_a_value() {
+        let mut d = Document::new("expose-value-edit");
+        let page = d.add_page("P");
+        let (v_sm, _, _) = expose_badge_set(&mut d, page);
+        let (card, kids) = expose_main_holding(&mut d, page, "Card", v_sm, &["Leading badge"]);
+        let c = set_expose_nested_instance(&mut d, kids[0], true);
+        apply(&mut d, c);
+        let c = create_instance(&mut d, card, page, Vec2::new(0.0, 200.0));
+        apply(&mut d, c);
+        let outer = *d.get(page).unwrap().children.last().unwrap();
+        let nested = child_named(&d, outer, "Leading badge");
+
+        let c = set_nested_instance_prop(&mut d, nested, "Show dot", Some(PropValue::Bool(false)));
+        apply(&mut d, c);
+        assert_eq!(d.get(nested).unwrap().component.values.get("Show dot"), Some(&PropValue::Bool(false)));
+        assert!(!d.get(child_named(&d, nested, "Dot")).unwrap().visible);
+        assert!(d.get(nested).unwrap().component.overrides.is_empty(), "a value is not a swap");
+        let c = sync_instances(&mut d, card);
+        apply(&mut d, c);
+        assert!(!d.get(child_named(&d, nested, "Dot")).unwrap().visible, "a sync of the outer main keeps the value");
+        assert!(!expose_flag(&d, nested), "the outer copy never carries the flag");
     }
 }

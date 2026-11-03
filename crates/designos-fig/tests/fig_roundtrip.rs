@@ -4395,7 +4395,7 @@ fn expose_nested_instances_and_nested_overrides_roundtrip_fig_and_rest() {
     doc.get_mut(card_inst).unwrap().name = "CardInst".into();
 
     let inst_exposed_badge = *doc.get(card_inst).unwrap().children.iter().find(|c| doc.get(**c).unwrap().name == "ExposedBadge").unwrap();
-    set_instance_prop(&mut doc, inst_exposed_badge, "Size", Some(PropValue::Variant("Lg".into()))).apply(&mut doc).unwrap();
+    set_nested_instance_prop(&mut doc, inst_exposed_badge, "Size", Some(PropValue::Variant("Lg".into()))).apply(&mut doc).unwrap();
     set_instance_prop(&mut doc, inst_exposed_badge, "Show dot", Some(PropValue::Bool(false))).apply(&mut doc).unwrap();
     set_instance_prop(&mut doc, inst_exposed_badge, "Label", Some(PropValue::Text("Pro".into()))).apply(&mut doc).unwrap();
 
@@ -4418,6 +4418,20 @@ fn expose_nested_instances_and_nested_overrides_roundtrip_fig_and_rest() {
     let txt_in_inst = inst_exposed_rt.children.iter().filter_map(|id| fig_rt.get(*id)).find(|n| n.name == "Text").unwrap();
     assert!(matches!(&txt_in_inst.kind, NodeKind::Text(t) if t.content == "Pro"), ".fig round-trip must preserve nested instance text prop override");
 
+    // The imported switch is a swap of the nested instance: a sync of the outer main keeps it, Reset all changes takes it back.
+    let mut fig_rt = fig_rt;
+    let card_main_rt = find(&fig_rt, "Card").id;
+    let outer_rt = find(&fig_rt, "CardInst").id;
+    let nested_rt = *fig_rt.get(outer_rt).unwrap().children.iter().find(|c| fig_rt.get(**c).unwrap().name == "ExposedBadge").unwrap();
+    assert!(
+        fig_rt.get(nested_rt).unwrap().component.overrides.contains(&OverrideField::MainComponent),
+        "the imported variant switch is a swap of the nested instance"
+    );
+    sync_instances(&mut fig_rt, card_main_rt).apply(&mut fig_rt).unwrap();
+    assert_eq!(instance_component(fig_rt.get(nested_rt).unwrap()), Some(v_lg_rt), "a sync of the outer main keeps the imported switch");
+    reset_instance(&mut fig_rt, outer_rt).apply(&mut fig_rt).unwrap();
+    assert_eq!(instance_component(fig_rt.get(nested_rt).unwrap()), Some(find(&fig_rt, "Size=Sm").id), "Reset all changes takes the imported switch back");
+
     // 2. REST JSON export -> import preserves propsAreBubbled / expose_nested_instances on the primary nested instance only.
     let rest_val = designos_fig::export_rest_json(&doc);
     let rest_rt = designos_fig::import_rest_json(&rest_val.to_string()).expect("import_rest_json");
@@ -4430,4 +4444,55 @@ fn expose_nested_instances_and_nested_overrides_roundtrip_fig_and_rest() {
     let rest_inst_exposed = rest_inst.children.iter().filter_map(|id| rest_rt.get(*id)).find(|n| n.name == "ExposedBadge").unwrap();
     assert!(!rest_inst_exposed.component.expose_nested_instances, "REST expand_instance must keep expose_nested_instances = false on outer instance copies");
     assert_eq!(exposed_nested_instances(&rest_rt, rest_inst.id), vec![rest_inst_exposed.id]);
+}
+
+#[test]
+fn a_nested_instance_is_written_as_swapped_only_when_both_it_and_its_main_side_instance_have_a_component() {
+    let mut doc = Document::new("swapped-symbol");
+    let page = doc.add_page("Page 1");
+    let mut make_main = |name: &str, x: f32| {
+        let id = doc.alloc_id();
+        let mut f = Node::frame(id, Rect::new(x, 0.0, 20.0, 20.0));
+        f.name = name.into();
+        let comp = doc.insert(page, f).unwrap();
+        create_component(&mut doc, comp).apply(&mut doc).unwrap();
+        comp
+    };
+    let badge_a = make_main("BadgeA", 0.0);
+    let badge_b = make_main("BadgeB", 40.0);
+
+    let card_id = doc.alloc_id();
+    let mut card = Node::frame(card_id, Rect::new(0.0, 100.0, 200.0, 48.0));
+    card.name = "Card".into();
+    let card = doc.insert(page, card).unwrap();
+    create_component(&mut doc, card).apply(&mut doc).unwrap();
+    let place = |doc: &mut Document, name: &str, x: f32| {
+        create_instance(doc, badge_a, card, Vec2::new(x, 8.0)).apply(doc).unwrap();
+        let id = *doc.get(card).unwrap().children.last().unwrap();
+        doc.get_mut(id).unwrap().name = name.into();
+        id
+    };
+    place(&mut doc, "Swapped", 8.0);
+    let orphan_main = place(&mut doc, "Orphan", 60.0);
+
+    create_instance(&mut doc, card, page, Vec2::new(0.0, 200.0)).apply(&mut doc).unwrap();
+    let outer = *doc.get(page).unwrap().children.last().unwrap();
+    doc.get_mut(outer).unwrap().name = "CardInst".into();
+    let child_of = |doc: &Document, name: &str| *doc.get(outer).unwrap().children.iter().find(|c| doc.get(**c).unwrap().name == name).unwrap();
+    let swapped_copy = child_of(&doc, "Swapped");
+    swap_instance(&mut doc, swapped_copy, badge_b).apply(&mut doc).unwrap();
+
+    // The main-side instance lost its component (a deleted library, an older file); the outer copy still has one.
+    if let NodeKind::Instance { component, .. } = &mut doc.get_mut(orphan_main).unwrap().kind {
+        *component = None;
+    }
+    let orphan_copy = child_of(&doc, "Orphan");
+    assert!(instance_component(doc.get(orphan_copy).unwrap()).is_some());
+
+    let decoded = decode_fig_to_json(&export_fig(&doc).expect("export_fig")).expect("decode_fig_to_json");
+    let changes = decoded["message"]["nodeChanges"].as_array().expect("node changes");
+    let outer_change = changes.iter().find(|n| n["name"] == "CardInst").expect("node change for the outer instance");
+    let overrides = outer_change["symbolData"]["symbolOverrides"].as_array().cloned().unwrap_or_default();
+    let swapped: Vec<&Value> = overrides.iter().filter(|o| o.get("overriddenSymbolID").is_some()).collect();
+    assert_eq!(swapped.len(), 1, "only the instance swapped to another component is written as swapped: {overrides:?}");
 }

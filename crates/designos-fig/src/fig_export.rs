@@ -1626,9 +1626,11 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
             path.push(step_g);
         }
 
+        // Swapped, as far as the file can tell: both this instance and the one it mirrors in the main have a component,
+        // and they are not the same. A main-side instance with none is a gap, not a swap to write.
         let nested_comp_differs = !own
             && match (&n.kind, n.component.source.and_then(|s| cx.doc.get(s)).map(|sn| &sn.kind)) {
-                (NodeKind::Instance { component: Some(c), .. }, Some(NodeKind::Instance { component: sc, .. })) => Some(*c) != *sc,
+                (NodeKind::Instance { component: Some(c), .. }, Some(NodeKind::Instance { component: Some(sc), .. })) => c != sc,
                 _ => false,
             };
         let has_nested_prop_ov =
