@@ -6,7 +6,9 @@ use crate::edit::Tx;
 use crate::util::*;
 use designos_doc::VectorNetwork;
 use designos_doc::*;
-use designos_render::vectorops::{count_subpaths, flatten_nodes, node_paths, offset_paths, outline_stroke, text_flatten_runs, text_glyph_runs, TextVectorRun};
+use designos_render::vectorops::{
+    count_subpaths, flatten_nodes, node_paths, offset_paths, outline_node_stroke, text_flatten_runs, text_glyph_runs, TextVectorRun,
+};
 use std::collections::BTreeSet;
 
 /// A new Vector node holding `paths` (in the coordinates of the parent it will live in) with the
@@ -428,12 +430,7 @@ impl App {
             if !visible_paints || n.stroke.weight <= 0.0 {
                 continue;
             }
-            let Some(paths) = node_paths(&self.doc, &n) else { continue };
-            let net = match &n.kind {
-                NodeKind::Vector { network: Some(net), .. } => Some(net.clone()),
-                _ => None,
-            };
-            let outline = outline_stroke(&paths, &n.stroke, net.as_ref());
+            let outline = outline_node_stroke(&self.doc, &n);
             if outline.is_empty() {
                 continue;
             }
@@ -1622,6 +1619,48 @@ mod tests {
         assert_eq!(c0.style_refs.get("fill").map(String::as_str), Some("S:red"));
         assert!(c1.variables.bindings.is_empty(), "recoloured run must not inherit base fill binding");
         assert!(!c1.style_refs.contains_key("fill"), "recoloured run must not inherit base fill style_ref");
+    }
+
+    /// Outline stroke on a dashed inside rectangle gives the dashes the canvas draws: of the stroke's own
+    /// weight, with round caps that keep the gap after each dash open.
+    #[test]
+    fn outline_stroke_of_a_dashed_inside_rectangle_matches_the_canvas_stroke() {
+        let mut doc = Document::new("PixelTest");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 200.0, 120.0))).unwrap();
+        let rid = doc.alloc_id();
+        let mut rect = Node::rectangle(rid, Rect::new(30.0, 30.0, 100.0, 60.0));
+        rect.fills.clear();
+        rect.stroke = Stroke {
+            paints: vec![Paint::solid(Color::rgb(200, 30, 30))],
+            weight: 8.0,
+            align: StrokeAlign::Inside,
+            cap: StrokeCap::Round,
+            dashes: vec![10.0, 14.0],
+            miter_limit: 4.0,
+            ..Default::default()
+        };
+        doc.insert(fid, rect).unwrap();
+        let before = designos_render::render_node(&doc, fid, 2.0).expect("render before");
+
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![rid];
+        app.outline_stroke_selection();
+
+        let outlined = app.doc.get(app.selection[0]).expect("the outline is selected");
+        assert!(matches!(outlined.kind, NodeKind::Vector { .. }));
+        assert_eq!(outlined.fills, vec![Paint::solid(Color::rgb(200, 30, 30))], "the stroke paint becomes the fill");
+        let after = designos_render::render_node(&app.doc, fid, 2.0).expect("render after outline stroke");
+        let (_max, _all, _ink, hard_px, _non_edge, ink_px) = pixmap_diff_stats(&before, &after);
+        assert!(ink_px > 0, "the dashes are drawn");
+        assert_eq!(hard_px, 0, "the outline covers what the canvas strokes: {hard_px} pixels differ strongly");
+        let pixel = |pm: &designos_render::tiny_skia::Pixmap, x: f32, y: f32| {
+            let p = pm.pixel((x * 2.0) as u32, (y * 2.0) as u32).unwrap();
+            [p.red(), p.green(), p.blue()]
+        };
+        assert_eq!(pixel(&after, 39.0, 34.0), [200, 30, 30], "a dash");
+        assert_eq!(pixel(&after, 51.0, 34.0), [255, 255, 255], "the gap after it stays open");
     }
 
     fn assert_text_scenario_pixels(label: &str, make: impl FnOnce(&mut Document, NodeId) -> Vec<NodeId>) {

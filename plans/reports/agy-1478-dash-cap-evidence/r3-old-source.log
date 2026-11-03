@@ -1,0 +1,80 @@
+# git diff --stat 9dba68d2 56869cad -- crates/designos-render/src crates/designos-gpu/src (empty = identical stroke code):
+
+# HEAD 6540b6ecf7fa10c17725ae677e23cefb674c7704  branch jangtrinh/agy-1478-dash-cap
+# git status --short -- crates (empty = committed tree):
+M  crates/designos-render/src/lib.rs
+M  crates/designos-render/src/outline.rs
+M  crates/designos-render/src/vectorops.rs
+# ---
+# new tests run against designos-render/src/{lib,outline,vectorops}.rs of 9dba68d2; everything else at HEAD
+# files differing from HEAD:
+ crates/designos-render/src/lib.rs       |  8 ++------
+ crates/designos-render/src/outline.rs   | 15 ++++++++-------
+ crates/designos-render/src/vectorops.rs |  2 +-
+ 3 files changed, 11 insertions(+), 14 deletions(-)
+## designos-render
+test thin_inside_dashed_rect_keeps_stroke ... FAILED
+test inside_dashed_ellipse_round_cap_extends_past_dash_end ... ok
+thread 'thin_inside_dashed_rect_keeps_stroke' (76640655) panicked at crates/designos-render/tests/render.rs:819:5:
+assertion `left == right` failed: thin inside dashed rectangle paints the first dash at (14, 12)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.00s
+render_rc=101
+## designos-gpu (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+thin_inside_dashed_rect: mismatch 0.0000% (0 px of 5280) at tolerance 8, ssim 1.0000
+thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+thread 'thin_inside_dashed_rect_keeps_stroke_gpu' (76642639) panicked at crates/designos-gpu/tests/fidelity.rs:671:5:
+assertion `left == right` failed: GPU thin inside dashed rectangle paints the first dash at (14, 12)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+inside_dashed_ellipse_round_cap: mismatch 3.1000% (310 px of 10000) at tolerance 8, ssim 0.9962
+test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+inside_dashed_ellipse_butt_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+inside_dashed_ellipse_butt_cap: 0.0000% with AA pixels forgiven (0 px)
+test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... ok
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.20s
+gpu_rc=101
+
+# HEAD 6540b6ecf7fa10c17725ae677e23cefb674c7704  branch jangtrinh/agy-1478-dash-cap
+# git status --short -- crates (empty = committed tree):
+M  crates/designos-render/src/lib.rs
+M  crates/designos-render/src/outline.rs
+M  crates/designos-render/src/vectorops.rs
+# ---
+# new tests run against designos-render/src/{lib,outline,vectorops}.rs of 56869cad; everything else at HEAD
+# files differing from HEAD:
+ crates/designos-render/src/lib.rs       |  8 ++------
+ crates/designos-render/src/outline.rs   | 15 ++++++++-------
+ crates/designos-render/src/vectorops.rs |  2 +-
+ 3 files changed, 11 insertions(+), 14 deletions(-)
+## designos-render
+test thin_inside_dashed_rect_keeps_stroke ... FAILED
+test inside_dashed_ellipse_round_cap_extends_past_dash_end ... ok
+thread 'thin_inside_dashed_rect_keeps_stroke' (76643802) panicked at crates/designos-render/tests/render.rs:819:5:
+assertion `left == right` failed: thin inside dashed rectangle paints the first dash at (14, 12)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.00s
+render_rc=101
+## designos-gpu (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+thin_inside_dashed_rect: mismatch 0.0000% (0 px of 5280) at tolerance 8, ssim 1.0000
+thin_inside_dashed_rect: 0.0000% with AA pixels forgiven (0 px)
+thread 'thin_inside_dashed_rect_keeps_stroke_gpu' (76645492) panicked at crates/designos-gpu/tests/fidelity.rs:671:5:
+assertion `left == right` failed: GPU thin inside dashed rectangle paints the first dash at (14, 12)
+  left: [255, 255, 255, 255]
+ right: [255, 0, 0, 255]
+inside_dashed_ellipse_round_cap: mismatch 3.1000% (310 px of 10000) at tolerance 8, ssim 0.9962
+test thin_inside_dashed_rect_keeps_stroke_gpu ... FAILED
+inside_dashed_ellipse_round_cap: 0.0000% with AA pixels forgiven (0 px)
+inside_dashed_ellipse_butt_cap: mismatch 2.7200% (272 px of 10000) at tolerance 8, ssim 0.9969
+inside_dashed_ellipse_butt_cap: 0.0000% with AA pixels forgiven (0 px)
+test inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu ... ok
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 21 filtered out; finished in 0.31s
+gpu_rc=101
+# after restore: git status --short -- crates (empty = clean):

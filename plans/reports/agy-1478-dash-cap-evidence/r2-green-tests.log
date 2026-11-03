@@ -1,0 +1,61 @@
+=== 1. designos-render GREEN ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.10s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 4 tests
+test solid_open_line_all_butt_vertex_caps_stay_butt ... ok
+test thin_inside_dashed_rect_keeps_stroke ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+
+render_rc=0
+=== 2. designos-gpu GREEN ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-doc)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.04s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 4 tests
+test thin_inside_dashed_rect_keeps_stroke_gpu ... ok
+test solid_open_line_round_vertex_cap_renders_round_gpu ... ok
+test dashed_open_line_uses_stroke_cap_on_every_dash_gpu ... ok
+test dashed_rect_round_dash_cap_renders_round_dash_ends_gpu ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.16s
+
+gpu_rc=0
+=== 3. designos-fig GREEN ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1478-dash-cap/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.33s
+     Running tests/fig_roundtrip.rs (out/cargo/debug/deps/fig_roundtrip-59464b98b5f1161b)
+
+running 5 tests
+test rest_instance_overrides_skips_layout_cleared ... ok
+test rest_export_import_preserves_dash_cap ... ok
+test fig_instance_stroke_override_preserves_align_join_and_miter ... ok
+test fig_export_import_preserves_dash_cap ... ok
+test fig_instance_stroke_override_clears_dashes ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 42 filtered out; finished in 0.04s
+
+fig_rc=0

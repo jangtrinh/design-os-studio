@@ -1,0 +1,51 @@
+# null control: committed tree, no mutation; every new test group must be green
+ddf874215ab442bc5abe3defc4e9f99cbd204e74
+jangtrinh/agy-1478-dash-cap
+# git status --short -- crates (empty = clean):
+
+
+## green
+$ cargo test -p designos-export --locked --lib svg::tests::
+running 19 tests
+test svg::tests::golden_independent_radii_become_a_path ... ok
+test svg::tests::noise_and_texture_become_filter_primitives_and_glass_is_skipped ... ok
+test svg::tests::golden_ellipse_and_linear_gradient ... ok
+test svg::tests::frame_clips_children_and_groups_nest ... ok
+test svg::tests::star_vector_evenodd_and_image_fill ... ok
+test svg::tests::golden_rect_with_radius_and_opacity ... ok
+test svg::tests::golden_shadow_filter_and_blur ... ok
+test svg::tests::mask_node_masks_following_siblings ... ok
+test svg::tests::dashed_rectangle_thinner_than_its_stroke_keeps_the_doubled_boundary_stroke ... ok
+test svg::tests::golden_inside_stroke_uses_clip_and_double_width ... ok
+test svg::tests::outside_stroke_grows_viewbox_and_masks ... ok
+test svg::tests::dashed_outside_rectangle_strokes_its_outset_outline_at_its_own_weight_under_the_mask ... ok
+test svg::tests::dashed_inside_rectangle_strokes_its_inset_outline_at_its_own_weight_under_the_clip ... ok
+test svg::tests::dashed_rectangle_with_imported_fill_geometry_takes_the_inset_outline_too ... ok
+test svg::tests::dashed_rectangle_with_rounded_corners_strokes_a_path_with_curves ... ok
+test svg::tests::strokes_that_are_not_dashed_rectangle_layers_keep_the_boundary_stroke ... ok
+test svg::tests::union_boolean_joins_operands ... ok
+test svg::tests::image_fill_is_embedded_as_base64_pattern ... ok
+test svg::tests::text_as_text_element_and_as_outlines ... ok
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 146 filtered out; finished in 0.05s
+rc=0
+$ cargo test -p designos-svg --locked --test dashed_rectangle_stroke_alignment
+running 3 tests
+test solid_inside_rectangle_still_matches_the_canvas ... ok
+test dashed_inside_and_outside_rectangles_with_round_caps_match_the_canvas ... ok
+test dashed_inside_and_outside_rectangles_with_rounded_corners_match_the_canvas ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+rc=0
+$ cargo test -p designos-render --locked --test outline_stroke_of_dashed_rectangles
+running 5 tests
+test outline_of_a_dashed_inside_rectangle_keeps_the_cap_size_and_the_gap ... ok
+test other_strokes_outline_as_the_geometry_stroke ... ok
+test outline_of_a_dashed_inside_stroke_is_clipped_at_a_tight_rounded_corner ... ok
+test a_rectangle_shaped_vector_keeps_the_doubled_boundary_stroke ... ok
+test outline_of_a_dashed_inside_or_outside_rectangle_covers_what_the_canvas_strokes ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+rc=0
+$ cargo test -p designos-app --bin designos --locked outline_stroke_of_a_dashed_inside
+running 1 test
+test vecops::tests::outline_stroke_of_a_dashed_inside_rectangle_matches_the_canvas_stroke ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4220 filtered out; finished in 0.05s
+rc=0

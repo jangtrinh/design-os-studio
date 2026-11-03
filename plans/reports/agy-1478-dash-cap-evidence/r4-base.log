@@ -1,0 +1,13 @@
+# the red and repro runs used a0b4f32b (0ffe4f36 merged with origin/main e7ace20b); the failing CI head is 0ffe4f36
+## git diff --stat 0ffe4f36 a0b4f32b -- crates/designos-export crates/designos-render/src crates/designos-gpu/src crates/designos-doc/src (empty = same code)
+## git diff --name-only 0ffe4f36 a0b4f32b -- crates (what the main merge brought)
+crates/designos-fig/src/fig.rs
+crates/designos-fig/src/rest_import.rs
+crates/designos-fig/tests/fig_instance_node_lock_aspect.rs
+## git diff --name-only e7ace20b a0b4f32b -- crates/designos-export crates/designos-render/src crates/designos-gpu/src (the PR's render change; export untouched)
+crates/designos-render/src/lib.rs
+crates/designos-render/src/outline.rs
+crates/designos-render/src/vectorops.rs
+## git log -S dashed_rect_center_path (commit that introduced the canvas rule)
+6aabc599 fix(export): stroke dashed inside and outside rectangles in the PDF along their inset outline
+9dba68d2 feat(stroke): dash cap for dashed strokes (#1478)

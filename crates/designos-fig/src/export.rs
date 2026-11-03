@@ -271,7 +271,57 @@ fn geometry(paths: &[Path]) -> Value {
 }
 
 pub(crate) fn figma_id(doc: &Document, id: NodeId) -> String {
-    doc.get(id).and_then(|n| n.source_id.clone()).unwrap_or_else(|| format!("9000:{}", id.0))
+    if let Some(n) = doc.get(id) {
+        if let Some(s) = &n.source_id {
+            return s.clone();
+        }
+        if let (Some(src), Some(inst)) = (n.component.source, instance_root_of(doc, id).filter(|&i| i != id)) {
+            return format!("I{};{}", figma_id(doc, inst), figma_id(doc, src));
+        }
+    }
+    format!("9000:{}", id.0)
+}
+
+fn instance_overrides(doc: &Document, inst_id: NodeId) -> Vec<Value> {
+    let mut out = Vec::new();
+    doc.walk(inst_id, |n, _| {
+        if n.component.overrides.is_empty() && n.component.grid_align_overrides == [false, false] {
+            return;
+        }
+        let mut fields: Vec<&'static str> = Vec::new();
+        for ov in &n.component.overrides {
+            match ov {
+                OverrideField::Name => fields.push("name"),
+                OverrideField::Visible => fields.push("visible"),
+                OverrideField::Locked => fields.push("locked"),
+                OverrideField::LockAspect => fields.push("preserveRatio"),
+                OverrideField::Opacity => fields.push("opacity"),
+                OverrideField::Blend => fields.push("blendMode"),
+                OverrideField::Size => fields.push("size"),
+                OverrideField::Transform => fields.push("relativeTransform"),
+                OverrideField::Fills => fields.push("fills"),
+                OverrideField::Stroke => fields.extend(["strokes", "strokeWeight", "strokeAlign", "strokeCap", "strokeJoin", "strokeDashes"]),
+                OverrideField::Effects => fields.push("effects"),
+                OverrideField::CornerRadii => fields.push("cornerRadius"),
+                OverrideField::Characters => fields.push("characters"),
+                OverrideField::TextStyle => fields.push("style"),
+                OverrideField::Layout if !(matches!(n.kind, NodeKind::Instance { .. }) && n.component.layout_cleared) => fields.push("layoutMode"),
+                OverrideField::Layout => {}
+                OverrideField::MainComponent => fields.push("componentId"),
+                OverrideField::SlotContent => fields.push("slotContent"),
+            }
+        }
+        if n.component.grid_align_overrides[0] {
+            fields.push("gridChildHorizontalAlign");
+        }
+        if n.component.grid_align_overrides[1] {
+            fields.push("gridChildVerticalAlign");
+        }
+        if !fields.is_empty() {
+            out.push(json!({"id": figma_id(doc, n.id), "overriddenFields": fields}));
+        }
+    });
+    out
 }
 
 fn align_name(a: LayoutAlign) -> &'static str {
@@ -606,6 +656,10 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 m.insert("componentId".into(), figma_id(doc, *c).into());
             } else if let Some(k) = component_key {
                 m.insert("componentKey".into(), k.clone().into());
+            }
+            let ovs = instance_overrides(doc, id);
+            if !ovs.is_empty() {
+                m.insert("overrides".into(), Value::Array(ovs));
             }
         }
         NodeKind::Ellipse(a) => {

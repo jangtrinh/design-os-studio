@@ -36,8 +36,8 @@ pub use index::SceneIndex;
 pub use lint_env::RenderLintEnv;
 pub use mask::{apply_luminance_mask, mask_frame_box, mask_stencil, vector_mask_descendant_stencil, LUMINANCE_MASK_COEFFS};
 pub use outline::{
-    decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan, text_outlines, NodeShape,
-    StrokeClip, StrokePlan, TextOutline,
+    dashed_rect_stroke_path, decoded_image, miter_outline, node_margin, node_stroke_style, outline_of, render_node_into, stroke_outline, stroke_plan,
+    text_outlines, NodeShape, StrokeClip, StrokePlan, TextOutline,
 };
 use paint::{blend_mode, fill_paths, stroke_paths, PaintEnv};
 pub use text::{
@@ -830,30 +830,9 @@ impl Renderer<'_> {
     }
 
     fn make_stroke(&self, n: &Node, width: f32) -> sk::Stroke {
-        let s = &n.stroke;
-        // per-vertex caps are drawn as decorations over a butt-capped stroke
-        let cap = if vectorops::vertex_caps(n).is_some() { designos_doc::StrokeCap::None } else { s.cap };
-        let mut st = sk::Stroke {
-            width,
-            miter_limit: s.miter_limit.max(1.0),
-            line_cap: match cap {
-                designos_doc::StrokeCap::None => sk::LineCap::Butt,
-                designos_doc::StrokeCap::Round => sk::LineCap::Round,
-                designos_doc::StrokeCap::Square => sk::LineCap::Square,
-            },
-            line_join: match s.join {
-                designos_doc::StrokeJoin::Miter => sk::LineJoin::Miter,
-                designos_doc::StrokeJoin::Bevel => sk::LineJoin::Bevel,
-                designos_doc::StrokeJoin::Round => sk::LineJoin::Round,
-            },
-            dash: None,
-        };
-        if !s.dashes.is_empty() && s.dashes.iter().all(|d| *d >= 0.0) && s.dashes.iter().sum::<f32>() > 0.0 {
-            let mut v = s.dashes.clone();
-            if v.len() % 2 == 1 {
-                v.extend_from_within(..);
-            }
-            st.dash = sk::StrokeDash::new(v, 0.0);
+        let mut st = outline::node_stroke_style(n, width);
+        if vectorops::vertex_caps(n).is_some() {
+            st.line_cap = sk::LineCap::Butt;
         }
         st
     }
@@ -932,6 +911,14 @@ impl Renderer<'_> {
                 }
                 if let Some(c) = clip {
                     mask_mul(&mut m, c);
+                }
+                if let Some(center_path) = outline::dashed_rect_stroke_path(n, sh) {
+                    let st = self.make_stroke(n, w);
+                    let paths = [(center_path, sk::FillRule::Winding)];
+                    for p in paints {
+                        stroke_paths(&self.env, target, &paths, &st, ts, n.size, p, alpha, Some(&m));
+                    }
+                    return;
                 }
                 let st = self.make_stroke(n, w * 2.0);
                 for p in paints {
