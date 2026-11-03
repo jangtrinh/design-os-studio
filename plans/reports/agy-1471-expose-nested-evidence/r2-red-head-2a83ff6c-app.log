@@ -1,0 +1,40 @@
+# head 2a83ff6c + new/updated app tests (plus visibility of has_changes) only
+$ cargo test -p designos-app --bin designos --locked -- expose_nested_instances
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 13s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 4 tests
+test shell::tests::expose_nested_instances::reset_all_changes_counts_nested_values_only_while_the_nested_instance_is_exposed ... FAILED
+test shell::tests::expose_nested_instances::same_named_nested_instances_have_their_own_expose_toggles_and_property_rows ... FAILED
+test shell::tests::expose_nested_instances::reset_all_changes_takes_back_a_variant_edit_made_from_the_outer_instance ... ok
+test shell::tests::expose_nested_instances::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose ... FAILED
+
+failures:
+
+---- shell::tests::expose_nested_instances::reset_all_changes_counts_nested_values_only_while_the_nested_instance_is_exposed stdout ----
+
+thread 'shell::tests::expose_nested_instances::reset_all_changes_counts_nested_values_only_while_the_nested_instance_is_exposed' (80336207) panicked at crates/designos-app/src/shell/tests/expose_nested_instances.rs:320:5:
+a value on an unexposed nested instance is not a change of the outer instance
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- shell::tests::expose_nested_instances::same_named_nested_instances_have_their_own_expose_toggles_and_property_rows stdout ----
+
+thread 'shell::tests::expose_nested_instances::same_named_nested_instances_have_their_own_expose_toggles_and_property_rows' (80336209) panicked at crates/designos-app/src/shell/tests.rs:228:113:
+nothing recorded for expose-nested:54
+
+---- shell::tests::expose_nested_instances::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose stdout ----
+
+thread 'shell::tests::expose_nested_instances::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose' (80336206) panicked at crates/designos-app/src/shell/tests/expose_nested_instances.rs:216:5:
+the variant edit is recorded on the nested instance as a swap, the way a swap of a nested layer is
+
+
+failures:
+    shell::tests::expose_nested_instances::expose_nested_instances_toggle_order_edit_isolation_sync_and_unexpose
+    shell::tests::expose_nested_instances::reset_all_changes_counts_nested_values_only_while_the_nested_instance_is_exposed
+    shell::tests::expose_nested_instances::same_named_nested_instances_have_their_own_expose_toggles_and_property_rows
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 4224 filtered out; finished in 1.97s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
