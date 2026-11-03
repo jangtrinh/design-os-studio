@@ -1,7 +1,10 @@
 # Report: Delete style — cap the mode product and close the remaining fallback edges
 
 ## What Could Not Be Verified
-- Nothing inside the task scope was left unverified. No visual UI layout or toast wording changed, so no window screenshot capture was needed (`plans/261030-2041-e1-wave-1/brief-agy-1136-delete-style-edges.txt:5`).
+- Nothing inside the task scope was left unverified. No visual UI layout or toast wording changed, so no window screenshot capture was needed `(plans/261030-2041-e1-wave-1/brief-agy-1136-delete-style-edges.txt:5)`.
+
+## Conclusion
+- **FACT:** Bounded the delete-style mode override classification in `(crates/designos-doc/src/styles_ops.rs:449-677,853-861)` so unrelated variable collections walk the sum of modes ($k \cdot m$) while shared/multi-axis collections walk an in-place odometer capped at `MAX_STYLE_MODE_COMBOS = 4,096` (`StyleBindingOverride::KeepBindingWithFallback`), preserved the delete-time look when `doc.resolve_variable(id, style_var)` returns `None` (`StyleBindingOverride::None` at `(crates/designos-doc/src/styles_ops.rs:661-667)`), added an alias row (`VariableValue::Alias` at `(crates/designos-doc/src/styles_ops.rs:2467-2474,2507)`) to the mode-equivalence acceptance table, and deduplicated `style_picker::delete_linked_style` fallback layers via `BTreeSet<NodeId>` (`fallback_layer_count` at `(crates/designos-app/src/panels/style_picker.rs:32-35,47)`). All 6 red->green tests, 3 mutant kills, and 6 workspace gates passed, `out/cargo` was deleted and verified absent, and Draft PR [#1576](https://github.com/jangtrinh/design-os-studio/pull/1576) is open against `main`.
 
 ---
 
@@ -9,19 +12,19 @@
 
 ### 1. Re-anchoring the four items on `aa5bf311` (`aa5bf311d6deabd1c47ca21568eb717e21eb569e`)
 - **Item 1 — Uncapped mode product (`FACT`):**
-  - `collections_and_modes` is defined at `(crates/designos-doc/src/styles_ops.rs:448-497)` on `aa5bf311`.
-  - `classify_own_binding_override` is defined at `(crates/designos-doc/src/styles_ops.rs:502-588)` on `aa5bf311`.
-  - The collection lookup `let colls = collections_and_modes(doc, &[own_var_id.as_str(), style_var]);` is at `(crates/designos-doc/src/styles_ops.rs:524)` on `aa5bf311`.
-  - The Cartesian product vector allocation (`let mut combos: Vec<Vec<(&str, &str)>> = ...`) is at `(crates/designos-doc/src/styles_ops.rs:529-540)` on `aa5bf311`, and the walk over `&combos` is at `(crates/designos-doc/src/styles_ops.rs:545-555)` on `aa5bf311`.
+  - `collections_and_modes` was defined at `(crates/designos-doc/src/styles_ops.rs:448-497)` on `aa5bf311`.
+  - `classify_own_binding_override` was defined at `(crates/designos-doc/src/styles_ops.rs:502-588)` on `aa5bf311`.
+  - The collection lookup `let colls = collections_and_modes(doc, &[own_var_id.as_str(), style_var]);` was at `(crates/designos-doc/src/styles_ops.rs:524)` on `aa5bf311`.
+  - The Cartesian product vector allocation (`let mut combos: Vec<Vec<(&str, &str)>> = ...`) was at `(crates/designos-doc/src/styles_ops.rs:529-540)` on `aa5bf311`, and the walk over `&combos` was at `(crates/designos-doc/src/styles_ops.rs:545-555)` on `aa5bf311`.
 - **Item 2 — Delete-time view when the style value does not resolve (`FACT`):**
-  - In `classify_own_binding_override` `(crates/designos-doc/src/styles_ops.rs:502-588)` on `aa5bf311`, when `style_won_vals` has at least two resolved values that disagree `(crates/designos-doc/src/styles_ops.rs:566-571)`, the delete-time check is at `(crates/designos-doc/src/styles_ops.rs:573-578)`:
-    - `own_wins_at_delete` is computed at `(crates/designos-doc/src/styles_ops.rs:573)`.
-    - When `!own_wins_at_delete` is true `(crates/designos-doc/src/styles_ops.rs:574)` but `doc.resolve_variable(id, style_var)` returns `None` `(crates/designos-doc/src/styles_ops.rs:575)`, execution falls through to the default-mode check at `(crates/designos-doc/src/styles_ops.rs:579-586)` and then to `StyleBindingOverride::SomeModesBake { val: first_val.clone(), fallback: true }` at `(crates/designos-doc/src/styles_ops.rs:587)`.
-    - `delete_style_with_fallbacks` `(crates/designos-doc/src/styles_ops.rs:723-778)` then bakes `val` onto `copy` via `set_bound_property(&mut copy, &node_key, &val)` at `(crates/designos-doc/src/styles_ops.rs:758)`, changing the layer's delete-time appearance.
+  - In `classify_own_binding_override` `(crates/designos-doc/src/styles_ops.rs:502-588)` on `aa5bf311`, when `style_won_vals` had at least two resolved values that disagreed `(crates/designos-doc/src/styles_ops.rs:566-571)`, the delete-time check was at `(crates/designos-doc/src/styles_ops.rs:573-578)`:
+    - `own_wins_at_delete` was computed at `(crates/designos-doc/src/styles_ops.rs:573)`.
+    - When `!own_wins_at_delete` was true `(crates/designos-doc/src/styles_ops.rs:574)` but `doc.resolve_variable(id, style_var)` returned `None` `(crates/designos-doc/src/styles_ops.rs:575)`, execution fell through to the default-mode check at `(crates/designos-doc/src/styles_ops.rs:579-586)` and then to `StyleBindingOverride::SomeModesBake { val: first_val.clone(), fallback: true }` at `(crates/designos-doc/src/styles_ops.rs:587)`.
+    - `delete_style_with_fallbacks` `(crates/designos-doc/src/styles_ops.rs:723-778)` then baked `val` onto `copy` via `set_bound_property(&mut copy, &node_key, &val)` at `(crates/designos-doc/src/styles_ops.rs:758)`, changing the layer's delete-time appearance.
 - **Item 3 — No alias row in the acceptance table (`FACT`):**
-  - The 23-case acceptance table in `table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types` is at `(crates/designos-doc/src/styles_ops.rs:2150-2479)` (`cases` at `(crates/designos-doc/src/styles_ops.rs:2171-2369)`, `vars` at `(crates/designos-doc/src/styles_ops.rs:2375-2424)`) on `aa5bf311`, and the round-5 multi-mode tests `r5_row1..r5_row6` are at `(crates/designos-doc/src/styles_ops.rs:2504-3198)`. None of those rows binds a style property to a variable whose value is `VariableValue::Alias`.
+  - The 23-case acceptance table in `table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types` was at `(crates/designos-doc/src/styles_ops.rs:2150-2479)` (`cases` at `(crates/designos-doc/src/styles_ops.rs:2171-2369)`, `vars` at `(crates/designos-doc/src/styles_ops.rs:2375-2424)`) on `aa5bf311`, and the round-5 multi-mode tests `r5_row1..r5_row6` were at `(crates/designos-doc/src/styles_ops.rs:2504-3198)`. None of those rows bound a style property to a variable whose value was `VariableValue::Alias`.
 - **Item 4 — Neighbour-only `Vec::dedup` in `style_picker.rs` (`FACT`):**
-  - `delete_linked_style` in `(crates/designos-app/src/panels/style_picker.rs:32-52)` on `aa5bf311` collects `NodeId`s from `fallbacks` at `(crates/designos-app/src/panels/style_picker.rs:43)` and calls `ids.dedup()` at `(crates/designos-app/src/panels/style_picker.rs:44)` before returning `ids.len()` at `(crates/designos-app/src/panels/style_picker.rs:45)`.
+  - `delete_linked_style` in `(crates/designos-app/src/panels/style_picker.rs:32-52)` on `aa5bf311` collected `NodeId`s from `fallbacks` at `(crates/designos-app/src/panels/style_picker.rs:43)` and called `ids.dedup()` at `(crates/designos-app/src/panels/style_picker.rs:44)` before returning `ids.len()` at `(crates/designos-app/src/panels/style_picker.rs:45)`.
 
 ### 2. Mode Combination Sizing (`FACT`)
 - **Formula for $k$ collections with $m$ modes each:**
@@ -60,55 +63,185 @@
 
 ---
 
-## Step 3: Acceptance Evidence (Red -> Green, Mutants, and Gates)
+## Step 3: Acceptance Table with Pasted Output
 
-### Acceptance 1: Red on `aa5bf311`, Green with Fix, and Null Control
-- **Tests added:**
-  - **(a) Unrelated 3x8 collections visit sum (`24`), not product (`512`):** `styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections` `(crates/designos-doc/src/styles_ops.rs:3459-3575)`, using test-only visit counter `take_style_mode_visits` `(crates/designos-doc/src/styles_ops.rs:39-47)`.
-  - **(b) Shared collection mode product past `4,096` stops at `4,096`, keeps binding, and counts in toast:** `styles_ops::tests::delete_style_caps_shared_collection_mode_product_at_4096_and_keeps_binding` `(crates/designos-doc/src/styles_ops.rs:3578-3751)` (testing both a 4-axis shared collection with $9^4 = 6,561$ combinations at `(crates/designos-doc/src/styles_ops.rs:3581-3670)` and a single shared collection with `4,100` modes at `(crates/designos-doc/src/styles_ops.rs:3672-3750)`) and `shell::tests::effect_grid_styles::deleting_a_style_past_mode_product_cap_keeps_binding_and_counts_layer_in_toast` `(crates/designos-app/src/shell/tests/effect_grid_styles.rs:486-558)`.
-  - **(c) Unresolved delete-time style value keeps binding and identical delete-time canvas render:** `styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look` `(crates/designos-doc/src/styles_ops.rs:3754-3860)` and `shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render` `(crates/designos-app/src/shell/tests/effect_grid_styles.rs:561-645)`.
-  - **(d) Alias row in acceptance table:** `fill_opacity_alias_with_mixed_opaque_light_translucent_dark_own_fill` in `styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types` `(crates/designos-doc/src/styles_ops.rs:2467-2474,2507)`.
-  - **(e) Interleaved fallback node deduplication by set:** `shell::tests::effect_grid_styles::style_picker_deduplicates_interleaved_fallback_nodes_by_set` `(crates/designos-app/src/shell/tests/effect_grid_styles.rs:648-655)`.
-- **Red run on `aa5bf311` (`plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log`):**
-  - `styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections`: FAILED (`left: 512`, `right: 24`) `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:35,77-83)`.
-  - `styles_ops::tests::delete_style_caps_shared_collection_mode_product_at_4096_and_keeps_binding`: FAILED (`left: 6561`, `right: 4096`) `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:34,69-75)`.
-  - `styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look`: FAILED (`left: None`, `right: Some("v_op")`) `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:36,84-90)`.
-  - `shell::tests::effect_grid_styles::deleting_a_style_past_mode_product_cap_keeps_binding_and_counts_layer_in_toast`: FAILED (`left: None`, `right: Some("v_fx_op")`) `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:455,467-473)`.
-  - `shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render`: FAILED (`left: 18135` differing bytes, `right: 0`) `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:457,475-480)`.
-  - `shell::tests::effect_grid_styles::style_picker_deduplicates_interleaved_fallback_nodes_by_set`: FAILED (`left: 3`, `right: 2`) `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:462,482-488)`.
-  - Null control on `aa5bf311`: `styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types` passed `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:64)`, along with all `36` pre-existing `styles_ops::tests` `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:97)` and all `11` pre-existing `effect_grid_styles` tests `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:495)`.
-- **Green run with fix (`plans/reports/agy-1136-delete-style-edges-evidence/green.log`):**
-  - `designos-doc` (`styles_ops::tests`): `39 passed; 0 failed` `(plans/reports/agy-1136-delete-style-edges-evidence/green.log:17-19,47,50)`.
-  - `designos-app` (`shell::tests::effect_grid_styles`): `14 passed; 0 failed` `(plans/reports/agy-1136-delete-style-edges-evidence/green.log:76,78,83,86)`.
-
-### Acceptance 2: Mutant Kills After Green Null Control
-1. **Mutant 1 — Per-collection split removed (product again) (`plans/reports/agy-1136-delete-style-edges-evidence/mutant-1-no-per-collection-split.log`):**
-   - Forcing `shares_collection = true` at `(crates/designos-doc/src/styles_ops.rs:554)`:
-   - Null control `styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types` passed (`ok`) `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-1-no-per-collection-split.log:47)`.
-   - Killed by `styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections` (`left: 512`, `right: 24`; `38 passed; 1 failed`) `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-1-no-per-collection-split.log:18,52-64)`.
-2. **Mutant 2 — Fallback bakes the default value again (`plans/reports/agy-1136-delete-style-edges-evidence/mutant-2-bake-default-on-unresolved.log`):**
-   - Restoring the `if let Some(val) = doc.resolve_variable(id, style_var)` fall-through at `(crates/designos-doc/src/styles_ops.rs:662-667)`:
-   - Null control `styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types` passed (`ok`) `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-2-bake-default-on-unresolved.log:47)`.
-   - Killed by `styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look` (`left: None`, `right: Some("v_op")`; `38 passed; 1 failed`) `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-2-bake-default-on-unresolved.log:19,52-64)` and `shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render` (`left: 18135`, `right: 0`; `13 passed; 1 failed`) `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-2-bake-default-on-unresolved.log:93,103-115)`.
-3. **Mutant 3 — Alias-skipping resolver in `classify_own_binding_override` (`plans/reports/agy-1136-delete-style-edges-evidence/mutant-3-skip-aliases.log`):**
-   - Skipping `VariableValue::Alias` when resolving `style_var` at `(crates/designos-doc/src/styles_ops.rs:619)`:
-   - Killed by `styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types` on `case=fill_opacity_alias_with_mixed_opaque_light_translucent_dark_own_fill deleted_in=light: resolve_node mismatch in mode 'light'` (`opacity: 1.0` vs `opacity: 0.5`) `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-3-skip-aliases.log:11-23)`.
-
-### Acceptance 3: Verification Gates
-- **`cargo fmt --all -- --check; echo fmt_rc=$?`:** `fmt_rc=0` `(plans/reports/agy-1136-delete-style-edges-evidence/gate-fmt.log:1)`.
-- **`cargo clippy --workspace --all-targets --locked`:** `clippy_rc=0` `(plans/reports/agy-1136-delete-style-edges-evidence/gate-clippy.log:57-58)`.
-- **`cargo test -p designos-doc --locked`:** `733 passed` (lib) + `3 passed` (`auto_layout_wrap_fields_compat`) + `5 passed` (`changelog_pillars`) + `2 passed` (`shadow_blend`) = `743 passed; 0 failed`, `designos_doc_rc=0` `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-doc.log:743,752,763,771,779)`.
-- **`cargo test -p designos-app --bin designos --locked`:**
-  - Full parallel run (`4,260` tests): `4244 passed; 3 failed; 13 ignored` `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-app.log:4328)`.
-  - The 3 unrelated failures under full-suite parallel load (`agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root` at `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-app.log:4306-4310)` due to `/var/folders/...` socket path length, `vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope` at `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-app.log:4312-4315)`, and `vecops::tests::two_deferred_text_commands_both_convert_in_order` at `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-app.log:4317-4320)`) were rerun alone in `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-app-rerun.log:1-40)` and all 3 passed (`1 passed; 0 failed` at lines `10-12`, `23-25`, and `36-38`; `designos_app_rerun_rc=0` at line `40`).
-- **`cargo test --workspace --locked --lib`:** All workspace library unit test suites passed (`workspace_lib_rc=0`) `(plans/reports/agy-1136-delete-style-edges-evidence/gate-workspace-lib.log:1590,1654,1661,1675,1677)`.
-- **`python3 -B scripts/zero_fake_ui_gate.py`:** `Gate Verdict: PASS (17/17 invariants satisfied)`, `zero_fake_ui_gate_rc=0` `(plans/reports/agy-1136-delete-style-edges-evidence/gate-zero-fake-ui.log:24-26)`.
+| Criterion / Gate | Pasted Output | Citation (`file:line` / `log-file:line`) |
+|---|---|---|
+| **Base commit RED verification (`aa5bf311`) + Null control** | `test styles_ops::tests::delete_style_caps_shared_collection_mode_product_at_4096_and_keeps_binding ... FAILED` / `test styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections ... FAILED` / `test styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look ... FAILED` / `test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok` / `test result: FAILED. 36 passed; 3 failed` / `test shell::tests::effect_grid_styles::deleting_a_style_past_mode_product_cap_keeps_binding_and_counts_layer_in_toast ... FAILED` / `test shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render ... FAILED` / `test shell::tests::effect_grid_styles::style_picker_deduplicates_interleaved_fallback_nodes_by_set ... FAILED` / `test result: FAILED. 11 passed; 3 failed` | `(plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log:34-36,64,69-97,455,457,462,467-495)` |
+| **(a) 3 unrelated 8-mode collections visit `24` (`3 * 8`), not `512` (`8^3`)** | `test styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections ... ok` | `(crates/designos-doc/src/styles_ops.rs:3459-3575)`, `(plans/reports/agy-1136-delete-style-edges-evidence/green.log:18,50)` |
+| **(b) Shared collection mode product past `4,096` stops at `4,096`, keeps binding, and counts in toast** | `test styles_ops::tests::delete_style_caps_shared_collection_mode_product_at_4096_and_keeps_binding ... ok` / `test shell::tests::effect_grid_styles::deleting_a_style_past_mode_product_cap_keeps_binding_and_counts_layer_in_toast ... ok` | `(crates/designos-doc/src/styles_ops.rs:3578-3751)`, `(crates/designos-app/src/shell/tests/effect_grid_styles.rs:486-558)`, `(plans/reports/agy-1136-delete-style-edges-evidence/green.log:17,50,76,86)` |
+| **(c) Unresolved delete-time style value keeps binding and identical delete-time canvas render** | `test styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look ... ok` / `test shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render ... ok` | `(crates/designos-doc/src/styles_ops.rs:3754-3860)`, `(crates/designos-app/src/shell/tests/effect_grid_styles.rs:561-645)`, `(plans/reports/agy-1136-delete-style-edges-evidence/green.log:19,50,78,86)` |
+| **(d) Alias row in acceptance table (`VariableValue::Alias`) + Null control** | `test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok` | `(crates/designos-doc/src/styles_ops.rs:2467-2474,2507)`, `(plans/reports/agy-1136-delete-style-edges-evidence/green.log:47,50)` |
+| **(e) Non-contiguous fallback entries deduplicated by set (`BTreeSet<NodeId>`)** | `test shell::tests::effect_grid_styles::style_picker_deduplicates_interleaved_fallback_nodes_by_set ... ok` | `(crates/designos-app/src/panels/style_picker.rs:32-35,47)`, `(crates/designos-app/src/shell/tests/effect_grid_styles.rs:648-655)`, `(plans/reports/agy-1136-delete-style-edges-evidence/green.log:83,86)` |
+| **Mutant 1: Per-collection split removed (`shares_collection = true`) after green null control** | `test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok` / `thread 'styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections' panicked at crates/designos-doc/src/styles_ops.rs:3511:5: assertion left == right failed: 3 unrelated 8-mode collections must visit the sum (3 * 8 = 24), not the product (8^3 = 512) left: 512 right: 24` / `test result: FAILED. 38 passed; 1 failed` | `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-1-no-per-collection-split.log:18,47,52-64)` |
+| **Mutant 2: Fallback bakes default value again on unresolved delete-time style value after green null control** | `test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok` / `thread 'styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look' panicked ... left: None right: Some("v_op")` / `thread 'shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render' panicked ... left: 18135 right: 0` | `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-2-bake-default-on-unresolved.log:19,47,52-64,93,103-115)` |
+| **Mutant 3: Alias-skipping resolver in `classify_own_binding_override`** | `thread 'styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types' panicked at crates/designos-doc/src/styles_ops.rs:2580:21: case=fill_opacity_alias_with_mixed_opaque_light_translucent_dark_own_fill deleted_in=light: resolve_node mismatch in mode 'light'` / `test result: FAILED. 0 passed; 1 failed` | `(plans/reports/agy-1136-delete-style-edges-evidence/mutant-3-skip-aliases.log:11-23)` |
+| **Gate 1: `cargo fmt --all -- --check; echo fmt_rc=$?`** | `fmt_rc=0` | `(plans/reports/agy-1136-delete-style-edges-evidence/gate-fmt.log:1)` |
+| **Gate 2: `cargo clippy --workspace --all-targets --locked`** | `Finished dev profile [unoptimized + debuginfo] target(s) in 14.21s` / `clippy_rc=0` | `(plans/reports/agy-1136-delete-style-edges-evidence/gate-clippy.log:57-58)` |
+| **Gate 3: `cargo test -p designos-doc --locked`** | `test result: ok. 733 passed; 0 failed` / `3 passed` / `5 passed` / `2 passed` / `designos_doc_rc=0` | `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-doc.log:743,752,763,771,779)` |
+| **Gate 4: `cargo test -p designos-app --bin designos --locked` + solo rerun of 3 flaky tests** | Full parallel run: `test result: FAILED. 4244 passed; 3 failed; 13 ignored` (`agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root`, `vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope`, `vecops::tests::two_deferred_text_commands_both_convert_in_order`). Solo reruns: `1 passed; 0 failed` x 3, `designos_app_rerun_rc=0` | `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-app.log:4306-4328)`, `(plans/reports/agy-1136-delete-style-edges-evidence/gate-designos-app-rerun.log:10-12,23-25,36-40)` |
+| **Gate 5: `cargo test --workspace --locked --lib`** | `workspace_lib_rc=0` (all workspace library crates passed with 0 failures) | `(plans/reports/agy-1136-delete-style-edges-evidence/gate-workspace-lib.log:1590,1654,1661,1675,1677)` |
+| **Gate 6: `python3 -B scripts/zero_fake_ui_gate.py`** | `Gate Verdict: PASS (17/17 invariants satisfied)` / `zero_fake_ui_gate_rc=0` | `(plans/reports/agy-1136-delete-style-edges-evidence/gate-zero-fake-ui.log:24-26)` |
+| **Gate 7: Draft PR, `git log`, and `out/cargo` cleanup** | Draft PR: `https://github.com/jangtrinh/design-os-studio/pull/1576` / `ls: out/cargo: No such file or directory` / `ls_out_cargo_rc=1` | `(plans/reports/agy-1136-delete-style-edges-evidence/clean-out-cargo.log:1-2)` |
 
 ---
 
-## Step 4: Target Cleanup (`out/cargo`)
-- Executed `rm -rf out/cargo` and verified `ls out/cargo` fails `(plans/reports/agy-1136-delete-style-edges-evidence/clean-out-cargo.log:1-2)`:
+## Assumptions
+- **ASSUMPTION:** When `!shares_collection` is true and a variable aliases across collections (`c1 -> c2`), probing `c2`'s modes while holding `c1` at the mode (`alias_prefix` at `(crates/designos-doc/src/styles_ops.rs:460,502-505,573-575,591-593)`) that aliases into `c2` visits every reachable value of the variable chain in $O(\sum m_i)$ mode evaluations without computing the Cartesian product across collections.
+- **ASSUMPTION:** When a multi-axis `+` mode key exists on any collection in `own_colls` or `style_colls` (`has_plus` at `(crates/designos-doc/src/styles_ops.rs:461,489,554)`), routing through the `shares_collection` odometer branch (`(crates/designos-doc/src/styles_ops.rs:554-557,604-643)`) preserves exact multi-axis mode resolution while still bounding total evaluations at `MAX_STYLE_MODE_COMBOS = 4,096`.
+
+---
+
+## Loaded Skills & What Changed Because of Them
+1. **`es:dev` (`/Users/jangtrinh/.gemini/config/skills/es-dev/SKILL.md`) & `es:feature-dev` (`/Users/jangtrinh/.gemini/config/skills/es-feature-dev/SKILL.md`):**
+   - Executed directly in the DEV phase using the controller rulings in `brief-agy-1136-delete-style-edges.txt` as the approved plan without pausing for brainstorm or plan approval.
+2. **`es:rust` (`/Users/jangtrinh/.gemini/config/skills/es-rust/SKILL.md`):**
+   - Replaced the $O(\prod m_i)$ `Vec<Vec<(&str, &str)>>` Cartesian product allocation in `classify_own_binding_override` `(crates/designos-doc/src/styles_ops.rs:520-677)` with an in-place odometer (`indices: Vec<usize>` and `combo: Vec<(&str, &str)>` of length $k$) and scalar agreement tracking (`first_val: Option<VariableValue>`, `style_vals_agree: bool`), keeping heap allocation $O(k)$.
+3. **`es:rust-gpu-canvas` (`/Users/jangtrinh/.gemini/config/skills/es-rust-gpu-canvas/SKILL.md`):**
+   - Used `designos_render::render_backdrop` over the expanded `local_bounds()` region in `deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render` `(crates/designos-app/src/shell/tests/effect_grid_styles.rs:614-644)` to verify bit-exact delete-time pixel parity (`0` differing bytes across `40,000` RGBA bytes).
+4. **`es:astra-work` (`/Users/jangtrinh/.gemini/config/skills/es-astra-work/SKILL.md`):**
+   - Enforced red-before-green verification on `aa5bf311`, null-control verification (`table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types`), 3 mutant kills (`mutant-1-no-per-collection-split.log`, `mutant-2-bake-default-on-unresolved.log`, `mutant-3-skip-aliases.log`), solo reruns of the 3 parallel-load flaky tests in `designos-app`, and post-gate removal of `out/cargo`.
+5. **`es:fable-thinking` (`/Users/jangtrinh/.gemini/config/skills/es-fable-thinking/SKILL.md`):**
+   - Maintained explicit `FACT` / `ASSUMPTION` separation, predicted test/gate outcomes before each run, and verified alias hop traversal (`alias_prefix`) so unrelated collections with cross-collection aliases still reach downstream modes during the per-collection sum walk.
+
+## Weakest Link
+- When `shares_collection` is true and the Cartesian product exceeds `MAX_STYLE_MODE_COMBOS = 4,096`, `classify_own_binding_override` stops conservatively at `4,096` combinations and returns `KeepBindingWithFallback` without proving whether combinations `4,097..` would have agreed on a single style value.
+
+## Unresolved Questions
+- None.
+
+---
+
+## Exact Commands and Pasted Outputs
+
+### 1. Untitled UI Kit Mode Combination Sizing (`plans/reports/agy-1136-delete-style-edges-evidence/untitled-kit-collections.log`)
 ```text
+total_collections=10 total_variables=697
+  cid=VariableCollectionId:13039:909 name='_Primitives' modes=1 (['13039:0:Mode 1']) vars=3
+  cid=VariableCollectionId:13039:911 name='1. Color modes' modes=2 (['5256:0:Light mode', '5353:0:Dark mode']) vars=2
+  cid=VariableCollectionId:5248:377685 name='_Primitives' modes=1 (['5248:0:Value']) vars=343
+  cid=VariableCollectionId:5256:372339 name='1. Color modes' modes=2 (['5256:0:Light mode', '5353:0:Dark mode']) vars=273
+  cid=VariableCollectionId:6283:327807 name='5. Containers' modes=1 (['6283:0:Value']) vars=3
+  cid=VariableCollectionId:6298:45304 name='4. Widths' modes=1 (['6298:2:Mode 1']) vars=12
+  cid=VariableCollectionId:6298:45383 name='3. Spacing' modes=1 (['6298:0:Mode 1']) vars=17
+  cid=VariableCollectionId:6298:46388 name='2. Radius' modes=1 (['6298:1:Mode 1']) vars=11
+  cid=VariableCollectionId:7403:16248 name='6. Typography' modes=1 (['7403:0:Value']) vars=32
+  cid=VariableCollectionId:7856:138521 name='6. Typography' modes=1 (['7403:0:Value']) vars=1
+all_collections_mode_sum=12 all_collections_mode_product=4
+max_collections_for_single_var_chain=2
+max_mode_sum_for_two_vars=6 pair=('VariableId:5256:372340', 'VariableId:13039:912') colls=['VariableCollectionId:5248:377685', 'VariableCollectionId:5256:372339', 'VariableCollectionId:13039:909', 'VariableCollectionId:13039:911']
+max_mode_product_for_two_vars=4 pair=('VariableId:5256:372340', 'VariableId:13039:912') colls=['VariableCollectionId:5248:377685', 'VariableCollectionId:5256:372339', 'VariableCollectionId:13039:909', 'VariableCollectionId:13039:911']
+```
+
+### 2. Red Verification on Base Commit `aa5bf311` (`plans/reports/agy-1136-delete-style-edges-evidence/red-on-base.log`)
+```text
+env HOME="$S/home" TMPDIR="$S/tmp/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-doc --locked styles_ops::tests
+...
+test styles_ops::tests::delete_style_caps_shared_collection_mode_product_at_4096_and_keeps_binding ... FAILED
+test styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections ... FAILED
+test styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look ... FAILED
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok
+test result: FAILED. 36 passed; 3 failed; 0 ignored; 0 measured; 697 filtered out; finished in 0.03s
+
+env HOME="$S/home" TMPDIR="$S/tmp/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked effect_grid_styles
+...
+test shell::tests::effect_grid_styles::deleting_a_style_past_mode_product_cap_keeps_binding_and_counts_layer_in_toast ... FAILED
+test shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render ... FAILED
+test shell::tests::effect_grid_styles::style_picker_deduplicates_interleaved_fallback_nodes_by_set ... FAILED
+test result: FAILED. 11 passed; 3 failed; 0 ignored; 0 measured; 4246 filtered out; finished in 0.43s
+```
+
+### 3. Green Verification with Fix (`plans/reports/agy-1136-delete-style-edges-evidence/green.log`)
+```text
+env HOME="$S/home" TMPDIR="$S/tmp/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-doc --locked styles_ops::tests
+...
+test styles_ops::tests::delete_style_caps_shared_collection_mode_product_at_4096_and_keeps_binding ... ok
+test styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections ... ok
+test styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look ... ok
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.04s
+
+env HOME="$S/home" TMPDIR="$S/tmp/" CARGO_HOME="$REAL_HOME/.cargo" RUSTUP_HOME="$REAL_HOME/.rustup" GEMINI_CLI_HOME="$S/home" CODEX_HOME="$S/home/.codex" CLAUDE_CONFIG_DIR="$S/home/.claude" cargo test -p designos-app --bin designos --locked effect_grid_styles
+...
+test shell::tests::effect_grid_styles::deleting_a_style_past_mode_product_cap_keeps_binding_and_counts_layer_in_toast ... ok
+test shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render ... ok
+test shell::tests::effect_grid_styles::style_picker_deduplicates_interleaved_fallback_nodes_by_set ... ok
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 4246 filtered out; finished in 0.16s
+```
+
+### 4. Mutant Kills (`mutant-1-no-per-collection-split.log`, `mutant-2-bake-default-on-unresolved.log`, `mutant-3-skip-aliases.log`)
+```text
+# Mutant 1 (shares_collection = true):
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok
+test styles_ops::tests::delete_style_walks_mode_sum_across_unrelated_eight_mode_collections ... FAILED
+assertion `left == right` failed: 3 unrelated 8-mode collections must visit the sum (3 * 8 = 24), not the product (8^3 = 512)
+  left: 512
+ right: 24
+test result: FAILED. 38 passed; 1 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.04s
+
+# Mutant 2 (fall through and bake default on unresolved delete-time style value):
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... ok
+test styles_ops::tests::delete_style_with_unresolved_delete_time_style_value_keeps_binding_and_look ... FAILED
+assertion `left == right` failed: binding must be kept when delete-time style value is unresolved so delete-time look does not change
+  left: None
+ right: Some("v_op")
+test result: FAILED. 38 passed; 1 failed; 0 ignored; 0 measured; 694 filtered out; finished in 0.04s
+test shell::tests::effect_grid_styles::deleting_a_style_with_unresolved_delete_time_value_keeps_binding_and_canvas_render ... FAILED
+assertion `left == right` failed: canvas render in delete-time mode must be identical before and after deleting the style
+  left: 18135
+ right: 0
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 4246 filtered out; finished in 0.17s
+
+# Mutant 3 (skip VariableValue::Alias in classify_own_binding_override):
+test styles_ops::tests::table_test_delete_style_in_each_mode_matches_resolve_node_in_every_mode_for_all_linked_key_types ... FAILED
+case=fill_opacity_alias_with_mixed_opaque_light_translucent_dark_own_fill deleted_in=light: resolve_node mismatch in mode 'light'
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 732 filtered out; finished in 0.01s
+```
+
+### 5. Verification Gates, Draft PR, `git log`, and `out/cargo` Cleanup
+```text
+$ cargo fmt --all -- --check; echo fmt_rc=$?
+fmt_rc=0
+
+$ cargo clippy --workspace --all-targets --locked
+Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.21s
+clippy_rc=0
+
+$ cargo test -p designos-doc --locked
+test result: ok. 733 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+designos_doc_rc=0
+
+$ cargo test -p designos-app --bin designos --locked
+test result: FAILED. 4244 passed; 3 failed; 13 ignored; 0 measured; 0 filtered out; finished in 32.16s
+# Solo reruns of the 3 parallel-load failures:
+running 1 test
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 0.02s
+running 1 test
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 0.36s
+running 1 test
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4259 filtered out; finished in 0.65s
+designos_app_rerun_rc=0
+
+$ cargo test --workspace --locked --lib
+workspace_lib_rc=0
+
+$ python3 -B scripts/zero_fake_ui_gate.py
+Gate Verdict: PASS (17/17 invariants satisfied)
+zero_fake_ui_gate_rc=0
+
+$ rm -rf out/cargo && ls out/cargo; echo ls_out_cargo_rc=$?
 ls: out/cargo: No such file or directory
 ls_out_cargo_rc=1
+
+Draft PR: https://github.com/jangtrinh/design-os-studio/pull/1576
+$ git log --oneline origin/main..HEAD
+36f1d152 fix(styles): bound the delete-style mode walk and keep the delete-time look (#1136)
 ```
+
+Status: COMPLETE (all gates 0, evidence in plans/reports/agy-1136-delete-style-edges-evidence/)
