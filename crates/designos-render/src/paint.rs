@@ -343,7 +343,8 @@ pub fn with_paint<R>(
                 && [(0.0, 0.0), (size.x, 0.0), (0.0, size.y), (size.x, size.y)].into_iter().any(|(x, y)| {
                     let uu = u.0 * x + u.1 * y + u.2;
                     let vv = v.0 * x + v.1 * y + v.2;
-                    uu < -1e-5 || uu > 1.0 + 1e-5 || vv < -1e-5 || vv > 1.0 + 1e-5
+                    let unit = -1e-5..=1.0 + 1e-5;
+                    !unit.contains(&uu) || !unit.contains(&vv)
                 });
             if matches!(scale_mode, d::ImageScaleMode::Fit) || crop_leaves_unit_uv {
                 // 1px transparent border so Pad leaves the letterbox or out-of-bounds crop transparent
