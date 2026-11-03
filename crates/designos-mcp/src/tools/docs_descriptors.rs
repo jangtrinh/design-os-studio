@@ -16,7 +16,7 @@ pub fn tool_descriptors() -> Vec<Value> {
         json!({
             "name": "designos_docs_list",
             "description": format!("List a project's doc pages and pins. Pages come grouped as overview, spec, screens, states and discovery. Every page path comes back fenced; pass the string inside `value` to designos_docs_read. At most ~{budget} serialized bytes come back; next_cursor says where to continue.{read_only_note}"),
-            "inputSchema": {"type": "object", "properties": {"project": project, "cursor": {"type": "integer", "minimum": 0, "description": "Where to continue: the next_cursor of the previous call. Omit it for the first call."}}, "required": [], "additionalProperties": false},
+            "inputSchema": {"type": "object", "properties": {"project": project, "cursor": {"type": "string", "maxLength": 64, "description": "Where to continue: the next_cursor of the previous call, unchanged. Omit it for the first call. If the manifest changed since, it is refused: list again."}}, "required": [], "additionalProperties": false},
             "outputSchema": tool_output_schema(
                 json!({
                     "project": {"type": "object"},
@@ -25,7 +25,7 @@ pub fn tool_descriptors() -> Vec<Value> {
                     "total_pages": {"type": "integer"},
                     "total_pins": {"type": "integer"},
                     "truncated": {"type": "boolean"},
-                    "next_cursor": {"type": ["integer", "null"]},
+                    "next_cursor": {"type": ["string", "null"]},
                     "groups": {"type": "array", "items": {"type": "object", "properties": {
                         "id": {"type": "string"},
                         "pages": {"type": "array", "items": {"type": "object", "properties": {
@@ -48,12 +48,13 @@ pub fn tool_descriptors() -> Vec<Value> {
         }),
         json!({
             "name": "designos_docs_read",
-            "description": format!("Read one doc page as blocks. Each has an index, kind, hash and Markdown. The index is the block's id. The page also has a hash, title, description, group and any front-matter problems. Blocks of kind raw hold Markdown Studio does not model, comments included. About {budget} serialized bytes come back; next_start says where to continue. A single block over that is cut and flagged truncated, and its rest cannot be read here: ask the user to split it in Studio.{read_only_note}"),
+            "description": format!("Read one doc page as blocks. Each has an index, kind, hash and Markdown. The index is the block's id. The page also has a hash, title, description, group and any front-matter problems. Blocks of kind raw hold Markdown Studio does not model, comments included. About {budget} serialized bytes come back; next_start says where to continue: pass it as range.start with the same page_hash. A single block over that is cut and flagged truncated, and its rest cannot be read here: ask the user to split it in Studio.{read_only_note}"),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "page": {"type": "string", "minLength": 1, "maxLength": 512, "description": "Page path from designos_docs_list, such as spec/checkout.md. The listing fences every path: pass exactly the string inside `value`."},
                     "project": project,
+                    "page_hash": {"type": "string", "maxLength": 128, "description": "The page_hash of the read you are continuing. If the page changed since, the call is refused: read it again from the start."},
                     "range": {
                         "type": "object",
                         "description": "Blocks to return: start (default 0) up to end (exclusive, default the last block).",

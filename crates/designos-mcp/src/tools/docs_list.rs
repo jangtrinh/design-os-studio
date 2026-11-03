@@ -18,7 +18,35 @@ const MAX_PIN_NAME_CHARS: usize = 200;
 #[serde(deny_unknown_fields)]
 struct ListArgs {
     project: Option<String>,
-    cursor: Option<usize>,
+    cursor: Option<String>,
+}
+
+/// Characters of `manifest_hash` a cursor carries: enough that two manifests do not collide, short enough to read.
+const CURSOR_HASH_CHARS: usize = 12;
+
+/// `"<first 12 hex of manifest_hash>:<index>"`.
+fn cursor_text(manifest_hash: &str, index: usize) -> String {
+    format!("{}:{index}", &manifest_hash[..CURSOR_HASH_CHARS.min(manifest_hash.len())])
+}
+
+/// The position a cursor names, if it came from this manifest. Nothing of the cursor is echoed into a message.
+fn cursor_position(cursor: &str, manifest_hash: Option<&str>) -> Result<usize, ToolError> {
+    let bad = |message: &str| {
+        ToolError::new(ErrorCode::ValueOutOfRange, "/cursor", message)
+            .with_received(fence_capped(cursor, 200))
+            .with_expected("the next_cursor of the previous designos_docs_list call, or omit cursor")
+    };
+    let parsed = cursor.split_once(':').filter(|(head, _)| head.len() == CURSOR_HASH_CHARS && head.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
+    let Some((head, index)) = parsed else {
+        return Err(bad("cursor is not a next_cursor from designos_docs_list; fix: pass next_cursor exactly as returned, or omit cursor"));
+    };
+    let Ok(index) = index.parse::<usize>() else {
+        return Err(bad("cursor is not a next_cursor from designos_docs_list; fix: pass next_cursor exactly as returned, or omit cursor"));
+    };
+    if manifest_hash.is_none_or(|h| !h.starts_with(head)) {
+        return Err(bad("cursor is from an earlier manifest: the manifest changed; list again from the start (omit cursor)"));
+    }
+    Ok(index)
 }
 
 /// `designos_docs_list`. The pages (in group order) and then the pins form one sequence; `cursor` is a position in it.
@@ -35,11 +63,14 @@ pub fn docs_list(root: &Path, open_file: Option<&str>, args: Value) -> Result<Va
     };
     let total_pages: usize = manifest.groups.iter().map(|g| g.pages.len()).sum();
     let total = total_pages + manifest.pins.len();
-    let cursor = a.cursor.unwrap_or(0);
+    let cursor = match a.cursor.as_deref() {
+        None => 0,
+        Some(text) => cursor_position(text, manifest_hash.as_deref())?,
+    };
     if cursor > total {
-        return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/cursor", format!("cursor {cursor} is past the end; the project has {total} pages and pins"))
-            .with_received(json!(cursor))
-            .with_expected(format!("0..={total}, or omit it")));
+        return Err(ToolError::new(ErrorCode::ValueOutOfRange, "/cursor", format!("cursor is past the end; the project has {total} pages and pins"))
+            .with_received(fence_capped(a.cursor.as_deref().unwrap_or_default(), 200))
+            .with_expected("the next_cursor of the previous designos_docs_list call, or omit cursor"));
     }
 
     let mut out = json!({
@@ -99,7 +130,7 @@ pub fn docs_list(root: &Path, open_file: Option<&str>, args: Value) -> Result<Va
     out["groups"] = Value::Array(groups);
     out["pins"] = Value::Array(pins);
     out["truncated"] = json!(next.is_some());
-    out["next_cursor"] = json!(next);
+    out["next_cursor"] = json!(next.zip(manifest_hash.as_deref()).map(|(index, hash)| cursor_text(hash, index)));
     Ok(out)
 }
 

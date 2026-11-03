@@ -35,6 +35,15 @@ pub fn docs_error(path: &str, err: DocsError) -> ToolError {
         )
         .with_received(detail())
         .with_expected(PAGE_EXPECTED),
+        DocsError::ChangedDuringRead { .. } => {
+            let next = if path == "/page" {
+                "Read the page again; it was being saved while it was read."
+            } else {
+                "Call designos_docs_list again; docs-manifest.json was being saved while it was read."
+            };
+            // A save during the read is a passing condition, not a bad argument: the same call is expected to succeed.
+            ToolError::new(ErrorCode::InvalidArguments, path, format!("{what} changed while it was read; fix: read it again")).with_safe_to_retry(true).with_next_step(next)
+        }
         DocsError::HardLinked { .. } => ToolError::new(
             ErrorCode::InvalidArguments,
             path,
