@@ -44,7 +44,13 @@ fn cursor_position(cursor: &str, manifest_hash: Option<&str>) -> Result<usize, T
         return Err(bad("cursor is not a next_cursor from designos_docs_list; fix: pass next_cursor exactly as returned, or omit cursor"));
     };
     if manifest_hash.is_none_or(|h| !h.starts_with(head)) {
-        return Err(bad("cursor is from an earlier manifest: the manifest changed; list again from the start (omit cursor)"));
+        return Err(ToolError::new(
+            ErrorCode::CursorStale,
+            "/cursor",
+            "cursor is from an earlier manifest: the manifest changed; list again from the start (omit cursor)",
+        )
+        .with_received(fence_capped(cursor, 200))
+        .with_next_step("Call designos_docs_list again without a cursor."));
     }
     Ok(index)
 }

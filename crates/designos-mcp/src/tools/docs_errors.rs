@@ -3,7 +3,7 @@
 //! `message` or `valid_options`, which cannot be fenced. It travels in `received`, inside the fence.
 
 use crate::tools::docs_fence::{fence, fence_capped};
-use crate::tools::errors::{ErrorCode, ToolError};
+use crate::tools::errors::{ErrorCode, ErrorKind, ToolError};
 use designos_docs::DocsError;
 
 const PAGE_EXPECTED: &str = "a page path as designos_docs_list returns it, such as spec/checkout.md";
@@ -28,13 +28,15 @@ pub fn docs_error(path: &str, err: DocsError) -> ToolError {
         )
         .with_received(detail())
         .with_expected(PAGE_EXPECTED),
+        // A link only the user can remove: retrying the same read cannot help, so the agent is told to stop.
         DocsError::OutsideDocs { .. } => ToolError::new(
             ErrorCode::InvalidArguments,
             path,
             format!("{what} resolves to a place outside the docs folder, so it was not read; fix: remove the symlink, or replace it with a real file inside the docs folder"),
         )
         .with_received(detail())
-        .with_expected(PAGE_EXPECTED),
+        .with_error_kind(ErrorKind::NeedsHuman)
+        .with_next_step(format!("Stop and tell the user: {what} points outside the docs folder (a symlink). Only they can remove it.")),
         DocsError::ChangedDuringRead { .. } => {
             let next = if path == "/page" {
                 "Read the page again; it was being saved while it was read."
@@ -49,7 +51,9 @@ pub fn docs_error(path: &str, err: DocsError) -> ToolError {
             path,
             format!("{what} has more than one hard link, so it may be another name for a file outside the docs folder and was not read; fix: replace it with a copy of the file"),
         )
-        .with_received(detail()),
+        .with_received(detail())
+        .with_error_kind(ErrorKind::NeedsHuman)
+        .with_next_step(format!("Stop and tell the user: {what} is hard-linked. Only they can replace it with a copy.")),
         DocsError::TooLarge { limit, .. } => {
             let (fix, next) = if path == "/page" {
                 ("split the page", "This page is over the limit and cannot be read. Tell the user to split it into smaller pages in Studio, or read another page.")

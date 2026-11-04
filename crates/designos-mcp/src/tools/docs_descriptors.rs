@@ -15,7 +15,7 @@ pub fn tool_descriptors() -> Vec<Value> {
     vec![
         json!({
             "name": "designos_docs_list",
-            "description": format!("List a project's doc pages and pins. Pages come grouped as overview, spec, screens, states and discovery. Every page path comes back fenced; pass the string inside `value` to designos_docs_read. At most ~{budget} serialized bytes come back; next_cursor says where to continue.{read_only_note}"),
+            "description": format!("List doc pages and pins. Pages come grouped as overview, spec, screens, states and discovery. Every page path comes back fenced; pass the string inside `value` to designos_docs_read. At most ~{budget} serialized bytes come back; next_cursor says where to continue.{read_only_note}"),
             "inputSchema": {"type": "object", "properties": {"project": project, "cursor": {"type": "string", "maxLength": 64, "description": "Where to continue: the next_cursor of the previous call, unchanged. Omit it for the first call. If the manifest changed since, it is refused: list again."}}, "required": [], "additionalProperties": false},
             "outputSchema": tool_output_schema(
                 json!({
@@ -48,7 +48,7 @@ pub fn tool_descriptors() -> Vec<Value> {
         }),
         json!({
             "name": "designos_docs_read",
-            "description": format!("Read one doc page as blocks. Each has an index, kind, hash and Markdown. The index is the block's id. The page also has a hash, title, description, group and any front-matter problems. Blocks of kind raw hold Markdown Studio does not model, comments included. About {budget} serialized bytes come back; next_start says where to continue: pass it as range.start with the same page_hash. A single block over that is cut and flagged truncated, and its rest cannot be read here: ask the user to split it in Studio.{read_only_note}"),
+            "description": format!("Read a doc page as blocks. Each has an index, kind, hash and Markdown. The index is the block's id. The page also has a hash, title, description, group and any front-matter problems. Blocks of kind raw hold Markdown Studio does not model, comments included. About {budget} serialized bytes come back; next_start says where to continue: pass it as range.start with the same page_hash. A single block over that is cut and flagged truncated, and its rest cannot be read here: ask the user to split it in Studio.{read_only_note}"),
             "inputSchema": {
                 "type": "object",
                 "properties": {
