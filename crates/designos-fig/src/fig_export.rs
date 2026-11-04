@@ -826,6 +826,13 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
             }
             Style::Text(ts) => {
                 append_shared_text_style_fields(&mut fields, ts);
+                // The paints of the style are the text colour a layer takes from it; a style without paints writes no field.
+                if !ts.fills.is_empty() {
+                    fields.push((
+                        "fillPaints",
+                        V::Array(ts.fills.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect()),
+                    ));
+                }
                 let var_entries = encode_var_entries_from_bindings(cx, bindings);
                 if !var_entries.is_empty() {
                     fields.push(("variableConsumptionMap", msg(vec![("entries", V::Array(var_entries))])));
