@@ -180,6 +180,85 @@ fn fig_design_export_keeps_label_as_group() {
     );
 }
 
+/// One connector, elbowed, with the given arrowheads and node stroke cap, placed between two frames.
+fn design_doc_with_connector_caps(label: Option<&str>, start: ConnectorCap, end: ConnectorCap, node_cap: StrokeCap) -> Document {
+    let (mut doc, _a, _b, c) = design_doc_with_connector(label);
+    if let Some(NodeKind::Connector(p)) = doc.get_mut(c).map(|n| &mut n.kind) {
+        p.start_cap = start;
+        p.end_cap = end;
+    }
+    doc.get_mut(c).expect("connector node").stroke.cap = node_cap;
+    sync_connector(&mut doc, c);
+    doc
+}
+
+/// The caps in a `.fig` vector's style table, in vertex order.
+fn fig_vertex_caps(vector_nc: &Value) -> Vec<String> {
+    let table = vector_nc["vectorData"]["styleOverrideTable"].as_array();
+    table.map(|t| t.iter().filter_map(|e| e["strokeCap"].as_str().map(str::to_owned)).collect()).unwrap_or_default()
+}
+
+/// The vector carrying the connector's line in a `.fig`: the node itself, or the first child of its label group.
+fn fig_connector_vector<'a>(changes: &'a [Value], labelled: bool) -> &'a Value {
+    let top = change_named(changes, "Flow Arrow");
+    if !labelled {
+        assert_eq!(top["type"], "VECTOR");
+        return top;
+    }
+    assert_eq!(top["type"], "GROUP");
+    changes.iter().find(|n| n["parentIndex"]["guid"] == top["guid"] && n["type"] == "VECTOR").expect("label group vector")
+}
+
+fn rest_vertex_cap(vertex: Option<&Value>) -> Option<&str> {
+    vertex.and_then(|v| v["strokeCap"].as_str())
+}
+
+#[test]
+fn fig_open_connector_ends_take_the_node_stroke_cap() {
+    for label in [None, Some("approves")] {
+        let labelled = label.is_some();
+        // (start arrowhead, end arrowhead, node cap, expected caps at the first and last vertex, expected node-level cap)
+        let cases: [(ConnectorCap, ConnectorCap, StrokeCap, &[&str], &str); 3] = [
+            (ConnectorCap::None, ConnectorCap::None, StrokeCap::Round, &["ROUND", "ROUND"], "ROUND"),
+            (ConnectorCap::None, ConnectorCap::Arrow, StrokeCap::Round, &["ROUND", "ARROW_LINES"], "ROUND"),
+            (ConnectorCap::None, ConnectorCap::None, StrokeCap::None, &[], "NONE"),
+        ];
+        for (start, end, node_cap, expected_vertex_caps, expected_node_cap) in cases {
+            let doc = design_doc_with_connector_caps(label, start, end, node_cap);
+            let changes = decoded_changes(&export_fig(&doc).expect("export_fig"));
+            let vector = fig_connector_vector(&changes, labelled);
+            let ctx = format!("labelled={labelled} start={start:?} end={end:?} node_cap={node_cap:?}");
+            assert_eq!(fig_vertex_caps(vector), expected_vertex_caps, ".fig vertex caps, {ctx}");
+            assert_eq!(vector["strokeCap"], expected_node_cap, ".fig node-level cap, {ctx}");
+        }
+    }
+}
+
+#[test]
+fn rest_open_connector_ends_take_the_node_stroke_cap() {
+    for label in [None, Some("approves")] {
+        let labelled = label.is_some();
+        // (start arrowhead, end arrowhead, node cap, expected caps at the first and last vertex, expected node-level cap)
+        let cases: [(ConnectorCap, ConnectorCap, StrokeCap, [Option<&str>; 2], &str); 3] = [
+            (ConnectorCap::None, ConnectorCap::None, StrokeCap::Round, [Some("ROUND"), Some("ROUND")], "ROUND"),
+            (ConnectorCap::None, ConnectorCap::Arrow, StrokeCap::Round, [Some("ROUND"), Some("ARROW_LINES")], "ROUND"),
+            (ConnectorCap::None, ConnectorCap::None, StrokeCap::None, [None, None], "NONE"),
+        ];
+        for (start, end, node_cap, expected_vertex_caps, expected_node_cap) in cases {
+            let doc = design_doc_with_connector_caps(label, start, end, node_cap);
+            let rest = export_rest_json(&doc);
+            let page_children = rest["document"]["children"][0]["children"].as_array().expect("page children");
+            let top = page_children.iter().find(|n| n["name"] == "Flow Arrow").expect("Flow Arrow in REST export");
+            let vector = if labelled { &top["children"][0] } else { top };
+            let ctx = format!("labelled={labelled} start={start:?} end={end:?} node_cap={node_cap:?}");
+            assert_eq!(vector["type"], "VECTOR", "{ctx}");
+            let vertices = vector["vectorNetwork"]["vertices"].as_array().expect("vectorNetwork vertices");
+            assert_eq!([rest_vertex_cap(vertices.first()), rest_vertex_cap(vertices.last())], expected_vertex_caps, "REST vertex caps, {ctx}");
+            assert_eq!(vector["strokeCap"], expected_node_cap, "REST node-level cap, {ctx}");
+        }
+    }
+}
+
 #[test]
 fn fig_design_round_trip_restores_live_connector() {
     let (doc, a, b, c) = design_doc_with_connector(Some("yes"));

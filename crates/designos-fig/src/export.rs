@@ -773,7 +773,7 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                         "strokeAlign": "CENTER",
                         "fillGeometry": [],
                         "strokeGeometry": geometry(std::slice::from_ref(&lc.local_route.path())),
-                        "vectorNetwork": crate::vecnet::network_to_json(&lc.network),
+                        "vectorNetwork": crate::vecnet::network_to_json(&network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap)),
                         "strokeCap": crate::vecnet::cap_name(node.stroke.cap),
                         "strokeJoin": stroke_join_name(node.stroke.join),
                         "pluginData": {"designos-studio:field:studioConnector": carrier_str},
@@ -808,7 +808,7 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 } else {
                     m.insert("fillGeometry".into(), Value::Array(Vec::new()));
                     m.insert("strokeGeometry".into(), geometry(std::slice::from_ref(&lc.local_route.path())));
-                    m.insert("vectorNetwork".into(), crate::vecnet::network_to_json(&lc.network));
+                    m.insert("vectorNetwork".into(), crate::vecnet::network_to_json(&network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap)));
                 }
             } else {
                 crate::board::export_fields(node, parent_abs.map(|p| p.translation()).unwrap_or(Vec2::ZERO), &mut m, &|t| figma_id(doc, t));
@@ -925,6 +925,21 @@ pub fn export_rest_json(doc: &Document) -> Value {
         out["editorType"] = "figjam".into();
     }
     out
+}
+
+/// A lowered connector's network with the node's stroke cap on each end that carries no arrowhead of its own, so an
+/// open end is capped like the live connector body whether a reader takes caps per vertex or from the node.
+pub(crate) fn network_with_node_cap_on_open_ends(net: &VectorNetwork, node_cap: StrokeCap) -> VectorNetwork {
+    let mut capped = net.clone();
+    if node_cap != StrokeCap::None {
+        if let Some(first) = capped.vertices.first_mut() {
+            first.cap.get_or_insert(node_cap);
+        }
+        if let Some(last) = capped.vertices.last_mut() {
+            last.cap.get_or_insert(node_cap);
+        }
+    }
+    capped
 }
 
 fn stroke_join_name(join: StrokeJoin) -> &'static str {

@@ -1533,7 +1533,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                     if !sgs.is_empty() {
                         fields.push(("strokeGeometry", V::Array(sgs)));
                     }
-                    let (blob_bytes, style_table) = encode_vector_network_blob(&lc.network);
+                    let (blob_bytes, style_table) =
+                        encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap));
                     let blob_idx = cx.add_blob(blob_bytes);
                     let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
                     if !style_table.is_empty() {
@@ -1640,7 +1641,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
                         StrokeJoin::Round => "ROUND",
                     }),
                 ),
-                ("strokeCap", en("NONE")),
+                ("strokeCap", en(crate::vecnet::cap_name(node.stroke.cap))),
             ];
             if !node.stroke.dashes.is_empty() {
                 v_fields.push(("dashPattern", V::Array(node.stroke.dashes.iter().map(|&d| fl(d)).collect())));
@@ -1649,7 +1650,7 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             if !sgs.is_empty() {
                 v_fields.push(("strokeGeometry", V::Array(sgs)));
             }
-            let (blob_bytes, style_table) = encode_vector_network_blob(&lc.network);
+            let (blob_bytes, style_table) = encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap));
             let blob_idx = cx.add_blob(blob_bytes);
             let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
             if !style_table.is_empty() {
