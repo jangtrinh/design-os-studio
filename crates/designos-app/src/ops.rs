@@ -3531,6 +3531,39 @@ mod tests {
     }
 
     #[test]
+    fn resize_to_fit_group_does_not_reinclude_hidden_child_on_child_edit() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let gid = doc.alloc_id();
+        let mut group = Node::new(gid, NodeKind::Group);
+        group.transform = Affine::translate(10.0, 20.0);
+        group.size = Vec2::new(300.0, 300.0);
+        doc.insert(page, group).unwrap();
+
+        let visible = doc.alloc_id();
+        doc.insert(gid, Node::rectangle(visible, Rect::new(30.0, 40.0, 50.0, 60.0))).unwrap();
+        let hidden = doc.alloc_id();
+        let mut hidden_node = Node::rectangle(hidden, Rect::new(200.0, 220.0, 80.0, 70.0));
+        hidden_node.visible = false;
+        doc.insert(gid, hidden_node).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![gid];
+        assert!(app.resize_to_fit());
+        let fitted = app.doc.get(gid).unwrap();
+        assert_eq!(fitted.size, Vec2::new(50.0, 60.0));
+
+        // Editing the visible child re-runs the enclosing group's fit. The hidden child must
+        // remain excluded, otherwise the group grows back to include its stale bounds.
+        app.selection = vec![visible];
+        app.nudge(1.0, 0.0);
+        let after = app.doc.get(gid).unwrap();
+        assert_eq!(after.size, Vec2::new(50.0, 60.0));
+        assert_eq!((after.transform.tx, after.transform.ty), (41.0, 60.0));
+    }
+
+    #[test]
     fn resize_to_fit_component_and_component_set_fit_visible_children() {
         let mut doc = Document::new("t");
         let page = doc.add_page("p");
