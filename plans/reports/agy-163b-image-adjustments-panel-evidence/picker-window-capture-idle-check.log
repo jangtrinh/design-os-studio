@@ -1,0 +1,4 @@
+$ ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}'
+23
+window_capture_gate: SKIPPED (owner active: HIDIdleTime 23s < 300s threshold per brief-common-argon.txt:15)
+fallback_evidence: headless egui picker renders saved at picker-image-adjustments-open.png (240x528) and picker-image-adjustments-reset.png (240x528)

@@ -1,0 +1,44 @@
+# mutants, each applied to the committed tree (c97f3d0d9) with one change, run, then reverted
+
+## mutant i: the non-Crop branch drops the node's own angle again (the angle is written after the early return)
+test image_adjust::tests::outside_crop_each_node_keeps_the_frame_and_the_angle_it_stored_and_a_turn_drops_the_frame ... FAILED
+thread 'image_adjust::tests::outside_crop_each_node_keeps_the_frame_and_the_angle_it_stored_and_a_turn_drops_the_frame' (99259973) panicked at crates/designos-render/src/image_adjust/tests.rs:258:13:
+assertion `left == right` failed: Fill: the picker's angle is not written over the node's
+  left: 0.0
+ right: 90.0
+test result: FAILED. 15 passed; 1 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.14s
+test widgets::picker::tests::leaving_crop_keeps_each_nodes_own_angle_and_coming_back_restores_it ... FAILED
+thread 'widgets::picker::tests::leaving_crop_keeps_each_nodes_own_angle_and_coming_back_restores_it' (99264618) panicked at crates/designos-app/src/widgets/picker.rs:4355:9:
+assertion `left == right` failed: each node keeps its own angle in Tile
+  left: (0.0, 0.0)
+ right: (0.0, 90.0)
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 4373 filtered out; finished in 0.05s
+
+## mutant ii: the adjusted Fit and out-of-bounds Crop path builds the padded copy again
+test image_adjust::tests::adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent ... FAILED
+test image_adjust::tests::adjusted_quarter_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent ... FAILED
+thread 'image_adjust::tests::adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent' (99288428) panicked at crates/designos-render/src/image_adjust/tests.rs:49:5:
+Fit: a pixmap of 12014004 pixels was allocated for a fill of which 4096 pixels are on screen
+thread 'image_adjust::tests::adjusted_quarter_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent' (99288429) panicked at crates/designos-render/src/image_adjust/tests.rs:49:5:
+turned Crop: a pixmap of 12014004 pixels was allocated for a fill of which 4096 pixels are on screen
+test result: FAILED. 14 passed; 2 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.28s
+
+## mutant iii (extra): the picture is sampled without clearing what lies outside it
+test image_adjust::tests::a_fit_fill_over_the_scratch_limit_is_drawn_unadjusted_with_its_letterbox_and_counted ... FAILED
+test image_adjust::tests::adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent ... FAILED
+test image_adjust::tests::adjusted_quarter_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent ... FAILED
+thread 'image_adjust::tests::a_fit_fill_over_the_scratch_limit_is_drawn_unadjusted_with_its_letterbox_and_counted' (99277071) panicked at crates/designos-render/src/image_adjust/tests.rs:319:5:
+assertion `left == right` failed: the letterbox is transparent
+thread 'image_adjust::tests::adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent' (99277075) panicked at crates/designos-render/src/image_adjust/tests.rs:73:5:
+assertion `left == right` failed: the letterbox above the picture is transparent
+thread 'image_adjust::tests::adjusted_quarter_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent' (99277076) panicked at crates/designos-render/src/image_adjust/tests.rs:85:5:
+assertion `left == right` failed: left of the turned picture is transparent
+test result: FAILED. 13 passed; 3 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.13s
+test the_letterbox_and_the_area_outside_a_turned_crop_stay_transparent_when_the_picture_is_adjusted ... FAILED
+thread 'the_letterbox_and_the_area_outside_a_turned_crop_stay_transparent_when_the_picture_is_adjusted' (99277338) panicked at crates/designos-render/tests/image_adjust_sampling.rs:177:17:
+assertion `left == right` failed: Fit: (0, 0) outside the picture is what the unadjusted fill gives
+test result: FAILED. 4 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test an_adjusted_fit_letterbox_and_turned_crop_stay_transparent_and_match_between_cpu_and_gpu ... FAILED
+thread 'an_adjusted_fit_letterbox_and_turned_crop_stay_transparent_and_match_between_cpu_and_gpu' (99278861) panicked at crates/designos-gpu/tests/fidelity.rs:1559:17:
+assertion `left == right` failed: fit: CPU (0, 0) outside the picture equals the unadjusted render
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.20s
