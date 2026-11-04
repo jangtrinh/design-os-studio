@@ -1,0 +1,24 @@
+# adjusted Fit, 4032x3024 picture in a 4032x4032 node, one 256x256 tile at dpr 2, release profile, 5 runs per line
+## d4b20b427 (crates/designos-render/src from d4b20b427)
+FIT_TILE_TIME unadjusted: min 41.60 ms, median 42.15 ms, max 52.95 ms (5 runs)
+FIT_TILE_TIME exposure+contrast+saturation: min 49.31 ms, median 51.21 ms, max 52.17 ms (5 runs)
+## head
+FIT_TILE_TIME unadjusted: min 47.74 ms, median 63.98 ms, max 95.49 ms (5 runs)
+FIT_TILE_TIME exposure+contrast+saturation: min 10.33 ms, median 10.44 ms, max 11.35 ms (5 runs)
+## head, two more runs
+FIT_TILE_TIME unadjusted: min 41.75 ms, median 45.56 ms, max 60.55 ms (5 runs)
+FIT_TILE_TIME exposure+contrast+saturation: min 9.83 ms, median 10.21 ms, max 10.76 ms (5 runs)
+FIT_TILE_TIME unadjusted: min 41.23 ms, median 41.95 ms, max 42.23 ms (5 runs)
+FIT_TILE_TIME exposure+contrast+saturation: min 9.80 ms, median 10.03 ms, max 10.49 ms (5 runs)
+
+# adjusted Fill tile (unchanged code path, same machine, for noise)
+## d4b20b427
+TILE_TIME unadjusted: min 1.12 ms, median 1.13 ms, max 1.13 ms (5 runs)
+TILE_TIME exposure+contrast+saturation: min 9.91 ms, median 10.42 ms, max 10.52 ms (5 runs)
+## head
+perf-head-release.log:TILE_TIME unadjusted: min 1.18 ms, median 1.22 ms, max 1.61 ms (5 runs)
+perf-head-release.log:TILE_TIME exposure+contrast+saturation: min 11.72 ms, median 12.89 ms, max 15.64 ms (5 runs)
+perf-head-release-reruns.log:TILE_TIME unadjusted: min 1.08 ms, median 1.13 ms, max 1.21 ms (5 runs)
+perf-head-release-reruns.log:TILE_TIME exposure+contrast+saturation: min 10.30 ms, median 10.39 ms, max 12.04 ms (5 runs)
+perf-head-release-reruns.log:TILE_TIME unadjusted: min 1.15 ms, median 1.16 ms, max 1.17 ms (5 runs)
+perf-head-release-reruns.log:TILE_TIME exposure+contrast+saturation: min 9.74 ms, median 10.05 ms, max 10.41 ms (5 runs)
