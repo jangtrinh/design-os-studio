@@ -169,8 +169,15 @@ fn indexed_bounds(index: Option<&designos_render::SceneIndex>, id: NodeId) -> Op
 /// Whether `p` (in the connector's parent space) is on the line of connector `id`.
 fn connector_hit(doc: &Document, id: NodeId, parent_local: Vec2, tol: f32) -> bool {
     let Some(n) = doc.get(id) else { return false };
+    let margin = n.stroke.weight / 2.0 + tol * 3.0;
+    let Some(box_bounds) = designos_doc::connector_route_bounds(doc, id, margin) else {
+        return false;
+    };
+    if !box_bounds.contains(parent_local) {
+        return false;
+    }
     let Some(route) = designos_doc::connector_route(doc, id) else { return false };
-    route.distance_to(parent_local) <= n.stroke.weight / 2.0 + tol * 3.0
+    route.distance_to(parent_local) <= margin
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -192,10 +199,18 @@ fn hit_in(
         pn.children.len() > 64
             && matches!(pn.kind, NodeKind::Page { .. })
             && pn.children.iter().find(|&&c| doc.get(c).is_some_and(|n| n.visible)).is_some_and(|&c| i.bounds_of(c).is_some())
-            && !pn.children.iter().any(|&c| matches!(doc.get(c).map(|n| &n.kind), Some(NodeKind::Connector(_))))
     }) {
-        let m = tol + 4.0;
-        idx.query_top_level((p.x - m, p.y - m, p.x + m, p.y + m), &mut top_cands);
+        let m = tol * 3.0 + 4.0;
+        let window = (p.x - m, p.y - m, p.x + m, p.y + m);
+        // A connector is drawn along its live route, which can leave its stored box, so the grid cannot pick
+        // the connectors near `p`. The index keeps each connector's live route box and returns the ones near the
+        // window (`connector_hit` still tests each); when the document changed since the index last synced with
+        // it those boxes are out of date, so every page-level connector is a candidate instead.
+        if idx.connector_routes_current(doc) {
+            idx.query_top_level_with_connectors(window, &mut top_cands);
+        } else {
+            idx.query_top_level_with_every_connector(window, &mut top_cands);
+        }
         &top_cands
     } else {
         &pn.children
@@ -783,5 +798,267 @@ mod tests {
         }
         assert_eq!(marquee_both_ways(&d, page, &Rect::new(0.0, 0.0, 60.0, 60.0)), vec![comp], "partial marquee selects component whole");
         assert_eq!(marquee_both_ways(&d, page, &Rect::new(-10.0, -10.0, 400.0, 400.0)), vec![comp], "enclosing marquee selects component whole");
+    }
+
+    #[test]
+    fn hit_test_rejects_far_connectors_by_box_first() {
+        designos_doc::clear_route_cache();
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let mut items = Vec::with_capacity(200);
+        for i in 0..200usize {
+            let col = (i % 20) as f32;
+            let row = (i / 20) as f32;
+            let id = d.alloc_id();
+            d.insert(page, Node::sticky(id, Rect::new(col * 220.0, row * 220.0, 120.0, 100.0), "s")).unwrap();
+            items.push(id);
+        }
+        let mut cids = Vec::with_capacity(1_000);
+        for k in 0..1_000usize {
+            let a = items[k % 200];
+            let b = items[(k * 7 + 1) % 200];
+            let cid = d.alloc_id();
+            let props = designos_doc::ConnectorProps {
+                start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+                end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+                ..Default::default()
+            };
+            d.insert(page, Node::connector(cid, props)).unwrap();
+            designos_doc::sync_connector(&mut d, cid);
+            cids.push(cid);
+        }
+
+        let stats_before = designos_doc::route_cache_stats();
+        assert_eq!(stats_before, (0, 1_000));
+
+        let far_pt = v2(-5_000.0, -5_000.0);
+        let hit = hit_test(&d, page, far_pt, 2.0, false, &[]);
+        assert_eq!(hit, None);
+        assert_eq!(
+            designos_doc::route_cache_stats(),
+            stats_before,
+            "far hit test should reject all 1,000 connectors by route bounding box without computing or evaluating routes"
+        );
+
+        // The scene index lists every page-level connector as a candidate; each must still reject by its cached box.
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        assert_eq!(hit_test_with_index(&d, page, far_pt, 2.0, false, &[], Some(&idx)), None);
+        assert_eq!(
+            designos_doc::route_cache_stats(),
+            stats_before,
+            "far indexed hit test should reject all 1,000 connectors by cached route bounds without computing or evaluating routes"
+        );
+
+        // Hitting directly on the midpoint of the top-most connector between adjacent nodes still routes and hits.
+        let top_cid = *cids.last().unwrap();
+        let mid = designos_doc::connector_route(&d, top_cid).unwrap().midpoint();
+        let (h_before, m_before) = designos_doc::route_cache_stats();
+        let near_hit = hit_test(&d, page, mid, 2.0, false, &[]);
+        assert!(near_hit.is_some());
+        let (h_after, m_after) = designos_doc::route_cache_stats();
+        assert!(h_after > h_before, "expected at least one route evaluation when probing on a connector");
+        assert_eq!(m_after, m_before, "expected 0 route recomputations when probing on a synced connector");
+    }
+
+    #[test]
+    fn hit_test_hits_connector_after_anchor_moves_without_sync() {
+        let mut d = Document::new("t");
+        assert_eq!(d.kind, designos_doc::DocumentKind::Design);
+        let page = d.add_page("p");
+        let a_id = d.alloc_id();
+        let a = d.insert(page, Node::sticky(a_id, Rect::new(0.0, 0.0, 100.0, 100.0), "a")).unwrap();
+        let b_id = d.alloc_id();
+        let b = d.insert(page, Node::sticky(b_id, Rect::new(300.0, 0.0, 100.0, 100.0), "b")).unwrap();
+        let c_id = d.alloc_id();
+        let props = designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+            ..Default::default()
+        };
+        let c = d.insert(page, Node::connector(c_id, props)).unwrap();
+        designos_doc::sync_connector(&mut d, c);
+
+        let mut moved_copy = d.clone();
+        moved_copy.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+        let new_mid = designos_doc::connector_route(&moved_copy, c).unwrap().midpoint();
+        assert!(new_mid.y > 250.0, "expected moved route midpoint below old box, got {new_mid:?}");
+
+        // Restore the route cache entry for `c` to the old synced state, then move `b` via get_mut
+        // without calling sync_connector so both the stored node box and cache entry start at the old position.
+        designos_doc::sync_connector(&mut d, c);
+        d.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+
+        let hit = hit_test(&d, page, new_mid, 2.0, false, &[]);
+        assert_eq!(hit, Some(c), "click at new route midpoint at tol=2 must hit connector even when stored node box is stale");
+    }
+
+    #[test]
+    fn hit_test_keeps_scene_index_path_with_page_level_connectors() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        for i in 0..200usize {
+            let col = (i % 20) as f32;
+            let row = (i / 20) as f32;
+            let fid = d.alloc_id();
+            d.insert(page, Node::frame(fid, Rect::new(col * 560.0, row * 1_040.0, 390.0, 844.0))).unwrap();
+        }
+        let mut items = Vec::with_capacity(2_000);
+        for i in 0..2_000usize {
+            let col = (i % 50) as f32;
+            let row = (i / 50) as f32;
+            let id = d.alloc_id();
+            d.insert(page, Node::sticky(id, Rect::new(col * 240.0, 11_000.0 + row * 220.0, 140.0, 120.0), "n")).unwrap();
+            items.push(id);
+        }
+        let mut cids = Vec::with_capacity(1_000);
+        for k in 0..1_000usize {
+            let a = items[(k * 2) % 2_000];
+            let b = items[(k * 2 + 1) % 2_000];
+            let cid = d.alloc_id();
+            let props = designos_doc::ConnectorProps {
+                start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+                end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+                ..Default::default()
+            };
+            d.insert(page, Node::connector(cid, props)).unwrap();
+            designos_doc::sync_connector(&mut d, cid);
+            cids.push(cid);
+        }
+
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+
+        let mut sample_pts = Vec::with_capacity(200);
+        for k in 0..50usize {
+            let col = (k % 20) as f32;
+            let row = (k / 20) as f32;
+            sample_pts.push(v2(col * 560.0 + 195.0, row * 1_040.0 + 422.0));
+        }
+        for k in 0..50usize {
+            let col = (k % 50) as f32;
+            let row = (k / 50) as f32;
+            sample_pts.push(v2(col * 240.0 + 70.0, 11_000.0 + row * 220.0 + 60.0));
+        }
+        for k in 0..50usize {
+            let mid = designos_doc::connector_route(&d, cids[k * 20]).unwrap().midpoint();
+            sample_pts.push(mid);
+        }
+        for k in 0..50usize {
+            sample_pts.push(v2(-2_000.0 - k as f32 * 50.0, -2_000.0 - k as f32 * 50.0));
+        }
+
+        for &pt in &sample_pts {
+            let with_idx = hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx));
+            let without_idx = hit_test(&d, page, pt, 2.0, false, &[]);
+            assert_eq!(with_idx, without_idx, "SceneIndex hit-test mismatch at {pt:?}");
+        }
+
+        // Warmup and measure p95 latency of hit_test_with_index across the 200 sample points.
+        for &pt in &sample_pts {
+            std::hint::black_box(hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx)));
+        }
+        let (_, misses_before) = designos_doc::route_cache_stats();
+        let mut samples_us: Vec<f64> = Vec::with_capacity(sample_pts.len());
+        for &pt in &sample_pts {
+            let mut best_us = f64::INFINITY;
+            for _ in 0..3 {
+                let t0 = std::time::Instant::now();
+                let res = std::hint::black_box(hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx)));
+                let elapsed_us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+                let _ = res;
+                if elapsed_us < best_us {
+                    best_us = elapsed_us;
+                }
+            }
+            samples_us.push(best_us);
+        }
+        let (_, misses_after) = designos_doc::route_cache_stats();
+        assert_eq!(misses_after, misses_before, "hover hit-test with SceneIndex must not recompute any cached connector routes");
+        samples_us.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        let p50_us = samples_us[samples_us.len() / 2];
+        let p95_idx = ((samples_us.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(samples_us.len() - 1);
+        let p95_us = samples_us[p95_idx];
+        let scale = if cfg!(debug_assertions) || std::env::var_os("CI").is_some() { 15.0 } else { 1.0 };
+        let budget_us = 1_000.0 * scale;
+        eprintln!(
+            "[hit_test_keeps_scene_index_path_with_page_level_connectors] n={} p50={p50_us:.2}us p95={p95_us:.2}us budget={budget_us:.0}us",
+            samples_us.len()
+        );
+        assert!(p95_us <= budget_us, "hover hit-test p95 {p95_us:.2}us exceeded {budget_us:.0}us budget");
+    }
+
+    /// A page of more than 64 far-away rectangles (so hit testing goes through the scene index), two stickies at
+    /// (0, 0) and (300, 0), and a synced connector between them. Returns `(doc, page, a, b, connector)`.
+    fn indexed_connector_page() -> (Document, NodeId, NodeId, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        for i in 0..70usize {
+            let id = d.alloc_id();
+            d.insert(page, Node::rectangle(id, Rect::new(-5_000.0 + i as f32 * 30.0, 4_000.0, 20.0, 20.0))).unwrap();
+        }
+        let a_id = d.alloc_id();
+        let a = d.insert(page, Node::sticky(a_id, Rect::new(0.0, 0.0, 100.0, 100.0), "a")).unwrap();
+        let b_id = d.alloc_id();
+        let b = d.insert(page, Node::sticky(b_id, Rect::new(300.0, 0.0, 100.0, 100.0), "b")).unwrap();
+        let c_id = d.alloc_id();
+        let props = designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+            ..Default::default()
+        };
+        let c = d.insert(page, Node::connector(c_id, props)).unwrap();
+        designos_doc::sync_connector(&mut d, c);
+        (d, page, a, b, c)
+    }
+
+    /// Moves `b` straight down with `get_mut`, leaving the connector's stored box and route cache as they were
+    /// before the move. Returns the midpoint of the connector's live route.
+    fn move_end_without_sync(d: &mut Document, b: NodeId, c: NodeId) -> Vec2 {
+        let mut moved = d.clone();
+        moved.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+        let mid = designos_doc::connector_route(&moved, c).unwrap().midpoint();
+        assert!(mid.y > 250.0, "expected the moved route to leave the stored connector box, got {mid:?}");
+        d.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+        designos_doc::clear_route_cache();
+        mid
+    }
+
+    #[test]
+    fn indexed_hit_test_finds_a_connector_whose_end_moved_without_sync() {
+        let (mut d, page, _a, b, c) = indexed_connector_page();
+        assert!(d.get(page).unwrap().children.len() > 64, "the page must be large enough to use the scene index");
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        let mid = move_end_without_sync(&mut d, b, c);
+
+        assert_eq!(hit_test(&d, page, mid, 2.0, false, &[]), Some(c), "without an index the live route is hit");
+        assert_eq!(hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)), Some(c), "an index built before the move must not hide it");
+        idx.ensure(&d, page, 2);
+        assert_eq!(
+            hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)),
+            Some(c),
+            "re-indexing the moved nodes does not change the stored connector box"
+        );
+    }
+
+    #[test]
+    fn indexed_hit_test_orders_a_stale_connector_by_paint_order() {
+        for connector_on_top in [true, false] {
+            let (mut d, page, _a, b, c) = indexed_connector_page();
+            let mid = move_end_without_sync(&mut d, b, c);
+            let rid = d.alloc_id();
+            let rect = d.insert(page, Node::rectangle(rid, Rect::new(mid.x - 30.0, mid.y - 30.0, 60.0, 60.0))).unwrap();
+            let last = d.get(page).unwrap().children.len() - 1;
+            if connector_on_top {
+                d.reparent(c, page, last).unwrap();
+            }
+            let mut idx = designos_render::SceneIndex::new();
+            idx.ensure(&d, page, 1);
+
+            let expected = if connector_on_top { c } else { rect };
+            assert_eq!(hit_test(&d, page, mid, 2.0, false, &[]), Some(expected), "unindexed, connector_on_top={connector_on_top}");
+            assert_eq!(hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)), Some(expected), "indexed, connector_on_top={connector_on_top}");
+        }
     }
 }

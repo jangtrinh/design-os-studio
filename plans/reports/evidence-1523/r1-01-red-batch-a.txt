@@ -1,0 +1,96 @@
+warning: /Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/fix_round_one.rs (target/debug/deps/fix_round_one-c0af57c681829603)
+
+running 10 tests
+test linked_specs_and_case_insensitive_duplicates_are_validated ... FAILED
+test bad_front_matter_values_leave_the_key_unset_and_the_page_readable ... FAILED
+test a_new_list_next_to_a_list_stays_a_separate_list ... FAILED
+test a_table_row_with_text_beyond_the_header_columns_is_kept_raw_so_no_cell_is_lost ... FAILED
+test pipes_typed_into_cells_and_code_spans_are_escaped_when_written ... FAILED
+test removing_a_block_that_is_not_there_is_an_error_not_a_panic ... FAILED
+test a_page_that_opens_with_a_thematic_break_is_not_swallowed_as_front_matter ... FAILED
+test front_matter_after_a_byte_order_mark_is_found_and_not_duplicated ... FAILED
+test edited_and_inserted_blocks_keep_the_crlf_line_endings_of_the_file ... FAILED
+test a_stuck_lock_holder_makes_the_save_fail_with_a_fix_instead_of_hanging ... FAILED
+
+failures:
+
+---- linked_specs_and_case_insensitive_duplicates_are_validated stdout ----
+
+thread 'linked_specs_and_case_insensitive_duplicates_are_validated' (101955690) panicked at crates/designos-docs/tests/fix_round_one.rs:149:63:
+[""] must be refused
+
+---- bad_front_matter_values_leave_the_key_unset_and_the_page_readable stdout ----
+
+thread 'bad_front_matter_values_leave_the_key_unset_and_the_page_readable' (101955687) panicked at crates/designos-docs/tests/fix_round_one.rs:6:42:
+page body must stay readable: front matter: `title` uses YAML syntax Studio does not read here (block, list, anchor or tag); fix: write `title: Some text` on one line, in double quotes if it contains `: ` or `#`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_new_list_next_to_a_list_stays_a_separate_list stdout ----
+
+thread 'a_new_list_next_to_a_list_stays_a_separate_list' (101955683) panicked at crates/designos-docs/tests/fix_round_one.rs:57:5:
+assertion `left == right` failed: "- new\n\n- x\n"
+  left: ["bullet_list"]
+ right: ["bullet_list", "bullet_list"]
+
+---- a_table_row_with_text_beyond_the_header_columns_is_kept_raw_so_no_cell_is_lost stdout ----
+
+thread 'a_table_row_with_text_beyond_the_header_columns_is_kept_raw_so_no_cell_is_lost' (101955686) panicked at crates/designos-docs/tests/fix_round_one.rs:27:9:
+assertion `left == right` failed: "| a | b |\n|---|---|\n| 1 | 2 | 3 |\n"
+  left: ["table"]
+ right: ["raw"]
+
+---- pipes_typed_into_cells_and_code_spans_are_escaped_when_written stdout ----
+
+thread 'pipes_typed_into_cells_and_code_spans_are_escaped_when_written' (101955691) panicked at crates/designos-docs/tests/fix_round_one.rs:46:5:
+assertion `left == right` failed
+  left: "x"
+ right: "x|y"
+
+---- removing_a_block_that_is_not_there_is_an_error_not_a_panic stdout ----
+
+thread 'removing_a_block_that_is_not_there_is_an_error_not_a_panic' (101955692) panicked at crates/designos-docs/src/model.rs:205:35:
+removal index (is 5) should be < len (is 1)
+
+thread 'removing_a_block_that_is_not_there_is_an_error_not_a_panic' (101955692) panicked at crates/designos-docs/tests/fix_round_one.rs:139:5:
+remove_block(5) on a one-block page panicked
+
+---- a_page_that_opens_with_a_thematic_break_is_not_swallowed_as_front_matter stdout ----
+
+thread 'a_page_that_opens_with_a_thematic_break_is_not_swallowed_as_front_matter' (101955684) panicked at crates/designos-docs/tests/fix_round_one.rs:92:5:
+assertion failed: page.front_matter().is_none()
+
+---- front_matter_after_a_byte_order_mark_is_found_and_not_duplicated stdout ----
+
+thread 'front_matter_after_a_byte_order_mark_is_found_and_not_duplicated' (101955689) panicked at crates/designos-docs/tests/fix_round_one.rs:78:34:
+front matter after a BOM
+
+---- edited_and_inserted_blocks_keep_the_crlf_line_endings_of_the_file stdout ----
+
+thread 'edited_and_inserted_blocks_keep_the_crlf_line_endings_of_the_file' (101955688) panicked at crates/designos-docs/tests/fix_round_one.rs:127:5:
+lone LF in "# A\r\n\r\n> [!note]\n> one\n> two\r\n\r\npara\n\nnew\n\n- a\n- b\r\n"
+
+---- a_stuck_lock_holder_makes_the_save_fail_with_a_fix_instead_of_hanging stdout ----
+
+thread 'a_stuck_lock_holder_makes_the_save_fail_with_a_fix_instead_of_hanging' (101955685) panicked at crates/designos-docs/tests/fix_round_one.rs:176:69:
+save hung on a lock held by someone else: Timeout
+
+
+failures:
+    a_new_list_next_to_a_list_stays_a_separate_list
+    a_page_that_opens_with_a_thematic_break_is_not_swallowed_as_front_matter
+    a_stuck_lock_holder_makes_the_save_fail_with_a_fix_instead_of_hanging
+    a_table_row_with_text_beyond_the_header_columns_is_kept_raw_so_no_cell_is_lost
+    bad_front_matter_values_leave_the_key_unset_and_the_page_readable
+    edited_and_inserted_blocks_keep_the_crlf_line_endings_of_the_file
+    front_matter_after_a_byte_order_mark_is_found_and_not_duplicated
+    linked_specs_and_case_insensitive_duplicates_are_validated
+    pipes_typed_into_cells_and_code_spans_are_escaped_when_written
+    removing_a_block_that_is_not_there_is_an_error_not_a_panic
+
+test result: FAILED. 0 passed; 10 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.04s
+
+error: test failed, to rerun pass `-p designos-docs --test fix_round_one`

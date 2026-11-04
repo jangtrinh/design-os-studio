@@ -1,0 +1,52 @@
+# cargo test -p designos-app --bin designos --locked on HEAD b09d487c8 (TMPDIR base /private/tmp, HOME and TMPDIR siblings)
+test agent_composer::tests::failed_start_of_a_system_send_never_lands_in_the_draft ... ok
+test agent_composer::tests::failed_start_returns_the_text_to_the_draft ... ok
+test agent_composer::tests::failed_start_returns_user_entries_in_order_and_discards_system_entry_with_notice ... ok
+test agent_picker::tests::failed_resume_last_session_keeps_the_plus_menu_open_with_a_notice ... ok
+test agent_session_files::folder_message_tests::the_status_line_of_a_failed_snapshot_says_what_to_do ... ok
+test agent_session_files::open_removed_link_tests::a_session_folder_link_the_agent_removes_after_the_failed_open_is_not_found_not_a_failure ... ok
+test agent_session_files::open_removed_link_tests::a_link_the_agent_removes_after_the_failed_open_is_tried_again_not_reported_as_a_failure ... ok
+test agent_sessions::tests::failed_start_with_empty_output_does_not_sleep_on_ui_thread ... ok
+test agent_start_failure::tests::only_a_quick_unclean_exit_counts_as_a_failed_start ... ok
+test agent_start_failure::tests::signed_out_output_beats_a_failed_install_probe ... ok
+test agent_start_failure::tests::unknown_flag_output_beats_a_failed_install_probe ... ok
+test agent_turn_status::tests::a_failed_receipt_names_the_class_in_words_not_as_a_hook_slug ... ok
+test agent_usage::tests::failed_usage_probe_preserves_previous_reading_until_source_is_gone ... ok
+test canvas::textsession::tests::a_failed_face_is_reported_once_per_session_but_retried_when_the_document_reloads ... ok
+test canvas::textsession::tests::bold_on_bundled_inter_starts_no_load_while_another_face_has_failed ... ok
+test canvas::textsession::tests::an_edit_that_adds_a_face_does_not_refetch_or_report_a_failed_face_of_another_text ... ok
+test canvas::textsession::tests::picking_the_family_again_reaches_a_failed_face_on_a_large_document ... ok
+test canvas::textsession::tests::picking_the_family_again_retries_a_failed_face_and_reports_it_again ... ok
+test edit::tests::a_failed_rollback_poisons_the_transaction_and_cancels_commit ... ok
+test fig_export::tests::export_copy_reports_a_failed_write ... ok
+test fig_export::tests::palette_export_reports_a_failed_write ... ok
+test fig_export::tests::home_export_reports_a_failed_write_and_does_not_retry_in_the_temp_folder ... ok
+test home::session::tests::failed_autosave_is_retried_by_the_next_frame_after_the_retry_delay ... ok
+test home::session::tests::failed_autosave_keeps_the_edit_and_its_error_while_the_file_changed_on_disk ... ok
+test io::tests::failed_save_leaves_original_intact ... ok
+test layout_snapshot::tests::open_failed_start_fixture_does_not_block_waiting_for_exit ... ok
+test live_log_wake::tests::a_failed_thread_start_is_tried_once_not_on_every_frame ... ok
+test live_doc_epoch_tests::edits_dropped_after_a_failed_load_are_reported_when_the_next_poll_brings_a_switch_that_loads ... ok
+test live_doc_epoch_tests::edits_dropped_on_a_failed_switch_are_still_reported_when_a_later_switch_in_the_same_poll_loads ... ok
+test live_doc_epoch_tests::edits_dropped_on_a_failed_switch_are_reported_when_the_good_switch_waits_for_a_drag_to_end ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 14.21s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 14.47s
+test shell::tests::fig_export_toast::a_failed_reveal_says_so ... ok
+test shell::tests::layout_unchanged::new_named_widget_is_reported_not_failed ... ok
+test shell::tests::panel_export::panel_export_failed_write_shows_error_toast_with_path_and_reason ... ok
+test shell::tests::unsaved_dot::a_failed_library_save_keeps_the_dot ... ok
+test terminal::gemini_launch_tests::a_failed_spawn_leaves_no_hooks_file_behind ... ok
+test terminal::capture_lock_tests::a_lock_released_between_a_failed_mkdir_and_the_next_look_is_taken_not_skipped ... ok
+test terminal::tests::a_failed_mode_save_keeps_ask_for_the_next_agent_tab ... ok
+test terminal::tests::failed_start_drain_in_the_bridge_poll_never_blocks_the_ui_thread ... ok
+test terminal::tests::clicking_the_fix_on_the_failed_tab_panel_opens_a_shell_tab ... ok
+test terminal::tests::the_app_setter_reports_a_failed_save_and_keeps_ask_until_a_save_works ... ok
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+failures:
+thread 'vecops::tests::two_deferred_text_commands_both_convert_in_order' (2083223) panicked at crates/designos-app/src/vecops.rs:1921:9:
+failures:
+    vecops::tests::two_deferred_text_commands_both_convert_in_order
+test result: FAILED. 4366 passed; 1 failed; 13 ignored; 0 measured; 0 filtered out; finished in 416.62s
+error: test failed, to rerun pass `-p designos-app --bin designos`
+rc=101

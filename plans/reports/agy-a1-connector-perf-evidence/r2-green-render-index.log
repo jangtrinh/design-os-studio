@@ -1,0 +1,23 @@
+# green on HEAD b09d487c8: designos-render index tests (includes the six new connector-list tests)
+test index::tests::hiding_an_ancestor_drops_the_layout_grids_beneath_it ... ok
+test index::tests::changing_the_kind_of_a_top_level_node_updates_the_connector_list ... ok
+test index::tests::moving_a_gridded_frame_under_a_hidden_group_drops_its_layout_grid ... ok
+test index::tests::moving_a_gridded_frame_to_another_page_drops_its_layout_grid ... ok
+test index::tests::hiding_and_showing_a_top_level_connector_updates_the_connector_list ... ok
+test index::tests::reordering_a_top_level_connector_re_sorts_the_connector_list ... ok
+test index::tests::hiding_a_deep_ancestor_drops_every_nested_layout_grid ... ok
+test index::tests::inserting_and_removing_a_top_level_connector_updates_the_connector_list ... ok
+test index::tests::reordering_siblings_on_the_page_re_sorts_the_layout_grid_list ... ok
+test index::tests::grid_nodes_tracks_only_visible_frames_with_layout_grids ... ok
+test index::tests::grid_nodes_stay_in_paint_order_after_incremental_edits ... ok
+test index::tests::moving_a_listed_frame_into_another_group_re_sorts_the_layout_grid_list ... ok
+test index::tests::reordering_siblings_inside_a_group_re_sorts_the_layout_grid_list ... ok
+test index::tests::reordering_while_the_group_is_translated_still_re_sorts_later_reorders ... ok
+test index::tests::grid_nodes_follow_paint_order_in_reverse_z_frames_on_open_and_after_a_toggle ... ok
+test index::tests::incremental_insert_remove_reparent_and_translate_match_full_ensure ... ok
+test index::tests::swapping_two_artboards_re_sorts_the_layout_grids_inside_them ... ok
+test index::tests::query_top_level_with_connectors_adds_every_connector_to_the_grid_hits_in_paint_order ... ok
+test index::tests::query_top_level_and_update_subtree_match_full_ensure ... ok
+test index::tests::top_level_connectors_lists_visible_page_connectors_in_paint_order ... ok
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 60 filtered out; finished in 0.01s
+rc=0

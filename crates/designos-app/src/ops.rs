@@ -360,6 +360,22 @@ impl App {
         }
     }
 
+    /// Closes an open colour-picker edit before a history navigation.
+    ///
+    /// Picker changes are applied live while their [`Tx`] stays open so a whole picker session can
+    /// commit as one undo step when it closes.  History navigation must first record that live
+    /// edit; otherwise the history step behind it can be undone while the picker still owns an old
+    /// snapshot, and the next picker change can restore that snapshot into the document.
+    pub(crate) fn commit_pending_picker_tx(&mut self) {
+        let Some(pk) = self.props.picker.as_mut() else { return };
+        if pk.tx.ed.touched().is_empty() {
+            return;
+        }
+        let tx = std::mem::replace(&mut pk.tx, Tx::new());
+        pk.state.reset_stop_origins(&pk.paint);
+        self.run_tx(tx);
+    }
+
     /// Applies `f` to each node and commits one undo step.
     pub fn edit_nodes(&mut self, ids: &[NodeId], mut f: impl FnMut(&mut Node)) {
         let mut tx = Tx::new();
@@ -507,7 +523,9 @@ impl App {
     }
 
     pub fn undo(&mut self) {
+        self.commit_pending_picker_tx();
         if self.try_undo_restore() {
+            crate::panels::var_bind::adopt_picker_paint_after_history(self);
             return;
         }
         let copy_undo_match =
@@ -524,22 +542,26 @@ impl App {
                 }
                 self.relayout_moved_geometry();
                 self.sanitize();
+                crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
-            Ok(false) => {}
+            Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
             Err(e) => self.show_toast(format!("Undo failed: {e}"), true),
         }
     }
 
     pub fn redo(&mut self) {
+        self.commit_pending_picker_tx();
         if self.try_redo_restore() {
+            crate::panels::var_bind::adopt_picker_paint_after_history(self);
             return;
         }
         match self.hist.redo(&mut self.doc) {
             Ok(true) => {
                 self.relayout_moved_geometry();
                 self.sanitize();
+                crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
-            Ok(false) => {}
+            Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
             Err(e) => self.show_toast(format!("Redo failed: {e}"), true),
         }
     }
@@ -3589,6 +3611,39 @@ mod tests {
         assert_eq!((g_after.transform.tx, g_after.transform.ty), (35.0, 55.0));
         assert_eq!(g_after.size, Vec2::new(80.0, 45.0));
         assert_affine_close(page_transform(&app.doc, c1), c1_page_before, 1e-4);
+    }
+
+    #[test]
+    fn resize_to_fit_group_does_not_reinclude_hidden_child_on_child_edit() {
+        let mut doc = Document::new("t");
+        let page = doc.add_page("p");
+        let gid = doc.alloc_id();
+        let mut group = Node::new(gid, NodeKind::Group);
+        group.transform = Affine::translate(10.0, 20.0);
+        group.size = Vec2::new(300.0, 300.0);
+        doc.insert(page, group).unwrap();
+
+        let visible = doc.alloc_id();
+        doc.insert(gid, Node::rectangle(visible, Rect::new(30.0, 40.0, 50.0, 60.0))).unwrap();
+        let hidden = doc.alloc_id();
+        let mut hidden_node = Node::rectangle(hidden, Rect::new(200.0, 220.0, 80.0, 70.0));
+        hidden_node.visible = false;
+        doc.insert(gid, hidden_node).unwrap();
+
+        let mut app = App::new(doc);
+        app.page = page;
+        app.selection = vec![gid];
+        assert!(app.resize_to_fit());
+        let fitted = app.doc.get(gid).unwrap();
+        assert_eq!(fitted.size, Vec2::new(50.0, 60.0));
+
+        // Editing the visible child re-runs the enclosing group's fit. The hidden child must
+        // remain excluded, otherwise the group grows back to include its stale bounds.
+        app.selection = vec![visible];
+        app.nudge(1.0, 0.0);
+        let after = app.doc.get(gid).unwrap();
+        assert_eq!(after.size, Vec2::new(50.0, 60.0));
+        assert_eq!((after.transform.tx, after.transform.ty), (41.0, 60.0));
     }
 
     #[test]

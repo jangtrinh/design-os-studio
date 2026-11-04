@@ -46,6 +46,30 @@ fn picker_action_id() -> Id {
     Id::new("picker-stop-bind-action")
 }
 
+/// After undo or redo: the picker shows what the document now holds, whatever paint type that is.
+pub(crate) fn adopt_picker_paint_after_history(app: &mut App) {
+    let Some(pk) = app.props.picker.as_mut() else { return };
+    if !pk.tx.ed.touched().is_empty() {
+        return;
+    }
+    let doc_paint = pk.ids.first().and_then(|id| app.doc.get(*id)).and_then(|n| match pk.target {
+        super::properties::PickTarget::Fill(pi) => n.fills.get(pi).cloned(),
+        super::properties::PickTarget::Stroke(pi) => n.stroke.paints.get(pi).cloned(),
+        _ => Some(pk.paint.clone()),
+    });
+    let Some(p) = doc_paint else {
+        app.props.picker = None;
+        app.props.eyedropper = None;
+        return;
+    };
+    pk.paint = p;
+    let n_stops = crate::widgets::picker::stops_of(&pk.paint.kind).map(|s| s.len()).unwrap_or(1);
+    pk.state.sel = pk.state.sel.min(n_stops.saturating_sub(1));
+    pk.state.reset_stop_origins(&pk.paint);
+    let rgba = crate::widgets::picker::active_rgba(&pk.paint, pk.state.sel);
+    pk.state.sync(rgba);
+}
+
 fn sync_picker_paint_from_doc(app: &mut App) {
     let Some(pk) = app.props.picker.as_mut() else { return };
     if !pk.tx.ed.touched().is_empty() {
@@ -402,13 +426,7 @@ pub(super) fn remap_indexed_bindings(bindings: &mut std::collections::BTreeMap<S
 }
 
 fn commit_picker_tx_before_bind(app: &mut App) {
-    if let Some(pk) = app.props.picker.as_mut() {
-        if !pk.tx.ed.touched().is_empty() {
-            let tx = std::mem::replace(&mut pk.tx, crate::edit::Tx::new());
-            pk.state.reset_stop_origins(&pk.paint);
-            app.run_tx(tx);
-        }
-    }
+    app.commit_pending_picker_tx();
 }
 
 fn draw_pill(

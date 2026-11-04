@@ -1,0 +1,18 @@
+# release perf, BASE 2fd054638 (pristine detached worktree), cargo test -p designos-gpu --test connector_perf --release --locked -- --nocapture
+Apple M4 Max
+/dev/disk3s1s1   926Gi    12Gi   265Gi     5%    459k  2.8G    0%   /
+    Finished `release` profile [optimized] target(s) in 1m 16s
+     Running tests/connector_perf.rs (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/cargo-base/release/deps/connector_perf-7d9e006b41f478ae)
+running 1 test
+=== perf_whiteboard_2000 summary ===
+1. Single elbow route (seeded 500):        p50 =   12.92 us | p95 =   22.00 us (budget <= 100 us)
+2. Steady-state pan/zoom (1,500 conn):     p50 =   1.549 ms | p95 =   1.844 ms | hits=30000 misses=0 (budget <= 3.5 ms, 0 misses)
+3. Drag 1 node (4 conn):                   p50 =   0.062 ms | p95 =   0.144 ms | max_misses=4 (budget <= 1.0 ms)
+4. Drag 1 hub (50 conn):                   p50 =   1.287 ms | p95 =   1.688 ms | max_misses=50 (budget <= 5.0 ms)
+5. Drag 1 stress hub (150 conn):           p50 =   5.749 ms | p95 =   5.859 ms | max_misses=150 (budget <= 12.0 ms)
+6. Multi-drag 20 nodes (80 conn):          p50 =   1.669 ms | p95 =   1.734 ms | max_misses=80 (budget <= 7.5 ms)
+7. Hover hit-test (2,200 nodes + 1k conn): p50 =    1.42 us | p95 =    3.88 us | max_checks=0 (budget <= 1000 us)
+8. Marquee 500x500 sweep (1,500 conn):     p50 =   0.005 ms | p95 =   0.013 ms (budget <= 1.5 ms)
+test perf_scene_whiteboard_2000_budgets ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+rc=0

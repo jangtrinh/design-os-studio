@@ -1,0 +1,301 @@
+# base 2fd054638 + tests-only patch; designos-app hit tests
+/dev/disk3s1s1   926Gi    12Gi   280Gi     5%    459k  2.9G    0%   /
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling unicode-ident v1.0.27
+   Compiling bitflags v2.13.2
+   Compiling smallvec v1.16.3
+   Compiling arrayvec v0.7.8
+   Compiling serde_core v1.0.229
+   Compiling objc2-encode v4.1.0
+   Compiling num-traits v0.2.19
+   Compiling zerocopy v0.8.62
+   Compiling foldhash v0.2.0
+   Compiling objc2 v0.6.5
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling either v1.19.0
+   Compiling ref-cast v1.0.27
+   Compiling fax v0.2.7
+   Compiling proc-macro2 v1.0.107
+   Compiling hashbrown v0.17.1
+   Compiling png v0.18.1
+   Compiling hashbrown v0.16.1
+   Compiling pin-project-lite v0.2.17
+   Compiling raw-window-handle v0.6.2
+   Compiling parking_lot_core v0.9.12
+   Compiling quote v1.0.47
+   Compiling getrandom v0.4.3
+   Compiling rustc-hash v2.1.3
+   Compiling syn v3.0.9
+   Compiling syn v2.0.119
+   Compiling scopeguard v1.2.0
+   Compiling dyn-clone v1.0.20
+   Compiling objc-sys v0.3.5
+   Compiling lock_api v0.4.14
+   Compiling naga v29.0.4
+   Compiling bit-vec v0.9.1
+   Compiling profiling v1.0.18
+   Compiling unicode-width v0.2.2
+   Compiling codespan-reporting v0.13.1
+   Compiling moxcms v0.8.1
+   Compiling euclid v0.22.14
+   Compiling bit-set v0.9.1
+   Compiling polycool v0.4.0
+   Compiling hexf-parse v0.2.1
+   Compiling rustc-hash v1.1.0
+   Compiling kurbo v0.13.1
+   Compiling rayon v1.12.0
+   Compiling block2 v0.6.2
+   Compiling synstructure v0.14.0
+   Compiling objc2-core-foundation v0.3.2
+   Compiling serde_derive_internals v0.30.0
+   Compiling kurbo v0.11.3
+   Compiling tracing-core v0.1.36
+   Compiling objc2-foundation v0.3.2
+   Compiling wgpu-hal v29.0.4
+   Compiling indexmap v2.14.2
+   Compiling uuid v1.28.0
+   Compiling utf8parse v0.2.2
+   Compiling dispatch v0.2.0
+   Compiling core-foundation-sys v0.8.7
+   Compiling core-foundation v0.9.4
+   Compiling parking_lot v0.12.5
+   Compiling svgtypes v0.15.3
+   Compiling accesskit v0.24.1
+   Compiling guillotiere v0.7.0
+   Compiling ahash v0.8.12
+   Compiling objc2-metal v0.3.2
+   Compiling objc2 v0.5.3
+   Compiling futures-sink v0.3.34
+   Compiling foreign-types-shared v0.3.1
+   Compiling unicode-general-category v1.1.0
+   Compiling futures-core v0.3.34
+   Compiling fearless_simd v0.4.1
+   Compiling block2 v0.5.1
+   Compiling objc2-foundation v0.2.2
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling winit v0.30.13
+   Compiling wgpu-core v29.0.4
+   Compiling litrs v1.0.0
+   Compiling winnow v1.0.4
+   Compiling objc2-quartz-core v0.3.2
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling raw-window-metal v1.1.0
+   Compiling document-features v0.2.12
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling wgpu v29.0.4
+   Compiling epaint_default_fonts v0.35.0
+   Compiling nohash-hasher v0.2.0
+   Compiling objc2-app-kit v0.2.2
+   Compiling anstyle v1.0.14
+   Compiling dpi v0.1.2
+   Compiling futures-task v0.3.34
+   Compiling slab v0.4.12
+   Compiling colorchoice v1.0.5
+   Compiling futures-io v0.3.34
+   Compiling cursor-icon v1.2.0
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling anstyle-query v1.1.5
+   Compiling smol_str v0.2.2
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling anstream v1.0.0
+   Compiling serde_spanned v1.1.2
+   Compiling nix v0.31.3
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling memoffset v0.6.5
+   Compiling clap_lex v1.1.1
+   Compiling bytes v1.12.1
+   Compiling strsim v0.11.1
+   Compiling static_assertions v1.1.0
+   Compiling thiserror v1.0.69
+   Compiling heck v0.5.0
+   Compiling zip v9.0.4
+   Compiling clap_builder v4.6.7
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling lyon_geom v1.0.19
+   Compiling termios v0.2.2
+   Compiling ioctl-rs v0.1.6
+   Compiling serial-core v0.4.0
+   Compiling web-time v1.1.0
+   Compiling accesskit_macos v0.26.3
+   Compiling rmcp v3.5.1
+   Compiling anyhow v1.0.104
+   Compiling winresource v0.1.34
+   Compiling lyon_path v1.0.19
+   Compiling serial-unix v0.4.0
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling type-map v0.5.1
+   Compiling rfd v0.17.2
+   Compiling pastey v0.2.3
+   Compiling pin-utils v0.1.1
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-mcp)
+   Compiling pollster v0.4.0
+   Compiling float_next_after v1.0.0
+   Compiling lyon_tessellation v1.0.22
+   Compiling vte v0.11.1
+   Compiling nix v0.25.1
+   Compiling serial v0.4.0
+   Compiling designos-app v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-app)
+   Compiling dispatch2 v0.3.1
+   Compiling shell-words v1.1.1
+   Compiling downcast-rs v1.2.1
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling unicode-width v0.1.14
+   Compiling open v5.4.4
+   Compiling vt100 v0.15.2
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling thiserror-impl v1.0.69
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling thiserror-impl v2.0.21
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling serde_derive v1.0.229
+   Compiling ref-cast-impl v1.0.27
+   Compiling schemars_derive v1.2.3
+   Compiling foreign-types-macros v0.2.4
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling clap_derive v4.6.7
+   Compiling foreign-types v0.5.0
+   Compiling core-graphics v0.23.2
+   Compiling tracing v0.1.44
+   Compiling filedescriptor v0.8.3
+   Compiling portable-pty v0.8.1
+   Compiling tokio v1.53.2
+   Compiling futures-util v0.3.34
+   Compiling clap v4.6.7
+   Compiling accesskit_winit v0.32.2
+   Compiling bytemuck v1.25.2
+   Compiling thiserror v2.0.21
+   Compiling zerofrom v0.1.8
+   Compiling futures-executor v0.3.34
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling tiny-skia-path v0.11.4
+   Compiling wgpu-types v29.0.4
+   Compiling color v0.3.3
+   Compiling rustybuzz v0.20.1
+   Compiling emath v0.35.0
+   Compiling futures v0.3.34
+   Compiling rgb v0.8.53
+   Compiling read-fonts v0.37.0
+   Compiling read-fonts v0.39.2
+   Compiling read-fonts v0.41.0
+   Compiling tiny-skia v0.11.4
+   Compiling peniko v0.6.1
+   Compiling ecolor v0.35.0
+   Compiling vello_common v0.0.9
+   Compiling tokio-util v0.7.20
+   Compiling chrono v0.4.45
+   Compiling yoke v0.8.3
+   Compiling vello_cpu v0.0.9
+   Compiling usvg v0.45.1
+   Compiling schemars v1.2.3
+   Compiling half v2.7.1
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling tiff v0.11.3
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling image v0.25.10
+   Compiling icu_collections v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling skrifa v0.44.0
+   Compiling harfrust v0.5.2
+   Compiling skrifa v0.40.0
+   Compiling url v2.5.8
+   Compiling ureq v2.12.1
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-doc)
+   Compiling swash v0.2.10
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling harfrust v0.7.0
+   Compiling skrifa v0.42.1
+   Compiling webbrowser v1.2.4
+   Compiling cosmic-text v0.19.0
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling epaint v0.35.0
+   Compiling arboard v3.6.1
+   Compiling designos-fonts v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-fonts)
+   Compiling designos-render v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-render)
+   Compiling egui v0.35.0
+   Compiling designos-diff v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-diff)
+   Compiling designos-svg v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-svg)
+   Compiling designos-webcapture v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-webcapture)
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-fig)
+   Compiling designos-export v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-export)
+   Compiling designos-gpu v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-gpu)
+   Compiling egui-winit v0.35.0
+   Compiling egui-wgpu v0.35.0
+   Compiling eframe v0.35.0
+   Compiling resvg v0.45.1
+   Compiling designos-library v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/base-2fd/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 22s
+     Running unittests src/main.rs (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/out/cargo-base/debug/deps/designos-0825e6398c47afa8)
+
+running 25 tests
+test canvas::hit::tests::empty_frame_props_default_ok ... ok
+test canvas::hit::tests::marquee_enters_partially_covered_frame ... ok
+test canvas::hit::tests::hit_all_under_returns_overlapping_layers_top_to_bottom ... ok
+test canvas::hit::tests::click_empty_frame_area_selects_frame ... ok
+test canvas::hit::tests::click_group_selects_group_not_child ... ok
+test canvas::hit::tests::ellipse_corner_misses ... ok
+test canvas::hit::tests::click_selects_child_of_top_frame ... ok
+test canvas::hit::tests::locked_and_hidden_are_skipped ... ok
+test canvas::hit::tests::marquee_over_a_frame_and_a_main_component_enters_only_the_frame ... ok
+test canvas::hit::tests::partial_marquee_selects_a_main_component_as_a_whole ... ok
+test canvas::hit::tests::hit_and_marquee_with_scene_index_matches ... ok
+test canvas::hit::tests::partial_marquee_selects_a_main_component_inside_a_frame_as_a_whole ... ok
+test canvas::hit::tests::partial_marquee_selects_a_component_set_as_a_whole ... ok
+test canvas::hit::tests::one_shape_component_selects_component_on_click_and_shape_when_entered_while_marquee_is_unchanged ... ok
+test canvas::hit::tests::clicks_still_reach_the_layers_of_a_main_component ... ok
+test canvas::hit::tests::rotated_node_hit ... ok
+test canvas::hit::tests::reverse_z_under_cursor_stack_lists_first_child_first ... ok
+test canvas::hit::tests::reverse_z_click_on_overlap_selects_first_child ... ok
+test canvas::hit::tests::non_reverse_z_overlap_selects_last_child ... ok
+test canvas::hit::tests::reverse_z_hit_matches_scene_index_path ... ok
+test canvas::hit::tests::hit_test_hits_connector_after_anchor_moves_without_sync ... ok
+test canvas::hit::tests::indexed_hit_test_finds_a_connector_whose_end_moved_without_sync ... FAILED
+test canvas::hit::tests::indexed_hit_test_orders_a_stale_connector_by_paint_order ... FAILED
+test canvas::hit::tests::hit_test_rejects_far_connectors_by_box_first ... ok
+test canvas::hit::tests::hit_test_keeps_scene_index_path_with_page_level_connectors ... ok
+
+failures:
+
+---- canvas::hit::tests::indexed_hit_test_finds_a_connector_whose_end_moved_without_sync stdout ----
+
+thread 'canvas::hit::tests::indexed_hit_test_finds_a_connector_whose_end_moved_without_sync' (1539473) panicked at crates/designos-app/src/canvas/hit.rs:1027:9:
+assertion `left == right` failed: an index built before the move must not hide it
+  left: None
+ right: Some(NodeId(74))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- canvas::hit::tests::indexed_hit_test_orders_a_stale_connector_by_paint_order stdout ----
+
+thread 'canvas::hit::tests::indexed_hit_test_orders_a_stale_connector_by_paint_order' (1539474) panicked at crates/designos-app/src/canvas/hit.rs:1048:13:
+assertion `left == right` failed: indexed, connector_on_top=true
+  left: Some(NodeId(75))
+ right: Some(NodeId(74))
+
+
+failures:
+    canvas::hit::tests::indexed_hit_test_finds_a_connector_whose_end_moved_without_sync
+    canvas::hit::tests::indexed_hit_test_orders_a_stale_connector_by_paint_order
+
+test result: FAILED. 23 passed; 2 failed; 0 ignored; 0 measured; 4340 filtered out; finished in 0.82s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+rc=101

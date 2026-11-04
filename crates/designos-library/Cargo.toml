@@ -7,6 +7,7 @@ license-file.workspace = true
 
 [dependencies]
 designos-doc.workspace = true
+designos-docs.workspace = true
 designos-fig.workspace = true
 designos-fonts.workspace = true
 designos-svg.workspace = true

@@ -860,6 +860,16 @@ fn def_slot_content_id<'a>(link: &'a ComponentLink, prop_name: &str) -> Option<&
 fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibling_idx: usize, parent_dir: Option<LayoutDirection>, in_component: bool) {
     let Some(node) = cx.doc.get(id).cloned() else { return };
     let nguid = cx.node_guids[&id];
+    let lowered_conn = match (&node.kind, cx.doc.kind) {
+        (NodeKind::Connector(cp), k) if k != DocumentKind::Board => {
+            let fmt_guid = |nid: NodeId| cx.node_guids.get(&nid).map(|&(s, l)| format!("{s}:{l}"));
+            let carrier = crate::board::StudioConnectorCarrier::from_node(&node, cp, cp.start.node.and_then(fmt_guid), cp.end.node.and_then(fmt_guid));
+            let carrier_val = serde_json::to_value(&carrier).unwrap_or(serde_json::Value::Null);
+            let lowered = crate::board::lower_design_connector(cx.doc, id, &node, cp, true);
+            Some((lowered, carrier_val))
+        }
+        _ => None,
+    };
     let (ty, is_state_group) = match &node.kind {
         NodeKind::Page { .. } => ("CANVAS", false),
         NodeKind::Frame(_) => ("FRAME", false),
@@ -878,7 +888,11 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
         NodeKind::Instance { .. } => ("INSTANCE", false),
         NodeKind::Sticky(_) => ("STICKY", false),
         NodeKind::ShapeWithText(_) => ("SHAPE_WITH_TEXT", false),
-        NodeKind::Connector(_) => ("CONNECTOR", false),
+        NodeKind::Connector(_) => match &lowered_conn {
+            Some((lc, _)) if lc.label_chip.is_some() => ("GROUP", false),
+            Some(_) => ("VECTOR", false),
+            None => ("CONNECTOR", false),
+        },
         NodeKind::Stamp { .. } => ("STAMP", false),
         NodeKind::Unknown { type_name } => (if cx.schema.has_enum_variant("NodeType", type_name) { type_name.as_str() } else { "FRAME" }, false),
     };
@@ -1010,10 +1024,14 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     let fill_paints: Vec<V> = fills_slice.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &node.variables.bindings)).collect();
     fields.push(("fillPaints", V::Array(fill_paints)));
 
-    let stroke_paints: Vec<V> =
-        node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect();
+    let is_lowered_conn_group = lowered_conn.as_ref().is_some_and(|(lc, _)| lc.label_chip.is_some());
+    let stroke_paints: Vec<V> = if is_lowered_conn_group {
+        Vec::new()
+    } else {
+        node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect()
+    };
     fields.push(("strokePaints", V::Array(stroke_paints)));
-    fields.push(("strokeWeight", fl(node.stroke.weight)));
+    fields.push(("strokeWeight", fl(if is_lowered_conn_group { 0.0 } else { node.stroke.weight })));
     fields.push((
         "strokeAlign",
         en(match node.stroke.align {
@@ -1508,40 +1526,72 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
             encode_text_node(&mut fields, &sp.text);
         }
         NodeKind::Connector(cp) => {
-            let line_style = match cp.line {
-                ConnectorLine::Elbowed => "ELBOWED",
-                ConnectorLine::Straight => "STRAIGHT",
-                ConnectorLine::Curved => "CURVED",
-            };
-            fields.push(("connectorLineStyle", en(line_style)));
-            let cap_name = |c: ConnectorCap| match c {
-                ConnectorCap::None => "NONE",
-                ConnectorCap::Arrow => "ARROW_LINES",
-                ConnectorCap::Triangle => "ARROW_EQUILATERAL",
-                ConnectorCap::Circle => "CIRCLE_FILLED",
-                ConnectorCap::Diamond => "DIAMOND_FILLED",
-            };
-            fields.push(("connectorStartCap", en(cap_name(cp.start_cap))));
-            fields.push(("connectorEndCap", en(cap_name(cp.end_cap))));
-            let mag_name = |m: Magnet| match m {
-                Magnet::Auto => "AUTO",
-                Magnet::Top => "TOP",
-                Magnet::Right => "RIGHT",
-                Magnet::Bottom => "BOTTOM",
-                Magnet::Left => "LEFT",
-                Magnet::Center => "CENTER",
-            };
-            let end_msg = |ep: &ConnectorEnd| {
-                let mut ef = vec![("position", vec2(ep.point.x, ep.point.y)), ("magnet", en(mag_name(ep.magnet)))];
-                if let Some(tg) = ep.node.and_then(|nid| cx.node_guids.get(&nid).copied()) {
-                    ef.push(("endpointNodeID", guid(tg.0, tg.1)));
+            if let Some((lc, carrier_val)) = &lowered_conn {
+                carried.push(("studioConnector", carrier_val.clone()));
+                if lc.label_chip.is_none() {
+                    let sgs = encode_geometry_blobs(cx, std::slice::from_ref(&lc.local_route.path()));
+                    if !sgs.is_empty() {
+                        fields.push(("strokeGeometry", V::Array(sgs)));
+                    }
+                    let (blob_bytes, style_table) =
+                        encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap));
+                    let blob_idx = cx.add_blob(blob_bytes);
+                    let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
+                    if !style_table.is_empty() {
+                        vd.push(("styleOverrideTable", V::Array(style_table)));
+                    }
+                    fields.push(("vectorData", msg(vd)));
                 }
-                msg(ef)
-            };
-            fields.push(("connectorStart", end_msg(&cp.start)));
-            fields.push(("connectorEnd", end_msg(&cp.end)));
-            if let Some(lbl) = &cp.label {
-                encode_text_node(&mut fields, lbl);
+            } else {
+                let line_style = match cp.line {
+                    ConnectorLine::Elbowed => "ELBOWED",
+                    ConnectorLine::Straight => "STRAIGHT",
+                    ConnectorLine::Curved => "CURVED",
+                };
+                fields.push(("connectorLineStyle", en(line_style)));
+                let cap_name = |c: ConnectorCap| match c {
+                    ConnectorCap::None => "NONE",
+                    ConnectorCap::Arrow => "ARROW_LINES",
+                    ConnectorCap::Triangle => "ARROW_EQUILATERAL",
+                    ConnectorCap::Circle => "CIRCLE_FILLED",
+                    ConnectorCap::Diamond => "DIAMOND_FILLED",
+                };
+                fields.push(("connectorStartCap", en(cap_name(cp.start_cap))));
+                fields.push(("connectorEndCap", en(cap_name(cp.end_cap))));
+                let mag_name = |m: Magnet| match m {
+                    Magnet::Auto => "AUTO",
+                    Magnet::Top => "TOP",
+                    Magnet::Right => "RIGHT",
+                    Magnet::Bottom => "BOTTOM",
+                    Magnet::Left => "LEFT",
+                    Magnet::Center => "CENTER",
+                };
+                let end_msg = |ep: &ConnectorEnd, mag_meta_key: &str, rp_meta_key: &str| {
+                    let mag = if ep.magnet == Magnet::Auto {
+                        node.fig_metadata.get(mag_meta_key).map(String::as_str).filter(|s| cx.schema.has_enum_variant("ConnectorMagnet", s)).unwrap_or("AUTO")
+                    } else {
+                        mag_name(ep.magnet)
+                    };
+                    let mut ef = vec![("position", vec2(ep.point.x, ep.point.y)), ("magnet", en(mag))];
+                    if let Some(tg) = ep.node.and_then(|nid| cx.node_guids.get(&nid).copied()) {
+                        ef.push(("endpointNodeID", guid(tg.0, tg.1)));
+                    }
+                    if let Some(rp_str) = node.fig_metadata.get(rp_meta_key) {
+                        if let Ok(rp_val) = serde_json::from_str::<serde_json::Value>(rp_str) {
+                            if let (Some(rx), Some(ry)) =
+                                (rp_val.get("x").and_then(serde_json::Value::as_f64), rp_val.get("y").and_then(serde_json::Value::as_f64))
+                            {
+                                ef.push(("relativePosition", vec2(rx as f32, ry as f32)));
+                            }
+                        }
+                    }
+                    msg(ef)
+                };
+                fields.push(("connectorStart", end_msg(&cp.start, "connectorStartMagnet", "connectorStartRelativePosition")));
+                fields.push(("connectorEnd", end_msg(&cp.end, "connectorEndMagnet", "connectorEndRelativePosition")));
+                if let Some(lbl) = &cp.label {
+                    encode_text_node(&mut fields, lbl);
+                }
             }
         }
         _ => {}
@@ -1561,6 +1611,100 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     let mut msg_fields: Vec<(std::sync::Arc<str>, V)> = fields.into_iter().map(|(k, v)| (k.into(), v)).collect();
     append_fig_metadata(cx.schema, cx.nc_def, &mut msg_fields, &node.fig_metadata);
     cx.changes.push(V::Message(msg_fields));
+
+    if let Some((lc, carrier_val)) = lowered_conn {
+        if let Some((bg_rect, radius, text_rect, lbl)) = lc.label_chip {
+            let v_guid = cx.alloc_guid(1);
+            let sps: Vec<V> =
+                node.stroke.paints.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "strokes", i, &node.variables.bindings)).collect();
+            let mut v_fields = vec![
+                ("guid", guid(v_guid.0, v_guid.1)),
+                ("phase", en("CREATED")),
+                ("parentIndex", st(vec![("guid", guid(nguid.0, nguid.1)), ("position", V::String(pos_str(0)))])),
+                ("type", en("VECTOR")),
+                ("name", V::String(node.name.clone())),
+                ("visible", V::Bool(true)),
+                ("locked", V::Bool(false)),
+                ("opacity", fl_one(1.0)),
+                ("size", vec2(node.size.x, node.size.y)),
+                ("transform", encode_matrix(&Affine::IDENTITY)),
+                ("blendMode", en("NORMAL")),
+                ("fillPaints", V::Array(Vec::new())),
+                ("strokePaints", V::Array(sps)),
+                ("strokeWeight", fl(node.stroke.weight)),
+                ("strokeAlign", en("CENTER")),
+                (
+                    "strokeJoin",
+                    en(match node.stroke.join {
+                        StrokeJoin::Miter => "MITER",
+                        StrokeJoin::Bevel => "BEVEL",
+                        StrokeJoin::Round => "ROUND",
+                    }),
+                ),
+                ("strokeCap", en(crate::vecnet::cap_name(node.stroke.cap))),
+            ];
+            if !node.stroke.dashes.is_empty() {
+                v_fields.push(("dashPattern", V::Array(node.stroke.dashes.iter().map(|&d| fl(d)).collect())));
+            }
+            let sgs = encode_geometry_blobs(cx, std::slice::from_ref(&lc.local_route.path()));
+            if !sgs.is_empty() {
+                v_fields.push(("strokeGeometry", V::Array(sgs)));
+            }
+            let (blob_bytes, style_table) = encode_vector_network_blob(&crate::export::network_with_node_cap_on_open_ends(&lc.network, node.stroke.cap));
+            let blob_idx = cx.add_blob(blob_bytes);
+            let mut vd = vec![("vectorNetworkBlob", V::Uint(blob_idx)), ("normalizedSize", vec2(node.size.x, node.size.y))];
+            if !style_table.is_empty() {
+                vd.push(("styleOverrideTable", V::Array(style_table)));
+            }
+            v_fields.push(("vectorData", msg(vd)));
+            v_fields.push(("pluginData", V::Array(carrier::carrier_entries(&[("studioConnector", carrier_val)]))));
+            cx.changes.push(msg(v_fields));
+
+            let r_guid = cx.alloc_guid(1);
+            let chip_fill = encode_paint_with_bindings(cx, &Paint::solid(Color::WHITE), "fills", 0, &BTreeMap::new());
+            let r_fields = vec![
+                ("guid", guid(r_guid.0, r_guid.1)),
+                ("phase", en("CREATED")),
+                ("parentIndex", st(vec![("guid", guid(nguid.0, nguid.1)), ("position", V::String(pos_str(1)))])),
+                ("type", en("ROUNDED_RECTANGLE")),
+                ("name", V::String("Label background".into())),
+                ("visible", V::Bool(true)),
+                ("locked", V::Bool(false)),
+                ("opacity", fl_one(1.0)),
+                ("size", vec2(bg_rect.w, bg_rect.h)),
+                ("transform", encode_matrix(&Affine::translate(bg_rect.x, bg_rect.y))),
+                ("blendMode", en("NORMAL")),
+                ("cornerRadius", fl(radius)),
+                ("fillPaints", V::Array(vec![chip_fill])),
+                ("strokePaints", V::Array(Vec::new())),
+                ("strokeWeight", fl(0.0)),
+                ("strokeAlign", en("INSIDE")),
+            ];
+            cx.changes.push(msg(r_fields));
+
+            let t_guid = cx.alloc_guid(1);
+            let t_fills: Vec<V> = lbl.style.fills.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, &BTreeMap::new())).collect();
+            let mut t_fields = vec![
+                ("guid", guid(t_guid.0, t_guid.1)),
+                ("phase", en("CREATED")),
+                ("parentIndex", st(vec![("guid", guid(nguid.0, nguid.1)), ("position", V::String(pos_str(2)))])),
+                ("type", en("TEXT")),
+                ("name", V::String(lbl.content.clone())),
+                ("visible", V::Bool(true)),
+                ("locked", V::Bool(false)),
+                ("opacity", fl_one(1.0)),
+                ("size", vec2(text_rect.w, text_rect.h)),
+                ("transform", encode_matrix(&Affine::translate(text_rect.x, text_rect.y))),
+                ("blendMode", en("NORMAL")),
+                ("fillPaints", V::Array(t_fills)),
+                ("strokePaints", V::Array(Vec::new())),
+                ("strokeWeight", fl(0.0)),
+                ("strokeAlign", en("INSIDE")),
+            ];
+            encode_text_node(&mut t_fields, &lbl);
+            cx.changes.push(msg(t_fields));
+        }
+    }
 
     let child_in_comp = in_component || matches!(node.kind, NodeKind::Component(_) | NodeKind::ComponentSet(_));
     for (cidx, cid) in node.children.into_iter().enumerate() {

@@ -9,6 +9,9 @@ use designos_doc::*;
 /// Figma's Dev Mode inspect panel prints them.
 pub fn css_for(doc: &Document, node: NodeId) -> String {
     let Some(n) = doc.get(node) else { return String::new() };
+    if matches!(n.kind, NodeKind::Connector(_)) {
+        return String::new();
+    }
     let mut out: Vec<String> = Vec::new();
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
 
@@ -353,7 +356,8 @@ fn linear_css(handles: &[Vec2; 3], stops: &[GradientStop], size: Vec2, opacity: 
 fn border(n: &Node, out: &mut Vec<String>) {
     let st = &n.stroke;
     let Some(p) = st.paints.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))) else { return };
-    if st.weight <= 0.0 && st.side_weights.is_none() {
+    let width_bindings = ["strokeWeight", "strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
+    if st.weight <= 0.0 && st.side_weights.is_none() && !width_bindings.iter().any(|key| n.variables.bindings.contains_key(*key)) {
         return;
     }
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
@@ -369,19 +373,22 @@ fn border(n: &Node, out: &mut Vec<String>) {
         push("border-top", format!("{}px {style} {}", num(st.weight), solid_or_first(p)));
         return;
     }
-    match (st.align, st.side_weights) {
-        (StrokeAlign::Inside, Some([t, r, b, l])) => {
-            push("border-width", box_shorthand(t, r, b, l));
-            push("border-style", style.into());
-            push("border-color", color);
-        }
-        (StrokeAlign::Inside, None) => push("border", format!("{}px {style} {color}", num(st.weight))),
-        (align, _) => {
-            // The box keeps its size; outline draws outside it, shifted in for centered strokes.
-            push("outline", format!("{}px {style} {color}", num(st.weight)));
-            let off = if align == StrokeAlign::Center { -st.weight / 2.0 } else { 0.0 };
-            if off != 0.0 {
-                push("outline-offset", format!("{}px", num(off)));
+    let side_bindings = ["strokeTopWeight", "strokeRightWeight", "strokeBottomWeight", "strokeLeftWeight"];
+    if st.align == StrokeAlign::Inside && (st.side_weights.is_some() || side_bindings.iter().any(|key| n.variables.bindings.contains_key(*key))) {
+        let [t, r, b, l] = st.side_weights.unwrap_or([st.weight; 4]);
+        push("border-width", box_shorthand(t, r, b, l));
+        push("border-style", style.into());
+        push("border-color", color);
+    } else {
+        match (st.align, st.side_weights) {
+            (StrokeAlign::Inside, _) => push("border", format!("{}px {style} {color}", num(st.weight))),
+            (align, _) => {
+                // The box keeps its size; outline draws outside it, shifted in for centered strokes.
+                push("outline", format!("{}px {style} {color}", num(st.weight)));
+                let off = if align == StrokeAlign::Center { -st.weight / 2.0 } else { 0.0 };
+                if off != 0.0 || (align == StrokeAlign::Center && n.variables.bindings.contains_key("strokeWeight")) {
+                    push("outline-offset", format!("{}px", num(off)));
+                }
             }
         }
     }
@@ -539,6 +546,192 @@ mod tests {
             css_for(&d, id),
             "width: 200px;\nheight: 100px;\nbackground: #FFF;\nborder: 1px solid #E5E5E5;\nborder-radius: 8px;\nbox-shadow: 0px 4px 4px 0px rgba(0, 0, 0, 0.25);\nfilter: blur(5px);\nopacity: 0.5;"
         );
+    }
+
+    #[test]
+    fn bound_stroke_weight_exports_resolved_css_width() {
+        let mut d = Document::new("stroke");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["stroke".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "stroke".into(),
+            Variable {
+                id: "stroke".into(),
+                name: "Stroke/Width".into(),
+                collection: "tokens".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(6.0))].into(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 2.0;
+        n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
+        let id = d.insert(page, n).unwrap();
+        assert_eq!(css_for(&d, id), "width: 100px;\nheight: 50px;\nborder: var(--Stroke-Width, 6px) solid #000;", "stored width must not leak into CSS");
+    }
+
+    #[test]
+    fn bound_side_stroke_weights_export_resolved_border_widths() {
+        let mut d = Document::new("stroke-sides");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["top".into(), "right".into(), "bottom".into(), "left".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        for (id, name, value) in [("top", "Stroke/Top", 6.0), ("right", "Stroke/Right", 7.0), ("bottom", "Stroke/Bottom", 8.0), ("left", "Stroke/Left", 9.0)] {
+            d.variables.insert(
+                id.into(),
+                Variable {
+                    id: id.into(),
+                    name: name.into(),
+                    collection: "tokens".into(),
+                    kind: VariableKind::Number,
+                    values: [("default".into(), VariableValue::Number(value))].into(),
+                    description: String::new(),
+                    scopes: vec![],
+                    hidden_from_publishing: false,
+                    key: None,
+                    code_syntax: Default::default(),
+                    extensions: Default::default(),
+                    mode_extensions: Default::default(),
+                },
+            );
+        }
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 2.0;
+        n.stroke.side_weights = Some([2.0, 3.0, 4.0, 5.0]);
+        for (key, var) in [("strokeTopWeight", "top"), ("strokeRightWeight", "right"), ("strokeBottomWeight", "bottom"), ("strokeLeftWeight", "left")] {
+            n.variables.bindings.insert(key.into(), var.into());
+        }
+        let id = d.insert(page, n).unwrap();
+        assert_eq!(css_for(&d, id), "width: 100px;\nheight: 50px;\nborder-width: var(--Stroke-Top, 6px) var(--Stroke-Right, 7px) var(--Stroke-Bottom, 8px) var(--Stroke-Left, 9px);\nborder-style: solid;\nborder-color: #000;", "stored side widths must not leak into CSS");
+    }
+
+    #[test]
+    fn bound_center_stroke_uses_resolved_width_for_outline_offset() {
+        let mut d = Document::new("stroke-center");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["stroke".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "stroke".into(),
+            Variable {
+                id: "stroke".into(),
+                name: "Stroke/Width".into(),
+                collection: "tokens".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(6.0))].into(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 2.0;
+        n.stroke.align = StrokeAlign::Center;
+        n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
+        let id = d.insert(page, n).unwrap();
+        assert_eq!(
+            css_for(&d, id),
+            "width: 100px;\nheight: 50px;\noutline: var(--Stroke-Width, 6px) solid #000;\noutline-offset: calc(-0.5 * var(--Stroke-Width, 6px));",
+            "centered outline offset must follow the bound width",
+        );
+    }
+
+    #[test]
+    fn zero_stored_stroke_width_with_binding_is_not_dropped() {
+        let mut d = Document::new("stroke-zero");
+        let page = d.add_page("p");
+        d.variable_collections.insert(
+            "tokens".into(),
+            VariableCollection {
+                id: "tokens".into(),
+                name: "Tokens".into(),
+                modes: vec![VariableMode { id: "default".into(), name: "Default".into() }],
+                default_mode: "default".into(),
+                variables: vec!["stroke".into()],
+                key: None,
+                source_library_key: None,
+                extensions: Default::default(),
+            },
+        );
+        d.variables.insert(
+            "stroke".into(),
+            Variable {
+                id: "stroke".into(),
+                name: "Stroke/Width".into(),
+                collection: "tokens".into(),
+                kind: VariableKind::Number,
+                values: [("default".into(), VariableValue::Number(6.0))].into(),
+                description: String::new(),
+                scopes: vec![],
+                hidden_from_publishing: false,
+                key: None,
+                code_syntax: Default::default(),
+                extensions: Default::default(),
+                mode_extensions: Default::default(),
+            },
+        );
+        let id = d.alloc_id();
+        let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 50.0));
+        n.fills.clear();
+        n.stroke.paints = vec![Paint::solid(Color::BLACK)];
+        n.stroke.weight = 0.0;
+        n.variables.bindings.insert("strokeWeight".into(), "stroke".into());
+        let id = d.insert(page, n).unwrap();
+        assert_eq!(css_for(&d, id), "width: 100px;\nheight: 50px;\nborder: var(--Stroke-Width, 6px) solid #000;");
     }
 
     #[test]
