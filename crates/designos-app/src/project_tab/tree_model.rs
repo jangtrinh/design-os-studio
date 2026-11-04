@@ -167,7 +167,7 @@ pub fn build_rows(snapshot: &TreeSnapshot, collapsed: &HashSet<RowKey>, query: &
                                 label: state.name.clone(),
                                 count: None,
                                 chevron: None,
-                                icon: Icon::Instance,
+                                icon: Icon::Frame,
                             });
                         }
                     }
@@ -264,6 +264,7 @@ mod tests {
         let i = rows.iter().position(|r| r.key == RowKey::StateParent("pay".into())).expect("parent row");
         assert_eq!((rows[i].label.as_str(), rows[i].depth, rows[i].chevron), ("Payment", 0, Some(true)));
         assert_eq!((rows[i + 1].label.as_str(), rows[i + 1].depth), ("Card declined", 1));
+        assert_eq!(rows[i + 1].icon, Icon::Frame, "a state is a frame; the diamond means a component instance");
         let mut closed = HashSet::new();
         closed.insert(RowKey::StateParent("pay".into()));
         assert!(!build_rows(&sample(), &closed, "").iter().any(|r| r.label == "Card declined"));
