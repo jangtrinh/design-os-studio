@@ -2,13 +2,13 @@
 
 use super::inline::{link_at, LinkSpan};
 use super::links;
-use designos_docs::ContentHash;
 use super::ops::TreeSnapshot;
 use super::reader_layout::{self, half_leading, HeadingPos, Laid, Prim};
 use super::service::LoadedPage;
 use crate::icons;
 use crate::theme;
 use crate::widgets::kit;
+use designos_docs::ContentHash;
 use egui::{Context, CursorIcon, Pos2, Rect, Sense, Ui, Vec2};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};

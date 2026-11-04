@@ -404,3 +404,71 @@ fn document_save_and_export_shortcuts_do_nothing_on_a_project_tab() {
         assert!(s.app().tabs.active_is_project(), "still on the Project tab");
     }
 }
+
+#[test]
+fn an_idle_project_tab_with_a_page_open_asks_for_no_repaint() {
+    let (mut s, _dir, pid, _file) = checkout_sim();
+    open_project(&mut s, &pid);
+    open_page(&mut s, PAYMENT_METHODS);
+    let _ = s.settle();
+    s.assert_idle_window_asks_for_no_repaint("a Project tab with a page open");
+}
+
+#[test]
+fn move_up_and_move_down_from_the_page_menu_write_the_manifest() {
+    let (mut s, _dir, pid, _file) = checkout_sim();
+    open_project(&mut s, &pid);
+    let at = s.rect_of(&format!("project-tree-page-{CART_RULES}")).center();
+    s.right_click(at);
+    s.click(s.rect_of("project-menu-Move up").center());
+    assert!(settle(&mut s, |s| manifest(s, &pid).group(Group::Spec).pages.get(1).map(String::as_str) == Some(CART_RULES)));
+    assert_eq!(manifest(&s, &pid).group(Group::Spec).pages, vec![PAYMENT_METHODS, CART_RULES, PAYMENT_FLOW, ERROR_HANDLING]);
+    // The rows moved: Cart rules now sits where Payment flow was. Move it down twice from there.
+    assert!(settle(&mut s, |s| s.rect_of(&format!("project-tree-page-{CART_RULES}")).top() < s.rect_of(&format!("project-tree-page-{PAYMENT_FLOW}")).top()));
+    for _ in 0..2 {
+        let before = manifest(&s, &pid).group(Group::Spec).pages.clone();
+        let at = s.rect_of(&format!("project-tree-page-{CART_RULES}")).center();
+        s.right_click(at);
+        s.click(s.rect_of("project-menu-Move down").center());
+        assert!(settle(&mut s, |s| manifest(s, &pid).group(Group::Spec).pages != before));
+        // The tree shows the new order before the next menu is opened on a row.
+        assert!(settle(&mut s, |s| state(s).snapshot.manifest.group(Group::Spec).pages == manifest(s, &pid).group(Group::Spec).pages));
+        s.frame(vec![]);
+    }
+    assert_eq!(manifest(&s, &pid).group(Group::Spec).pages, vec![PAYMENT_METHODS, PAYMENT_FLOW, ERROR_HANDLING, CART_RULES]);
+}
+
+#[test]
+fn a_project_tab_behind_another_tab_does_not_wake_the_window_for_disk_changes_and_catches_up_when_shown() {
+    let (mut s, _dir, pid, _file) = checkout_sim();
+    open_project(&mut s, &pid);
+    let project_idx = s.app().tabs.active_idx;
+    // Another tab comes to the front; the Project tab is parked.
+    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
+    tabs.open_new_design_tab(&mut s.shell.app);
+    s.shell.app.tabs = tabs;
+    for _ in 0..6 {
+        s.frame(vec![]);
+    }
+    assert!(!s.app().tabs.active_is_project());
+    // The window goes quiet first, so a repaint request after this is a new one.
+    let _ = s.settle();
+    let wakes = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = wakes.clone();
+    s.ctx.set_request_repaint_callback(move |_| {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    // An agent writes a page while the user works elsewhere.
+    let docs = docs_of(&s, &pid);
+    std::fs::write(docs.dir().join("spec/new-from-agent.md"), "---\ntitle: New from agent\n---\n\ntext\n").unwrap();
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(wakes.load(std::sync::atomic::Ordering::SeqCst), 0, "a parked Project tab does not ask the window to repaint");
+    // Back on the Project tab the new page is there.
+    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
+    tabs.switch_to(project_idx, &mut s.shell.app);
+    s.shell.app.tabs = tabs;
+    assert!(
+        settle(&mut s, |s| s.app().tabs.active_is_project() && state(s).snapshot.pages.contains_key("spec/new-from-agent.md")),
+        "the tree catches up on activation"
+    );
+}

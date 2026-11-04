@@ -333,6 +333,9 @@ pub fn show(app: &mut App, ui: &mut Ui, full: Rect, st: &mut ProjectTabState) {
     let ctx = ui.ctx().clone();
     let lay = layout::compute(full);
     st.ensure_service(app, &ctx);
+    if let Some(service) = &st.service {
+        service.mark_shown(ctx.cumulative_pass_nr());
+    }
     st.pump(app);
     let focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
     if focused && !st.was_focused {
