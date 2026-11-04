@@ -71,14 +71,14 @@ impl DocsStore {
     }
 
     pub fn read_page(&self, rel: &str) -> Result<Versioned<Page>> {
-        let (text, hash) = self.read_text(&self.page_path(rel)?, rel)?;
+        let (text, hash) = self.read_text(&self.checked_page_path(rel)?, rel)?;
         Ok(Versioned { value: Page::parse(&text), hash })
     }
 
     /// Writes `page` (as `Page::render` gives it). Returns the hash of the bytes now on disk; identical content is
     /// not rewritten, so it raises no change event.
     pub fn write_page(&self, rel: &str, page: &Page, expect: Expect) -> Result<ContentHash> {
-        self.write_bytes(&self.page_path(rel)?, rel, page.render().as_bytes(), expect)
+        self.write_bytes(&self.checked_page_path(rel)?, rel, page.render().as_bytes(), expect)
     }
 
     pub fn read_manifest(&self) -> Result<Versioned<Manifest>> {
@@ -105,7 +105,11 @@ impl DocsStore {
         Ok(out)
     }
 
-    fn page_path(&self, rel: &str) -> Result<PathBuf> {
+    pub(crate) fn lock_timeout(&self) -> Duration {
+        self.lock_timeout
+    }
+
+    pub(crate) fn checked_page_path(&self, rel: &str) -> Result<PathBuf> {
         if let Some(problem) = page_path_problem(rel) {
             return Err(DocsError::invalid_path(rel, problem));
         }
@@ -284,10 +288,10 @@ fn collect_pages(dir: &Path, prefix: &str, depth: usize, out: &mut Vec<String>) 
 }
 
 /// Exclusive advisory lock on the docs folder's lock file, released on drop.
-struct DirLock(File);
+pub(crate) struct DirLock(File);
 
 impl DirLock {
-    fn acquire(dir: &Path, timeout: Duration) -> Result<Self> {
+    pub(crate) fn acquire(dir: &Path, timeout: Duration) -> Result<Self> {
         let path = dir.join(LOCK_FILE);
         let shown = path.display().to_string();
         let file = File::options().create(true).truncate(false).write(true).open(&path).map_err(|e| DocsError::io(&shown, e))?;
