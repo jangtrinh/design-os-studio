@@ -347,6 +347,14 @@ fn write_the_checkout_fixture_library() {
     if std::env::var("DESIGNOS_PROJECT_FIXTURE_EMPTY").is_err() {
         fixture::write_checkout_docs(&store, "Checkout", &web.id);
     }
+    // `DESIGNOS_PROJECT_FIXTURE_TRASH=<page>` deletes a page like the Project tab does; with
+    // `DESIGNOS_PROJECT_FIXTURE_RESTORE=1` it is then restored through the library, like Home's Restore button.
+    if let Ok(rel) = std::env::var("DESIGNOS_PROJECT_FIXTURE_TRASH") {
+        let item = lib.trash_page(&project.id, &rel, "Error handling").unwrap();
+        if std::env::var("DESIGNOS_PROJECT_FIXTURE_RESTORE").is_ok() {
+            lib.restore(&item.id).unwrap();
+        }
+    }
     println!("PROJECT_ID={}\nWEB_FILE_ID={}", project.id, web.id);
 }
 

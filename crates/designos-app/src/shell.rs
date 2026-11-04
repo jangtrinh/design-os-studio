@@ -148,10 +148,18 @@ impl Shell {
         let Some(spec) = crate::tabs::project_tab::shot::ShotSpec::from_env(screenshot) else { return };
         match spec {
             Ok(spec) => {
-                let project = spec.project.clone();
-                let mut tabs = std::mem::take(&mut self.app.tabs);
-                tabs.open_project_tab(&mut self.app, &project, Some(spec));
-                self.app.tabs = tabs;
+                if spec.home_trash {
+                    if let Some(h) = self.app.home.as_mut() {
+                        h.section = crate::home::Section::Trash;
+                        h.dirty = true;
+                    }
+                }
+                if !spec.project.is_empty() {
+                    let project = spec.project.clone();
+                    let mut tabs = std::mem::take(&mut self.app.tabs);
+                    tabs.open_project_tab(&mut self.app, &project, Some(spec));
+                    self.app.tabs = tabs;
+                }
             }
             Err(e) => self.app.show_toast(e, true),
         }
