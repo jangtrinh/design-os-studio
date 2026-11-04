@@ -3950,7 +3950,7 @@ mod tests {
             let out = ctx.run_ui(raw, |ui| show(&mut app, ui, region));
             if let Ok(out_path) = std::env::var("DESIGNOS_SHADER_INSPECTOR_PNG") {
                 let full_img = rasterize_egui_output(&ctx, out, &mut textures, 241, 800);
-                let cropped = image::imageops::crop_imm(&full_img, 0, 980, full_img.width(), 440).to_image();
+                let cropped = image::imageops::crop_imm(&full_img, 0, 980, full_img.width(), 480).to_image();
                 cropped.save(&out_path).expect("save shader inspector png");
             }
         }
