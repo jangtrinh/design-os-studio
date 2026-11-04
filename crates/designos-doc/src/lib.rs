@@ -92,7 +92,9 @@ pub use changelog_features::*;
 pub use color_space::*;
 pub use comments::*;
 pub use components::*;
-pub use connector_route_cache::*;
+pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
+#[cfg(any(test, feature = "fixtures"))]
+pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
 pub use dev::*;
 pub use diff::*;
 pub use geom::*;
@@ -124,6 +126,7 @@ pub use writer_command::*;
 
 /// Shared spec test fixtures (`tokens_doc`, `button_library`, `card_with_slots`).
 pub mod fixtures {
+    #[cfg(any(test, feature = "fixtures"))]
     pub use crate::connector_route_cache::{perf_whiteboard_2000, PerfWhiteboardScene};
     pub use crate::spec_bind::fixtures::*;
     pub use crate::spec_instance::fixtures::*;

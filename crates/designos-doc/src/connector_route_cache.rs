@@ -2,9 +2,9 @@
 //! synthetic whiteboard performance fixture.
 
 use crate::board::Anchor;
-use crate::{
-    connector_anchors, route, sync_connector, ConnectorEnd, ConnectorLine, ConnectorProps, Document, Magnet, Node, NodeId, NodeKind, Rect, Route, ShapeKind,
-};
+use crate::{connector_anchors, route, ConnectorLine, Document, Magnet, NodeId, NodeKind, Rect, Route};
+#[cfg(any(test, feature = "fixtures"))]
+use crate::{sync_connector, ConnectorEnd, ConnectorProps, Node, ShapeKind};
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 
@@ -63,6 +63,7 @@ struct RouteFingerprint {
 
 struct CachedRoute {
     fp: RouteFingerprint,
+    bounds: Rect,
     route: Route,
 }
 
@@ -70,22 +71,18 @@ struct CachedRoute {
 struct RouteCache {
     entries: HashMap<NodeId, CachedRoute>,
     order: VecDeque<NodeId>,
+    #[cfg_attr(not(any(test, feature = "fixtures")), allow(dead_code))]
     hits: u64,
+    #[cfg_attr(not(any(test, feature = "fixtures")), allow(dead_code))]
     misses: u64,
 }
 
 impl RouteCache {
-    fn get_or_compute(&mut self, id: NodeId, fp: RouteFingerprint, compute: impl FnOnce() -> Route) -> Route {
-        if let Some(entry) = self.entries.get(&id) {
-            if entry.fp == fp {
-                self.hits += 1;
-                return entry.route.clone();
-            }
-        }
-        self.misses += 1;
-        let computed = compute();
+    fn insert_computed(&mut self, id: NodeId, fp: RouteFingerprint, computed: Route) -> (Rect, Route) {
+        let bounds = computed.bounds();
         if let Some(entry) = self.entries.get_mut(&id) {
             entry.fp = fp;
+            entry.bounds = bounds;
             entry.route = computed.clone();
         } else {
             while self.entries.len() >= ROUTE_CACHE_CAP {
@@ -96,12 +93,36 @@ impl RouteCache {
                     break;
                 }
             }
-            self.entries.insert(id, CachedRoute { fp, route: computed.clone() });
+            self.entries.insert(id, CachedRoute { fp, bounds, route: computed.clone() });
             self.order.push_back(id);
         }
-        computed
+        (bounds, computed)
     }
 
+    fn get_or_compute(&mut self, id: NodeId, fp: RouteFingerprint, compute: impl FnOnce() -> Route) -> Route {
+        if let Some(entry) = self.entries.get(&id) {
+            if entry.fp == fp {
+                self.hits += 1;
+                return entry.route.clone();
+            }
+        }
+        self.misses += 1;
+        let computed = compute();
+        self.insert_computed(id, fp, computed).1
+    }
+
+    fn get_or_compute_bounds(&mut self, id: NodeId, fp: RouteFingerprint, compute: impl FnOnce() -> Route) -> Rect {
+        if let Some(entry) = self.entries.get(&id) {
+            if entry.fp == fp {
+                return entry.bounds;
+            }
+        }
+        self.misses += 1;
+        let computed = compute();
+        self.insert_computed(id, fp, computed).0
+    }
+
+    #[cfg(any(test, feature = "fixtures"))]
     fn clear(&mut self) {
         self.entries.clear();
         self.order.clear();
@@ -132,7 +153,28 @@ pub fn cached_connector_route(doc: &Document, id: NodeId) -> Option<Route> {
     Some(ROUTE_CACHE.with(|cache| cache.borrow_mut().get_or_compute(id, fp, || route(line, &a, &b))))
 }
 
+/// Returns the bounding box of the current route of connector `id` in its parent's coordinate
+/// space, padded by `margin`, validated by the anchor fingerprint in the route cache entry.
+pub fn connector_route_bounds(doc: &Document, id: NodeId, margin: f32) -> Option<Rect> {
+    let n = doc.get(id)?;
+    let NodeKind::Connector(c) = &n.kind else { return None };
+    let (a, b) = connector_anchors(doc, id)?;
+    let fp = RouteFingerprint {
+        start_node: c.start.node,
+        end_node: c.end.node,
+        start_magnet: magnet_tag(c.start.magnet),
+        end_magnet: magnet_tag(c.end.magnet),
+        line: line_tag(c.line),
+        start: AnchorBits::from_anchor(&a),
+        end: AnchorBits::from_anchor(&b),
+    };
+    let line = c.line;
+    let b = ROUTE_CACHE.with(|cache| cache.borrow_mut().get_or_compute_bounds(id, fp, || route(line, &a, &b)));
+    Some(Rect::new(b.x - margin, b.y - margin, b.w + 2.0 * margin, b.h + 2.0 * margin))
+}
+
 /// Returns `(hits, misses)` recorded on the current thread's connector route cache.
+#[cfg(any(test, feature = "fixtures"))]
 pub fn route_cache_stats() -> (u64, u64) {
     ROUTE_CACHE.with(|cache| {
         let c = cache.borrow();
@@ -141,16 +183,19 @@ pub fn route_cache_stats() -> (u64, u64) {
 }
 
 /// Returns the number of entries currently stored in the thread-local connector route cache.
+#[cfg(any(test, feature = "fixtures"))]
 pub fn route_cache_len() -> usize {
     ROUTE_CACHE.with(|cache| cache.borrow().entries.len())
 }
 
 /// Clears all entries and resets hit/miss counters on the current thread's connector route cache.
+#[cfg(any(test, feature = "fixtures"))]
 pub fn clear_route_cache() {
     ROUTE_CACHE.with(|cache| cache.borrow_mut().clear());
 }
 
 /// Synthetic benchmark scene with 200 frames, 2,000 whiteboard items, and 1,500 connectors.
+#[cfg(any(test, feature = "fixtures"))]
 #[derive(Clone, Debug)]
 pub struct PerfWhiteboardScene {
     pub doc: Document,
@@ -172,6 +217,7 @@ pub struct PerfWhiteboardScene {
 ///   - 1,000 item-to-item connectors at page level (including one hub with 50 and one with 150)
 ///   - 300 frame-to-frame connectors at page level
 ///   - 200 connectors inside frames (1 per frame between two internal layers)
+#[cfg(any(test, feature = "fixtures"))]
 pub fn perf_whiteboard_2000() -> PerfWhiteboardScene {
     let mut doc = Document::new("Perf Whiteboard 2000");
     let page = doc.add_page("Canvas");
