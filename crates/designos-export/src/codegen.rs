@@ -233,7 +233,7 @@ pub(crate) fn token_camel(v: &Variable, drop_color: bool) -> String {
 }
 
 pub(crate) fn first_paint(paints: &[Paint]) -> Option<&Paint> {
-    paints.iter().rev().find(|p| p.visible && p.opacity > 0.0)
+    paints.iter().rev().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
 }
 
 pub(crate) fn visible_children<'a>(doc: &'a Document, n: &Node) -> Vec<&'a Node> {

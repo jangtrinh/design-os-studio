@@ -1,0 +1,38 @@
+# gates, head da4dde6d6225b66bdfd223dcd4cbb7bf669e5959
+TMPDIR=/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.fix1602r2/tmp/ (60 chars)
+zero-fake-ui exit=0
+fmt exit=0
+clippy exit=0
+test-doc exit=0
+test-fig exit=0
+test-render exit=0
+test-gpu exit=0
+test-export exit=0
+test-mcp exit=0
+test-app exit=101
+test-workspace-lib exit=0
+self-evolve exit=1
+tree after gates:        0 changed paths
+DONE
+
+# reruns alone, TMPDIR /tmp/xr2/tmp (home /tmp/xr2/home)
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4363 filtered out; finished in 1.44s
+
+# the approval-root failure in the full run (HOME path too long for a socket: 133 bytes)
+---- agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root stdout ----
+
+thread 'agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root' (307324) panicked at crates/designos-app/src/agent_approval_channel.rs:286:9:
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.fix1602r2/home/Library/Application Support/designos/ap/99b20b9cfa201288/codex.sock is 133 bytes
+
+# self-evolve on this branch and on origin/main aaa92f864
+G06  | FAIL   | ui_agents_check          | errorCount=0, warningCount=1, claude_agents=0, missing_cross_runtime=[]
+G09  | FAIL   | design_os_project_audit  | audit_exit=1, targets=40, excluded=2, tools_run=203, tools_failed=0, audit_errors=6, failing=[plans/261102-project-do
+ Overall Self-Evolution Verdict: FAIL (7/9 gates passed)
+G06  | FAIL   | ui_agents_check          | errorCount=0, warningCount=1, claude_agents=0, missing_cross_runtime=[]
+G09  | FAIL   | design_os_project_audit  | audit_exit=1, targets=40, excluded=2, tools_run=203, tools_failed=0, audit_errors=6, failing=[plans/261102-project-do
+ Overall Self-Evolution Verdict: FAIL (7/9 gates passed)
+self_evolve on origin/main exit=1
+
+ Gate Verdict: PASS (17/17 invariants satisfied)

@@ -1,0 +1,29 @@
+# null control on b09d487c8 (unmodified): new tests green
+b09d487c8cf8527bb8046a816772ed9897647f85
+test canvas::hit::tests::empty_frame_props_default_ok ... ok
+test canvas::hit::tests::click_empty_frame_area_selects_frame ... ok
+test canvas::hit::tests::locked_and_hidden_are_skipped ... ok
+test canvas::hit::tests::click_group_selects_group_not_child ... ok
+test canvas::hit::tests::click_selects_child_of_top_frame ... ok
+test canvas::hit::tests::marquee_enters_partially_covered_frame ... ok
+test canvas::hit::tests::hit_all_under_returns_overlapping_layers_top_to_bottom ... ok
+test canvas::hit::tests::ellipse_corner_misses ... ok
+test canvas::hit::tests::hit_and_marquee_with_scene_index_matches ... ok
+test canvas::hit::tests::marquee_over_a_frame_and_a_main_component_enters_only_the_frame ... ok
+test canvas::hit::tests::partial_marquee_selects_a_main_component_inside_a_frame_as_a_whole ... ok
+test canvas::hit::tests::partial_marquee_selects_a_component_set_as_a_whole ... ok
+test canvas::hit::tests::clicks_still_reach_the_layers_of_a_main_component ... ok
+test canvas::hit::tests::partial_marquee_selects_a_main_component_as_a_whole ... ok
+test canvas::hit::tests::one_shape_component_selects_component_on_click_and_shape_when_entered_while_marquee_is_unchanged ... ok
+test canvas::hit::tests::rotated_node_hit ... ok
+test canvas::hit::tests::reverse_z_under_cursor_stack_lists_first_child_first ... ok
+test canvas::hit::tests::reverse_z_click_on_overlap_selects_first_child ... ok
+test canvas::hit::tests::non_reverse_z_overlap_selects_last_child ... ok
+test canvas::hit::tests::reverse_z_hit_matches_scene_index_path ... ok
+test canvas::hit::tests::hit_test_hits_connector_after_anchor_moves_without_sync ... ok
+test canvas::hit::tests::indexed_hit_test_finds_a_connector_whose_end_moved_without_sync ... ok
+test canvas::hit::tests::indexed_hit_test_orders_a_stale_connector_by_paint_order ... ok
+test canvas::hit::tests::hit_test_rejects_far_connectors_by_box_first ... ok
+test canvas::hit::tests::hit_test_keeps_scene_index_path_with_page_level_connectors ... ok
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 4355 filtered out; finished in 4.76s
+rc=0

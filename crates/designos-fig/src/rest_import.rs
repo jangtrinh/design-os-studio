@@ -123,6 +123,28 @@ pub(crate) fn blend(s: &str) -> BlendMode {
 
 // ------------------------------------------------------------ paints & effects
 
+/// The reference a shader paint or effect carries, kept whole and never read. REST and plugin JSON name the type `SHADER`
+/// and hold the message under `shader`; the flattened `CUSTOM` form (the shape the `.fig` reader hands over) holds it beside
+/// `type`. Keys that sit beside a `shader` object are part of the message too and join it, so none is lost. `modelled` names
+/// the keys the paint or effect holds as its own fields (opacity, visibility, blend mode): they stay out of the message.
+fn shader_ref(v: &Value, modelled: &[&str]) -> ShaderRef {
+    let nested = (fstr(v, "type") == Some("SHADER")).then(|| v.get("shader")).flatten();
+    let mut raw = serde_json::Map::new();
+    if let Some(inner) = nested {
+        // a payload that is not an object is kept as it is: the `.fig` export refuses it by name instead of dropping it
+        let Some(obj) = inner.as_object() else { return ShaderRef { raw: inner.clone() } };
+        raw.extend(obj.iter().filter(|(k, _)| !modelled.contains(&k.as_str())).map(|(k, val)| (k.clone(), val.clone())));
+    }
+    if let Some(obj) = v.as_object() {
+        let container = nested.map(|_| "shader");
+        let beside = obj.iter().filter(|(k, _)| !modelled.contains(&k.as_str()) && container != Some(k.as_str()));
+        for (k, val) in beside {
+            raw.entry(k.clone()).or_insert_with(|| val.clone());
+        }
+    }
+    ShaderRef { raw: Value::Object(raw) }
+}
+
 fn parse_image_params(v: &Value) -> ImageParams {
     let transform = v.get("imageTransform").and_then(Value::as_array).and_then(|rows| {
         let r0 = rows.first()?.as_array()?;
@@ -182,6 +204,7 @@ pub(crate) fn parse_paint(v: &Value) -> Option<Paint> {
             },
             params: parse_image_params(v),
         },
+        "SHADER" | "CUSTOM" => PaintKind::Shader(shader_ref(v, &["type", "opacity", "visible", "blendMode"])),
         _ => return None, // EMOJI, VIDEO, ...
     };
     Some(Paint {
@@ -272,6 +295,7 @@ fn parse_effect(v: &Value) -> Option<Effect> {
             bevel: fnum(v, "bevelSize").unwrap_or(0.0).max(0.0),
             visible,
         }),
+        "SHADER" | "CUSTOM" => Effect::Shader { shader: shader_ref(v, &["type", "visible"]), visible },
         _ => return None,
     })
 }

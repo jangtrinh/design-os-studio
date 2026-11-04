@@ -1,0 +1,55 @@
+# release perf, HEAD b09d487c8, cargo test -p designos-gpu --test connector_perf --release --locked -- --nocapture (3 runs, first includes the build)
+## run 1
+/dev/disk3s1s1   926Gi    12Gi   261Gi     5%    459k  2.7G    0%   /
+    Finished `release` profile [optimized] target(s) in 42.63s
+     Running tests/connector_perf.rs (out/cargo/release/deps/connector_perf-7d9e006b41f478ae)
+running 1 test
+=== perf_whiteboard_2000 summary ===
+1. Single elbow route (seeded 500):        p50 =   14.33 us | p95 =   26.67 us (budget <= 100 us)
+2. Steady-state pan/zoom (1,500 conn):     p50 =   1.442 ms | p95 =   1.586 ms | hits=30000 misses=0 (budget <= 3.5 ms, 0 misses)
+3. Drag 1 node (4 conn):                   p50 =   0.061 ms | p95 =   0.109 ms | max_misses=4 (budget <= 1.0 ms)
+4. Drag 1 hub (50 conn):                   p50 =   1.294 ms | p95 =   1.652 ms | max_misses=50 (budget <= 5.0 ms)
+5. Drag 1 stress hub (150 conn):           p50 =   5.562 ms | p95 =   5.680 ms | max_misses=150 (budget <= 12.0 ms)
+6. Multi-drag 20 nodes (80 conn):          p50 =   1.578 ms | p95 =   1.663 ms | max_misses=80 (budget <= 7.5 ms)
+7. Hover hit-test (2,200 nodes + 1k conn): p50 =  322.58 us | p95 =  386.25 us | max_checks=0 (budget <= 1000 us)
+   Hover, first probe on an emptied route cache:  10406.46 us, 1300 routes computed (not a budget)
+8. Marquee 500x500 sweep (1,500 conn):     p50 =   0.005 ms | p95 =   0.012 ms (budget <= 1.5 ms)
+test perf_scene_whiteboard_2000_budgets ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+rc=0
+## run 2
+/dev/disk3s1s1   926Gi    12Gi   260Gi     5%    459k  2.7G    0%   /
+    Finished `release` profile [optimized] target(s) in 0.11s
+     Running tests/connector_perf.rs (out/cargo/release/deps/connector_perf-7d9e006b41f478ae)
+running 1 test
+=== perf_whiteboard_2000 summary ===
+1. Single elbow route (seeded 500):        p50 =   12.75 us | p95 =   21.62 us (budget <= 100 us)
+2. Steady-state pan/zoom (1,500 conn):     p50 =   1.337 ms | p95 =   1.409 ms | hits=30000 misses=0 (budget <= 3.5 ms, 0 misses)
+3. Drag 1 node (4 conn):                   p50 =   0.055 ms | p95 =   0.097 ms | max_misses=4 (budget <= 1.0 ms)
+4. Drag 1 hub (50 conn):                   p50 =   1.264 ms | p95 =   1.591 ms | max_misses=50 (budget <= 5.0 ms)
+5. Drag 1 stress hub (150 conn):           p50 =   5.511 ms | p95 =   5.722 ms | max_misses=150 (budget <= 12.0 ms)
+6. Multi-drag 20 nodes (80 conn):          p50 =   1.565 ms | p95 =   1.618 ms | max_misses=80 (budget <= 7.5 ms)
+7. Hover hit-test (2,200 nodes + 1k conn): p50 =  321.46 us | p95 =  359.92 us | max_checks=0 (budget <= 1000 us)
+   Hover, first probe on an emptied route cache:  10395.21 us, 1300 routes computed (not a budget)
+8. Marquee 500x500 sweep (1,500 conn):     p50 =   0.005 ms | p95 =   0.011 ms (budget <= 1.5 ms)
+test perf_scene_whiteboard_2000_budgets ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+rc=0
+## run 3
+/dev/disk3s1s1   926Gi    12Gi   260Gi     5%    459k  2.7G    0%   /
+    Finished `release` profile [optimized] target(s) in 0.11s
+     Running tests/connector_perf.rs (out/cargo/release/deps/connector_perf-7d9e006b41f478ae)
+running 1 test
+=== perf_whiteboard_2000 summary ===
+1. Single elbow route (seeded 500):        p50 =   12.38 us | p95 =   21.67 us (budget <= 100 us)
+2. Steady-state pan/zoom (1,500 conn):     p50 =   1.382 ms | p95 =   1.468 ms | hits=30000 misses=0 (budget <= 3.5 ms, 0 misses)
+3. Drag 1 node (4 conn):                   p50 =   0.058 ms | p95 =   0.094 ms | max_misses=4 (budget <= 1.0 ms)
+4. Drag 1 hub (50 conn):                   p50 =   1.240 ms | p95 =   1.642 ms | max_misses=50 (budget <= 5.0 ms)
+5. Drag 1 stress hub (150 conn):           p50 =   5.514 ms | p95 =   5.590 ms | max_misses=150 (budget <= 12.0 ms)
+6. Multi-drag 20 nodes (80 conn):          p50 =   1.568 ms | p95 =   1.605 ms | max_misses=80 (budget <= 7.5 ms)
+7. Hover hit-test (2,200 nodes + 1k conn): p50 =  319.50 us | p95 =  356.62 us | max_checks=0 (budget <= 1000 us)
+   Hover, first probe on an emptied route cache:  10473.17 us, 1300 routes computed (not a budget)
+8. Marquee 500x500 sweep (1,500 conn):     p50 =   0.005 ms | p95 =   0.011 ms (budget <= 1.5 ms)
+test perf_scene_whiteboard_2000_budgets ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+rc=0

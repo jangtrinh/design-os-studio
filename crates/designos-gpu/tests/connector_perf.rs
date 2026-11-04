@@ -98,11 +98,12 @@ fn prefiltered_connector_hit(doc: &Document, id: NodeId, parent_local: Vec2, tol
     r.distance_to(parent_local) <= margin
 }
 
-/// Top-level hover hit query using `SceneIndex` and stored-box connector prefiltering.
+/// Top-level hover hit query using `SceneIndex`: every page-level connector is a candidate and is
+/// rejected or tested through its cached route bounds, matching `canvas::hit::hit_in`.
 fn hover_probe_with_index(doc: &Document, _page: NodeId, idx: &SceneIndex, p: Vec2, tol: f32) -> (Option<NodeId>, usize) {
     let mut cands = Vec::new();
     let m = tol * 3.0 + 4.0;
-    idx.query_top_level((p.x - m, p.y - m, p.x + m, p.y + m), &mut cands);
+    idx.query_top_level_with_connectors((p.x - m, p.y - m, p.x + m, p.y + m), &mut cands);
     let mut polyline_checks = 0usize;
     for &cid in cands.iter().rev() {
         let Some(n) = doc.get(cid) else { continue };
@@ -348,6 +349,13 @@ fn perf_scene_whiteboard_2000_budgets() {
     }
     let (hover_p50_us, hover_p95_us) = percentiles_us(hover_samples_us);
 
+    // The first hover after the route cache was emptied computes every route it has not seen (reported, not asserted).
+    clear_route_cache();
+    let t0 = Instant::now();
+    std::hint::black_box(hover_probe_with_index(&scene.doc, scene.page, &idx, hover_pts[0], 2.0));
+    let hover_cold_first_us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+    let (_, cold_misses) = route_cache_stats();
+
     // 8. Marquee selection sweep (500 x 500 canvas rect) over 1,500 connectors
     let mut marquee_samples_us = Vec::with_capacity(50);
     for k in 0..50usize {
@@ -478,6 +486,7 @@ fn perf_scene_whiteboard_2000_budgets() {
     eprintln!(
         "7. Hover hit-test (2,200 nodes + 1k conn): p50 = {hover_p50_us:7.2} us | p95 = {hover_p95_us:7.2} us | max_checks={max_polyline_checks} (budget <= 1000 us)"
     );
+    eprintln!("   Hover, first probe on an emptied route cache: {hover_cold_first_us:9.2} us, {cold_misses} routes computed (not a budget)");
     eprintln!(
         "8. Marquee 500x500 sweep (1,500 conn):     p50 = {:7.3} ms | p95 = {:7.3} ms (budget <= 1.5 ms)",
         marquee_p50_us / 1_000.0,

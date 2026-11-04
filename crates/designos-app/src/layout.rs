@@ -136,7 +136,11 @@ pub fn fit_group(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
     let Some(g) = doc.get(id) else { return false };
     let mut pts = Vec::new();
     for c in &g.children {
-        if let Some(k) = doc.get(*c) {
+        if let Some(raw) = doc.get(*c) {
+            let k = resolve_node(doc, raw);
+            if !k.visible {
+                continue;
+            }
             let r = Rect::new(0.0, 0.0, k.size.x, k.size.y);
             pts.extend(rect_corners(&r).map(|p| k.transform.apply(p)));
         }

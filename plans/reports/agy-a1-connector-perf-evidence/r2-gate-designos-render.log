@@ -1,0 +1,68 @@
+# cargo test -p designos-render --locked on HEAD b09d487c8
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-63062f3f6d084a44)
+test result: ok. 78 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.60s
+     Running tests/backdrop.rs (out/cargo/debug/deps/backdrop-8973b9fd98d5f914)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/backdrop_index.rs (out/cargo/debug/deps/backdrop_index-eaaa27a19234a9a5)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+     Running tests/blend.rs (out/cargo/debug/deps/blend-4bcc81a11d114b8a)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/board.rs (out/cargo/debug/deps/board-df14fa2d7f7afb2b)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/board_gallery.rs (out/cargo/debug/deps/board_gallery-a57780ed9b730e68)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/corners.rs (out/cargo/debug/deps/corners-76a9664f417dd360)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/dashed_endpoint_caps.rs (out/cargo/debug/deps/dashed_endpoint_caps-9ccde73fc6297788)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/font_arrival.rs (out/cargo/debug/deps/font_arrival-2bbe8bcf57b96ac9)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/fonts.rs (out/cargo/debug/deps/fonts-5dfa7c1d3453c957)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/fx.rs (out/cargo/debug/deps/fx-9adac8b34f9b1654)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running tests/geometry.rs (out/cargo/debug/deps/geometry-35a6f8c0ea5d72ec)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/gradients.rs (out/cargo/debug/deps/gradients-e29add88b71cdca4)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/image_adjust_sampling.rs (out/cargo/debug/deps/image_adjust_sampling-1cd7e5c1f6a323e1)
+test result: ok. 5 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/lint_contrast.rs (out/cargo/debug/deps/lint_contrast-2b90d907632f1e81)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/lint_rules.rs (out/cargo/debug/deps/lint_rules-1e3c87b20d5d97b1)
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.25s
+     Running tests/mask_without_own_fill.rs (out/cargo/debug/deps/mask_without_own_fill-bdca069c0c6e7a83)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/outline_stroke_of_dashed_rectangles.rs (out/cargo/debug/deps/outline_stroke_of_dashed_rectangles-ef203f6f0fcfde87)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+     Running tests/pixmap_size_cap.rs (out/cargo/debug/deps/pixmap_size_cap-8fcb610ac3de0142)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/render.rs (out/cargo/debug/deps/render-d54ff6dc40768abe)
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+     Running tests/resized_vector_stroke_weight.rs (out/cargo/debug/deps/resized_vector_stroke_weight-9a00ce24531f9056)
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/scripts.rs (out/cargo/debug/deps/scripts-a789f7ed2dfc8722)
+test result: ok. 0 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/shadow_blend.rs (out/cargo/debug/deps/shadow_blend-a1665c10a9db48d2)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/shadow_fillless.rs (out/cargo/debug/deps/shadow_fillless-239ebe7273eb68c9)
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+     Running tests/text_fill_source.rs (out/cargo/debug/deps/text_fill_source-c877423d6ca3841f)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/text_lists.rs (out/cargo/debug/deps/text_lists-8149410550c1ce82)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+     Running tests/tile_fonts.rs (out/cargo/debug/deps/tile_fonts-02eaf6afbfa93205)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+     Running tests/tiles.rs (out/cargo/debug/deps/tiles-ad82e11e849bc050)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.28s
+     Running tests/tiles_edit_while_converging.rs (out/cargo/debug/deps/tiles_edit_while_converging-9c2b8958530dda52)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+     Running tests/variables.rs (out/cargo/debug/deps/variables-c9d7397f34be35a9)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/vector_network.rs (out/cargo/debug/deps/vector_network-1c0f8fb0adf750a5)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/vectorops.rs (out/cargo/debug/deps/vectorops-e22a806a0b872253)
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+   Doc-tests designos_render
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+rc=0

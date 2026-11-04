@@ -64,6 +64,7 @@ pub fn kind_of(e: &Effect) -> usize {
         Effect::Noise(_) => 4,
         Effect::Texture(_) => 5,
         Effect::Glass(_) => 6,
+        Effect::Shader { .. } => 7,
     }
 }
 
@@ -72,7 +73,8 @@ pub fn set_visible(e: &mut Effect, v: bool) {
         Effect::DropShadow { visible, .. }
         | Effect::InnerShadow { visible, .. }
         | Effect::LayerBlur { visible, .. }
-        | Effect::BackgroundBlur { visible, .. } => *visible = v,
+        | Effect::BackgroundBlur { visible, .. }
+        | Effect::Shader { visible, .. } => *visible = v,
         Effect::Noise(n) => n.visible = v,
         Effect::Texture(t) => t.visible = v,
         Effect::Glass(g) => g.visible = v,
@@ -220,20 +222,30 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         pane.y += 4.0;
     }
     for (i, e) in effects.iter().enumerate() {
-        let kind = kind_of(e);
-        let dd = pane.rect(theme::SECTION_CONTENT_X, 0.0, 134.0, theme::FIELD_HEIGHT);
-        if let Some(k) = dropdown(ui, dd, ("fx-kind", i), names[kind].as_str(), &names) {
-            let new = convert(e, k);
-            app.edit_nodes(sel, |n| {
-                if let Some(slot) = n.effects.get_mut(i) {
-                    *slot = new.clone();
-                }
-            });
-        }
-        let set_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 25.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
-        let open = app.props.pop.as_ref().is_some_and(|p| p.kind == PopKind::Effect(i));
-        if widgets::icon_button(ui, set_r, ("fx-settings", i), Icon::StrokeSettings, open, "Effect settings").clicked() {
-            app.props.pop = (!open).then(|| PopState { kind: PopKind::Effect(i), anchor: set_r, ids: sel.to_vec() });
+        if matches!(e, Effect::Shader { .. }) {
+            let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, 159.0, theme::FIELD_HEIGHT);
+            ui.painter().rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
+            // A field with a prefix icon: the icon is centred in the theme's prefix slot, the text starts after it.
+            let icon_slot = Rect::from_min_size(row.min, Vec2::new(theme::FIELD_PREFIX_W, row.height()));
+            crate::icons::paint(ui.painter(), Icon::Shader, icon_slot.center(), theme::FIELD_PREFIX_ICON, theme::TEXT_SECONDARY);
+            let text_r = Rect::from_min_max(Pos2::new(row.left() + theme::FIELD_PREFIX_W, row.top()), row.max);
+            widgets::field_text(ui.painter(), text_r, 0.0, 0.0, "Shader (not rendered)", theme::font_body(), theme::TEXT_SECONDARY);
+        } else {
+            let kind = kind_of(e);
+            let dd = pane.rect(theme::SECTION_CONTENT_X, 0.0, 134.0, theme::FIELD_HEIGHT);
+            if let Some(k) = dropdown(ui, dd, ("fx-kind", i), names[kind].as_str(), &names) {
+                let new = convert(e, k);
+                app.edit_nodes(sel, |n| {
+                    if let Some(slot) = n.effects.get_mut(i) {
+                        *slot = new.clone();
+                    }
+                });
+            }
+            let set_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 25.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
+            let open = app.props.pop.as_ref().is_some_and(|p| p.kind == PopKind::Effect(i));
+            if widgets::icon_button(ui, set_r, ("fx-settings", i), Icon::StrokeSettings, open, "Effect settings").clicked() {
+                app.props.pop = (!open).then(|| PopState { kind: PopKind::Effect(i), anchor: set_r, ids: sel.to_vec() });
+            }
         }
         let eye_r = pane.rect(theme::RIGHT_NAME_ACTION_X[1] - 1.0 + 4.0, 0.0, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         let visible = e.visible();
@@ -382,6 +394,7 @@ pub(crate) fn effect_rows(e: &Effect) -> usize {
         Effect::Texture(t) => size_rows(t.size_y).len() + 2,
         // Light angle, then the rows of [`GLASS_ROWS`].
         Effect::Glass(_) => 1 + GLASS_ROWS.len(),
+        Effect::Shader { .. } => 0,
     }
 }
 
@@ -1042,5 +1055,30 @@ mod tests {
         let blur = convert(&e, 2);
         assert!(matches!(blur, Effect::LayerBlur { radius, visible: false } if radius == 9.0));
         assert!(matches!(convert(&e, 6), Effect::Glass(g) if !g.visible));
+    }
+
+    #[test]
+    fn shader_inspector_rows_render_label_and_toggle_visibility() {
+        let raw_payload = serde_json::json!({
+            "radius": 12.0,
+            "backgroundShader": {
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            }
+        });
+        let mut eff = Effect::Shader { shader: designos_doc::ShaderRef { raw: raw_payload.clone() }, visible: true };
+        assert_eq!(kind_of(&eff), 7);
+        assert_eq!(effect_rows(&eff), 0);
+        assert!(eff.visible());
+
+        set_visible(&mut eff, false);
+        assert!(!eff.visible());
+        match &eff {
+            Effect::Shader { shader, visible } => {
+                assert!(!*visible);
+                assert_eq!(shader.raw, raw_payload);
+            }
+            other => panic!("expected Effect::Shader, got {other:?}"),
+        }
     }
 }

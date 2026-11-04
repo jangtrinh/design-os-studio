@@ -891,6 +891,7 @@ fn summarize_style(style: &Style) -> String {
                     PaintKind::AngularGradient { .. } => "angular-gradient".into(),
                     PaintKind::DiamondGradient { .. } => "diamond-gradient".into(),
                     PaintKind::Image { .. } => "image".into(),
+                    PaintKind::Shader(_) => "shader".into(),
                 }
             } else {
                 "empty".into()

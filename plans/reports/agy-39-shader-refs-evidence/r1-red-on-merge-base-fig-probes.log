@@ -1,0 +1,29 @@
+# merge base 6fae028cf, plus crates/designos-fig/tests/fig_shader_refs.rs (public API only): cargo test -p designos-fig --locked --no-fail-fast --test fig_shader_refs
+test shader_in_effect_style_round_trips ... FAILED
+test shader_message_bytes_are_equal_after_round_trip ... FAILED
+test unknown_field_on_a_shader_message_is_kept ... FAILED
+test shader_effect_and_fill_survive_fig_import_export_reimport ... FAILED
+test shader_fill_keeps_opacity_visible_blend_and_slot_order ... FAILED
+test designos_json_round_trip_keeps_shader ... FAILED
+thread 'shader_in_effect_style_round_trips' (98281580) panicked at crates/designos-fig/tests/fig_shader_refs.rs:141:5:
+assertion `left == right` failed: the style keeps its shader effect
+  left: 0
+ right: 1
+thread 'shader_message_bytes_are_equal_after_round_trip' (98281581) panicked at crates/designos-fig/tests/fig_shader_refs.rs:196:67:
+thread 'unknown_field_on_a_shader_message_is_kept' (98281582) panicked at crates/designos-fig/tests/fig_shader_refs.rs:171:9:
+assertion `left == right` failed: effect field count survives
+  left: Null
+ right: Number(3)
+thread 'shader_effect_and_fill_survive_fig_import_export_reimport' (98281578) panicked at crates/designos-fig/tests/fig_shader_refs.rs:127:5:
+assertion `left == right` failed: the shader effect keeps every field
+  left: Null
+ right: Object {"blendMode": String("MULTIPLY"), "componentPropAssignments": Array [Object {"defID": Object {"localID": Number(2), "sessionID": Number(1)}, "value": Object {"floatValue": Number(0.75)}}, Object {"defID": Object {"localID": Number(3), "sessionID": Number(1)}, "value": Object {"boolVal
+thread 'shader_fill_keeps_opacity_visible_blend_and_slot_order' (98281579) panicked at crates/designos-fig/tests/fig_shader_refs.rs:155:5:
+assertion `left == right` failed: the shader fill keeps its slot among the solid fills
+  left: 2
+ right: 3
+thread 'designos_json_round_trip_keeps_shader' (98281577) panicked at crates/designos-fig/tests/fig_shader_refs.rs:209:5:
+assertion `left == right` failed
+  left: Null
+ right: Object {"blendMode": String("MULTIPLY"), "componentPropAssignments": Array [Object {"defID": Object {"localID": Number(2), "sessionID": Number(1)}, "value": Object {"floatValue": Number(0.75)}}, Object {"defID": Object {"localID": Number(3), "sessionID": Number(1)}, "value": Object {"boolVal
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s

@@ -2824,6 +2824,15 @@ fn convert_paint(p: &Value) -> Option<Value> {
             copy(&mut m, p, "originalImageWidth", "originalImageWidth");
             copy(&mut m, p, "originalImageHeight", "originalImageHeight");
         }
+        "CUSTOM" => {
+            if let Some(obj) = p.as_object() {
+                for (k, v) in obj {
+                    if !matches!(k.as_str(), "type" | "opacity" | "visible" | "blendMode") {
+                        m.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
         _ => return None,
     }
     Some(Value::Object(m))
@@ -2835,6 +2844,16 @@ fn convert_effect(e: &Value) -> Option<Value> {
         "GRAIN" => "TEXTURE",
         other => other,
     };
+    if ty == "CUSTOM" {
+        let mut m = Map::new();
+        if let Some(obj) = e.as_object() {
+            for (k, v) in obj {
+                m.insert(k.clone(), v.clone());
+            }
+        }
+        m.insert("type".into(), "CUSTOM".into());
+        return Some(Value::Object(m));
+    }
     let mut m = Map::new();
     m.insert("type".into(), ty.into());
     for k in
@@ -3199,5 +3218,337 @@ mod tests {
         assert!(rt_parent.children.contains(&rt_child.id));
         let rt_sibling = rt.nodes.values().find(|n| n.name == "FreshSibling").expect("FreshSibling preserved");
         assert_eq!(rt_sibling.parent, Some(rt_parent.id));
+    }
+
+    fn custom_shader_test_fig(effects: Vec<kiwi::KiwiValue>, fills: Vec<kiwi::KiwiValue>) -> Vec<u8> {
+        use crate::container::{self, Compression};
+        use crate::kiwi::KiwiValue as V;
+        use crate::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, vec2};
+
+        let doc = msg(vec![("guid", guid(0, 0)), ("type", en("DOCUMENT")), ("name", V::String("ShaderDoc".into()))]);
+        let page = node((0, 1), (0, 0), "!", "CANVAS", "Page 1", vec![]);
+        let mut rect_extra = vec![("size", vec2(120.0, 80.0)), ("transform", matrix(10.0, 20.0)), ("opacity", fl(1.0)), ("visible", V::Bool(true))];
+        if !fills.is_empty() {
+            rect_extra.push(("fillPaints", V::Array(fills)));
+        }
+        if !effects.is_empty() {
+            rect_extra.push(("effects", V::Array(effects)));
+        }
+        let rect = node((1, 2), (0, 1), "!", "ROUNDED_RECTANGLE", "ShaderBox", rect_extra);
+        let root_msg = msg(vec![("nodeChanges", V::Array(vec![doc, page, rect])), ("blobs", V::Array(vec![]))]);
+        let schema = figma_like_schema();
+        let root = schema.find("Message").unwrap();
+        let body = schema.encode_message(root, &root_msg).unwrap();
+        container::write_container(&schema.encode(), &body, Compression::Zstd, 101)
+    }
+
+    #[test]
+    fn shader_effect_round_trips_through_fig() {
+        use crate::kiwi::KiwiValue as V;
+        use crate::testkit::{en, fl, guid, msg};
+        use designos_doc::Effect;
+
+        let effect_kv = msg(vec![
+            ("type", en("CUSTOM")),
+            ("visible", V::Bool(true)),
+            ("radius", fl(12.0)),
+            ("blendMode", en("MULTIPLY")),
+            (
+                "customEffectId",
+                msg(vec![("guid", guid(10, 25)), ("assetRef", msg(vec![("key", V::String("shader_key_abc".into())), ("version", V::String("1".into()))]))]),
+            ),
+            ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(1, 2)), ("value", msg(vec![("floatValue", fl(0.75))]))])])),
+        ]);
+
+        let fig_bytes = custom_shader_test_fig(vec![effect_kv], vec![]);
+        let doc = import_fig(&fig_bytes).expect("import_fig with custom shader effect");
+        let node = doc.nodes.values().find(|n| n.name == "ShaderBox").expect("ShaderBox node");
+        assert_eq!(node.effects.len(), 1);
+        match &node.effects[0] {
+            Effect::Shader { shader, visible } => {
+                assert!(*visible);
+                assert_eq!(shader.raw["customEffectId"]["assetRef"]["key"], json!("shader_key_abc"));
+                assert_eq!(shader.raw["componentPropAssignments"][0]["value"]["floatValue"], json!(0.75));
+            }
+            other => panic!("expected Effect::Shader, got {other:?}"),
+        }
+
+        let exported = crate::fig_export::export_fig(&doc).expect("export_fig with custom shader effect");
+        let decoded = decode_fig_to_json(&exported).expect("decode exported fig");
+        let changes = decoded["message"]["nodeChanges"].as_array().expect("nodeChanges array");
+        let rect_nc = changes.iter().find(|nc| nc["name"] == "ShaderBox").expect("ShaderBox in exported nodeChanges");
+        let eff = &rect_nc["effects"][0];
+        assert_eq!(eff["type"], json!("CUSTOM"));
+        assert_eq!(eff["visible"], json!(true));
+        assert_eq!(eff["radius"], json!(12.0));
+        assert_eq!(eff["blendMode"], json!("MULTIPLY"));
+        assert_eq!(
+            eff["customEffectId"],
+            json!({
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            })
+        );
+        assert_eq!(
+            eff["componentPropAssignments"],
+            json!([
+                {
+                    "defID": {"sessionID": 1, "localID": 2},
+                    "value": {"floatValue": 0.75}
+                }
+            ])
+        );
+
+        let rt = import_fig(&exported).expect("re-import exported fig");
+        let rt_node = rt.nodes.values().find(|n| n.name == "ShaderBox").expect("ShaderBox after round trip");
+        assert_eq!(rt_node.effects, node.effects);
+    }
+
+    #[test]
+    fn shader_paint_round_trips_through_fig() {
+        use crate::kiwi::KiwiValue as V;
+        use crate::testkit::{en, fl, guid, msg, vec2};
+        use designos_doc::{BlendMode, PaintKind};
+
+        let paint_kv = msg(vec![
+            ("type", en("CUSTOM")),
+            ("opacity", fl(0.75)),
+            ("visible", V::Bool(true)),
+            ("blendMode", en("SCREEN")),
+            ("sourceNodeId", guid(3, 44)),
+            ("patternSpacing", vec2(4.0, 8.0)),
+            (
+                "customEffectId",
+                msg(vec![("guid", guid(11, 26)), ("assetRef", msg(vec![("key", V::String("paint_shader_xyz".into())), ("version", V::String("2".into()))]))]),
+            ),
+            ("componentPropAssignments", V::Array(vec![msg(vec![("defID", guid(2, 3)), ("value", msg(vec![("floatValue", fl(0.25))]))])])),
+        ]);
+
+        let fig_bytes = custom_shader_test_fig(vec![], vec![paint_kv]);
+        let doc = import_fig(&fig_bytes).expect("import_fig with custom shader paint");
+        let node = doc.nodes.values().find(|n| n.name == "ShaderBox").expect("ShaderBox node");
+        assert_eq!(node.fills.len(), 1);
+        let fill = &node.fills[0];
+        assert!((fill.opacity - 0.75).abs() < 1e-6);
+        assert!(fill.visible);
+        assert_eq!(fill.blend, BlendMode::Screen);
+        match &fill.kind {
+            PaintKind::Shader(shader) => {
+                assert_eq!(shader.raw["sourceNodeId"], json!({"sessionID": 3, "localID": 44}));
+                assert_eq!(shader.raw["patternSpacing"], json!({"x": 4.0, "y": 8.0}));
+                assert_eq!(shader.raw["customEffectId"]["assetRef"]["key"], json!("paint_shader_xyz"));
+            }
+            other => panic!("expected PaintKind::Shader, got {other:?}"),
+        }
+
+        let exported = crate::fig_export::export_fig(&doc).expect("export_fig with custom shader paint");
+        let decoded = decode_fig_to_json(&exported).expect("decode exported fig");
+        let changes = decoded["message"]["nodeChanges"].as_array().expect("nodeChanges array");
+        let rect_nc = changes.iter().find(|nc| nc["name"] == "ShaderBox").expect("ShaderBox in exported nodeChanges");
+        let p = &rect_nc["fillPaints"][0];
+        assert_eq!(p["type"], json!("CUSTOM"));
+        assert_eq!(p["opacity"], json!(0.75));
+        assert_eq!(p["visible"], json!(true));
+        assert_eq!(p["blendMode"], json!("SCREEN"));
+        assert_eq!(p["sourceNodeId"], json!({"sessionID": 3, "localID": 44}));
+        assert_eq!(p["patternSpacing"], json!({"x": 4.0, "y": 8.0}));
+        assert_eq!(
+            p["customEffectId"],
+            json!({
+                "guid": {"sessionID": 11, "localID": 26},
+                "assetRef": {"key": "paint_shader_xyz", "version": "2"}
+            })
+        );
+        assert_eq!(
+            p["componentPropAssignments"],
+            json!([
+                {
+                    "defID": {"sessionID": 2, "localID": 3},
+                    "value": {"floatValue": 0.25}
+                }
+            ])
+        );
+
+        let rt = import_fig(&exported).expect("re-import exported fig");
+        let rt_node = rt.nodes.values().find(|n| n.name == "ShaderBox").expect("ShaderBox after round trip");
+        assert_eq!(rt_node.fills, node.fills);
+    }
+
+    #[test]
+    fn shader_effect_and_paint_round_trip_through_rest_json() {
+        let effect_shader = json!({
+            "radius": 8.0,
+            "customEffectId": {
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            },
+            "componentPropAssignments": [{
+                "defID": {"sessionID": 1, "localID": 2},
+                "value": {"floatValue": 0.5}
+            }]
+        });
+        let fill_shader = json!({"sourceNodeId": {"sessionID": 7, "localID": 8}});
+        let rest_input = json!({
+            "name": "ShaderRestDoc",
+            "document": {
+                "id": "0:0",
+                "name": "Document",
+                "type": "DOCUMENT",
+                "children": [{
+                    "id": "0:1",
+                    "name": "Page 1",
+                    "type": "CANVAS",
+                    "children": [{
+                        "id": "1:2",
+                        "name": "ShaderLayer",
+                        "type": "RECTANGLE",
+                        "absoluteBoundingBox": {"x": 0.0, "y": 0.0, "width": 100.0, "height": 80.0},
+                        "fills": [{
+                            "type": "SHADER",
+                            "opacity": 0.5,
+                            "visible": true,
+                            "blendMode": "OVERLAY",
+                            "shader": fill_shader
+                        }],
+                        "effects": [{
+                            "type": "SHADER",
+                            "visible": false,
+                            "shader": effect_shader
+                        }]
+                    }]
+                }]
+            }
+        });
+
+        let doc = crate::import_rest_json(&rest_input.to_string()).expect("import_rest_json");
+        let exported_val = crate::export_rest_json(&doc);
+        let layer = &exported_val["document"]["children"][0]["children"][0];
+        assert_eq!(layer["name"], json!("ShaderLayer"));
+
+        let fill = &layer["fills"][0];
+        assert_eq!(fill["type"], json!("SHADER"));
+        assert_eq!(fill["opacity"], json!(0.5));
+        assert_eq!(fill["visible"], json!(true));
+        assert_eq!(fill["blendMode"], json!("OVERLAY"));
+        assert_eq!(fill["shader"], fill_shader);
+
+        let eff = &layer["effects"][0];
+        assert_eq!(eff["type"], json!("SHADER"));
+        assert_eq!(eff["visible"], json!(false));
+        assert_eq!(eff["shader"], effect_shader);
+    }
+
+    #[test]
+    fn shader_effect_and_paint_round_trip_through_designos_json() {
+        use designos_doc::{BlendMode, Effect, Node, Paint, PaintKind, Rect, ShaderRef};
+
+        let mut doc = Document::new("ShaderDesignosJson");
+        let page = doc.add_page("Page 1");
+        let nid = doc.alloc_id();
+        let mut rect = Node::rectangle(nid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        rect.name = "ShaderNode".into();
+        rect.fills = vec![Paint {
+            kind: PaintKind::Shader(ShaderRef {
+                raw: json!({
+                    "sourceNodeId": {"sessionID": 3, "localID": 44},
+                    "patternSpacing": {"x": 4.0, "y": 8.0}
+                }),
+            }),
+            opacity: 0.75,
+            visible: true,
+            blend: BlendMode::Screen,
+        }];
+        rect.effects = vec![Effect::Shader {
+            shader: ShaderRef {
+                raw: json!({
+                    "radius": 12.0,
+                    "customEffectId": {
+                        "guid": {"sessionID": 10, "localID": 25},
+                        "assetRef": {"key": "shader_key_abc", "version": "1"}
+                    }
+                }),
+            },
+            visible: true,
+        }];
+        doc.insert(page, rect).unwrap();
+
+        let serialized = doc.to_json().expect("Document::to_json");
+        let roundtripped = Document::from_json(&serialized).expect("Document::from_json");
+        let orig_node = doc.get(nid).unwrap();
+        let rt_node = roundtripped.get(nid).unwrap();
+        assert_eq!(rt_node.fills, orig_node.fills);
+        assert_eq!(rt_node.effects, orig_node.effects);
+    }
+
+    #[test]
+    fn shader_ref_malformed_json_errors_on_fig_export() {
+        use designos_doc::{BlendMode, Effect, Node, Paint, PaintKind, Rect, ShaderRef};
+
+        let mut doc = Document::new("MalformedShader");
+        let page = doc.add_page("Page 1");
+        let nid = doc.alloc_id();
+        let mut rect = Node::rectangle(nid, Rect::new(0.0, 0.0, 100.0, 100.0));
+        rect.name = "BrokenShaderLayer".into();
+        rect.effects = vec![Effect::Shader {
+            shader: ShaderRef {
+                raw: json!({
+                    "customEffectId": {
+                        "guid": {"sessionID": "not-a-uint"}
+                    }
+                }),
+            },
+            visible: true,
+        }];
+        doc.insert(page, rect).unwrap();
+
+        let err = crate::fig_export::export_fig(&doc).expect_err("malformed customEffectId must fail export_fig");
+        let msg = err.to_string();
+        assert!(msg.contains("BrokenShaderLayer"), "error must name layer: {msg}");
+        assert!(msg.contains("customEffectId"), "error must name field: {msg}");
+
+        let mut doc_non_obj = Document::new("NonObjShader");
+        let page2 = doc_non_obj.add_page("Page 1");
+        let nid2 = doc_non_obj.alloc_id();
+        let mut rect2 = Node::rectangle(nid2, Rect::new(0.0, 0.0, 100.0, 100.0));
+        rect2.name = "NonObjectShaderFill".into();
+        rect2.fills = vec![Paint { kind: PaintKind::Shader(ShaderRef { raw: json!("not-an-object") }), opacity: 1.0, visible: true, blend: BlendMode::Normal }];
+        doc_non_obj.insert(page2, rect2).unwrap();
+
+        let err2 = crate::fig_export::export_fig(&doc_non_obj).expect_err("non-object shader raw must fail export_fig");
+        let msg2 = err2.to_string();
+        assert!(msg2.contains("NonObjectShaderFill"), "error must name layer: {msg2}");
+        assert!(msg2.contains("Paint"), "error must name field: {msg2}");
+    }
+
+    #[test]
+    fn scan_fig_file_for_custom_shader_effects_and_paints_when_requested() {
+        let Ok(path) = std::env::var("DESIGNOS_SCAN_FIG_PATH") else { return };
+        let bytes = std::fs::read(&path).expect("read DESIGNOS_SCAN_FIG_PATH");
+        let d = decode(&bytes).expect("decode fig");
+        let changes = d.message.get("nodeChanges").and_then(|v| v.as_array()).expect("nodeChanges");
+        let mut custom_effects = 0usize;
+        let mut custom_fills = 0usize;
+        let mut custom_strokes = 0usize;
+        let count_custom = |arr: &[kiwi::KiwiValue]| -> usize {
+            arr.iter().filter(|item| matches!(item.get("type"), Some(kiwi::KiwiValue::Enum(s)) if &**s == "CUSTOM")).count()
+        };
+        for nc in changes {
+            if let Some(arr) = nc.get("effects").and_then(|v| v.as_array()) {
+                custom_effects += count_custom(arr);
+            }
+            if let Some(arr) = nc.get("fillPaints").and_then(|v| v.as_array()) {
+                custom_fills += count_custom(arr);
+            }
+            if let Some(arr) = nc.get("strokePaints").and_then(|v| v.as_array()) {
+                custom_strokes += count_custom(arr);
+            }
+        }
+        println!(
+            "kit_scan: nodeChanges={} EffectType::CUSTOM={} PaintType::CUSTOM(fills)={} PaintType::CUSTOM(strokes)={}",
+            changes.len(),
+            custom_effects,
+            custom_fills,
+            custom_strokes
+        );
     }
 }
