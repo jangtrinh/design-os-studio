@@ -180,10 +180,13 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4268 filtered out; f
 app_rerun_rc=0
 ```
 
-### 6.3 Cleanup Proof (`ls out/cargo`)
+### 6.3 Cleanup Proof (`ls out/cargo`), Draft PR & Commits
 ```text
 $ ls out/cargo
 ls: out/cargo: No such file or directory
 ```
+- **Draft PR**: https://github.com/jangtrinh/design-os-studio/pull/1592
+- **Commits (`git log --oneline 9bcef5729..HEAD`)**:
+  - `a0b3b437c feat(strokes): start and end points in the stroke panel, and the Arrow tool (#859)`
 
 Status: COMPLETED
