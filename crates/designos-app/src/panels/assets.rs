@@ -460,7 +460,6 @@ pub fn show(app: &mut App, ui: &mut Ui, region: Rect) {
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
         .hint_text(egui::RichText::new("Search all libraries").color(theme::TEXT_PLACEHOLDER))
-        .margin(egui::Margin::symmetric(0, 0))
         .vertical_align(egui::Align::Center)
         .desired_width((sr.width() - 32.0).max(40.0));
     let inner = Rect::from_min_max(Pos2::new(sr.left() + 26.0, sr.top()), sr.max);

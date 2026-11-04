@@ -73,8 +73,14 @@ pub enum TextCmd {
     Underline,
     SizeUp,
     SizeDown,
+    /// Steps the font size by this many pixels (negative to shrink).
+    SizeBy(f32),
     List(ListKind),
 }
+
+/// Font-size step of `Cmd/Ctrl+Shift+.` and `,` in a text session; `Alt` takes the larger one.
+const SIZE_STEP: f32 = 1.0;
+const SIZE_STEP_ALT: f32 = 10.0;
 
 // ------------------------------------------------------------------ lifecycle
 pub fn begin_text_edit(app: &mut App, id: NodeId) {
@@ -419,7 +425,17 @@ fn edit_props_with_link(app: &mut App, log: Option<(EditKind, bool)>, link: Link
     }
     follow_label(doc, &mut sess.tx, id);
     if let (Some(b), Some((kind, new_word))) = (before, log) {
-        sess.log.record(b, kind, now, new_word);
+        if kind == EditKind::Style {
+            let after = Snap {
+                props: sess.tx.ed.node(doc, id).and_then(|n| n.kind.any_text()).cloned().unwrap_or_default(),
+                style_ref: sess.tx.ed.node(doc, id).and_then(|n| n.style_refs.get(text_ref()).cloned()),
+                caret,
+                anchor,
+            };
+            sess.log.record_style(b, &after, now, new_word);
+        } else {
+            sess.log.record(b, kind, now, new_word);
+        }
     }
     sess.caret = caret;
     sess.anchor = anchor;
@@ -456,7 +472,7 @@ pub fn insert_text(app: &mut App, s: &str, kind: EditKind) {
     let typing = app.canvas.text.as_mut().and_then(|x| x.typing.take());
     let Some(sess) = app.canvas.text.as_ref() else { return };
     let new_word = props_of(app).is_some_and(|(t, _)| te::starts_new_word(&t.content, sess.range().start, &s)) || s.contains('\n');
-    edit_props(app, Some((kind, new_word)), |t, caret, anchor| {
+    edit_props_with_link(app, Some((kind, new_word)), LinkEdit::DetachIfStyleOwnedChanged, |t, caret, anchor| {
         let r = (*caret).min(*anchor)..(*caret).max(*anchor);
         let end = richtext::splice(t, r, &s, typing.clone());
         *caret = end;
@@ -679,11 +695,12 @@ fn style_fn(cmd: TextCmd, sum: Option<&richtext::Summary>) -> impl Fn(&mut TextS
     let italic = sum.and_then(|s| s.italic) == Some(true);
     let underline = sum.and_then(|s| s.decoration) == Some(TextDecoration::Underline);
     move |st: &mut TextStyle| match cmd {
-        TextCmd::Bold => st.font_weight = if bold { 400 } else { 700 },
+        TextCmd::Bold => st.set_font_weight(if bold { 400 } else { 700 }),
         TextCmd::Italic => st.italic = !italic,
         TextCmd::Underline => st.decoration = if underline { TextDecoration::None } else { TextDecoration::Underline },
         TextCmd::SizeUp => st.font_size = (st.font_size + 1.0).min(1000.0),
         TextCmd::SizeDown => st.font_size = (st.font_size - 1.0).max(1.0),
+        TextCmd::SizeBy(step) => st.font_size = (st.font_size + step).clamp(1.0, 1000.0),
         TextCmd::List(_) => {}
     }
 }
@@ -802,8 +819,8 @@ fn key_event(app: &mut App, key: egui::Key, m: egui::Modifiers) -> bool {
         K::B if ctrl => text_command(app, TextCmd::Bold),
         K::I if ctrl => text_command(app, TextCmd::Italic),
         K::U if ctrl => text_command(app, TextCmd::Underline),
-        K::Period if ctrl && m.shift => text_command(app, TextCmd::SizeUp),
-        K::Comma if ctrl && m.shift => text_command(app, TextCmd::SizeDown),
+        K::Period if ctrl && m.shift => text_command(app, TextCmd::SizeBy(if m.alt { SIZE_STEP_ALT } else { SIZE_STEP })),
+        K::Comma if ctrl && m.shift => text_command(app, TextCmd::SizeBy(-if m.alt { SIZE_STEP_ALT } else { SIZE_STEP })),
         K::Tab if !ctrl => tab(app, m.shift),
         K::Num7 if ctrl && m.shift => text_command(app, TextCmd::List(ListKind::Numbered)),
         K::Num8 if ctrl && m.shift => text_command(app, TextCmd::List(ListKind::Bullet)),
@@ -842,7 +859,7 @@ pub fn caret_screen_rect(app: &App, origin: egui::Pos2) -> Option<ERect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use designos_doc::{Document, Node, Style};
+    use designos_doc::{Color, Document, Node, Style};
 
     fn app_with_text(s: &str) -> (App, NodeId) {
         app_with_styled_text(s, TextStyle { font_size: 16.0, ..Default::default() })
@@ -926,6 +943,42 @@ mod tests {
         let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
         assert_eq!(t.style.font_size, 24.0);
         assert!(!n.style_refs.contains_key("text"));
+    }
+
+    #[test]
+    fn typing_after_a_collapsed_style_edit_detaches_the_linked_text_style() {
+        let (mut app, id) = app_with_linked_text_style();
+        begin_text_edit(&mut app, id);
+        set_sel(&mut app, 5, 5, false);
+        text_command(&mut app, TextCmd::SizeUp);
+        insert_text(&mut app, "x", EditKind::Typing);
+
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.content, "hellox");
+        assert_eq!((t.runs[0].start, t.runs[0].end, t.runs[0].style.font_size), (5, 6, 17.0));
+        assert!(!n.style_refs.contains_key("text"), "a run that differs from the linked style must detach it");
+
+        key(&mut app, egui::Key::Z, false, true);
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.content, "hello");
+        assert!(t.runs.is_empty());
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
+    }
+
+    #[test]
+    fn typing_with_the_linked_style_keeps_the_text_style_link() {
+        let (mut app, id) = app_with_linked_text_style();
+        begin_text_edit(&mut app, id);
+        set_sel(&mut app, 5, 5, false);
+        insert_text(&mut app, "x", EditKind::Typing);
+
+        let n = app.doc.get(id).unwrap();
+        let NodeKind::Text(t) = &n.kind else { panic!("text layer") };
+        assert_eq!(t.content, "hellox");
+        assert!(t.runs.is_empty(), "matching typing style should not create a redundant run");
+        assert_eq!(n.style_refs.get("text").map(String::as_str), Some("Body"));
     }
 
     fn key(app: &mut App, k: egui::Key, shift: bool, ctrl: bool) {
@@ -1411,6 +1464,50 @@ mod tests {
         text_command(&mut app, TextCmd::SizeDown);
         let t = text_of(&app, id);
         assert_eq!((t.runs[0].start, t.runs[0].end, t.runs[0].style.font_size), (0, 1, 16.0));
+    }
+
+    #[test]
+    fn style_edits_on_different_properties_undo_separately() {
+        let (mut app, id) = app_with_text("hello");
+        set_sel(&mut app, 0, 2, false);
+        style_selection_as(&mut app, |s| crate::panels::typography::set_solid(s, Color::rgb(255, 0, 0), None), EditKind::Style);
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 24.0);
+        let t = text_of(&app, id);
+        assert_eq!(t.runs.len(), 1, "partial selection must remain a run");
+        assert_eq!(t.runs[0].style.font_size, 24.0);
+        assert!(matches!(t.runs[0].style.fills.first().map(|p| &p.kind), Some(designos_doc::PaintKind::Solid(c)) if *c == Color::rgb(255, 0, 0)));
+        undo_step(&mut app, false);
+        let t = text_of(&app, id);
+        assert_eq!(t.style.font_size, 16.0);
+        assert_eq!(t.runs.len(), 1);
+        assert_eq!(t.runs[0].style.font_size, 16.0);
+        assert!(matches!(t.runs[0].style.fills.first().map(|p| &p.kind), Some(designos_doc::PaintKind::Solid(c)) if *c == Color::rgb(255, 0, 0)));
+        undo_step(&mut app, false);
+        let t = text_of(&app, id);
+        assert!(t.runs.is_empty());
+        assert_eq!(t.style.font_size, 16.0);
+        assert!(matches!(t.style.fills.first().map(|p| &p.kind), Some(designos_doc::PaintKind::Solid(c)) if *c == Color::BLACK));
+        undo_step(&mut app, true);
+        undo_step(&mut app, true);
+        let t = text_of(&app, id);
+        assert_eq!(t.runs.len(), 1);
+        assert_eq!(t.runs[0].style.font_size, 24.0);
+        assert!(matches!(t.runs[0].style.fills.first().map(|p| &p.kind), Some(designos_doc::PaintKind::Solid(c)) if *c == Color::rgb(255, 0, 0)));
+    }
+
+    #[test]
+    fn repeated_style_edits_on_one_property_still_coalesce() {
+        let (mut app, id) = app_with_text("hello");
+        select_all(&mut app);
+        app.now = 0.0;
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 20.0);
+        app.now = 0.1;
+        crate::panels::typography::set_style(&mut app, &[id], |s| s.font_size = 24.0);
+        assert_eq!(text_of(&app, id).style.font_size, 24.0);
+        undo_step(&mut app, false);
+        assert_eq!(text_of(&app, id).style.font_size, 16.0);
+        undo_step(&mut app, false);
+        assert_eq!(text_of(&app, id).style.font_size, 16.0, "the two size edits share one undo step");
     }
 
     #[test]

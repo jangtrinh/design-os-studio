@@ -75,6 +75,7 @@ pub fn create_text_style_from_nodes(doc: &Document, nodes: &[NodeId]) -> Result<
             description: String::new(),
             property: StyleProperty::Text,
             bindings: Default::default(),
+            text_paragraph_fields: Some(0b111),
             ..Default::default()
         },
     );
