@@ -139,13 +139,13 @@ impl Shell {
         shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
         shell.apply_launch_defaults(screenshot);
-        shell.open_project_tab_from_env();
+        shell.open_project_tab_from_env(screenshot);
         shell
     }
 
     /// A run with `DESIGNOS_PROJECT_TAB_SHOT` set starts on a Project tab (see `project_tab::shot`): screenshots and idle-CPU runs.
-    fn open_project_tab_from_env(&mut self) {
-        let Some(spec) = crate::tabs::project_tab::shot::ShotSpec::from_env() else { return };
+    fn open_project_tab_from_env(&mut self, screenshot: bool) {
+        let Some(spec) = crate::tabs::project_tab::shot::ShotSpec::from_env(screenshot) else { return };
         match spec {
             Ok(spec) => {
                 let project = spec.project.clone();
