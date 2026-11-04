@@ -1,6 +1,6 @@
 //! A screenshot run can start with a Project tab open: `DESIGNOS_PROJECT_TAB_SHOT` names the project and what to
 //! show, as `key=value` pairs joined by `;` (`project=<id>;page=spec/cart-rules.md;menu=spec/cart-rules.md;delete=...;search=ca`).
-//! It is a development aid: a `--screenshot` run captures that state, a normal run (idle-CPU measurement) starts on it.
+//! It is a development aid, read only by a `--screenshot` run, a debug build, or a run with `DESIGNOS_DEV` set (the idle-CPU measurement of a release build).
 
 pub const ENV: &str = "DESIGNOS_PROJECT_TAB_SHOT";
 
@@ -13,6 +13,10 @@ pub struct ShotSpec {
     /// Open the delete dialog for this page.
     pub delete: Option<String>,
     pub search: Option<String>,
+}
+
+fn enabled(screenshot: bool, debug_build: bool, dev_env: bool) -> bool {
+    screenshot || debug_build || dev_env
 }
 
 impl ShotSpec {
@@ -36,7 +40,12 @@ impl ShotSpec {
         Ok(spec)
     }
 
-    pub fn from_env() -> Option<Result<Self, String>> {
+    /// The spec in the environment, when this run may use it: a `--screenshot` run, a debug build, or `DESIGNOS_DEV` set
+    /// (the idle-CPU measurement of a release build). A release window a user starts never reads it.
+    pub fn from_env(screenshot: bool) -> Option<Result<Self, String>> {
+        if !enabled(screenshot, cfg!(debug_assertions), std::env::var_os("DESIGNOS_DEV").is_some()) {
+            return None;
+        }
         std::env::var(ENV).ok().filter(|v| !v.trim().is_empty()).map(|v| Self::parse(&v))
     }
 }
@@ -44,6 +53,12 @@ impl ShotSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_screenshot_run_a_debug_build_or_the_dev_switch_may_use_it() {
+        assert!(enabled(true, false, false) && enabled(false, true, false) && enabled(false, false, true));
+        assert!(!enabled(false, false, false), "a release window that a user starts");
+    }
 
     #[test]
     fn a_spec_names_the_project_and_what_to_show() {
