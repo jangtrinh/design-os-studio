@@ -169,8 +169,18 @@ fn indexed_bounds(index: Option<&designos_render::SceneIndex>, id: NodeId) -> Op
 /// Whether `p` (in the connector's parent space) is on the line of connector `id`.
 fn connector_hit(doc: &Document, id: NodeId, parent_local: Vec2, tol: f32) -> bool {
     let Some(n) = doc.get(id) else { return false };
+    let margin = n.stroke.weight / 2.0 + tol * 3.0;
+    if n.size.x > 0.0 && n.size.y > 0.0 {
+        let x0 = n.transform.tx - margin;
+        let y0 = n.transform.ty - margin;
+        let x1 = n.transform.tx + n.size.x + margin;
+        let y1 = n.transform.ty + n.size.y + margin;
+        if parent_local.x < x0 || parent_local.x > x1 || parent_local.y < y0 || parent_local.y > y1 {
+            return false;
+        }
+    }
     let Some(route) = designos_doc::connector_route(doc, id) else { return false };
-    route.distance_to(parent_local) <= n.stroke.weight / 2.0 + tol * 3.0
+    route.distance_to(parent_local) <= margin
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -192,9 +202,8 @@ fn hit_in(
         pn.children.len() > 64
             && matches!(pn.kind, NodeKind::Page { .. })
             && pn.children.iter().find(|&&c| doc.get(c).is_some_and(|n| n.visible)).is_some_and(|&c| i.bounds_of(c).is_some())
-            && !pn.children.iter().any(|&c| matches!(doc.get(c).map(|n| &n.kind), Some(NodeKind::Connector(_))))
     }) {
-        let m = tol + 4.0;
+        let m = tol * 3.0 + 4.0;
         idx.query_top_level((p.x - m, p.y - m, p.x + m, p.y + m), &mut top_cands);
         &top_cands
     } else {
@@ -783,5 +792,138 @@ mod tests {
         }
         assert_eq!(marquee_both_ways(&d, page, &Rect::new(0.0, 0.0, 60.0, 60.0)), vec![comp], "partial marquee selects component whole");
         assert_eq!(marquee_both_ways(&d, page, &Rect::new(-10.0, -10.0, 400.0, 400.0)), vec![comp], "enclosing marquee selects component whole");
+    }
+
+    #[test]
+    fn hit_test_rejects_far_connectors_by_box_first() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        let mut items = Vec::with_capacity(200);
+        for i in 0..200usize {
+            let col = (i % 20) as f32;
+            let row = (i / 20) as f32;
+            let id = d.alloc_id();
+            d.insert(page, Node::sticky(id, Rect::new(col * 220.0, row * 220.0, 120.0, 100.0), "s")).unwrap();
+            items.push(id);
+        }
+        let mut cids = Vec::with_capacity(1_000);
+        for k in 0..1_000usize {
+            let a = items[k % 200];
+            let b = items[(k * 7 + 1) % 200];
+            let cid = d.alloc_id();
+            let props = designos_doc::ConnectorProps {
+                start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+                end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+                ..Default::default()
+            };
+            d.insert(page, Node::connector(cid, props)).unwrap();
+            designos_doc::sync_connector(&mut d, cid);
+            cids.push(cid);
+        }
+
+        // Prime the cache and then clear it so any connector_route call during the far hit test is counted.
+        designos_doc::clear_route_cache();
+        assert_eq!(designos_doc::route_cache_stats(), (0, 0));
+
+        let far_pt = v2(-5_000.0, -5_000.0);
+        let hit = hit_test(&d, page, far_pt, 2.0, false, &[]);
+        assert_eq!(hit, None);
+        assert_eq!(designos_doc::route_cache_stats(), (0, 0), "far hit test should reject all 1,000 connectors by stored bounding box before computing routes");
+
+        // Hitting directly on the midpoint of the top-most connectorbetween adjacent nodes still routes and hits.
+        let top_cid = *cids.last().unwrap();
+        let mid = designos_doc::connector_route(&d, top_cid).unwrap().midpoint();
+        designos_doc::clear_route_cache();
+        let near_hit = hit_test(&d, page, mid, 2.0, false, &[]);
+        assert!(near_hit.is_some());
+        let (hits, misses) = designos_doc::route_cache_stats();
+        assert!(hits + misses >= 1, "expected at least one route evaluation when probing on a connector");
+    }
+
+    #[test]
+    fn hit_test_keeps_scene_index_path_with_page_level_connectors() {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        for i in 0..200usize {
+            let col = (i % 20) as f32;
+            let row = (i / 20) as f32;
+            let fid = d.alloc_id();
+            d.insert(page, Node::frame(fid, Rect::new(col * 560.0, row * 1_040.0, 390.0, 844.0))).unwrap();
+        }
+        let mut items = Vec::with_capacity(2_000);
+        for i in 0..2_000usize {
+            let col = (i % 50) as f32;
+            let row = (i / 50) as f32;
+            let id = d.alloc_id();
+            d.insert(page, Node::sticky(id, Rect::new(col * 240.0, 11_000.0 + row * 220.0, 140.0, 120.0), "n")).unwrap();
+            items.push(id);
+        }
+        let mut cids = Vec::with_capacity(1_000);
+        for k in 0..1_000usize {
+            let a = items[(k * 2) % 2_000];
+            let b = items[(k * 2 + 1) % 2_000];
+            let cid = d.alloc_id();
+            let props = designos_doc::ConnectorProps {
+                start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+                end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+                ..Default::default()
+            };
+            d.insert(page, Node::connector(cid, props)).unwrap();
+            designos_doc::sync_connector(&mut d, cid);
+            cids.push(cid);
+        }
+
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+
+        let mut sample_pts = Vec::with_capacity(200);
+        for k in 0..50usize {
+            let col = (k % 20) as f32;
+            let row = (k / 20) as f32;
+            sample_pts.push(v2(col * 560.0 + 195.0, row * 1_040.0 + 422.0));
+        }
+        for k in 0..50usize {
+            let col = (k % 50) as f32;
+            let row = (k / 50) as f32;
+            sample_pts.push(v2(col * 240.0 + 70.0, 11_000.0 + row * 220.0 + 60.0));
+        }
+        for k in 0..50usize {
+            let mid = designos_doc::connector_route(&d, cids[k * 20]).unwrap().midpoint();
+            sample_pts.push(mid);
+        }
+        for k in 0..50usize {
+            sample_pts.push(v2(-2_000.0 - k as f32 * 50.0, -2_000.0 - k as f32 * 50.0));
+        }
+
+        for &pt in &sample_pts {
+            let with_idx = hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx));
+            let without_idx = hit_test(&d, page, pt, 2.0, false, &[]);
+            assert_eq!(with_idx, without_idx, "SceneIndex hit-test mismatch at {pt:?}");
+        }
+
+        // Warmup and measure p95 latency of hit_test_with_index across the 200 sample points.
+        for &pt in &sample_pts {
+            std::hint::black_box(hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx)));
+        }
+        let mut samples_us: Vec<f64> = Vec::with_capacity(sample_pts.len());
+        for &pt in &sample_pts {
+            let mut best_us = f64::INFINITY;
+            for _ in 0..3 {
+                let t0 = std::time::Instant::now();
+                let res = std::hint::black_box(hit_test_with_index(&d, page, pt, 2.0, false, &[], Some(&idx)));
+                let elapsed_us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+                let _ = res;
+                if elapsed_us < best_us {
+                    best_us = elapsed_us;
+                }
+            }
+            samples_us.push(best_us);
+        }
+        samples_us.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        let p50_us = samples_us[samples_us.len() / 2];
+        let p95_idx = ((samples_us.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(samples_us.len() - 1);
+        let p95_us = samples_us[p95_idx];
+        eprintln!("[hit_test_keeps_scene_index_path_with_page_level_connectors] n={} p50={p50_us:.2}us p95={p95_us:.2}us", samples_us.len());
+        assert!(p95_us <= 250.0, "hover hit-test p95 {p95_us:.2}us exceeded 250us budget");
     }
 }

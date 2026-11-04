@@ -26,6 +26,7 @@ mod comments;
 #[cfg(test)]
 mod component_cycle_tests;
 mod components;
+mod connector_route_cache;
 mod dev;
 pub mod diff;
 pub mod find;
@@ -91,6 +92,7 @@ pub use changelog_features::*;
 pub use color_space::*;
 pub use comments::*;
 pub use components::*;
+pub use connector_route_cache::*;
 pub use dev::*;
 pub use diff::*;
 pub use geom::*;
@@ -122,6 +124,7 @@ pub use writer_command::*;
 
 /// Shared spec test fixtures (`tokens_doc`, `button_library`, `card_with_slots`).
 pub mod fixtures {
+    pub use crate::connector_route_cache::{perf_whiteboard_2000, PerfWhiteboardScene};
     pub use crate::spec_bind::fixtures::*;
     pub use crate::spec_instance::fixtures::*;
 }
