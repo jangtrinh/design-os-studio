@@ -610,15 +610,7 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                 }
                 .into(),
             );
-            m.insert(
-                "strokeJoin".into(),
-                match s.join {
-                    StrokeJoin::Miter => "MITER",
-                    StrokeJoin::Bevel => "BEVEL",
-                    StrokeJoin::Round => "ROUND",
-                }
-                .into(),
-            );
+            m.insert("strokeJoin".into(), stroke_join_name(s.join).into());
             if s.miter_limit >= 1.0 {
                 m.insert("strokeMiterLimit".into(), n(s.miter_limit));
                 m.insert("strokeMiterAngle".into(), n((2.0 * (1.0 / s.miter_limit).asin()).to_degrees()));
@@ -768,7 +760,7 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                     let id_str = figma_id(doc, id);
                     m.insert("fills".into(), Value::Array(Vec::new()));
                     m.insert("strokes".into(), Value::Array(Vec::new()));
-                    let vec_child = json!({
+                    let mut vec_child = json!({
                         "id": format!("{id_str}:vec"),
                         "name": node.name,
                         "type": "VECTOR",
@@ -782,8 +774,13 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                         "fillGeometry": [],
                         "strokeGeometry": geometry(std::slice::from_ref(&lc.local_route.path())),
                         "vectorNetwork": crate::vecnet::network_to_json(&lc.network),
+                        "strokeCap": crate::vecnet::cap_name(node.stroke.cap),
+                        "strokeJoin": stroke_join_name(node.stroke.join),
                         "pluginData": {"designos-studio:field:studioConnector": carrier_str},
                     });
+                    if !node.stroke.dashes.is_empty() {
+                        vec_child["strokeDashes"] = Value::Array(node.stroke.dashes.iter().map(|d| n(*d)).collect());
+                    }
                     let chip_child = json!({
                         "id": format!("{id_str}:chip"),
                         "name": "Label background",
@@ -928,6 +925,14 @@ pub fn export_rest_json(doc: &Document) -> Value {
         out["editorType"] = "figjam".into();
     }
     out
+}
+
+fn stroke_join_name(join: StrokeJoin) -> &'static str {
+    match join {
+        StrokeJoin::Miter => "MITER",
+        StrokeJoin::Bevel => "BEVEL",
+        StrokeJoin::Round => "ROUND",
+    }
 }
 
 /// The cap the stroke model still has no name for that the node carries from import, and where it sat: on the node,

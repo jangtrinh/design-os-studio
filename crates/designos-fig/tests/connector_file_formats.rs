@@ -29,6 +29,10 @@ fn change_named<'a>(changes: &'a [Value], name: &str) -> &'a Value {
     changes.iter().find(|n| n["name"] == name).unwrap_or_else(|| panic!("no nodeChange named {name}"))
 }
 
+fn number_list(v: &Value) -> Vec<f64> {
+    v.as_array().map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default()
+}
+
 fn studio_carrier_value<'a>(nc: &'a Value, field: &str) -> Option<&'a str> {
     let key = format!("field:{field}");
     nc["pluginData"].as_array()?.iter().find(|e| e["pluginID"] == "designos-studio" && e["key"] == key)?.get("value")?.as_str()
@@ -105,7 +109,13 @@ fn fig_design_export_writes_vector_with_caps_and_carrier() {
 
 #[test]
 fn fig_design_export_keeps_label_as_group() {
-    let (mut doc, a, b, _c) = design_doc_with_connector(Some("approves"));
+    let (mut doc, a, b, c) = design_doc_with_connector(Some("approves"));
+    {
+        let stroke = &mut doc.get_mut(c).expect("connector node").stroke;
+        stroke.join = StrokeJoin::Round;
+        stroke.cap = StrokeCap::Round;
+        stroke.dashes = vec![8.0, 4.0];
+    }
     // Add a second connector with an empty label: it must export as a bare VECTOR, not a GROUP.
     let empty_id = doc.alloc_id();
     let mut empty_cn = Node::connector(
@@ -134,6 +144,21 @@ fn fig_design_export_keeps_label_as_group() {
     let kid_types: Vec<&str> = kids.iter().filter_map(|k| k["type"].as_str()).collect();
     assert_eq!(kid_types, vec!["VECTOR", "ROUNDED_RECTANGLE", "TEXT"]);
     assert_eq!(kids[2]["textData"]["characters"], "approves");
+    assert_eq!(kids[0]["strokeJoin"], "ROUND", ".fig label-group vector keeps the stroke join");
+    assert_eq!(number_list(&kids[0]["dashPattern"]), vec![8.0, 4.0], ".fig label-group vector keeps the dash pattern");
+
+    // The REST group carries the same stroke on its vector child.
+    let rest = export_rest_json(&doc);
+    let rest_page = rest["document"]["children"][0]["children"].as_array().expect("REST page children");
+    let rest_grp = rest_page.iter().find(|n| n["name"] == "Flow Arrow").expect("Flow Arrow in REST export");
+    assert_eq!(rest_grp["type"], "GROUP");
+    let rest_kids = rest_grp["children"].as_array().expect("REST group children");
+    let rest_kid_types: Vec<&str> = rest_kids.iter().filter_map(|k| k["type"].as_str()).collect();
+    assert_eq!(rest_kid_types, vec!["VECTOR", "RECTANGLE", "TEXT"]);
+    let rest_vec = &rest_kids[0];
+    assert_eq!(rest_vec["strokeJoin"], "ROUND", "REST label-group vector keeps the stroke join");
+    assert_eq!(rest_vec["strokeCap"], "ROUND", "REST label-group vector keeps the node stroke cap");
+    assert_eq!(number_list(&rest_vec["strokeDashes"]), vec![8.0, 4.0], "REST label-group vector keeps the dash pattern");
 
     let bare = change_named(&changes, "Empty Label Flow");
     assert_eq!(bare["type"], "VECTOR", "empty label exports the bare vector");
