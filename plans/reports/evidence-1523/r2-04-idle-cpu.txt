@@ -1,0 +1,5 @@
+cargo test -p designos-docs --locked --test watch_idle_cpu -- --ignored --nocapture
+running 1 test
+IDLE_CPU mode=Some(Native) 200 pages, 20 s idle: before=0.03s after=0.03s delta=0.00s
+test idle_watcher_with_200_pages_costs_no_cpu ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.14s
