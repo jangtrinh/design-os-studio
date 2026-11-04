@@ -398,6 +398,17 @@ pub fn image_uv_map(size: Vec2, iw: f32, ih: f32, scale_mode: ImageScaleMode, pa
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShaderRef {
+    pub raw: serde_json::Value,
+}
+
+impl Default for ShaderRef {
+    fn default() -> Self {
+        Self { raw: serde_json::Value::Object(serde_json::Map::new()) }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PaintKind {
     Solid(Color),
     /// Handles in node-normalized space (0..1 of the node's size), Figma convention:
@@ -425,6 +436,7 @@ pub enum PaintKind {
         #[serde(default, skip_serializing_if = "ImageParams::is_default")]
         params: ImageParams,
     },
+    Shader(ShaderRef),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -441,12 +453,14 @@ impl Paint {
     }
 
     /// The coverage this paint leaves in an effect silhouette (drop shadow, inner shadow,
-    /// background blur, glass, noise): a solid colour contributes its own alpha, every other
-    /// kind is opaque, and the paint opacity scales either. A colour variable keeps its alpha on
-    /// the colour, so reading only `opacity` would ink the silhouette fully.
+    /// background blur, glass, noise): a solid colour contributes its own alpha, a custom
+    /// shader contributes nothing (it is not rendered), every other kind is opaque, and the
+    /// paint opacity scales either. A colour variable keeps its alpha on the colour, so reading
+    /// only `opacity` would ink the silhouette fully.
     pub fn silhouette_alpha(&self) -> f32 {
         let base = match &self.kind {
             PaintKind::Solid(c) => c.a,
+            PaintKind::Shader(_) => 0.0,
             _ => 1.0,
         };
         base * self.opacity
@@ -556,6 +570,12 @@ pub enum Effect {
     Texture(TextureEffect),
     /// Frosted, refractive glass over what is behind the layer.
     Glass(GlassEffect),
+    Shader {
+        #[serde(flatten)]
+        shader: ShaderRef,
+        #[serde(default = "default_true")]
+        visible: bool,
+    },
 }
 
 impl Effect {
@@ -564,7 +584,8 @@ impl Effect {
             Effect::DropShadow { visible, .. }
             | Effect::InnerShadow { visible, .. }
             | Effect::LayerBlur { visible, .. }
-            | Effect::BackgroundBlur { visible, .. } => *visible,
+            | Effect::BackgroundBlur { visible, .. }
+            | Effect::Shader { visible, .. } => *visible,
             Effect::Noise(e) => e.visible,
             Effect::Texture(e) => e.visible,
             Effect::Glass(e) => e.visible,
@@ -973,5 +994,47 @@ mod tests {
         assert_eq!(image_uv_map(Vec2::new(f32::NAN, 10.0), 10.0, 10.0, ImageScaleMode::Fit, &ImageParams::default()), None);
         let tile = image_uv_map(size, 10.0, 10.0, ImageScaleMode::Tile, &ImageParams { tile_scale: 0.0, ..Default::default() }).unwrap();
         assert_eq!(tile.scale, TILE_SCALE_MIN, "tile scale 0 is drawn at the minimum");
+    }
+
+    #[test]
+    fn old_designos_file_without_shaders_loads_and_saves_unchanged() {
+        let mut doc = crate::Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let frame_id = doc.alloc_id();
+        doc.insert(page, crate::Node::frame(frame_id, crate::Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let json = doc.to_json().unwrap();
+        let loaded = crate::Document::from_json(&json).unwrap();
+        assert_eq!(loaded.to_json().unwrap(), json);
+    }
+
+    #[test]
+    fn designos_json_round_trip_keeps_shader() {
+        let mut doc = crate::Document::new("Test");
+        let page = doc.add_page("Page 1");
+        let frame_id = doc.alloc_id();
+        let mut frame = crate::Node::frame(frame_id, crate::Rect::new(0.0, 0.0, 120.0, 80.0));
+        let raw = serde_json::json!({
+            "customEffectId": {
+                "guid": { "sessionID": 7, "localID": 19 },
+                "assetRef": { "key": "shader-key", "version": "1" }
+            },
+            "componentPropAssignments": [
+                {
+                    "defID": { "sessionID": 1, "localID": 2 },
+                    "value": { "floatValue": 0.5 }
+                }
+            ]
+        });
+        frame.fills.push(Paint { kind: PaintKind::Shader(ShaderRef { raw: raw.clone() }), opacity: 0.75, visible: true, blend: BlendMode::Normal });
+        frame.effects.push(Effect::Shader { shader: ShaderRef { raw: raw.clone() }, visible: false });
+        doc.insert(page, frame).unwrap();
+
+        let json = doc.to_json().unwrap();
+        assert!(json.contains(r#""Shader":{"raw":"#), "{json}");
+        let loaded = crate::Document::from_json(&json).unwrap();
+        let loaded_frame = loaded.get(frame_id).unwrap();
+        assert_eq!(loaded_frame.fills.len(), 2);
+        assert_eq!(loaded_frame.fills[1].kind, PaintKind::Shader(ShaderRef { raw: raw.clone() }));
+        assert_eq!(loaded_frame.effects, vec![Effect::Shader { shader: ShaderRef { raw }, visible: false }]);
     }
 }

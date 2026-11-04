@@ -52,7 +52,7 @@ fn push_paints(out: &mut Vec<ColorEntry>, paints: &[Paint], role: &'static str, 
                     add(&s.color, "Gradient stop");
                 }
             }
-            PaintKind::Image { .. } => {}
+            PaintKind::Image { .. } | PaintKind::Shader(_) => {}
         }
     }
 }

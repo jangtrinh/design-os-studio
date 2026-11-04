@@ -134,7 +134,7 @@ fn fe_blend_mode(b: BlendMode) -> &'static str {
 }
 
 fn visible_paints(paints: &[Paint]) -> impl Iterator<Item = &Paint> {
-    paints.iter().filter(|p| p.visible && p.opacity > 0.0)
+    paints.iter().filter(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
 }
 
 fn sorted_stops(stops: &[GradientStop]) -> Vec<GradientStop> {
@@ -501,6 +501,7 @@ impl Svg<'_> {
                 self.def("</pattern>");
                 Some((format!("url(#{id})"), p.opacity))
             }
+            PaintKind::Shader(_) => None,
         }
     }
 

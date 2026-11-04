@@ -104,6 +104,10 @@ fn paint(p: &Paint) -> Value {
                 m.insert("filters".into(), Value::Object(flt));
             }
         }
+        PaintKind::Shader(shader) => {
+            m.insert("type".into(), "SHADER".into());
+            m.insert("shader".into(), shader.raw.clone());
+        }
     }
     m.insert("opacity".into(), n(p.opacity));
     m.insert("visible".into(), p.visible.into());
@@ -160,6 +164,7 @@ fn effect(e: &Effect) -> Value {
             "refraction": n(e.refraction), "depth": n(e.depth), "dispersion": n(e.dispersion),
             "radius": n(e.frost), "reflectionDistance": n(e.splay), "bevelSize": n(e.bevel), "visible": e.visible
         }),
+        Effect::Shader { shader, visible } => json!({"type": "SHADER", "visible": visible, "shader": shader.raw}),
     }
 }
 

@@ -715,10 +715,12 @@ pub fn export_single_paint(p: &Paint, plugin_data: &BTreeMap<String, String>) ->
             }
             Value::Object(obj)
         }
+        PaintKind::Shader(_) => Value::Null,
     }
 }
 
 pub fn export_paints_value(paints: &[Paint], bound_var: Option<&String>, plugin_data: &BTreeMap<String, String>) -> Option<Value> {
+    let paints: Vec<&Paint> = paints.iter().filter(|p| !matches!(p.kind, PaintKind::Shader(_))).collect();
     if let Some(fv) = bound_var {
         if paints.len() <= 1 {
             return Some(json!(format!("${fv}")));
@@ -728,7 +730,7 @@ pub fn export_paints_value(paints: &[Paint], bound_var: Option<&String>, plugin_
         return None;
     }
     if paints.len() == 1 {
-        let p = &paints[0];
+        let p = paints[0];
         if let PaintKind::Solid(c) = p.kind {
             if p.visible && (p.opacity - 1.0).abs() <= 1e-4 && matches!(p.blend, BlendMode::Normal | BlendMode::PassThrough) {
                 return Some(json!(format_pen_color(c)));
@@ -736,7 +738,7 @@ pub fn export_paints_value(paints: &[Paint], bound_var: Option<&String>, plugin_
         }
         return Some(export_single_paint(p, plugin_data));
     }
-    let arr: Vec<Value> = paints.iter().map(|p| export_single_paint(p, plugin_data)).collect();
+    let arr: Vec<Value> = paints.into_iter().map(|p| export_single_paint(p, plugin_data)).collect();
     Some(Value::Array(arr))
 }
 
