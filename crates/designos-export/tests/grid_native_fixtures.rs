@@ -1715,8 +1715,8 @@ fn compose_out_of_flow_children_wrap_grid_in_outer_box() {
 fn compose_hugged_grid_axis_does_not_fill_parent_when_wrapped_for_out_of_flow_child() {
     for (primary_sizing, counter_sizing, expected_inner) in [
         (Sizing::Hug, Sizing::Fixed, ".fillMaxHeight()"),
-        (Sizing::Hug, Sizing::Hug, ""),
-        (Sizing::Fixed, Sizing::Hug, ".fillMaxWidth()"),
+        (Sizing::Hug, Sizing::Hug, ".fillMaxHeight()"),
+        (Sizing::Fixed, Sizing::Hug, ".fillMaxSize()"),
         (Sizing::Fixed, Sizing::Fixed, ".fillMaxSize()"),
     ] {
         let al = AutoLayout {
@@ -1745,8 +1745,12 @@ fn compose_hugged_grid_axis_does_not_fill_parent_when_wrapped_for_out_of_flow_ch
         let grid_start = compose.find("LazyVerticalGrid(").expect("missing LazyVerticalGrid");
         let grid_args = &compose[grid_start..compose[grid_start..].find("userScrollEnabled = false").unwrap() + grid_start];
         let frame = doc.get(grid).unwrap();
-        let outer_size = format!("Box(modifier = Modifier.size(width = {}.dp, height = {}.dp))", fmt_num(frame.size.x), fmt_num(frame.size.y));
-        assert!(compose.starts_with(&format!("{outer_size} {{\n")), "wrapped grid must keep the solver frame size: {compose}");
+        let outer_box = if primary_sizing == Sizing::Hug {
+            format!("Box(modifier = Modifier.height({}.dp))", fmt_num(frame.size.y))
+        } else {
+            format!("Box(modifier = Modifier.size(width = {}.dp, height = {}.dp))", fmt_num(frame.size.x), fmt_num(frame.size.y))
+        };
+        assert!(compose.starts_with(&format!("{outer_box} {{\n")), "wrapped grid outer Box mismatch for {primary_sizing:?} x {counter_sizing:?}: {compose}");
         assert!(grid_args.contains(expected_inner), "inner modifier mismatch for {primary_sizing:?} x {counter_sizing:?}: {compose}");
         for forbidden in [".fillMaxSize()", ".fillMaxWidth()", ".fillMaxHeight()"] {
             if forbidden != expected_inner {

@@ -411,16 +411,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     let mut args: Vec<Arg> = Vec::new();
     let name;
     let block;
-    let grid_has_oof = grid_opt.as_ref().is_some_and(|(_, grid)| kids.iter().any(|k| !grid.children.iter().any(|(cid, _)| *cid == k.id)));
     if let Some((al, ref grid)) = grid_opt {
-        // LazyVerticalGrid reports the incoming max width as its measured width. A hugged
-        // grid therefore needs the solver's resolved frame width on the outer Box; otherwise
-        // the child expands to its parent's width even when no fill modifier is emitted.
-        // The explicit width is needed only for the wrapper path; a direct grid keeps its
-        // existing parent constraints and modifier contract.
-        if grid_has_oof && sz.w == Dim::Hug && al.sizing_along(true) == Sizing::Hug {
-            sz.w = Dim::Fixed(n.size.x);
-        }
         let mut grid_h = grid.rows.iter().sum::<f32>() + grid.row_gap * (grid.rows.len().saturating_sub(1) as f32) + al.padding[0] + al.padding[2];
         if al.counter_sizing == Sizing::Fixed {
             grid_h = n.size.y;
@@ -453,19 +444,7 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             for k in &behind {
                 emit(doc, k.id, me, depth + 1, o);
             }
-            // The outer Box supplies the grid frame's solved size. Keep the inner grid
-            // constrained only on axes whose sizing contract is not Hug: filling a hugged
-            // axis expands it to the parent's size and loses the canvas dimensions.
-            let fill_width = al.sizing_along(true) != Sizing::Hug;
-            let fill_height = al.sizing_along(false) != Sizing::Hug;
-            let mut grid_mods = Vec::new();
-            if fill_width && fill_height {
-                grid_mods.push(".fillMaxSize()".to_string());
-            } else if fill_width {
-                grid_mods.push(".fillMaxWidth()".to_string());
-            } else if fill_height {
-                grid_mods.push(".fillMaxHeight()".to_string());
-            }
+            let mut grid_mods: Vec<String> = fill_frame_mod(&sz).map(String::from).into_iter().collect();
             padding_mods(doc, n, al, &mut grid_mods);
             args.extend(modifier_arg(o, Parent { al: None, root: false }, &grid_mods));
         } else {
