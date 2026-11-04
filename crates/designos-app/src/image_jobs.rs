@@ -2702,11 +2702,19 @@ mod tests {
         std::fs::File::create(gates.join(&second_job)).unwrap();
         wait_for_job_completion(&mut app);
         assert!(app.may_quit(&ctx));
+        let versions_dir = lib.path("versions").join(&entry.id);
+        let version_files = || std::fs::read_dir(&versions_dir).map_or(0, |dir| dir.filter_map(Result::ok).count());
+        let versions_before = (version_files(), lib.list_versions(&entry.id).len());
         app.save_close_version();
         app.flush_autosave();
         let untouched =
             std::fs::read(&path).is_ok_and(|b| b == before) && std::fs::metadata(&path).and_then(|m| m.modified()).is_ok_and(|t| t == modified_before);
         assert!(untouched, "the second job's result was not written on the way out");
+        assert_eq!(
+            (version_files(), lib.list_versions(&entry.id).len()),
+            versions_before,
+            "nor kept as a version of the file, which could be restored onto it"
+        );
     }
 
     #[test]
