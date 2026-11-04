@@ -4048,6 +4048,16 @@ mod tests {
             (h, ids)
         }
 
+        /// Closes the picker and opens it again on the first fill of `ids`, which become the selection.
+        fn reopen_on(&mut self, ids: &[designos_doc::NodeId]) {
+            self.app.props.picker = None;
+            self.app.selection = ids.to_vec();
+            let _ = self.frame(vec![]);
+            self.click_key("sw:false:0");
+            assert!(self.app.props.picker.is_some(), "the fill swatch click opens the picker again");
+            let _ = self.frame(vec![]);
+        }
+
         fn rect_of(&self, key: &str) -> Rect {
             self.ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", key.to_string())))).unwrap_or_else(|| panic!("no recorded rect {key}"))
         }
@@ -4314,6 +4324,65 @@ mod tests {
         for (i, id) in ids.iter().enumerate() {
             assert_eq!(h.image_params(*id).0, ImageScaleMode::Crop);
             assert_same_pixels(&h.pixels(*id), &own_framing[i], 1, &format!("node {i} is framed by its own frame after the round trip"));
+        }
+    }
+
+    #[test]
+    fn leaving_crop_keeps_each_nodes_own_angle_and_coming_back_restores_it() {
+        let crop = designos_doc::ImageParams::default();
+        let (mut h, ids) =
+            HeadlessPicker::open_image(quadrant_png(100), &[((200.0, 100.0), ImageScaleMode::Crop, crop), ((100.0, 200.0), ImageScaleMode::Crop, crop)]);
+        let (a, b) = (ids[0], ids[1]);
+        // B alone is turned with the Crop rotate; A stays at 0 degrees. Then both are selected, A first.
+        h.reopen_on(&[b]);
+        h.click_key("picker-image-rot-right");
+        h.reopen_on(&[a, b]);
+        assert_eq!((h.image_params(a).1.rotation, h.image_params(b).1.rotation), (0.0, 90.0));
+        let in_crop = [h.pixels(a), h.pixels(b)];
+        assert_ne!(
+            h.reference_pixels(b, ImageScaleMode::Tile, designos_doc::ImageParams::default()).data(),
+            h.reference_pixels(b, ImageScaleMode::Tile, designos_doc::ImageParams { rotation: 90.0, ..Default::default() }).data(),
+            "a quarter turn shows in Tile"
+        );
+        let depth = h.app.hist.undo_depth();
+
+        // Crop, Tile: the node turned to 90 degrees keeps 90 and draws its Tile a quarter turn.
+        h.click_key("picker-image-scale");
+        assert_eq!(h.app.hist.undo_depth(), depth + 1, "switching both nodes to Tile is one undo step");
+        let tile_a = h.reference_pixels(a, ImageScaleMode::Tile, designos_doc::ImageParams::default());
+        let tile_b = h.reference_pixels(b, ImageScaleMode::Tile, designos_doc::ImageParams { rotation: 90.0, ..Default::default() });
+        assert_eq!(h.image_params(a).0, ImageScaleMode::Tile);
+        assert_eq!((h.image_params(a).1.rotation, h.image_params(b).1.rotation), (0.0, 90.0), "each node keeps its own angle in Tile");
+        assert_same_pixels(&h.pixels(a), &tile_a, 1, "node A in Tile");
+        assert_same_pixels(&h.pixels(b), &tile_b, 1, "node B in Tile shows its quarter turn");
+        if let Ok(dir) = std::env::var("DESIGNOS_PICKER_EVIDENCE_DIR") {
+            let dir = std::path::Path::new(&dir);
+            for (name, pm) in [("a-crop", &in_crop[0]), ("b-crop", &in_crop[1]), ("a-tile", &h.pixels(a)), ("b-tile", &h.pixels(b))] {
+                pm.save_png(dir.join(format!("r2-two-node-angles-{name}.png"))).expect("save node render");
+            }
+        }
+
+        // Tile, Fill, Fit, Crop: one undo step each, angles untouched all along.
+        for (i, mode) in [ImageScaleMode::Fill, ImageScaleMode::Fit, ImageScaleMode::Crop].into_iter().enumerate() {
+            h.click_key("picker-image-scale");
+            assert_eq!(h.image_params(a).0, mode);
+            assert_eq!(h.app.hist.undo_depth(), depth + 2 + i, "one undo step for the switch to {mode:?}");
+            assert_eq!((h.image_params(a).1.rotation, h.image_params(b).1.rotation), (0.0, 90.0), "angles in {mode:?}");
+        }
+        // A never stored a frame (identity crop), so entering Crop from Fit frames the picture as Fit showed it.
+        assert_same_pixels(
+            &h.pixels(a),
+            &h.reference_pixels(a, ImageScaleMode::Fit, designos_doc::ImageParams::default()),
+            1,
+            "node A is framed as its Fit was",
+        );
+        // B stored the frame of its turn, so its Crop pixels come back exactly.
+        assert_same_pixels(&h.pixels(b), &in_crop[1], 1, "node B is back to its Crop pixels");
+        assert_eq!(h.image_params(b).1.rotation, 90.0, "the angle label of B reads 90 again");
+        if let Ok(dir) = std::env::var("DESIGNOS_PICKER_EVIDENCE_DIR") {
+            let dir = std::path::Path::new(&dir);
+            h.pixels(a).save_png(dir.join("r2-two-node-angles-a-back.png")).expect("save a");
+            h.pixels(b).save_png(dir.join("r2-two-node-angles-b-back.png")).expect("save b");
         }
     }
 }

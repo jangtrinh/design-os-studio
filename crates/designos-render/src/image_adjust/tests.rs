@@ -14,28 +14,77 @@ fn image_paint(image_ref: &str, mode: ImageScaleMode, params: ImageParams) -> Pa
     Paint { kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: mode, params }, opacity: 1.0, visible: true, blend: BlendMode::Normal }
 }
 
-/// A 4000x3000 picture drawn at its native size, of which a 64x64 window is on screen.
-#[test]
-fn adjusted_fill_work_is_bounded_by_the_visible_region() {
+/// What an adjusted fill of a 4000x3000 picture does when only a 64x64 window of it is on screen.
+struct Work {
+    adjusted_pixels: u64,
+    largest_allocation: u64,
+    window: sk::Pixmap,
+}
+
+fn render_window(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset: Vec2) -> Work {
     let mut doc = Document::new("t");
     let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = designos_doc::NodeKind::Page { background: designos_doc::Color::TRANSPARENT };
     doc.images.insert("photo".into(), flat_png(4000, 3000, [120, 90, 60, 255]));
     let id = doc.alloc_id();
-    let mut node = Node::rectangle(id, Rect::new(0.0, 0.0, 4000.0, 3000.0));
-    node.fills =
-        vec![image_paint("photo", ImageScaleMode::Fill, ImageParams { adjust: ImageAdjust { exposure: 1.0, ..Default::default() }, ..Default::default() })];
-    doc.insert(page, node).expect("insert");
+    let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, node.x, node.y));
+    n.fills = vec![image_paint("photo", mode, ImageParams { adjust: ImageAdjust { exposure: 1.0, ..Default::default() }, ..params })];
+    doc.insert(page, n).expect("insert");
+    // decode the picture first: only the work of the fill itself is counted
+    let mut warm = sk::Pixmap::new(1, 1).expect("warm-up");
+    render_page(&doc, page, &Viewport { offset, zoom: 1.0, dpr: 1.0 }, &mut warm);
 
-    let vp = Viewport { offset: Vec2::new(1800.0, 1400.0), zoom: 1.0, dpr: 1.0 };
-    let mut pm = sk::Pixmap::new(64, 64).expect("target");
+    let vp = Viewport { offset, zoom: 1.0, dpr: 1.0 };
+    let mut window = sk::Pixmap::new(64, 64).expect("target");
     ADJUSTED_PIXELS.with(|n| n.set(0));
-    render_page(&doc, page, &vp, &mut pm);
-    let adjusted = ADJUSTED_PIXELS.with(|n| n.get());
+    LARGEST_FILL_ALLOCATION.with(|n| n.set(0));
+    render_page(&doc, page, &vp, &mut window);
+    Work { adjusted_pixels: ADJUSTED_PIXELS.with(|n| n.get()), largest_allocation: LARGEST_FILL_ALLOCATION.with(|n| n.get()), window }
+}
 
-    assert!(adjusted > 0, "the fill must be adjusted");
-    assert!(adjusted <= 64 * 64, "adjustment ran on {adjusted} pixels, more than the 64x64 window that is on screen");
-    let centre = pm.pixel(32, 32).expect("pixel");
-    assert!(centre.red() > 120 && centre.green() > 90 && centre.blue() > 60, "the visible pixel is brightened: {centre:?}");
+fn assert_bounded(work: &Work, what: &str) {
+    let window = 64 * 64;
+    assert!(work.adjusted_pixels > 0, "{what}: the fill must be adjusted");
+    assert!(work.adjusted_pixels <= window, "{what}: adjustment ran on {} pixels, more than the 64x64 window that is on screen", work.adjusted_pixels);
+    assert!(
+        work.largest_allocation <= window,
+        "{what}: a pixmap of {} pixels was allocated for a fill of which {window} pixels are on screen",
+        work.largest_allocation
+    );
+}
+
+fn brightened(p: sk::PremultipliedColorU8) -> bool {
+    p.alpha() == 255 && p.red() > 120 && p.green() > 90 && p.blue() > 60
+}
+
+#[test]
+fn adjusted_fill_work_is_bounded_by_the_visible_region() {
+    let work = render_window(ImageScaleMode::Fill, ImageParams::default(), Vec2::new(4000.0, 3000.0), Vec2::new(1800.0, 1400.0));
+    assert_bounded(&work, "Fill");
+    let centre = work.window.pixel(32, 32).expect("pixel");
+    assert!(brightened(centre), "the visible pixel is brightened: {centre:?}");
+}
+
+#[test]
+fn adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent() {
+    // The picture sits at y 500..3500 of a 4000x4000 node; the window starts 30 px above its top edge.
+    let work = render_window(ImageScaleMode::Fit, ImageParams::default(), Vec2::new(4000.0, 4000.0), Vec2::new(1800.0, 470.0));
+    assert_bounded(&work, "Fit");
+    assert_eq!(work.window.pixel(32, 10).expect("pixel").alpha(), 0, "the letterbox above the picture is transparent");
+    let inside = work.window.pixel(32, 50).expect("pixel");
+    assert!(brightened(inside), "the picture below the edge is brightened: {inside:?}");
+}
+
+#[test]
+fn adjusted_quarter_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent() {
+    // Turned a quarter, the picture covers x 500..3500 of a 4000x3000 node; the window starts 30 px left of its edge.
+    let size = Vec2::new(4000.0, 3000.0);
+    let turned = rotate_crop_transform(IDENTITY_CROP_TRANSFORM, size, true).expect("turns");
+    let work = render_window(ImageScaleMode::Crop, ImageParams { transform: Some(turned), ..Default::default() }, size, Vec2::new(470.0, 1400.0));
+    assert_bounded(&work, "turned Crop");
+    assert_eq!(work.window.pixel(10, 32).expect("pixel").alpha(), 0, "left of the turned picture is transparent");
+    let inside = work.window.pixel(50, 32).expect("pixel");
+    assert!(brightened(inside), "the turned picture is brightened: {inside:?}");
 }
 
 fn near(a: [f32; 6], b: [f32; 6]) -> bool {
@@ -196,18 +245,24 @@ fn a_turn_on_an_uncropped_frame_starts_from_the_identity_and_other_edits_pass_th
 }
 
 #[test]
-fn outside_crop_each_node_keeps_the_frame_it_stored_and_a_turn_drops_it() {
+fn outside_crop_each_node_keeps_the_frame_and_the_angle_it_stored_and_a_turn_drops_the_frame() {
     let own = [0.6, 0.0, 0.2, 0.0, 0.9, 0.05];
     let picker_frame = [3.0, 0.0, 0.0, 0.0, 3.0, 0.0];
     for mode in [ImageScaleMode::Fill, ImageScaleMode::Fit, ImageScaleMode::Tile] {
         for stored in [Some(own), None] {
-            let old = picture_paint(ImageScaleMode::Crop, stored, 0.0);
+            // the node was turned to 90 degrees; the picker holds another node's angle of 0
+            let old = picture_paint(ImageScaleMode::Crop, stored, 90.0);
             let mut next = picture_paint(mode, Some(picker_frame), 0.0);
             crop_paint_for_node(&old, &mut next, Vec2::new(40.0, 10.0), || panic!("no picture size needed"), 0);
             assert_eq!(transform_of(&next), stored, "{mode:?}: the picker's frame is not written over the node's");
+            assert_eq!(rotation_of(&next), 90.0, "{mode:?}: the picker's angle is not written over the node's");
             let mut next = picture_paint(mode, None, 90.0);
             crop_paint_for_node(&old, &mut next, Vec2::new(40.0, 10.0), || panic!("no picture size needed"), 1);
             assert_eq!(transform_of(&next), None, "{mode:?}: a turn drops the stored frame");
+            assert_eq!(rotation_of(&next), 180.0, "{mode:?}: a turn adds a quarter to the node's own angle");
+            let mut next = picture_paint(mode, None, 270.0);
+            crop_paint_for_node(&old, &mut next, Vec2::new(40.0, 10.0), || panic!("no picture size needed"), -1);
+            assert_eq!(rotation_of(&next), 0.0, "{mode:?}: a turn back subtracts a quarter");
         }
     }
 }
@@ -240,5 +295,34 @@ fn a_fill_over_the_scratch_limit_is_drawn_unadjusted_and_counted() {
     let degraded = centre_red(&doc, page);
     TEST_MAX_PIXELS.with(|l| l.set(None));
     assert_eq!(degraded, 100, "over the limit the picture is drawn as it is, not left out");
+    assert!(unadjusted_fill_fallbacks() > counted, "the fallback leaves a count");
+}
+
+#[test]
+fn a_fit_fill_over_the_scratch_limit_is_drawn_unadjusted_with_its_letterbox_and_counted() {
+    let mut doc = Document::new("t");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = designos_doc::NodeKind::Page { background: designos_doc::Color::TRANSPARENT };
+    doc.images.insert("flat".into(), flat_png(8, 8, [100, 100, 100, 255]));
+    let id = doc.alloc_id();
+    let mut node = Node::rectangle(id, Rect::new(0.0, 0.0, 24.0, 8.0));
+    node.fills =
+        vec![image_paint("flat", ImageScaleMode::Fit, ImageParams { adjust: ImageAdjust { exposure: 1.0, ..Default::default() }, ..Default::default() })];
+    doc.insert(page, node).expect("insert");
+    let render = || {
+        let mut pm = sk::Pixmap::new(24, 8).expect("target");
+        render_page(&doc, page, &Viewport::default(), &mut pm);
+        pm
+    };
+    let adjusted = render();
+    assert!(adjusted.pixel(12, 4).unwrap().red() > 100, "within the limit the picture is adjusted");
+    assert_eq!(adjusted.pixel(2, 4).unwrap().alpha(), 0, "the letterbox is transparent");
+
+    let counted = unadjusted_fill_fallbacks();
+    TEST_MAX_PIXELS.with(|l| l.set(Some(4)));
+    let degraded = render();
+    TEST_MAX_PIXELS.with(|l| l.set(None));
+    assert_eq!(degraded.pixel(12, 4).unwrap().red(), 100, "over the limit the picture is drawn as it is");
+    assert_eq!(degraded.pixel(2, 4).unwrap().alpha(), 0, "and its letterbox stays transparent");
     assert!(unadjusted_fill_fallbacks() > counted, "the fallback leaves a count");
 }

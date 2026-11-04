@@ -45,7 +45,7 @@ pub fn set_image_scale_mode(paint: &mut Paint, next: ImageScaleMode) {
 ///   node keeps its stored frame, or none (the identity): no frame is invented;
 /// - a node that is already in Crop keeps its frame while a slider or another control moves, and turns it about its
 ///   own centre when the edit carries rotate clicks;
-/// - the angle shown follows the node's own turns;
+/// - the angle is always the node's own, plus the turns of this edit;
 /// - in any other mode each node keeps the frame it stored, so a trip through Fill, Fit or Tile and back to Crop
 ///   does not hand one node's frame to the rest; a rotate click there drops it.
 pub fn crop_paint_for_node(old: &Paint, next: &mut Paint, size: Vec2, image_size: impl FnOnce() -> Option<(u32, u32)>, quarter_turns: i32) {
@@ -57,9 +57,11 @@ pub fn crop_paint_for_node(old: &Paint, next: &mut Paint, size: Vec2, image_size
     if old_ref != image_ref {
         return;
     }
+    params.rotation = turned_rotation(old_params.rotation, quarter_turns);
     if *scale_mode != ImageScaleMode::Crop {
         // Outside Crop the frame is only kept for a later return: every node keeps its own, and a rotate click
-        // drops it, because the framing it was made for no longer applies.
+        // drops it, because the framing it was made for no longer applies. The angle is the node's own too:
+        // Fill, Fit and Tile draw from it, and Crop restores its label from it on the way back.
         params.transform = if quarter_turns == 0 { old_params.transform } else { None };
         return;
     }
@@ -79,5 +81,14 @@ pub fn crop_paint_for_node(old: &Paint, next: &mut Paint, size: Vec2, image_size
         let turned = (0..steps).try_fold(base.unwrap_or(IDENTITY_CROP_TRANSFORM), |m, _| rotate_crop_transform(m, size, clockwise));
         turned.or(base)
     };
-    params.rotation = if quarter_turns == 0 { old_params.rotation } else { (old_params.rotation + 90.0 * quarter_turns as f32).rem_euclid(360.0) };
+}
+
+/// A node's own angle after `quarter_turns` rotate clicks (clockwise positive); an angle that was not turned is
+/// kept verbatim, whatever its value.
+fn turned_rotation(own: f32, quarter_turns: i32) -> f32 {
+    if quarter_turns == 0 {
+        own
+    } else {
+        (own + 90.0 * quarter_turns as f32).rem_euclid(360.0)
+    }
 }

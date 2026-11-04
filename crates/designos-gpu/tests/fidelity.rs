@@ -1519,3 +1519,56 @@ fn each_backend_adjusts_the_colour_it_sampled_from_a_stretched_hard_edge() {
         }
     }
 }
+
+/// The 64x64 stripe picture of `stripes_scene` in a 63x94 node, fitted (63x63 centred at y 15.5..78.5) or cropped with the
+/// same framing turned a quarter, on a transparent page.
+fn letterboxed_stripes(mode: ImageScaleMode, adjust: ImageAdjust) -> T {
+    let (a, b) = ([128, 64, 64, 255], [64, 64, 128, 255]);
+    let mut t = T::new();
+    t.node(t.page).kind = NodeKind::Page { background: Color::TRANSPARENT };
+    let key = format!("letterboxed_stripes_{a:02x?}_{b:02x?}");
+    t.doc.images.insert(key.clone(), png_bytes(64, 64, |x, _| if x % 2 == 0 { a } else { b }));
+    let size = Vec2::new(63.0, 94.0);
+    let r = t.rect(None, Rect::new(0.0, 0.0, size.x, size.y), Color::TRANSPARENT);
+    let transform = (mode == ImageScaleMode::Crop).then(|| {
+        let framing = designos_render::image_adjust::crop_transform_from_framing(size, 64.0, 64.0, ImageScaleMode::Fit, &ImageParams::default()).unwrap();
+        designos_render::image_adjust::rotate_crop_transform(framing, size, true).unwrap()
+    });
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: key, scale_mode: mode, params: ImageParams { adjust, transform, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    t
+}
+
+#[test]
+fn an_adjusted_fit_letterbox_and_turned_crop_stay_transparent_and_match_between_cpu_and_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let adjust = ImageAdjust { vibrance: 1.0, ..Default::default() };
+    for (label, mode) in [("fit", ImageScaleMode::Fit), ("turned_crop", ImageScaleMode::Crop)] {
+        let (plain, adjusted) = (letterboxed_stripes(mode, ImageAdjust::default()), letterboxed_stripes(mode, adjust));
+        g.compiler.geom.clear();
+        let p = compare(&mut g, &format!("letterbox_{label}_plain"), &plain.doc, plain.page, vp, (63, 94), 2);
+        g.compiler.geom.clear();
+        let a = compare(&mut g, &format!("letterbox_{label}_adjusted"), &adjusted.doc, adjusted.page, vp, (63, 94), 2);
+        for y in (0..13).chain(81..94) {
+            for x in 0..63 {
+                assert_eq!(px(&a.cpu, x, y), px(&p.cpu, x, y), "{label}: CPU ({x}, {y}) outside the picture equals the unadjusted render");
+                assert_eq!(px(&a.cpu, x, y)[3], 0, "{label}: CPU ({x}, {y}) outside the picture is transparent");
+                assert_eq!(px(&a.gpu, x, y)[3], 0, "{label}: GPU ({x}, {y}) outside the picture is transparent");
+            }
+        }
+        let mut worst = 0u8;
+        for y in 18..76 {
+            for x in 0..63 {
+                let (c, q) = (px(&a.cpu, x, y), px(&a.gpu, x, y));
+                worst = worst.max((0..4).map(|k| c[k].abs_diff(q[k])).max().unwrap());
+            }
+        }
+        assert!(worst <= 2, "{label}: CPU and GPU differ by {worst} levels inside the picture");
+        assert_ne!(a.cpu.data(), p.cpu.data(), "{label}: the adjustment changes the CPU render");
+    }
+}

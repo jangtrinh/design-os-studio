@@ -138,3 +138,92 @@ fn time_one_tile_over_a_large_adjusted_picture() {
         eprintln!("TILE_TIME {label}: min {:.2} ms, median {:.2} ms, max {:.2} ms (5 runs)", times[0], times[2], times[4]);
     }
 }
+
+/// A 16x16 flat grey picture in a 64x32 Fit node (centred 32x32 square at x 16..48) or in a Crop turned a quarter.
+fn letterbox_render(mode: ImageScaleMode, adjust: ImageAdjust) -> Pixmap {
+    let mut doc = Document::new("t");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::TRANSPARENT };
+    doc.images.insert("flat".into(), png_bytes(16, 16, |_, _| [128, 128, 128, 255]));
+    let id = doc.alloc_id();
+    let mut node = Node::rectangle(id, Rect::new(0.0, 0.0, 64.0, 32.0));
+    let params = match mode {
+        ImageScaleMode::Crop => {
+            // the Fit framing of the picture, then turned a quarter: a 32x32 square at x 16..48 either way
+            let framing =
+                designos_render::image_adjust::crop_transform_from_framing(Vec2::new(64.0, 32.0), 16.0, 16.0, ImageScaleMode::Fit, &ImageParams::default());
+            let turned = designos_render::image_adjust::rotate_crop_transform(framing.unwrap(), Vec2::new(64.0, 32.0), true);
+            ImageParams { transform: turned, adjust, ..Default::default() }
+        }
+        _ => ImageParams { adjust, ..Default::default() },
+    };
+    node.fills =
+        vec![Paint { kind: PaintKind::Image { image_ref: "flat".into(), scale_mode: mode, params }, opacity: 1.0, visible: true, blend: BlendMode::Normal }];
+    doc.insert(page, node).unwrap();
+    let mut pm = Pixmap::new(64, 32).unwrap();
+    render_page(&doc, page, &Viewport::default(), &mut pm);
+    pm
+}
+
+#[test]
+fn the_letterbox_and_the_area_outside_a_turned_crop_stay_transparent_when_the_picture_is_adjusted() {
+    let adjust = ImageAdjust { exposure: 1.0, ..Default::default() };
+    let brightened = adjust_rgba([128, 128, 128, 255], &adjust);
+    for mode in [ImageScaleMode::Fit, ImageScaleMode::Crop] {
+        let plain = letterbox_render(mode, ImageAdjust::default());
+        let adjusted = letterbox_render(mode, adjust);
+        for y in 0..32 {
+            for x in (0..14).chain(50..64) {
+                assert_eq!(px(&adjusted, x, y), px(&plain, x, y), "{mode:?}: ({x}, {y}) outside the picture is what the unadjusted fill gives");
+                assert_eq!(px(&adjusted, x, y)[3], 0, "{mode:?}: ({x}, {y}) outside the picture is transparent");
+            }
+            // the soft ring where the picture meets the letterbox is left out: two pixels in from each edge
+            if !(4..28).contains(&y) {
+                continue;
+            }
+            for x in 20..44 {
+                let got = px(&adjusted, x, y);
+                assert!(got[3] == 255 && (0..3).all(|k| got[k].abs_diff(brightened[k]) <= 1), "{mode:?}: ({x}, {y}) inside the picture is adjusted: {got:?}");
+            }
+        }
+    }
+}
+
+/// One 256x256 tile in the middle of a 4032x3024 picture fitted into a 4032x4032 node at a device pixel ratio of 2.
+/// Run with `cargo test -p designos-render --release --test image_adjust_sampling -- --ignored --nocapture`.
+#[test]
+#[ignore = "timing only"]
+fn time_one_tile_over_a_large_adjusted_fit_picture() {
+    let mut doc = Document::new("t");
+    let page = doc.add_page("p");
+    doc.images.insert("photo".into(), png_bytes(4032, 3024, |x, y| [(x % 251) as u8, (y % 241) as u8, ((x + y) % 239) as u8, 255]));
+    let id = doc.alloc_id();
+    let mut node = Node::rectangle(id, Rect::new(0.0, 0.0, 4032.0, 4032.0));
+    let paint = |adjust| Paint {
+        kind: PaintKind::Image { image_ref: "photo".into(), scale_mode: ImageScaleMode::Fit, params: ImageParams { adjust, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    };
+    node.fills = vec![paint(ImageAdjust::default())];
+    doc.insert(page, node).unwrap();
+    // the picture sits at y 504..3528; the tile starts at page (2000, 1500)
+    let vp = Viewport { offset: Vec2::new(2000.0, 1500.0), zoom: 1.0, dpr: 2.0 };
+    for (label, adjust) in [
+        ("unadjusted", ImageAdjust::default()),
+        ("exposure+contrast+saturation", ImageAdjust { exposure: 0.5, contrast: 0.2, vibrance: 0.5, ..Default::default() }),
+    ] {
+        doc.get_mut(id).unwrap().fills = vec![paint(adjust)];
+        let mut tile = Pixmap::new(256, 256).unwrap();
+        render_page(&doc, page, &vp, &mut tile);
+        let mut times: Vec<f64> = (0..5)
+            .map(|_| {
+                let t0 = std::time::Instant::now();
+                render_page(&doc, page, &vp, &mut tile);
+                t0.elapsed().as_secs_f64() * 1000.0
+            })
+            .collect();
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        eprintln!("FIT_TILE_TIME {label}: min {:.2} ms, median {:.2} ms, max {:.2} ms (5 runs)", times[0], times[2], times[4]);
+    }
+}

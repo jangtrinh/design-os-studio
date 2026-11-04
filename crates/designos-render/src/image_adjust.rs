@@ -7,7 +7,7 @@ mod adjusted_region;
 pub use adjusted_region::unadjusted_fill_fallbacks;
 #[cfg(test)]
 pub(crate) use adjusted_region::TEST_MAX_PIXELS;
-pub(crate) use adjusted_region::{adjusted_fill_region, note_unadjusted_fallback, DeviceRegion};
+pub(crate) use adjusted_region::{adjusted_fill_region, note_unadjusted_fallback, DeviceRegion, FillSource};
 
 mod crop_frame;
 pub use crop_frame::{crop_paint_for_node, rotate_crop_transform, set_image_scale_mode, IDENTITY_CROP_TRANSFORM};
@@ -38,6 +38,14 @@ pub const POS_SAT_MAX_SCALE: f32 = 2.0;
 thread_local! {
     /// Pixels run through [`adjust_rgb`] on this thread; tests read it to bound the work an adjusted fill does.
     pub(crate) static ADJUSTED_PIXELS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Pixels of the largest pixmap an image fill allocated on this thread (its scratch or a padded copy of the picture).
+    pub(crate) static LARGEST_FILL_ALLOCATION: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Records a pixmap of `w` x `h` pixels allocated for an image fill, for the tests that bound the allocation.
+#[cfg(test)]
+pub(crate) fn note_fill_allocation(w: u32, h: u32) {
+    LARGEST_FILL_ALLOCATION.with(|n| n.set(n.get().max(u64::from(w) * u64::from(h))));
 }
 
 #[inline]
