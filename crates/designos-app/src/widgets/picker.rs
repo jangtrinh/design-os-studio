@@ -94,7 +94,7 @@ impl Mode {
 
 pub fn mode_of(k: &PaintKind) -> Mode {
     match k {
-        PaintKind::Solid(_) => Mode::Solid,
+        PaintKind::Solid(_) | PaintKind::Shader(_) => Mode::Solid,
         PaintKind::LinearGradient { .. } => Mode::Linear,
         PaintKind::RadialGradient { .. } => Mode::Radial,
         PaintKind::AngularGradient { .. } => Mode::Angular,

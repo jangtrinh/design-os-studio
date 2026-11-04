@@ -1,0 +1,15 @@
+# cargo test -p designos-app --bin designos --locked --no-fail-fast -- shader_fill_row hovering_the_shader the_effects_row_of_a_shader shader_inspector
+test panels::effects::tests::shader_inspector_rows_render_label_and_toggle_visibility ... ok
+test panels::properties::tests::the_shader_fill_row_label_is_readable_in_full_at_the_default_inspector_width ... FAILED
+test panels::properties::tests::the_effects_row_of_a_shader_says_it_is_not_rendered ... ok
+test panels::properties::tests::hovering_the_shader_fill_label_shows_that_it_is_not_rendered ... FAILED
+test panels::properties::tests::shader_inspector_rows_render_label_and_toggle_visibility ... ok
+thread 'panels::properties::tests::the_shader_fill_row_label_is_readable_in_full_at_the_default_inspector_width' (98273951) panicked at crates/designos-app/src/panels/properties.rs:4057:9:
+assertion `left == right` failed: the fill row label is shown in full, not cut with an ellipsis
+  left: "Shader (no…"
+ right: "Shader"
+thread 'panels::properties::tests::hovering_the_shader_fill_label_shows_that_it_is_not_rendered' (98273948) panicked at crates/designos-app/src/panels/properties.rs:4090:9:
+assertion `left == right` failed: the hover tooltip adds the status text next to the Effects row's own
+  left: 1
+ right: 2
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 4360 filtered out; finished in 0.04s

@@ -349,6 +349,7 @@ impl Cx<'_> {
                 None => "UIColor.clear".into(),
             },
             PaintKind::Image { .. } => "UIColor.gray".into(),
+            PaintKind::Shader(_) => "UIColor.clear".into(),
         }
     }
 
@@ -417,11 +418,13 @@ impl Cx<'_> {
     fn style(&mut self, v: &str, n: &Node) {
         let doc = self.doc;
         if text_of(n).is_none() && !matches!(n.kind, NodeKind::Line) {
-            let fill = n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0);
+            let fill = n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)));
             if let Some((i, p)) = fill {
                 self.fill(v, n, &format!("fills/{i}"), p);
             }
-            if let Some(p) = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0).filter(|_| n.stroke.weight > 0.0) {
+            if let Some(p) =
+                n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))).filter(|_| n.stroke.weight > 0.0)
+            {
                 self.line(format!("{v}.layer.borderWidth = {}", dimension(doc, n, "strokeWeight", n.stroke.weight)));
                 self.line(format!("{v}.layer.borderColor = {}.cgColor", self.paint_color(n, "strokes/0", p)));
             }

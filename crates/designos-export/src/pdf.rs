@@ -213,8 +213,8 @@ mod fidelity {
     /// The fills the renderer paints: a text node's base style fills, the node's own fills otherwise.
     pub(super) fn visible_fills(n: &Node) -> Vec<&Paint> {
         match &n.kind {
-            NodeKind::Text(t) => t.style.fills.iter().filter(|p| p.visible).collect(),
-            _ => n.fills.iter().filter(|p| p.visible).collect(),
+            NodeKind::Text(t) => t.style.fills.iter().filter(|p| p.visible && !matches!(p.kind, PaintKind::Shader(_))).collect(),
+            _ => n.fills.iter().filter(|p| p.visible && !matches!(p.kind, PaintKind::Shader(_))).collect(),
         }
     }
 
@@ -223,7 +223,7 @@ mod fidelity {
         if n.stroke.weight <= 0.0 && n.stroke.side_weights.is_none() {
             return Vec::new();
         }
-        n.stroke.paints.iter().filter(|p| p.visible).collect()
+        n.stroke.paints.iter().filter(|p| p.visible && !matches!(p.kind, PaintKind::Shader(_))).collect()
     }
 
     fn subtree_reason(doc: &Document, n: &Node) -> Option<&'static str> {
@@ -257,7 +257,7 @@ mod fidelity {
         if layer_blend(n) {
             return Some("a layer blend mode");
         }
-        if n.effects.iter().any(|e| e.visible()) {
+        if n.effects.iter().any(|e| e.visible() && !matches!(e, designos_doc::Effect::Shader { .. })) {
             return Some("a visible effect");
         }
         let fills = visible_fills(n);
@@ -397,7 +397,7 @@ mod fidelity {
             return Some("a paint blend mode");
         }
         match &p.kind {
-            PaintKind::Solid(_) => None,
+            PaintKind::Solid(_) | PaintKind::Shader(_) => None,
             PaintKind::Image { .. } => Some("an image paint"),
             PaintKind::AngularGradient { .. } | PaintKind::DiamondGradient { .. } => Some("an angular or diamond gradient"),
             PaintKind::LinearGradient { stops, .. } | PaintKind::RadialGradient { stops, .. } => {
@@ -1032,7 +1032,7 @@ mod vector_page {
                 PaintKind::Solid(c) => self.flat(paths, *c, a),
                 PaintKind::LinearGradient { stops, handles } => self.gradient(false, paths, stops, handles, size, a),
                 PaintKind::RadialGradient { stops, handles } => self.gradient(true, paths, stops, handles, size, a),
-                PaintKind::AngularGradient { .. } | PaintKind::DiamondGradient { .. } | PaintKind::Image { .. } => {}
+                PaintKind::AngularGradient { .. } | PaintKind::DiamondGradient { .. } | PaintKind::Image { .. } | PaintKind::Shader(_) => {}
             }
         }
 

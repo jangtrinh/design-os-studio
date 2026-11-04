@@ -1,0 +1,69 @@
+# New tests on the PR head before this round's source changes (owned source files identical to 1509d84f0: git diff 1509d84f0 d80fa38a7 -- those files is empty)
+# command: cargo test -p designos-fig --locked --no-fail-fast --test fig_shader_refs --test fig_export_shader_unknown_keys --test rest_shader_refs --lib -- shader unknown_key an_ the_ rest_export a_shader
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-11e9f1ea5f7ddc4e)
+test fig::tests::scan_fig_file_for_custom_shader_effects_and_paints_when_requested ... ok
+test fig::tests::shader_effect_and_paint_round_trip_through_rest_json ... FAILED
+test fig::tests::shader_effect_and_paint_round_trip_through_designos_json ... ok
+test rest_import::expand_depth_tests::max_id_overflow_is_an_error_in_import ... ok
+test fig::tests::shader_ref_malformed_json_errors_on_fig_export ... ok
+test rest_import::grid_sizing_tests::unclosed_minmax_stops_the_scan_in_linear_time ... ok
+test rest_import::expand_depth_tests::nan_round_trip_import_save_reopen ... ok
+test rest_import::expand_depth_tests::an_unexpanded_instance_survives_a_fig_round_trip ... ok
+test fig::tests::shader_effect_round_trips_through_fig ... ok
+test fig::tests::shader_paint_round_trips_through_fig ... ok
+test rest_import::expand_depth_tests::chained_links_stop_at_the_global_clone_budget ... ok
+test rest_import::expand_depth_tests::long_component_chain_expands_without_exhausting_the_stack ... ok
+test rest_import::expand_depth_tests::long_instance_swap_chain_expands_without_exhausting_the_stack ... ok
+thread 'fig::tests::shader_effect_and_paint_round_trip_through_rest_json' (98221028) panicked at crates/designos-fig/src/fig.rs:3429:9:
+  left: Null
+ right: String("SHADER")
+test result: FAILED. 32 passed; 1 failed; 0 ignored; 0 measured; 122 filtered out; finished in 7.14s
+     Running tests/fig_export_shader_unknown_keys.rs (out/cargo/debug/deps/fig_export_shader_unknown_keys-f76f82a46b8af252)
+test an_unknown_top_level_key_names_the_layer_and_the_next_action ... FAILED
+test an_unknown_key_on_a_nested_message_fails_the_export ... FAILED
+test an_unknown_key_two_levels_down_names_the_whole_path ... FAILED
+test an_unknown_key_in_an_effect_style_names_the_style ... FAILED
+test an_unknown_key_inside_an_array_of_messages_names_the_index ... FAILED
+test an_unknown_key_on_a_nested_struct_fails_the_export ... FAILED
+test a_shader_whose_every_key_the_schema_names_exports ... ok
+thread 'an_unknown_top_level_key_names_the_layer_and_the_next_action' (98222041) panicked at crates/designos-fig/tests/fig_export_shader_unknown_keys.rs:43:5:
+the error names the next action: layer "Top": unknown shader field "futureTop" on Effect
+thread 'an_unknown_key_on_a_nested_message_fails_the_export' (98222038) panicked at crates/designos-fig/tests/fig_export_shader_unknown_keys.rs:35:18:
+thread 'an_unknown_key_two_levels_down_names_the_whole_path' (98222040) panicked at crates/designos-fig/tests/fig_export_shader_unknown_keys.rs:35:18:
+thread 'an_unknown_key_in_an_effect_style_names_the_style' (98222036) panicked at crates/designos-fig/tests/fig_export_shader_unknown_keys.rs:35:18:
+thread 'an_unknown_key_inside_an_array_of_messages_names_the_index' (98222037) panicked at crates/designos-fig/tests/fig_export_shader_unknown_keys.rs:35:18:
+thread 'an_unknown_key_on_a_nested_struct_fails_the_export' (98222039) panicked at crates/designos-fig/tests/fig_export_shader_unknown_keys.rs:35:18:
+test result: FAILED. 1 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+     Running tests/fig_shader_refs.rs (out/cargo/debug/deps/fig_shader_refs-8cf9004822968b64)
+test shader_message_bytes_are_equal_after_round_trip ... ok
+test unknown_field_on_a_shader_message_is_kept ... ok
+test shader_fill_keeps_opacity_visible_blend_and_slot_order ... ok
+test designos_json_round_trip_keeps_shader ... ok
+test shader_in_effect_style_round_trips ... ok
+test shader_effect_and_fill_survive_fig_import_export_reimport ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running tests/rest_shader_refs.rs (out/cargo/debug/deps/rest_shader_refs-d5e8a31e74f6a8e5)
+test the_flattened_custom_form_keeps_importing ... ok
+test the_exported_shader_shape_imports_back_unchanged ... FAILED
+test an_effect_field_beside_the_shader_object_is_kept ... FAILED
+test the_shader_type_imports_a_shader_paint_and_effect_with_their_own_fields ... FAILED
+test the_flattened_custom_form_imports_the_same_shader ... FAILED
+test rest_export_writes_the_shader_type_with_the_raw_object_under_shader ... FAILED
+test a_shader_imported_from_rest_reaches_the_fig_export ... FAILED
+thread 'the_exported_shader_shape_imports_back_unchanged' (98222255) panicked at crates/designos-fig/tests/rest_shader_refs.rs:109:5:
+  left: (1, 0)
+ right: (2, 1)
+thread 'an_effect_field_beside_the_shader_object_is_kept' (98222253) panicked at crates/designos-fig/tests/rest_shader_refs.rs:120:61:
+thread 'the_shader_type_imports_a_shader_paint_and_effect_with_their_own_fields' (98222258) panicked at crates/designos-fig/tests/rest_shader_refs.rs:60:5:
+  left: 1
+ right: 2
+thread 'the_flattened_custom_form_imports_the_same_shader' (98222256) panicked at crates/designos-fig/tests/rest_shader_refs.rs:82:5:
+  left: [Paint { kind: Solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }, Paint { kind: Shader(ShaderRef { raw: Object {"componentPropAssignments": Array [Object {"defID": Object {"localID": Number(2), "sessionID": Number(1)}, "value": Object {"floatValue": Number(0.5)}}], "customEffectId": Object {"assetRef": Object {"key": String("shader_key_abc"), "ve
+ right: [Paint { kind: Solid(Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }), opacity: 1.0, visible: true, blend: Normal }]
+thread 'rest_export_writes_the_shader_type_with_the_raw_object_under_shader' (98222254) panicked at crates/designos-fig/tests/rest_shader_refs.rs:92:5:
+  left: String("CUSTOM")
+ right: String("SHADER")
+thread 'a_shader_imported_from_rest_reaches_the_fig_export' (98222252) panicked at crates/designos-fig/tests/rest_shader_refs.rs:132:5:
+  left: Null
+ right: String("CUSTOM")
+test result: FAILED. 1 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

@@ -1,0 +1,12 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-39-shader-refs/crates/designos-render)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.55s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-014e167884e8ef0f)
+
+running 1 test
+test shadow_tests::shader_paint_has_zero_silhouette_alpha ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 58 filtered out; finished in 0.01s
+

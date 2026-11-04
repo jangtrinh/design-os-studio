@@ -459,13 +459,20 @@ fn classes(doc: &Document, n: &Node, parent: Parent<'_>) -> Vec<String> {
     if let Some(t) = text_of(n) {
         text_classes(doc, n, t, &mut c);
     } else if !matches!(n.kind, NodeKind::Line) {
-        let visible: Vec<(usize, &Paint)> = n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0).collect();
+        let visible: Vec<(usize, &Paint)> =
+            n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))).collect();
         if let Some((i, p)) = visible.last() {
             c.push(color_class(doc, n, &format!("fills/{i}"), "bg", p, false));
         }
     }
     // stroke
-    if let Some(p) = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0).filter(|_| n.stroke.weight > 0.0 && text_of(n).is_none()) {
+    if let Some(p) = n
+        .stroke
+        .paints
+        .iter()
+        .find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))
+        .filter(|_| n.stroke.weight > 0.0 && text_of(n).is_none())
+    {
         let w = n.stroke.weight;
         let side = if matches!(n.kind, NodeKind::Line) { "border-t" } else { "border" };
         c.push(match w as i32 {

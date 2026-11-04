@@ -527,7 +527,7 @@ fn luma_paint(mut p: Paint) -> Paint {
                 s.color = conv(s.color);
             }
         }
-        PaintKind::Image { .. } => {}
+        PaintKind::Image { .. } | PaintKind::Shader(_) => {}
     }
     p
 }
