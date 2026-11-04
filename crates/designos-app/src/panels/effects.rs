@@ -97,14 +97,25 @@ pub fn default_effect(kind: usize, seed: u32) -> Effect {
         4 => Effect::Noise(NoiseEffect {
             mode: NoiseMode::Mono { color: Color::BLACK },
             size: 1.0,
+            size_y: None,
             density: 0.5,
             opacity: 0.25,
             blend: BlendMode::Normal,
             seed,
             visible: true,
         }),
-        5 => Effect::Texture(TextureEffect { size: 2.0, radius: 2.0, clip_to_shape: true, seed, visible: true }),
-        _ => Effect::Glass(GlassEffect { light_angle: 315.0, light_intensity: 0.5, refraction: 0.5, depth: 10.0, dispersion: 0.25, frost: 4.0, visible: true }),
+        5 => Effect::Texture(TextureEffect { size: 2.0, size_y: None, radius: 2.0, clip_to_shape: true, seed, visible: true }),
+        _ => Effect::Glass(GlassEffect {
+            light_angle: 315.0,
+            light_intensity: 0.5,
+            refraction: 0.5,
+            depth: 10.0,
+            dispersion: 0.25,
+            frost: 4.0,
+            splay: 0.0,
+            bevel: 0.0,
+            visible: true,
+        }),
     }
 }
 

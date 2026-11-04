@@ -200,6 +200,7 @@ fn parse_effect(v: &Value) -> Option<Effect> {
             Effect::Noise(NoiseEffect {
                 mode,
                 size: noise_size(v).unwrap_or(1.0),
+                size_y: None,
                 density: fnum(v, "density").unwrap_or(0.5).clamp(0.0, 1.0),
                 opacity: fnum(v, "opacity").unwrap_or(0.25).clamp(0.0, 1.0),
                 blend: fstr(v, "blendMode").map(blend).unwrap_or(BlendMode::Normal),
@@ -209,6 +210,7 @@ fn parse_effect(v: &Value) -> Option<Effect> {
         }
         "TEXTURE" | "GRAIN" => Effect::Texture(TextureEffect {
             size: noise_size(v).unwrap_or(2.0),
+            size_y: None,
             radius: fnum(v, "radius").unwrap_or(2.0),
             clip_to_shape: fbool(v, "clipToShape").unwrap_or(true),
             seed: parse_seed(v),
@@ -221,6 +223,8 @@ fn parse_effect(v: &Value) -> Option<Effect> {
             depth: fnum(v, "depth").or_else(|| fnum(v, "refractionRadius")).unwrap_or(10.0),
             dispersion: fnum(v, "dispersion").or_else(|| fnum(v, "chromaticAberration")).unwrap_or(0.25).clamp(0.0, 1.0),
             frost: fnum(v, "radius").unwrap_or(4.0),
+            splay: 0.0,
+            bevel: 0.0,
             visible,
         }),
         _ => return None,

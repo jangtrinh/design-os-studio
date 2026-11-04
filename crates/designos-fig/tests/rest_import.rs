@@ -250,14 +250,25 @@ fn noise_texture_and_glass_effects_roundtrip() {
         Effect::Noise(NoiseEffect {
             mode: NoiseMode::Duo { color: Color::rgb(255, 0, 0), secondary: Color::rgb(0, 0, 255) },
             size: 2.0,
+            size_y: None,
             density: 0.4,
             opacity: 0.3,
             blend: BlendMode::Multiply,
             seed: 9,
             visible: true,
         }),
-        Effect::Texture(TextureEffect { size: 3.0, radius: 5.0, clip_to_shape: false, seed: 2, visible: false }),
-        Effect::Glass(GlassEffect { light_angle: 120.0, light_intensity: 0.6, refraction: 0.7, depth: 14.0, dispersion: 0.2, frost: 6.0, visible: true }),
+        Effect::Texture(TextureEffect { size: 3.0, size_y: None, radius: 5.0, clip_to_shape: false, seed: 2, visible: false }),
+        Effect::Glass(GlassEffect {
+            light_angle: 120.0,
+            light_intensity: 0.6,
+            refraction: 0.7,
+            depth: 14.0,
+            dispersion: 0.2,
+            frost: 6.0,
+            splay: 0.0,
+            bevel: 0.0,
+            visible: true,
+        }),
     ];
     let doc = doc_with_effects(effects.clone());
     let json = serde_json::to_string(&export_rest_json(&doc)).unwrap();

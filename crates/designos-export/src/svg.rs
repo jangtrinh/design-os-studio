@@ -1281,14 +1281,25 @@ mod tests {
                 Effect::Noise(NoiseEffect {
                     mode: NoiseMode::Mono { color: Color::BLACK },
                     size: 2.0,
+                    size_y: None,
                     density: 0.5,
                     opacity: 0.25,
                     blend: BlendMode::Normal,
                     seed: 3,
                     visible: true,
                 }),
-                Effect::Texture(TextureEffect { size: 4.0, radius: 3.0, clip_to_shape: true, seed: 5, visible: true }),
-                Effect::Glass(GlassEffect { light_angle: 0.0, light_intensity: 0.5, refraction: 0.5, depth: 8.0, dispersion: 0.0, frost: 4.0, visible: true }),
+                Effect::Texture(TextureEffect { size: 4.0, size_y: None, radius: 3.0, clip_to_shape: true, seed: 5, visible: true }),
+                Effect::Glass(GlassEffect {
+                    light_angle: 0.0,
+                    light_intensity: 0.5,
+                    refraction: 0.5,
+                    depth: 8.0,
+                    dispersion: 0.0,
+                    frost: 4.0,
+                    splay: 0.0,
+                    bevel: 0.0,
+                    visible: true,
+                }),
             ];
             d.insert(page, n).unwrap();
         });

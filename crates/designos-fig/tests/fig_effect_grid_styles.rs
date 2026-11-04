@@ -292,6 +292,7 @@ fn noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport
     let expected_mono = Effect::Noise(NoiseEffect {
         mode: NoiseMode::Mono { color: Color { r: 0.25, g: 0.5, b: 0.75, a: 1.0 } },
         size: 3.5,
+        size_y: None,
         density: 0.65,
         opacity: 0.4,
         blend: BlendMode::Overlay,
@@ -301,17 +302,35 @@ fn noise_texture_and_glass_effects_round_trip_through_fig_import_export_reimport
     let expected_duo = Effect::Noise(NoiseEffect {
         mode: NoiseMode::Duo { color: Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 }, secondary: Color { r: 0.0, g: 0.0, b: 1.0, a: 0.5 } },
         size: 2.0,
+        size_y: None,
         density: 0.35,
         opacity: 0.8,
         blend: BlendMode::Multiply,
         seed: 9,
         visible: false,
     });
-    let expected_multi =
-        Effect::Noise(NoiseEffect { mode: NoiseMode::Multi, size: 1.5, density: 0.9, opacity: 0.5, blend: BlendMode::Screen, seed: 77, visible: true });
-    let expected_texture = Effect::Texture(TextureEffect { size: 4.0, radius: 6.5, clip_to_shape: false, seed: 13, visible: false });
-    let expected_glass =
-        Effect::Glass(GlassEffect { light_angle: 135.0, light_intensity: 0.75, refraction: 0.6, depth: 18.0, dispersion: 0.3, frost: 8.0, visible: true });
+    let expected_multi = Effect::Noise(NoiseEffect {
+        mode: NoiseMode::Multi,
+        size: 1.5,
+        size_y: None,
+        density: 0.9,
+        opacity: 0.5,
+        blend: BlendMode::Screen,
+        seed: 77,
+        visible: true,
+    });
+    let expected_texture = Effect::Texture(TextureEffect { size: 4.0, size_y: None, radius: 6.5, clip_to_shape: false, seed: 13, visible: false });
+    let expected_glass = Effect::Glass(GlassEffect {
+        light_angle: 135.0,
+        light_intensity: 0.75,
+        refraction: 0.6,
+        depth: 18.0,
+        dispersion: 0.3,
+        frost: 8.0,
+        splay: 0.0,
+        bevel: 0.0,
+        visible: true,
+    });
 
     // 1. First import from .fig
     let d1 = import_fig(&fig_bytes).unwrap();
