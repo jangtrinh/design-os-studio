@@ -580,7 +580,7 @@ pub struct NoiseEffect {
     pub size_y: Option<f32>,
     /// Share of covered pixels, 0..1.
     pub density: f32,
-    /// Strength of the grain, 0..1. Only the multitone mode uses it; the other modes keep the value.
+    /// Strength of the grain, 0..1. Every mode draws its grain with it.
     pub opacity: f32,
     pub blend: BlendMode,
     /// Deterministic seed so renders are reproducible.
