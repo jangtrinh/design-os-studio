@@ -1113,6 +1113,67 @@ fn undo_with_pending_gradient_picker_edit_does_not_resurrect_an_older_edit() {
 }
 
 #[test]
+fn undo_redo_and_close_of_a_pending_picker_edit_stay_on_that_step() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.edit_nodes(&[hero], |n| {
+        n.fills = vec![Paint {
+            kind: PaintKind::LinearGradient {
+                handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+                stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+            },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+    });
+    s.frame(vec![]);
+    s.shell.app.edit_nodes(&[hero], |n| n.opacity = 0.7);
+    s.frame(vec![]);
+    let depth_before = s.app().hist.undo_depth();
+
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    let PaintKind::LinearGradient { stops, .. } = &s.app().doc.get(hero).unwrap().fills[0].kind else {
+        panic!("expected LinearGradient");
+    };
+    let edited = stops[0].color;
+    assert_ne!(edited, Color::BLACK, "the swatch edit must change stop 0");
+
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    let node = s.app().doc.get(hero).unwrap();
+    assert_eq!(node.opacity, 0.7, "undo targets the pending picker edit");
+    let PaintKind::LinearGradient { stops, .. } = &node.fills[0].kind else { panic!("expected LinearGradient") };
+    assert_eq!(stops[0].color, Color::BLACK);
+    assert_eq!(s.app().hist.undo_depth(), depth_before, "the pending edit is one undo step");
+    assert!(s.app().hist.can_redo(), "that step stays available to redo");
+
+    let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+    s.mods = Modifiers { alt: false, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+    s.key(Key::Z);
+    s.mods = Modifiers::NONE;
+    s.frame(vec![]);
+    let node = s.app().doc.get(hero).unwrap();
+    assert_eq!(node.opacity, 0.7, "redo must not touch the older opacity edit");
+    let PaintKind::LinearGradient { stops, .. } = &node.fills[0].kind else { panic!("expected LinearGradient") };
+    assert_eq!(stops[0].color, edited, "redo restores the pending stop edit");
+
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    s.key(Key::Escape);
+    s.frame(vec![]);
+    assert!(s.app().props.picker.is_none(), "escape closes the picker");
+    let node = s.app().doc.get(hero).unwrap();
+    assert_eq!(node.opacity, 0.7, "closing after undo must not restore the older edit");
+    let PaintKind::LinearGradient { stops, .. } = &node.fills[0].kind else { panic!("expected LinearGradient") };
+    assert_eq!(stops[0].color, Color::BLACK, "closing after undo must not re-apply the undone stop");
+}
+
+#[test]
 fn canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step() {
     let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
     let hero = s.by_name("Hero");

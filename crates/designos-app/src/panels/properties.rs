@@ -4199,4 +4199,64 @@ mod tests {
             assert_eq!(*scale_mode, ImageScaleMode::Fill, "one undo restores both");
         }
     }
+
+    /// Prints one inspector frame of the mixed-value summary. Ignored in the default suite:
+    /// 100_000 rectangles is a timing probe, run with `--release --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn mixed_value_summary_frame_time() {
+        fn build(n: usize) -> App {
+            let mut doc = Document::new("mixed-time");
+            let page = doc.add_page("Page 1");
+            let mut app = App::new(doc);
+            app.page = page;
+            let mut ids = Vec::with_capacity(n);
+            for i in 0..n {
+                let id = app.doc.alloc_id();
+                let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+                if i + 1 == n {
+                    node.opacity = 0.75;
+                    node.corner_radii = [8.0; 4];
+                } else {
+                    node.opacity = 0.5;
+                    node.corner_radii = [6.0; 4];
+                }
+                ids.push(app.doc.insert(page, node).unwrap());
+            }
+            app.selection = ids;
+            app
+        }
+        fn frame(app: &App, sel: &[NodeId]) -> (Option<f32>, Option<f32>) {
+            let xs = common(app, sel, |n| n.transform.tx);
+            let ys = common(app, sel, |n| n.transform.ty);
+            let rot = common(app, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0);
+            let op = common(app, sel, |n| (n.opacity * 100.0).round());
+            let mut corner_nodes = Vec::new();
+            corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_corners)));
+            let mut four = Vec::new();
+            four.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_four_corners)));
+            let differ = four.iter().any(|id| app.doc.get(*id).is_some_and(node_corners_differ));
+            let rad = common_corners(&app.doc, &four, uniform_corner_radius).flatten();
+            let ws = common(app, sel, |n| n.size.x);
+            let hs = common(app, sel, inspector_height);
+            let lockable = sel.iter().any(|id| app.doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Line)));
+            std::hint::black_box((xs, ys, rot, ws, hs, differ, lockable, corner_nodes.len()));
+            (op, rad)
+        }
+        for n in [10_000usize, 100_000] {
+            let app = build(n);
+            let sel = app.selection.clone();
+            let _ = frame(&app, &sel);
+            let reps = 5u32;
+            let start = std::time::Instant::now();
+            let mut last = (None, None);
+            for _ in 0..reps {
+                last = frame(&app, &sel);
+            }
+            let ms = start.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
+            assert!(last.0.is_none(), "opacity at {n} must be mixed");
+            assert!(last.1.is_none(), "radius at {n} must be mixed");
+            println!("mixed-summary {n}: {ms:.3} ms/frame");
+        }
+    }
 }
