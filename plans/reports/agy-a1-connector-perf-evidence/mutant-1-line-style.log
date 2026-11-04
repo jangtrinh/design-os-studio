@@ -1,0 +1,33 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-doc)
+warning: function `line_tag` is never used
+  --> crates/designos-doc/src/connector_route_cache.rs:46:4
+   |
+46 | fn line_tag(line: ConnectorLine) -> u8 {
+   |    ^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `designos-doc` (lib test) generated 1 warning
+    Finished `release` profile [optimized] target(s) in 28.73s
+     Running unittests src/lib.rs (out/cargo/release/deps/designos_doc-d61e952e2abf4025)
+
+running 1 test
+test connector_route_cache::tests::route_cache_misses_when_either_anchor_or_line_changes ... 
+thread 'connector_route_cache::tests::route_cache_misses_when_either_anchor_or_line_changes' (98325230) panicked at crates/designos-doc/src/connector_route_cache.rs:390:9:
+assertion `left == right` failed
+  left: (1, 4)
+ right: (0, 5)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    connector_route_cache::tests::route_cache_misses_when_either_anchor_or_line_changes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-doc --lib`

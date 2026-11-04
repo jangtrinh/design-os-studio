@@ -639,8 +639,10 @@ fn dir_index(d: Vec2) -> Option<usize> {
     }
 }
 
+#[cfg(test)]
 const DIRS: [(i32, i32); 4] = [(1, 0), (0, 1), (-1, 0), (0, -1)];
 
+#[cfg(test)]
 fn dedup_sorted(mut v: Vec<f32>) -> Vec<f32> {
     v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     v.dedup_by(|a, b| (*a - *b).abs() < 0.01);
@@ -651,10 +653,120 @@ fn nearest(v: &[f32], x: f32) -> usize {
     v.iter().enumerate().min_by(|a, b| (a.1 - x).abs().partial_cmp(&(b.1 - x).abs()).unwrap_or(std::cmp::Ordering::Equal)).map(|(i, _)| i).unwrap_or(0)
 }
 
+const MAX_ROUTE_COORD: f32 = 1e9;
+
+fn valid_coord(x: f32) -> bool {
+    x.is_finite() && x.abs() <= MAX_ROUTE_COORD
+}
+
+fn sanitize_coord(x: f32) -> f32 {
+    if x.is_finite() {
+        x.clamp(-MAX_ROUTE_COORD, MAX_ROUTE_COORD)
+    } else {
+        0.0
+    }
+}
+
+fn valid_rect(r: Rect) -> bool {
+    valid_coord(r.x) && valid_coord(r.y) && valid_coord(r.w) && valid_coord(r.h)
+}
+
+const MAX_GRID_COORDS: usize = 32;
+const MAX_GRID_STATES: usize = MAX_GRID_COORDS * MAX_GRID_COORDS * 5;
+
+#[inline(always)]
+fn dedup_in_place(v: &mut Vec<f32>) {
+    v.sort_unstable_by(|a, b| a.total_cmp(b));
+    v.dedup_by(|a, b| (*a - *b).abs() < 0.01);
+}
+
+#[inline(always)]
+fn add_mid_lanes_in_place(v: &mut Vec<f32>) {
+    dedup_in_place(v);
+    let n = v.len();
+    for k in 0..n.saturating_sub(1) {
+        let mid = (v[k] + v[k + 1]) * 0.5;
+        v.push(mid);
+    }
+    dedup_in_place(v);
+}
+
+#[inline(always)]
+fn pack_heap_entry(cost: f32, state: usize) -> u64 {
+    ((cost.to_bits() as u64) << 32) | (state as u32 as u64)
+}
+
+#[inline(always)]
+fn heap_push(heap: &mut [u64; MAX_GRID_STATES], heap_len: &mut usize, item: u64) {
+    let mut idx = *heap_len;
+    *heap_len = idx + 1;
+    while idx > 0 {
+        let parent = (idx - 1) >> 1;
+        if item < heap[parent] {
+            heap[idx] = heap[parent];
+            idx = parent;
+        } else {
+            break;
+        }
+    }
+    heap[idx] = item;
+}
+
+#[inline(always)]
+fn heap_pop(heap: &mut [u64; MAX_GRID_STATES], heap_len: &mut usize) -> Option<u64> {
+    let len = *heap_len;
+    if len == 0 {
+        return None;
+    }
+    let top = heap[0];
+    let new_len = len - 1;
+    *heap_len = new_len;
+    if new_len > 0 {
+        let last = heap[new_len];
+        let mut idx = 0usize;
+        loop {
+            let left = (idx << 1) + 1;
+            if left >= new_len {
+                break;
+            }
+            let right = left + 1;
+            let smallest = if right < new_len && heap[right] < heap[left] { right } else { left };
+            if heap[smallest] < last {
+                heap[idx] = heap[smallest];
+                idx = smallest;
+            } else {
+                break;
+            }
+        }
+        heap[idx] = last;
+    }
+    Some(top)
+}
+
 /// Orthogonal route that leaves and enters the nodes straight and does not cross their boxes.
 fn elbow(a: &Anchor, b: &Anchor) -> Vec<Vec2> {
+    elbow_with_steps(a, b).0
+}
+
+fn elbow_with_steps(a: &Anchor, b: &Anchor) -> (Vec<Vec2>, usize) {
+    if !valid_coord(a.pos.x)
+        || !valid_coord(a.pos.y)
+        || !valid_coord(b.pos.x)
+        || !valid_coord(b.pos.y)
+        || !valid_coord(a.dir.x)
+        || !valid_coord(a.dir.y)
+        || !valid_coord(b.dir.x)
+        || !valid_coord(b.dir.y)
+        || !a.rect.is_none_or(valid_rect)
+        || !b.rect.is_none_or(valid_rect)
+    {
+        return (vec![v(sanitize_coord(a.pos.x), sanitize_coord(a.pos.y)), v(sanitize_coord(b.pos.x), sanitize_coord(b.pos.y))], 0);
+    }
+    let rect_a = a.rect;
+    let rect_b = b.rect;
+
     // clearance kept around the boxes: half of a small gap, at most one stub
-    let clear = match (a.rect, b.rect) {
+    let clear = match (rect_a, rect_b) {
         (Some(ra), Some(rb)) => {
             let (gx, gy) = gap_between(ra, rb);
             let g = gx.max(gy);
@@ -666,100 +778,197 @@ fn elbow(a: &Anchor, b: &Anchor) -> Vec<Vec2> {
         }
         _ => ELBOW_STUB,
     };
-    let stub_a = if a.rect.is_some() { clear } else { 0.0 };
-    let stub_b = if b.rect.is_some() { clear } else { 0.0 };
+    let stub_a = if rect_a.is_some() { clear } else { 0.0 };
+    let stub_b = if rect_b.is_some() { clear } else { 0.0 };
     let p0 = add(a.pos, mul(a.dir, stub_a));
     let p1 = add(b.pos, mul(b.dir, stub_b));
-    let obstacles: Vec<Box4> = [a.rect, b.rect].iter().flatten().map(|r| inflate(*r, clear)).collect();
-    let mid = v((p0.x + p1.x) / 2.0, (p0.y + p1.y) / 2.0);
-    let mut xs = vec![p0.x, p1.x, mid.x, a.pos.x, b.pos.x];
-    let mut ys = vec![p0.y, p1.y, mid.y, a.pos.y, b.pos.y];
-    // a second stub out of each end, so the route can come back in from the far side
-    xs.extend([p0.x + a.dir.x * clear, p1.x + b.dir.x * clear]);
-    ys.extend([p0.y + a.dir.y * clear, p1.y + b.dir.y * clear]);
-    for o in &obstacles {
-        xs.extend([o.x0, o.x1, o.x0 - clear, o.x1 + clear]);
-        ys.extend([o.y0, o.y1, o.y0 - clear, o.y1 + clear]);
+    let mut obstacles = [Box4 { x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0 }; 2];
+    let mut n_obs = 0usize;
+    if let Some(ra) = rect_a {
+        obstacles[n_obs] = inflate(ra, clear);
+        n_obs += 1;
     }
-    // lanes in the middle of the free space between neighbouring coordinates
-    let (xs0, ys0) = (dedup_sorted(xs), dedup_sorted(ys));
-    let mid_lanes = |s: &[f32]| s.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect::<Vec<_>>();
-    let mut xs = xs0.clone();
-    xs.extend(mid_lanes(&xs0));
-    let mut ys = ys0.clone();
-    ys.extend(mid_lanes(&ys0));
-    let (xs, ys) = (dedup_sorted(xs), dedup_sorted(ys));
-    let (nx, ny) = (xs.len(), ys.len());
-    let at = |i: usize, j: usize| v(xs[i], ys[j]);
-    let (i0, j0) = (nearest(&xs, p0.x), nearest(&ys, p0.y));
-    let (i1, j1) = (nearest(&xs, p1.x), nearest(&ys, p1.y));
+    if let Some(rb) = rect_b {
+        obstacles[n_obs] = inflate(rb, clear);
+        n_obs += 1;
+    }
+    let obs = &obstacles[..n_obs];
+    let mid = v((p0.x + p1.x) / 2.0, (p0.y + p1.y) / 2.0);
     let want = dir_index(v(-b.dir.x, -b.dir.y));
     let start_dir = dir_index(a.dir).unwrap_or(4);
 
-    // Dijkstra over (column, row, heading); heading 4 = none yet
-    let idx = |i: usize, j: usize, d: usize| (i * ny + j) * 5 + d;
-    let mut dist = vec![f32::INFINITY; nx * ny * 5];
-    let mut prev = vec![usize::MAX; nx * ny * 5];
-    let mut done = vec![false; nx * ny * 5];
-    dist[idx(i0, j0, start_dir)] = 0.0;
-    let mut found = None;
-    for _ in 0..nx * ny * 5 {
-        let mut best = usize::MAX;
-        let mut bd = f32::INFINITY;
-        for (s, d) in dist.iter().enumerate() {
-            if !done[s] && *d < bd {
-                bd = *d;
-                best = s;
+    let mut xs = Vec::with_capacity(MAX_GRID_COORDS);
+    let mut ys = Vec::with_capacity(MAX_GRID_COORDS);
+    xs.extend_from_slice(&[p0.x, p1.x, mid.x, a.pos.x, b.pos.x, p0.x + a.dir.x * clear, p1.x + b.dir.x * clear]);
+    ys.extend_from_slice(&[p0.y, p1.y, mid.y, a.pos.y, b.pos.y, p0.y + a.dir.y * clear, p1.y + b.dir.y * clear]);
+    for o in obs {
+        xs.extend_from_slice(&[o.x0, o.x1, o.x0 - clear, o.x1 + clear]);
+        ys.extend_from_slice(&[o.y0, o.y1, o.y0 - clear, o.y1 + clear]);
+    }
+    add_mid_lanes_in_place(&mut xs);
+    add_mid_lanes_in_place(&mut ys);
+
+    let (nx, ny) = (xs.len(), ys.len());
+    debug_assert!(nx <= MAX_GRID_COORDS && ny <= MAX_GRID_COORDS);
+    let (i0, j0) = (nearest(&xs, p0.x), nearest(&ys, p0.y));
+    let (i1, j1) = (nearest(&xs, p1.x), nearest(&ys, p1.y));
+
+    let mut dx_len = [0.0f32; MAX_GRID_COORDS];
+    let mut dy_len = [0.0f32; MAX_GRID_COORDS];
+    let mut bend_x = [0.0f32; MAX_GRID_COORDS];
+    let mut bend_y = [0.0f32; MAX_GRID_COORDS];
+    let mut h_blocked = [0u32; MAX_GRID_COORDS];
+    let mut v_blocked = [0u32; MAX_GRID_COORDS];
+
+    for i in 0..nx {
+        bend_x[i] = 0.01 * (xs[i] - mid.x).abs();
+        if i + 1 < nx {
+            let d = xs[i + 1] - xs[i];
+            dx_len[i] = (d * d).sqrt();
+        }
+    }
+    for j in 0..ny {
+        bend_y[j] = BEND_COST + 0.01 * (ys[j] - mid.y).abs();
+        if j + 1 < ny {
+            let d = ys[j + 1] - ys[j];
+            dy_len[j] = (d * d).sqrt();
+        }
+    }
+    const E: f32 = 1e-3;
+    for o in obs {
+        let mut y_open = 0u32;
+        let mut y_vseg = 0u32;
+        for j in 0..ny {
+            let y = ys[j];
+            if y > o.y0 + E && y < o.y1 - E {
+                y_open |= 1u32 << j;
+            }
+            if j + 1 < ny && y < o.y1 - E && ys[j + 1] > o.y0 + E {
+                y_vseg |= 1u32 << j;
             }
         }
-        if best == usize::MAX {
-            break;
+        for i in 0..nx {
+            let x = xs[i];
+            if i + 1 < nx && x < o.x1 - E && xs[i + 1] > o.x0 + E {
+                h_blocked[i] |= y_open;
+            }
+            if x > o.x0 + E && x < o.x1 - E {
+                v_blocked[i] |= y_vseg;
+            }
         }
-        done[best] = true;
-        let (cell, d) = (best / 5, best % 5);
-        let (i, j) = (cell / ny, cell % ny);
+    }
+
+    let n_states = nx * ny * 5;
+    let mut dist = [f32::INFINITY; MAX_GRID_STATES];
+    let mut prev = [u16::MAX; MAX_GRID_STATES];
+    let mut done = [0u64; MAX_GRID_STATES.div_ceil(64)];
+    let mut heap = [0u64; MAX_GRID_STATES];
+    let mut heap_len = 0usize;
+
+    let start_state = (i0 * ny + j0) * 5 + start_dir;
+    dist[start_state] = 0.0;
+    heap_push(&mut heap, &mut heap_len, pack_heap_entry(0.0, start_state));
+
+    let mut found = None;
+    let mut steps = 0usize;
+    let stride_x = ny * 5;
+
+    while let Some(entry) = heap_pop(&mut heap, &mut heap_len) {
+        let best = (entry as u32) as usize;
+        let done_word = best >> 6;
+        let done_bit = 1u64 << (best & 63);
+        if (done[done_word] & done_bit) != 0 {
+            continue;
+        }
+        steps += 1;
+        done[done_word] |= done_bit;
+
+        let (cell_idx, d) = (best / 5, best % 5);
+        let (i, j) = (cell_idx / ny, cell_idx % ny);
         if i == i1 && j == j1 && want.is_none_or(|w| w == d || d == 4) {
             found = Some(best);
             break;
         }
-        for (nd, (dx, dy)) in DIRS.iter().enumerate() {
-            if d != 4 && (nd + 2) % 4 == d {
-                continue;
+        let base = cell_idx * 5;
+        let best_dist = dist[best];
+        let bend_extra = bend_x[i] + bend_y[j];
+
+        // nd = 0: (+1, 0)
+        if d != 2 && i + 1 < nx && ((h_blocked[i] >> j) & 1) == 0 {
+            let ns = base + stride_x;
+            if (done[ns >> 6] & (1u64 << (ns & 63))) == 0 {
+                let mut c = best_dist + dx_len[i];
+                if d != 4 && d != 0 {
+                    c += bend_extra;
+                }
+                if c < dist[ns] - 1e-4 {
+                    dist[ns] = c;
+                    prev[ns] = best as u16;
+                    heap_push(&mut heap, &mut heap_len, pack_heap_entry(c, ns));
+                }
             }
-            let (ni, nj) = (i as i32 + dx, j as i32 + dy);
-            if ni < 0 || nj < 0 || ni >= nx as i32 || nj >= ny as i32 {
-                continue;
+        }
+        // nd = 1: (0, +1)
+        if d != 3 && j + 1 < ny && ((v_blocked[i] >> j) & 1) == 0 {
+            let ns = base + 5 + 1;
+            if (done[ns >> 6] & (1u64 << (ns & 63))) == 0 {
+                let mut c = best_dist + dy_len[j];
+                if d != 4 && d != 1 {
+                    c += bend_extra;
+                }
+                if c < dist[ns] - 1e-4 {
+                    dist[ns] = c;
+                    prev[ns] = best as u16;
+                    heap_push(&mut heap, &mut heap_len, pack_heap_entry(c, ns));
+                }
             }
-            let (ni, nj) = (ni as usize, nj as usize);
-            let (pa, pb) = (at(i, j), at(ni, nj));
-            if obstacles.iter().any(|o| seg_blocked(pa, pb, o)) {
-                continue;
+        }
+        // nd = 2: (-1, 0)
+        if d != 0 && i > 0 && ((h_blocked[i - 1] >> j) & 1) == 0 {
+            let ns = base - stride_x + 2;
+            if (done[ns >> 6] & (1u64 << (ns & 63))) == 0 {
+                let mut c = best_dist + dx_len[i - 1];
+                if d != 4 && d != 2 {
+                    c += bend_extra;
+                }
+                if c < dist[ns] - 1e-4 {
+                    dist[ns] = c;
+                    prev[ns] = best as u16;
+                    heap_push(&mut heap, &mut heap_len, pack_heap_entry(c, ns));
+                }
             }
-            let mut c = dist[best] + len(sub(pb, pa));
-            if d != 4 && nd != d {
-                c += BEND_COST + 0.01 * ((pa.x - mid.x).abs() + (pa.y - mid.y).abs());
-            }
-            let ns = idx(ni, nj, nd);
-            if c < dist[ns] - 1e-4 {
-                dist[ns] = c;
-                prev[ns] = best;
+        }
+        // nd = 3: (0, -1)
+        if d != 1 && j > 0 && ((v_blocked[i] >> (j - 1)) & 1) == 0 {
+            let ns = base - 5 + 3;
+            if (done[ns >> 6] & (1u64 << (ns & 63))) == 0 {
+                let mut c = best_dist + dy_len[j - 1];
+                if d != 4 && d != 3 {
+                    c += bend_extra;
+                }
+                if c < dist[ns] - 1e-4 {
+                    dist[ns] = c;
+                    prev[ns] = best as u16;
+                    heap_push(&mut heap, &mut heap_len, pack_heap_entry(c, ns));
+                }
             }
         }
     }
-    let mut pts = vec![a.pos];
+
+    let _ = n_states;
+    let mut pts = Vec::with_capacity(8);
+    pts.push(a.pos);
     match found {
-        Some(mut s) => {
-            let mut chain = Vec::new();
-            while s != usize::MAX {
-                let cell = s / 5;
-                chain.push(at(cell / ny, cell % ny));
-                s = prev[s];
+        Some(mut st) => {
+            let base_len = pts.len();
+            while st != u16::MAX as usize {
+                let cell_idx = st / 5;
+                pts.push(v(xs[cell_idx / ny], ys[cell_idx % ny]));
+                st = prev[st] as usize;
             }
-            chain.reverse();
-            pts.extend(chain);
+            pts[base_len..].reverse();
         }
         None => {
-            // blocked in (overlapping boxes): a plain Z through the middle
             pts.push(p0);
             if a.dir.x.abs() > 0.5 || (a.dir == Vec2::ZERO && (p1.x - p0.x).abs() >= (p1.y - p0.y).abs()) {
                 pts.push(v(mid.x, p0.y));
@@ -772,7 +981,7 @@ fn elbow(a: &Anchor, b: &Anchor) -> Vec<Vec2> {
         }
     }
     pts.push(b.pos);
-    simplify(pts)
+    (simplify(pts), steps)
 }
 
 /// Drops repeated and collinear points.
@@ -974,10 +1183,7 @@ pub fn connector_anchors(doc: &Document, id: NodeId) -> Option<(Anchor, Anchor)>
 
 /// The route of connector `id` in its parent's space.
 pub fn connector_route(doc: &Document, id: NodeId) -> Option<Route> {
-    let n = doc.get(id)?;
-    let NodeKind::Connector(c) = &n.kind else { return None };
-    let (a, b) = connector_anchors(doc, id)?;
-    Some(route(c.line, &a, &b))
+    crate::connector_route_cache::cached_connector_route(doc, id)
 }
 
 /// Bounds of the connector's drawn extent (line, caps and label) given its stroke weight.
@@ -1374,5 +1580,300 @@ mod tests {
         v.as_object_mut().unwrap().remove("kind");
         let old: Document = serde_json::from_value(v).unwrap();
         assert_eq!(old.kind, DocumentKind::Design);
+    }
+
+    fn seeded_anchor_corpus(count: usize) -> Vec<(Anchor, Anchor)> {
+        let magnets = [Magnet::Auto, Magnet::Top, Magnet::Right, Magnet::Bottom, Magnet::Left, Magnet::Center];
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        fn next_u32(state: &mut u64) -> u32 {
+            *state ^= *state >> 12;
+            *state ^= *state << 25;
+            *state ^= *state >> 27;
+            (state.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 32) as u32
+        }
+        fn next_f32(state: &mut u64, lo: f32, hi: f32) -> f32 {
+            let t = (next_u32(state) as f64 / u32::MAX as f64) as f32;
+            lo + (hi - lo) * t
+        }
+
+        let mut out = Vec::with_capacity(count);
+        for idx in 0..count {
+            if idx < 24 {
+                // Symmetric detour cases where top and bottom routes around both obstacles tie on cost.
+                let y = 100.0 + (idx as f32) * 15.0;
+                let w = 80.0 + (idx % 4) as f32 * 20.0;
+                let h = 60.0 + (idx % 3) as f32 * 20.0;
+                let gap = 40.0 + (idx % 5) as f32 * 30.0;
+                let ra = Rect::new(0.0, y - h / 2.0, w, h);
+                let rb = Rect::new(w + gap, y - h / 2.0, w, h);
+                let (sm, em) = if idx % 2 == 0 { (Magnet::Left, Magnet::Right) } else { (Magnet::Right, Magnet::Left) };
+                out.push(resolve_anchors((Some(ra), sm, v(0.0, 0.0)), (Some(rb), em, v(0.0, 0.0))));
+                continue;
+            }
+            let sample_dim = |state: &mut u64, slot: usize, max_pos: f32| -> f32 {
+                match slot % 12 {
+                    0 => 0.0,
+                    1 => -next_f32(state, 1.0, 160.0),
+                    _ => next_f32(state, 24.0, max_pos),
+                }
+            };
+            let mode = idx % 10;
+            let ra = if mode < 8 {
+                Some(Rect::new(
+                    next_f32(&mut state, -600.0, 600.0),
+                    next_f32(&mut state, -600.0, 600.0),
+                    sample_dim(&mut state, idx, 260.0),
+                    sample_dim(&mut state, idx / 3, 220.0),
+                ))
+            } else {
+                None
+            };
+            let rb = if mode < 7 {
+                Some(Rect::new(
+                    next_f32(&mut state, -600.0, 600.0),
+                    next_f32(&mut state, -600.0, 600.0),
+                    sample_dim(&mut state, idx + 5, 260.0),
+                    sample_dim(&mut state, (idx + 5) / 3, 220.0),
+                ))
+            } else {
+                None
+            };
+            let sm = magnets[(next_u32(&mut state) as usize) % magnets.len()];
+            let em = magnets[(next_u32(&mut state) as usize) % magnets.len()];
+            let pa = v(next_f32(&mut state, -600.0, 600.0), next_f32(&mut state, -600.0, 600.0));
+            let pb = v(next_f32(&mut state, -600.0, 600.0), next_f32(&mut state, -600.0, 600.0));
+            out.push(resolve_anchors((ra, sm, pa), (rb, em, pb)));
+        }
+        out
+    }
+
+    fn elbow_linear_scan(a: &Anchor, b: &Anchor) -> Vec<Vec2> {
+        let clear = match (a.rect, b.rect) {
+            (Some(ra), Some(rb)) => {
+                let (gx, gy) = gap_between(ra, rb);
+                let g = gx.max(gy);
+                if g > 0.0 {
+                    (g / 2.0).clamp(4.0, ELBOW_STUB)
+                } else {
+                    ELBOW_STUB / 2.0
+                }
+            }
+            _ => ELBOW_STUB,
+        };
+        let stub_a = if a.rect.is_some() { clear } else { 0.0 };
+        let stub_b = if b.rect.is_some() { clear } else { 0.0 };
+        let p0 = add(a.pos, mul(a.dir, stub_a));
+        let p1 = add(b.pos, mul(b.dir, stub_b));
+        let obstacles: Vec<Box4> = [a.rect, b.rect].iter().flatten().map(|r| inflate(*r, clear)).collect();
+        let mid = v((p0.x + p1.x) / 2.0, (p0.y + p1.y) / 2.0);
+        let mut xs = vec![p0.x, p1.x, mid.x, a.pos.x, b.pos.x];
+        let mut ys = vec![p0.y, p1.y, mid.y, a.pos.y, b.pos.y];
+        xs.extend([p0.x + a.dir.x * clear, p1.x + b.dir.x * clear]);
+        ys.extend([p0.y + a.dir.y * clear, p1.y + b.dir.y * clear]);
+        for o in &obstacles {
+            xs.extend([o.x0, o.x1, o.x0 - clear, o.x1 + clear]);
+            ys.extend([o.y0, o.y1, o.y0 - clear, o.y1 + clear]);
+        }
+        let (xs0, ys0) = (dedup_sorted(xs), dedup_sorted(ys));
+        let mid_lanes = |s: &[f32]| s.windows(2).map(|w| (w[0] + w[1]) / 2.0).collect::<Vec<_>>();
+        let mut xs = xs0.clone();
+        xs.extend(mid_lanes(&xs0));
+        let mut ys = ys0.clone();
+        ys.extend(mid_lanes(&ys0));
+        let (xs, ys) = (dedup_sorted(xs), dedup_sorted(ys));
+        let (nx, ny) = (xs.len(), ys.len());
+        let at = |i: usize, j: usize| v(xs[i], ys[j]);
+        let (i0, j0) = (nearest(&xs, p0.x), nearest(&ys, p0.y));
+        let (i1, j1) = (nearest(&xs, p1.x), nearest(&ys, p1.y));
+        let want = dir_index(v(-b.dir.x, -b.dir.y));
+        let start_dir = dir_index(a.dir).unwrap_or(4);
+
+        let idx = |i: usize, j: usize, d: usize| (i * ny + j) * 5 + d;
+        let mut dist = vec![f32::INFINITY; nx * ny * 5];
+        let mut prev = vec![usize::MAX; nx * ny * 5];
+        let mut done = vec![false; nx * ny * 5];
+        let mut reached = Vec::with_capacity(256);
+        let start = idx(i0, j0, start_dir);
+        dist[start] = 0.0;
+        reached.push(start);
+        let mut found = None;
+        for _ in 0..nx * ny * 5 {
+            let mut best = usize::MAX;
+            let mut bd = f32::INFINITY;
+            for &s in &reached {
+                let d = dist[s];
+                if !done[s] && (d < bd || (d == bd && s < best)) {
+                    bd = d;
+                    best = s;
+                }
+            }
+            if best == usize::MAX {
+                break;
+            }
+            done[best] = true;
+            let (cell, d) = (best / 5, best % 5);
+            let (i, j) = (cell / ny, cell % ny);
+            if i == i1 && j == j1 && want.is_none_or(|w| w == d || d == 4) {
+                found = Some(best);
+                break;
+            }
+            for (nd, (dx, dy)) in DIRS.iter().enumerate() {
+                if d != 4 && (nd + 2) % 4 == d {
+                    continue;
+                }
+                let (ni, nj) = (i as i32 + dx, j as i32 + dy);
+                if ni < 0 || nj < 0 || ni >= nx as i32 || nj >= ny as i32 {
+                    continue;
+                }
+                let (ni, nj) = (ni as usize, nj as usize);
+                let ns = idx(ni, nj, nd);
+                if done[ns] {
+                    continue;
+                }
+                let (pa, pb) = (at(i, j), at(ni, nj));
+                let mut c = dist[best] + len(sub(pb, pa));
+                if d != 4 && nd != d {
+                    c += BEND_COST + 0.01 * ((pa.x - mid.x).abs() + (pa.y - mid.y).abs());
+                }
+                if c < dist[ns] - 1e-4 {
+                    if obstacles.iter().any(|o| seg_blocked(pa, pb, o)) {
+                        continue;
+                    }
+                    if dist[ns].is_infinite() {
+                        reached.push(ns);
+                    }
+                    dist[ns] = c;
+                    prev[ns] = best;
+                }
+            }
+        }
+        let mut pts = vec![a.pos];
+        match found {
+            Some(mut s) => {
+                let mut chain = Vec::new();
+                while s != usize::MAX {
+                    let cell = s / 5;
+                    chain.push(at(cell / ny, cell % ny));
+                    s = prev[s];
+                }
+                chain.reverse();
+                pts.extend(chain);
+            }
+            None => {
+                pts.push(p0);
+                if a.dir.x.abs() > 0.5 || (a.dir == Vec2::ZERO && (p1.x - p0.x).abs() >= (p1.y - p0.y).abs()) {
+                    pts.push(v(mid.x, p0.y));
+                    pts.push(v(mid.x, p1.y));
+                } else {
+                    pts.push(v(p0.x, mid.y));
+                    pts.push(v(p1.x, mid.y));
+                }
+                pts.push(p1);
+            }
+        }
+        pts.push(b.pos);
+        simplify(pts)
+    }
+
+    #[test]
+    fn elbow_heap_matches_linear_scan_on_3000_seeded_cases() {
+        let cited_a = Anchor { pos: v(10.0, 20.0), dir: v(1.0, 0.0), rect: Some(Rect::new(10.0, 20.0, 0.0, 0.0)) };
+        let cited_b = Anchor { pos: v(200.0, 120.0), dir: v(-1.0, 0.0), rect: Some(Rect::new(200.0, 120.0, 0.0, 0.0)) };
+        let (cited_got, cited_steps) = elbow_with_steps(&cited_a, &cited_b);
+        let cited_want = elbow_linear_scan(&cited_a, &cited_b);
+        assert_eq!(cited_got, cited_want, "cited zero-size rect case diverged between heap and linear scan");
+        assert!(cited_steps <= 16_000);
+
+        let corpus = seeded_anchor_corpus(3_000);
+        for (idx, (a, b)) in corpus.iter().enumerate() {
+            let (got, state_steps) = elbow_with_steps(a, b);
+            let want = elbow_linear_scan(a, b);
+            assert_eq!(got, want, "seeded case {idx} diverged between heap and linear scan");
+            assert!(state_steps <= 16_000, "seeded case {idx} inspected {state_steps} states (expected binary-heap pop bound <= 16_000)");
+        }
+    }
+
+    #[test]
+    fn elbow_route_p95_under_100us_on_seeded_corpus() {
+        let corpus = seeded_anchor_corpus(500);
+        for (a, b) in corpus.iter().take(100) {
+            std::hint::black_box(elbow(a, b));
+        }
+        let mut samples_us: Vec<f64> = Vec::with_capacity(corpus.len());
+        for (a, b) in &corpus {
+            let mut best_us = f64::INFINITY;
+            for _ in 0..3 {
+                let t0 = std::time::Instant::now();
+                let pts = std::hint::black_box(elbow(a, b));
+                let elapsed_us = t0.elapsed().as_nanos() as f64 / 1_000.0;
+                assert!(pts.len() >= 2);
+                if elapsed_us < best_us {
+                    best_us = elapsed_us;
+                }
+            }
+            samples_us.push(best_us);
+        }
+        samples_us.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        let p50_us = samples_us[samples_us.len() / 2];
+        let p95_idx = ((samples_us.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(samples_us.len() - 1);
+        let p95_us = samples_us[p95_idx];
+        let scale = if cfg!(debug_assertions) || std::env::var_os("CI").is_some() { 15.0 } else { 1.0 };
+        let budget_us = 100.0 * scale;
+        eprintln!("[elbow_route_p95_under_100us_on_seeded_corpus] n={} p50={p50_us:.2}us p95={p95_us:.2}us budget={budget_us:.0}us", samples_us.len());
+        assert!(p95_us <= budget_us, "elbow p95 {p95_us:.2}us exceeded {budget_us:.0}us budget");
+    }
+
+    #[test]
+    fn degenerate_rects_route_without_panic_or_hang() {
+        let finite_cases = [
+            // Zero-size rects
+            (
+                Anchor { pos: v(10.0, 20.0), dir: v(1.0, 0.0), rect: Some(Rect::new(10.0, 20.0, 0.0, 0.0)) },
+                Anchor { pos: v(200.0, 120.0), dir: v(-1.0, 0.0), rect: Some(Rect::new(200.0, 120.0, 0.0, 0.0)) },
+            ),
+            // Negative-size rects
+            (
+                Anchor { pos: v(50.0, 50.0), dir: v(0.0, 1.0), rect: Some(Rect::new(50.0, 50.0, -40.0, -30.0)) },
+                Anchor { pos: v(150.0, 180.0), dir: v(0.0, -1.0), rect: Some(Rect::new(150.0, 180.0, -10.0, -20.0)) },
+            ),
+            // Identical overlapping rects
+            (
+                Anchor { pos: v(100.0, 50.0), dir: v(1.0, 0.0), rect: Some(Rect::new(0.0, 0.0, 100.0, 100.0)) },
+                Anchor { pos: v(0.0, 50.0), dir: v(-1.0, 0.0), rect: Some(Rect::new(0.0, 0.0, 100.0, 100.0)) },
+            ),
+        ];
+
+        for (idx, (a, b)) in finite_cases.iter().enumerate() {
+            let r = route(ConnectorLine::Elbowed, a, b);
+            assert_eq!(r.pts, elbow_linear_scan(a, b), "finite degenerate case {idx} diverged from linear scan");
+            for pt in &r.pts {
+                assert!(pt.x.is_finite() && pt.y.is_finite(), "finite case {idx} produced non-finite point {pt:?}");
+            }
+        }
+
+        let fallback_cases = [
+            // Huge coordinates that would overflow f32 length squares
+            (
+                Anchor { pos: v(-1e25, -1e25), dir: v(1.0, 0.0), rect: Some(Rect::new(-1e25, -1e25, 1e25, 1e25)) },
+                Anchor { pos: v(1e25, 1e25), dir: v(-1.0, 0.0), rect: Some(Rect::new(1e25, 1e25, 1e25, 1e25)) },
+            ),
+            // Non-finite rect and anchor fields
+            (
+                Anchor { pos: v(0.0, 50.0), dir: v(1.0, 0.0), rect: Some(Rect::new(0.0, 0.0, f32::NAN, 100.0)) },
+                Anchor { pos: v(200.0, 50.0), dir: v(-1.0, 0.0), rect: Some(Rect::new(200.0, 0.0, f32::INFINITY, 100.0)) },
+            ),
+            (
+                Anchor { pos: v(f32::NAN, f32::INFINITY), dir: v(f32::NAN, 0.0), rect: None },
+                Anchor { pos: v(f32::NEG_INFINITY, 40.0), dir: v(0.0, f32::INFINITY), rect: None },
+            ),
+        ];
+
+        for (idx, (a, b)) in fallback_cases.iter().enumerate() {
+            let r = route(ConnectorLine::Elbowed, a, b);
+            assert_eq!(r.pts.len(), 2, "fallback case {idx} expected straight 2-point fallback");
+            for pt in &r.pts {
+                assert!(pt.x.is_finite() && pt.y.is_finite(), "fallback case {idx} produced non-finite point {pt:?}");
+            }
+        }
     }
 }
