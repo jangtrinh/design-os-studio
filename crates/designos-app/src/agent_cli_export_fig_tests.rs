@@ -257,3 +257,21 @@ fn a_refused_target_stops_the_command_before_it_changes_the_document() {
     assert_eq!(crate::io::load_path(&doc).unwrap().nodes.len(), nodes_before, "the spec was not applied");
     assert_eq!(std::fs::read(&victim).unwrap(), KEEP);
 }
+
+#[cfg(unix)]
+#[test]
+fn export_active_frame_to_spec_never_follows_a_symlink() {
+    let s = Scratch::new("frame_spec_app");
+    let existing = s.path("victim.json");
+    std::fs::write(&existing, KEEP).unwrap();
+    let link = s.path("page-1.spec.json");
+    std::os::unix::fs::symlink(&existing, &link).unwrap();
+
+    let mut doc = designos_doc::Document::new("Card");
+    doc.add_page("Page 1");
+    let mut app = crate::app::App::new(doc);
+    app.export_active_frame_to_spec_in(&s.0);
+
+    assert!(app.toast.as_ref().is_some_and(|t| t.error && t.text.contains("symbolic link")));
+    assert_eq!(std::fs::read(&existing).unwrap(), KEEP);
+}

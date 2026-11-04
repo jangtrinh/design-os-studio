@@ -2239,6 +2239,11 @@ impl App {
 
     /// Exports the selected frame (or first screen on the active page) to `examples/specs/<slug>.spec.json`.
     pub fn export_active_frame_to_spec(&mut self) {
+        let out_dir = find_workspace_root().map(|r| r.join("examples").join("specs")).unwrap_or_else(|| std::env::temp_dir().join("designos_specs"));
+        self.export_active_frame_to_spec_in(&out_dir);
+    }
+
+    pub(crate) fn export_active_frame_to_spec_in(&mut self, out_dir: &Path) {
         self.settle_pending_relayout();
         let target_id = self.selection.first().copied().or_else(|| self.doc.get(self.page).and_then(|p| p.children.first().copied())).unwrap_or(self.page);
         let node_name = self.doc.get(target_id).map(|n| n.name.clone()).unwrap_or_else(|| "screen".to_string());
@@ -2252,8 +2257,7 @@ impl App {
             .collect::<Vec<_>>()
             .join("-");
         let filename = format!("{}.spec.json", if slug.is_empty() { "canvas-screen" } else { &slug });
-        let out_dir = find_workspace_root().map(|r| r.join("examples").join("specs")).unwrap_or_else(|| std::env::temp_dir().join("designos_specs"));
-        let _ = std::fs::create_dir_all(&out_dir);
+        let _ = std::fs::create_dir_all(out_dir);
         let out_path = out_dir.join(&filename);
         match self.doc.export_spec(target_id) {
             Ok(spec) => match serde_json::to_string_pretty(&spec) {
