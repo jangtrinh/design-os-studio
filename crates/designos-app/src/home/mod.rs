@@ -585,6 +585,26 @@ pub fn context_entries(h: &Home, target: &Target) -> Vec<(crate::widgets::menu::
     }
 }
 
+/// The icon of a trash row: a file, a docs page, or a whole project.
+fn trash_icon(kind: &designos_library::TrashKind) -> crate::icons::Icon {
+    match kind {
+        designos_library::TrashKind::File => crate::icons::Icon::File,
+        designos_library::TrashKind::Page => crate::icons::Icon::Page,
+        designos_library::TrashKind::Project => crate::icons::Icon::Frame,
+    }
+}
+
+/// The grey line under a trash row's name: when it was deleted and, for a file or a page, from which project.
+fn trash_origin(it: &designos_library::TrashItem, now: u64) -> String {
+    let when = time::relative(now, it.trashed);
+    match (&it.kind, &it.project_name) {
+        (designos_library::TrashKind::Project, _) => format!("Project \u{b7} deleted {when}"),
+        (designos_library::TrashKind::Page, Some(pn)) => format!("Page \u{b7} deleted {when} \u{b7} from {pn}"),
+        (_, Some(pn)) => format!("Deleted {when} \u{b7} from {pn}"),
+        _ => format!("Deleted {when}"),
+    }
+}
+
 /// Shows the dragged file under the pointer and drops it on release.
 fn drag_ghost(h: &mut Home, ui: &Ui, acts: &mut Vec<Act>) {
     let Some((id, name)) = h.drag.clone() else { return };
@@ -2928,8 +2948,7 @@ mod main_view {
                 if resp.secondary_clicked() {
                     menu = ui.input(|i| i.pointer.interact_pos()).map(|at| (Target::TrashItem(it.id.clone()), at));
                 }
-                let is_file = it.kind == designos_library::TrashKind::File;
-                icons::paint(&p, if is_file { Icon::File } else { Icon::Frame }, Pos2::new(r.left() + 24.0, r.center().y), 20.0, theme::ICON_SECONDARY);
+                icons::paint(&p, super::trash_icon(&it.kind), Pos2::new(r.left() + 24.0, r.center().y), 20.0, theme::ICON_SECONDARY);
                 p.text(
                     Pos2::new(r.left() + 48.0, r.center().y - 9.0),
                     Align2::LEFT_CENTER,
@@ -2937,11 +2956,7 @@ mod main_view {
                     theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold),
                     theme::TEXT,
                 );
-                let from = match (&it.project_name, is_file) {
-                    (Some(pn), true) => format!("Deleted {} \u{b7} from {pn}", relative(now, it.trashed)),
-                    (_, false) => format!("Project \u{b7} deleted {}", relative(now, it.trashed)),
-                    _ => format!("Deleted {}", relative(now, it.trashed)),
-                };
+                let from = super::trash_origin(it, now);
                 p.text(
                     Pos2::new(r.left() + 48.0, r.center().y + 9.0),
                     Align2::LEFT_CENTER,

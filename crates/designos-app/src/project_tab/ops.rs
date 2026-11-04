@@ -389,57 +389,12 @@ pub fn rename_page(store: &DocsStore, rel: &str, new_title: &str) -> Result<Rena
     Ok(Renamed { new_rel, links_updated, warnings })
 }
 
-/// Where a trashed page lives: `<library>/trash/page-<project>-<ms>-<slug>/` holding `page.md` and `page.json`.
-fn page_trash_dir(library_root: &Path, project_id: &str, rel: &str) -> PathBuf {
-    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    let safe_project: String = project_id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
-    library_root.join("trash").join(format!("page-{safe_project}-{ms}-{}", slugify(rel.trim_end_matches(".md"))))
-}
-
-/// Moves a page to Studio's trash and takes it out of the manifest. The file is moved, not deleted: a record
-/// (`page.json`) says where it came from, and it stays until the user empties the trash.
-pub fn trash_page(store: &DocsStore, library_root: &Path, project_id: &str, rel: &str) -> Result<PathBuf, String> {
+/// Moves a page to Studio's trash (a restorable trash item, see `Library::trash_page`) and takes it out of the manifest.
+pub fn trash_page(store: &DocsStore, library_root: &Path, project_id: &str, rel: &str) -> Result<(), String> {
     let read = store.read_page(rel).map_err(|e| e.to_string())?;
     let title = meta_of(rel, &read.value).title;
-    let (manifest, _) = manifest_for_write(store)?;
-    let group = Group::ALL.into_iter().find(|g| manifest.group(*g).pages.iter().any(|p| p == rel));
-    let trash = page_trash_dir(library_root, project_id, rel);
-    std::fs::create_dir_all(&trash).map_err(|e| format!("Cannot create the trash folder {}: {e}; nothing was deleted", trash.display()))?;
-    let record = serde_json::json!({
-        "kind": "docs-page",
-        "project": project_id,
-        "path": rel,
-        "title": title,
-        "group": group.map(Group::as_str),
-        "trashed_ms": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
-    });
-    let fail = |msg: String| {
-        let _ = std::fs::remove_dir_all(&trash);
-        msg
-    };
-    std::fs::write(trash.join("page.json"), serde_json::to_string_pretty(&record).unwrap_or_default())
-        .map_err(|e| fail(format!("Cannot write the trash record: {e}; nothing was deleted")))?;
-    let path = store.dir().join(rel);
-    if page_bytes_hash(&path) != Some(read.hash) {
-        return Err(fail(format!("{rel} changed on disk just now; nothing was deleted, try again")));
-    }
-    std::fs::rename(&path, trash.join("page.md")).map_err(|e| fail(format!("Cannot move {rel} to the trash: {e}; nothing was deleted")))?;
-    let listed = rel.to_string();
-    if let Err(e) = update_manifest(store, move |m| {
-        for g in Group::ALL {
-            m.group_mut(g).pages.retain(|p| *p != listed);
-        }
-        Ok(())
-    }) {
-        // Put the page back so the manifest and the folder agree.
-        let back = std::fs::rename(trash.join("page.md"), &path);
-        let _ = std::fs::remove_dir_all(&trash);
-        return Err(match back {
-            Ok(()) => format!("{e}; the page was not deleted"),
-            Err(r) => format!("{e}; the page is in {} (could not move it back: {r})", trash.display()),
-        });
-    }
-    Ok(trash)
+    let library = designos_library::Library::open(library_root).map_err(|e| format!("Cannot open the library: {e}; nothing was deleted"))?;
+    library.trash_page(project_id, rel, &title).map(|_| ()).map_err(|e| e.to_string())
 }
 
 /// True when the block list is only HTML comments (an `<!-- -->` separator the page writer inserts between lists).

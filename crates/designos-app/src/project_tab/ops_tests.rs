@@ -175,38 +175,38 @@ fn reordering_persists_and_adopts_pages_the_manifest_did_not_list() {
 }
 
 #[test]
-fn deleting_a_page_moves_it_to_the_library_trash_and_takes_it_out_of_the_manifest() {
+fn deleting_a_page_makes_a_restorable_trash_item_and_takes_it_out_of_the_manifest() {
     let tmp = Tmp::new();
-    let store = store(&tmp);
-    let library = tmp.0.join("library");
+    let library = designos_library::Library::open(tmp.0.join("library")).unwrap();
+    let project = library.create_project("Checkout").unwrap();
+    let store = DocsStore::for_project(library.root(), &project.id).unwrap();
     add_page(&store, Group::Spec, "spec/cart-rules.md", "---\ntitle: Cart rules\n---\n## Limits\n");
     add_page(&store, Group::Spec, "spec/b.md", "# B\n");
-    let trash = trash_page(&store, &library, "proj-1", "spec/cart-rules.md").unwrap();
-    assert!(trash.starts_with(library.join("trash")), "{trash:?}");
-    assert!(!tmp.0.join("docs/spec/cart-rules.md").exists());
-    assert_eq!(std::fs::read_to_string(trash.join("page.md")).unwrap(), "---\ntitle: Cart rules\n---\n## Limits\n", "the page is kept byte for byte");
-    let record: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(trash.join("page.json")).unwrap()).unwrap();
-    assert_eq!(record["title"], "Cart rules");
-    assert_eq!(record["group"], "spec");
-    assert_eq!(record["project"], "proj-1");
+    trash_page(&store, library.root(), &project.id, "spec/cart-rules.md").unwrap();
+    assert!(!store.dir().join("spec/cart-rules.md").exists());
+    let items = library.list_trash();
+    assert_eq!(items.len(), 1, "the page shows in the library's trash list");
+    assert_eq!((items[0].kind.clone(), items[0].name.as_str()), (designos_library::TrashKind::Page, "Cart rules"));
     assert_eq!(manifest(&store).group(Group::Spec).pages, vec!["spec/b.md".to_string()]);
+    library.restore(&items[0].id).unwrap();
+    assert_eq!(std::fs::read_to_string(store.dir().join("spec/cart-rules.md")).unwrap(), "---\ntitle: Cart rules\n---\n## Limits\n", "byte for byte");
+    assert_eq!(manifest(&store).group(Group::Spec).pages, vec!["spec/b.md".to_string(), "spec/cart-rules.md".to_string()]);
 }
 
 #[test]
-fn a_delete_whose_manifest_write_fails_puts_the_page_back() {
+fn a_delete_while_another_program_holds_the_docs_lock_deletes_nothing() {
     let tmp = Tmp::new();
-    let store = store(&tmp).with_lock_timeout(std::time::Duration::from_millis(30));
-    let library = tmp.0.join("library");
+    let library = designos_library::Library::open(tmp.0.join("library")).unwrap();
+    let project = library.create_project("P").unwrap();
+    let store = DocsStore::for_project(library.root(), &project.id).unwrap().with_lock_timeout(std::time::Duration::from_millis(30));
     add_page(&store, Group::Spec, "spec/a.md", "# A\n");
-    // Another program holds the docs folder's write lock: the page can be moved but the manifest cannot be written.
-    let held = std::fs::File::options().create(true).truncate(false).write(true).open(tmp.0.join("docs/.docs.lock")).unwrap();
+    let held = std::fs::File::options().create(true).truncate(false).write(true).open(store.dir().join(".docs.lock")).unwrap();
     held.lock().unwrap();
-    let err = trash_page(&store, &library, "p", "spec/a.md").unwrap_err();
-    assert!(err.contains("locked"), "{err}");
-    assert!(err.contains("not deleted"), "{err}");
-    assert!(tmp.0.join("docs/spec/a.md").exists(), "the page is back where it was");
+    let err = trash_page(&store, library.root(), &project.id, "spec/a.md").unwrap_err();
+    assert!(err.contains("nothing was deleted"), "{err}");
+    assert!(store.dir().join("spec/a.md").exists(), "the page is where it was");
     assert_eq!(manifest(&store).group(Group::Spec).pages, vec!["spec/a.md".to_string()]);
-    assert!(std::fs::read_dir(library.join("trash")).map(|mut d| d.next().is_none()).unwrap_or(true), "no trash entry for a page that was not deleted");
+    assert!(library.list_trash().is_empty(), "no trash entry for a page that was not deleted");
     held.unlock().unwrap();
 }
 
