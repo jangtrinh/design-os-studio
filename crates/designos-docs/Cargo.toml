@@ -1,0 +1,20 @@
+[package]
+name = "designos-docs"
+description = "Project docs: Markdown block model, manifest, atomic conflict-checked storage and a disk watcher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+
+[dependencies]
+designos-fonts.workspace = true
+# Native change notification (FSEvents on macOS, inotify on Linux, ReadDirectoryChangesW on Windows): no polling.
+notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
+pulldown-cmark = { version = "0.13", default-features = false }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true
+
+[dev-dependencies]
+designos-library.workspace = true
+tempfile = "3"

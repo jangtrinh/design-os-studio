@@ -1,0 +1,106 @@
+warning: /Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-docs v0.7.7 (/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-docs)
+error[E0308]: mismatched types
+ --> crates/designos-docs/tests/page_api.rs:7:5
+  |
+6 | fn parse(text: &str) -> Page {
+  |                         ---- expected `Page` because of return type
+7 |     Page::parse(text)
+  |     ^^^^^^^^^^^^^^^^^ expected `Page`, found `Result<Page, DocsError>`
+  |
+  = note: expected struct `Page`
+               found enum `Result<Page, DocsError>`
+help: consider using `Result::expect` to unwrap the `Result<Page, DocsError>` value, panicking if the value is a `Result::Err`
+  |
+7 |     Page::parse(text).expect("REASON")
+  |                      +++++++++++++++++
+
+error[E0599]: no method named `problems` found for reference `&designos_docs::FrontMatter` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:15:42
+   |
+15 |     let problems: Vec<(&str, bool)> = fm.problems().iter().map(|p| (p.field.as_str(), p.fix.contains("one line") || p.fix.contains(Group:...
+   |                                          ^^^^^^^^ method not found in `&designos_docs::FrontMatter`
+
+error[E0599]: no method named `problems` found for reference `&designos_docs::FrontMatter` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:22:45
+   |
+22 |     assert_eq!(page.front_matter().unwrap().problems().len(), 1);
+   |                                             ^^^^^^^^ method not found in `&designos_docs::FrontMatter`
+
+error[E0599]: no method named `problems` found for reference `&designos_docs::FrontMatter` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:32:16
+   |
+32 |     assert!(fm.problems().is_empty(), "{:?}", fm.problems());
+   |                ^^^^^^^^ method not found in `&designos_docs::FrontMatter`
+
+error[E0599]: no method named `problems` found for reference `&designos_docs::FrontMatter` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:32:50
+   |
+32 |     assert!(fm.problems().is_empty(), "{:?}", fm.problems());
+   |                                                  ^^^^^^^^ method not found in `&designos_docs::FrontMatter`
+
+error[E0599]: no method named `problems` found for reference `&designos_docs::FrontMatter` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:42:51
+   |
+42 |     assert_eq!(read.value.front_matter().unwrap().problems()[0].field, "group");
+   |                                                   ^^^^^^^^ method not found in `&designos_docs::FrontMatter`
+
+error[E0599]: no method named `block_hashes` found for struct `Page` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:48:23
+   |
+48 |     let hashes = page.block_hashes();
+   |                       ^^^^^^^^^^^^ method not found in `Page`
+
+error[E0599]: no method named `hash` found for struct `Block` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:50:31
+   |
+50 |     assert_eq!(page.blocks[1].hash(), hashes[1]);
+   |                               ^^^^ method not found in `Block`
+
+error[E0599]: no method named `block_hashes` found for struct `Page` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:55:24
+   |
+55 |     let after = edited.block_hashes();
+   |                        ^^^^^^^^^^^^ method not found in `Page`
+
+error[E0599]: no method named `block_hashes` found for struct `Page` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:62:24
+   |
+62 |     let after = edited.block_hashes();
+   |                        ^^^^^^^^^^^^ method not found in `Page`
+
+error[E0599]: no method named `unwrap_err` found for struct `Block` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:70:36
+   |
+70 |     let err = page.remove_block(5).unwrap_err();
+   |                                    ^^^^^^^^^^ method not found in `Block`
+
+error[E0599]: no variant named `BlockIndex` found for enum `DocsError`
+  --> crates/designos-docs/tests/page_api.rs:71:38
+   |
+71 |     assert!(matches!(err, DocsError::BlockIndex { index: 5, len: 2 }), "{err:?}");
+   |                                      ^^^^^^^^^^ variant not found in `DocsError`
+
+error[E0599]: no method named `is_ok` found for struct `Block` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:74:34
+   |
+74 |     assert!(page.remove_block(1).is_ok());
+   |                                  ^^^^^ method not found in `Block`
+
+error[E0599]: no method named `with_lock_timeout` found for struct `DocsStore` in the current scope
+  --> crates/designos-docs/tests/page_api.rs:80:56
+   |
+80 |     let store = DocsStore::at(tmp.path().join("docs")).with_lock_timeout(std::time::Duration::from_millis(200));
+   |                                                        ^^^^^^^^^^^^^^^^^ method not found in `DocsStore`
+
+error[E0599]: no variant named `Busy` found for enum `DocsError`
+  --> crates/designos-docs/tests/page_api.rs:86:38
+   |
+86 |     assert!(matches!(err, DocsError::Busy { .. }), "{err:?}");
+   |                                      ^^^^ variant not found in `DocsError`
+
+Some errors have detailed explanations: E0308, E0599.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `designos-docs` (test "page_api") due to 15 previous errors
