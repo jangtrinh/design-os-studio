@@ -118,6 +118,7 @@ impl Shell {
         opts.home = opts.wants_home();
         let screenshot = opts.screenshot.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
+        let (menu_preset, size) = (opts.menu.clone(), opts.size);
         let mut shell = Self::build(&cc.egui_ctx, opts);
         if shell.app.ui.pages_height.is_none() {
             let settings_root = library.clone().unwrap_or_else(designos_library::Library::default_root);
@@ -140,6 +141,12 @@ impl Shell {
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
         shell.apply_launch_defaults(screenshot);
         shell.open_project_tab_from_env(screenshot);
+        // Switching to the Project tab closes a menu that `--menu` opened during the build; open it again over the Project tab.
+        if let (Some(spec), true) = (menu_preset.as_deref(), shell.app.tabs.active_is_project() && shell.app.ui.menu.is_none()) {
+            let (w, h) = size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(w as f32, h as f32));
+            menus::preset_menu(&cc.egui_ctx, &mut shell.app, spec, screen);
+        }
         shell
     }
 
