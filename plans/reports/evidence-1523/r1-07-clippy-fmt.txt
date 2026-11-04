@@ -1,0 +1,3 @@
+  * `bin` target `designos-studio`
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+fmt exit=0

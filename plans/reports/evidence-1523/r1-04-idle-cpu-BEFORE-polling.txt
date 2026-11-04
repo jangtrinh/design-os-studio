@@ -1,0 +1,23 @@
+warning: /Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-docs v0.7.7 (/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-docs)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/watch_idle_cpu.rs (target/debug/deps/watch_idle_cpu-0e7594e36f62a4bb)
+
+running 1 test
+IDLE_CPU 200 pages, 20 s idle: before=0.02s after=0.07s delta=0.05s
+
+thread 'idle_watcher_with_200_pages_costs_no_cpu' (101964256) panicked at crates/designos-docs/tests/watch_idle_cpu.rs:31:5:
+idle watcher used 0.05 s of CPU in 20 s
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test idle_watcher_with_200_pages_costs_no_cpu ... FAILED
+
+failures:
+
+failures:
+    idle_watcher_with_200_pages_costs_no_cpu
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.04s
+
+error: test failed, to rerun pass `-p designos-docs --test watch_idle_cpu`

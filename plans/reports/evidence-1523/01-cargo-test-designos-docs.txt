@@ -1,0 +1,90 @@
+warning: /Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/Cargo.toml: file `/Users/jang/Products/design-os-studio/.claude/worktrees/agent-a2d754fe14c7188b3/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/designos_docs-fce14b68fec1c7a5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/manifest.rs (target/debug/deps/manifest-53eea4e525529d29)
+
+running 9 tests
+test building_an_invalid_manifest_in_code_is_caught_before_it_is_written ... ok
+test missing_groups_names_the_field_and_the_fix ... ok
+test groups_are_written_in_the_fixed_order ... ok
+test schema_version_unknown_fields_and_bad_json_are_refused ... ok
+test the_group_list_must_be_the_five_groups_in_fixed_order ... ok
+test a_valid_manifest_parses_and_round_trips ... ok
+test every_required_field_is_required_with_no_default_by_omission ... ok
+test page_paths_are_relative_markdown_files_listed_once ... ok
+test a_bad_pin_names_the_pin_field_and_the_fix ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/roundtrip.rs (target/debug/deps/roundtrip-4c873aa027153a31)
+
+running 19 tests
+test bad_front_matter_group_names_the_field_and_the_fix ... ok
+test a_checklist_with_blank_lines_between_items_is_still_a_checklist ... ok
+test a_rewritten_list_next_to_another_list_does_not_merge_with_it ... ok
+test crlf_and_missing_final_newline_survive ... ok
+test escapes_at_the_edges_of_blocks_stay_typed_blocks_and_keep_their_backslashes ... ok
+test editing_one_block_leaves_every_other_byte_alone ... ok
+test heading_text_ending_in_hashes_and_odd_fence_info_survive_a_rewrite ... ok
+test inserting_and_removing_blocks_keeps_blank_line_hygiene ... ok
+test each_v1_block_type_is_recognised ... ok
+test front_matter_is_read_and_kept_verbatim ... ok
+test headings_and_plain_text_serve_the_reader ... ok
+test new_pages_and_front_matter_edits_are_written_canonically ... ok
+test block_content_is_structured ... ok
+test every_v1_fixture_round_trips_byte_identical ... ok
+test canonical_writer_reproduces_files_studio_writes ... ok
+test text_with_markdown_lookalikes_is_not_misread_as_structure ... ok
+test unknown_syntax_is_kept_verbatim ... ok
+test every_prefix_of_every_fixture_is_lossless_and_never_panics ... ok
+test random_markdown_soup_is_always_lossless_and_the_canonical_form_is_stable ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+
+     Running tests/store.rs (target/debug/deps/store-c3c27d555938f603)
+
+running 14 tests
+test a_project_id_cannot_escape_the_projects_folder ... ok
+test unsafe_page_paths_are_refused_before_touching_disk ... ok
+test reading_a_missing_page_or_manifest_says_what_to_do ... ok
+test a_conflict_is_a_conflict_even_when_the_outside_edit_changed_nothing_visible ... ok
+test write_then_read_gives_the_same_page_and_hash ... ok
+test docs_live_in_the_project_folder_of_the_library ... ok
+test a_failed_write_keeps_the_old_content ... ok
+test writing_identical_content_is_a_no_op ... ok
+test a_write_after_an_outside_edit_is_a_conflict_and_leaves_the_file_unchanged ... ok
+test the_manifest_is_validated_on_read_and_write_and_conflict_checked ... ok
+test a_conflict_when_the_file_was_deleted_or_appeared_in_the_meantime ... ok
+test only_one_of_many_concurrent_writers_with_the_same_base_wins ... ok
+test subfolders_are_created_and_listed ... ok
+test writes_go_through_a_temp_file_and_leave_nothing_behind ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/watch.rs (target/debug/deps/watch-ec0f93245cb5545a)
+
+running 7 tests
+test dropping_the_watcher_stops_its_thread ... ok
+test an_external_edit_is_reported_within_one_second_with_the_new_hash ... ok
+test the_wake_callback_runs_off_the_callers_thread_and_the_caller_only_drains_a_queue ... ok
+test studios_own_atomic_write_is_reported_once_as_one_page_change ... ok
+test temp_files_hidden_files_and_other_extensions_are_ignored ... ok
+test an_idle_directory_reports_nothing ... ok
+test new_deleted_and_nested_pages_and_the_manifest_are_reported ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.21s
+
+   Doc-tests designos_docs
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0
