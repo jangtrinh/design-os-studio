@@ -806,12 +806,7 @@ impl Schema {
         let arr = v.as_array()?;
         let mut out = Vec::with_capacity(arr.len());
         for item in arr {
-            if let Some(elem) = self.type_from_json(f.ty, item, depth + 1) {
-                out.push(elem);
-            }
-        }
-        if out.is_empty() && !arr.is_empty() {
-            return None;
+            out.push(self.type_from_json(f.ty, item, depth + 1)?);
         }
         Some(KiwiValue::Array(out))
     }
@@ -888,9 +883,8 @@ impl Schema {
                 for sf in &def.fields {
                     if let Some(fv) = obj.get(&*sf.name) {
                         if !fv.is_null() {
-                            if let Some(kv) = self.field_from_json(sf, fv, depth + 1) {
-                                fs.push((sf.name.clone(), kv));
-                            }
+                            let kv = self.field_from_json(sf, fv, depth + 1)?;
+                            fs.push((sf.name.clone(), kv));
                         }
                     }
                 }
@@ -1602,5 +1596,39 @@ mod tests {
         let old_10_byte_wire = [0xe2, 0x03, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0x00];
         let err = s.decode_message(nc, &old_10_byte_wire).unwrap_err();
         assert!(err.to_string().contains("malformed data: unknown field id 1 in NodeChange"), "{err}");
+    }
+
+    #[test]
+    fn field_from_json_reconstructs_code_component_id_and_prop_assignments() {
+        let s = crate::testkit::figma_like_schema();
+        let effect_idx = s.find("Effect").expect("Effect in schema");
+        let custom_eff_field = s.defs[effect_idx].fields.iter().find(|f| &*f.name == "customEffectId").expect("customEffectId field");
+        let props_field = s.defs[effect_idx].fields.iter().find(|f| &*f.name == "componentPropAssignments").expect("componentPropAssignments field");
+
+        let custom_eff_json = serde_json::json!({
+            "guid": {"sessionID": 10, "localID": 25},
+            "assetRef": {"key": "shader_key_abc", "version": "1"}
+        });
+        let custom_eff_kv = s.field_from_json(custom_eff_field, &custom_eff_json, 0).expect("CodeComponentId from json");
+        assert_eq!(to_json(&custom_eff_kv), custom_eff_json);
+
+        let props_json = serde_json::json!([
+            {
+                "defID": {"sessionID": 1, "localID": 2},
+                "value": {"floatValue": 0.75}
+            },
+            {
+                "defID": {"sessionID": 1, "localID": 3},
+                "value": {"boolValue": true}
+            }
+        ]);
+        let props_kv = s.field_from_json(props_field, &props_json, 0).expect("ComponentPropAssignment[] from json");
+        assert_eq!(to_json(&props_kv), props_json);
+
+        let bad_custom_eff = serde_json::json!({
+            "guid": {"sessionID": "not-a-uint", "localID": 25},
+            "assetRef": {"key": "shader_key_abc", "version": "1"}
+        });
+        assert!(s.field_from_json(custom_eff_field, &bad_custom_eff, 0).is_none());
     }
 }

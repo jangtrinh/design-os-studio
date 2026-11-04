@@ -182,6 +182,17 @@ pub(crate) fn parse_paint(v: &Value) -> Option<Paint> {
             },
             params: parse_image_params(v),
         },
+        "CUSTOM" => {
+            let mut raw = serde_json::Map::new();
+            if let Some(obj) = v.as_object() {
+                for (k, val) in obj {
+                    if !matches!(k.as_str(), "type" | "opacity" | "visible" | "blendMode") {
+                        raw.insert(k.clone(), val.clone());
+                    }
+                }
+            }
+            PaintKind::Shader(ShaderRef { raw: Value::Object(raw) })
+        }
         _ => return None, // EMOJI, VIDEO, ...
     };
     Some(Paint {
@@ -272,6 +283,17 @@ fn parse_effect(v: &Value) -> Option<Effect> {
             bevel: fnum(v, "bevelSize").unwrap_or(0.0).max(0.0),
             visible,
         }),
+        "CUSTOM" => {
+            let mut raw = serde_json::Map::new();
+            if let Some(obj) = v.as_object() {
+                for (k, val) in obj {
+                    if !matches!(k.as_str(), "type" | "visible") {
+                        raw.insert(k.clone(), val.clone());
+                    }
+                }
+            }
+            Effect::Shader { shader: ShaderRef { raw: Value::Object(raw) }, visible }
+        }
         _ => return None,
     })
 }

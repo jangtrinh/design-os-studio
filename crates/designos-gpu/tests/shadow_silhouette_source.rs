@@ -91,3 +91,69 @@ fn stroke_only_silhouette_matches() {
         n.stroke.paints = vec![Paint::solid(Color::BLACK)];
     });
 }
+
+#[test]
+fn shader_paint_has_zero_silhouette_alpha() {
+    let shader_paint = Paint { kind: PaintKind::Shader(ShaderRef::default()), opacity: 1.0, visible: true, blend: BlendMode::Normal };
+    assert_eq!(shader_paint.silhouette_alpha(), 0.0);
+
+    let build = |with_shader: bool| {
+        let mut doc = Document::new("shader-sil");
+        let page = doc.add_page("p");
+        doc.get_mut(page).unwrap().kind = NodeKind::Page { background: Color::TRANSPARENT };
+        let id = doc.alloc_id();
+        let mut rect = Node::rectangle(id, Rect::new(20.0, 20.0, 60.0, 60.0));
+        rect.fills = if with_shader { vec![shader_paint.clone()] } else { vec![] };
+        rect.effects = vec![shadow()];
+        doc.insert(page, rect).unwrap();
+        (doc, page)
+    };
+
+    let (doc_shader, page_shader) = build(true);
+    let (doc_empty, page_empty) = build(false);
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    let mut cpu_shader = designos_render::tiny_skia::Pixmap::new(SIZE.0, SIZE.1).unwrap();
+    designos_render::render_page(&doc_shader, page_shader, &vp, &mut cpu_shader);
+    assert!(cpu_shader.data().iter().all(|&b| b == 0));
+
+    let Some(mut g) = common::gpu() else { return };
+    let c = common::compare(&mut g, "sil-shader-only", &doc_shader, page_shader, vp, SIZE, 0);
+    assert_eq!(c.report.mismatched, 0);
+    let gpu_empty = g.render_page(&doc_empty, page_empty, &vp, SIZE);
+    assert_eq!(c.gpu.data(), gpu_empty.data());
+}
+
+#[test]
+fn shader_effect_and_paint_skipped_by_cpu_and_gpu_parity() {
+    let blue = Color::from_hex("#2563EB").unwrap();
+    let build = |with_shader: bool| {
+        let mut b = common::T::new();
+        b.add(None, |id| {
+            let mut n = Node::rectangle(id, Rect::new(20.0, 20.0, 80.0, 60.0));
+            n.fills = vec![Paint::solid(blue)];
+            if with_shader {
+                n.fills.push(Paint { kind: PaintKind::Shader(ShaderRef::default()), opacity: 1.0, visible: true, blend: BlendMode::Normal });
+                n.effects.push(Effect::Shader { shader: ShaderRef::default(), visible: true });
+            }
+            n
+        });
+        (b.doc, b.page)
+    };
+
+    let (doc_shader, page_shader) = build(true);
+    let (doc_plain, page_plain) = build(false);
+    let vp = Viewport { offset: Vec2::new(0.0, 0.0), zoom: 1.0, dpr: 1.0 };
+
+    let mut cpu_shader = designos_render::tiny_skia::Pixmap::new(SIZE.0, SIZE.1).unwrap();
+    let mut cpu_plain = designos_render::tiny_skia::Pixmap::new(SIZE.0, SIZE.1).unwrap();
+    designos_render::render_page(&doc_shader, page_shader, &vp, &mut cpu_shader);
+    designos_render::render_page(&doc_plain, page_plain, &vp, &mut cpu_plain);
+    assert_eq!(cpu_shader.data(), cpu_plain.data());
+
+    let Some(mut g) = common::gpu() else { return };
+    let c = common::compare(&mut g, "shader-skip-parity", &doc_shader, page_shader, vp, SIZE, 0);
+    assert_eq!(c.report.mismatched, 0);
+    let gpu_plain = g.render_page(&doc_plain, page_plain, &vp, SIZE);
+    assert_eq!(c.gpu.data(), gpu_plain.data());
+}

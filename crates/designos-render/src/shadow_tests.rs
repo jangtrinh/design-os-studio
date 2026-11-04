@@ -186,3 +186,30 @@ fn patch_size_independent_of_shape_size() {
     let big = patch_dims(10.0, 4010.0, 25, 40).unwrap();
     assert_eq!(small, big);
 }
+
+#[test]
+fn shader_paint_has_zero_silhouette_alpha() {
+    let shader_paint = d::Paint { kind: d::PaintKind::Shader(d::ShaderRef::default()), opacity: 1.0, visible: true, blend: d::BlendMode::Normal };
+    assert_eq!(shader_paint.silhouette_alpha(), 0.0);
+
+    let mut doc = d::Document::new("shader-sil");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = d::NodeKind::Page { background: d::Color::TRANSPARENT };
+    let nid = doc.alloc_id();
+    let mut rect = d::Node::rectangle(nid, d::Rect::new(20.0, 20.0, 60.0, 60.0));
+    rect.fills = vec![shader_paint];
+    rect.effects = vec![d::Effect::DropShadow {
+        color: d::Color::BLACK,
+        offset: d::Vec2::new(8.0, 8.0),
+        radius: 6.0,
+        spread: 0.0,
+        visible: true,
+        show_behind: false,
+        blend: d::BlendMode::Normal,
+    }];
+    doc.insert(page, rect).unwrap();
+
+    let mut pm = sk::Pixmap::new(120, 120).unwrap();
+    crate::render_page(&doc, page, &crate::Viewport::default(), &mut pm);
+    assert!(pm.data().iter().all(|&b| b == 0), "shader-only fill must not cast a drop shadow or emit fill pixels");
+}

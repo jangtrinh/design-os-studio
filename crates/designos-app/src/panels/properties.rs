@@ -583,7 +583,7 @@ fn paint_colors(p: &Paint) -> Vec<Color32> {
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
         | PaintKind::DiamondGradient { stops, .. } => stops.iter().map(|g| to_c32(g.color, p.opacity)).collect(),
-        PaintKind::Image { .. } => vec![Color32::GRAY],
+        PaintKind::Image { .. } | PaintKind::Shader(_) => vec![Color32::GRAY],
     }
 }
 
@@ -1867,6 +1867,7 @@ fn paint_label(p: &Paint) -> String {
         PaintKind::AngularGradient { .. } => "Angular".into(),
         PaintKind::DiamondGradient { .. } => "Diamond".into(),
         PaintKind::Image { .. } => "Image".into(),
+        PaintKind::Shader(_) => "Shader (not rendered)".into(),
     }
 }
 
@@ -1877,7 +1878,7 @@ fn paint_preview(p: &Paint) -> Color32 {
         | PaintKind::RadialGradient { stops, .. }
         | PaintKind::AngularGradient { stops, .. }
         | PaintKind::DiamondGradient { stops, .. } => stops.first().map(|s| to_c32(s.color, p.opacity)).unwrap_or(Color32::GRAY),
-        PaintKind::Image { .. } => Color32::from_gray(150),
+        PaintKind::Image { .. } | PaintKind::Shader(_) => Color32::from_gray(150),
     }
 }
 
@@ -1972,13 +1973,17 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             }
         }
         let swr = ui.interact(sw.expand(2.0), ui.id().with(("sw", key)), Sense::click());
-        widgets::picker::paint_swatch(ui.painter(), sw, p);
+        if matches!(p.kind, PaintKind::Shader(_)) {
+            crate::icons::paint(ui.painter(), Icon::Shader, sw.center(), 16.0, theme::TEXT_SECONDARY);
+        } else {
+            widgets::picker::paint_swatch(ui.painter(), sw, p);
+        }
         let var_key = format!("{}/{i}", if stroke { "strokes" } else { "fills" });
         let bound = var_bind::pill_field(app, ui, Rect::from_min_max(hex_r.min, Pos2::new(g.right(), hex_r.bottom())), sel, &[var_key.as_str()]);
         if !bound {
             widgets::vline(ui.painter(), g.left() + divider_x, g.top(), g.bottom(), theme::BG);
         }
-        if swr.clicked() && !bound {
+        if swr.clicked() && !bound && !matches!(p.kind, PaintKind::Shader(_)) {
             app.props.selected_property = Some(prop);
             let target = if stroke { PickTarget::Stroke(i) } else { PickTarget::Fill(i) };
             open_picker(app, target, paint_preview(p), sw, sel.to_vec());
@@ -2007,7 +2012,8 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
                 }
             }
             _ => {
-                widgets::field_text(ui.painter(), hex_r, 0.0, 4.0, &paint_label(p), font.clone(), theme::TEXT);
+                let col = if matches!(p.kind, PaintKind::Shader(_)) { theme::TEXT_SECONDARY } else { theme::TEXT };
+                widgets::field_text(ui.painter(), hex_r, 0.0, 4.0, &paint_label(p), font.clone(), col);
             }
         }
         if !bound && matches!(p.kind, PaintKind::Solid(_)) {
@@ -3888,5 +3894,103 @@ mod tests {
             }
         }
         combined.save(out_dir.join("lock-aspect-panel.png")).expect("save combined png");
+    }
+
+    #[test]
+    fn shader_inspector_rows_render_label_and_toggle_visibility() {
+        let fill_raw = serde_json::json!({
+            "patternSource": {"sessionID": 3, "localID": 44},
+            "patternSpacing": {"x": 4.0, "y": 8.0}
+        });
+        let effect_raw = serde_json::json!({
+            "radius": 12.0,
+            "backgroundShader": {
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            }
+        });
+        let shader_paint =
+            Paint { kind: PaintKind::Shader(designos_doc::ShaderRef { raw: fill_raw.clone() }), opacity: 0.75, visible: true, blend: BlendMode::Screen };
+        assert_eq!(paint_label(&shader_paint), "Shader (not rendered)");
+
+        let mut doc = designos_doc::Document::new("shader-inspector");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+        let card_id = app.doc.alloc_id();
+        let mut card = Node::rectangle(card_id, designos_doc::Rect::new(0.0, 0.0, 160.0, 90.0));
+        card.name = "ShaderCard".into();
+        card.fills = vec![shader_paint.clone()];
+        card.effects = vec![Effect::Shader { shader: designos_doc::ShaderRef { raw: effect_raw.clone() }, visible: true }];
+        let card = app.doc.insert(page, card).unwrap();
+        app.selection = vec![card];
+        let before_bytes = serde_json::to_vec(&shader_paint).expect("serialize shader paint before");
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        let region = Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(241.0, 800.0));
+        let mut textures = std::collections::HashMap::new();
+        for _ in 0..2 {
+            let raw = egui::RawInput {
+                screen_rect: Some(region),
+                viewports: std::iter::once((egui::ViewportId::ROOT, egui::ViewportInfo { native_pixels_per_point: Some(2.0), ..Default::default() })).collect(),
+                ..Default::default()
+            };
+            let out = ctx.run_ui(raw, |ui| show(&mut app, ui, region));
+            if let Ok(out_path) = std::env::var("DESIGNOS_SHADER_INSPECTOR_PNG") {
+                let full_img = rasterize_egui_output(&ctx, out, &mut textures, 241, 800);
+                let cropped = image::imageops::crop_imm(&full_img, 0, 980, full_img.width(), 440).to_image();
+                cropped.save(&out_path).expect("save shader inspector png");
+            }
+        }
+        assert!(app.props.picker.is_none());
+        assert!(app.props.pop.is_none());
+
+        // Open the fill picker directly on the shader fill, run a frame with the picker open,
+        // then close it with Escape; the shader paint must remain byte-equal.
+        open_picker(&mut app, PickTarget::Fill(0), Color32::GRAY, Rect::from_min_size(Pos2::new(200.0, 120.0), Vec2::splat(16.0)), vec![card]);
+        assert!(app.props.picker.is_some());
+        let raw_open = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(600.0, 560.0))), ..Default::default() };
+        let _ = ctx.run_ui(raw_open, |ui| show(&mut app, ui, region));
+        assert!(app.props.picker.is_some());
+        let raw_close = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::new(0.0, 0.0), Vec2::new(600.0, 560.0))),
+            events: vec![egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(raw_close, |ui| show(&mut app, ui, region));
+        let after_bytes = serde_json::to_vec(&app.doc.get(card).unwrap().fills[0]).expect("serialize shader paint after");
+        assert_eq!(after_bytes, before_bytes, "opening and closing the picker on a shader fill must keep the paint byte-equal");
+
+        // Toggle visibility on both fill and effect, verifying ShaderRef::raw is preserved.
+        app.edit_nodes(&[card], |n| {
+            n.fills[0].visible = false;
+            if let Effect::Shader { visible, .. } = &mut n.effects[0] {
+                *visible = false;
+            }
+        });
+        let n = app.doc.get(card).unwrap();
+        assert!(!n.fills[0].visible);
+        match &n.fills[0].kind {
+            PaintKind::Shader(s) => assert_eq!(s.raw, fill_raw),
+            other => panic!("expected PaintKind::Shader, got {other:?}"),
+        }
+        match &n.effects[0] {
+            Effect::Shader { shader, visible } => {
+                assert!(!*visible);
+                assert_eq!(shader.raw, effect_raw);
+            }
+            other => panic!("expected Effect::Shader, got {other:?}"),
+        }
+
+        // Removing the rows drops them from the node.
+        app.edit_nodes(&[card], |n| {
+            n.fills.remove(0);
+            n.effects.remove(0);
+        });
+        let n = app.doc.get(card).unwrap();
+        assert!(n.fills.is_empty());
+        assert!(n.effects.is_empty());
     }
 }

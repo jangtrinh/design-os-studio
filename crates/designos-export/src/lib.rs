@@ -265,4 +265,45 @@ mod tests {
         let pm = decode(&s.render(&d, id));
         assert_eq!((pm.width(), pm.height()), (60, 30));
     }
+
+    #[test]
+    fn shader_effect_and_paint_skipped_by_svg_pdf_and_css_export() {
+        let build = |with_shader: bool| {
+            let mut d = Document::new("shader-export");
+            let page = d.add_page("p");
+            let id = d.alloc_id();
+            let mut frame = Node::frame(id, Rect::new(0.0, 0.0, 120.0, 80.0));
+            frame.name = "HeroCard".into();
+            frame.fills = vec![Paint::solid(Color::from_hex("#2563EB").unwrap())];
+            if with_shader {
+                frame.fills.push(Paint { kind: PaintKind::Shader(ShaderRef::default()), opacity: 1.0, visible: true, blend: BlendMode::Normal });
+                frame.effects.push(Effect::Shader { shader: ShaderRef::default(), visible: true });
+            }
+            d.insert(page, frame).unwrap();
+            (d, id)
+        };
+
+        let (d_shader, id_shader) = build(true);
+        let (d_plain, id_plain) = build(false);
+
+        let svg_shader = export_svg(&d_shader, id_shader, &SvgOptions::default());
+        let svg_plain = export_svg(&d_plain, id_plain, &SvgOptions::default());
+        assert!(svg_shader.to_ascii_lowercase().contains("#2563eb"), "{svg_shader}");
+        assert_eq!(svg_shader, svg_plain);
+
+        let pdf_shader = export_pdf(&d_shader, &[id_shader]).expect("export_pdf with shader");
+        let pdf_plain = export_pdf(&d_plain, &[id_plain]).expect("export_pdf plain");
+        assert!(pdf_shader.starts_with(b"%PDF-1.4"));
+        assert_eq!(pdf_shader, pdf_plain);
+
+        let css_shader = css_for(&d_shader, id_shader);
+        let css_plain = css_for(&d_plain, id_plain);
+        assert!(css_shader.to_ascii_lowercase().contains("#2563eb"), "{css_shader}");
+        assert_eq!(css_shader, css_plain);
+        assert_eq!(tailwind_for(&d_shader, id_shader), tailwind_for(&d_plain, id_plain));
+        assert_eq!(swiftui_for(&d_shader, id_shader), swiftui_for(&d_plain, id_plain));
+        assert_eq!(compose_for(&d_shader, id_shader), compose_for(&d_plain, id_plain));
+        assert_eq!(uikit_for(&d_shader, id_shader), uikit_for(&d_plain, id_plain));
+        assert_eq!(android_xml_for(&d_shader, id_shader), android_xml_for(&d_plain, id_plain));
+    }
 }

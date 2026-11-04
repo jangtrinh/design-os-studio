@@ -104,6 +104,16 @@ fn paint(p: &Paint) -> Value {
                 m.insert("filters".into(), Value::Object(flt));
             }
         }
+        PaintKind::Shader(shader) => {
+            m.insert("type".into(), "CUSTOM".into());
+            if let Some(obj) = shader.raw.as_object() {
+                for (k, v) in obj {
+                    if !matches!(k.as_str(), "type" | "opacity" | "visible" | "blendMode") {
+                        m.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
     }
     m.insert("opacity".into(), n(p.opacity));
     m.insert("visible".into(), p.visible.into());
@@ -160,6 +170,19 @@ fn effect(e: &Effect) -> Value {
             "refraction": n(e.refraction), "depth": n(e.depth), "dispersion": n(e.dispersion),
             "radius": n(e.frost), "reflectionDistance": n(e.splay), "bevelSize": n(e.bevel), "visible": e.visible
         }),
+        Effect::Shader { shader, visible } => {
+            let mut m = Map::new();
+            m.insert("type".into(), "CUSTOM".into());
+            m.insert("visible".into(), (*visible).into());
+            if let Some(obj) = shader.raw.as_object() {
+                for (k, v) in obj {
+                    if !matches!(k.as_str(), "type" | "visible") {
+                        m.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            Value::Object(m)
+        }
     }
 }
 
