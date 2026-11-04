@@ -455,7 +455,7 @@ fn a_failed_library_flush_asks_before_quit() {
     s.shell.app.flush_autosave();
     assert!(s.app().has_unsaved_edits(), "a failed write leaves the document dirty");
     s.close_frame();
-    let asked = asks_about(&s, "Welcome");
+    let asked = asks_about(&s, "DESIGN-OS Studio Starter");
     restore_library_files(&files, &moved);
     assert!(asked, "quit must ask before dropping a library edit: {:?}", dialog_title(&s));
 }
@@ -469,7 +469,7 @@ fn a_failed_debounced_library_save_asks_before_quit() {
     wait(&mut s, 2.5);
     assert!(s.app().autosave.save_failed_at.is_some(), "the debounced save attempted the blocked path");
     s.close_frame();
-    let asked = asks_about(&s, "Welcome");
+    let asked = asks_about(&s, "DESIGN-OS Studio Starter");
     restore_library_files(&files, &moved);
     assert!(asked, "quit must ask after a debounced library save failure: {:?}", dialog_title(&s));
 }
@@ -487,7 +487,7 @@ fn a_failed_library_save_asks_before_switching_tabs() {
     // The direct tab action is the same route used by the tab bar and keyboard shortcuts.
     let target = tab_id(&s, second);
     s.shell.app.request_leave(None, Leave::SwitchTab(target));
-    let asked = asks_about(&s, "Welcome");
+    let asked = asks_about(&s, "DESIGN-OS Studio Starter");
     restore_library_files(&files, &moved);
     assert!(asked, "tab switch must ask after a library save failure: {:?}", dialog_title(&s));
     assert_eq!(s.app().tabs.entries[s.app().tabs.active_idx].id, first, "the failed tab remains active until answered");
