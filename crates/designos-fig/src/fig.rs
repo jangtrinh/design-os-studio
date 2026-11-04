@@ -3376,6 +3376,18 @@ mod tests {
 
     #[test]
     fn shader_effect_and_paint_round_trip_through_rest_json() {
+        let effect_shader = json!({
+            "radius": 8.0,
+            "customEffectId": {
+                "guid": {"sessionID": 10, "localID": 25},
+                "assetRef": {"key": "shader_key_abc", "version": "1"}
+            },
+            "componentPropAssignments": [{
+                "defID": {"sessionID": 1, "localID": 2},
+                "value": {"floatValue": 0.5}
+            }]
+        });
+        let fill_shader = json!({"sourceNodeId": {"sessionID": 7, "localID": 8}});
         let rest_input = json!({
             "name": "ShaderRestDoc",
             "document": {
@@ -3392,24 +3404,16 @@ mod tests {
                         "type": "RECTANGLE",
                         "absoluteBoundingBox": {"x": 0.0, "y": 0.0, "width": 100.0, "height": 80.0},
                         "fills": [{
-                            "type": "CUSTOM",
+                            "type": "SHADER",
                             "opacity": 0.5,
                             "visible": true,
                             "blendMode": "OVERLAY",
-                            "sourceNodeId": {"sessionID": 7, "localID": 8}
+                            "shader": fill_shader
                         }],
                         "effects": [{
-                            "type": "CUSTOM",
+                            "type": "SHADER",
                             "visible": false,
-                            "radius": 8.0,
-                            "customEffectId": {
-                                "guid": {"sessionID": 10, "localID": 25},
-                                "assetRef": {"key": "shader_key_abc", "version": "1"}
-                            },
-                            "componentPropAssignments": [{
-                                "defID": {"sessionID": 1, "localID": 2},
-                                "value": {"floatValue": 0.5}
-                            }]
+                            "shader": effect_shader
                         }]
                     }]
                 }]
@@ -3422,30 +3426,16 @@ mod tests {
         assert_eq!(layer["name"], json!("ShaderLayer"));
 
         let fill = &layer["fills"][0];
-        assert_eq!(fill["type"], json!("CUSTOM"));
+        assert_eq!(fill["type"], json!("SHADER"));
         assert_eq!(fill["opacity"], json!(0.5));
         assert_eq!(fill["visible"], json!(true));
         assert_eq!(fill["blendMode"], json!("OVERLAY"));
-        assert_eq!(fill["sourceNodeId"], json!({"sessionID": 7, "localID": 8}));
+        assert_eq!(fill["shader"], fill_shader);
 
         let eff = &layer["effects"][0];
-        assert_eq!(eff["type"], json!("CUSTOM"));
+        assert_eq!(eff["type"], json!("SHADER"));
         assert_eq!(eff["visible"], json!(false));
-        assert_eq!(eff["radius"], json!(8.0));
-        assert_eq!(
-            eff["customEffectId"],
-            json!({
-                "guid": {"sessionID": 10, "localID": 25},
-                "assetRef": {"key": "shader_key_abc", "version": "1"}
-            })
-        );
-        assert_eq!(
-            eff["componentPropAssignments"],
-            json!([{
-                "defID": {"sessionID": 1, "localID": 2},
-                "value": {"floatValue": 0.5}
-            }])
-        );
+        assert_eq!(eff["shader"], effect_shader);
     }
 
     #[test]
