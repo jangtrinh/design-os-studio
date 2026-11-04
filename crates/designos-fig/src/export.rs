@@ -476,6 +476,20 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
     if node.locked {
         m.insert("locked".into(), true.into());
     }
+    let lowered_conn = match (&node.kind, doc.kind) {
+        (NodeKind::Connector(cp), k) if k != DocumentKind::Board => {
+            let carrier = crate::board::StudioConnectorCarrier::from_node(
+                node,
+                cp,
+                cp.start.node.map(|nid| figma_id(doc, nid)),
+                cp.end.node.map(|nid| figma_id(doc, nid)),
+            );
+            let carrier_str = serde_json::to_string(&carrier).unwrap_or_default();
+            let lowered = crate::board::lower_design_connector(doc, id, node, cp, false);
+            Some((lowered, carrier_str))
+        }
+        _ => None,
+    };
     let ty = match &node.kind {
         NodeKind::Page { .. } => "CANVAS",
         NodeKind::Frame(_) => "FRAME",
@@ -493,9 +507,12 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
         NodeKind::ComponentSet(_) => "COMPONENT_SET",
         NodeKind::Instance { .. } => "INSTANCE",
         NodeKind::Unknown { type_name } => type_name.as_str(),
-        NodeKind::Sticky(_) | NodeKind::Connector(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => {
-            crate::board::type_name(&node.kind).unwrap_or("SECTION")
-        }
+        NodeKind::Connector(_) => match &lowered_conn {
+            Some((lc, _)) if lc.label_chip.is_some() => "GROUP",
+            Some(_) => "VECTOR",
+            None => "CONNECTOR",
+        },
+        NodeKind::Sticky(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => crate::board::type_name(&node.kind).unwrap_or("SECTION"),
     };
     m.insert("type".into(), ty.into());
     crate::variables::export_node_variables(node, &mut m);
@@ -742,7 +759,63 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
             }
         }
         NodeKind::Sticky(_) | NodeKind::Connector(_) | NodeKind::ShapeWithText(_) | NodeKind::Stamp { .. } => {
-            crate::board::export_fields(node, parent_abs.map(|p| p.translation()).unwrap_or(Vec2::ZERO), &mut m, &|t| figma_id(doc, t));
+            if let Some((lc, carrier_str)) = lowered_conn {
+                let pd = m.entry("pluginData").or_insert_with(|| Value::Object(Map::new()));
+                if let Some(pdo) = pd.as_object_mut() {
+                    pdo.insert("designos-studio:field:studioConnector".into(), Value::String(carrier_str.clone()));
+                }
+                if let Some((bg_rect, radius, text_rect, lbl)) = lc.label_chip {
+                    let id_str = figma_id(doc, id);
+                    m.insert("fills".into(), Value::Array(Vec::new()));
+                    m.insert("strokes".into(), Value::Array(Vec::new()));
+                    let vec_child = json!({
+                        "id": format!("{id_str}:vec"),
+                        "name": node.name,
+                        "type": "VECTOR",
+                        "visible": true,
+                        "size": v2(node.size),
+                        "relativeTransform": [[1, 0, 0], [0, 1, 0]],
+                        "fills": [],
+                        "strokes": paints(&node.stroke.paints),
+                        "strokeWeight": n(node.stroke.weight),
+                        "strokeAlign": "CENTER",
+                        "fillGeometry": [],
+                        "strokeGeometry": geometry(std::slice::from_ref(&lc.local_route.path())),
+                        "vectorNetwork": crate::vecnet::network_to_json(&lc.network),
+                        "pluginData": {"designos-studio:field:studioConnector": carrier_str},
+                    });
+                    let chip_child = json!({
+                        "id": format!("{id_str}:chip"),
+                        "name": "Label background",
+                        "type": "RECTANGLE",
+                        "visible": true,
+                        "size": v2(Vec2::new(bg_rect.w, bg_rect.h)),
+                        "relativeTransform": [[1, 0, n(bg_rect.x)], [0, 1, n(bg_rect.y)]],
+                        "cornerRadius": n(radius),
+                        "fills": paints(&[Paint::solid(Color::WHITE)]),
+                        "strokes": [],
+                    });
+                    let text_child = json!({
+                        "id": format!("{id_str}:text"),
+                        "name": lbl.content,
+                        "type": "TEXT",
+                        "visible": true,
+                        "size": v2(Vec2::new(text_rect.w, text_rect.h)),
+                        "relativeTransform": [[1, 0, n(text_rect.x)], [0, 1, n(text_rect.y)]],
+                        "characters": lbl.content,
+                        "fills": paints(&lbl.style.fills),
+                        "strokes": [],
+                        "style": type_style(&lbl.style, Some(lbl.auto_resize), lbl.max_lines),
+                    });
+                    m.insert("children".into(), Value::Array(vec![vec_child, chip_child, text_child]));
+                } else {
+                    m.insert("fillGeometry".into(), Value::Array(Vec::new()));
+                    m.insert("strokeGeometry".into(), geometry(std::slice::from_ref(&lc.local_route.path())));
+                    m.insert("vectorNetwork".into(), crate::vecnet::network_to_json(&lc.network));
+                }
+            } else {
+                crate::board::export_fields(node, parent_abs.map(|p| p.translation()).unwrap_or(Vec2::ZERO), &mut m, &|t| figma_id(doc, t));
+            }
         }
         NodeKind::BooleanOp(op) => {
             m.insert(

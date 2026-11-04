@@ -54,6 +54,22 @@ impl StrokeCapSite {
 /// the node or on any vertex of its network, and where it sat. The baked stroke outline carries that decoration;
 /// the name is kept in `fig_metadata["strokeCap"]` so that a resize keeps scaling the outline instead of drawing a
 /// plain line, and the site in `fig_metadata[STROKE_CAP_SITE_KEY]` so that an export writes it back to the same place.
+fn parse_studio_connector_carrier(v: &Value) -> Option<crate::board::StudioConnectorCarrier> {
+    if let Some(sc) = v.get("studioConnector") {
+        if let Some(s) = sc.as_str() {
+            if let Ok(c) = serde_json::from_str(s) {
+                return Some(c);
+            }
+        }
+        if let Ok(c) = serde_json::from_value(sc.clone()) {
+            return Some(c);
+        }
+    }
+    let pd = v.get("pluginData")?.as_object()?;
+    let raw = pd.get("designos-studio:field:studioConnector").or_else(|| pd.get("field:studioConnector"))?.as_str()?;
+    serde_json::from_str(raw).ok()
+}
+
 fn unmodelled_stroke_cap(v: &Value) -> Option<(&str, StrokeCapSite)> {
     let unmodelled = |c: &&str| !c.is_empty() && crate::vecnet::cap_from(c).is_none();
     fstr(v, "strokeCap").filter(unmodelled).map(|c| (c, StrokeCapSite::Node)).or_else(|| {
@@ -1005,7 +1021,9 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
             }
         }
     }
-    if cx.has_connectors {
+    if !cx.connectors.is_empty() {
+        crate::board::link_connector_list(&mut cx.doc, &cx.ids, &cx.connectors);
+    } else if cx.has_connectors {
         crate::board::link_connectors(&mut cx.doc, &cx.ids, root);
     }
     cx.link_remote_components(v);
@@ -1249,7 +1267,10 @@ impl<'a> Ctx<'a> {
     /// Returns the node and, for auto-layout frames, its direction.
     fn build_node(&mut self, id: NodeId, ty: &str, v: &Value, pinfo: ParentInfo) -> (Node, Option<LayoutDirection>) {
         let frame = || frame_props(v);
-        let skip_geo = ty == "TEXT" || (self.large_file && matches!(ty, "FRAME" | "COMPONENT" | "COMPONENT_SET" | "INSTANCE" | "SECTION" | "RECTANGLE"));
+        let studio_carrier = matches!(ty, "VECTOR" | "GROUP").then(|| parse_studio_connector_carrier(v)).flatten();
+        let skip_geo = studio_carrier.is_some()
+            || ty == "TEXT"
+            || (self.large_file && matches!(ty, "FRAME" | "COMPONENT" | "COMPONENT_SET" | "INSTANCE" | "SECTION" | "RECTANGLE"));
         // Text outlines (glyph paths) are not stored; the renderer lays text out itself.
         let mut fill_geo = (!skip_geo)
             .then(|| parse_geometry_cached(farr(v, "fillGeometry"), &mut self.path_cache, &mut self.blob_cache, self.blobs))
@@ -1257,60 +1278,72 @@ impl<'a> Ctx<'a> {
         let stroke_geo = (!skip_geo)
             .then(|| parse_geometry_cached(farr(v, "strokeGeometry"), &mut self.path_cache, &mut self.blob_cache, self.blobs))
             .filter(|g| !g.is_empty());
-        let kind = match ty {
-            "FRAME" => NodeKind::Frame(frame()),
-            "GROUP" => NodeKind::Group,
-            "SECTION" => NodeKind::Section,
-            "STICKY" | "SHAPE_WITH_TEXT" | "STAMP" | "CONNECTOR" => {
-                if ty == "CONNECTOR" {
-                    self.has_connectors = true;
-                    let start_ep = v.get("connectorStart").and_then(|e| fstr(e, "endpointNodeId")).map(String::from);
-                    let end_ep = v.get("connectorEnd").and_then(|e| fstr(e, "endpointNodeId")).map(String::from);
-                    self.connectors.push((id, start_ep, end_ep));
+        let kind = if let Some(carrier) = &studio_carrier {
+            self.has_connectors = true;
+            self.connectors.push((id, carrier.start_node_id.clone(), carrier.end_node_id.clone()));
+            NodeKind::Connector(carrier.props.clone())
+        } else {
+            match ty {
+                "FRAME" => NodeKind::Frame(frame()),
+                "GROUP" => NodeKind::Group,
+                "SECTION" => NodeKind::Section,
+                "STICKY" | "SHAPE_WITH_TEXT" | "STAMP" | "CONNECTOR" => {
+                    if ty == "CONNECTOR" {
+                        self.has_connectors = true;
+                        let ep_id = |key: &str| {
+                            v.get(key)
+                                .filter(|e| !matches!(fstr(e, "magnet"), Some("NONE" | "ABSOLUTE")))
+                                .and_then(|e| fstr(e, "endpointNodeId"))
+                                .map(String::from)
+                        };
+                        self.connectors.push((id, ep_id("connectorStart"), ep_id("connectorEnd")));
+                    }
+                    crate::board::kind_from_json(ty, v, pinfo.origin).unwrap_or(NodeKind::Unknown { type_name: ty.to_string() })
                 }
-                crate::board::kind_from_json(ty, v, pinfo.origin).unwrap_or(NodeKind::Unknown { type_name: ty.to_string() })
+                "COMPONENT" => NodeKind::Component(frame()),
+                "COMPONENT_SET" => NodeKind::ComponentSet(frame()),
+                "INSTANCE" => NodeKind::Instance {
+                    frame: frame(),
+                    component: None,
+                    component_key: fstr(v, "componentId")
+                        .and_then(|c| self.component_keys.get(c).cloned())
+                        .or_else(|| fstr(v, "componentKey").map(String::from)),
+                },
+                "RECTANGLE" => NodeKind::Rectangle,
+                "ELLIPSE" => {
+                    let a = v.get("arcData");
+                    let d = ArcData::default();
+                    NodeKind::Ellipse(ArcData {
+                        start: a.and_then(|a| fnum(a, "startingAngle")).unwrap_or(d.start),
+                        end: a.and_then(|a| fnum(a, "endingAngle")).unwrap_or(d.end),
+                        inner_radius: a.and_then(|a| fnum(a, "innerRadius")).unwrap_or(0.0),
+                    })
+                }
+                "LINE" => NodeKind::Line,
+                "REGULAR_POLYGON" => NodeKind::Polygon { count: v.get("pointCount").and_then(Value::as_u64).unwrap_or(3).clamp(3, 1000) as u32 },
+                "STAR" => NodeKind::Star {
+                    count: v.get("pointCount").and_then(Value::as_u64).unwrap_or(5).clamp(3, 1000) as u32,
+                    inner_ratio: fnum(v, "starInnerRadius").unwrap_or(0.382),
+                },
+                "VECTOR" | "BRUSH" => {
+                    // an editable network when the file carries one; Figma's own outline stays the rendered geometry
+                    let network = v.get("vectorNetwork").and_then(crate::vecnet::network_from_json).filter(|n| !n.vertices.is_empty());
+                    let paths = if self.large_file && network.is_none() {
+                        fill_geo.take().or_else(|| stroke_geo.clone()).unwrap_or_default()
+                    } else {
+                        fill_geo.clone().or_else(|| stroke_geo.clone()).or_else(|| network.as_ref().map(|n| n.to_paths())).unwrap_or_default()
+                    };
+                    NodeKind::Vector { paths, network }
+                }
+                "TEXT" => NodeKind::Text(text_props(v)),
+                "BOOLEAN_OPERATION" => NodeKind::BooleanOp(match fstr(v, "booleanOperation") {
+                    Some("SUBTRACT") => BooleanOp::Subtract,
+                    Some("INTERSECT") => BooleanOp::Intersect,
+                    Some("EXCLUDE") => BooleanOp::Exclude,
+                    _ => BooleanOp::Union,
+                }),
+                other => NodeKind::Unknown { type_name: other.to_string() },
             }
-            "COMPONENT" => NodeKind::Component(frame()),
-            "COMPONENT_SET" => NodeKind::ComponentSet(frame()),
-            "INSTANCE" => NodeKind::Instance {
-                frame: frame(),
-                component: None,
-                component_key: fstr(v, "componentId").and_then(|c| self.component_keys.get(c).cloned()).or_else(|| fstr(v, "componentKey").map(String::from)),
-            },
-            "RECTANGLE" => NodeKind::Rectangle,
-            "ELLIPSE" => {
-                let a = v.get("arcData");
-                let d = ArcData::default();
-                NodeKind::Ellipse(ArcData {
-                    start: a.and_then(|a| fnum(a, "startingAngle")).unwrap_or(d.start),
-                    end: a.and_then(|a| fnum(a, "endingAngle")).unwrap_or(d.end),
-                    inner_radius: a.and_then(|a| fnum(a, "innerRadius")).unwrap_or(0.0),
-                })
-            }
-            "LINE" => NodeKind::Line,
-            "REGULAR_POLYGON" => NodeKind::Polygon { count: v.get("pointCount").and_then(Value::as_u64).unwrap_or(3).clamp(3, 1000) as u32 },
-            "STAR" => NodeKind::Star {
-                count: v.get("pointCount").and_then(Value::as_u64).unwrap_or(5).clamp(3, 1000) as u32,
-                inner_ratio: fnum(v, "starInnerRadius").unwrap_or(0.382),
-            },
-            "VECTOR" | "BRUSH" => {
-                // an editable network when the file carries one; Figma's own outline stays the rendered geometry
-                let network = v.get("vectorNetwork").and_then(crate::vecnet::network_from_json).filter(|n| !n.vertices.is_empty());
-                let paths = if self.large_file && network.is_none() {
-                    fill_geo.take().or_else(|| stroke_geo.clone()).unwrap_or_default()
-                } else {
-                    fill_geo.clone().or_else(|| stroke_geo.clone()).or_else(|| network.as_ref().map(|n| n.to_paths())).unwrap_or_default()
-                };
-                NodeKind::Vector { paths, network }
-            }
-            "TEXT" => NodeKind::Text(text_props(v)),
-            "BOOLEAN_OPERATION" => NodeKind::BooleanOp(match fstr(v, "booleanOperation") {
-                Some("SUBTRACT") => BooleanOp::Subtract,
-                Some("INTERSECT") => BooleanOp::Intersect,
-                Some("EXCLUDE") => BooleanOp::Exclude,
-                _ => BooleanOp::Union,
-            }),
-            other => NodeKind::Unknown { type_name: other.to_string() },
         };
         let is_text = matches!(kind, NodeKind::Text(_));
         let my_layout = kind.frame_props().and_then(|f| f.auto_layout.as_ref()).map(|a| a.direction);
@@ -1341,6 +1374,9 @@ impl<'a> Ctx<'a> {
         if let Some(pd) = v.get("pluginData").and_then(Value::as_object) {
             for (k, val) in pd {
                 if let Some(s) = val.as_str() {
+                    if k == "designos-studio:field:studioConnector" || k == "field:studioConnector" {
+                        continue;
+                    }
                     if k == "designos:in_progress" || k == "in_progress" {
                         if let Ok(ip) = serde_json::from_str::<InProgress>(s) {
                             self.doc.in_progress.insert(id, ip);
@@ -1421,7 +1457,7 @@ impl<'a> Ctx<'a> {
             _ => StrokeAlign::Inside,
         };
         n.stroke.cap = fstr(v, "strokeCap").and_then(crate::vecnet::cap_from).unwrap_or(StrokeCap::None);
-        if matches!(ty, "VECTOR" | "BRUSH") {
+        if matches!(ty, "VECTOR" | "BRUSH") && studio_carrier.is_none() {
             if let Some((cap, site)) = unmodelled_stroke_cap(v) {
                 if let std::collections::btree_map::Entry::Vacant(recorded) = n.fig_metadata.entry("strokeCap".into()) {
                     recorded.insert(cap.to_string());
@@ -1544,6 +1580,21 @@ impl<'a> Ctx<'a> {
             }
         }
         self.parse_component_props(&mut n, v);
+        if let Some(carrier) = studio_carrier {
+            n.fills.clear();
+            n.fill_geometry = None;
+            n.stroke_geometry = None;
+            n.stroke.weight = carrier.stroke_weight;
+            if !carrier.stroke_paints.is_empty() {
+                n.stroke.paints = carrier.stroke_paints;
+            }
+            if !carrier.stroke_dashes.is_empty() {
+                n.stroke.dashes = carrier.stroke_dashes;
+            }
+            if let Some(join) = carrier.stroke_join {
+                n.stroke.join = join;
+            }
+        }
         crate::board::finish_node(&mut n);
         (n, my_layout)
     }
