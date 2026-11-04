@@ -601,7 +601,7 @@ fn page_menu_entries(rows: &[Row], rel: &str, group: Group) -> Vec<Entry> {
         Entry::new("Move up").icon(Icon::ChevronUp).disabled(at == 0),
         Entry::new("Move down").icon(Icon::ChevronDown).disabled(at + 1 >= order.len()),
         Entry::new("Copy page link").icon(Icon::Link),
-        Entry::new("Edit source").icon(Icon::Pen).sep(),
+        Entry::new("Edit source").icon(Icon::Dev).sep(),
         Entry::new("Delete").icon(Icon::Trash).destructive(),
     ]
 }
@@ -778,6 +778,24 @@ mod tests {
         assert_eq!(r.more.center(), Pos2::new(267.0, 56.0));
         assert_eq!(r.list.top(), 137.0);
         assert_eq!(regions(panel, true).list.top(), 177.0, "the search field takes a 32 row and 8 below");
+    }
+
+    #[test]
+    fn the_page_menu_has_the_mockup_rows_and_icons() {
+        let entries = page_menu_entries(&[], "a.md", Group::Spec);
+        let rows: Vec<(&str, Option<Icon>)> = entries.iter().map(|e| (e.label.as_str(), e.icon)).collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("Open", Some(Icon::BookOpen)),
+                ("Rename", Some(Icon::Pencil)),
+                ("Move up", Some(Icon::ChevronUp)),
+                ("Move down", Some(Icon::ChevronDown)),
+                ("Copy page link", Some(Icon::Link)),
+                ("Edit source", Some(Icon::Dev)),
+                ("Delete", Some(Icon::Trash)),
+            ]
+        );
     }
 
     #[test]
