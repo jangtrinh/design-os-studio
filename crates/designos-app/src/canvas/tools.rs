@@ -4,10 +4,7 @@ use super::handles::{Handle, HandleHit};
 use designos_doc::NodeId;
 
 /// Whether the Arrow tool is offered: toolbar dropdown, Cmd+K, menus and the Shift+L key.
-///
-/// It stays off because the stroke model has no arrowhead, so the tool only drew a plain line.
-/// Turn it on when arrowheads land (#859). The tool and its creation code are kept for that.
-pub const ARROW_TOOL_ENABLED: bool = false;
+pub const ARROW_TOOL_ENABLED: bool = true;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
@@ -259,22 +256,26 @@ mod tests {
     }
 
     #[test]
-    fn arrow_tool_is_in_no_toolbar_group() {
-        assert!(GROUPS.iter().all(|g| !g.contains(&Tool::Arrow)), "the Arrow tool draws a plain line, so no dropdown may offer it");
+    fn arrow_tool_sits_in_shape_group_after_line() {
+        assert!(ARROW_TOOL_ENABLED);
+        assert!(GROUPS[2].contains(&Tool::Arrow), "the shape group must offer the Arrow tool");
         assert!(GROUPS[2].contains(&Tool::Line), "Line stays in the shape group");
+        assert_eq!(GROUPS[2][1], Tool::Line);
+        assert_eq!(GROUPS[2][2], Tool::Arrow);
     }
 
     #[test]
-    fn shift_l_selects_line_while_arrow_is_hidden() {
-        assert_eq!(Tool::from_key(egui::Key::L, true), Some(Tool::Line));
+    fn shift_l_selects_arrow_tool() {
+        assert_eq!(Tool::from_key(egui::Key::L, true), Some(Tool::Arrow));
         assert_eq!(Tool::from_key(egui::Key::L, false), Some(Tool::Line));
     }
 
     #[test]
-    fn asking_for_the_hidden_arrow_tool_selects_line() {
+    fn asking_for_the_arrow_tool_selects_arrow() {
         let mut app = crate::app::App::new(designos_doc::Document::new("t"));
         app.set_tool(Tool::Arrow);
-        assert_eq!(app.tool, Tool::Line);
+        assert_eq!(app.tool, Tool::Arrow);
+        assert_eq!(Tool::Arrow.or_fallback(), Tool::Arrow);
         app.set_tool(Tool::Ellipse);
         assert_eq!(app.tool, Tool::Ellipse, "other tools are untouched");
     }
