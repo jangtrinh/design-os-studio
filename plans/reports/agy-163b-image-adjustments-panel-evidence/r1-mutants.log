@@ -26,7 +26,7 @@ test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 37 filtered out;
 
 ## mutant ii
 Rotate in Crop changes only params.rotation
-test widgets::picker::tests::picker_rotate_in_crop_hands_the_turn_to_the_host_and_elsewhere_clears_the_frame ... FAILED
+test widgets::picker::tests::picker_rotate_counts_the_turn_for_the_host_and_outside_crop_drops_the_frame ... FAILED
 test widgets::picker::tests::rotating_a_cropped_picture_turns_the_pixels_a_quarter_turn_each_click ... FAILED
 test widgets::picker::tests::rotating_several_cropped_nodes_turns_each_about_its_own_centre ... FAILED
 test widgets::picker::tests::a_fit_picture_turned_a_quarter_then_cropped_then_rotated_shows_the_half_turn_framing ... FAILED
@@ -36,20 +36,18 @@ assertion `left == right` failed: two clockwise clicks and one counter-clockwise
 assertion `left == right` failed: rotate right turns the pixels clockwise
   left: [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255], [255, 255, 0, 255]]
  right: [[0, 0, 255, 255], [255, 0, 0, 255], [255, 255, 0, 255], [0, 255, 0, 255]]
-test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4369 filtered out; finished in 0.05s
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4370 filtered out; finished in 0.05s
 
 ## mutant iii
 Crop framing for every node uses the first node's size
 test panels::properties::tests::switching_several_filled_nodes_to_crop_frames_each_by_its_own_size ... FAILED
 test widgets::picker::tests::editing_an_adjustment_keeps_every_nodes_own_crop_frame ... FAILED
+test widgets::picker::tests::leaving_crop_and_coming_back_gives_each_node_its_own_frame_again ... FAILED
 test widgets::picker::tests::cropping_several_nodes_gives_each_its_own_framing_in_one_undo_step ... FAILED
 test widgets::picker::tests::rotating_several_cropped_nodes_turns_each_about_its_own_centre ... FAILED
-thread 'panels::properties::tests::switching_several_filled_nodes_to_crop_frames_each_by_its_own_size' (97697936) panicked at crates/designos-app/src/panels/properties.rs:3984:13:
 assertion `left == right` failed: node 1 still shows its own Fill framing
-thread 'widgets::picker::tests::editing_an_adjustment_keeps_every_nodes_own_crop_frame' (97697938) panicked at crates/designos-app/src/widgets/picker.rs:4189:9:
 assertion `left != right` failed: the two nodes have different frames
-thread 'widgets::picker::tests::cropping_several_nodes_gives_each_its_own_framing_in_one_undo_step' (97697937) panicked at crates/designos-app/src/widgets/picker.rs:4111:9:
+assertion `left != right` failed: each node has its own frame in Crop
 node 1 keeps its own framing: pixels differ by up to 255 levels
-thread 'widgets::picker::tests::rotating_several_cropped_nodes_turns_each_about_its_own_centre' (97697939) panicked at crates/designos-app/src/widgets/picker.rs:4111:9:
 node 1 turned about its own centre: pixels differ by up to 255 levels
-test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 4369 filtered out; finished in 0.05s
+test result: FAILED. 0 passed; 5 failed; 0 ignored; 0 measured; 4369 filtered out; finished in 0.05s
