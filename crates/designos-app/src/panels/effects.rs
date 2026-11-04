@@ -421,8 +421,8 @@ fn edited_size(size: f32, size_y: Option<f32>, axis: SizeAxis, v: f32) -> (f32, 
 
 /// `(size, size_y)` after one sample of a scrub on `axis`. The sides are written as they are, even when they
 /// agree: the rows stay where they are for the pressed field to keep its drag, and the other side is not lost
-/// when the dragged one passes through its value. A scrub that ends with the sides equal falls back to one size
-/// afterwards (see [`size_rows_ui`]).
+/// when the dragged one passes through its value. A scrub that ends with the sides equal leaves both rows until
+/// the next typed value or wheel step, so one scrub is one undo step.
 fn scrubbed_size(size: f32, size_y: Option<f32>, axis: SizeAxis, v: f32) -> (f32, Option<f32>) {
     let v = v.max(MIN_SIZE);
     match axis {
@@ -467,28 +467,15 @@ impl SizeTarget<'_> {
     }
 }
 
-/// The size rows of a noise or texture, one popover row each. A scrub on the X or Y field writes its samples with
-/// [`scrubbed_size`] and leaves a marker; when the scrub is over, a marked popover folds the two sides back into
-/// one size if they ended equal. A typed value or a wheel step goes through [`edited_size`] and folds at once.
+/// The size rows of a noise or texture, one popover row each. A scrub samples through [`scrubbed_size`], so it never
+/// folds the two sides, and a typed value or a wheel step goes through [`edited_size`], which folds them at once
+/// when they become equal.
 fn size_rows_ui(app: &mut App, ui: &mut Ui, body: Rect, t: SizeTarget, (size, size_y): (f32, Option<f32>), next: &mut impl FnMut() -> usize) {
-    let marker = Id::new(("fx-size-scrub", t.texture));
-    if !scrubbing(ui.ctx()) && ui.ctx().data_mut(|d| d.remove_temp::<bool>(marker)).unwrap_or(false) {
-        edit_effect(app, t.tgt, t.index, |e| {
-            if let Some((size, size_y)) = size_pair(e) {
-                if *size_y == Some(*size) {
-                    *size_y = None;
-                }
-            }
-        });
-    }
     for (label, axis) in size_rows(size_y) {
         let (axis, value) = (*axis, if *axis == SizeAxis::Y { size_y.unwrap_or(size) } else { size });
         popover::row(ui, body, next(), label, |ui, rc| {
             let Some(v) = num(ui, rc, t.key(axis), Prefix::Icon(size_row_icon(axis)), value, "") else { return };
-            let scrubbed = axis != SizeAxis::Both && scrubbing(ui.ctx());
-            if scrubbed {
-                ui.ctx().data_mut(|d| d.insert_temp(marker, true));
-            }
+            let scrubbed = scrubbing(ui.ctx());
             edit_effect(app, t.tgt, t.index, |e| {
                 if let Some((size, size_y)) = size_pair(e) {
                     (*size, *size_y) = if scrubbed { scrubbed_size(*size, *size_y, axis, v) } else { edited_size(*size, *size_y, axis, v) };

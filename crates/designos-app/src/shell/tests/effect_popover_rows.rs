@@ -158,31 +158,48 @@ fn scrub(s: &mut Sim, key: &str, dx: f32, frames: usize, mut watch: impl FnMut(&
     s.frame(vec![]);
 }
 
-/// A size field to scrub: which effect, which side, and the key and title that find it.
+/// Scrubs the pressed side of `case` (X 3 -> 7 against Y = 7, Y 7 -> 3 against X = 3) until it equals the other side
+/// and releases there. Returns the value the two sides share.
+fn scrub_to_the_other_side(s: &mut Sim, case: &SizeCase) -> f32 {
+    let (dx, shared) = if case.x { (1.0, 7.0) } else { (-1.0, 3.0) };
+    scrub(s, case.key, dx, 4, |_, _| {});
+    s.frame(vec![]);
+    shared
+}
+
+/// The shared value as a user types it into a row that already shows it. A field commits only text that differs
+/// from what it shows, so the value goes in with a decimal point: "7.0" for 7.
+fn shared_as_typed(shared: f32) -> String {
+    format!("{shared:.1}")
+}
+
+/// A size field to scrub: which effect, which side, and the keys and title that find it.
 struct SizeCase {
     name: &'static str,
     fx: Effect,
     title: &'static str,
     /// Key of the field that is pressed.
     key: &'static str,
+    /// Key of the other size row.
+    other: &'static str,
     /// True when the pressed row is the X row.
     x: bool,
 }
 
 fn noise_x() -> SizeCase {
-    SizeCase { name: "noise X", fx: noise(mono(), Some(7.0)), title: "Noise", key: "(\"fxp-nsize\", 0)", x: true }
+    SizeCase { name: "noise X", fx: noise(mono(), Some(7.0)), title: "Noise", key: "(\"fxp-nsize\", 0)", other: "(\"fxp-nsize-y\", 0)", x: true }
 }
 
 fn noise_y() -> SizeCase {
-    SizeCase { name: "noise Y", fx: noise(mono(), Some(7.0)), title: "Noise", key: "(\"fxp-nsize-y\", 0)", x: false }
+    SizeCase { name: "noise Y", fx: noise(mono(), Some(7.0)), title: "Noise", key: "(\"fxp-nsize-y\", 0)", other: "(\"fxp-nsize\", 0)", x: false }
 }
 
 fn texture_x() -> SizeCase {
-    SizeCase { name: "texture X", fx: texture(Some(7.0)), title: "Texture", key: "(\"fxp-tsize\", 0)", x: true }
+    SizeCase { name: "texture X", fx: texture(Some(7.0)), title: "Texture", key: "(\"fxp-tsize\", 0)", other: "(\"fxp-tsize-y\", 0)", x: true }
 }
 
 fn texture_y() -> SizeCase {
-    SizeCase { name: "texture Y", fx: texture(Some(7.0)), title: "Texture", key: "(\"fxp-tsize-y\", 0)", x: false }
+    SizeCase { name: "texture Y", fx: texture(Some(7.0)), title: "Texture", key: "(\"fxp-tsize-y\", 0)", other: "(\"fxp-tsize\", 0)", x: false }
 }
 
 /// Noise and texture of size 3 with a second size 7, pressed on their X and on their Y row.
@@ -319,15 +336,31 @@ fn a_texture_size_y_scrub_past_the_x_value_keeps_x_and_is_one_undo_step() {
 }
 
 #[test]
-fn a_size_scrub_that_ends_where_the_two_sides_meet_falls_back_to_one_size() {
+fn a_size_scrub_that_ends_where_the_two_sides_meet_keeps_both_rows_and_is_one_undo_step() {
     for case in size_cases() {
         let mut s = open(&case.fx);
-        let (dx, expected) = if case.x { (1.0, (7.0, None)) } else { (-1.0, (3.0, None)) };
-        scrub(&mut s, case.key, dx, 4, |_, _| {});
-        s.frame(vec![]);
-        assert_eq!(sizes(&s), expected, "{}", case.name);
-        let one_size = if case.title == "Noise" { vec!["Mode", "Color", "Size", "Density", "Opacity"] } else { vec!["Size", "Radius", "Clip to shape"] };
-        assert_eq!(row_labels(&s, case.title), one_size, "{}: the two sides agree, so one row", case.name);
+        let depth = s.app().hist.undo_depth();
+        let shared = scrub_to_the_other_side(&mut s, &case);
+        assert_eq!(sizes(&s), (shared, Some(shared)), "{}: the scrub leaves the sides as they are", case.name);
+        assert!(two_size_rows(&s, case.title), "{}: both rows stay, got {:?}", case.name, row_labels(&s, case.title));
+        assert_eq!(s.app().hist.undo_depth(), depth + 1, "{}: one undo step for the whole scrub", case.name);
+        s.cmd_key(Key::Z);
+        assert_eq!(sizes(&s), (3.0, Some(7.0)), "{}: one undo takes the whole scrub back", case.name);
+    }
+}
+
+#[test]
+fn a_typed_size_after_a_scrub_that_ended_on_the_other_side_falls_back_to_one_size_in_one_step() {
+    for case in size_cases() {
+        for row in [case.key, case.other] {
+            let mut s = open(&case.fx);
+            let shared = scrub_to_the_other_side(&mut s, &case);
+            let depth = s.app().hist.undo_depth();
+            type_into(&mut s, row, &shared_as_typed(shared));
+            assert_eq!(sizes(&s), (shared, None), "{}: typed on {row}", case.name);
+            assert!(!two_size_rows(&s, case.title), "{}: typed on {row}, got {:?}", case.name, row_labels(&s, case.title));
+            assert_eq!(s.app().hist.undo_depth(), depth + 1, "{}: typed on {row}: one undo step", case.name);
+        }
     }
 }
 
@@ -361,16 +394,31 @@ fn a_size_scrub_in_an_effect_style_popover_keeps_both_sides_and_is_one_undo_step
 }
 
 #[test]
-fn an_effect_style_scrub_that_ends_where_the_two_sides_meet_falls_back_to_one_size_in_the_same_step() {
+fn an_effect_style_scrub_that_ends_where_the_two_sides_meet_keeps_both_rows_and_is_one_undo_step() {
     for case in [noise_x(), texture_y()] {
         let mut s = open_style(&case.fx);
         let depth = s.app().hist.undo_depth();
-        let (dx, expected): (f32, (f32, Option<f32>)) = if case.x { (1.0, (7.0, None)) } else { (-1.0, (3.0, None)) };
-        scrub(&mut s, case.key, dx, 4, |_, _| {});
-        s.frame(vec![]);
-        assert_eq!(style_sizes(&s), expected, "{}", case.name);
-        assert!(!two_size_rows(&s, "Edit style"), "{}: {:?}", case.name, row_labels(&s, "Edit style"));
-        assert_eq!(s.app().hist.undo_depth(), depth + 1, "{}: the fold is part of the scrub's step", case.name);
+        let shared = scrub_to_the_other_side(&mut s, &case);
+        assert_eq!(style_sizes(&s), (shared, Some(shared)), "{}: the scrub leaves the sides as they are", case.name);
+        assert!(two_size_rows(&s, "Edit style"), "{}: both rows stay, got {:?}", case.name, row_labels(&s, "Edit style"));
+        assert_eq!(s.app().hist.undo_depth(), depth + 1, "{}: one undo step for the whole scrub", case.name);
+        s.cmd_key(Key::Z);
+        assert_eq!(style_sizes(&s), (3.0, Some(7.0)), "{}: one undo takes the whole scrub back", case.name);
+    }
+}
+
+#[test]
+fn a_typed_size_in_an_effect_style_after_a_scrub_that_ended_on_the_other_side_falls_back_to_one_size_in_one_step() {
+    for case in [noise_x(), texture_y()] {
+        for row in [case.key, case.other] {
+            let mut s = open_style(&case.fx);
+            let shared = scrub_to_the_other_side(&mut s, &case);
+            let depth = s.app().hist.undo_depth();
+            type_into(&mut s, row, &shared_as_typed(shared));
+            assert_eq!(style_sizes(&s), (shared, None), "{}: typed on {row}", case.name);
+            assert!(!two_size_rows(&s, "Edit style"), "{}: typed on {row}, got {:?}", case.name, row_labels(&s, "Edit style"));
+            assert_eq!(s.app().hist.undo_depth(), depth + 1, "{}: typed on {row}: one undo step", case.name);
+        }
     }
 }
 
