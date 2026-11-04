@@ -1,0 +1,69 @@
+
+running 4 tests
+test an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes_on_cpu_and_gpu ... FAILED
+test a_square_end_on_a_dashed_round_line_squares_only_the_last_dash_on_cpu_and_gpu ... FAILED
+test a_none_end_on_a_dashed_round_line_leaves_the_last_dash_butt_on_cpu_and_gpu ... FAILED
+test a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu ... FAILED
+
+failures:
+
+---- an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes_on_cpu_and_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+dashed_round_arrow_start: mismatch 0.8750% (42 px of 4800) at tolerance 8, ssim 0.9986
+dashed_round_arrow_start: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes_on_cpu_and_gpu' (94251878) panicked at crates/designos-gpu/tests/dashed_endpoint_caps.rs:141:5:
+dashed_round_arrow_start:
+CPU inner dash end keeps its round cap: pixel (39, 19) has coverage 0, expected 0.5..=1
+CPU inner dash end keeps its round cap, third dash: pixel (71, 19) has coverage 0, expected 0.5..=1
+GPU inner dash end keeps its round cap: pixel (39, 19) has coverage 0, expected 0.5..=1
+GPU inner dash end keeps its round cap, third dash: pixel (71, 19) has coverage 0, expected 0.5..=1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- a_square_end_on_a_dashed_round_line_squares_only_the_last_dash_on_cpu_and_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+dashed_round_square_end: mismatch 1.0000% (48 px of 4800) at tolerance 8, ssim 0.9999
+dashed_round_square_end: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'a_square_end_on_a_dashed_round_line_squares_only_the_last_dash_on_cpu_and_gpu' (94251877) panicked at crates/designos-gpu/tests/dashed_endpoint_caps.rs:94:5:
+dashed_round_square_end:
+CPU end terminal is square: upper corner: pixel (95, 18) has coverage 0.25108224, expected 0.9..=1
+CPU end terminal is square: lower corner: pixel (95, 21) has coverage 0.25108224, expected 0.9..=1
+GPU end terminal is square: upper corner: pixel (95, 18) has coverage 0.25108224, expected 0.9..=1
+GPU end terminal is square: lower corner: pixel (95, 21) has coverage 0.25108224, expected 0.9..=1
+CPU and GPU differ: mismatch 1.000%, DiffReport { width: 120, height: 40, size_a: (120, 40), size_b: (120, 40), size_mismatch: false, mismatched: 48, aa_pixels: 0, ignored: 0, ratio: 0.01, ssim: 0.9998673171597833, changed_bbox: Some(Rect { x: 8, y: 18, w: 88, h: 4 }) }
+
+---- a_none_end_on_a_dashed_round_line_leaves_the_last_dash_butt_on_cpu_and_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+dashed_round_none_end: mismatch 1.0000% (48 px of 4800) at tolerance 8, ssim 0.9999
+dashed_round_none_end: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'a_none_end_on_a_dashed_round_line_leaves_the_last_dash_butt_on_cpu_and_gpu' (94251876) panicked at crates/designos-gpu/tests/dashed_endpoint_caps.rs:110:5:
+dashed_round_none_end:
+CPU end terminal is butt: pixel (94, 19) has coverage 1, expected 0..=0.05
+GPU end terminal is butt: pixel (94, 19) has coverage 1, expected 0..=0.05
+CPU and GPU differ: mismatch 1.000%, DiffReport { width: 120, height: 40, size_a: (120, 40), size_b: (120, 40), size_mismatch: false, mismatched: 48, aa_pixels: 0, ignored: 0, ratio: 0.01, ssim: 0.9998673171597833, changed_bbox: Some(Rect { x: 8, y: 18, w: 88, h: 4 }) }
+
+---- a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu stdout ----
+GPU: Apple M4 Max (Metal)
+dashed_round_arrow_end: mismatch 1.2500% (60 px of 4800) at tolerance 8, ssim 0.9976
+dashed_round_arrow_end: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu' (94251875) panicked at crates/designos-gpu/tests/dashed_endpoint_caps.rs:124:5:
+dashed_round_arrow_end:
+CPU inner dash end keeps its round cap: pixel (21, 19) has coverage 0, expected 0.5..=1
+CPU inner dash end keeps its round cap, third dash: pixel (53, 19) has coverage 0, expected 0.5..=1
+GPU inner dash end keeps its round cap: pixel (21, 19) has coverage 0, expected 0.5..=1
+GPU inner dash end keeps its round cap, third dash: pixel (53, 19) has coverage 0, expected 0.5..=1
+CPU and GPU differ: mismatch 1.250%, DiffReport { width: 120, height: 40, size_a: (120, 40), size_b: (120, 40), size_mismatch: false, mismatched: 60, aa_pixels: 0, ignored: 0, ratio: 0.0125, ssim: 0.9975843937536059, changed_bbox: Some(Rect { x: 8, y: 5, w: 88, h: 30 }) }
+
+
+failures:
+    a_line_arrow_end_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu
+    a_none_end_on_a_dashed_round_line_leaves_the_last_dash_butt_on_cpu_and_gpu
+    a_square_end_on_a_dashed_round_line_squares_only_the_last_dash_on_cpu_and_gpu
+    an_arrow_head_start_on_a_dashed_round_line_keeps_round_inner_dashes_on_cpu_and_gpu
+
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p designos-gpu --test dashed_endpoint_caps`

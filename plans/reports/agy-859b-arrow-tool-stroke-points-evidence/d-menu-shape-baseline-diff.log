@@ -1,0 +1,313 @@
+diff --git a/crates/designos-app/tests/layout-baseline/d-menu-shape.layout.json b/crates/designos-app/tests/layout-baseline/d-menu-shape.layout.json
+index 3a0e417f0..4dd0df93c 100644
+--- a/crates/designos-app/tests/layout-baseline/d-menu-shape.layout.json
++++ b/crates/designos-app/tests/layout-baseline/d-menu-shape.layout.json
+@@ -48,9 +48,9 @@
+       "name": "overlay:Foreground/0",
+       "rect": [
+         699.0,
+-        824.0,
++        792.0,
+         246.0,
+-        208.0
++        240.0
+       ]
+     }
+   ],
+@@ -70,7 +70,7 @@
+       "rect": [
+         57.0,
+         40.0,
+-        193.0,
++        184.0,
+         24.0
+       ],
+       "count": 1
+@@ -198,10 +198,10 @@
+     "layers-collapse-all": {
+       "region": "left_panel",
+       "rect": [
+-        229.0,
+-        217.0,
+-        24.0,
+-        24.0
++        213.0,
++        213.0,
++        32.0,
++        32.0
+       ],
+       "count": 1
+     },
+@@ -218,10 +218,10 @@
+     "layers-search": {
+       "region": "left_panel",
+       "rect": [
+-        257.0,
+-        217.0,
+-        24.0,
+-        24.0
++        249.0,
++        213.0,
++        32.0,
++        32.0
+       ],
+       "count": 1
+     },
+@@ -235,6 +235,16 @@
+       ],
+       "count": 1
+     },
++    "left-panel-resize-band": {
++      "region": "left_panel",
++      "rect": [
++        278.0,
++        32.0,
++        15.0,
++        1056.0
++      ],
++      "count": 1
++    },
+     "left-panel-resize-handle": {
+       "region": "left_panel",
+       "rect": [
+@@ -249,7 +259,7 @@
+       "region": "overlay:Foreground/0",
+       "rect": [
+         698.5,
+-        832.0,
++        800.0,
+         246.0,
+         32.0
+       ],
+@@ -305,13 +315,23 @@
+       ],
+       "count": 1
+     },
++    "menu-check-0-6": {
++      "region": "overlay:Foreground/0",
++      "rect": [
++        0.0,
++        0.0,
++        0.0,
++        0.0
++      ],
++      "count": 1
++    },
+     "menu-level-0": {
+       "region": "overlay:Foreground/0",
+       "rect": [
+         698.5,
+-        824.0,
++        792.0,
+         246.0,
+-        208.0
++        240.0
+       ],
+       "count": 1
+     },
+@@ -319,7 +339,7 @@
+       "region": "overlay:Foreground/0",
+       "rect": [
+         698.5,
+-        832.0,
++        800.0,
+         246.0,
+         32.0
+       ],
+@@ -329,7 +349,7 @@
+       "region": "overlay:Foreground/0",
+       "rect": [
+         698.5,
+-        864.0,
++        832.0,
+         246.0,
+         32.0
+       ],
+@@ -339,7 +359,7 @@
+       "region": "overlay:Foreground/0",
+       "rect": [
+         698.5,
+-        896.0,
++        864.0,
+         246.0,
+         32.0
+       ],
+@@ -349,7 +369,7 @@
+       "region": "overlay:Foreground/0",
+       "rect": [
+         698.5,
+-        928.0,
++        896.0,
+         246.0,
+         32.0
+       ],
+@@ -359,13 +379,23 @@
+       "region": "overlay:Foreground/0",
+       "rect": [
+         698.5,
+-        960.0,
++        928.0,
+         246.0,
+         32.0
+       ],
+       "count": 1
+     },
+     "menu-row-0-5": {
++      "region": "overlay:Foreground/0",
++      "rect": [
++        698.5,
++        960.0,
++        246.0,
++        32.0
++      ],
++      "count": 1
++    },
++    "menu-row-0-6": {
+       "region": "overlay:Foreground/0",
+       "rect": [
+         698.5,
+@@ -385,6 +415,16 @@
+       ],
+       "count": 1
+     },
++    "pages-layers-separator-band": {
++      "region": "left_panel",
++      "rect": [
++        49.0,
++        196.0,
++        240.0,
++        24.0
++      ],
++      "count": 1
++    },
+     "pages-list": {
+       "region": "left_panel",
+       "rect": [
+@@ -865,6 +905,16 @@
+       ],
+       "count": 1
+     },
++    "tab-close-hit-1": {
++      "region": "tab_bar",
++      "rect": [
++        307.0,
++        4.0,
++        24.0,
++        24.0
++      ],
++      "count": 1
++    },
+     "tab-unsaved-dot-1": {
+       "region": "overlay:Foreground/0",
+       "rect": [
+@@ -945,6 +995,56 @@
+       ],
+       "count": 1
+     },
++    "tool-chevron-hit-0": {
++      "region": "canvas",
++      "rect": [
++        584.0,
++        1036.0,
++        24.0,
++        32.0
++      ],
++      "count": 1
++    },
++    "tool-chevron-hit-1": {
++      "region": "canvas",
++      "rect": [
++        640.0,
++        1036.0,
++        24.0,
++        32.0
++      ],
++      "count": 1
++    },
++    "tool-chevron-hit-2": {
++      "region": "canvas",
++      "rect": [
++        696.0,
++        1036.0,
++        24.0,
++        32.0
++      ],
++      "count": 1
++    },
++    "tool-chevron-hit-3": {
++      "region": "canvas",
++      "rect": [
++        752.0,
++        1036.0,
++        24.0,
++        32.0
++      ],
++      "count": 1
++    },
++    "tool-chevron-hit-4": {
++      "region": "canvas",
++      "rect": [
++        808.0,
++        1036.0,
++        24.0,
++        32.0
++      ],
++      "count": 1
++    },
+     "toolbar-actions-btn": {
+       "region": "canvas",
+       "rect": [
+@@ -1096,10 +1196,10 @@
+     {
+       "region": "left_panel",
+       "rect": [
+-        253.0,
+-        44.0,
+-        24.0,
+-        24.0
++        245.0,
++        40.0,
++        32.0,
++        32.0
+       ],
+       "sense": [
+         "click",
+@@ -1109,10 +1209,10 @@
+     {
+       "region": "left_panel",
+       "rect": [
+-        229.0,
+-        105.0,
+-        24.0,
+-        24.0
++        213.0,
++        101.0,
++        32.0,
++        32.0
+       ],
+       "sense": [
+         "click",
+@@ -1122,10 +1222,10 @@
+     {
+       "region": "left_panel",
+       "rect": [
+-        257.0,
+-        105.0,
+-        24.0,
+-        24.0
++        249.0,
++        101.0,
++        32.0,
++        32.0
+       ],
+       "sense": [
+         "click",
+@@ -1326,7 +1426,7 @@
+       "rect": [
+         92.0,
+         3.0,
+-        216.0,
++        213.0,
+         26.0
+       ],
+       "sense": [
