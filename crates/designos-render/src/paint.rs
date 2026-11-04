@@ -280,6 +280,7 @@ pub fn with_paint<R>(
             paint.set_color(sk_color(c, a));
             Some(f(&paint))
         }
+        PaintKind::Shader(_) => None,
         PaintKind::LinearGradient { handles, stops } | PaintKind::RadialGradient { handles, stops } => {
             let radial = matches!(p.kind, PaintKind::RadialGradient { .. });
             let st = gradient_stops(stops, a);

@@ -144,6 +144,7 @@ fn fill_expr(doc: &Document, n: &Node, key: &str, p: &Paint) -> String {
             format!("AngularGradient(stops: {}, center: {})", gradient_stops(doc, n, stops, p.opacity), unit_point(handles[0]))
         }
         PaintKind::Image { image_ref, .. } => format!("Color.gray /* image fill {} */", &image_ref.chars().take(8).collect::<String>()),
+        PaintKind::Shader(_) => "Color.clear".into(),
     }
 }
 
@@ -189,7 +190,7 @@ fn shape(doc: &Document, n: &Node) -> String {
 }
 
 fn stroke_expr(doc: &Document, n: &Node) -> Option<String> {
-    let p = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0)?;
+    let p = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)))?;
     if n.stroke.weight <= 0.0 {
         return None;
     }
@@ -531,7 +532,7 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
     } else {
         // leaf shape
         head.push(radius_shape.clone());
-        let fill = n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0);
+        let fill = n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_)));
         let stroke = stroke_expr(doc, n);
         match (fill, &stroke) {
             (Some((i, p)), _) => mods.push(format!(".fill({})", fill_expr(doc, n, &format!("fills/{i}"), p))),
@@ -730,7 +731,8 @@ fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
 }
 
 fn container_style(doc: &Document, n: &Node, shape: &str, m: &mut Vec<String>) {
-    let fills: Vec<(usize, &Paint)> = n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0).collect();
+    let fills: Vec<(usize, &Paint)> =
+        n.fills.iter().enumerate().filter(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))).collect();
     if let Some((i, p)) = fills.last() {
         let f = fill_expr(doc, n, &format!("fills/{i}"), p);
         if shape == "Rectangle()" {

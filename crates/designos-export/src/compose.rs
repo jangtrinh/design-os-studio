@@ -81,7 +81,7 @@ fn brush(doc: &Document, n: &Node, p: &Paint) -> Option<String> {
     let cols = |stops: &[GradientStop]| stops.iter().map(|s| color(doc, n, "", &s.color, p.opacity)).collect::<Vec<_>>().join(", ");
     let px = |v: Vec2| format!("Offset({}f, {}f)", num(v.x * n.size.x), num(v.y * n.size.y));
     Some(match &p.kind {
-        PaintKind::Solid(_) => return None,
+        PaintKind::Solid(_) | PaintKind::Shader(_) => return None,
         PaintKind::LinearGradient { handles, stops } => {
             format!("Brush.linearGradient(colors = listOf({}), start = {}, end = {})", cols(stops), px(handles[0]), px(handles[1]))
         }
@@ -231,7 +231,7 @@ fn style_mods(doc: &Document, n: &Node, m: &mut Vec<String>) {
     if clips {
         m.push(format!(".clip({shp})"));
     }
-    if let Some((i, p)) = n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0) {
+    if let Some((i, p)) = n.fills.iter().enumerate().rev().find(|(_, p)| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))) {
         let shape_arg = if shp == "RectangleShape" { String::new() } else { format!(", {shp}") };
         match (brush(doc, n, p), &p.kind) {
             (Some(b), _) => m.push(format!(".background(brush = {b}{})", if shape_arg.is_empty() { String::new() } else { format!(", shape = {shp}") })),
@@ -239,7 +239,8 @@ fn style_mods(doc: &Document, n: &Node, m: &mut Vec<String>) {
             _ => {}
         }
     }
-    if let Some(p) = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0).filter(|_| n.stroke.weight > 0.0) {
+    if let Some(p) = n.stroke.paints.iter().find(|p| p.visible && p.opacity > 0.0 && !matches!(p.kind, PaintKind::Shader(_))).filter(|_| n.stroke.weight > 0.0)
+    {
         let shape_arg = if shp == "RectangleShape" { String::new() } else { format!(", {shp}") };
         match &p.kind {
             PaintKind::Solid(c) => {

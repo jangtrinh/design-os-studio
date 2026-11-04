@@ -135,6 +135,7 @@ impl PaintCache {
                 inst.t[2] = 1.0;
                 Some(PaintInst { inst, ramp: None, image: None })
             }
+            PaintKind::Shader(_) => None,
             PaintKind::LinearGradient { handles, stops }
             | PaintKind::RadialGradient { handles, stops }
             | PaintKind::AngularGradient { handles, stops }
