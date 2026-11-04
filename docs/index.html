@@ -476,9 +476,20 @@ code{padding:1px 6px;border-radius:var(--r-sm);background:var(--surface);font-si
     <div class="wrap">
       <div class="new-head">
         <h2 id="new-h">What’s new.</h2>
-        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.7. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
+        <p class="lead">Notes for every release are in the <a href="https://github.com/jangtrinh/design-os-studio/blob/main/CHANGELOG.md">CHANGELOG</a>. The newest is 0.7.8. <a href="https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0">v0.6.0</a> has captures from the release build, and older releases are short lists.</p>
       </div>
       <div class="new-grid">
+        <article class="new-release new-release--078" id="new-in-v078" aria-labelledby="v078-h">
+          <h3 id="v078-h" class="new-ver">0.7.8</h3>
+          <ul class="new-bullets">
+            <li><strong>Arrowheads and the Arrow tool.</strong> Lines and vectors can end in arrowheads, drawn live and kept through <code>.fig</code> and Figma REST JSON. The stroke panel gains <code>Start point</code> and <code>End point</code> rows, dashed strokes get a dash cap, and the Arrow tool is on Shift+L.</li>
+            <li><strong>Images.</strong> Image fills gain crop, rotation and tile scale, kept through <code>.fig</code> and Figma REST JSON.</li>
+            <li><strong>Glass and noise.</strong> Glass effects gain splay and bevel settings, and noise and texture effects gain X and Y size, kept through <code>.fig</code> and Figma REST JSON.</li>
+            <li><strong>Inspector.</strong> Corners get individual radius fields and a corner smoothing slider, a lock aspect ratio toggle sits next to W and H, Type settings gain <code>Truncate text</code> and <code>Max lines</code>, and properties from nested instances are exposed.</li>
+            <li><strong>Edit menu.</strong> Select same text properties and font, <code>Paste and match style</code> and <code>Swap fill and stroke</code> work as in Figma.</li>
+            <li><strong><code>.fig</code> round trip.</strong> An instance's stroke and corner overrides keep their baked geometry, an instance keeps its own aspect lock, and a variable's stroke colour scope survives a save and reopen.</li>
+          </ul>
+        </article>
         <article class="new-release new-release--077" id="new-in-v077" aria-labelledby="v077-h">
           <h3 id="v077-h" class="new-ver">0.7.7</h3>
           <ul class="new-bullets">
