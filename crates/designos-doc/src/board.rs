@@ -1246,29 +1246,22 @@ pub fn sync_connector(doc: &mut Document, id: NodeId) -> bool {
 
 /// Connectors on the page of `of` (or all pages when `None`) with an end attached to one of `nodes`.
 pub fn connectors_attached_to(doc: &Document, nodes: &[NodeId]) -> Vec<NodeId> {
-    doc.nodes
-        .values()
-        .filter_map(|n| match &n.kind {
-            NodeKind::Connector(c) => {
-                let hit = |e: &ConnectorEnd| e.node.is_some_and(|t| nodes.contains(&t));
-                (hit(&c.start) || hit(&c.end)).then_some(n.id)
-            }
-            _ => None,
-        })
-        .collect()
+    with_index(doc, |idx| {
+        let mut out = Vec::new();
+        for &n in nodes {
+            out.extend_from_slice(idx.connectors_for_end(n));
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    })
 }
 
 /// Re-routes every connector attached to (a descendant of) `moved`; returns the touched connectors.
 pub fn reroute_attached(doc: &mut Document, moved: &[NodeId]) -> Vec<NodeId> {
-    let mut all = moved.to_vec();
-    for m in moved {
-        doc.walk(*m, |n, _| all.push(n.id));
-    }
-    all.sort();
-    all.dedup();
-    let ids = connectors_attached_to(doc, &all);
-    for id in &ids {
-        sync_connector(doc, *id);
+    let ids = connectors_touching(doc, moved);
+    for &id in &ids {
+        sync_connector(doc, id);
     }
     ids
 }

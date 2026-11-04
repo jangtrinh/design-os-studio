@@ -1318,6 +1318,7 @@ fn start_move(app: &mut App, clicked: NodeId, start: DV, alt: bool) -> Option<Mo
         ids.push(clicked);
     }
     let mut tx = Tx::new();
+    tx.ed.reroute_viewport = Some(super::agent_changes_chip::viewport_page_rect(app.view, app.canvas_rect));
     let mut dup_blocked = None;
     let mut main_copies = Vec::new();
     if alt {

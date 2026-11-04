@@ -537,6 +537,18 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
         }
     };
     let post_replay_in_progress = app.doc.in_progress.clone();
+    if !touched_ids.is_empty() && designos_doc::with_index(&app.doc, |idx| !idx.is_empty()) {
+        let reroute_nodes: Vec<NodeId> = touched_ids.iter().map(|&id| NodeId(id)).collect();
+        let plan = designos_doc::plan_reroute(&app.doc, &reroute_nodes, None);
+        for (cid, g) in plan.updates {
+            if let Some(n) = tx.ed.node(&mut app.doc, cid) {
+                g.apply(n);
+            }
+            if !touched_ids.contains(&cid.0) {
+                touched_ids.push(cid.0);
+            }
+        }
+    }
     let committed = tx.commit_labeled(&mut app.doc, &mut app.hist, patch.label.clone()).map_err(|e| {
         // Nothing of this patch landed, so neither do the id remaps it made.
         app.terminal.live_patch.state = saved;
@@ -662,5 +674,76 @@ mod close_save_classification_tests {
             assert_eq!(failed(classify_save_io(path, std::io::Error::from(kind))).0, "INVALID_ARGUMENTS", "{kind:?}");
         }
         assert_eq!(failed(classify_save_io(path, std::io::Error::from(ErrorKind::StorageFull))).0, "INTERNAL_ERROR");
+    }
+
+    #[test]
+    fn live_patch_move_reroutes_attached_connectors() {
+        use designos_doc::live_patch::live_ops_for_command;
+        use designos_doc::*;
+
+        let mut doc = Document::new("live_patch_reroute");
+        let page = doc.add_page("Page 1");
+        let a = doc.alloc_id();
+        doc.insert(page, Node::frame(a, Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(page, Node::frame(b, Rect::new(300.0, 0.0, 120.0, 80.0))).unwrap();
+        let c = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(c, props)).unwrap();
+        sync_connector(&mut doc, c);
+        let before_c = doc.get(c).unwrap().transform;
+
+        let mut moved_b = doc.get(b).unwrap().clone();
+        moved_b.transform.tx += 180.0;
+        moved_b.transform.ty -= 120.0;
+        let ops = live_ops_for_command(&doc, &Command::Update { node: Box::new(moved_b) }).unwrap();
+        let mut patch = LivePatch::new(ops);
+        patch.label = Some("move b".into());
+
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, &[patch]);
+
+        let expected = connector_geometry(&app.doc, c).unwrap();
+        assert_ne!(app.doc.get(c).unwrap().transform, before_c);
+        assert_eq!(app.doc.get(c).unwrap().transform, expected.transform);
+        assert_eq!(app.doc.get(c).unwrap().size, expected.size);
+        assert_eq!(app.hist.undo_depth(), 1);
+    }
+
+    #[test]
+    fn live_patch_already_rerouted_connector_is_noop() {
+        use designos_doc::live_patch::live_ops_for_command;
+        use designos_doc::*;
+
+        let mut doc = Document::new("live_patch_noop");
+        let page = doc.add_page("Page 1");
+        let a = doc.alloc_id();
+        doc.insert(page, Node::frame(a, Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(page, Node::frame(b, Rect::new(300.0, 0.0, 120.0, 80.0))).unwrap();
+        let c = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(c, props)).unwrap();
+        sync_connector(&mut doc, c);
+
+        let mut prev_doc = doc.clone();
+        prev_doc.get_mut(c).unwrap().transform.tx -= 50.0;
+        let current_c = doc.get(c).unwrap().clone();
+        let ops = live_ops_for_command(&prev_doc, &Command::Update { node: Box::new(current_c) }).unwrap();
+        let mut patch = LivePatch::new(ops);
+        patch.label = Some("rerouted c".into());
+
+        let mut app = App::new(doc);
+        app.canvas.dirty = false;
+        let epoch_before = app.doc.mutation_epoch();
+        let rev_before = app.canvas.tiles.rev();
+        let depth_before = app.hist.undo_depth();
+
+        apply_live_patches(&mut app, &[patch]);
+
+        assert!(!app.canvas.dirty);
+        assert_eq!(app.doc.mutation_epoch(), epoch_before);
+        assert_eq!(app.hist.undo_depth(), depth_before);
+        assert_eq!(app.canvas.tiles.rev(), rev_before);
     }
 }

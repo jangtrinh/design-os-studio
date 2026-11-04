@@ -168,9 +168,10 @@ pub fn fit_group(doc: &mut Document, ed: &mut Edit, id: NodeId) -> bool {
 /// `GroupsAndStacksObserver` (`apply_groups_and_stacks_layout`) bottom-up frontier
 /// propagation with Fixed-box boundary cutoff.
 pub fn relayout_up(doc: &mut Document, ed: &mut Edit, start: NodeId) {
-    // on a board, connectors follow the moved node live (every move, resize and rotate comes through here)
+    // connectors follow the moved node live (every move, resize and rotate comes through here)
     crate::board::connect::reroute_touched(doc, ed);
     let mut cur = doc.get(start).and_then(|n| n.parent);
+    let mut any_ancestor_changed = false;
     while let Some(p) = cur {
         let is_group = matches!(doc.get(p).map(|n| &n.kind), Some(NodeKind::Group));
         let is_al = doc.get(p).and_then(|n| n.kind.frame_props()).map(|f| f.auto_layout.is_some()).unwrap_or(false);
@@ -184,7 +185,11 @@ pub fn relayout_up(doc: &mut Document, ed: &mut Edit, start: NodeId) {
         if !box_changed {
             break;
         }
+        any_ancestor_changed = true;
         cur = doc.get(p).and_then(|n| n.parent);
+    }
+    if any_ancestor_changed {
+        crate::board::connect::reroute_touched(doc, ed);
     }
 }
 

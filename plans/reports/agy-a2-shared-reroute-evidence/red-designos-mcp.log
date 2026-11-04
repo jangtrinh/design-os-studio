@@ -1,0 +1,48 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a2-shared-reroute/crates/designos-mcp)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.84s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-596a57182b5ff679)
+
+running 14 tests
+test engine::tests::mcp_undo_and_redo_add_no_reroute_step ... ok
+test engine::tests::mcp_delete_default_mirror_is_kept_deleted ... ok
+test engine::tests::mcp_insert_into_instance_slot_survives_main_edit ... ok
+test engine::tests::mcp_lint_page_with_extras_marks_truncated_from_node_and_style_findings ... ok
+test engine::tests::mcp_update_node_move_undoes_in_one_step ... FAILED
+test engine::tests::mcp_move_of_a_frame_saves_rerouted_connectors ... FAILED
+test engine::tests::mcp_lint_rules_list_accepts_broken_style_binding ... ok
+test engine::tests::mcp_lint_broken_style_binding_follows_the_active_preset ... ok
+test engine::tests::mcp_lint_broken_style_binding_appears_once_across_budgeted_chunks_with_consistent_totals ... ok
+test engine::tests::mcp_lint_budgeted_chunk_pagination_preserves_all_findings_and_invalidates_on_doc_swap ... ok
+test engine::tests::mcp_generate_code_ids_match_dropdown ... ok
+test engine::tests::mcp_lint_error_contracts_and_history_fix ... ok
+test engine::tests::mcp_apply_spec_into_instance_slot_survives ... ok
+test engine::tests::mcp_lint_returns_full_rule_set ... ok
+
+failures:
+
+---- engine::tests::mcp_update_node_move_undoes_in_one_step stdout ----
+
+thread 'engine::tests::mcp_update_node_move_undoes_in_one_step' (1661911) panicked at crates/designos-mcp/src/engine.rs:4710:9:
+assertion `left != right` failed
+  left: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 102.4, ty: 22.400002 }
+ right: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 102.4, ty: 22.400002 }
+
+---- engine::tests::mcp_move_of_a_frame_saves_rerouted_connectors stdout ----
+
+thread 'engine::tests::mcp_move_of_a_frame_saves_rerouted_connectors' (1661909) panicked at crates/designos-mcp/src/engine.rs:4689:9:
+assertion `left != right` failed
+  left: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 102.4, ty: 22.400002 }
+ right: Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 102.4, ty: 22.400002 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    engine::tests::mcp_move_of_a_frame_saves_rerouted_connectors
+    engine::tests::mcp_update_node_move_undoes_in_one_step
+
+test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 316 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `-p designos-mcp --lib`

@@ -1092,7 +1092,18 @@ impl Engine {
                 });
                 Ok(value)
             }
-            "designos_apply_batch" => crate::tools::batch::apply(self, args),
+            "designos_apply_batch" => {
+                let depth_before = self.history.undo_depth();
+                let res = crate::tools::batch::apply(self, args)?;
+                if self.history.undo_depth() > depth_before {
+                    if let Some(inv) = self.history.peek_undo().cloned() {
+                        let mut touched = Vec::new();
+                        collect_cmd_touched_nodes(&inv, &mut touched);
+                        self.reroute_in_last_step(&touched)?;
+                    }
+                }
+                Ok(res)
+            }
             "designos_configure_session" => self.session_options.apply_patch(args).map_err(ToolError::from),
             "designos_import_web_capture" | "import_web_capture" => {
                 let a: ImportWebCaptureArgs = parse(args)?;
@@ -1175,8 +1186,19 @@ impl Engine {
     /// drains deferred layout a step per frame; this engine has no window, and its document is
     /// read, saved and exported as is.
     pub(crate) fn relayout(&mut self, root: NodeId) {
+        let ep = self.doc.mutation_epoch();
         self.doc.relayout_subtree(root);
         self.doc.flush_pending_relayout();
+        if self.doc.mutation_epoch() != ep && designos_doc::with_index(&self.doc, |idx| !idx.is_empty()) {
+            let mut dirty = Vec::new();
+            let mut removed = Vec::new();
+            let touched = if self.doc.dirty_changes_since(ep, &mut dirty, &mut removed) { dirty } else { vec![root] };
+            if !touched.is_empty() && !designos_doc::plan_reroute(&self.doc, &touched, None).updates.is_empty() {
+                let _ = self.reroute_in_last_step(&touched);
+                self.doc.relayout_subtree(root);
+                self.doc.flush_pending_relayout();
+            }
+        }
     }
 
     /// Finishes any auto-layout the document still has deferred. Callers that serialize or
@@ -1202,9 +1224,54 @@ impl Engine {
 
     pub fn exec(&mut self, command: Command) -> Result<(), ToolError> {
         let w = designos_doc::writer_command(&self.doc, command);
+        let mut touched = Vec::new();
+        for p in &w.parts {
+            collect_cmd_touched_nodes(p, &mut touched);
+        }
         let ops = self.live_ops_for_parts(&w.parts)?;
         self.history.exec(&mut self.doc, w.cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
         self.revision = self.revision.wrapping_add(1);
+        self.record(ops);
+        self.reroute_in_last_step(&touched)?;
+        Ok(())
+    }
+
+    pub(crate) fn reroute_in_last_step(&mut self, touched: &[NodeId]) -> Result<(), ToolError> {
+        if touched.is_empty() || designos_doc::with_index(&self.doc, |idx| idx.is_empty()) {
+            return Ok(());
+        }
+        let plan = designos_doc::plan_reroute(&self.doc, touched, None);
+        if plan.updates.is_empty() {
+            return Ok(());
+        }
+        let mut reroute_parts = Vec::with_capacity(plan.updates.len());
+        for (cid, g) in plan.updates {
+            if let Some(cur) = self.doc.get(cid) {
+                let mut updated = cur.clone();
+                g.apply(&mut updated);
+                reroute_parts.push(Command::Update { node: Box::new(updated) });
+            }
+        }
+        if reroute_parts.is_empty() {
+            return Ok(());
+        }
+        let ops = self.live_ops_for_parts(&reroute_parts)?;
+        let depth = self.history.undo_depth();
+        if let Some(inv_prev) = self.history.peek_undo().cloned() {
+            let label = self.history.peek_undo_label().map(str::to_owned);
+            let fwd_prev = inv_prev.apply(&mut self.doc).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+            self.history.drop_undo_steps_after(depth - 1);
+            let mut cmds = match fwd_prev {
+                Command::Batch(v) => v,
+                other => vec![other],
+            };
+            cmds.extend(reroute_parts);
+            let combined = if cmds.len() == 1 { cmds.pop().unwrap() } else { Command::Batch(cmds) };
+            self.history.exec_labeled(&mut self.doc, combined, label).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        } else {
+            let cmd = if reroute_parts.len() == 1 { reroute_parts.pop().unwrap() } else { Command::Batch(reroute_parts) };
+            self.history.exec(&mut self.doc, cmd).map_err(|e| ToolError::new(ErrorCode::InternalError, "", e.to_string()))?;
+        }
         self.record(ops);
         Ok(())
     }
@@ -1322,6 +1389,34 @@ impl Engine {
             crate::tools::screenshot::attach_diff_to_reply(before, &self.doc, &[id], &mut out);
         }
         Ok(out)
+    }
+}
+
+fn collect_cmd_touched_nodes(cmd: &Command, out: &mut Vec<NodeId>) {
+    match cmd {
+        Command::Insert { nodes, .. } | Command::InsertPage { nodes, .. } => {
+            for n in nodes {
+                if !out.contains(&n.id) {
+                    out.push(n.id);
+                }
+            }
+        }
+        Command::Remove { id } | Command::Reparent { id, .. } | Command::RemovePage { id } => {
+            if !out.contains(id) {
+                out.push(*id);
+            }
+        }
+        Command::Update { node } => {
+            if !out.contains(&node.id) {
+                out.push(node.id);
+            }
+        }
+        Command::Batch(cmds) => {
+            for c in cmds {
+                collect_cmd_touched_nodes(c, out);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -4654,5 +4749,88 @@ mod tests {
         assert_eq!(slot_diff.name, "Leading icon");
         let glyph_diff = e.doc.get(slot_diff.children[0]).unwrap();
         assert_eq!(glyph_diff.fills[0].kind, PaintKind::Solid(Color::rgb(0, 255, 0)), "non-matching default fill drops override on MCP apply_spec swap");
+    }
+
+    fn engine_with_connected_frames() -> (Engine, NodeId, NodeId, NodeId) {
+        use designos_doc::{sync_connector, ConnectorEnd, ConnectorProps, Magnet};
+        let mut doc = Document::new("mcp_connectors");
+        let page = doc.add_page("Page 1");
+        let a = doc.alloc_id();
+        doc.insert(page, Node::frame(a, Rect::new(0.0, 0.0, 120.0, 80.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(page, Node::frame(b, Rect::new(300.0, 0.0, 120.0, 80.0))).unwrap();
+        let c = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(c, props)).unwrap();
+        sync_connector(&mut doc, c);
+        let mut e = Engine::new();
+        e.doc = doc;
+        (e, a, b, c)
+    }
+
+    #[test]
+    fn mcp_move_of_a_frame_saves_rerouted_connectors() {
+        use designos_doc::connector_geometry;
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        let before_geom = connector_geometry(&e.doc, c).unwrap();
+
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 520.0, "y": -180.0 })).unwrap();
+
+        let expected = connector_geometry(&e.doc, c).unwrap();
+        assert_ne!(expected.transform, before_geom.transform);
+        let stored = e.doc.get(c).unwrap();
+        assert_eq!(stored.transform, expected.transform);
+        assert_eq!(stored.size, expected.size);
+        let cp = match &stored.kind {
+            NodeKind::Connector(cp) => cp,
+            _ => unreachable!(),
+        };
+        assert_eq!(cp.start.point, expected.start_point);
+        assert_eq!(cp.end.point, expected.end_point);
+    }
+
+    #[test]
+    fn mcp_update_node_move_undoes_in_one_step() {
+        use designos_doc::connector_geometry;
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        let orig_b_tx = e.doc.get(b).unwrap().transform;
+        let orig_c_geom = connector_geometry(&e.doc, c).unwrap();
+
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 500.0, "y": -140.0 })).unwrap();
+        assert_eq!(e.history.undo_depth(), 1);
+        assert_ne!(e.doc.get(c).unwrap().transform, orig_c_geom.transform);
+
+        let u = e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(u["changed"], json!(true));
+        assert_eq!(u["can_undo"], json!(false));
+        assert_eq!(e.history.undo_depth(), 0);
+        assert_eq!(e.doc.get(b).unwrap().transform, orig_b_tx);
+        assert_eq!(e.doc.get(c).unwrap().transform, orig_c_geom.transform);
+        assert_eq!(e.doc.get(c).unwrap().size, orig_c_geom.size);
+        let cp = match &e.doc.get(c).unwrap().kind {
+            NodeKind::Connector(cp) => cp,
+            _ => unreachable!(),
+        };
+        assert_eq!(cp.start.point, orig_c_geom.start_point);
+        assert_eq!(cp.end.point, orig_c_geom.end_point);
+    }
+
+    #[test]
+    fn mcp_undo_and_redo_add_no_reroute_step() {
+        let (mut e, _a, b, c) = engine_with_connected_frames();
+        e.call("designos_update_node", json!({ "node_id": b.0, "x": 480.0, "y": -120.0 })).unwrap();
+        let moved_c_tx = e.doc.get(c).unwrap().transform;
+        assert_eq!(e.history.undo_depth(), 1);
+
+        let u = e.call("designos_undo", json!({})).unwrap();
+        assert_eq!(u["can_undo"], json!(false));
+        assert_eq!(u["can_redo"], json!(true));
+        assert_eq!(e.history.undo_depth(), 0);
+
+        let r = e.call("designos_redo", json!({})).unwrap();
+        assert_eq!(r["can_undo"], json!(true));
+        assert_eq!(r["can_redo"], json!(false));
+        assert_eq!(e.history.undo_depth(), 1);
+        assert_eq!(e.doc.get(c).unwrap().transform, moved_c_tx);
     }
 }
