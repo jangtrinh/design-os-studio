@@ -976,7 +976,7 @@ mod tests {
         let i = d.alloc_id();
         let mut n = Node::rectangle(i, designos_doc::Rect::new(0.0, 0.0, 5.0, 5.0));
         n.fills = vec![Paint {
-            kind: PaintKind::Image { image_ref: "abc".into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: "abc".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: BlendMode::Normal,

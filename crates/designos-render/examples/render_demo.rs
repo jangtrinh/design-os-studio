@@ -137,8 +137,12 @@ fn main() {
     for (i, mode) in [ImageScaleMode::Fill, ImageScaleMode::Fit, ImageScaleMode::Tile].into_iter().enumerate() {
         let x = 400.0 + i as f32 * 90.0;
         let r = b.add(None, |id| Node::rectangle(id, Rect::new(x, 130.0, 80.0, 70.0)));
-        b.node(r).fills =
-            vec![Paint { kind: PaintKind::Image { image_ref: "checker".into(), scale_mode: mode }, opacity: 1.0, visible: true, blend: BlendMode::Normal }];
+        b.node(r).fills = vec![Paint {
+            kind: PaintKind::Image { image_ref: "checker".into(), scale_mode: mode, params: Default::default() },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
         b.label(x, 204.0, &format!("image {mode:?}"));
     }
 

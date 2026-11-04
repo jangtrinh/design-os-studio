@@ -1,0 +1,134 @@
+# red run on base f4e8cfcf91b9eaa2bc1a3b06392aeab840f7fe0e with the new tests only
+## cargo test -p designos-app --bin designos --locked -- image_jobs::
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163-image-crop-rotation-tile/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.95s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 34 tests
+test image_jobs::framing_tests::erase_mask_follows_the_bitmap_the_job_sends ... FAILED
+test image_jobs::framing_tests::expand_grows_an_identity_crop_by_the_pixels_it_sent ... FAILED
+test image_jobs::tests::a_done_status_left_in_the_hook_folder_is_cleared_when_an_image_job_starts ... ok
+test image_jobs::tests::closing_a_file_whose_session_folder_is_a_link_removes_nothing_in_the_target_of_the_link ... ok
+test image_jobs::tests::drag_region_follows_the_world_transform_and_the_fit_letterbox ... ok
+test image_jobs::tests::a_link_planted_as_the_image_jobs_folder_receives_no_job_file_and_loses_nothing ... ok
+test image_jobs::framing_tests::axis_aligned_crop_job_sends_exactly_its_window ... FAILED
+test image_jobs::framing_tests::fill_and_fit_at_a_quarter_turn_send_the_rotated_picture ... FAILED
+test image_jobs::framing_tests::quarter_turn_is_baked_into_the_result_bitmap ... FAILED
+test image_jobs::framing_tests::job_result_keeps_the_original_adjustments_and_flags ... FAILED
+test image_jobs::framing_tests::identity_crop_job_sends_the_whole_image ... FAILED
+test image_jobs::framing_tests::crop_window_result_is_a_plain_stretch_of_the_sent_window ... ok
+test image_jobs::tests::a_fifo_at_agent_status_json_does_not_freeze_the_start_of_an_image_job ... ok
+test image_jobs::tests::no_bundled_model_crate ... ok
+test image_jobs::tests::no_agent_disables_commands ... ok
+test image_jobs::tests::expand_bounds ... ok
+test image_jobs::framing_tests::fill_and_fit_at_no_turn_keep_their_windows ... ok
+test image_jobs::tests::remove_background_inserts_result_one_undo ... ok
+test image_jobs::tests::erase_without_region_omits_mask_file_and_field ... ok
+test image_jobs::tests::original_kept ... ok
+test image_jobs::tests::size_mismatch_rejected ... ok
+test image_jobs::tests::jobs_rooted_in_file_session_dir_and_isolated_across_files ... ok
+test image_jobs::tests::visible_crop_hidpi_expand_and_scale_mode_preserved ... FAILED
+test image_jobs::framing_tests::job_result_renders_like_the_layer_it_replaces ... FAILED
+test image_jobs::framing_tests::a_crop_that_shows_no_part_of_its_image_starts_no_job ... FAILED
+test image_jobs::framing_tests::expand_is_refused_when_the_crop_is_not_a_plain_window ... FAILED
+test image_jobs::tests::undoing_a_job_that_landed_on_a_parked_tab_back_to_the_saved_state_clears_the_dot ... ok
+test image_jobs::tests::finished_agent_without_output_fails_immediately_and_advances_queue ... ok
+test image_jobs::tests::multi_tab_switch_and_close_isolate_image_jobs_and_cleanup ... ok
+test image_jobs::tests::default_flow_without_agent_script_invokes_agent_cli_as_system_turn ... ok
+test image_jobs::tests::a_job_that_landed_on_a_parked_library_tab_does_not_rewrite_its_file_when_the_tab_comes_back ... ok
+test image_jobs::tests::job_completing_while_at_home_survives_reopening_same_library_file_with_one_undo ... ok
+test image_jobs::tests::a_job_that_landed_on_a_parked_library_tab_and_was_written_shows_no_dot ... ok
+test image_jobs::tests::job_on_file_a_completes_after_go_home_and_opening_file_b_from_home ... ok
+
+failures:
+
+---- image_jobs::framing_tests::erase_mask_follows_the_bitmap_the_job_sends stdout ----
+
+thread 'image_jobs::framing_tests::erase_mask_follows_the_bitmap_the_job_sends' (88594670) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:152:5:
+assertion `left == right` failed: mask has the size of the image sent
+  left: (200, 200)
+ right: (400, 200)
+
+---- image_jobs::framing_tests::expand_grows_an_identity_crop_by_the_pixels_it_sent stdout ----
+
+thread 'image_jobs::framing_tests::expand_grows_an_identity_crop_by_the_pixels_it_sent' (88594671) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:252:5:
+assertion `left == right` failed: the whole picture is the visible window
+  left: (200, 200)
+ right: (400, 200)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- image_jobs::framing_tests::axis_aligned_crop_job_sends_exactly_its_window stdout ----
+
+thread 'image_jobs::framing_tests::axis_aligned_crop_job_sends_exactly_its_window' (88594668) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:105:5:
+assertion `left == right` failed: u in 0.25..0.75 of 400 and v in 0.25..0.75 of 200
+  left: (200, 200)
+ right: (200, 100)
+
+---- image_jobs::framing_tests::fill_and_fit_at_a_quarter_turn_send_the_rotated_picture stdout ----
+
+thread 'image_jobs::framing_tests::fill_and_fit_at_a_quarter_turn_send_the_rotated_picture' (88594673) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:123:9:
+assertion `left == right` failed: Fill: top-left pixel of the rotated picture
+  left: (100, 0)
+ right: (100, 199)
+
+---- image_jobs::framing_tests::quarter_turn_is_baked_into_the_result_bitmap stdout ----
+
+thread 'image_jobs::framing_tests::quarter_turn_is_baked_into_the_result_bitmap' (88594678) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:224:5:
+assertion `left == right` failed
+  left: ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: 0.0, vignette: 0.0, temperature: 0.0, vibrance: 0.0, contrast: 0.0, brightness: 0.0 }
+ right: ImageAdjust { tint: 0.0, shadows: 0.0, highlights: -0.4, detail: 0.0, exposure: 0.0, vignette: 0.0, temperature: 0.0, vibrance: 0.0, contrast: 0.0, brightness: 0.0 }
+
+---- image_jobs::framing_tests::job_result_keeps_the_original_adjustments_and_flags stdout ----
+
+thread 'image_jobs::framing_tests::job_result_keeps_the_original_adjustments_and_flags' (88594676) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:203:5:
+assertion `left == right` failed: adjustments are carried
+  left: ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: 0.0, vignette: 0.0, temperature: 0.0, vibrance: 0.0, contrast: 0.0, brightness: 0.0 }
+ right: ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: 0.25, vignette: 0.0, temperature: 0.0, vibrance: 0.75, contrast: -0.5, brightness: 0.125 }
+
+---- image_jobs::framing_tests::identity_crop_job_sends_the_whole_image stdout ----
+
+thread 'image_jobs::framing_tests::identity_crop_job_sends_the_whole_image' (88594675) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:90:5:
+assertion `left == right` failed: the canvas stretches the whole picture into the square, so the whole picture is sent
+  left: (200, 200)
+ right: (400, 200)
+
+---- image_jobs::tests::visible_crop_hidpi_expand_and_scale_mode_preserved stdout ----
+
+thread 'image_jobs::tests::visible_crop_hidpi_expand_and_scale_mode_preserved' (88594930) panicked at crates/designos-app/src/image_jobs.rs:1972:9:
+assertion `left == right` failed: input.png must be the whole 400x200 picture the identity crop shows
+  left: (200, 200)
+ right: (400, 200)
+
+---- image_jobs::framing_tests::job_result_renders_like_the_layer_it_replaces stdout ----
+
+thread 'image_jobs::framing_tests::job_result_renders_like_the_layer_it_replaces' (88594677) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:79:5:
+fit quarter turn: 7482 of 10000 pixels differ from the original layer
+
+---- image_jobs::framing_tests::a_crop_that_shows_no_part_of_its_image_starts_no_job stdout ----
+
+thread 'image_jobs::framing_tests::a_crop_that_shows_no_part_of_its_image_starts_no_job' (88594667) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:280:5:
+the window lies right of the picture
+
+---- image_jobs::framing_tests::expand_is_refused_when_the_crop_is_not_a_plain_window stdout ----
+
+thread 'image_jobs::framing_tests::expand_is_refused_when_the_crop_is_not_a_plain_window' (88594672) panicked at crates/designos-app/src/image_jobs/framing_tests.rs:269:5:
+expanding a turned crop has no meaning on the canvas
+
+
+failures:
+    image_jobs::framing_tests::a_crop_that_shows_no_part_of_its_image_starts_no_job
+    image_jobs::framing_tests::axis_aligned_crop_job_sends_exactly_its_window
+    image_jobs::framing_tests::erase_mask_follows_the_bitmap_the_job_sends
+    image_jobs::framing_tests::expand_grows_an_identity_crop_by_the_pixels_it_sent
+    image_jobs::framing_tests::expand_is_refused_when_the_crop_is_not_a_plain_window
+    image_jobs::framing_tests::fill_and_fit_at_a_quarter_turn_send_the_rotated_picture
+    image_jobs::framing_tests::identity_crop_job_sends_the_whole_image
+    image_jobs::framing_tests::job_result_keeps_the_original_adjustments_and_flags
+    image_jobs::framing_tests::job_result_renders_like_the_layer_it_replaces
+    image_jobs::framing_tests::quarter_turn_is_baked_into_the_result_bitmap
+    image_jobs::tests::visible_crop_hidpi_expand_and_scale_mode_preserved
+
+test result: FAILED. 23 passed; 11 failed; 0 ignored; 0 measured; 4241 filtered out; finished in 1.47s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

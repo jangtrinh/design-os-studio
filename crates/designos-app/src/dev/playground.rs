@@ -655,7 +655,7 @@ mod tests {
             let id = d.alloc_id();
             let mut f = Node::frame(id, designos_doc::Rect::new(i as f32, 900.0, 10.0, 10.0));
             f.fills = vec![Paint {
-                kind: PaintKind::Image { image_ref: "unrelated".into(), scale_mode: ImageScaleMode::Fill },
+                kind: PaintKind::Image { image_ref: "unrelated".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
                 opacity: 1.0,
                 visible: true,
                 blend: BlendMode::Normal,

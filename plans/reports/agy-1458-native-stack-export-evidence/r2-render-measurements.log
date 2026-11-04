@@ -1,0 +1,66 @@
+# SwiftUI render check: the exported SwiftUI of five fixtures, compiled with swiftc and drawn by
+# SwiftUI's ImageRenderer (scale 1, macOS 26.5, Swift 6.2.3), then the bounding box of each shape found by colour.
+# before = export of 1688a025, after = export of this branch. Boxes are x min..max, y min..max in points.
+# hug_badge_column is drawn inside a 400x300 parent to show a hugging frame keeps its own size.
+# Pictures: r2-render-<before|after>-<fixture>.png in this directory.
+# Solver positions to match: pin_row LeftItem (12,22), RightItem (82,22), FloatingPin (248,8);
+# underlay_column FlowA (12,12), FlowB (12,40); absolute_only_frame DotA (10,10), DotB (200,120).
+== pin_row / before (rc=0)
+image 280x80
+LeftItem: x 12..72  y 22..58
+RightItem: x 82..142  y 22..58
+FloatingPin: x 248..266  y 18..36
+
+== pin_row / after (rc=0)
+image 280x80
+LeftItem: x 12..72  y 22..58
+RightItem: x 82..142  y 22..58
+FloatingPin: x 248..266  y 8..26
+
+== badge_column / before (rc=0)
+image 300x200
+FirstFlow: x 16..116  y 16..40
+SecondFlow: x 16..116  y 152..184
+CornerBadge: x 260..284  y 12..28
+
+== badge_column / after (rc=0)
+image 300x200
+FirstFlow: x 16..116  y 16..40
+SecondFlow: x 16..116  y 152..184
+CornerBadge: x 260..284  y 12..28
+
+== absolute_only_frame / before (rc=0)
+image 240x160
+DotA: x 125..135  y 85..95
+DotB: not found
+
+== absolute_only_frame / after (rc=0)
+image 240x160
+DotA: x 10..20  y 10..20
+DotB: x 200..210  y 120..130
+
+== underlay_column / before (rc=0)
+image 200x120
+Underlay: x 4..196  y 4..116
+FlowA: not found
+FlowB: not found
+TopBadge: x 170..190  y 4..24
+
+== underlay_column / after (rc=0)
+image 200x120
+Underlay: x 4..196  y 4..116
+FlowA: x 12..92  y 12..32
+FlowB: x 12..92  y 40..60
+TopBadge: x 170..190  y 4..24
+
+== hug_badge_column / before (rc=0)
+image 400x300
+FrameFill: x 0..174  y 0..72
+Badge: x 158..174  y 2..18
+Label: x 12..162  y 12..36
+
+== hug_badge_column / after (rc=0)
+image 400x300
+FrameFill: x 0..174  y 0..72
+Badge: x 158..174  y 2..18
+Label: x 12..162  y 12..36

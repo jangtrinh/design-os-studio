@@ -1,0 +1,15 @@
+Total collections: 10, total variables: 697
+  Collection 'VariableCollectionId:13039:909': name='_Primitives', modes=1 ['5248:3:Style'], variables=3
+  Collection 'VariableCollectionId:13039:911': name='1. Color modes', modes=2 ['5256:0:Light mode', '5353:0:Dark mode'], variables=2
+  Collection 'VariableCollectionId:5248:377685': name='_Primitives', modes=1 ['5248:3:Style'], variables=343
+  Collection 'VariableCollectionId:5256:372339': name='1. Color modes', modes=2 ['5256:0:Light mode', '5353:0:Dark mode'], variables=273
+  Collection 'VariableCollectionId:6283:327807': name='5. Containers', modes=1 ['6283:0:Value'], variables=3
+  Collection 'VariableCollectionId:6298:45304': name='4. Widths', modes=1 ['6298:1:Mode 1'], variables=12
+  Collection 'VariableCollectionId:6298:45383': name='3. Spacing', modes=1 ['6298:2:Mode 1'], variables=17
+  Collection 'VariableCollectionId:6298:46388': name='2. Radius', modes=1 ['6298:3:Mode 1'], variables=11
+  Collection 'VariableCollectionId:7403:16248': name='6. Typography', modes=1 ['7403:0:Value'], variables=32
+  Collection 'VariableCollectionId:7856:138521': name='6. Typography', modes=1 ['7403:0:Value'], variables=1
+All-collections mode sum=12, product=4
+Max single-variable collection chain: ['VariableCollectionId:5256:372339', 'VariableCollectionId:5248:377685']
+Unique collection chains across all variables: [('VariableCollectionId:13039:909',), ('VariableCollectionId:13039:911', 'VariableCollectionId:13039:909'), ('VariableCollectionId:5248:377685',), ('VariableCollectionId:5256:372339',), ('VariableCollectionId:5256:372339', 'VariableCollectionId:5248:377685'), ('VariableCollectionId:6283:327807', 'VariableCollectionId:5248:377685'), ('VariableCollectionId:6298:45304', 'VariableCollectionId:5248:377685'), ('VariableCollectionId:6298:45383', 'VariableCollectionId:5248:377685'), ('VariableCollectionId:6298:46388',), ('VariableCollectionId:7403:16248',), ('VariableCollectionId:7856:138521',)]
+Largest pair (own_var, style_var) in kit: collections=['VariableCollectionId:5256:372339', 'VariableCollectionId:5248:377685', 'VariableCollectionId:13039:911', 'VariableCollectionId:13039:909'] (from ('VariableCollectionId:5256:372339', 'VariableCollectionId:5248:377685') + ('VariableCollectionId:13039:911', 'VariableCollectionId:13039:909')), mode sum=6, mode product=4

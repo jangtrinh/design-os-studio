@@ -1,0 +1,14 @@
+# overlay tests on base 05a35557 source (image_jobs.rs stashed, tests present): the overlay functions do not exist, so the run stops at compile
+## cargo test -p designos-app --bin designos --locked -- tile_erase_drag
+error[E0432]: unresolved import `super::super::page_drag_to_local_rect`
+   --> crates/designos-app/src/image_jobs/framing_tests.rs:408:51
+error[E0425]: cannot find function `erase_overlay_local_rect` in this scope
+   --> crates/designos-app/src/image_jobs/framing_tests.rs:472:20
+error[E0425]: cannot find function `erase_overlay_local_rect` in this scope
+   --> crates/designos-app/src/image_jobs/framing_tests.rs:482:28
+error[E0282]: type annotations needed
+   --> crates/designos-app/src/image_jobs/framing_tests.rs:483:17
+error[E0282]: type annotations needed
+   --> crates/designos-app/src/image_jobs/framing_tests.rs:483:44
+error[E0282]: type annotations needed
+   --> crates/designos-app/src/image_jobs/framing_tests.rs:483:71

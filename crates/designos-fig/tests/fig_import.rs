@@ -43,7 +43,7 @@ fn check(doc: &Document) {
     assert_eq!(rect.stroke.weight, 2.0);
     assert_eq!(rect.layout_child.horizontal, Sizing::Fill, "STRETCH align in a vertical layout");
     let hash = designos_fig::kiwi::hex(&IMAGE_HASH);
-    assert!(matches!(&rect.fills[0].kind, PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Fill } if *image_ref == hash));
+    assert!(matches!(&rect.fills[0].kind, PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Fill, .. } if *image_ref == hash));
     assert_eq!(image_refs(doc), vec![hash]);
 
     // Text: weight/italic from style names, % letter spacing resolved, UTF-16 style ids.

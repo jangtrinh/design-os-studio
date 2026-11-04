@@ -2246,14 +2246,14 @@ mod tests {
 
         let main_rect = add_rect(&mut base, page, "Main Painted Rect", 0.0, 0.0);
         base.nodes.get_mut(&main_rect).unwrap().fills = vec![Paint {
-            kind: PaintKind::Image { image_ref: hash.clone(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: hash.clone(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: crate::BlendMode::Normal,
         }];
         let branch_rect = add_rect(&mut base, page, "Branch Painted Rect", 120.0, 0.0);
         base.nodes.get_mut(&branch_rect).unwrap().fills = vec![Paint {
-            kind: PaintKind::Image { image_ref: hash.clone(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: hash.clone(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: crate::BlendMode::Normal,

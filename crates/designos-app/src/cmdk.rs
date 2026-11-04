@@ -2025,7 +2025,7 @@ mod tests {
         let nid = doc.alloc_id();
         let mut node = Node::frame(nid, Rect::new(10.35, 20.72, 199.6, 120.4));
         node.fills = vec![Paint {
-            kind: PaintKind::Image { image_ref: "hero-asset".into(), scale_mode: designos_doc::ImageScaleMode::Fit },
+            kind: PaintKind::Image { image_ref: "hero-asset".into(), scale_mode: designos_doc::ImageScaleMode::Fit, params: Default::default() },
             opacity: 0.85,
             visible: true,
             blend: designos_doc::BlendMode::Normal,

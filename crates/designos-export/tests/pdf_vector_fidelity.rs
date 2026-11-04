@@ -159,7 +159,12 @@ fn photo_png(rgb: [u8; 3]) -> Vec<u8> {
 }
 
 fn image_paint(image_ref: &str) -> Paint {
-    Paint { kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: ImageScaleMode::Fill }, opacity: 1.0, visible: true, blend: BlendMode::Normal }
+    Paint {
+        kind: PaintKind::Image { image_ref: image_ref.into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1109,7 +1114,7 @@ fn random_paint(rng: &mut Rng) -> Paint {
         75..=86 => radial(random_stops(rng), random_handles(rng)),
         87..=91 => angular(random_stops(rng), random_handles(rng)),
         92..=95 => diamond(random_stops(rng), random_handles(rng)),
-        _ => PaintKind::Image { image_ref: "photo".into(), scale_mode: ImageScaleMode::Fill },
+        _ => PaintKind::Image { image_ref: "photo".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
     };
     let opacity = if rng.chance(0.85) { 1.0 } else { rng.range(0.4, 0.9) };
     let blend = if rng.hazard(0.04) { BlendMode::Multiply } else { BlendMode::Normal };

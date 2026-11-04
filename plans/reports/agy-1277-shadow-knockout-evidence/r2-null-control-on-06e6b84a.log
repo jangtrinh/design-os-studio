@@ -1,0 +1,242 @@
+# r2 null control: the whole shadow_fillless test files run against the sources of 06e6b84a (the base before the knockout change)
+# green here = identical to base; red here = behaviour the change introduces
+src from: 06e6b84a; tests from: e7f56533
+
+$ cargo test -p designos-render --locked --test shadow_fillless
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.05s
+     Running tests/shadow_fillless.rs (out/cargo/debug/deps/shadow_fillless-fb6c917451d628d0)
+
+running 21 tests
+test fillless_frame_shadow_is_not_erased_inside_the_frame ... ok
+test paint_free_and_zero_fill_children_keep_shadow ... FAILED
+test show_behind_on_never_knocks_out ... ok
+test filled_frame_shadow_comes_from_its_own_shape ... ok
+test hidden_and_transparent_children_add_nothing ... ok
+test runtime_opacity_zero_child_is_skipped_in_knockout ... ok
+test fillless_frame_knockout_follows_children_opaque_rule ... ok
+test fixture_pair_probes_on_one_page ... ok
+test fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... FAILED
+test ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... FAILED
+test zero_fill_frame_with_children_keeps_an_empty_drop_shadow ... ok
+test zero_percent_stroke_frame_keeps_its_stroke_footprint_shadow ... ok
+test luminance_mask_knocks_out_by_its_luminance ... FAILED
+test clipping_frame_clips_children_in_silhouette_and_knockout ... ok
+test zero_fill_frame_with_children_draws_no_inner_shadow ... ok
+test group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... FAILED
+test null_control_filled_and_plain_fillless_frames_unchanged ... ok
+test tile_render_equals_full_render_for_the_fixture_pair ... ok
+test half_opaque_text_knocks_out_the_shadow_at_full_coverage ... ok
+test stroke_only_text_still_knocks_out_its_glyph_interior ... ok
+test paint_free_text_children_add_nothing_to_the_knockout ... FAILED
+
+failures:
+
+---- paint_free_and_zero_fill_children_keep_shadow stdout ----
+
+thread 'paint_free_and_zero_fill_children_keep_shadow' (84186993) panicked at crates/designos-render/tests/shadow_fillless.rs:238:5:
+shadow under paint-free child frame was knocked out: [255, 255, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild stdout ----
+
+thread 'fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild' (84186984) panicked at crates/designos-render/tests/shadow_fillless.rs:279:5:
+fill-less child frame knocked out shadow outside grandchild: [255, 255, 255, 255]
+
+---- ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect stdout ----
+
+thread 'ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect' (84186982) panicked at crates/designos-render/tests/shadow_fillless.rs:326:5:
+unmasked rect corner knocked out circular shadow at (40, 40): [255, 255, 255, 255]
+
+---- luminance_mask_knocks_out_by_its_luminance stdout ----
+
+thread 'luminance_mask_knocks_out_by_its_luminance' (84186991) panicked at crates/designos-render/tests/shadow_fillless.rs:660:5:
+a mid-gray luminance mask must knock out about half the shadow, got 1.00 (165 201 201)
+
+---- group_wrapped_50pct_child_removes_same_shadow_as_direct_child stdout ----
+
+thread 'group_wrapped_50pct_child_removes_same_shadow_as_direct_child' (84186988) panicked at crates/designos-render/tests/shadow_fillless.rs:370:5:
+assertion `left == right` failed: group wrapper changed 6000 shadow pixels
+  left: 6000
+ right: 0
+
+---- paint_free_text_children_add_nothing_to_the_knockout stdout ----
+
+thread 'paint_free_text_children_add_nothing_to_the_knockout' (84186994) panicked at crates/designos-render/tests/shadow_fillless.rs:586:9:
+assertion `left == right` failed: 0% fill: text that paints nothing changed 5979 bytes of the shadow
+  left: 5979
+ right: 0
+
+
+failures:
+    ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect
+    fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild
+    group_wrapped_50pct_child_removes_same_shadow_as_direct_child
+    luminance_mask_knocks_out_by_its_luminance
+    paint_free_and_zero_fill_children_keep_shadow
+    paint_free_text_children_add_nothing_to_the_knockout
+
+test result: FAILED. 15 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p designos-render --test shadow_fillless`
+rc=101
+
+$ cargo test -p designos-gpu --locked --test shadow_fillless_fixture -- --nocapture
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.83s
+     Running tests/shadow_fillless_fixture.rs (out/cargo/debug/deps/shadow_fillless_fixture-c94fe1135e86a581)
+
+running 15 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+
+thread 'gpu_skips_runtime_opacity_zero_child_like_cpu' (84188988) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:336:5:
+GPU runtime-opacity-0 child knocked out shadow: [255, 255, 255, 255]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test gpu_skips_runtime_opacity_zero_child_like_cpu ... FAILED
+knockout-grandchild: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9997
+knockout-group-wrapped: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9988
+zero-fill-inner-0: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 1.0000
+zero-stroke-shadow: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 0.9993
+knockout-group-wrapped: 0.0000% with AA pixels forgiven (0 px)
+zero-fill-drop-0: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 1.0000
+knockout-paint-free-children: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9998
+zero-fill-inner-0: 0.0000% with AA pixels forgiven (0 px)
+zero-stroke-shadow: 0.0000% with AA pixels forgiven (0 px)
+knockout-grandchild: 0.0000% with AA pixels forgiven (0 px)
+test zero_percent_stroke_frame_keeps_its_stroke_footprint_shadow ... ok
+luminance-knockout: mismatch 0.2041% (40 px of 19600) at tolerance 8, ssim 0.9985
+knockout-ellipse-mask: mismatch 0.4847% (95 px of 19600) at tolerance 8, ssim 0.9980
+paint-free-text-bare: mismatch 0.0000% (0 px of 55200) at tolerance 8, ssim 0.9994
+zero-fill-drop-0: 0.0000% with AA pixels forgiven (0 px)
+knockout-paint-free-children: 0.0000% with AA pixels forgiven (0 px)
+luminance-knockout: 0.0000% with AA pixels forgiven (0 px)
+knockout-ellipse-mask: 0.0000% with AA pixels forgiven (0 px)
+zero-fill-inner-bare-0: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 1.0000
+zero-fill-drop-bare-0: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 1.0000
+paint-free-text-bare: 0.0000% with AA pixels forgiven (0 px)
+knockout-paint-free-children-expected: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9995
+knockout-grandchild-expected: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9993
+knockout-group-wrapped-expected: mismatch 0.0000% (0 px of 19200) at tolerance 8, ssim 0.9992
+zero-fill-inner-bare-0: 0.0000% with AA pixels forgiven (0 px)
+zero-fill-drop-bare-0: 0.0000% with AA pixels forgiven (0 px)
+knockout-paint-free-children-expected: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'paint_free_and_zero_fill_children_keep_shadow' (84188993) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:147:5:
+CPU knocked out shadow under paint-free child frame: [255, 255, 255, 255]
+knockout-grandchild-expected: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild' (84188987) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:195:5:
+CPU knocked out shadow outside grandchild: [255, 255, 255, 255]
+knockout-group-wrapped-expected: 0.0000% with AA pixels forgiven (0 px)
+test paint_free_and_zero_fill_children_keep_shadow ... FAILED
+test fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild ... FAILED
+luminance-show-behind: mismatch 0.2041% (40 px of 19600) at tolerance 8, ssim 0.9983
+knockout-ellipse-mask-expected: mismatch 0.3827% (75 px of 19600) at tolerance 8, ssim 0.9987
+luminance-show-behind: 0.2041% with AA pixels forgiven (40 px)
+knockout-ellipse-mask-expected: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect' (84188986) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:251:5:
+CPU unmasked rect corner knocked out circular shadow: [255, 255, 255, 255]
+
+thread 'group_wrapped_50pct_child_removes_same_shadow_as_direct_child' (84188989) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:303:5:
+assertion `left == right` failed: CPU group wrapper changed 6000 px
+  left: 6000
+ right: 0
+test ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect ... FAILED
+test group_wrapped_50pct_child_removes_same_shadow_as_direct_child ... FAILED
+stroke-text-bare: mismatch 0.1739% (96 px of 55200) at tolerance 8, ssim 0.9996
+luminance-no-shadow: mismatch 0.2041% (40 px of 19600) at tolerance 8, ssim 0.9993
+zero-fill-drop-1: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 1.0000
+luminance-no-shadow: 0.0000% with AA pixels forgiven (0 px)
+
+thread 'luminance_mask_knocks_out_by_its_luminance' (84188991) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:618:9:
+CPU: a mid-gray luminance mask must knock out about half the shadow, got 1.00 (165 201 201)
+test luminance_mask_knocks_out_by_its_luminance ... FAILED
+zero-fill-drop-1: 0.0000% with AA pixels forgiven (0 px)
+zero-fill-inner-1: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 1.0000
+stroke-text-bare: 0.0000% with AA pixels forgiven (0 px)
+zero-fill-inner-1: 0.0000% with AA pixels forgiven (0 px)
+paint-free-text-0: mismatch 0.1775% (98 px of 55200) at tolerance 8, ssim 0.9991
+half-text-shadow: mismatch 0.0707% (39 px of 55200) at tolerance 8, ssim 0.9982
+zero-fill-drop-bare-1: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 1.0000
+null-ctrl-no-behind: mismatch 0.0000% (0 px of 230400) at tolerance 8, ssim 0.9996
+zero-fill-drop-bare-1: 0.0000% with AA pixels forgiven (0 px)
+fillless-fixture-pair-behind: mismatch 0.0000% (0 px of 230400) at tolerance 8, ssim 0.9996
+zero-fill-inner-bare-1: mismatch 0.0000% (0 px of 22400) at tolerance 8, ssim 1.0000
+paint-free-text-0: 0.0000% with AA pixels forgiven (0 px)
+zero-fill-inner-bare-1: 0.0000% with AA pixels forgiven (0 px)
+half-text-shadow: 0.0000% with AA pixels forgiven (0 px)
+fillless-fixture-pair: mismatch 0.0000% (0 px of 230400) at tolerance 8, ssim 0.9996
+test zero_fill_frame_with_children_keeps_an_empty_drop_shadow ... ok
+test zero_fill_frame_with_children_draws_no_inner_shadow ... ok
+half-text-bare: mismatch 0.1739% (96 px of 55200) at tolerance 8, ssim 0.9996
+stroke-text-shadow: mismatch 1.0634% (587 px of 55200) at tolerance 8, ssim 0.9976
+half-text-bare: 0.0000% with AA pixels forgiven (0 px)
+stroke-text-shadow: 0.4493% with AA pixels forgiven (248 px)
+
+thread 'paint_free_text_children_add_nothing_to_the_knockout' (84188994) panicked at crates/designos-gpu/tests/shadow_fillless_fixture.rs:374:5:
+0% fill: text that paints nothing changed the shadow: 1993 CPU and 2026 GPU pixels differ
+test paint_free_text_children_add_nothing_to_the_knockout ... FAILED
+test half_opaque_text_knocks_out_the_shadow_at_full_coverage ... ok
+test stroke_only_text_still_knocks_out_its_glyph_interior ... ok
+null-ctrl-no-behind: 0.0000% with AA pixels forgiven (0 px)
+fillless-fixture-pair-behind: 0.0000% with AA pixels forgiven (0 px)
+test cpu_and_gpu_match_on_the_fixture_pair_with_show_behind ... ok
+fillless-fixture-pair: 0.0000% with AA pixels forgiven (0 px)
+test cpu_and_gpu_match_on_the_fixture_pair ... ok
+null-ctrl-behind: mismatch 0.0000% (0 px of 230400) at tolerance 8, ssim 0.9996
+null-ctrl-behind: 0.0000% with AA pixels forgiven (0 px)
+test null_control_filled_and_plain_fillless_frames_unchanged ... ok
+
+failures:
+
+failures:
+    ellipse_mask_plus_rect_sibling_knocks_out_circle_not_rect
+    fillless_child_frame_with_painting_grandchild_knocks_out_only_grandchild
+    gpu_skips_runtime_opacity_zero_child_like_cpu
+    group_wrapped_50pct_child_removes_same_shadow_as_direct_child
+    luminance_mask_knocks_out_by_its_luminance
+    paint_free_and_zero_fill_children_keep_shadow
+    paint_free_text_children_add_nothing_to_the_knockout
+
+test result: FAILED. 8 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+error: test failed, to rerun pass `-p designos-gpu --test shadow_fillless_fixture`
+rc=101
+
+$ cargo test -p designos-gpu --locked --test shadow_silhouette_source
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-1277-shadow-knockout/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.37s
+     Running tests/shadow_silhouette_source.rs (out/cargo/debug/deps/shadow_silhouette_source-239b379538156cad)
+
+running 5 tests
+test fill_less_frame_uses_children_on_both ... ok
+test hidden_fill_uses_children_on_both ... ok
+test stroke_only_silhouette_matches ... ok
+test own_fill_silhouette_matches ... ok
+test fill_less_clipping_frame_uses_children_on_both ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+rc=0
+

@@ -421,7 +421,7 @@ fn convert_element(
                 if let Some((_, bytes)) = decode_data_url(data_url) {
                     let image_ref = store_image_dedup(images, bytes);
                     fills.push(Paint {
-                        kind: PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Fill },
+                        kind: PaintKind::Image { image_ref, scale_mode: ImageScaleMode::Fill, params: Default::default() },
                         opacity: 1.0,
                         visible: true,
                         blend: BlendMode::Normal,
@@ -757,7 +757,12 @@ fn convert_image_or_placeholder(
             node.name = el.alt.as_deref().filter(|s| !s.trim().is_empty()).map(str::to_string).unwrap_or_else(|| make_element_layer_name(el));
             node.parent = Some(parent_id);
             let mut fills = map_background_paints(&sel, &el.styles, images, report);
-            fills.push(Paint { kind: PaintKind::Image { image_ref, scale_mode }, opacity: 1.0, visible: true, blend: BlendMode::Normal });
+            fills.push(Paint {
+                kind: PaintKind::Image { image_ref, scale_mode, params: Default::default() },
+                opacity: 1.0,
+                visible: true,
+                blend: BlendMode::Normal,
+            });
             node.fills = fills;
             node.stroke = map_stroke(&el.styles, font_size);
             node.corner_radii = map_corner_radii(&el.styles, rect.w, rect.h, font_size);

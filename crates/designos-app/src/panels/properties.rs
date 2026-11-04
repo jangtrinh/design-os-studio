@@ -2547,7 +2547,7 @@ pub(crate) fn choose_image_fill(app: &mut App, paint: &mut Paint, dialogs: &dyn 
         Ok((bytes, _, _)) => {
             let key = format!("img-{}", app.doc.images.len() + 1);
             app.doc.images.insert(key.clone(), bytes);
-            paint.kind = PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill };
+            paint.kind = PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill, params: Default::default() };
             paint.opacity = 1.0;
             true
         }
@@ -3019,7 +3019,7 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                         visible: true,
                         opacity: 1.0,
                         blend: BlendMode::Normal,
-                        kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill },
+                        kind: PaintKind::Image { image_ref: img_key.clone(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
                     }];
                 });
             }

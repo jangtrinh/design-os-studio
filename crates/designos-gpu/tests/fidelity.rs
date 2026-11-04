@@ -77,7 +77,7 @@ fn fx_scene() -> (Document, NodeId) {
     t.node(ch).transform = Affine::translate(30.0, 20.0) * Affine::rotate(0.5);
     let im = t.rect(None, Rect::new(130.0, 120.0, 60.0, 60.0), Color::WHITE);
     t.node(im).fills = vec![Paint {
-        kind: PaintKind::Image { image_ref: "checker".into(), scale_mode: ImageScaleMode::Fill },
+        kind: PaintKind::Image { image_ref: "checker".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
         opacity: 0.9,
         visible: true,
         blend: BlendMode::Multiply,
@@ -717,4 +717,193 @@ fn inside_dashed_ellipse_round_cap_extends_past_dash_end_gpu() {
     let c_butt = compare(&mut g, "inside_dashed_ellipse_butt_cap", &t.doc, t.page, vp, (100, 100), 8);
     let butt = c_butt.gpu.pixel(68, 83).unwrap();
     assert_eq!([butt.red(), butt.green(), butt.blue(), butt.alpha()], [255, 255, 255, 255], "GPU butt dash ends at the dash end so (68, 83) is white");
+}
+
+fn png_bytes(w: u32, h: u32, f: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+    let mut pm = designos_render::tiny_skia::Pixmap::new(w, h).unwrap();
+    for y in 0..h {
+        for x in 0..w {
+            let c = f(x, y);
+            let i = ((y * w + x) * 4) as usize;
+            pm.data_mut()[i..i + 4].copy_from_slice(&c);
+        }
+    }
+    pm.encode_png().unwrap()
+}
+
+fn px(pm: &designos_render::tiny_skia::Pixmap, x: u32, y: u32) -> [u8; 4] {
+    let p = pm.pixel(x, y).unwrap();
+    [p.red(), p.green(), p.blue(), p.alpha()]
+}
+
+#[test]
+fn rotation_90_is_exact_on_a_2x2_image() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.doc.images.insert(
+        "quad".into(),
+        png_bytes(2, 2, |x, y| match (x, y) {
+            (0, 0) => [255, 0, 0, 255],
+            (1, 0) => [0, 255, 0, 255],
+            (0, 1) => [0, 0, 255, 255],
+            _ => [255, 255, 0, 255],
+        }),
+    );
+    let r = t.rect(None, Rect::new(0.0, 0.0, 2.0, 2.0), Color::WHITE);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: "quad".into(), scale_mode: ImageScaleMode::Fill, params: ImageParams { rotation: 90.0, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "rotation_90_2x2", &t.doc, t.page, vp, (2, 2), 0);
+    assert_eq!(c.cpu.data(), c.gpu.data(), "CPU and GPU match exactly on 90-degree rotated 2x2 image");
+    assert_eq!(px(&c.gpu, 0, 0), [0, 0, 255, 255]);
+    assert_eq!(px(&c.gpu, 1, 0), [255, 0, 0, 255]);
+    assert_eq!(px(&c.gpu, 0, 1), [255, 255, 0, 255]);
+    assert_eq!(px(&c.gpu, 1, 1), [0, 255, 0, 255]);
+}
+
+#[test]
+fn tile_scale_2_doubles_the_tile_size() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.doc.images.insert("tile_rb".into(), png_bytes(20, 10, |x, _| if (5..15).contains(&x) { [0, 0, 255, 255] } else { [255, 0, 0, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), Color::WHITE);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: "tile_rb".into(), scale_mode: ImageScaleMode::Tile, params: ImageParams { tile_scale: 2.0, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "tile_scale_2", &t.doc, t.page, vp, (40, 20), 8);
+    assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
+    assert_eq!(px(&c.gpu, 7, 5), [255, 0, 0, 255]);
+    assert_eq!(px(&c.gpu, 20, 5), [0, 0, 255, 255]);
+}
+
+#[test]
+fn crop_with_identity_transform_stretches_the_image() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.doc.images.insert(
+        "bands".into(),
+        png_bytes(40, 40, |x, _| {
+            if x < 8 {
+                [255, 0, 0, 255]
+            } else if x < 32 {
+                [0, 255, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            }
+        }),
+    );
+    let r = t.rect(None, Rect::new(0.0, 0.0, 20.0, 40.0), Color::WHITE);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: "bands".into(), scale_mode: ImageScaleMode::Crop, params: ImageParams::default() },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "crop_identity_stretch", &t.doc, t.page, vp, (20, 40), 8);
+    assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
+    assert_eq!(px(&c.gpu, 1, 20), [255, 0, 0, 255]);
+    assert_eq!(px(&c.gpu, 19, 20), [0, 0, 255, 255]);
+}
+
+#[test]
+fn crop_transform_maps_uv_through_the_affine() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.doc.images.insert("half_rb".into(), png_bytes(20, 20, |x, _| if x < 10 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), Color::TRANSPARENT);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image {
+            image_ref: "half_rb".into(),
+            scale_mode: ImageScaleMode::Crop,
+            params: ImageParams { transform: Some([2.0, 0.0, -0.5, 0.0, 2.0, -0.5]), ..Default::default() },
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "crop_affine_uv", &t.doc, t.page, vp, (40, 40), 8);
+    assert!(c.report.ratio < 0.05, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
+    assert_eq!(px(&c.gpu, 3, 20), [255, 255, 255, 255]);
+    assert_eq!(px(&c.gpu, 37, 20), [255, 255, 255, 255]);
+    assert_eq!(px(&c.gpu, 15, 20), [255, 0, 0, 255]);
+    assert_eq!(px(&c.gpu, 25, 20), [0, 0, 255, 255]);
+}
+
+#[test]
+fn singular_crop_transform_draws_nothing() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    t.doc.images.insert("solid_red".into(), png_bytes(20, 20, |_, _| [255, 0, 0, 255]));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), Color::TRANSPARENT);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image {
+            image_ref: "solid_red".into(),
+            scale_mode: ImageScaleMode::Crop,
+            params: ImageParams { transform: Some([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ..Default::default() },
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "singular_crop", &t.doc, t.page, vp, (40, 40), 8);
+    assert_eq!(c.report.mismatched, 0);
+    assert_eq!(px(&c.gpu, 20, 20), [255, 255, 255, 255]);
+}
+
+fn tiled_halves_scene(tile_scale: f32) -> T {
+    let mut t = T::new();
+    t.doc.images.insert("halves".into(), png_bytes(2000, 1000, |x, _| if x < 1000 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), Color::WHITE);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: "halves".into(), scale_mode: ImageScaleMode::Tile, params: ImageParams { tile_scale, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    t
+}
+
+#[test]
+fn tile_scale_zero_and_negative_render_at_the_minimum_on_cpu_and_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let t = tiled_halves_scene(0.01);
+    let minimum = compare(&mut g, "tile_scale_minimum", &t.doc, t.page, vp, (40, 20), 8);
+    // The CPU averages the 2000x1000 picture down to the 20x10 tile and the GPU point-samples it, so the pixels
+    // on the red/blue seams differ; with those forgiven the two renders agree.
+    assert!(minimum.report_aa.ratio < 0.02, "CPU/GPU mismatch with seams forgiven {:.3}%", minimum.report_aa.ratio * 100.0);
+    assert_eq!(px(&minimum.gpu, 5, 5), [255, 0, 0, 255], "first tile red half");
+    assert_eq!(px(&minimum.gpu, 15, 5), [0, 0, 255, 255], "first tile blue half");
+    assert_eq!(px(&minimum.gpu, 25, 5), [255, 0, 0, 255], "second tile red half");
+    for raw in [0.0, -0.0, -3.0] {
+        let t = tiled_halves_scene(raw);
+        let c = compare(&mut g, "tile_scale_clamped", &t.doc, t.page, vp, (40, 20), 8);
+        assert!(c.gpu.data() == minimum.gpu.data(), "GPU: tile scale {raw} renders as 0.01");
+        assert!(c.cpu.data() == minimum.cpu.data(), "CPU: tile scale {raw} renders as 0.01");
+    }
+}
+
+#[test]
+fn non_finite_tile_scale_renders_at_native_size_on_cpu_and_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let t = tiled_halves_scene(1.0);
+    let native = compare(&mut g, "tile_scale_native", &t.doc, t.page, vp, (40, 20), 8);
+    for raw in [f32::NAN, f32::INFINITY] {
+        let t = tiled_halves_scene(raw);
+        let c = compare(&mut g, "tile_scale_non_finite", &t.doc, t.page, vp, (40, 20), 8);
+        assert!(c.gpu.data() == native.gpu.data(), "GPU: tile scale {raw} renders at native size");
+        assert!(c.cpu.data() == native.cpu.data(), "CPU: tile scale {raw} renders at native size");
+    }
 }

@@ -1,0 +1,89 @@
+# r2 mutants on a763b6c5, the final source. Each mutant follows a green null control and is reverted with git checkout.
+
+## null control (unmodified HEAD)
+modified source files: 0
+$ cargo test -p designos-doc --lib silhouette --locked
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.00s
+rc=0
+$ cargo test -p designos-render --test shadow_fillless --locked
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.00s
+rc=0
+$ cargo test -p designos-gpu --test shadow_fillless_fixture --locked
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+rc=0
+
+## mutant (i): the zero-alpha paint test applies in every mode
+-    p.visible && (mode != SilhouetteMode::Knockout || p.silhouette_alpha() > 0.0)
++    p.visible && p.silhouette_alpha() > 0.0
+$ cargo test -p designos-doc --lib silhouette --locked
+test silhouette::tests::alpha_and_opaque_keep_every_visible_paint_whatever_its_alpha ... FAILED
+test result: FAILED. 18 passed; 1 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.00s
+rc=101
+$ cargo test -p designos-render --test shadow_fillless --locked
+test zero_fill_frame_with_children_keeps_an_empty_drop_shadow ... FAILED
+test zero_fill_frame_with_children_draws_no_inner_shadow ... FAILED
+test zero_percent_stroke_frame_keeps_its_stroke_footprint_shadow ... FAILED
+test result: FAILED. 18 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+rc=101
+$ cargo test -p designos-gpu --test shadow_fillless_fixture --locked
+test zero_percent_stroke_frame_keeps_its_stroke_footprint_shadow ... FAILED
+test zero_fill_frame_with_children_draws_no_inner_shadow ... FAILED
+test zero_fill_frame_with_children_keeps_an_empty_drop_shadow ... FAILED
+test result: FAILED. 12 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s
+rc=101
+reverted: modified source files: 0
+
+## mutant (ii): the knockout text arm draws paint-free text again (shared helper)
+-            SilhouetteMode::Knockout => {
+-                if fills.iter().any(|p| paints_in(p, self)) || has_visible_strokes(n, self) {
+-                    1.0
+-                } else {
+-                    0.0
+-                }
+-            }
++            SilhouetteMode::Knockout => 1.0,
+$ cargo test -p designos-doc --lib silhouette --locked
+test silhouette::tests::paint_free_text_adds_nothing_to_a_knockout ... FAILED
+test silhouette::tests::stroked_text_keeps_its_glyph_footprint_in_a_knockout ... FAILED
+test result: FAILED. 17 passed; 2 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.00s
+rc=101
+$ cargo test -p designos-render --test shadow_fillless --locked
+test paint_free_text_children_add_nothing_to_the_knockout ... FAILED
+test result: FAILED. 20 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+rc=101
+$ cargo test -p designos-gpu --test shadow_fillless_fixture --locked
+test paint_free_text_children_add_nothing_to_the_knockout ... FAILED
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.76s
+rc=101
+reverted: modified source files: 0
+
+## mutant (ii-cpu): the CPU text arm ignores the paint-free rule
+-                        let a = mode.text_run_alpha(n, &tl.styles[i].fills);
++                        let a = if opaque { 1.0 } else { mode.text_run_alpha(n, &tl.styles[i].fills) };
+$ cargo test -p designos-doc --lib silhouette --locked
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.00s
+rc=0
+$ cargo test -p designos-render --test shadow_fillless --locked
+test paint_free_text_children_add_nothing_to_the_knockout ... FAILED
+test result: FAILED. 20 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+rc=101
+$ cargo test -p designos-gpu --test shadow_fillless_fixture --locked
+test paint_free_text_children_add_nothing_to_the_knockout ... FAILED
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+rc=101
+reverted: modified source files: 0
+
+## mutant (ii-gpu): the GPU text arm ignores the paint-free rule
+-                    let a = mode.text_run_alpha(n, &t.fills);
++                    let a = if opaque { 1.0 } else { mode.text_run_alpha(n, &t.fills) };
+$ cargo test -p designos-doc --lib silhouette --locked
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 709 filtered out; finished in 0.01s
+rc=0
+$ cargo test -p designos-render --test shadow_fillless --locked
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+rc=0
+$ cargo test -p designos-gpu --test shadow_fillless_fixture --locked
+test paint_free_text_children_add_nothing_to_the_knockout ... FAILED
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.85s
+rc=101
+reverted: modified source files: 0
