@@ -19,6 +19,7 @@ mod page_edit;
 mod paths;
 mod render;
 mod store;
+mod store_files;
 mod watch;
 mod watch_scan;
 

@@ -32,6 +32,7 @@ designos-doc.workspace = true
 designos-render.workspace = true
 designos-fig.workspace = true
 designos-library.workspace = true
+designos-docs.workspace = true
 designos-fonts.workspace = true
 designos-export.workspace = true
 designos-svg.workspace = true
@@ -79,3 +80,4 @@ winresource = "0.1"
 
 [dev-dependencies]
 base64 = "0.22"
+designos-doc = { workspace = true, features = ["fixtures"] }

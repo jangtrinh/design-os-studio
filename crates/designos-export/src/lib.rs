@@ -306,4 +306,58 @@ mod tests {
         assert_eq!(uikit_for(&d_shader, id_shader), uikit_for(&d_plain, id_plain));
         assert_eq!(android_xml_for(&d_shader, id_shader), android_xml_for(&d_plain, id_plain));
     }
+
+    #[test]
+    fn codegen_emits_nothing_for_a_connector() {
+        let build = |with_connector: bool| {
+            let mut d = Document::new("connector-codegen");
+            let page = d.add_page("p");
+            let root = d.alloc_id();
+            let mut frame = Node::frame(root, Rect::new(0.0, 0.0, 400.0, 200.0));
+            frame.name = "FlowContainer".into();
+            d.insert(page, frame).unwrap();
+
+            let a = d.alloc_id();
+            let mut ra = Node::rectangle(a, Rect::new(20.0, 40.0, 100.0, 60.0));
+            ra.name = "CardA".into();
+            d.insert(root, ra).unwrap();
+
+            let b = d.alloc_id();
+            let mut rb = Node::rectangle(b, Rect::new(240.0, 40.0, 100.0, 60.0));
+            rb.name = "CardB".into();
+            d.insert(root, rb).unwrap();
+
+            let mut conn_id = None;
+            if with_connector {
+                let c = d.alloc_id();
+                let mut cn = Node::connector(
+                    c,
+                    ConnectorProps {
+                        start: ConnectorEnd::attached(a, Magnet::Right),
+                        end: ConnectorEnd::attached(b, Magnet::Left),
+                        line: ConnectorLine::Elbowed,
+                        start_cap: ConnectorCap::None,
+                        end_cap: ConnectorCap::Arrow,
+                        label: Some(TextProps { content: "next".into(), ..Default::default() }),
+                    },
+                );
+                cn.name = "ConnectorWire".into();
+                d.insert(root, cn).unwrap();
+                sync_connector(&mut d, c);
+                conn_id = Some(c);
+            }
+            (d, root, conn_id)
+        };
+
+        let (d_with, root_with, Some(cid)) = build(true) else { unreachable!() };
+        let (d_without, root_without, _) = build(false);
+
+        for lang in CodeLanguage::ALL {
+            assert_eq!(lang.generate(&d_with, cid, CodeLanguageOptions::default()), "", "direct codegen on a connector must be empty for {lang:?}");
+            let with_code = lang.generate(&d_with, root_with, CodeLanguageOptions::default());
+            let without_code = lang.generate(&d_without, root_without, CodeLanguageOptions::default());
+            assert_eq!(with_code, without_code, "container codegen must skip connector children for {lang:?}");
+            assert!(!with_code.contains("ConnectorWire"), "connector name leaked in {lang:?}: {with_code}");
+        }
+    }
 }

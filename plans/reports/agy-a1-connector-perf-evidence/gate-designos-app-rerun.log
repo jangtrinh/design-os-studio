@@ -1,0 +1,181 @@
+=== RERUN fig_export::comment_notice_tests::an_export_of_a_document_with_comments_says_they_are_not_kept ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.16s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test fig_export::comment_notice_tests::an_export_of_a_document_with_comments_says_they_are_not_kept ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.03s
+
+=== RERUN fig_export::comment_notice_tests::an_export_of_a_document_without_comments_stays_quiet_about_them ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.79s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test fig_export::comment_notice_tests::an_export_of_a_document_without_comments_stays_quiet_about_them ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.03s
+
+=== RERUN fig_export::tests::palette_export_leaves_the_open_fig_file_untouched ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.06s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test fig_export::tests::palette_export_leaves_the_open_fig_file_untouched ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.05s
+
+=== RERUN vecops::tests::deferred_command_on_deleted_text_edits_nothing_without_panic ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.75s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::deferred_command_on_deleted_text_edits_nothing_without_panic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.60s
+
+=== RERUN vecops::tests::deferred_flatten_cancelled_when_one_text_moves_under_another_parent ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.79s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::deferred_flatten_cancelled_when_one_text_moves_under_another_parent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.60s
+
+=== RERUN vecops::tests::deferred_flatten_converts_invoked_text_not_later_selected_rectangle ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.37s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::deferred_flatten_converts_invoked_text_not_later_selected_rectangle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.66s
+
+=== RERUN vecops::tests::deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.01s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::deferred_flatten_rechecks_live_text_font_when_family_changes_before_arrival ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 1.23s
+
+=== RERUN vecops::tests::deferred_outline_stroke_converts_invoked_text_not_later_selected_rectangle ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.85s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::deferred_outline_stroke_converts_invoked_text_not_later_selected_rectangle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.71s
+
+=== RERUN vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.36s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::text_to_vector_queues_missing_font_without_blocking_and_respects_failed_and_outline_scope ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 1.54s
+
+=== RERUN vecops::tests::two_deferred_text_commands_both_convert_in_order ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.88s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 1.74s
+
+=== RERUN agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.66s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... FAILED
+
+failures:
+
+---- agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root stdout ----
+
+thread 'agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root' (99525551) panicked at crates/designos-app/src/agent_approval_channel.rs:286:9:
+/var/folders/43/75tqcbln0fn_35rs8h6bzl6c0000gn/T/x.NWtFyH/home/Library/Application Support/designos/ap/d2b82530c5a809b2/codex.sock is 130 bytes
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+=== RERUN (short /tmp sandbox) agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 59.75s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test agent_approval_channel::tests::the_production_root_sits_outside_every_agent_writable_root ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4361 filtered out; finished in 0.00s
+

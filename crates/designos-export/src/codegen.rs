@@ -237,7 +237,7 @@ pub(crate) fn first_paint(paints: &[Paint]) -> Option<&Paint> {
 }
 
 pub(crate) fn visible_children<'a>(doc: &'a Document, n: &Node) -> Vec<&'a Node> {
-    n.children.iter().filter_map(|c| doc.get(*c)).filter(|c| c.visible).collect()
+    n.children.iter().filter_map(|c| doc.get(*c)).filter(|c| c.visible && !matches!(c.kind, NodeKind::Connector(_))).collect()
 }
 
 pub(crate) fn is_vector_kind(k: &NodeKind) -> bool {

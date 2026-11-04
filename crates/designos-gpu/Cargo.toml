@@ -15,6 +15,7 @@ wgpu = "29"
 
 [dev-dependencies]
 designos-diff = { path = "../designos-diff" }
+designos-doc = { workspace = true, features = ["fixtures"] }
 designos-fig.workspace = true
 image.workspace = true
 

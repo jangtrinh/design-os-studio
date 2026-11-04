@@ -1,0 +1,18 @@
+# app hover bench (real hit_test_with_index, 1,000 page-level connectors + 2,200 nodes, 200 points x best of 3), HEAD b09d487c8
+# profile: release opt-level plus CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS=true (the bin test target does not compile in plain release: egui Style::debug is debug_assertions-only)
+Apple M4 Max
+## run 1
+    Finished `release` profile [optimized] target(s) in 1m 27s
+[hit_test_keeps_scene_index_path_with_page_level_connectors] n=200 p50=265.17us p95=276.38us budget=15000us
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 0.32s
+rc=0
+## run 2
+    Finished `release` profile [optimized] target(s) in 1m 41s
+[hit_test_keeps_scene_index_path_with_page_level_connectors] n=200 p50=280.58us p95=355.71us budget=15000us
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 0.36s
+rc=0
+## run 3
+    Finished `release` profile [optimized] target(s) in 1m 27s
+[hit_test_keeps_scene_index_path_with_page_level_connectors] n=200 p50=272.88us p95=288.46us budget=15000us
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4379 filtered out; finished in 0.32s
+rc=0
