@@ -190,6 +190,7 @@ pub struct Document {
     pub nodes: BTreeMap<NodeId, Node>,
     /// Page node ids in display order. Each page is a node with [`NodeKind::Page`].
     pub pages: Vec<NodeId>,
+    #[serde(deserialize_with = "read_styles_noting_paragraph_fields")]
     pub styles: BTreeMap<String, Style>,
     /// Display metadata for entries of `styles`, same keys.
     #[serde(default)]
@@ -1507,31 +1508,8 @@ impl Document {
     pub fn from_json_with_report(s: &str) -> serde_json::Result<(Self, RepairReport)> {
         // A `null` in a number slot is how older versions saved a NaN or infinity; it is read as the
         // neutral value and counted (see [`finite_json`]).
-        let paragraph_fields: BTreeMap<String, u8> = serde_json::from_str::<serde_json::Value>(s)
-            .ok()
-            .and_then(|v| v.get("styles").and_then(|v| v.as_object()).cloned())
-            .map(|styles| {
-                styles
-                    .into_iter()
-                    .filter_map(|(key, value)| {
-                        let obj = value.get("Text").or_else(|| value.get("text"))?.as_object()?;
-                        let mut bits = 0;
-                        if obj.contains_key("paragraph_indent") {
-                            bits |= 1;
-                        }
-                        if obj.contains_key("list_spacing") {
-                            bits |= 2;
-                        }
-                        if obj.contains_key("leading_trim") {
-                            bits |= 4;
-                        }
-                        Some((key, bits))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
         let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
-        for (key, bits) in paragraph_fields {
+        for (key, bits) in take_styles_paragraph_fields() {
             if let Some(meta) = text_style_meta_mut(&doc.styles, &mut doc.style_meta, &key) {
                 meta.text_paragraph_fields = Some(meta.text_paragraph_fields.unwrap_or(0) | bits);
             }
@@ -1647,6 +1625,142 @@ pub enum Style {
     Text(TextStyle),
     Effect(Vec<Effect>),
     Grid(Vec<LayoutGrid>),
+}
+
+std::thread_local! {
+    static STYLES_PARAGRAPH_FIELDS: std::cell::RefCell<BTreeMap<String, u8>> = const { std::cell::RefCell::new(BTreeMap::new()) };
+}
+
+/// Hands over the paragraph fields (1 = indent, 2 = list spacing, 4 = leading trim) that each text style
+/// of the `styles` object read last on this thread had in its JSON. A document read before text styles
+/// stored these fields has none of them, and the decoded values alone cannot tell an omitted field from an
+/// explicit default.
+fn take_styles_paragraph_fields() -> BTreeMap<String, u8> {
+    STYLES_PARAGRAPH_FIELDS.with(|fields| std::mem::take(&mut *fields.borrow_mut()))
+}
+
+/// Reads the `styles` object as `BTreeMap<String, Style>` would, noting for each text style which paragraph
+/// fields its JSON holds, so the load needs no second pass over the document text.
+fn read_styles_noting_paragraph_fields<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<BTreeMap<String, Style>, D::Error> {
+    let (styles, fields) = deserializer.deserialize_map(NotingStyles)?;
+    STYLES_PARAGRAPH_FIELDS.with(|slot| *slot.borrow_mut() = fields);
+    Ok(styles)
+}
+
+struct NotingStyles;
+
+impl<'de> serde::de::Visitor<'de> for NotingStyles {
+    type Value = (BTreeMap<String, Style>, BTreeMap<String, u8>);
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a map of styles")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let (mut styles, mut fields) = (BTreeMap::new(), BTreeMap::new());
+        while let Some(key) = map.next_key::<String>()? {
+            let NotedStyle(style, bits) = map.next_value()?;
+            if let Some(bits) = bits {
+                fields.insert(key.clone(), bits);
+            }
+            styles.insert(key, style);
+        }
+        Ok((styles, fields))
+    }
+}
+
+/// A [`Style`] and, for a text style, the paragraph fields its JSON holds.
+struct NotedStyle(Style, Option<u8>);
+
+impl<'de> Deserialize<'de> for NotedStyle {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_enum("Style", &["Fill", "Text", "Effect", "Grid"], NotedStyleVisitor)
+    }
+}
+
+#[derive(Deserialize)]
+enum StyleKind {
+    Fill,
+    Text,
+    Effect,
+    Grid,
+}
+
+struct NotedStyleVisitor;
+
+impl<'de> serde::de::Visitor<'de> for NotedStyleVisitor {
+    type Value = NotedStyle;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a style")
+    }
+
+    fn visit_enum<A: serde::de::EnumAccess<'de>>(self, data: A) -> Result<NotedStyle, A::Error> {
+        use serde::de::VariantAccess;
+        let (kind, variant) = data.variant::<StyleKind>()?;
+        Ok(match kind {
+            StyleKind::Fill => NotedStyle(Style::Fill(variant.newtype_variant()?), None),
+            StyleKind::Effect => NotedStyle(Style::Effect(variant.newtype_variant()?), None),
+            StyleKind::Grid => NotedStyle(Style::Grid(variant.newtype_variant()?), None),
+            StyleKind::Text => {
+                let (style, bits) = variant.newtype_variant_seed(NotingTextStyle)?;
+                NotedStyle(Style::Text(style), Some(bits))
+            }
+        })
+    }
+}
+
+struct NotingTextStyle;
+
+impl<'de> serde::de::DeserializeSeed<'de> for NotingTextStyle {
+    type Value = (TextStyle, u8);
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        deserializer.deserialize_struct("TextStyle", &[], self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for NotingTextStyle {
+    type Value = (TextStyle, u8);
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a text style")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+        let mut keys = NotingKeys { inner: map, bits: 0 };
+        let style = TextStyle::deserialize(serde::de::value::MapAccessDeserializer::new(&mut keys))?;
+        Ok((style, keys.bits))
+    }
+}
+
+/// A map access that passes everything through and records which paragraph fields appeared as keys.
+struct NotingKeys<A> {
+    inner: A,
+    bits: u8,
+}
+
+impl<'de, A: serde::de::MapAccess<'de>> serde::de::MapAccess<'de> for NotingKeys<A> {
+    type Error = A::Error;
+
+    fn next_key_seed<K: serde::de::DeserializeSeed<'de>>(&mut self, seed: K) -> Result<Option<K::Value>, A::Error> {
+        let Some(key) = self.inner.next_key::<String>()? else { return Ok(None) };
+        self.bits |= match key.as_str() {
+            "paragraph_indent" => 0b001,
+            "list_spacing" => 0b010,
+            "leading_trim" => 0b100,
+            _ => 0,
+        };
+        seed.deserialize(serde::de::IntoDeserializer::<A::Error>::into_deserializer(key)).map(Some)
+    }
+
+    fn next_value_seed<V: serde::de::DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value, A::Error> {
+        self.inner.next_value_seed(seed)
+    }
+
+    fn size_hint(&self) -> Option<usize> {
+        self.inner.size_hint()
+    }
 }
 
 /// Paragraph fields a text style owns before an edit: those recorded in its metadata (`None` = all), or

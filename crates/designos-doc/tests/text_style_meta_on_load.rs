@@ -116,3 +116,77 @@ fn editing_a_fill_style_without_metadata_gives_it_no_metadata() {
     assert!(!d.style_meta.contains_key("Brand"));
     assert_eq!(style_property(&d, "Brand"), StyleProperty::Fill);
 }
+
+/// A saved document with text style `Body`, whose JSON `Text` object is edited by `edit`.
+fn saved_body_with(edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>)) -> String {
+    let mut d = Document::new("t");
+    d.styles.insert("Body".into(), body());
+    let mut json: serde_json::Value = serde_json::from_str(&d.to_json().unwrap()).unwrap();
+    edit(json["styles"]["Body"]["Text"].as_object_mut().unwrap());
+    json.to_string()
+}
+
+fn paragraph_bits_after_load(json: &str) -> Option<u8> {
+    Document::from_json(json).unwrap().style_meta["Body"].text_paragraph_fields
+}
+
+#[test]
+fn each_paragraph_field_the_text_style_json_holds_is_recorded_on_load() {
+    assert_eq!(paragraph_bits_after_load(&saved_body_with(|_| {})), Some(0));
+    for (key, value, bits) in [
+        ("paragraph_indent", serde_json::json!(0.0), 0b001),
+        ("list_spacing", serde_json::json!(0.0), 0b010),
+        ("leading_trim", serde_json::json!("None"), 0b100),
+    ] {
+        let json = saved_body_with(|text| {
+            text.insert(key.into(), value);
+        });
+        assert_eq!(paragraph_bits_after_load(&json), Some(bits), "{key} held as an explicit default");
+    }
+    let all = saved_body_with(|text| {
+        text.insert("paragraph_indent".into(), serde_json::json!(4.0));
+        text.insert("list_spacing".into(), serde_json::json!(2.0));
+        text.insert("leading_trim".into(), serde_json::json!("CapHeight"));
+    });
+    assert_eq!(paragraph_bits_after_load(&all), Some(0b111));
+}
+
+#[test]
+fn a_later_load_never_inherits_the_paragraph_fields_of_an_earlier_one() {
+    let with_indent = saved_body_with(|text| {
+        text.insert("paragraph_indent".into(), serde_json::json!(4.0));
+    });
+    assert_eq!(paragraph_bits_after_load(&with_indent), Some(0b001));
+
+    assert_eq!(paragraph_bits_after_load(&saved_body_with(|_| {})), Some(0), "the next document has its own fields");
+}
+
+#[test]
+fn a_null_number_in_a_text_style_is_repaired_and_the_paragraph_fields_are_still_recorded() {
+    let json = saved_body_with(|text| {
+        text.insert("font_size".into(), serde_json::Value::Null);
+        text.insert("list_spacing".into(), serde_json::json!(2.0));
+    });
+
+    let (doc, report) = Document::from_json_with_report(&json).unwrap();
+
+    assert_eq!(report.non_finite_numbers, 1);
+    assert_eq!(doc.style_meta["Body"].text_paragraph_fields, Some(0b010));
+    assert!(matches!(&doc.styles["Body"], Style::Text(t) if t.list_spacing == 2.0));
+}
+
+#[test]
+fn styles_of_every_kind_load_and_an_unknown_kind_is_refused_by_name() {
+    let mut d = Document::new("t");
+    d.styles.insert("Fill".into(), Style::Fill(vec![Paint::solid(Color::rgb(1, 2, 3))]));
+    d.styles.insert("Text".into(), body());
+    d.styles.insert("Effect".into(), Style::Effect(vec![]));
+    d.styles.insert("Grid".into(), Style::Grid(vec![]));
+    let saved = d.to_json().unwrap();
+    let loaded = Document::from_json(&saved).unwrap();
+    assert_eq!(loaded.styles, d.styles);
+
+    let unknown = saved.replace("\"Effect\":[]", "\"Bogus\":[]");
+    let err = Document::from_json(&unknown).unwrap_err().to_string();
+    assert!(err.contains("unknown variant `Bogus`"), "{err}");
+}
