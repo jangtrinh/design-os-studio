@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn arrow_tool_sits_in_shape_group_after_line() {
-        assert!(ARROW_TOOL_ENABLED);
+        const { assert!(ARROW_TOOL_ENABLED) };
         assert!(GROUPS[2].contains(&Tool::Arrow), "the shape group must offer the Arrow tool");
         assert!(GROUPS[2].contains(&Tool::Line), "Line stays in the shape group");
         assert_eq!(GROUPS[2][1], Tool::Line);
