@@ -2397,6 +2397,11 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
         }
     }
     let env = picker::Env { paint_types, sources: &pk.sources, styles: &styles, can_add_style: paint_types };
+    pk.state.image_frame = if let PaintKind::Image { image_ref, .. } = &pk.paint.kind {
+        pk.ids.first().and_then(|id| app.doc.get(*id)).zip(designos_render::image_adjust::image_dimensions(&app.doc, image_ref)).map(|(n, dims)| (n.size, dims))
+    } else {
+        None
+    };
     let h = picker::panel_height(&env, picker::mode_of(&pk.paint.kind), pk.state.tab, pk.state.source);
     let screen = ctx.content_rect();
     let x = (region.left() - picker::W).max(screen.left() + 8.0);
@@ -2468,6 +2473,10 @@ pub(super) fn picker_popup(app: &mut App, ui: &mut Ui, region: Rect) {
                 pk.state.reset_stop_origins(&pk.paint);
             }
         }
+    }
+    if out.commit_tx {
+        let tx = std::mem::replace(&mut pk.tx, Tx::new());
+        app.run_tx(tx);
     }
     if out.add_style {
         create_style(app, &mut pk);

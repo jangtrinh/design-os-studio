@@ -346,16 +346,22 @@ pub fn with_paint<R>(
                     let unit = -1e-5..=1.0 + 1e-5;
                     !unit.contains(&uu) || !unit.contains(&vv)
                 });
+            let adjusted_img: Option<sk::Pixmap> = crate::image_adjust::has_rendered_adjustments(&params.adjust).then(|| {
+                let mut pm = (*img).clone();
+                crate::image_adjust::apply_pixmap_adjustments(&mut pm.as_mut(), &params.adjust);
+                pm
+            });
+            let src_pm: &sk::Pixmap = adjusted_img.as_ref().unwrap_or(img.as_ref());
             if matches!(scale_mode, d::ImageScaleMode::Fit) || crop_leaves_unit_uv {
                 // 1px transparent border so Pad leaves the letterbox or out-of-bounds crop transparent
-                let (w, h) = (img.width(), img.height());
+                let (w, h) = (src_pm.width(), src_pm.height());
                 let mut padded = sk::Pixmap::new(w + 2, h + 2)?;
-                padded.draw_pixmap(1, 1, img.as_ref().as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
+                padded.draw_pixmap(1, 1, src_pm.as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
                 let ts2 = sk::Transform::from_translate(-1.0, -1.0).post_concat(shader_ts);
                 paint.shader = sk::Pattern::new(padded.as_ref(), spread, quality, a, ts2);
                 return Some(f(&paint));
             }
-            paint.shader = sk::Pattern::new(img.as_ref().as_ref(), spread, quality, a, shader_ts);
+            paint.shader = sk::Pattern::new(src_pm.as_ref(), spread, quality, a, shader_ts);
             Some(f(&paint))
         }
     }
