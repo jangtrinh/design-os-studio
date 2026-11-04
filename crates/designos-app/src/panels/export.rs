@@ -805,8 +805,14 @@ mod tests {
         app.doc.get_mut(a).unwrap().name = "../Notes".into();
         run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         let toast = toast_of(&app).expect("failed export explains the attempted path").0;
-        assert!(toast.contains(&format!("{}/_Notes.png", dir.display())), "{toast}");
+        assert!(toast.contains(&dir.join("-Notes.png").display().to_string()), "{toast}");
         assert!(!toast.contains("../Notes"), "{toast}");
+
+        app.selection = vec![a];
+        app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let selection_toast = toast_of(&app).expect("failed selection export explains the attempted path").0;
+        assert!(selection_toast.contains(&dir.join("_Notes.png").display().to_string()), "{selection_toast}");
+        assert!(!selection_toast.contains("../Notes"), "{selection_toast}");
         std::fs::remove_dir_all(dir.parent().unwrap()).ok();
     }
 
@@ -819,8 +825,15 @@ mod tests {
         app.doc.get_mut(a).unwrap().name = name.clone();
         run_export_with(&mut app, &[a], &ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
         let toast = toast_of(&app).expect("failed export explains the attempted path").0;
-        assert!(toast.contains(&format!("{}/{}.png", dir.display(), "a".repeat(100))), "{toast}");
+        let expected = dir.join(format!("{}.png", "a".repeat(100))).display().to_string();
+        assert!(toast.contains(&expected), "{toast}");
         assert!(!toast.contains(&name), "{toast}");
+
+        app.selection = vec![a];
+        app.export_selection_with(&ScriptedDialogs::answering(DialogOutcome::Unavailable).with_fallback(dir.clone()));
+        let selection_toast = toast_of(&app).expect("failed selection export explains the attempted path").0;
+        assert!(selection_toast.contains(&expected), "{selection_toast}");
+        assert!(!selection_toast.contains(&name), "{selection_toast}");
         std::fs::remove_dir_all(dir.parent().unwrap()).ok();
     }
 
