@@ -69,7 +69,12 @@ pub fn node_stroke_style(n: &Node, width: f32) -> sk::Stroke {
         width,
         miter_limit: s.miter_limit.max(1.0),
         line_cap: match s.cap {
-            d::StrokeCap::None => sk::LineCap::Butt,
+            d::StrokeCap::None
+            | d::StrokeCap::ArrowLines
+            | d::StrokeCap::ArrowEquilateral
+            | d::StrokeCap::TriangleFilled
+            | d::StrokeCap::DiamondFilled
+            | d::StrokeCap::CircleFilled => sk::LineCap::Butt,
             d::StrokeCap::Round => sk::LineCap::Round,
             d::StrokeCap::Square => sk::LineCap::Square,
         },
@@ -297,11 +302,19 @@ pub fn stroke_plan(n: &Node, sh: &Shape, res_scale: f32) -> Option<StrokePlan> {
         let clip = if align == d::StrokeAlign::Inside { StrokeClip::Inside } else { StrokeClip::Outside };
         return Some(StrokePlan { outline: vec![(outline, sk::FillRule::Winding)], clip });
     }
+    if crate::vectorops::has_mixed_subpath_align(n, sh) {
+        let outline = crate::vectorops::mixed_subpath_stroke_outline(n, sh);
+        return (!outline.is_empty()).then_some(StrokePlan { outline, clip: StrokeClip::None });
+    }
     let (width, clip) = match align {
         d::StrokeAlign::Center => (w, StrokeClip::None),
         d::StrokeAlign::Inside => (w * 2.0, StrokeClip::Inside),
         d::StrokeAlign::Outside => (w * 2.0, StrokeClip::Outside),
     };
+    if crate::vectorops::has_per_vertex_joins(n) || crate::vectorops::has_arrow_caps(n) || crate::vectorops::vertex_caps(n).is_some() {
+        let outline = crate::vectorops::expand_node_subpaths(n, sh, width, res_scale);
+        return (!outline.is_empty()).then_some(StrokePlan { outline, clip });
+    }
     let st = node_stroke_style(n, width);
     let outline: Vec<_> = sh.paths.iter().filter_map(|(p, _)| stroke_outline(p, &st, res_scale)).map(|p| (p, sk::FillRule::Winding)).collect();
     (!outline.is_empty()).then_some(StrokePlan { outline, clip })

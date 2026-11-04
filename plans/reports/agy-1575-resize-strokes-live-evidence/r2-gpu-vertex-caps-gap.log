@@ -1,0 +1,14 @@
+## GPU draws no per-vertex caps (out of scope, routed to the arrowhead work)
+## open (10,20)->(60,20), weight 12, vertex caps Square or Round, node cap None; expected ink on y=20: x=4..65
+## on 858d6fe8 (red-gpu.log):
+GPU Square: ink on y = 20 spans Some((10, 59)), expected Some((4, 65))
+CPU Square: ink on y = 20 spans Some((4, 59)), expected Some((4, 65))
+GPU Round: ink on y = 20 spans Some((10, 59)), expected Some((4, 65))
+## on the fix (before the GPU assertion was taken out of the commit):
+GPU Square: ink on y = 20 spans Some((10, 59)), expected Some((4, 65))
+GPU Round: ink on y = 20 spans Some((10, 59)), expected Some((4, 65))
+## designos-gpu/src references to vertex_caps:
+(none)
+## stroke_plan reaches cap polygons only here:
+309:    if crate::vectorops::has_per_vertex_joins(n) {
+310:        let outline = crate::vectorops::expand_node_subpaths(n, sh, width, res_scale);

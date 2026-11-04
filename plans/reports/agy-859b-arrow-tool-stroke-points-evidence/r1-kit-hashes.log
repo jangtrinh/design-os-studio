@@ -1,0 +1,14 @@
+# Kit render hashes: unresized_kit_vector_renders_are_hashed_into_a_file returns early unless both variables are set,
+# so the plain gate run proves nothing about it. Run here on a clone of the Untitled UI kit made with `cp -c`.
+# DESIGNOS_KIT_FIG_PATH=<worktree>/out/kit-clone.fig DESIGNOS_KIT_RENDER_HASHES_OUT=<scratch>/{base,head}-kit-hashes.txt \
+#   cargo test -p designos-render --locked --test resized_vector_stroke_weight unresized_kit_vector_renders_are_hashed_into_a_file -- --nocapture
+# base = vectorops.rs of 7661b064e, head = vectorops.rs of the code commit; everything else identical.
+
+running 1 test
+test unresized_kit_vector_renders_are_hashed_into_a_file ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 23 filtered out; finished in 32.42s
+
+base: 318 lines (one `id name fnv1a-hash` each)
+head: 318 lines
+diff base head: exit 0, 0 lines differ

@@ -916,11 +916,31 @@ impl Renderer<'_> {
         if w <= 0.0 {
             return;
         }
-        if let Some(caps) = vectorops::vertex_caps(n) {
-            let caps = geom::vector_paths(&caps).paths;
-            for p in &paints {
-                fill_paths(&self.env, target, &caps, ts, n.size, p, alpha, clip);
+        if vectorops::has_mixed_subpath_align(n, sh)
+            || vectorops::has_per_vertex_joins(n)
+            || vectorops::has_arrow_caps(n)
+            || vectorops::vertex_caps(n).is_some()
+        {
+            let scale = (ts.sx.hypot(ts.ky)).max(ts.kx.hypot(ts.sy)).max(1.0);
+            let Some(plan) = outline::stroke_plan(n, sh, scale) else { return };
+            let mask = match plan.clip {
+                StrokeClip::None => None,
+                StrokeClip::Inside | StrokeClip::Outside => {
+                    let Some(mut m) = shape_mask(tw, th, sh.fill_paths(), ts) else { return };
+                    if plan.clip == StrokeClip::Outside {
+                        m.invert();
+                    }
+                    if let Some(c) = clip {
+                        mask_mul(&mut m, c);
+                    }
+                    Some(m)
+                }
+            };
+            let cl = mask.as_ref().or(clip);
+            for p in paints {
+                fill_paths(&self.env, target, &plan.outline, ts, n.size, p, alpha, cl);
             }
+            return;
         }
         match align {
             designos_doc::StrokeAlign::Center => {

@@ -52,13 +52,23 @@ fn fx_scene() -> (Document, NodeId) {
     }
     let glass = t.rect(None, Rect::new(30.0, 30.0, 90.0, 50.0), Color::rgba(255, 255, 255, 40));
     t.node(glass).corner_radii = [14.0; 4];
-    t.node(glass).effects =
-        vec![Effect::Glass(GlassEffect { light_angle: 45.0, light_intensity: 0.7, refraction: 0.5, depth: 10.0, dispersion: 0.3, frost: 4.0, visible: true })];
+    t.node(glass).effects = vec![Effect::Glass(GlassEffect {
+        light_angle: 45.0,
+        light_intensity: 0.7,
+        refraction: 0.5,
+        depth: 10.0,
+        dispersion: 0.3,
+        frost: 4.0,
+        splay: 0.0,
+        bevel: 0.0,
+        visible: true,
+    })];
     // noise (shape fast path) and noise on a group (general path)
     let n = t.rect(None, Rect::new(180.0, 10.0, 80.0, 60.0), Color::rgb(0x44, 0x88, 0xDD));
     t.node(n).effects = vec![Effect::Noise(NoiseEffect {
         mode: NoiseMode::Duo { color: Color::rgb(0, 0, 0), secondary: Color::WHITE },
         size: 1.5,
+        size_y: None,
         density: 0.5,
         opacity: 0.4,
         blend: BlendMode::Normal,
@@ -66,7 +76,7 @@ fn fx_scene() -> (Document, NodeId) {
         visible: true,
     })];
     let tx = t.rect(None, Rect::new(180.0, 90.0, 80.0, 50.0), Color::rgb(0xE0, 0x50, 0x30));
-    t.node(tx).effects = vec![Effect::Texture(TextureEffect { size: 6.0, radius: 4.0, clip_to_shape: false, seed: 3, visible: true })];
+    t.node(tx).effects = vec![Effect::Texture(TextureEffect { size: 6.0, size_y: None, radius: 4.0, clip_to_shape: false, seed: 3, visible: true })];
     // clipped rounded frame with rotated child, image + blend modes
     let fr = t.add(None, |id| Node::frame(id, Rect::new(10.0, 120.0, 100.0, 70.0)));
     if let NodeKind::Frame(p) = &mut t.node(fr).kind {
@@ -563,17 +573,16 @@ fn dashed_rect_round_dash_cap_renders_round_dash_ends_gpu() {
     assert_eq!([out_gap.red(), out_gap.green(), out_gap.blue(), out_gap.alpha()], [255, 255, 255, 255], "GPU outside dash gap unpainted at (46, 16)");
 }
 
-#[test]
-fn dashed_open_line_uses_stroke_cap_on_every_dash_gpu() {
-    let Some(mut g) = gpu() else { return };
-    let mut t = T::new();
+/// An open vector line from (20, 20) to (100, 20) with dashes `[20, 20]` (dashes at x = 20..40 and 60..80, the path ends in the
+/// gap after the second one), weight 8, `Stroke::cap` Round, whose end vertices carry `vertex_caps`.
+fn dashed_round_line_with_end_caps(t: &mut T, vertex_caps: (Option<StrokeCap>, Option<StrokeCap>)) {
     let red = Color { r: 1.0, g: 0.0, b: 0.0, a: 1.0 };
     t.add(None, |id| {
         let p = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(80.0, 0.0))], fill_rule: FillRule::NonZero };
         let mut v0 = vector::Vertex::new(Vec2::new(0.0, 0.0));
-        v0.cap = Some(StrokeCap::None);
+        v0.cap = vertex_caps.0;
         let mut v1 = vector::Vertex::new(Vec2::new(80.0, 0.0));
-        v1.cap = Some(StrokeCap::None);
+        v1.cap = vertex_caps.1;
         let mut n = Node::new(
             id,
             NodeKind::Vector {
@@ -595,15 +604,35 @@ fn dashed_open_line_uses_stroke_cap_on_every_dash_gpu() {
         n.stroke.cap = StrokeCap::Round;
         n
     });
+}
+
+#[test]
+fn dashed_open_line_uses_stroke_cap_on_every_dash_that_reaches_no_end_point_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    // end vertices without a cap of their own: every dash, the first one at the start of the path included, uses Stroke::cap (Round)
+    dashed_round_line_with_end_caps(&mut t, (None, None));
     let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
     let c = compare(&mut g, "dashed_open_line_round_cap", &t.doc, t.page, vp, (120, 40), 8);
     assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
-    let start_mid = c.gpu.pixel(18, 20).unwrap();
-    assert_eq!([start_mid.red(), start_mid.green(), start_mid.blue(), start_mid.alpha()], [255, 0, 0, 255]);
-    let inner_mid = c.gpu.pixel(42, 20).unwrap();
-    assert_eq!([inner_mid.red(), inner_mid.green(), inner_mid.blue(), inner_mid.alpha()], [255, 0, 0, 255]);
-    let inner_corner = c.gpu.pixel(43, 16).unwrap();
-    assert_eq!([inner_corner.red(), inner_corner.green(), inner_corner.blue(), inner_corner.alpha()], [255, 255, 255, 255]);
+    assert_eq!(px(&c.gpu, 18, 20), [255, 0, 0, 255]);
+    assert_eq!(px(&c.gpu, 42, 20), [255, 0, 0, 255]);
+    assert_eq!(px(&c.gpu, 43, 16), [255, 255, 255, 255]);
+}
+
+#[test]
+fn an_explicit_butt_end_vertex_cap_leaves_only_the_start_of_a_dashed_round_line_butt_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut t = T::new();
+    dashed_round_line_with_end_caps(&mut t, (Some(StrokeCap::None), Some(StrokeCap::None)));
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let c = compare(&mut g, "dashed_open_line_butt_start", &t.doc, t.page, vp, (120, 40), 8);
+    assert!(c.report.ratio < 0.02, "CPU/GPU mismatch {:.3}%", c.report.ratio * 100.0);
+    assert_eq!(px(&c.gpu, 18, 20), [255, 255, 255, 255], "the start of the path takes the butt cap of its vertex");
+    assert_eq!(px(&c.gpu, 22, 20), [255, 0, 0, 255], "the first dash is painted from the start of the path");
+    assert_eq!(px(&c.gpu, 42, 20), [255, 0, 0, 255], "the inner end of the first dash keeps the round Stroke::cap");
+    assert_eq!(px(&c.gpu, 43, 16), [255, 255, 255, 255]);
+    assert_eq!(px(&c.gpu, 58, 20), [255, 0, 0, 255], "the inner start of the second dash keeps the round Stroke::cap");
 }
 
 #[test]

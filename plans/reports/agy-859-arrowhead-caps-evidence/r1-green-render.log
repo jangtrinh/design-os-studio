@@ -1,0 +1,42 @@
+$ cargo test --locked -p designos-render --test resized_vector_stroke_weight
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-doc)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.99s
+     Running tests/resized_vector_stroke_weight.rs (out/cargo/debug/deps/resized_vector_stroke_weight-236926c4c166f7cb)
+
+running 24 tests
+test a_dashed_centered_arrow_stroke_keeps_its_scaled_bake_on_a_resize ... ok
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round ... ok
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square ... ok
+test equal_cap_open_stroke_draws_through_the_same_path_as_node_cap ... ok
+test per_vertex_round_and_square_caps_paint_full_span ... ok
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_in_a_piecewise_stroke ... ok
+test an_inside_stroke_of_a_closed_network_still_drops_its_bake_and_stays_inside ... ok
+test stroke_only_vector_whose_outline_is_its_path_draws_once_after_resize ... ok
+test closed_subpath_and_interior_vertex_draw_no_arrowheads_and_scene_index_bounds_include_arrowheads ... ok
+test plain_resize_2x_and_2x1_keeps_stroke_weight_on_both_axes ... ok
+test unresized_kit_vector_renders_are_hashed_into_a_file ... ok
+test stroke_follows_the_network_while_the_fill_keeps_the_outline ... ok
+test a_round_join_rounds_the_corners_of_the_filled_heads_and_any_other_join_keeps_them_sharp ... ok
+test resized_2x_arrow_caps_keep_head_size_relative_to_stroke_weight_for_all_five_caps ... ok
+test vertex_caps_of_an_open_line_reach_half_a_weight_past_both_ends ... ok
+test syncing_the_main_keeps_the_plain_resize_of_an_instance_child_with_a_size_override ... ok
+test file_type_network_resized_2x_strokes_closed_outline_inside_and_open_fold_centered ... ok
+test unresized_imported_vector_renders_unchanged ... ok
+test an_inside_or_outside_stroke_of_a_network_with_an_open_chain_drops_its_bake_and_strokes_live ... ok
+test an_inside_or_outside_open_arrow_stroke_drops_its_bake_on_a_resize_and_keeps_its_head_at_five_weights ... ok
+test kit_arrow_vectors_match_figma_bake_at_1x_and_keep_stroke_weight_head_size_when_resized_2x ... ok
+test all_five_arrow_caps_draw_outward_heads_on_lines_and_open_vectors ... ok
+test a_filled_arrow_head_overlaps_its_shaft_with_no_gap_on_straight_and_curved_segments ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+exit code: 0

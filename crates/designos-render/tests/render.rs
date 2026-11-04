@@ -718,17 +718,15 @@ fn dashed_rect_round_dash_cap_renders_round_dash_ends() {
     assert_eq!(px(&pm_outside, 26, 22), WHITE, "outside alignment clips interior of rectangle at (26, 22)");
 }
 
-#[test]
-fn dashed_open_line_uses_stroke_cap_on_every_dash() {
-    let mut t = T::new();
-    // Open vector line from (20, 20) to (100, 20) with VectorNetwork vertices carrying cap = Some(StrokeCap::None),
-    // while Stroke::cap is Round and dashes = [20, 20]. Every dash uses Stroke::cap (Round).
-    let line = t.add(None, |id| {
+/// An open vector line from (20, 20) to (100, 20) with dashes `[20, 20]` (dashes at x = 20..40 and 60..80, the path ends
+/// in the gap after the second one), weight 8, `Stroke::cap` Round, whose end vertices carry `vertex_caps`.
+fn dashed_round_line_with_end_caps(t: &mut T, vertex_caps: (Option<StrokeCap>, Option<StrokeCap>)) -> NodeId {
+    t.add(None, |id| {
         let p = Path { cmds: vec![PathCmd::MoveTo(Vec2::new(0.0, 0.0)), PathCmd::LineTo(Vec2::new(80.0, 0.0))], fill_rule: FillRule::NonZero };
         let mut v0 = vector::Vertex::new(Vec2::new(0.0, 0.0));
-        v0.cap = Some(StrokeCap::None);
+        v0.cap = vertex_caps.0;
         let mut v1 = vector::Vertex::new(Vec2::new(80.0, 0.0));
-        v1.cap = Some(StrokeCap::None);
+        v1.cap = vertex_caps.1;
         let mut n = Node::new(
             id,
             NodeKind::Vector {
@@ -749,7 +747,14 @@ fn dashed_open_line_uses_stroke_cap_on_every_dash() {
         n.stroke.dashes = vec![20.0, 20.0];
         n.stroke.cap = StrokeCap::Round;
         n
-    });
+    })
+}
+
+#[test]
+fn dashed_open_line_uses_stroke_cap_on_every_dash_that_reaches_no_end_point() {
+    let mut t = T::new();
+    // end vertices without a cap of their own: every dash, the first one at the start of the path included, uses Stroke::cap (Round)
+    let line = dashed_round_line_with_end_caps(&mut t, (None, None));
     let pm = t.render(120, 40);
     // Start of first dash at x=20 and end of first dash at x=40 both get round caps of radius 4:
     assert_eq!(px(&pm, 18, 20), [255, 0, 0, 255], "first dash start cap is round at midline (18, 20)");
@@ -761,6 +766,18 @@ fn dashed_open_line_uses_stroke_cap_on_every_dash() {
     let pm_butt = t.render(120, 40);
     assert_eq!(px(&pm_butt, 18, 20), WHITE, "butt cap leaves x < 20 unpainted");
     assert_eq!(px(&pm_butt, 42, 20), WHITE, "butt cap leaves x > 40 unpainted on first dash");
+}
+
+#[test]
+fn an_explicit_butt_end_vertex_cap_leaves_only_the_start_of_a_dashed_round_line_butt() {
+    let mut t = T::new();
+    dashed_round_line_with_end_caps(&mut t, (Some(StrokeCap::None), Some(StrokeCap::None)));
+    let pm = t.render(120, 40);
+    assert_eq!(px(&pm, 18, 20), WHITE, "the start of the path takes the butt cap of its vertex: x < 20 is unpainted at (18, 20)");
+    assert_eq!(px(&pm, 22, 20), [255, 0, 0, 255], "the first dash is painted from the start of the path");
+    assert_eq!(px(&pm, 42, 20), [255, 0, 0, 255], "the inner end of the first dash keeps the round Stroke::cap at (42, 20)");
+    assert_eq!(px(&pm, 43, 16), WHITE, "the inner end of the first dash is round: corner (43, 16) is unpainted");
+    assert_eq!(px(&pm, 58, 20), [255, 0, 0, 255], "the inner start of the second dash keeps the round Stroke::cap at (58, 20)");
 }
 
 #[test]

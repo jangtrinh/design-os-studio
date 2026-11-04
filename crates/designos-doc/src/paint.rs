@@ -467,6 +467,18 @@ pub enum StrokeCap {
     None,
     Round,
     Square,
+    ArrowLines,
+    ArrowEquilateral,
+    TriangleFilled,
+    DiamondFilled,
+    CircleFilled,
+}
+
+impl StrokeCap {
+    /// True when this cap is one of the 5 arrowhead / endpoint marker caps.
+    pub fn is_arrow(self) -> bool {
+        matches!(self, Self::ArrowLines | Self::ArrowEquilateral | Self::TriangleFilled | Self::DiamondFilled | Self::CircleFilled)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -573,10 +585,14 @@ pub enum NoiseMode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NoiseEffect {
     pub mode: NoiseMode,
-    /// Grain size in px.
+    /// Grain size in px along X. Also the size along Y while `size_y` is `None`.
     pub size: f32,
+    /// Grain size in px along Y when it differs from `size`; `None` means the same as `size`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_y: Option<f32>,
     /// Share of covered pixels, 0..1.
     pub density: f32,
+    /// Strength of the grain, 0..1. Every mode draws its grain with it.
     pub opacity: f32,
     pub blend: BlendMode,
     /// Deterministic seed so renders are reproducible.
@@ -586,8 +602,11 @@ pub struct NoiseEffect {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextureEffect {
-    /// Texture scale in px.
+    /// Texture scale in px along X. Also the scale along Y while `size_y` is `None`.
     pub size: f32,
+    /// Texture scale in px along Y when it differs from `size`; `None` means the same as `size`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_y: Option<f32>,
     /// Edge displacement in px.
     pub radius: f32,
     /// Keep the textured result inside the original shape.
@@ -604,12 +623,18 @@ pub struct GlassEffect {
     pub light_intensity: f32,
     /// How strongly the backdrop bends at the edges, 0..1.
     pub refraction: f32,
-    /// Bevel depth in px.
+    /// Refraction radius in px: how far from the edge the backdrop bends.
     pub depth: f32,
     /// Chromatic split at the edges, 0..1.
     pub dispersion: f32,
     /// Backdrop blur radius in px.
     pub frost: f32,
+    /// How far the bending direction turns from the edge normal toward the shape centre, 0..1.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub splay: f32,
+    /// Width in px of the bevel band along the edge.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub bevel: f32,
     pub visible: bool,
 }
 

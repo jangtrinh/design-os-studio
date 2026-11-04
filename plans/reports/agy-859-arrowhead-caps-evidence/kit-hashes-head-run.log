@@ -1,0 +1,11 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/resized_vector_stroke_weight.rs (out/cargo/debug/deps/resized_vector_stroke_weight-236926c4c166f7cb)
+
+running 1 test
+test unresized_kit_vector_renders_are_hashed_into_a_file ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 15 filtered out; finished in 29.73s
+
