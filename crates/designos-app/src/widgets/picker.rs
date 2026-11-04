@@ -418,6 +418,9 @@ pub struct State {
     pub stop_origins: Vec<Option<usize>>,
     /// Selected node size and decoded image dimensions `(node_size, (iw, ih))` for `Mode::Image`.
     pub image_frame: Option<(DV, (u32, u32))>,
+    /// Rotate clicks (clockwise positive) made on a cropped picture that the host has not applied yet. The host turns
+    /// each selected node's own crop frame by them, because a frame depends on the node's size.
+    pub image_turns: i32,
 }
 
 impl State {
@@ -438,6 +441,7 @@ impl State {
             menu_open: false,
             stop_origins: (0..n).map(Some).collect(),
             image_frame: None,
+            image_turns: 0,
         }
     }
 
@@ -1102,8 +1106,11 @@ fn show_image_mode(ui: &mut Ui, rect: Rect, y: f32, st: &mut State, paint: &mut 
             ImageScaleMode::Crop => ImageScaleMode::Tile,
             ImageScaleMode::Tile => ImageScaleMode::Fill,
         };
-        let (node_sz, img_sz) = st.image_frame.unwrap_or((DV::new(AREA, AREA), (64, 64)));
-        designos_render::image_adjust::switch_image_scale_mode(paint, next, node_sz, img_sz);
+        // Without a known node and picture size no frame is invented: the paint keeps the transform it has.
+        match st.image_frame {
+            Some((node_sz, img_sz)) => designos_render::image_adjust::switch_image_scale_mode(paint, next, node_sz, img_sz),
+            None => designos_render::image_adjust::set_image_scale_mode(paint, next),
+        }
         out.changed = true;
         out.commit_tx = true;
     }
@@ -1130,7 +1137,10 @@ fn show_image_mode(ui: &mut Ui, rect: Rect, y: f32, st: &mut State, paint: &mut 
                 let delta = if click_r { 90.0 } else { -90.0 };
                 let stepped = (params.rotation + delta).rem_euclid(360.0);
                 params.rotation = if (stepped - 360.0).abs() < 1e-4 { 0.0 } else { stepped };
-                if *scale_mode != ImageScaleMode::Crop {
+                if *scale_mode == ImageScaleMode::Crop {
+                    // Crop draws from its transform alone: the host turns each node's own frame.
+                    st.image_turns += if click_r { 1 } else { -1 };
+                } else {
                     params.transform = None;
                 }
                 out.changed = true;
@@ -3916,7 +3926,7 @@ mod tests {
         assert!(!texts_reset.iter().any(|t| t == "Reset"), "Reset must hide again after clearing all seven adjustments");
         let cap_reset = h.capture(shapes_reset);
         assert_ne!(cap_after.1.as_raw(), cap_reset.1.as_raw(), "rendered image picker crop must change after Reset");
-        save_headless_picker_evidence(&cap_after, &cap_reset, "picker-image-adjustments-open.png", "picker-image-adjustments-reset.png");
+        save_headless_picker_evidence(&cap_after, &cap_reset, "picker-image-adjustments-fill-exposure.png", "picker-image-adjustments-reset.png");
     }
 
     #[test]
@@ -3977,5 +3987,309 @@ mod tests {
         );
         let PaintKind::Image { params, .. } = &paint.kind else { panic!("expected image paint") };
         assert!((params.tile_scale - 1.0).abs() > 0.05, "dragging Tile scale slider must update params.tile_scale from 1.0, got {}", params.tile_scale);
+    }
+
+    // ---- Crop frames per node, rotation in Crop, and the picker stamping
+
+    type Rgba = [u8; 4];
+    const RED_PX: Rgba = [255, 0, 0, 255];
+    const GREEN_PX: Rgba = [0, 255, 0, 255];
+    const BLUE_PX: Rgba = [0, 0, 255, 255];
+    const YELLOW_PX: Rgba = [255, 255, 0, 255];
+
+    fn encode_png(w: u32, h: u32, f: impl Fn(u32, u32) -> Rgba) -> Vec<u8> {
+        let img = image::RgbaImage::from_fn(w, h, |x, y| image::Rgba(f(x, y)));
+        let mut out = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).expect("encode png");
+        out
+    }
+
+    /// Four colour blocks, red green over blue yellow.
+    fn quadrant_png(side: u32) -> Vec<u8> {
+        encode_png(side, side, |x, y| match (x * 2 / side, y * 2 / side) {
+            (0, 0) => RED_PX,
+            (1, 0) => GREEN_PX,
+            (0, 1) => BLUE_PX,
+            _ => YELLOW_PX,
+        })
+    }
+
+    fn image_paint_of(mode: ImageScaleMode, params: designos_doc::ImageParams) -> Paint {
+        Paint {
+            kind: PaintKind::Image { image_ref: "picture".into(), scale_mode: mode, params },
+            opacity: 1.0,
+            visible: true,
+            blend: designos_doc::BlendMode::Normal,
+        }
+    }
+
+    impl HeadlessPicker {
+        /// Opens the fill picker on the first fill of every node in a row of image rectangles, all selected.
+        fn open_image(image: Vec<u8>, nodes: &[((f32, f32), ImageScaleMode, designos_doc::ImageParams)]) -> (Self, Vec<designos_doc::NodeId>) {
+            let mut doc = designos_doc::Document::new("image-picker");
+            let page = doc.add_page("Page 1");
+            doc.images.insert("picture".into(), image);
+            let mut app = crate::app::App::new(doc);
+            app.page = page;
+            let mut ids = Vec::new();
+            let mut x = 0.0;
+            for ((w, h), mode, params) in nodes {
+                let id = app.doc.alloc_id();
+                let mut node = designos_doc::Node::rectangle(id, designos_doc::Rect::new(x, 0.0, *w, *h));
+                node.fills = vec![image_paint_of(*mode, *params)];
+                ids.push(app.doc.insert(page, node).unwrap());
+                x += *w + 20.0;
+            }
+            app.selection = ids.clone();
+            let mut h = Self { app, ctx: test_ctx(), atlas: std::collections::HashMap::new(), ok_id: Id::new("color-picker").with(("txt", "picker-ok")) };
+            let _ = h.frame(vec![]);
+            h.click_key("sw:false:0");
+            assert!(h.app.props.picker.is_some(), "the fill swatch click opens the picker");
+            let _ = h.frame(vec![]);
+            (h, ids)
+        }
+
+        fn rect_of(&self, key: &str) -> Rect {
+            self.ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", key.to_string())))).unwrap_or_else(|| panic!("no recorded rect {key}"))
+        }
+
+        fn click_key(&mut self, key: &str) {
+            let c = self.rect_of(key).center();
+            let _ = self.frame(vec![egui::Event::PointerMoved(c)]);
+            for pressed in [true, false] {
+                let _ =
+                    self.frame(vec![egui::Event::PointerButton { pos: c, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+            let _ = self.frame(vec![]);
+        }
+
+        /// Drags the slider recorded as `key` from its centre to `frac` of its width and releases.
+        fn drag_slider(&mut self, key: &str, frac: f32) {
+            let r = self.rect_of(key);
+            let (from, to) = (r.center(), Pos2::new(r.left() + r.width() * frac, r.center().y));
+            let _ = self.frame(vec![
+                egui::Event::PointerMoved(from),
+                egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+            ]);
+            let _ = self.frame(vec![egui::Event::PointerMoved(to)]);
+            let _ = self.frame(vec![egui::Event::PointerButton {
+                pos: to,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]);
+            let _ = self.frame(vec![]);
+        }
+
+        fn image_params(&self, id: designos_doc::NodeId) -> (ImageScaleMode, designos_doc::ImageParams) {
+            match &self.app.doc.get(id).unwrap().fills[0].kind {
+                PaintKind::Image { scale_mode, params, .. } => (*scale_mode, *params),
+                other => panic!("expected an image fill, got {other:?}"),
+            }
+        }
+
+        fn pixels(&self, id: designos_doc::NodeId) -> designos_render::tiny_skia::Pixmap {
+            designos_render::render_node(&self.app.doc, id, 1.0).expect("render node")
+        }
+
+        /// What the node looks like when its fill is `mode` with `params`, whatever it holds now.
+        fn reference_pixels(&self, id: designos_doc::NodeId, mode: ImageScaleMode, params: designos_doc::ImageParams) -> designos_render::tiny_skia::Pixmap {
+            let mut doc = self.app.doc.clone();
+            doc.get_mut(id).unwrap().fills = vec![image_paint_of(mode, params)];
+            designos_render::render_node(&doc, id, 1.0).expect("render reference")
+        }
+    }
+
+    fn rgba_at(pm: &designos_render::tiny_skia::Pixmap, x: u32, y: u32) -> Rgba {
+        let p = pm.pixel(x, y).unwrap();
+        [p.red(), p.green(), p.blue(), p.alpha()]
+    }
+
+    fn assert_same_pixels(got: &designos_render::tiny_skia::Pixmap, want: &designos_render::tiny_skia::Pixmap, tolerance: u8, what: &str) {
+        assert_eq!((got.width(), got.height()), (want.width(), want.height()), "{what}: size");
+        let worst = got.data().iter().zip(want.data()).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+        assert!(worst <= tolerance, "{what}: pixels differ by up to {worst} levels");
+    }
+
+    #[test]
+    fn rotating_a_cropped_picture_turns_the_pixels_a_quarter_turn_each_click() {
+        let quad = encode_png(2, 2, |x, y| match (x, y) {
+            (0, 0) => RED_PX,
+            (1, 0) => GREEN_PX,
+            (0, 1) => BLUE_PX,
+            _ => YELLOW_PX,
+        });
+        let (mut h, ids) = HeadlessPicker::open_image(quad, &[((2.0, 2.0), ImageScaleMode::Crop, designos_doc::ImageParams::default())]);
+        let id = ids[0];
+        let at = |h: &HeadlessPicker| {
+            let pm = h.pixels(id);
+            [rgba_at(&pm, 0, 0), rgba_at(&pm, 1, 0), rgba_at(&pm, 0, 1), rgba_at(&pm, 1, 1)]
+        };
+        assert_eq!(at(&h), [RED_PX, GREEN_PX, BLUE_PX, YELLOW_PX], "the identity crop shows the picture as it is");
+
+        h.click_key("picker-image-rot-right");
+        assert_eq!(at(&h), [BLUE_PX, RED_PX, YELLOW_PX, GREEN_PX], "rotate right turns the pixels clockwise");
+        assert!((h.image_params(id).1.rotation - 90.0).abs() < 1e-4, "the angle label follows the turn");
+
+        h.click_key("picker-image-rot-left");
+        assert_eq!(at(&h), [RED_PX, GREEN_PX, BLUE_PX, YELLOW_PX], "rotate left undoes it");
+
+        h.click_key("picker-image-rot-left");
+        assert_eq!(at(&h), [GREEN_PX, YELLOW_PX, RED_PX, BLUE_PX], "rotate left again turns the pixels counter-clockwise");
+        assert!((h.image_params(id).1.rotation - 270.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_fit_picture_turned_a_quarter_then_cropped_then_rotated_shows_the_half_turn_framing() {
+        let params90 = designos_doc::ImageParams { rotation: 90.0, ..Default::default() };
+        let (mut h, ids) = HeadlessPicker::open_image(quadrant_png(100), &[((200.0, 100.0), ImageScaleMode::Fit, params90)]);
+        let id = ids[0];
+        let fit90 = h.reference_pixels(id, ImageScaleMode::Fit, params90);
+
+        h.click_key("picker-image-scale");
+        assert_eq!(h.image_params(id).0, ImageScaleMode::Crop, "Fit goes to Crop on the next click");
+        assert_same_pixels(&h.pixels(id), &fit90, 1, "Crop keeps the Fit framing at 90 degrees");
+
+        h.click_key("picker-image-rot-right");
+        let fit180 = h.reference_pixels(id, ImageScaleMode::Fit, designos_doc::ImageParams { rotation: 180.0, ..Default::default() });
+        assert_same_pixels(&h.pixels(id), &fit180, 1, "one more quarter turn in Crop is the half-turn framing");
+        assert!((h.image_params(id).1.rotation - 180.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn cropping_several_nodes_gives_each_its_own_framing_in_one_undo_step() {
+        let fit = designos_doc::ImageParams::default();
+        let (mut h, ids) =
+            HeadlessPicker::open_image(quadrant_png(100), &[((200.0, 100.0), ImageScaleMode::Fit, fit), ((100.0, 200.0), ImageScaleMode::Fit, fit)]);
+        let own_framing: Vec<_> = ids.iter().map(|id| h.reference_pixels(*id, ImageScaleMode::Fit, fit)).collect();
+        let depth = h.app.hist.undo_depth();
+
+        h.click_key("picker-image-scale");
+        for (i, id) in ids.iter().enumerate() {
+            assert_eq!(h.image_params(*id).0, ImageScaleMode::Crop, "node {i} is cropped");
+            assert_same_pixels(&h.pixels(*id), &own_framing[i], 1, &format!("node {i} keeps its own framing"));
+        }
+        assert_eq!(h.app.hist.undo_depth(), depth + 1, "switching both nodes is one undo step");
+
+        h.app.undo();
+        for id in &ids {
+            assert_eq!(h.image_params(*id).0, ImageScaleMode::Fit, "one undo puts both nodes back");
+        }
+        assert_eq!(h.app.hist.undo_depth(), depth);
+    }
+
+    #[test]
+    fn editing_an_adjustment_keeps_every_nodes_own_crop_frame() {
+        let fit = designos_doc::ImageParams::default();
+        let (mut h, ids) =
+            HeadlessPicker::open_image(quadrant_png(100), &[((200.0, 100.0), ImageScaleMode::Fit, fit), ((100.0, 200.0), ImageScaleMode::Fit, fit)]);
+        h.click_key("picker-image-scale");
+        let frames: Vec<_> = ids.iter().map(|id| h.image_params(*id).1.transform).collect();
+        assert!(frames.iter().all(|f| f.is_some()), "both nodes were given a frame: {frames:?}");
+        assert_ne!(frames[0], frames[1], "the two nodes have different frames");
+
+        h.drag_slider("picker-image-adj-slider:Exposure", 0.75);
+        for (i, id) in ids.iter().enumerate() {
+            let (mode, params) = h.image_params(*id);
+            assert_eq!(mode, ImageScaleMode::Crop);
+            assert!(params.adjust.exposure > 0.3, "node {i} got the exposure: {}", params.adjust.exposure);
+            assert_eq!(params.transform, frames[i], "node {i} keeps its own frame while a slider moves");
+        }
+    }
+
+    #[test]
+    fn a_picture_that_cannot_be_decoded_gets_no_invented_crop_frame() {
+        let (mut h, ids) = HeadlessPicker::open_image(b"not a picture".to_vec(), &[((120.0, 80.0), ImageScaleMode::Fit, designos_doc::ImageParams::default())]);
+        h.click_key("picker-image-scale");
+        let (mode, params) = h.image_params(ids[0]);
+        assert_eq!(mode, ImageScaleMode::Crop);
+        assert_eq!(params.transform, None, "an unknown picture size leaves the crop at the identity");
+    }
+
+    #[test]
+    fn rotating_several_cropped_nodes_turns_each_about_its_own_centre() {
+        let fit = designos_doc::ImageParams::default();
+        let (mut h, ids) =
+            HeadlessPicker::open_image(quadrant_png(100), &[((200.0, 100.0), ImageScaleMode::Fit, fit), ((100.0, 200.0), ImageScaleMode::Fit, fit)]);
+        h.click_key("picker-image-scale");
+        h.click_key("picker-image-rot-right");
+        let turned = designos_doc::ImageParams { rotation: 90.0, ..Default::default() };
+        for (i, id) in ids.iter().enumerate() {
+            // a square picture keeps its footprint when it turns, so the turned frame is the Fit framing at 90 degrees
+            let want = h.reference_pixels(*id, ImageScaleMode::Fit, turned);
+            assert_same_pixels(&h.pixels(*id), &want, 1, &format!("node {i} turned about its own centre"));
+            assert!((h.image_params(*id).1.rotation - 90.0).abs() < 1e-4, "node {i} shows 90");
+        }
+    }
+
+    #[test]
+    fn picker_rotate_in_crop_hands_the_turn_to_the_host_and_elsewhere_clears_the_frame() {
+        let ctx = test_ctx();
+        let mut paint = test_image_paint(ImageScaleMode::Crop);
+        let mut st = State::new(&paint);
+        let _ = visible_texts(&ctx, &mut paint, &mut st);
+        let right = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "picker-image-rot-right".to_string())))).expect("rotate-right rect");
+        let left = ctx.data(|d| d.get_temp::<Rect>(Id::new(("test-rect", "picker-image-rot-left".to_string())))).expect("rotate-left rect");
+        click_rect(&ctx, right, &mut paint, &mut st);
+        click_rect(&ctx, right, &mut paint, &mut st);
+        click_rect(&ctx, left, &mut paint, &mut st);
+        assert_eq!(st.image_turns, 1, "two clockwise clicks and one counter-clockwise click are one net turn");
+        let PaintKind::Image { params, .. } = &paint.kind else { panic!("image paint") };
+        assert!((params.rotation - 90.0).abs() < 1e-4, "the angle label follows the clicks");
+
+        let mut fill = test_image_paint(ImageScaleMode::Fill);
+        if let PaintKind::Image { params, .. } = &mut fill.kind {
+            params.transform = Some([0.5, 0.0, 0.0, 0.0, 0.5, 0.0]);
+        }
+        let mut st = State::new(&fill);
+        let _ = visible_texts(&ctx, &mut fill, &mut st);
+        click_rect(&ctx, right, &mut fill, &mut st);
+        let PaintKind::Image { params, .. } = &fill.kind else { panic!("image paint") };
+        assert_eq!((st.image_turns, params.transform), (0, None), "outside Crop a turn is the angle alone and drops a stale frame");
+    }
+
+    /// The picker of a tiled picture with adjustments: the Tile scale row, the angle row and the Reset action show.
+    /// The window and the picker panel are saved into `DESIGNOS_PICKER_EVIDENCE_DIR` when it is set.
+    #[test]
+    fn picker_of_a_tiled_picture_shows_the_tile_scale_row_the_adjustments_and_reset() {
+        let (mut h, ids) = HeadlessPicker::open_image(quadrant_png(64), &[((200.0, 120.0), ImageScaleMode::Tile, designos_doc::ImageParams::default())]);
+        h.drag_slider("picker-image-adj-slider:Exposure", 0.75);
+        h.drag_slider("picker-image-adj-slider:Contrast", 0.25);
+        h.drag_slider("picker-image-tile-slider", 0.5);
+        let shapes = h.frame(vec![]);
+        let texts = collect_visible_texts(&shapes);
+        for want in ["Scale: Tile", "Rotate", "Tile scale", "Adjustments", "Reset", "50%", "-50%"] {
+            assert!(texts.iter().any(|t| t == want), "missing {want:?} in {texts:?}");
+        }
+        let (mode, params) = h.image_params(ids[0]);
+        assert_eq!(mode, ImageScaleMode::Tile);
+        assert!((params.adjust.exposure - 0.5).abs() < 0.05 && (params.adjust.contrast + 0.15).abs() < 0.02, "adjustments: {:?}", params.adjust);
+        assert!(params.tile_scale > 1.5, "tile scale {}", params.tile_scale);
+        let cap = h.capture(shapes);
+        if let Ok(dir) = std::env::var("DESIGNOS_PICKER_EVIDENCE_DIR") {
+            cap.1.save(std::path::Path::new(&dir).join("r1-picker-tile.png")).expect("save picker");
+        }
+    }
+
+    /// The picker of a cropped picture after a rotate click, beside the node before and after the click. Pieces are
+    /// saved into `DESIGNOS_PICKER_EVIDENCE_DIR` when it is set.
+    #[test]
+    fn picker_of_a_cropped_picture_shows_the_turned_angle_and_the_node_turns() {
+        let (mut h, ids) = HeadlessPicker::open_image(quadrant_png(64), &[((200.0, 120.0), ImageScaleMode::Crop, designos_doc::ImageParams::default())]);
+        let id = ids[0];
+        let before = h.pixels(id);
+        h.click_key("picker-image-rot-right");
+        let after = h.pixels(id);
+        let shapes = h.frame(vec![]);
+        let texts = collect_visible_texts(&shapes);
+        assert!(texts.iter().any(|t| t == "Scale: Crop") && texts.iter().any(|t| t == "90°"), "crop picker texts: {texts:?}");
+        assert_ne!(before.data(), after.data(), "the picture on the node turned");
+        let cap = h.capture(shapes);
+        if let Ok(dir) = std::env::var("DESIGNOS_PICKER_EVIDENCE_DIR") {
+            let dir = std::path::Path::new(&dir);
+            before.save_png(dir.join("r1-crop-rotate-node-before.png")).expect("save before");
+            after.save_png(dir.join("r1-crop-rotate-node-after.png")).expect("save after");
+            cap.1.save(dir.join("r1-crop-rotate-picker.png")).expect("save picker");
+        }
     }
 }

@@ -2160,6 +2160,28 @@ fn preserve_bound_stop_colors(doc: &Document, id: NodeId, pt: &mut Paint, old_st
     }
 }
 
+/// Gives the image paint the picker writes onto a node that node's own Crop frame; see
+/// `designos_render::image_adjust::crop_paint_for_node`.
+fn settle_image_crop(doc: &Document, size: DVec2, old: Option<&Paint>, next: &mut Paint, quarter_turns: i32) {
+    let Some(old) = old else { return };
+    let PaintKind::Image { image_ref, .. } = &old.kind else { return };
+    designos_render::image_adjust::crop_paint_for_node(old, next, size, || designos_render::image_adjust::image_dimensions(doc, image_ref), quarter_turns);
+}
+
+/// After a Crop edit the picker's paint shows the frame and angle its first node ended up with.
+fn mirror_first_crop_frame(doc: &Document, p: &mut Picker) {
+    let (Some(first), PaintKind::Image { scale_mode: ImageScaleMode::Crop, params, .. }) = (p.ids.first(), &mut p.paint.kind) else { return };
+    let paint = doc.get(*first).and_then(|n| match p.target {
+        PickTarget::Fill(i) => n.fills.get(i),
+        PickTarget::Stroke(i) => n.stroke.paints.get(i),
+        _ => None,
+    });
+    if let Some(Paint { kind: PaintKind::Image { scale_mode: ImageScaleMode::Crop, params: node_params, .. }, .. }) = paint {
+        params.transform = node_params.transform;
+        params.rotation = node_params.rotation;
+    }
+}
+
 fn apply_picker(doc: &mut Document, p: &mut Picker) {
     let c = picker_color(p);
     if let PickTarget::SelColor(old) = p.target {
@@ -2169,6 +2191,7 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
         return;
     }
     let is_grad = widgets::picker::mode_of(&p.paint.kind).is_gradient();
+    let turns = std::mem::take(&mut p.state.image_turns);
     for id in &p.ids {
         let Some(n) = p.tx.ed.node(doc, *id) else { continue };
         match p.target {
@@ -2177,8 +2200,10 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
                 let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
                 super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("fills/{i}/stops/"), origins);
                 let Some(visible) = n.fills.get(i).map(|pt| pt.visible) else { continue };
+                let (size, old) = (n.size, n.fills.get(i).cloned());
                 let mut next = Paint { visible, ..p.paint.clone() };
                 preserve_bound_stop_colors(doc, *id, &mut next, &old_stops, "fills", i, &p.state.stop_origins);
+                settle_image_crop(doc, size, old.as_ref(), &mut next, turns);
                 if let Some(pt) = doc.nodes.get_mut(id).and_then(|n| n.fills.get_mut(i)) {
                     *pt = next;
                 }
@@ -2188,8 +2213,10 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
                 let origins: &[Option<usize>] = if is_grad { &p.state.stop_origins } else { &[] };
                 super::var_bind::remap_indexed_bindings(&mut n.variables.bindings, &format!("strokes/{i}/stops/"), origins);
                 let Some(visible) = n.stroke.paints.get(i).map(|pt| pt.visible) else { continue };
+                let (size, old) = (n.size, n.stroke.paints.get(i).cloned());
                 let mut next = Paint { visible, ..p.paint.clone() };
                 preserve_bound_stop_colors(doc, *id, &mut next, &old_stops, "strokes", i, &p.state.stop_origins);
+                settle_image_crop(doc, size, old.as_ref(), &mut next, turns);
                 if let Some(pt) = doc.nodes.get_mut(id).and_then(|n| n.stroke.paints.get_mut(i)) {
                     *pt = next;
                 }
@@ -2222,6 +2249,7 @@ fn apply_picker(doc: &mut Document, p: &mut Picker) {
             }
         }
     }
+    mirror_first_crop_frame(doc, p);
 }
 
 /// Reads the page colour under `pos` (screen space) by rendering a 1x1 pixel of the page.
@@ -3897,5 +3925,68 @@ mod tests {
             }
         }
         combined.save(out_dir.join("lock-aspect-panel.png")).expect("save combined png");
+    }
+
+    fn quadrant_picture() -> Vec<u8> {
+        let img = image::RgbaImage::from_fn(100, 100, |x, y| match (x / 50, y / 50) {
+            (0, 0) => image::Rgba([255, 0, 0, 255]),
+            (1, 0) => image::Rgba([0, 255, 0, 255]),
+            (0, 1) => image::Rgba([0, 0, 255, 255]),
+            _ => image::Rgba([255, 255, 0, 255]),
+        });
+        let mut out = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).expect("encode png");
+        out
+    }
+
+    fn picture_paint(mode: ImageScaleMode) -> Paint {
+        Paint {
+            kind: PaintKind::Image { image_ref: "picture".into(), scale_mode: mode, params: ImageParams::default() },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }
+    }
+
+    #[test]
+    fn switching_several_filled_nodes_to_crop_frames_each_by_its_own_size() {
+        let mut doc = designos_doc::Document::new("crop-several");
+        let page = doc.add_page("Page 1");
+        doc.images.insert("picture".into(), quadrant_picture());
+        let mut app = App::new(doc);
+        app.page = page;
+        let mut ids = Vec::new();
+        for (x, (w, h)) in [(0.0, (200.0, 100.0)), (240.0, (100.0, 200.0))] {
+            let id = app.doc.alloc_id();
+            let mut node = Node::rectangle(id, designos_doc::Rect::new(x, 0.0, w, h));
+            node.fills = vec![picture_paint(ImageScaleMode::Fill)];
+            ids.push(app.doc.insert(page, node).unwrap());
+        }
+        app.selection = ids.clone();
+        let own_fill: Vec<_> = ids.iter().map(|id| designos_render::render_node(&app.doc, *id, 1.0).unwrap()).collect();
+        let depth = app.hist.undo_depth();
+
+        open_picker(&mut app, PickTarget::Fill(0), Color32::BLACK, Rect::NOTHING, ids.clone());
+        let mut pk = app.props.picker.take().expect("picker open");
+        // What the Scale button leaves in the picker's paint: Crop, framed for the first node only.
+        let first = app.doc.get(ids[0]).unwrap().size;
+        designos_render::image_adjust::switch_image_scale_mode(&mut pk.paint, ImageScaleMode::Crop, first, (100, 100));
+        apply_picker(&mut app.doc, &mut pk);
+        let tx = std::mem::replace(&mut pk.tx, Tx::new());
+        app.run_tx(tx);
+        app.props.picker = Some(pk);
+
+        for (i, id) in ids.iter().enumerate() {
+            let PaintKind::Image { scale_mode, .. } = &app.doc.get(*id).unwrap().fills[0].kind else { panic!("image fill") };
+            assert_eq!(*scale_mode, ImageScaleMode::Crop, "node {i} is cropped");
+            let now = designos_render::render_node(&app.doc, *id, 1.0).unwrap();
+            assert_eq!(now.data(), own_fill[i].data(), "node {i} still shows its own Fill framing");
+        }
+        assert_eq!(app.hist.undo_depth(), depth + 1, "both nodes change in one undo step");
+        app.undo();
+        for id in &ids {
+            let PaintKind::Image { scale_mode, .. } = &app.doc.get(*id).unwrap().fills[0].kind else { panic!("image fill") };
+            assert_eq!(*scale_mode, ImageScaleMode::Fill, "one undo restores both");
+        }
     }
 }
