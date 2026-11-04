@@ -360,6 +360,31 @@ fn selection_beyond_128_reports_mixed_values_for_opacity_and_radius() {
     }
 }
 
+/// Every frame of an inspector capture installs a fresh copy of one base document and inserts that frame's
+/// layers, so the frames share layer ids and edit counts while their values differ. The inspector must show the
+/// values of the frame it is drawing, not the ones of an earlier frame.
+#[test]
+fn inspector_capture_frames_show_their_own_width_and_radius() {
+    let mut s = Sim::new();
+    let base = s.app().doc.clone();
+    let total = 10;
+    let mut seen = Vec::new();
+    for cur in [0usize, total - 1] {
+        let _ = crate::shell::apply_micro_interaction_continuous_frame(&mut s.shell.app, &base, "micro-inspector-math", cur, total);
+        s.frame(vec![]);
+        s.frame(vec![]);
+        let id = s.app().selection[0];
+        let n = s.app().doc.get(id).unwrap();
+        let (width, radius) = (n.size.x, n.corner_radii[0]);
+        let shown_width = texts_in_rect(&s, s.field_rect("w"));
+        let shown_radius = texts_in_rect(&s, s.field_rect("radius"));
+        assert!(shown_width.contains(&format!("{width}")), "frame {cur}: the W field {shown_width:?} must show the document width {width}");
+        assert!(shown_radius.contains(&format!("{radius}")), "frame {cur}: the radius field {shown_radius:?} must show the document radius {radius}");
+        seen.push((width, radius));
+    }
+    assert_ne!(seen[0], seen[1], "the first and the last frame must differ, or the test proves nothing: {seen:?}");
+}
+
 #[test]
 fn selection_of_128_text_layers_plus_one_frame_shows_radius_row_and_edits_frame() {
     let mut s = Sim::new();

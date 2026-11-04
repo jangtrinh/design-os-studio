@@ -2952,6 +2952,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
     };
 
     app.doc = base_doc.clone();
+    app.doc.renew_runtime_id();
     app.ui.rulers = true;
     app.ui.dev_mode = false;
     app.ui.right_tab = Some(crate::app::RightTab::Design);

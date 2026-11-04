@@ -4369,4 +4369,26 @@ mod tests {
         assert!(third.opacity_pct.is_none(), "editing one layer must refresh the cached summary");
         assert_eq!(third.uniform_radius, Some(6.0), "a field the edit did not change stays shared");
     }
+
+    /// Two copies of one document take the same number of edits with different values. Each copy is installed
+    /// as the live document with an id of its own, so the summary follows the copy that is installed.
+    #[test]
+    fn mixed_value_summary_follows_each_installed_copy_of_one_document() {
+        let mut base = Document::new("installed-copies");
+        let page = base.add_page("Page 1");
+        let id = base.alloc_id();
+        base.insert(page, Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0))).unwrap();
+        let install = |opacity: f32| {
+            let mut copy = base.clone();
+            copy.renew_runtime_id();
+            copy.get_mut(id).unwrap().opacity = opacity;
+            copy
+        };
+        let (first, second) = (install(0.3), install(0.9));
+        assert_eq!(first.mutation_epoch(), second.mutation_epoch(), "both copies took the same number of edits");
+        assert_ne!(first.runtime_id(), second.runtime_id(), "each installed copy has an id of its own");
+        assert_eq!(mixed_value_summary(&first, &[id]).opacity_pct, Some(30.0));
+        assert_eq!(mixed_value_summary(&second, &[id]).opacity_pct, Some(90.0), "the second copy must not read the first copy's summary");
+        assert_eq!(mixed_value_summary(&first, &[id]).opacity_pct, Some(30.0), "switching back reads the first copy again");
+    }
 }
