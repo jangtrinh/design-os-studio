@@ -1,0 +1,13 @@
+diff --git a/crates/designos-doc/src/paint.rs b/crates/designos-doc/src/paint.rs
+index e65b1b80..345fef83 100644
+--- a/crates/designos-doc/src/paint.rs
++++ b/crates/designos-doc/src/paint.rs
+@@ -292,7 +292,7 @@ pub const TILE_SCALE_MAX: f32 = 100.0;
+ /// Clamps a tile scale into `TILE_SCALE_MIN..=TILE_SCALE_MAX`. Zero and negative
+ /// values land on the minimum; a non-finite value falls back to `1.0` (native size).
+ pub fn clamp_tile_scale(raw: f32) -> f32 {
+-    if raw.is_finite() {
++    if raw.is_finite() && raw > 0.0 {
+         raw.clamp(TILE_SCALE_MIN, TILE_SCALE_MAX)
+     } else {
+         1.0

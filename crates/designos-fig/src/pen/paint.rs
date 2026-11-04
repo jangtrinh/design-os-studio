@@ -219,7 +219,7 @@ fn parse_single_paint_obj(
             plugin_data.insert("pen:image-mode".into(), image_scale_mode_to_pen_str(scale_mode).to_string());
 
             let image_ref = resolve_image_url(url, doc, node_id, base_dir, total_image_bytes, warnings);
-            (Some(Paint { kind: PaintKind::Image { image_ref, scale_mode }, opacity, visible: enabled, blend }), None)
+            (Some(Paint { kind: PaintKind::Image { image_ref, scale_mode, params: Default::default() }, opacity, visible: enabled, blend }), None)
         }
         _ => {
             if let Some(c_str) = obj.get("color").or_else(|| obj.get("fill")).and_then(Value::as_str) {
@@ -696,7 +696,7 @@ pub fn export_single_paint(p: &Paint, plugin_data: &BTreeMap<String, String>) ->
             }
             Value::Object(obj)
         }
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, .. } => {
             let url = plugin_data.get("pen:image-url").cloned().unwrap_or_else(|| format!("pen:image:{image_ref}"));
             let mut obj = Map::new();
             obj.insert("type".into(), json!("image"));

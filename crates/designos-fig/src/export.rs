@@ -62,7 +62,7 @@ fn paint(p: &Paint) -> Value {
         PaintKind::RadialGradient { handles, stops } => grad(&mut m, "GRADIENT_RADIAL", handles, stops),
         PaintKind::AngularGradient { handles, stops } => grad(&mut m, "GRADIENT_ANGULAR", handles, stops),
         PaintKind::DiamondGradient { handles, stops } => grad(&mut m, "GRADIENT_DIAMOND", handles, stops),
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, params } => {
             m.insert("type".into(), "IMAGE".into());
             m.insert("imageRef".into(), image_ref.clone().into());
             m.insert(
@@ -75,6 +75,33 @@ fn paint(p: &Paint) -> Value {
                 }
                 .into(),
             );
+            if let Some(xf) = params.transform {
+                m.insert("imageTransform".into(), json!([[n(xf[0]), n(xf[1]), n(xf[2])], [n(xf[3]), n(xf[4]), n(xf[5])]]));
+            }
+            if params.rotation != 0.0 {
+                m.insert("rotation".into(), n(params.rotation));
+            }
+            if (params.tile_scale - 1.0).abs() > 1e-6 {
+                m.insert("scalingFactor".into(), n(params.tile_scale));
+            }
+            let adj = &params.adjust;
+            let mut flt = Map::new();
+            for (k, v) in [
+                ("exposure", adj.exposure),
+                ("contrast", adj.contrast),
+                ("saturation", adj.vibrance),
+                ("temperature", adj.temperature),
+                ("tint", adj.tint),
+                ("highlights", adj.highlights),
+                ("shadows", adj.shadows),
+            ] {
+                if v != 0.0 {
+                    flt.insert(k.into(), n(v));
+                }
+            }
+            if !flt.is_empty() {
+                m.insert("filters".into(), Value::Object(flt));
+            }
         }
     }
     m.insert("opacity".into(), n(p.opacity));

@@ -314,7 +314,7 @@ fn export_fig_then_import_fig_roundtrips_sample_and_rich_documents() {
     bg_rect.fills = vec![
         Paint::solid(Color::rgb(240, 242, 245)),
         Paint {
-            kind: PaintKind::Image { image_ref: img_hash.into(), scale_mode: ImageScaleMode::Fill },
+            kind: PaintKind::Image { image_ref: img_hash.into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
             opacity: 0.9,
             visible: true,
             blend: BlendMode::Normal,
@@ -4799,4 +4799,252 @@ fn rest_instance_overrides_skips_layout_cleared() {
     assert_eq!(cleared_ovs[0]["overriddenFields"], json!(["opacity"]), "layout_cleared instance skips layoutMode and keeps other overrides");
 
     assert!(find_json("InstOnlyLayoutCleared").get("overrides").is_none(), "instance with only layout_cleared Layout override emits no overrides array");
+}
+
+#[test]
+fn fig_round_trip_keeps_transform_rotation_scale_filters_and_flags() {
+    let mut doc = Document::new("ImageParamsFigRoundTrip");
+    let page = doc.add_page("Page 1");
+    let hash = "deadbeef01020304";
+    doc.images.insert(hash.into(), vec![0x89, b'P', b'N', b'G']);
+
+    let expected_params = ImageParams {
+        transform: Some([0.6, 0.0, 0.15, 0.0, 0.75, 0.1]),
+        rotation: 90.0,
+        tile_scale: 0.4,
+        adjust: ImageAdjust {
+            tint: 0.1,
+            shadows: -0.2,
+            highlights: 0.3,
+            detail: 0.4,
+            exposure: -0.5,
+            vignette: 0.6,
+            temperature: -0.7,
+            vibrance: 0.8,
+            contrast: -0.9,
+            brightness: 0.25,
+        },
+        color_manage: Some(true),
+        original_size: Some((1440, 960)),
+    };
+
+    let id = doc.alloc_id();
+    let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 120.0, 80.0));
+    rect.name = "CroppedHero".into();
+    rect.fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: hash.into(), scale_mode: ImageScaleMode::Crop, params: expected_params },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    doc.insert(page, rect).unwrap();
+
+    let bytes = export_fig(&doc).expect("export_fig");
+    let raw = designos_fig::decode_fig_to_json(&bytes).expect("decode_fig_to_json");
+    let ncs = raw["message"]["nodeChanges"].as_array().expect("nodeChanges");
+    let raw_node = ncs.iter().find(|n| n["name"] == "CroppedHero").expect("CroppedHero in nodeChanges");
+    let raw_paint = &raw_node["fillPaints"][0];
+    assert!(raw_paint.get("paintFilter").is_some(), "export writes paintFilter");
+    assert!(raw_paint.get("filterColorAdjust").is_none(), "export never writes legacy filterColorAdjust");
+
+    let back = import_fig(&bytes).expect("import_fig");
+    let node = find(&back, "CroppedHero");
+    let PaintKind::Image { image_ref, scale_mode, params } = &node.fills[0].kind else {
+        panic!("expected PaintKind::Image, got {:?}", node.fills[0].kind);
+    };
+    assert_eq!(image_ref, hash);
+    assert_eq!(*scale_mode, ImageScaleMode::Crop);
+    assert_eq!(*params, expected_params);
+}
+
+#[test]
+fn legacy_filter_color_adjust_reads_into_the_adjustment_set() {
+    use designos_fig::container::{write_container, Compression};
+    use designos_fig::kiwi::KiwiValue as V;
+    use designos_fig::testkit::{en, figma_like_schema, fl, guid, matrix, msg, node, st, vec2, IMAGE_HASH};
+
+    let doc_node = msg(vec![("guid", guid(0, 0)), ("type", en("DOCUMENT")), ("name", V::String("Document".into()))]);
+    let page_node = node((0, 1), (0, 0), "!", "CANVAS", "Page 1", vec![]);
+    let legacy_paint = msg(vec![
+        ("type", en("IMAGE")),
+        ("opacity", fl(1.0)),
+        ("visible", V::Bool(true)),
+        ("blendMode", en("NORMAL")),
+        ("image", msg(vec![("hash", V::Bytes(IMAGE_HASH.to_vec())), ("name", V::String("pic".into()))])),
+        ("imageScaleMode", en("FILL")),
+        (
+            "filterColorAdjust",
+            st(vec![
+                ("tint", fl(0.25)),
+                ("shadows", fl(-0.5)),
+                ("highlights", fl(0.75)),
+                ("detail", fl(0.125)),
+                ("exposure", fl(-0.375)),
+                ("vignette", fl(0.625)),
+                ("temperature", fl(-0.25)),
+                ("vibrance", fl(0.5)),
+            ]),
+        ),
+    ]);
+    let rect_node = node(
+        (1, 2),
+        (0, 1),
+        "a",
+        "RECTANGLE",
+        "LegacyFiltered",
+        vec![("size", vec2(80.0, 60.0)), ("transform", matrix(0.0, 0.0)), ("fillPaints", V::Array(vec![legacy_paint]))],
+    );
+    let root_msg = msg(vec![("nodeChanges", V::Array(vec![doc_node, page_node, rect_node]))]);
+    let schema = figma_like_schema();
+    let root = schema.find("Message").unwrap();
+    let body = schema.encode_message(root, &root_msg).unwrap();
+    let fig_bytes = write_container(&schema.encode(), &body, Compression::Deflate, 101);
+
+    let imported = import_fig(&fig_bytes).expect("import legacy filterColorAdjust");
+    let r = find(&imported, "LegacyFiltered");
+    let PaintKind::Image { params, .. } = &r.fills[0].kind else {
+        panic!("expected PaintKind::Image");
+    };
+    assert_eq!(
+        params.adjust,
+        ImageAdjust {
+            tint: 0.25,
+            shadows: -0.5,
+            highlights: 0.75,
+            detail: 0.125,
+            exposure: -0.375,
+            vignette: 0.625,
+            temperature: -0.25,
+            vibrance: 0.5,
+            contrast: 0.0,
+            brightness: 0.0,
+        }
+    );
+
+    let exported = export_fig(&imported).expect("export_fig");
+    let decoded = decode_fig_to_json(&exported).expect("decode_fig_to_json");
+    let ncs = decoded["message"]["nodeChanges"].as_array().expect("nodeChanges");
+    let raw_node = ncs.iter().find(|n| n["name"] == "LegacyFiltered").expect("LegacyFiltered in nodeChanges");
+    let raw_paint = &raw_node["fillPaints"][0];
+    assert!(raw_paint.get("paintFilter").is_some(), "export writes paintFilter");
+    assert!(raw_paint.get("filterColorAdjust").is_none(), "export never writes filterColorAdjust");
+}
+
+#[test]
+fn rest_round_trip_keeps_image_transform_scaling_factor_and_filters() {
+    let mut doc = Document::new("ImageParamsRestRoundTrip");
+    let page = doc.add_page("Page 1");
+    let id = doc.alloc_id();
+    let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    rect.name = "RestImageNode".into();
+
+    let crop_params = ImageParams {
+        transform: Some([0.5, 0.0, 0.25, 0.0, 0.75, 0.125]),
+        rotation: 180.0,
+        tile_scale: 1.0,
+        adjust: ImageAdjust {
+            exposure: 0.25,
+            contrast: -0.5,
+            vibrance: 0.75,
+            temperature: -0.25,
+            tint: 0.5,
+            highlights: -0.75,
+            shadows: 0.125,
+            ..Default::default()
+        },
+        color_manage: None,
+        original_size: None,
+    };
+    let tile_params = ImageParams { transform: None, rotation: 90.0, tile_scale: 2.0, adjust: ImageAdjust::default(), color_manage: None, original_size: None };
+
+    rect.fills = vec![
+        Paint {
+            kind: PaintKind::Image { image_ref: "crop_hash".into(), scale_mode: ImageScaleMode::Crop, params: crop_params },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        },
+        Paint {
+            kind: PaintKind::Image { image_ref: "tile_hash".into(), scale_mode: ImageScaleMode::Tile, params: tile_params },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        },
+    ];
+    doc.insert(page, rect).unwrap();
+
+    let exported = designos_fig::export_rest_json(&doc);
+    let fills_json = &exported["document"]["children"][0]["children"][0]["fills"];
+    assert_eq!(fills_json[0]["scaleMode"], "STRETCH");
+    assert_eq!(fills_json[0]["imageTransform"], json!([[0.5, 0.0, 0.25], [0.0, 0.75, 0.125]]));
+    assert_eq!(fills_json[0]["rotation"], json!(180.0));
+    assert_eq!(fills_json[0]["filters"]["exposure"], json!(0.25));
+    assert_eq!(fills_json[0]["filters"]["contrast"], json!(-0.5));
+    assert_eq!(fills_json[0]["filters"]["saturation"], json!(0.75));
+    assert_eq!(fills_json[0]["filters"]["temperature"], json!(-0.25));
+    assert_eq!(fills_json[0]["filters"]["tint"], json!(0.5));
+    assert_eq!(fills_json[0]["filters"]["highlights"], json!(-0.75));
+    assert_eq!(fills_json[0]["filters"]["shadows"], json!(0.125));
+    assert_eq!(fills_json[1]["scaleMode"], "TILE");
+    assert_eq!(fills_json[1]["scalingFactor"], json!(2.0));
+    assert_eq!(fills_json[1]["rotation"], json!(90.0));
+
+    let json_str = serde_json::to_string(&exported).unwrap();
+    let reimported = designos_fig::import_rest_json(&json_str).expect("import_rest_json");
+    let node = find(&reimported, "RestImageNode");
+    assert_eq!(node.fills[0].kind, PaintKind::Image { image_ref: "crop_hash".into(), scale_mode: ImageScaleMode::Crop, params: crop_params });
+    assert_eq!(node.fills[1].kind, PaintKind::Image { image_ref: "tile_hash".into(), scale_mode: ImageScaleMode::Tile, params: tile_params });
+}
+
+fn tiled_image_doc(tile_scale: f32) -> Document {
+    let mut doc = Document::new("TileScaleClamp");
+    let page = doc.add_page("Page 1");
+    let id = doc.alloc_id();
+    let mut rect = Node::rectangle(id, Rect::new(0.0, 0.0, 100.0, 100.0));
+    rect.name = "TiledNode".into();
+    rect.fills = vec![Paint {
+        kind: PaintKind::Image {
+            image_ref: "deadbeef01020304".into(),
+            scale_mode: ImageScaleMode::Tile,
+            params: ImageParams { tile_scale, ..Default::default() },
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    doc.insert(page, rect).unwrap();
+    doc
+}
+
+fn imported_tile_scale(doc: &Document) -> f32 {
+    let PaintKind::Image { params, .. } = &find(doc, "TiledNode").fills[0].kind else {
+        panic!("expected PaintKind::Image");
+    };
+    params.tile_scale
+}
+
+#[test]
+fn rest_import_clamps_scaling_factor_into_the_tile_scale_range() {
+    let exported = designos_fig::export_rest_json(&tiled_image_doc(2.0));
+    for (raw, expected) in [(json!(0), 0.01), (json!(0.0), 0.01), (json!(-3.0), 0.01), (json!(0.001), 0.01), (json!(1000.0), 100.0), (json!(2.5), 2.5)] {
+        let mut patched = exported.clone();
+        let fill = &mut patched["document"]["children"][0]["children"][0]["fills"][0];
+        assert_eq!(fill["scaleMode"], "TILE");
+        fill["scalingFactor"] = raw.clone();
+        let reimported = designos_fig::import_rest_json(&serde_json::to_string(&patched).unwrap()).expect("import_rest_json");
+        assert_eq!(imported_tile_scale(&reimported), expected, "REST scalingFactor {raw} imports as {expected}");
+    }
+}
+
+#[test]
+fn fig_import_clamps_the_tile_scale_and_export_writes_the_stored_value() {
+    for (stored, expected) in [(0.0, 0.01), (-2.0, 0.01), (1000.0, 100.0), (0.5, 0.5)] {
+        let bytes = export_fig(&tiled_image_doc(stored)).expect("export_fig");
+        let raw = decode_fig_to_json(&bytes).expect("decode_fig_to_json");
+        let ncs = raw["message"]["nodeChanges"].as_array().expect("nodeChanges");
+        let raw_node = ncs.iter().find(|n| n["name"] == "TiledNode").expect("TiledNode in nodeChanges");
+        assert_eq!(raw_node["fillPaints"][0]["scale"], json!(stored), "export writes the stored tile scale {stored}");
+        let back = import_fig(&bytes).expect("import_fig");
+        assert_eq!(imported_tile_scale(&back), expected, ".fig scale {stored} imports as {expected}");
+    }
 }

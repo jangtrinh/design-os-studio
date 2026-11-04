@@ -477,7 +477,7 @@ impl Svg<'_> {
                 let c = sorted_stops(stops).first()?.color;
                 Some((hex(&c), c.a * p.opacity))
             }
-            PaintKind::Image { image_ref, scale_mode } => {
+            PaintKind::Image { image_ref, scale_mode, .. } => {
                 let (img, iw, ih) = self.image_symbol(image_ref)?;
                 let (iw, ih) = (iw as f32, ih as f32);
                 let id = self.uid("pattern");
@@ -1380,7 +1380,7 @@ mod tests {
             let i = d.alloc_id();
             let mut n = Node::rectangle(i, Rect::new(0.0, 0.0, 8.0, 8.0));
             n.fills = vec![Paint {
-                kind: PaintKind::Image { image_ref: "h1".into(), scale_mode: ImageScaleMode::Fill },
+                kind: PaintKind::Image { image_ref: "h1".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() },
                 opacity: 1.0,
                 visible: true,
                 blend: BlendMode::Normal,

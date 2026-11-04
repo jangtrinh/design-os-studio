@@ -1092,7 +1092,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             if resp.clicked() && !active {
                 if *m == Mode::Image {
                     let (key, bytes) = synthesize_procedural_png(0);
-                    paint.kind = PaintKind::Image { image_ref: key.clone(), scale_mode: ImageScaleMode::Fill };
+                    paint.kind = PaintKind::Image { image_ref: key.clone(), scale_mode: ImageScaleMode::Fill, params: Default::default() };
                     paint.opacity = 1.0;
                     st.reset_stop_origins(paint);
                     out.generated_image = Some((key, bytes));
@@ -1165,7 +1165,7 @@ pub fn show(ui: &mut Ui, pos: Pos2, st: &mut State, paint: &mut Paint, env: &Env
             ui.painter().text(btn_r.center(), Align2::CENTER_CENTER, label, theme::font_body(), theme::TEXT);
             if bresp.clicked() {
                 let (key, bytes) = synthesize_procedural_png(idx);
-                paint.kind = PaintKind::Image { image_ref: key.clone(), scale_mode: cur_scale };
+                paint.kind = PaintKind::Image { image_ref: key.clone(), scale_mode: cur_scale, params: Default::default() };
                 paint.opacity = 1.0;
                 out.generated_image = Some((key, bytes));
                 out.changed = true;

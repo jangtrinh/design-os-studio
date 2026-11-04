@@ -694,7 +694,7 @@ fn publish_image_button_from_a(root: &Path) -> Sim {
     a.shell.app.doc.images.insert("pic".into(), tiny_png());
     a.shell.app.edit_nodes(&[bg], |n| {
         n.fills = vec![designos_doc::Paint {
-            kind: designos_doc::PaintKind::Image { image_ref: "pic".into(), scale_mode: designos_doc::ImageScaleMode::Fill },
+            kind: designos_doc::PaintKind::Image { image_ref: "pic".into(), scale_mode: designos_doc::ImageScaleMode::Fill, params: Default::default() },
             opacity: 1.0,
             visible: true,
             blend: designos_doc::BlendMode::Normal,

@@ -1,0 +1,10 @@
+# mutant (ii): the job result writes default image paint params again
+HEAD abc3ff77 (final source)
+## null control (unmutated)
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 4241 filtered out; finished in 1.45s
+## mutated
+test image_jobs::framing_tests::job_result_keeps_the_original_adjustments_and_flags ... FAILED
+test image_jobs::framing_tests::quarter_turn_is_baked_into_the_result_bitmap ... FAILED
+test image_jobs::framing_tests::job_result_renders_like_the_layer_it_replaces ... FAILED
+test result: FAILED. 37 passed; 3 failed; 0 ignored; 0 measured; 4241 filtered out; finished in 1.47s
+error: test failed, to rerun pass `-p designos-app --bin designos`

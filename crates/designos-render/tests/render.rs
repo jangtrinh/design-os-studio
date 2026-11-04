@@ -512,7 +512,7 @@ fn image_fill_modes() {
     // 20x10 image: left half red, right half blue
     t.doc.images.insert("img".into(), png_bytes(20, 10, |x, _| if x < 10 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
     let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), RED);
-    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "img".into(), scale_mode: ImageScaleMode::Fill })];
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "img".into(), scale_mode: ImageScaleMode::Fill, params: Default::default() })];
     let pm = t.render(40, 40);
     // cover: scale 4 -> 80x40 centred, so the red/blue split is at x=20 and the left 20px are cropped
     assert!(near(px(&pm, 5, 20), [255, 0, 0, 255], 4), "{:?}", px(&pm, 5, 20));
@@ -845,4 +845,131 @@ fn inside_dashed_ellipse_round_cap_extends_past_dash_end() {
     let pm_butt = t.render(100, 100);
     assert_eq!(px(&pm_butt, 83, 68), [255, 0, 0, 255], "butt dash body is painted at (83, 68)");
     assert_eq!(px(&pm_butt, 68, 83), WHITE, "butt dash ends at the dash end so (68, 83) is unpainted");
+}
+
+#[test]
+fn rotation_90_is_exact_on_a_2x2_image() {
+    let mut t = T::new();
+    t.doc.images.insert(
+        "quad".into(),
+        png_bytes(2, 2, |x, y| match (x, y) {
+            (0, 0) => [255, 0, 0, 255],
+            (1, 0) => [0, 255, 0, 255],
+            (0, 1) => [0, 0, 255, 255],
+            _ => [255, 255, 0, 255],
+        }),
+    );
+    let r = t.rect(None, Rect::new(0.0, 0.0, 2.0, 2.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "quad".into(),
+        scale_mode: ImageScaleMode::Fill,
+        params: ImageParams { rotation: 90.0, ..Default::default() },
+    })];
+    let pm = t.render(2, 2);
+    assert_eq!(px(&pm, 0, 0), [0, 0, 255, 255]);
+    assert_eq!(px(&pm, 1, 0), [255, 0, 0, 255]);
+    assert_eq!(px(&pm, 0, 1), [255, 255, 0, 255]);
+    assert_eq!(px(&pm, 1, 1), [0, 255, 0, 255]);
+}
+
+#[test]
+fn tile_scale_2_doubles_the_tile_size() {
+    let mut t = T::new();
+    t.doc.images.insert("tile_rb".into(), png_bytes(20, 10, |x, _| if (5..15).contains(&x) { [0, 0, 255, 255] } else { [255, 0, 0, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "tile_rb".into(),
+        scale_mode: ImageScaleMode::Tile,
+        params: ImageParams { tile_scale: 2.0, ..Default::default() },
+    })];
+    let pm = t.render(40, 20);
+    assert!(near(px(&pm, 7, 5), [255, 0, 0, 255], 4), "x=7 is inside the doubled red band (0..10): {:?}", px(&pm, 7, 5));
+    assert!(near(px(&pm, 20, 5), [0, 0, 255, 255], 4), "x=20 is inside the doubled blue band (10..30): {:?}", px(&pm, 20, 5));
+}
+
+#[test]
+fn crop_with_identity_transform_stretches_the_image() {
+    let mut t = T::new();
+    t.doc.images.insert(
+        "bands".into(),
+        png_bytes(40, 40, |x, _| {
+            if x < 8 {
+                [255, 0, 0, 255]
+            } else if x < 32 {
+                [0, 255, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            }
+        }),
+    );
+    let r = t.rect(None, Rect::new(0.0, 0.0, 20.0, 40.0), RED);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image { image_ref: "bands".into(), scale_mode: ImageScaleMode::Crop, params: ImageParams::default() })];
+    let pm = t.render(20, 40);
+    assert!(near(px(&pm, 1, 20), [255, 0, 0, 255], 4), "left edge of stretched crop shows red band: {:?}", px(&pm, 1, 20));
+    assert!(near(px(&pm, 19, 20), [0, 0, 255, 255], 4), "right edge of stretched crop shows blue band: {:?}", px(&pm, 19, 20));
+}
+
+#[test]
+fn crop_transform_maps_uv_through_the_affine() {
+    let mut t = T::new();
+    t.doc.images.insert("half_rb".into(), png_bytes(20, 20, |x, _| if x < 10 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), WHITE.into_iter().collect::<Vec<_>>().as_slice().first().map(|_| Color::TRANSPARENT).unwrap());
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "half_rb".into(),
+        scale_mode: ImageScaleMode::Crop,
+        params: ImageParams { transform: Some([2.0, 0.0, -0.5, 0.0, 2.0, -0.5]), ..Default::default() },
+    })];
+    let pm = t.render(40, 40);
+    assert_eq!(px(&pm, 3, 20), WHITE, "UV < 0 outside cropped image is transparent over white page");
+    assert_eq!(px(&pm, 37, 20), WHITE, "UV > 1 outside cropped image is transparent over white page");
+    assert!(near(px(&pm, 15, 20), [255, 0, 0, 255], 4), "inner left is red: {:?}", px(&pm, 15, 20));
+    assert!(near(px(&pm, 25, 20), [0, 0, 255, 255], 4), "inner right is blue: {:?}", px(&pm, 25, 20));
+}
+
+#[test]
+fn singular_crop_transform_draws_nothing() {
+    let mut t = T::new();
+    t.doc.images.insert("solid_red".into(), png_bytes(20, 20, |_, _| [255, 0, 0, 255]));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 40.0), Color::TRANSPARENT);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "solid_red".into(),
+        scale_mode: ImageScaleMode::Crop,
+        params: ImageParams { transform: Some([0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ..Default::default() },
+    })];
+    let pm = t.render(40, 40);
+    assert_eq!(px(&pm, 20, 20), WHITE, "singular crop transform draws nothing");
+}
+
+/// A 2000x1000 picture whose left half is red and right half is blue, tiled on a 40x20 node.
+fn tiled_halves_scene(tile_scale: f32) -> Pixmap {
+    let mut t = T::new();
+    t.doc.images.insert("halves".into(), png_bytes(2000, 1000, |x, _| if x < 1000 { [255, 0, 0, 255] } else { [0, 0, 255, 255] }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 40.0, 20.0), Color::TRANSPARENT);
+    t.node(r).fills = vec![gradient_paint(PaintKind::Image {
+        image_ref: "halves".into(),
+        scale_mode: ImageScaleMode::Tile,
+        params: ImageParams { tile_scale, ..Default::default() },
+    })];
+    t.render(40, 20)
+}
+
+#[test]
+fn tile_scale_zero_and_negative_render_at_the_minimum() {
+    let minimum = tiled_halves_scene(0.01);
+    // 0.01 of a 2000x1000 picture is a 20x10 tile: red on the left half, blue on the right half, twice across.
+    assert!(near(px(&minimum, 5, 5), [255, 0, 0, 255], 8), "first tile red half: {:?}", px(&minimum, 5, 5));
+    assert!(near(px(&minimum, 15, 5), [0, 0, 255, 255], 8), "first tile blue half: {:?}", px(&minimum, 15, 5));
+    assert!(near(px(&minimum, 25, 5), [255, 0, 0, 255], 8), "second tile red half: {:?}", px(&minimum, 25, 5));
+    for raw in [0.0, -0.0, -3.0, 0.001] {
+        assert!(tiled_halves_scene(raw).data() == minimum.data(), "tile scale {raw} renders as 0.01");
+    }
+}
+
+#[test]
+fn tile_scale_above_the_maximum_and_non_finite_values_clamp() {
+    assert!(tiled_halves_scene(1000.0).data() == tiled_halves_scene(100.0).data(), "tile scale above 100 renders as 100");
+    let native = tiled_halves_scene(1.0);
+    for raw in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(tiled_halves_scene(raw).data() == native.data(), "tile scale {raw} renders at native size");
+    }
 }

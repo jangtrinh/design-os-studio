@@ -1,0 +1,13 @@
+diff --git a/crates/designos-app/src/image_jobs.rs b/crates/designos-app/src/image_jobs.rs
+index 74c092b1..7a039053 100644
+--- a/crates/designos-app/src/image_jobs.rs
++++ b/crates/designos-app/src/image_jobs.rs
+@@ -163,7 +163,7 @@ mod framing {
+         let extent = |pick: fn(&(f32, f32)) -> f32, dim: f32| {
+             let lo = corners.iter().map(pick).fold(f32::INFINITY, f32::min) * dim;
+             let hi = corners.iter().map(pick).fold(f32::NEG_INFINITY, f32::max) * dim;
+-            let (lo, hi) = if tiled { wrap_span(lo, hi, dim) } else { (lo.clamp(0.0, dim), hi.clamp(0.0, dim)) };
++            let (lo, hi) = if tiled { (lo.clamp(0.0, dim), hi.clamp(0.0, dim)) } else { (lo.clamp(0.0, dim), hi.clamp(0.0, dim)) };
+             ((hi - lo) >= 1.0).then_some((lo, hi))
+         };
+         let (min_x, max_x) = extent(|c| c.0, bw)?;

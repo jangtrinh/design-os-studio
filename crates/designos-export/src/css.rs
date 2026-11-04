@@ -314,7 +314,7 @@ pub fn paint_css(p: &Paint, size: Vec2) -> String {
                 stop_list(stops, p.opacity, |t| format!("{}deg", num2(t * 360.0)))
             )
         }
-        PaintKind::Image { image_ref, scale_mode } => {
+        PaintKind::Image { image_ref, scale_mode, .. } => {
             let fit = match scale_mode {
                 ImageScaleMode::Fill | ImageScaleMode::Crop => "50% / cover no-repeat",
                 ImageScaleMode::Fit => "50% / contain no-repeat",
