@@ -2,6 +2,7 @@
 
 use super::inline::{link_at, LinkSpan};
 use super::links;
+use designos_docs::ContentHash;
 use super::ops::TreeSnapshot;
 use super::reader_layout::{self, half_leading, HeadingPos, Laid, Prim};
 use super::service::LoadedPage;
@@ -32,10 +33,13 @@ pub enum ReaderAction {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct LayoutKey {
-    rev: u64,
+    /// The bytes of the open page: a re-read with the same content is not a change.
+    page: ContentHash,
     width: i32,
     ppp: i32,
-    snapshot: usize,
+    /// What the layout takes from the project: the names of its design files (an embed shows its file's name). Edits to
+    /// other pages change the snapshot but not this, so they never lay the open page out again.
+    files: u64,
     notes: u64,
 }
 
@@ -57,6 +61,14 @@ pub struct Reader {
     /// Content height and viewport height of the last frame, for clamping a scroll target.
     content_h: f32,
     viewport_h: f32,
+}
+
+fn files_hash(snapshot: &TreeSnapshot) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for f in &snapshot.files {
+        (&f.id, &f.name).hash(&mut h);
+    }
+    h.finish()
 }
 
 fn notes_hash(notes: &[String]) -> u64 {
@@ -118,10 +130,10 @@ impl Reader {
 
     fn ensure_layout(&mut self, ctx: &Context, page: &LoadedPage, snapshot: &Arc<TreeSnapshot>, notes: &[String], width: f32) {
         let key = LayoutKey {
-            rev: page.rev,
+            page: page.hash,
             width: width.round() as i32,
             ppp: (ctx.pixels_per_point() * 100.0).round() as i32,
-            snapshot: Arc::as_ptr(snapshot) as usize,
+            files: files_hash(snapshot),
             notes: notes_hash(notes),
         };
         if self.laid.as_ref().is_some_and(|(k, _)| *k == key) {
@@ -303,5 +315,64 @@ mod tests {
         assert_eq!(link_action("overview.md", "spec/a.md#fees"), ReaderAction::OpenPage { rel: "spec/a.md".into(), anchor: Some("fees".into()) });
         assert_eq!(link_action("spec/a.md", "#fees"), ReaderAction::OpenPage { rel: "spec/a.md".into(), anchor: Some("fees".into()) });
         assert_eq!(link_action("a.md", "https://x.dev/y \"t\""), ReaderAction::OpenUrl("https://x.dev/y".into()));
+    }
+}
+
+#[cfg(test)]
+mod layout_cache_tests {
+    use super::*;
+    use crate::tabs::project_tab::ops::FileInfo;
+    use designos_docs::{ContentHash, Page};
+
+    fn loaded(text: &str, rev: u64) -> LoadedPage {
+        LoadedPage { rel: "spec/a.md".into(), hash: ContentHash::of(text.as_bytes()), page: Arc::new(Page::parse(text)), rev, oversize: false }
+    }
+
+    /// A context whose fonts are ready, and the reader's layout of `page` against `snapshot`.
+    fn laid_once(reader: &mut Reader, ctx: &Context, page: &LoadedPage, snapshot: &Arc<TreeSnapshot>) -> Arc<Laid> {
+        reader.ensure_layout(ctx, page, snapshot, &[], 690.0);
+        reader.laid.as_ref().expect("laid").1.clone()
+    }
+
+    fn ready_ctx() -> Context {
+        let ctx = Context::default();
+        crate::theme::install_fonts(&ctx);
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        ctx
+    }
+
+    #[test]
+    fn a_new_snapshot_that_changed_other_pages_does_not_lay_the_open_page_out_again() {
+        let ctx = ready_ctx();
+        let mut reader = Reader::default();
+        let page = loaded("---\ntitle: A\n---\n\n## One\n\ntext\n", 1);
+        let before = Arc::new(TreeSnapshot::empty());
+        let first = laid_once(&mut reader, &ctx, &page, &before);
+        // Another page was edited: a new snapshot (a new Arc), the same design files, the same open page.
+        let mut other = TreeSnapshot::empty();
+        other.manifest.group_mut(designos_docs::Group::Spec).pages.push("spec/other.md".into());
+        let after = Arc::new(other);
+        let second = laid_once(&mut reader, &ctx, &page, &after);
+        assert!(Arc::ptr_eq(&first, &second), "the layout was reused");
+        // Re-reading the same bytes (a touch) is not a change either.
+        let reread = loaded("---\ntitle: A\n---\n\n## One\n\ntext\n", 2);
+        assert!(Arc::ptr_eq(&first, &laid_once(&mut reader, &ctx, &reread, &after)));
+    }
+
+    #[test]
+    fn a_changed_page_a_changed_width_or_a_renamed_design_file_lays_out_again() {
+        let ctx = ready_ctx();
+        let mut reader = Reader::default();
+        let snapshot = Arc::new(TreeSnapshot::empty());
+        let first = laid_once(&mut reader, &ctx, &loaded("## One\n", 1), &snapshot);
+        assert!(!Arc::ptr_eq(&first, &laid_once(&mut reader, &ctx, &loaded("## One\n\nmore\n", 2), &snapshot)), "new content");
+        let before = reader.laid.as_ref().unwrap().1.clone();
+        reader.ensure_layout(&ctx, &loaded("## One\n\nmore\n", 2), &snapshot, &[], 500.0);
+        assert!(!Arc::ptr_eq(&before, &reader.laid.as_ref().unwrap().1), "new width");
+        let mut renamed = TreeSnapshot::empty();
+        renamed.files.push(FileInfo { id: "f1".into(), name: "Checkout-web".into() });
+        let before = reader.laid.as_ref().unwrap().1.clone();
+        reader.ensure_layout(&ctx, &loaded("## One\n\nmore\n", 2), &Arc::new(renamed), &[], 500.0);
+        assert!(!Arc::ptr_eq(&before, &reader.laid.as_ref().unwrap().1), "an embed shows its file's name");
     }
 }
