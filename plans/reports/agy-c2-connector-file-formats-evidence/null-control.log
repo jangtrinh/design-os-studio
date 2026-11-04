@@ -1,0 +1,40 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.37s
+     Running tests/connector_file_formats.rs (out/cargo/debug/deps/connector_file_formats-eb441d6ced87140c)
+
+running 1 test
+test fig_import_without_carrier_keeps_a_vector ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.03s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running tests/connector_file_formats.rs (out/cargo/debug/deps/connector_file_formats-eb441d6ced87140c)
+
+running 1 test
+test fig_board_export_still_writes_connector_node ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.03s
+
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-fig v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-c2-connector-file-formats/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.76s
+     Running tests/figjam.rs (out/cargo/debug/deps/figjam-109619ac626ebac5)
+
+running 7 tests
+test natively_built_boards_roundtrip_through_rest_json ... ok
+test sticky_import ... ok
+test shape_with_text_import ... ok
+test stamp_import ... ok
+test connector_import_links_nodes_and_routes ... ok
+test editor_type_makes_a_board ... ok
+test export_marks_figjam_and_roundtrips_every_board_kind ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+

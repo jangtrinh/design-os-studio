@@ -31,6 +31,9 @@ pub fn html_with(doc: &Document, node: NodeId, opts: &HtmlOptions) -> String {
     let Some(root) = doc.get(node) else {
         return String::new();
     };
+    if matches!(root.kind, NodeKind::Connector(_)) {
+        return String::new();
+    }
     let mut builder = HtmlBuilder::new(doc, node);
     let body_indent = if opts.fragment { 0 } else { 1 };
     let mut markup_lines = Vec::new();
@@ -183,7 +186,7 @@ impl<'a> HtmlBuilder<'a> {
     }
 
     fn emit_node(&mut self, n: &Node, parent: Parent, is_root: bool, indent: usize, out: &mut Vec<String>) {
-        if !n.visible && !is_root {
+        if (!n.visible && !is_root) || matches!(n.kind, NodeKind::Connector(_)) {
             return;
         }
         self.record_node_vars(n);
