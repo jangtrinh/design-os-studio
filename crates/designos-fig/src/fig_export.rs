@@ -116,6 +116,13 @@ fn export_schema() -> &'static crate::kiwi::Schema {
     SCHEMA.get_or_init(figma_like_schema)
 }
 
+/// What a shader message that cannot be written whole tells the person saving: the layer, what is wrong, what to do.
+fn shader_refusal(owner_name: &str, problem: String) -> FigError {
+    FigError::Format(format!("layer {owner_name:?}: {problem}; save as .designos to keep it, or remove the shader"))
+}
+
+/// Rebuilds the fields of a shader message from its raw JSON, or refuses. The encoder writes only the fields a schema
+/// definition names, so a key it does not name, at any depth, would be dropped by a save that still reports success.
 fn decode_shader_ref(
     schema: &crate::kiwi::Schema,
     def_name: &str,
@@ -124,7 +131,7 @@ fn decode_shader_ref(
     skip: &[&str],
 ) -> Result<Vec<(std::sync::Arc<str>, V)>, FigError> {
     let Some(obj) = shader.raw.as_object() else {
-        return Err(FigError::Format(format!("layer {owner_name:?}: shader payload on {def_name} must be a JSON object")));
+        return Err(shader_refusal(owner_name, format!("shader payload on {def_name} must be a JSON object")));
     };
     let def_idx = schema.find(def_name).ok_or_else(|| FigError::Format(format!("missing {def_name} in schema")))?;
     let def = &schema.defs[def_idx];
@@ -134,14 +141,17 @@ fn decode_shader_ref(
             continue;
         }
         let Some(sf) = def.fields.iter().find(|f| &*f.name == k.as_str()) else {
-            return Err(FigError::Format(format!("layer {owner_name:?}: unknown shader field {k:?} on {def_name}")));
+            return Err(shader_refusal(owner_name, format!("shader key {k:?} is not a field of {def_name} in the .fig schema")));
         };
+        if let Some(path) = schema.first_unknown_json_key(sf, v) {
+            return Err(shader_refusal(owner_name, format!("shader key {path:?} is not a field of {def_name} in the .fig schema")));
+        }
         let Some(kv) = schema.field_from_json(sf, v, 0) else {
-            return Err(FigError::Format(format!("layer {owner_name:?}: invalid shader field {k:?} on {def_name}")));
+            return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
         };
         if let (Some(arr), V::Array(items)) = (v.as_array(), &kv) {
             if arr.len() != items.len() {
-                return Err(FigError::Format(format!("layer {owner_name:?}: invalid shader field {k:?} on {def_name}")));
+                return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
             }
         }
         out.push((sf.name.clone(), kv));

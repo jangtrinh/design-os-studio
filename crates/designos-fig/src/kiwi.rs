@@ -811,6 +811,52 @@ impl Schema {
         Some(KiwiValue::Array(out))
     }
 
+    /// The first key of `v` that is not a field of the definition `f` reads it against, as a path from the field's own
+    /// name (`customEffectId.futureFlag`, `componentPropAssignments[1].value.future`), or `None` when every key is named.
+    /// Messages, structs and arrays of them are walked at every depth. [`Self::field_from_json`] builds only the fields
+    /// a definition names, so a key reported here would not survive an encode.
+    pub fn first_unknown_json_key(&self, f: &Field, v: &serde_json::Value) -> Option<String> {
+        if v.is_null() {
+            return None;
+        }
+        let FieldType::Def(idx) = f.ty else { return None };
+        if !f.is_array {
+            return self.unknown_key_in_def(idx, v, &f.name, 0);
+        }
+        v.as_array()?.iter().enumerate().find_map(|(i, item)| self.unknown_key_in_def(idx, item, &format!("{}[{i}]", f.name), 0))
+    }
+
+    fn unknown_key_in_def(&self, idx: usize, v: &serde_json::Value, path: &str, depth: usize) -> Option<String> {
+        if depth > MAX_DEPTH {
+            return None;
+        }
+        let def = self.defs.get(idx)?;
+        if def.kind == DefKind::Enum {
+            return None;
+        }
+        // A GUID or a widget pointer may also be written as a "session:local" string: no keys to read.
+        let obj = v.as_object()?;
+        for (key, value) in obj {
+            if value.is_null() {
+                continue;
+            }
+            let child = format!("{path}.{key}");
+            let Some(field) = def.fields.iter().find(|sf| &*sf.name == key.as_str()) else { return Some(child) };
+            let FieldType::Def(inner) = field.ty else { continue };
+            let found = if field.is_array {
+                value
+                    .as_array()
+                    .and_then(|items| items.iter().enumerate().find_map(|(i, item)| self.unknown_key_in_def(inner, item, &format!("{child}[{i}]"), depth + 1)))
+            } else {
+                self.unknown_key_in_def(inner, value, &child, depth + 1)
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+
     fn type_from_json(&self, ty: FieldType, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
         if depth > MAX_DEPTH {
             return None;
@@ -1630,5 +1676,33 @@ mod tests {
             "assetRef": {"key": "shader_key_abc", "version": "1"}
         });
         assert!(s.field_from_json(custom_eff_field, &bad_custom_eff, 0).is_none());
+    }
+    #[test]
+    fn first_unknown_json_key_names_the_path_of_a_key_the_schema_does_not_name() {
+        use serde_json::json;
+        let s = crate::testkit::figma_like_schema();
+        let effect = s.find("Effect").expect("Effect in schema");
+        let field = |name: &str| s.defs[effect].fields.iter().find(|f| &*f.name == name).unwrap_or_else(|| panic!("{name} field"));
+        let unknown = |name: &str, v: serde_json::Value| s.first_unknown_json_key(field(name), &v);
+
+        let id = json!({"guid": {"sessionID": 1, "localID": 2}, "assetRef": {"key": "k", "version": "1"}});
+        assert_eq!(unknown("customEffectId", id.clone()), None, "every key is named");
+        // a message, a struct inside a message, and a struct on its own
+        assert_eq!(
+            unknown("customEffectId", json!({"guid": {"sessionID": 1, "localID": 2}, "futureFlag": true})).as_deref(),
+            Some("customEffectId.futureFlag")
+        );
+        assert_eq!(unknown("customEffectId", json!({"guid": {"sessionID": 1, "localID": 2, "epoch": 3}})).as_deref(), Some("customEffectId.guid.epoch"));
+        assert_eq!(unknown("offset", json!({"x": 1.0, "y": 2.0, "future": 1})).as_deref(), Some("offset.future"));
+        // an array of messages names the index; a message nested in a message is reached
+        let props = json!([
+            {"defID": {"sessionID": 1, "localID": 2}, "value": {"floatValue": 0.5}},
+            {"defID": {"sessionID": 1, "localID": 3}, "value": {"boolValue": true, "future": 1}}
+        ]);
+        assert_eq!(unknown("componentPropAssignments", props).as_deref(), Some("componentPropAssignments[1].value.future"));
+        // a null value carries nothing, a GUID string and a scalar have no keys to read
+        assert_eq!(unknown("customEffectId", json!({"guid": "1:2", "futureFlag": null})), None);
+        assert_eq!(unknown("radius", json!(4.0)), None);
+        assert_eq!(unknown("visible", serde_json::Value::Null), None);
     }
 }
