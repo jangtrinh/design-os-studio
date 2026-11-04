@@ -538,7 +538,8 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
     };
     let post_replay_in_progress = app.doc.in_progress.clone();
     let mut solved_before_commit = false;
-    if !touched_ids.is_empty() && designos_doc::with_index(&app.doc, |idx| !idx.is_empty()) {
+    let has_connectors = !touched_ids.is_empty() && designos_doc::with_index(&app.doc, |idx| !idx.is_empty());
+    if has_connectors {
         let mut reroute_nodes: Vec<NodeId> = touched_ids.iter().map(|&id| NodeId(id)).collect();
         // Connectors follow nodes where layout leaves them, so layout is solved before they are planned.
         if !report.needs_layout.is_empty() {
@@ -576,7 +577,15 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
     }
     if committed {
         app.hist.mark_last_undo_as_agent();
-        relayout_touched(&mut app.doc, &report.needs_layout);
+        if has_connectors {
+            // The commit put the patch's own nodes back as the patch wrote them, so layout is solved
+            // again. A connector that is a flow child of an auto-layout frame is measured and placed
+            // by that solve, so routing gets the last word.
+            let written = relayout_collecting_written(&mut app.doc, &report.needs_layout);
+            reroute_into_last_step(app, &written, &mut touched_ids)?;
+        } else {
+            relayout_touched(&mut app.doc, &report.needs_layout);
+        }
         if let Some(inv) = app.hist.peek_undo().cloned() {
             let now = std::time::Instant::now();
             let hist_depth = app.hist.undo_depth();
@@ -587,6 +596,43 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
         app.terminal.record_touched_layers(&touched_ids);
     }
     Ok((report, committed))
+}
+
+/// Plans connectors once more against the nodes the last solve wrote and folds the updates into the
+/// step the patch just committed, so one undo still takes back the patch, the layout and every
+/// connector. Once, not in a loop: a further solve would put a connector that is a flow child back in
+/// its flow slot, so a plan would never come back empty. Nothing is written when no connector changed.
+fn reroute_into_last_step(app: &mut App, written: &[NodeId], touched_ids: &mut Vec<u64>) -> Result<(), String> {
+    if written.is_empty() {
+        return Ok(());
+    }
+    let plan = designos_doc::plan_reroute(&app.doc, written, None);
+    let mut updates = Vec::with_capacity(plan.updates.len());
+    for (cid, geometry) in plan.updates {
+        if let Some(current) = app.doc.get(cid) {
+            let mut updated = current.clone();
+            geometry.apply(&mut updated);
+            updates.push(designos_doc::Command::Update { node: Box::new(updated) });
+            if !touched_ids.contains(&cid.0) {
+                touched_ids.push(cid.0);
+            }
+        }
+    }
+    let Some(inverse) = app.hist.peek_undo().cloned().filter(|_| !updates.is_empty()) else {
+        return Ok(());
+    };
+    let label = app.hist.peek_undo_label().map(str::to_owned);
+    let depth = app.hist.undo_depth();
+    let forward = inverse.apply(&mut app.doc).map_err(|e| e.to_string())?;
+    app.hist.drop_undo_steps_after(depth - 1);
+    let mut commands = match forward {
+        designos_doc::Command::Batch(commands) => commands,
+        other => vec![other],
+    };
+    commands.extend(updates);
+    app.hist.exec_labeled(&mut app.doc, designos_doc::Command::Batch(commands), label).map_err(|e| e.to_string())?;
+    app.hist.mark_last_undo_as_agent();
+    Ok(())
 }
 
 fn merge(total: &mut LivePatchReport, r: LivePatchReport) {
@@ -965,5 +1011,66 @@ mod reroute_after_layout_tests {
         assert_eq!(app.doc.get(b).unwrap().transform.ty, 0.0, "b moves up into the gap");
         assert_connector_follows_its_ends(&app.doc, c);
         assert_eq!(app.hist.undo_depth(), 1);
+    }
+
+    /// A vertical stack of `a`, a connector that is itself part of the flow (start on `a`, free end),
+    /// and `b`; a page-level connector runs from a frame below to `b`. The solver measures the flow
+    /// connector, and routing resizes it when `a` changes, so the two feed each other.
+    fn stack_with_a_connector_in_its_flow() -> (Document, NodeId, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("reroute_flow_connector");
+        let page = doc.add_page("Page 1");
+        let stack = doc.alloc_id();
+        let mut stack_node = Node::frame(stack, Rect::new(0.0, 0.0, 100.0, 300.0));
+        if let NodeKind::Frame(fp) = &mut stack_node.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: 0.0, ..AutoLayout::v1() });
+        }
+        doc.insert(page, stack_node).unwrap();
+        let a = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(a, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let flow_connector = doc.alloc_id();
+        let flow_props =
+            ConnectorProps { start: ConnectorEnd::attached(a, Magnet::Auto), end: ConnectorEnd::free(Vec2::new(250.0, 20.0)), ..Default::default() };
+        doc.insert(stack, Node::connector(flow_connector, flow_props)).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(stack, Node::rectangle(b, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let far = doc.alloc_id();
+        doc.insert(page, Node::frame(far, Rect::new(300.0, 400.0, 100.0, 40.0))).unwrap();
+        let page_connector = doc.alloc_id();
+        let page_props =
+            ConnectorProps { start: ConnectorEnd::attached(far, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(page_connector, page_props)).unwrap();
+        // The flow connector is sized before layout measures it, and layout then leaves it in its slot.
+        sync_connector(&mut doc, flow_connector);
+        doc.relayout_subtree(stack);
+        sync_connector(&mut doc, page_connector);
+        let b_ty = doc.get(b).unwrap().transform.ty;
+        doc.relayout_subtree(stack);
+        assert_eq!(doc.get(b).unwrap().transform.ty, b_ty, "precondition: the stack is laid out");
+        assert_eq!(b_ty, 40.0 + doc.get(flow_connector).unwrap().size.y, "precondition: b sits under the flow connector");
+        let mut grown = doc.clone();
+        grown.get_mut(a).unwrap().size.y = 80.0;
+        sync_connector(&mut grown, flow_connector);
+        assert_ne!(grown.get(flow_connector).unwrap().size, doc.get(flow_connector).unwrap().size, "precondition: a taller a resizes the flow connector");
+        (doc, a, b, flow_connector, page_connector)
+    }
+
+    #[test]
+    fn live_patch_resizing_a_stack_child_leaves_a_flow_connector_and_a_page_connector_on_their_routes() {
+        let (doc, a, b, flow_connector, page_connector) = stack_with_a_connector_in_its_flow();
+        let before: Vec<Node> = [a, b, flow_connector, page_connector].iter().map(|id| doc.get(*id).unwrap().clone()).collect();
+        let patch = grow_a_patch(&doc, a, Vec::new());
+
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, &[patch]);
+
+        assert_connector_follows_its_ends(&app.doc, flow_connector);
+        assert_connector_follows_its_ends(&app.doc, page_connector);
+        assert_eq!(app.doc.get(b).unwrap().transform.ty, 80.0 + app.doc.get(flow_connector).unwrap().size.y, "b sits under the resized flow connector");
+        assert_eq!(app.hist.undo_depth(), 1);
+
+        app.hist.undo(&mut app.doc).unwrap();
+        for (id, was) in [a, b, flow_connector, page_connector].iter().zip(&before) {
+            assert_eq!(app.doc.get(*id).unwrap(), was, "node {} after undo", id.0);
+        }
     }
 }
