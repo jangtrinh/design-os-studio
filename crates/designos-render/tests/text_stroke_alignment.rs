@@ -1,4 +1,5 @@
 use designos_doc::*;
+use designos_render::vectorops::{text_aligned_stroke_layers, text_flatten_runs, text_style_runs, AlignedTextLayer};
 use designos_render::{render_page, tiny_skia::Pixmap, Viewport};
 
 const FONT: f32 = 96.0;
@@ -126,6 +127,7 @@ fn assert_o_stroke(pm: &Pixmap, c: &Counter, align: StrokeAlign) {
         StrokeAlign::Inside => {
             assert_red(pm, c.outer + 3, y, "red just inside the outer edge");
             assert_page(pm, c.outer - 3, y, "no red outside the outer edge");
+            assert_page(pm, c.inner + 3, y, "no red in the counter next to the inner contour");
             assert_page(pm, c.counter_mid, y, "no red in the counter center");
         }
         StrokeAlign::Outside => {
@@ -150,4 +152,54 @@ fn text_stroke_alignment_changes_rendered_footprint() {
     for align in [StrokeAlign::Inside, StrokeAlign::Center, StrokeAlign::Outside] {
         assert_o_stroke(&render(Some(align)), ring, align);
     }
+}
+
+fn two_run_text(align: StrokeAlign) -> (Document, NodeId) {
+    let mut doc = Document::new("runs");
+    let page = doc.add_page("p");
+    let id = doc.alloc_id();
+    let base = TextStyle { font_family: "Inter".into(), font_size: 32.0, fills: vec![Paint::solid(Color::BLACK)], ..Default::default() };
+    let mut n = Node::text(id, Rect::new(10.0, 10.0, 300.0, 60.0), "Aligned", base.clone());
+    if let NodeKind::Text(tp) = &mut n.kind {
+        tp.runs = vec![TextRun { start: 0, end: 3, style: base.clone() }, TextRun { start: 3, end: 7, style: base }];
+    }
+    n.stroke.paints = vec![Paint::solid(Color::rgb(255, 0, 0))];
+    n.stroke.weight = 4.0;
+    n.stroke.align = align;
+    doc.insert(page, n).unwrap();
+    (doc, id)
+}
+
+#[test]
+fn style_runs_stay_apart_where_flatten_runs_merge_equal_fills() {
+    let (doc, id) = two_run_text(StrokeAlign::Outside);
+    let n = doc.get(id).unwrap();
+    assert_eq!(text_flatten_runs(&doc, n).len(), 1, "equal fills merge");
+    assert_eq!(text_style_runs(&doc, n).len(), 2, "one run per style");
+}
+
+#[test]
+fn aligned_layers_paint_each_style_as_fills_then_strokes() {
+    for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
+        let (doc, id) = two_run_text(align);
+        let layers = text_aligned_stroke_layers(&doc, doc.get(id).unwrap());
+        let kinds: String = layers.iter().map(|l| if matches!(l, AlignedTextLayer::Fill(_)) { 'f' } else { 's' }).collect();
+        // A l i | g n e d: the glyph fills of a style come first, its strokes follow, then the next style
+        let split = kinds.find('s').expect("a stroke");
+        assert_eq!(&kinds[..split], "f".repeat(split), "{align:?}: {kinds}");
+        assert_eq!(split, 3, "{align:?}: the first style has 3 glyphs: {kinds}");
+        let second = kinds[split..].find('f').map(|i| i + split).expect("the second style paints after the first");
+        assert!(kinds[split..second].chars().all(|c| c == 's'), "{align:?}: {kinds}");
+        assert_eq!(kinds[second..].matches('f').count(), 4, "{align:?}: {kinds}");
+        assert!(kinds.ends_with('s'), "{align:?}: {kinds}");
+    }
+}
+
+#[test]
+fn centered_and_unstroked_text_has_no_aligned_layers() {
+    let (mut doc, id) = two_run_text(StrokeAlign::Center);
+    assert!(text_aligned_stroke_layers(&doc, doc.get(id).unwrap()).is_empty(), "centered strokes are not baked");
+    doc.get_mut(id).unwrap().stroke.align = StrokeAlign::Outside;
+    doc.get_mut(id).unwrap().stroke.weight = 0.0;
+    assert!(text_aligned_stroke_layers(&doc, doc.get(id).unwrap()).is_empty(), "no weight, no stroke");
 }

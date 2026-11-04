@@ -7,7 +7,8 @@ use crate::util::*;
 use designos_doc::VectorNetwork;
 use designos_doc::*;
 use designos_render::vectorops::{
-    count_subpaths, flatten_nodes, node_paths, offset_paths, outline_aligned_stroke, outline_node_stroke, text_flatten_runs, text_glyph_runs, TextVectorRun,
+    count_subpaths, flatten_nodes, node_paths, offset_paths, outline_node_stroke, text_aligned_stroke_layers, text_flatten_runs, text_glyph_runs,
+    text_style_runs, AlignedTextLayer, TextVectorRun,
 };
 use std::collections::BTreeSet;
 
@@ -34,7 +35,8 @@ pub fn vector_node(id: NodeId, paths: &[Path], template: &Node) -> Node {
 /// Builds a vector from paths while retaining their curve geometry for rendering.
 /// The editable network is kept alongside the paths, but converting a text outline
 /// through the network can otherwise perturb tiny-skia's antialiasing at glyph edges.
-fn vector_node_preserving_paths(id: NodeId, paths: &[Path], template: &Node) -> Node {
+/// Also returns the bounds of `paths` in the space they were given in.
+fn vector_node_preserving_paths(id: NodeId, paths: &[Path], template: &Node) -> (Node, Rect) {
     let mut net = VectorNetwork::from_paths(paths);
     let bb = net.bounds();
     net.translate(v2(-bb.x, -bb.y));
@@ -66,7 +68,7 @@ fn vector_node_preserving_paths(id: NodeId, paths: &[Path], template: &Node) -> 
     n.constraints = template.constraints;
     n.layout_child = template.layout_child;
     n.name = template.name.clone();
-    n
+    (n, bb)
 }
 
 /// Tolerance (in node units) of Simplify path.
@@ -133,6 +135,12 @@ fn carry_stroke_paint_as_fill(src: &Node, dst: &mut Node) {
     if let Some(stroke_ref) = src.style_refs.get("stroke") {
         dst.style_refs.insert("fill".into(), stroke_ref.clone());
     }
+}
+
+/// Whether a text node draws an `Inside` or `Outside` stroke: the canvas clips such a stroke to the outline of each
+/// style of the text, which a conversion has to keep.
+fn has_aligned_text_stroke(stroke: &Stroke) -> bool {
+    matches!(stroke.align, StrokeAlign::Inside | StrokeAlign::Outside) && stroke.weight > 0.0 && stroke.paints.iter().any(|p| p.visible)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -272,9 +280,7 @@ impl App {
         template.name = raw.name.clone();
         template.fills = run.fills.clone();
         template.stroke = resolved.stroke.clone();
-        let paths = std::slice::from_ref(&run.path);
-        let bb = VectorNetwork::from_paths(paths).bounds();
-        let mut node = vector_node_preserving_paths(vid, paths, &template);
+        let (mut node, bb) = vector_node_preserving_paths(vid, std::slice::from_ref(&run.path), &template);
         remap_paint_gradients(&mut node.fills, resolved.size, v2(bb.x, bb.y), node.size);
         remap_paint_gradients(&mut node.stroke.paints, resolved.size, v2(bb.x, bb.y), node.size);
         node.component = ComponentLink::default();
@@ -286,7 +292,8 @@ impl App {
         node
     }
 
-    fn text_runs_to_group(&mut self, raw: &Node, resolved: &Node, runs: &[TextVectorRun]) -> Vec<Node> {
+    /// The group that replaces a text node converted into one vector per run or glyph.
+    fn text_group_node(&mut self, raw: &Node, resolved: &Node) -> Node {
         let gid = self.doc.alloc_id();
         let counter = raw.parent.and_then(|p| self.doc.get(p)).and_then(LayoutChild::counter_axis_is_horizontal);
         let mut group = Node::new(gid, NodeKind::Group);
@@ -302,78 +309,87 @@ impl App {
         set_fixed_layout_child(&mut group.layout_child, counter);
         group.effects = resolved.effects.clone();
         group.variables.modes = raw.variables.modes.clone();
+        group
+    }
+
+    /// One vector of a converted text node's group: the geometry of `run` with its fills. It keeps the text node's
+    /// stroke unless `carries_stroke` is false (the stroke then lives in a vector of its own).
+    fn text_run_child(&mut self, raw: &Node, resolved: &Node, run: &TextVectorRun, gid: NodeId, position: usize, carries_stroke: bool) -> Node {
+        let cid = self.doc.alloc_id();
+        let mut child_template = resolved.clone();
+        child_template.transform = Affine::IDENTITY;
+        child_template.fills = run.fills.clone();
+        child_template.stroke = if carries_stroke { resolved.stroke.clone() } else { Stroke::default() };
+        child_template.effects.clear();
+        child_template.opacity = 1.0;
+        child_template.blend = BlendMode::Normal;
+        let (mut child, bb) = vector_node_preserving_paths(cid, std::slice::from_ref(&run.path), &child_template);
+        remap_paint_gradients(&mut child.fills, resolved.size, v2(bb.x, bb.y), child.size);
+        remap_paint_gradients(&mut child.stroke.paints, resolved.size, v2(bb.x, bb.y), child.size);
+        child.parent = Some(gid);
+        child.name = if run.name.trim().is_empty() { format!("Vector {}", position + 1) } else { run.name.clone() };
+        child.component = ComponentLink::default();
+        set_fixed_layout_child(&mut child.layout_child, None);
         let base_fills: &[Paint] = &[];
-        let mut children_nodes = Vec::with_capacity(runs.len());
-        for (idx, run) in runs.iter().enumerate() {
-            let cid = self.doc.alloc_id();
-            let mut child_template = resolved.clone();
-            child_template.transform = Affine::IDENTITY;
-            child_template.fills = run.fills.clone();
-            child_template.stroke = resolved.stroke.clone();
-            child_template.effects.clear();
-            child_template.opacity = 1.0;
-            child_template.blend = BlendMode::Normal;
-            let paths = std::slice::from_ref(&run.path);
-            let bb = VectorNetwork::from_paths(paths).bounds();
-            let mut child = vector_node_preserving_paths(cid, paths, &child_template);
-            remap_paint_gradients(&mut child.fills, resolved.size, v2(bb.x, bb.y), child.size);
-            remap_paint_gradients(&mut child.stroke.paints, resolved.size, v2(bb.x, bb.y), child.size);
-            child.parent = Some(gid);
-            child.name = if run.name.trim().is_empty() { format!("Vector {}", idx + 1) } else { run.name.clone() };
-            child.component = ComponentLink::default();
-            set_fixed_layout_child(&mut child.layout_child, None);
-            carry_paint_bindings(raw, base_fills, &mut child, run.uses_base_fill, true);
-            group.children.push(cid);
-            children_nodes.push(child);
-        }
-        let mut out = Vec::with_capacity(1 + children_nodes.len());
+        carry_paint_bindings(raw, base_fills, &mut child, run.uses_base_fill, carries_stroke);
+        child
+    }
+
+    fn text_runs_to_group(&mut self, raw: &Node, resolved: &Node, runs: &[TextVectorRun]) -> Vec<Node> {
+        let group = self.text_group_node(raw, resolved);
+        let gid = group.id;
+        let mut out = Vec::with_capacity(1 + runs.len());
         out.push(group);
-        out.extend(children_nodes);
+        for (idx, run) in runs.iter().enumerate() {
+            let child = self.text_run_child(raw, resolved, run, gid, idx, true);
+            out[0].children.push(child.id);
+            out.push(child);
+        }
         out
     }
 
-    /// Inside/Outside text keeps one compound path per fill run. The doubled stroke is clipped to that
-    /// run's filled area and stored as fill geometry, with the stroke paints as its fills.
+    /// The baked stroke of one glyph, or of several glyphs whose strokes touch, of Inside/Outside text. It is fill
+    /// geometry, so the stroke paints become its fills.
+    fn text_stroke_child(&mut self, raw: &Node, resolved: &Node, name: String, paths: &[Path], gid: NodeId) -> Node {
+        let sid = self.doc.alloc_id();
+        let mut template = resolved.clone();
+        template.transform = Affine::IDENTITY;
+        template.fills = resolved.stroke.paints.clone();
+        template.stroke = Stroke::default();
+        template.effects.clear();
+        template.opacity = 1.0;
+        template.blend = BlendMode::Normal;
+        let (mut node, bb) = vector_node_preserving_paths(sid, paths, &template);
+        remap_paint_gradients(&mut node.fills, resolved.size, v2(bb.x, bb.y), node.size);
+        node.parent = Some(gid);
+        node.name = name;
+        node.component = ComponentLink::default();
+        set_fixed_layout_child(&mut node.layout_child, None);
+        carry_stroke_paint_as_fill(raw, &mut node);
+        node
+    }
+
+    /// Inside/Outside text becomes a vector per glyph for its fill and a few vectors for its stroke (one per word, as a
+    /// rule), in the order the canvas paints them. The stroke is baked as fill geometry cut like the canvas cuts it,
+    /// with the stroke paints as its fills, so the converted text renders as before.
     fn text_aligned_outline_nodes(&mut self, raw: &Node, resolved: &Node) -> Vec<Node> {
-        let runs = text_flatten_runs(&self.doc, raw);
-        if runs.is_empty() {
+        let layers = text_aligned_stroke_layers(&self.doc, raw);
+        if layers.is_empty() {
             return Vec::new();
         }
-        let mut nodes = self.text_runs_to_group(raw, resolved, &runs);
-        let gid = nodes[0].id;
-        let mut baked = Vec::new();
-        for (idx, run) in runs.iter().enumerate() {
-            let child = &mut nodes[idx + 1];
-            child.stroke = Stroke::default();
-            child.variables.bindings.retain(|k, _| !k.starts_with("stroke"));
-            child.style_refs.remove("stroke");
-            let outline = outline_aligned_stroke(std::slice::from_ref(&run.path), &resolved.stroke);
-            if outline.is_empty() {
-                continue;
-            }
-            let sid = self.doc.alloc_id();
-            let mut template = resolved.clone();
-            template.transform = Affine::IDENTITY;
-            template.fills = resolved.stroke.paints.clone();
-            template.stroke = Stroke::default();
-            template.effects.clear();
-            template.opacity = 1.0;
-            template.blend = BlendMode::Normal;
-            let bb = VectorNetwork::from_paths(&outline).bounds();
-            let mut stroke_node = vector_node_preserving_paths(sid, &outline, &template);
-            remap_paint_gradients(&mut stroke_node.fills, resolved.size, v2(bb.x, bb.y), stroke_node.size);
-            stroke_node.parent = Some(gid);
-            stroke_node.name = format!("{} stroke", child.name);
-            stroke_node.component = ComponentLink::default();
-            set_fixed_layout_child(&mut stroke_node.layout_child, None);
-            carry_stroke_paint_as_fill(raw, &mut stroke_node);
-            baked.push((idx, stroke_node));
+        let group = self.text_group_node(raw, resolved);
+        let gid = group.id;
+        let mut out = Vec::with_capacity(1 + layers.len());
+        out.push(group);
+        for layer in layers {
+            let child = match layer {
+                AlignedTextLayer::Fill(run) => self.text_run_child(raw, resolved, &run, gid, out.len() - 1, false),
+                AlignedTextLayer::Stroke { name, paths } => self.text_stroke_child(raw, resolved, name, &paths, gid),
+            };
+            out[0].children.push(child.id);
+            out.push(child);
         }
-        for (idx, stroke_node) in baked.into_iter().rev() {
-            nodes[0].children.insert(idx + 1, stroke_node.id);
-            nodes.insert(idx + 2, stroke_node);
-        }
-        nodes
+        out
     }
 
     /// Ctrl+E: merges the selection (or a boolean group) into one vector with the computed geometry.
@@ -410,14 +426,15 @@ impl App {
             let Some(n) = self.doc.get(id).cloned() else { return };
             let Some(parent) = n.parent else { return };
             let Some(index) = self.doc.get(parent).and_then(|p| p.children.iter().position(|c| *c == id)) else { return };
-            let runs = text_flatten_runs(&self.doc, &n);
+            let resolved = resolve_node(&self.doc, &n).into_owned();
+            // an Inside/Outside stroke is clipped per style on the canvas, so each style stays its own vector
+            let runs = if has_aligned_text_stroke(&resolved.stroke) { text_style_runs(&self.doc, &n) } else { text_flatten_runs(&self.doc, &n) };
             if runs.is_empty() {
                 if !deferred {
                     self.show_toast("Nothing to flatten", false);
                 }
                 return;
             }
-            let resolved = resolve_node(&self.doc, &n).into_owned();
             let is_group = runs.len() > 1;
             let nodes = if !is_group { vec![self.text_run_to_single_vector(&n, &resolved, &runs[0])] } else { self.text_runs_to_group(&n, &resolved, &runs) };
             let out_id = nodes[0].id;
@@ -500,10 +517,7 @@ impl App {
                     continue;
                 }
                 let resolved = resolve_node(&self.doc, &n).into_owned();
-                let bake_aligned = matches!(resolved.stroke.align, StrokeAlign::Inside | StrokeAlign::Outside)
-                    && resolved.stroke.weight > 0.0
-                    && resolved.stroke.paints.iter().any(|p| p.visible);
-                let nodes = if bake_aligned {
+                let nodes = if has_aligned_text_stroke(&resolved.stroke) {
                     self.text_aligned_outline_nodes(&n, &resolved)
                 } else {
                     let runs = text_glyph_runs(&self.doc, &n);
@@ -1944,6 +1958,7 @@ mod tests {
             StrokeAlign::Inside => {
                 red(c.outer + 3, "red just inside the outer edge");
                 page(c.outer - 3, "no red outside the outer edge");
+                page(c.inner + 3, "no red in the counter next to the inner contour");
                 page(c.counter_mid, "no red in the counter center");
             }
             StrokeAlign::Outside => {
@@ -2003,6 +2018,248 @@ mod tests {
                 vec![t]
             });
         }
+    }
+
+    fn styled_text(doc: &mut Document, fid: NodeId, content: &str, align: StrokeAlign, base: TextStyle, runs: Vec<(usize, usize, TextStyle)>) -> NodeId {
+        let t = doc.alloc_id();
+        let mut n = Node::text(t, Rect::new(20.0, 40.0, 440.0, 80.0), content, base);
+        if let NodeKind::Text(tp) = &mut n.kind {
+            tp.runs = runs.into_iter().map(|(start, end, style)| TextRun { start, end, style }).collect();
+        }
+        n.stroke.paints = vec![Paint::solid(Color::rgb(220, 30, 30))];
+        n.stroke.weight = 6.0;
+        n.stroke.align = align;
+        doc.insert(fid, n).unwrap();
+        t
+    }
+
+    fn inter_32() -> TextStyle {
+        TextStyle { font_family: "Inter".into(), font_size: 32.0, fills: vec![Paint::solid(Color::BLACK)], ..Default::default() }
+    }
+
+    #[test]
+    fn aligned_multi_run_text_stroke_matches_live_text() {
+        for align in [StrokeAlign::Outside, StrokeAlign::Inside] {
+            let tag = format!("{align:?}").to_lowercase();
+            // the same style in two runs split inside a word
+            assert_text_scenario_pixels(&format!("same_style_two_runs_{tag}"), |doc, fid| {
+                let base = inter_32();
+                vec![styled_text(doc, fid, "Aligned", align, base.clone(), vec![(0, 3, base.clone()), (3, 7, base)])]
+            });
+            // a bold run with the same fill as the rest
+            assert_text_scenario_pixels(&format!("bold_run_same_fill_{tag}"), |doc, fid| {
+                let base = inter_32();
+                let bold = TextStyle { font_weight: 700, ..base.clone() };
+                vec![styled_text(doc, fid, "Bolder", align, base, vec![(0, 4, bold)])]
+            });
+            // black, blue, black: the middle run paints over the outer ones
+            assert_text_scenario_pixels(&format!("black_blue_black_{tag}"), |doc, fid| {
+                let base = inter_32();
+                let blue = TextStyle { fills: vec![Paint::solid(Color::rgb(30, 60, 220))], ..base.clone() };
+                vec![styled_text(doc, fid, "Aligned", align, base.clone(), vec![(0, 2, base.clone()), (2, 4, blue), (4, 7, base)])]
+            });
+        }
+    }
+
+    fn outline_group_children(doc: Document, page: NodeId, text: NodeId) -> (App, Vec<Node>) {
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![text];
+        app.outline_stroke_selection();
+        let group = app.doc.get(app.selection[0]).expect("the outline is selected").clone();
+        assert!(matches!(group.kind, NodeKind::Group));
+        let children = group.children.iter().map(|c| app.doc.get(*c).unwrap().clone()).collect();
+        (app, children)
+    }
+
+    /// The run lengths of the layer kinds of an outlined group: `f` for a glyph fill, `s` for a baked stroke.
+    fn layer_runs(children: &[Node]) -> Vec<(char, usize)> {
+        let mut runs: Vec<(char, usize)> = Vec::new();
+        for n in children {
+            let kind = if n.name.ends_with(" stroke") { 's' } else { 'f' };
+            match runs.last_mut() {
+                Some((k, count)) if *k == kind => *count += 1,
+                _ => runs.push((kind, 1)),
+            }
+        }
+        runs
+    }
+
+    #[test]
+    fn aligned_text_outline_paints_fills_then_strokes_style_by_style() {
+        for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
+            let mut doc = Document::new("StyleOrder");
+            let page = doc.add_page("Page 1");
+            let fid = doc.alloc_id();
+            doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 480.0, 160.0))).unwrap();
+            let base = inter_32();
+            let blue_fill = vec![Paint::solid(Color::rgb(30, 60, 220))];
+            let blue = TextStyle { fills: blue_fill.clone(), ..base.clone() };
+            let t = styled_text(&mut doc, fid, "Aligned", align, base, vec![(2, 4, blue)]);
+            let (_app, children) = outline_group_children(doc, page, t);
+            for c in &children {
+                let NodeKind::Vector { paths, .. } = &c.kind else { panic!("{align:?}: {} is not a vector", c.name) };
+                let cmds: usize = paths.iter().map(|p| p.cmds.len()).sum();
+                assert!(cmds < 600, "{align:?}: {} holds {cmds} path commands", c.name);
+                assert!(c.stroke.paints.is_empty(), "{align:?}: {} carries no live stroke", c.name);
+            }
+            // the base style (A l n e d) paints first: its five glyph fills, then its strokes; then the blue run (i g) the same way
+            let runs = layer_runs(&children);
+            let kinds: Vec<char> = runs.iter().map(|r| r.0).collect();
+            assert_eq!(kinds, vec!['f', 's', 'f', 's'], "{align:?}: layer order {runs:?}");
+            assert_eq!((runs[0].1, runs[2].1), (5, 2), "{align:?}: a fill vector per glyph {runs:?}");
+            assert!(runs[1].1 >= 1 && runs[3].1 >= 1, "{align:?}: every style has a stroke {runs:?}");
+            assert_eq!(children[runs[0].1 + runs[1].1].fills, blue_fill, "{align:?}: the blue fill follows the base strokes");
+        }
+    }
+
+    #[test]
+    fn aligned_text_outline_shares_a_stroke_vector_only_between_glyphs_whose_strokes_touch() {
+        let outline = |content: &str, weight: f32| {
+            let mut doc = Document::new("Touching");
+            let page = doc.add_page("Page 1");
+            let fid = doc.alloc_id();
+            doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 480.0, 160.0))).unwrap();
+            let t = styled_text(&mut doc, fid, content, StrokeAlign::Outside, inter_32(), vec![]);
+            doc.get_mut(t).unwrap().stroke.weight = weight;
+            let (_app, children) = outline_group_children(doc, page, t);
+            layer_runs(&children)
+        };
+        assert_eq!(outline("II", 6.0), vec![('f', 2), ('s', 1)], "touching strokes share one vector");
+        assert_eq!(outline("I I", 1.0), vec![('f', 2), ('s', 2)], "strokes apart stay separate");
+    }
+
+    #[test]
+    fn aligned_text_outline_cuts_a_chain_of_touching_strokes_into_bounded_vectors() {
+        for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
+            // 16 px text with a 4 px stroke: the strokes of the whole paragraph touch
+            let mut doc = Document::new("Chain");
+            let page = doc.add_page("Page 1");
+            let fid = doc.alloc_id();
+            let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 740.0, 560.0));
+            frame.fills = vec![Paint::solid(Color::WHITE)];
+            doc.insert(page, frame).unwrap();
+            let mut text = PARAGRAPH.repeat(2);
+            text.truncate(520);
+            let base = TextStyle { font_size: 16.0, ..inter_32() };
+            let t = styled_text(&mut doc, fid, &text, align, base, vec![]);
+            doc.get_mut(t).unwrap().stroke.weight = 4.0;
+            doc.get_mut(t).unwrap().size = v2(680.0, 480.0);
+            let before = designos_render::render_node(&doc, fid, 2.0).expect("render before");
+            let (app, children) = outline_group_children(doc, page, t);
+            let strokes: Vec<&Node> = children.iter().filter(|n| n.name.ends_with(" stroke")).collect();
+            assert!(strokes.len() >= 3, "{align:?}: the chain is cut into several stroke vectors, got {}", strokes.len());
+            for s in &strokes {
+                let NodeKind::Vector { paths, .. } = &s.kind else { panic!("{align:?}: {} is not a vector", s.name) };
+                let cmds: usize = paths.iter().map(|p| p.cmds.len()).sum();
+                assert!(cmds < 6000, "{align:?}: {} holds {cmds} path commands", s.name);
+            }
+            let after = designos_render::render_node(&app.doc, fid, 2.0).expect("render after outline stroke");
+            let (_max, _all, _ink, hard_px, non_edge, ink_px) = pixmap_diff_stats(&before, &after);
+            assert!(ink_px > 0);
+            assert_eq!((hard_px, non_edge), (0, 0), "{align:?}: the cut vectors still render as the canvas does");
+        }
+    }
+
+    #[test]
+    fn aligned_text_outline_skips_the_fill_layer_of_a_run_without_fill() {
+        for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
+            let mut doc = Document::new("NoFillRun");
+            let page = doc.add_page("Page 1");
+            let fid = doc.alloc_id();
+            doc.insert(page, Node::frame(fid, Rect::new(0.0, 0.0, 480.0, 160.0))).unwrap();
+            let base = inter_32();
+            let none = TextStyle { fills: vec![], ..base.clone() };
+            let t = styled_text(&mut doc, fid, "Aligned", align, base, vec![(3, 7, none)]);
+            let (_app, children) = outline_group_children(doc, page, t);
+            assert!(children.iter().all(|n| !n.fills.is_empty()), "{align:?}: no layer without paint");
+            // fills for A, l, i only; the strokes of both styles remain, one after the other
+            let runs = layer_runs(&children);
+            assert_eq!(runs[0], ('f', 3), "{align:?}: {runs:?}");
+            assert_eq!(runs.len(), 2, "{align:?}: {runs:?}");
+            assert!(runs[1].0 == 's' && runs[1].1 >= 2, "{align:?}: a stroke vector for each style {runs:?}");
+        }
+    }
+
+    const PARAGRAPH: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. ";
+
+    /// Outline stroke of a stroked Inter 16 paragraph of `chars` characters: wall time of the whole command, and the
+    /// path commands and JSON bytes of what it inserted.
+    fn outline_stroke_paragraph(chars: usize, align: StrokeAlign) -> (std::time::Duration, usize, usize) {
+        let mut text = PARAGRAPH.repeat(chars / PARAGRAPH.len() + 1);
+        text.truncate(chars);
+        let mut doc = Document::new("Paragraph");
+        let page = doc.add_page("Page 1");
+        let tid = doc.alloc_id();
+        let mut n = Node::text(
+            tid,
+            Rect::new(10.0, 10.0, 600.0, 4000.0),
+            &text,
+            TextStyle { font_family: "Inter".into(), font_size: 16.0, fills: vec![Paint::solid(Color::BLACK)], ..Default::default() },
+        );
+        n.stroke.paints = vec![Paint::solid(Color::rgb(220, 30, 30))];
+        n.stroke.weight = 1.0;
+        n.stroke.align = align;
+        doc.insert(page, n).unwrap();
+        let mut app = app_on_new_page(doc, page);
+        app.selection = vec![tid];
+        let started = std::time::Instant::now();
+        app.outline_stroke_selection();
+        let elapsed = started.elapsed();
+        let mut stack = vec![app.selection[0]];
+        let (mut cmds, mut json) = (0, 0);
+        while let Some(id) = stack.pop() {
+            let node = app.doc.get(id).expect("the outline exists");
+            if let NodeKind::Vector { paths, .. } = &node.kind {
+                cmds += paths.iter().map(|p| p.cmds.len()).sum::<usize>();
+            }
+            json += serde_json::to_string(node).expect("node serializes").len();
+            stack.extend(node.children.iter().copied());
+        }
+        (elapsed, cmds, json)
+    }
+
+    /// Checks the outline stroke of a `chars` characters paragraph against `budget_ms` (times `scale`) and against the
+    /// size of the centered outline: Inside within 2x; Outside within 3x, which is a guard against growth, not the target.
+    fn assert_paragraph_outline_stroke_budget(chars: usize, budget_ms: u64, scale: u64) {
+        let budget = std::time::Duration::from_millis(budget_ms * scale);
+        // the centered outline is one vector per glyph with the live stroke: the size to compare with (this run also loads the fonts)
+        let (center_time, center_cmds, center_json) = outline_stroke_paragraph(chars, StrokeAlign::Center);
+        println!("PARAGRAPH {chars} chars Center: {center_time:?}, {center_cmds} path commands, {center_json} JSON bytes");
+        let mut failures = Vec::new();
+        for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
+            // a baked stroke has two outlines per contour next to the one of the fill
+            let size_limit = if align == StrokeAlign::Inside { 2 } else { 3 };
+            let (time, cmds, json) = outline_stroke_paragraph(chars, align);
+            println!("PARAGRAPH {chars} chars {align:?}: {time:?}, {cmds} path commands, {json} JSON bytes");
+            if time > budget {
+                failures.push(format!("{align:?}: outline stroke of {chars} chars took {time:?}, budget {budget:?}"));
+            }
+            if cmds > size_limit * center_cmds {
+                failures.push(format!("{align:?}: {cmds} path commands against {center_cmds} for the centered outline (limit {size_limit}x)"));
+            }
+            if json > size_limit * center_json {
+                failures.push(format!("{align:?}: {json} JSON bytes against {center_json} for the centered outline (limit {size_limit}x)"));
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// The default suite runs unoptimized: its time budget is 15 times the release one.
+    #[test]
+    fn aligned_text_outline_stroke_of_a_paragraph_is_fast_and_small() {
+        let scale = if cfg!(debug_assertions) || std::env::var("CI").is_ok() { 15 } else { 1 };
+        assert_paragraph_outline_stroke_budget(1000, 150, scale);
+    }
+
+    /// The release budget: 150 ms for 1000 characters, 400 ms for 3000. The crate's own test code needs
+    /// `debug_assertions`, so a release run turns them on for `designos-app` and for `egui` only; every geometry crate
+    /// stays optimized without them. Run:
+    /// `cargo test --release --config 'profile.release.package.egui.debug-assertions=true' --config 'profile.release.package.designos-app.debug-assertions=true' -p designos-app --bin designos aligned_text_outline_stroke_of_paragraphs_meets_the_release_budget -- --ignored --nocapture`
+    #[test]
+    #[ignore = "release budget; see the command in the doc comment"]
+    fn aligned_text_outline_stroke_of_paragraphs_meets_the_release_budget() {
+        assert_paragraph_outline_stroke_budget(1000, 150, 1);
+        assert_paragraph_outline_stroke_budget(3000, 400, 1);
     }
 
     #[test]
