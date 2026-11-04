@@ -332,7 +332,7 @@ fn compose_cell_align(ah: GridChildAlign, av: GridChildAlign) -> &'static str {
 
 fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
-    if !n.visible {
+    if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
     let mut sz = sizes(n, parent);

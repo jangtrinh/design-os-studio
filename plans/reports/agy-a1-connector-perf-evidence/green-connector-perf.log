@@ -1,0 +1,29 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-doc)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-fig)
+    Finished `release` profile [optimized] target(s) in 27.12s
+     Running tests/connector_perf.rs (out/cargo/release/deps/connector_perf-0b2f838f89a5500b)
+
+running 1 test
+test perf_scene_whiteboard_2000_budgets ... 
+=== perf_whiteboard_2000 summary ===
+1. Single elbow route (seeded 500):        p50 =   17.54 us | p95 =   35.46 us (budget <= 100 us)
+2. Steady-state pan/zoom (1,500 conn):     p50 =   1.403 ms | p95 =   1.680 ms | hits=30000 misses=0 (budget <= 3.5 ms, 0 misses)
+3. Drag 1 node (4 conn):                   p50 =   0.074 ms | p95 =   0.116 ms | max_misses=4 (budget <= 1.0 ms)
+4. Drag 1 hub (50 conn):                   p50 =   1.873 ms | p95 =   2.608 ms | max_misses=50 (budget <= 5.0 ms)
+5. Drag 1 stress hub (150 conn):           p50 =   8.677 ms | p95 =   8.999 ms | max_misses=150 (budget <= 12.0 ms)
+6. Multi-drag 20 nodes (80 conn):          p50 =   2.393 ms | p95 =   2.546 ms | max_misses=80 (budget <= 7.5 ms)
+7. Hover hit-test (2,200 nodes + 1k conn): p50 =    1.42 us | p95 =    3.33 us | max_checks=0 (budget <= 250 us)
+8. Marquee 500x500 sweep (1,500 conn):     p50 =   0.005 ms | p95 =   0.012 ms (budget <= 1.5 ms)
+
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+

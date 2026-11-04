@@ -26,6 +26,7 @@ mod comments;
 #[cfg(test)]
 mod component_cycle_tests;
 mod components;
+mod connector_route_cache;
 mod dev;
 pub mod diff;
 pub mod find;
@@ -91,6 +92,9 @@ pub use changelog_features::*;
 pub use color_space::*;
 pub use comments::*;
 pub use components::*;
+pub use connector_route_cache::{cached_connector_route, connector_route_bounds, ROUTE_CACHE_CAP};
+#[cfg(any(test, feature = "fixtures"))]
+pub use connector_route_cache::{clear_route_cache, perf_whiteboard_2000, route_cache_len, route_cache_stats, PerfWhiteboardScene};
 pub use dev::*;
 pub use diff::*;
 pub use geom::*;
@@ -122,6 +126,8 @@ pub use writer_command::*;
 
 /// Shared spec test fixtures (`tokens_doc`, `button_library`, `card_with_slots`).
 pub mod fixtures {
+    #[cfg(any(test, feature = "fixtures"))]
+    pub use crate::connector_route_cache::{perf_whiteboard_2000, PerfWhiteboardScene};
     pub use crate::spec_bind::fixtures::*;
     pub use crate::spec_instance::fixtures::*;
 }
@@ -903,7 +909,9 @@ impl Document {
     }
 
     /// Gives this document an id of its own, for a clone that is opened as a file of its own (a duplicated tab):
-    /// a clone otherwise has the id of the document it came from.
+    /// a clone otherwise has the id of the document it came from. A clone installed as the live document must
+    /// renew its id too: a cache keyed on the id and `mutation_epoch` cannot tell apart two clones that took
+    /// the same number of edits.
     pub fn renew_runtime_id(&mut self) {
         self.dirty.runtime_id = NEXT_DOC_RUNTIME_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }

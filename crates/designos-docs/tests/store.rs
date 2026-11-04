@@ -221,3 +221,177 @@ fn a_lock_held_by_another_program_fails_fast_with_an_error_that_names_the_fix() 
     holder.unlock().unwrap();
     store.write_page("b.md", &page("b\n"), Expect::Absent).unwrap();
 }
+
+#[test]
+fn a_page_over_the_size_limit_is_a_typed_error_that_names_the_limit_and_the_fix() {
+    let (_tmp, store) = store();
+    std::fs::create_dir_all(store.dir()).unwrap();
+    std::fs::write(store.dir().join("big.md"), vec![b'a'; 8 * 1024 * 1024 + 1]).unwrap();
+    let err = store.read_page("big.md").unwrap_err();
+    assert!(format!("{err:?}").starts_with("TooLarge { ") && format!("{err:?}").contains("limit: 8388608"), "{err:?}");
+    let text = err.to_string();
+    assert!(text.contains("big.md") && text.contains("8388608") && text.contains("fix: split the page"), "{text}");
+}
+
+#[cfg(unix)]
+mod symlinks {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    /// A docs folder holding `spec/real.md`, with `secret.md` and a `private/` folder outside the docs folder.
+    fn with_outside() -> (tempfile::TempDir, DocsStore, std::path::PathBuf) {
+        let (tmp, store) = store();
+        std::fs::create_dir_all(store.dir().join("spec")).unwrap();
+        std::fs::write(store.dir().join("spec/real.md"), "# real\n").unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(outside.join("private")).unwrap();
+        std::fs::write(outside.join("secret.md"), "# SECRET\n").unwrap();
+        std::fs::write(outside.join("private/notes.md"), "# NOTES\n").unwrap();
+        (tmp, store, outside)
+    }
+
+    fn assert_refused(err: DocsError, what: &str) {
+        assert!(format!("{err:?}").starts_with("OutsideDocs { "), "{what}: {err:?}");
+        let text = err.to_string();
+        assert!(text.contains("outside the docs folder") && text.contains("fix:"), "{what}: {text}");
+    }
+
+    #[test]
+    fn a_file_symlink_to_outside_the_docs_folder_is_refused_for_read_and_write() {
+        let (_tmp, store, outside) = with_outside();
+        symlink(outside.join("secret.md"), store.dir().join("spec/leak.md")).unwrap();
+        assert_refused(store.read_page("spec/leak.md").unwrap_err(), "read");
+        let hash = ContentHash::of(b"# SECRET\n");
+        assert_refused(store.write_page("spec/leak.md", &page("# overwritten\n"), Expect::Hash(hash)).unwrap_err(), "write");
+        assert_eq!(std::fs::read_to_string(outside.join("secret.md")).unwrap(), "# SECRET\n", "nothing was written through the link");
+    }
+
+    #[test]
+    fn a_folder_symlink_to_outside_the_docs_folder_is_refused() {
+        let (_tmp, store, outside) = with_outside();
+        symlink(&outside, store.dir().join("linked")).unwrap();
+        assert_refused(store.read_page("linked/secret.md").unwrap_err(), "read through a folder link");
+        assert_refused(store.read_page("linked/private/notes.md").unwrap_err(), "read through a nested folder");
+        assert_refused(store.write_page("linked/new.md", &page("# x\n"), Expect::Absent).unwrap_err(), "create through a folder link");
+        assert!(!outside.join("new.md").exists());
+    }
+
+    #[test]
+    fn a_manifest_symlinked_outside_is_refused() {
+        let (_tmp, store, outside) = with_outside();
+        std::fs::write(outside.join("m.json"), Manifest::new().to_json_pretty().unwrap()).unwrap();
+        symlink(outside.join("m.json"), store.dir().join(MANIFEST_FILE)).unwrap();
+        assert_refused(store.read_manifest().unwrap_err(), "manifest");
+    }
+
+    #[test]
+    fn a_symlink_that_stays_inside_the_docs_folder_still_reads_and_a_missing_page_is_just_missing() {
+        let (_tmp, store, _outside) = with_outside();
+        symlink(store.dir().join("spec/real.md"), store.dir().join("alias.md")).unwrap();
+        assert!(store.read_page("alias.md").is_ok());
+        assert!(matches!(store.read_page("spec/missing.md").unwrap_err(), DocsError::NotFound { .. }));
+        assert!(matches!(store.read_page("nope/missing.md").unwrap_err(), DocsError::NotFound { .. }));
+    }
+}
+
+#[cfg(unix)]
+mod links_r2 {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn docs_with_outside() -> (tempfile::TempDir, DocsStore, std::path::PathBuf) {
+        let (tmp, store) = store();
+        std::fs::create_dir_all(store.dir()).unwrap();
+        std::fs::write(store.dir().join("inside.md"), "# inside\n").unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.md"), "# SECRET\n").unwrap();
+        (tmp, store, outside)
+    }
+
+    #[test]
+    fn a_hard_link_to_a_file_outside_the_docs_folder_is_refused_with_a_fix() {
+        let (_tmp, store, outside) = docs_with_outside();
+        std::fs::hard_link(outside.join("secret.md"), store.dir().join("hard.md")).unwrap();
+        let err = store.read_page("hard.md").unwrap_err();
+        assert!(format!("{err:?}").starts_with("HardLinked { "), "{err:?}");
+        let text = err.to_string();
+        assert!(text.contains("hard.md") && text.contains("more than one") && text.contains("fix:"), "{text}");
+        let hash = ContentHash::of(b"# SECRET\n");
+        assert!(store.write_page("hard.md", &page("# x\n"), Expect::Hash(hash)).is_err(), "no write through a hard link either");
+        assert_eq!(std::fs::read_to_string(outside.join("secret.md")).unwrap(), "# SECRET\n");
+        assert!(store.read_page("inside.md").is_ok(), "an ordinary file is unaffected");
+    }
+
+    /// A link name that is swapped between `inside.md` and a file outside, while another thread reads it. The page read
+    /// must be one of the two things the name legitimately pointed at when the read started (inside), or an error; it
+    /// must never be the outside file.
+    #[test]
+    fn a_symlink_swapped_while_the_page_is_read_never_leaks_the_outside_file() {
+        let (tmp, store, outside) = docs_with_outside();
+        let link = store.dir().join("x.md");
+        symlink(store.dir().join("inside.md"), &link).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let swapper = {
+            let (stop, dir, outside) = (stop.clone(), store.dir().to_path_buf(), outside.clone());
+            std::thread::spawn(move || {
+                let mut flip = false;
+                while !stop.load(Ordering::Relaxed) {
+                    let target = if flip { dir.join("inside.md") } else { outside.join("secret.md") };
+                    let tmp_link = dir.join(".x.tmp");
+                    let _ = std::fs::remove_file(&tmp_link);
+                    symlink(&target, &tmp_link).unwrap();
+                    std::fs::rename(&tmp_link, dir.join("x.md")).unwrap();
+                    flip = !flip;
+                }
+            })
+        };
+        let mut leaks = 0;
+        for _ in 0..20_000 {
+            if let Ok(v) = store.read_page("x.md") {
+                if v.value.render().contains("SECRET") {
+                    leaks += 1;
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        swapper.join().unwrap();
+        drop(tmp);
+        assert_eq!(leaks, 0, "the outside file was read through the swapped link");
+    }
+}
+
+/// Studio saves a page by writing a temporary file and renaming it over the page. A read that overlaps such a save must
+/// return a page, or ask for another read; it must never report the page as outside the docs folder.
+#[test]
+fn a_page_saved_by_rename_while_it_is_read_is_never_reported_as_outside_the_docs_folder() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (_tmp, store) = store();
+    std::fs::create_dir_all(store.dir()).unwrap();
+    std::fs::write(store.dir().join("x.md"), "# v0\n").unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let saver = {
+        let (stop, dir) = (stop.clone(), store.dir().to_path_buf());
+        std::thread::spawn(move || {
+            let mut n = 0u64;
+            while !stop.load(Ordering::Relaxed) {
+                n += 1;
+                std::fs::write(dir.join(".x.tmp"), format!("# v{n}\n")).unwrap();
+                std::fs::rename(dir.join(".x.tmp"), dir.join("x.md")).unwrap();
+            }
+        })
+    };
+    let (mut ok, mut changed, mut other) = (0, 0, Vec::new());
+    for _ in 0..3_000 {
+        match store.read_page("x.md") {
+            Ok(_) => ok += 1,
+            Err(DocsError::ChangedDuringRead { .. }) => changed += 1,
+            Err(e) => other.push(e.to_string()),
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+    saver.join().unwrap();
+    assert!(other.is_empty(), "reads that failed for another reason ({ok} ok, {changed} changed): {:?}", &other[..other.len().min(3)]);
+    assert!(ok > 2_000, "most reads succeed: {ok} ok, {changed} changed");
+}

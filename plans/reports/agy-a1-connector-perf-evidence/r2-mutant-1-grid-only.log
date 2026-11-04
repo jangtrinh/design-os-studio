@@ -1,0 +1,27 @@
+# mutant 1: hit_in goes back to query_top_level only (connector list ignored)
+diff --git a/crates/designos-app/src/canvas/hit.rs b/crates/designos-app/src/canvas/hit.rs
+index 66d53f566..8d525114b 100644
+--- a/crates/designos-app/src/canvas/hit.rs
++++ b/crates/designos-app/src/canvas/hit.rs
+@@ -203,7 +203,7 @@ fn hit_in(
+         let m = tol * 3.0 + 4.0;
+         // A connector is drawn along its live route, which can leave its stored box, so every page-level
+         // connector is a candidate; `connector_hit` rejects the far ones from their cached route bounds.
+-        idx.query_top_level_with_connectors((p.x - m, p.y - m, p.x + m, p.y + m), &mut top_cands);
++        idx.query_top_level((p.x - m, p.y - m, p.x + m, p.y + m), &mut top_cands);
+         &top_cands
+     } else {
+         &pn.children
+test canvas::hit::tests::indexed_hit_test_finds_a_connector_whose_end_moved_without_sync ... FAILED
+test canvas::hit::tests::indexed_hit_test_orders_a_stale_connector_by_paint_order ... FAILED
+test canvas::hit::tests::hit_test_rejects_far_connectors_by_box_first ... ok
+thread 'canvas::hit::tests::indexed_hit_test_finds_a_connector_whose_end_moved_without_sync' (1584181) panicked at crates/designos-app/src/canvas/hit.rs:1029:9:
+assertion `left == right` failed: an index built before the move must not hide it
+  left: None
+ right: Some(NodeId(74))
+thread 'canvas::hit::tests::indexed_hit_test_orders_a_stale_connector_by_paint_order' (1584182) panicked at crates/designos-app/src/canvas/hit.rs:1054:13:
+assertion `left == right` failed: indexed, connector_on_top=true
+  left: Some(NodeId(75))
+ right: Some(NodeId(74))
+test result: FAILED. 23 passed; 2 failed; 0 ignored; 0 measured; 4355 filtered out; finished in 0.94s
+rc=101

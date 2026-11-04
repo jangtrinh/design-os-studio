@@ -118,6 +118,7 @@ impl Shell {
         opts.home = opts.wants_home();
         let screenshot = opts.screenshot.is_some();
         let (gpu_flag, library) = (opts.gpu, opts.library.clone());
+        let (menu_preset, size) = (opts.menu.clone(), opts.size);
         let mut shell = Self::build(&cc.egui_ctx, opts);
         if shell.app.ui.pages_height.is_none() {
             let settings_root = library.clone().unwrap_or_else(designos_library::Library::default_root);
@@ -139,7 +140,36 @@ impl Shell {
         shell.app.canvas.gpu.pref = if screenshot { gpu_flag || shell.app.doc.nodes.len() > 5_000 } else { start.is_on() };
         shell.app.canvas.gpu.off_for_software = !screenshot && start == canvas::gpu_default::Start::SoftwareOff;
         shell.apply_launch_defaults(screenshot);
+        shell.open_project_tab_from_env(screenshot);
+        // Switching to the Project tab closes a menu that `--menu` opened during the build; open it again over the Project tab.
+        if let (Some(spec), true) = (menu_preset.as_deref(), shell.app.tabs.active_is_project() && shell.app.ui.menu.is_none()) {
+            let (w, h) = size.unwrap_or((theme::DEFAULT_WINDOW.0 as u32, theme::DEFAULT_WINDOW.1 as u32));
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(w as f32, h as f32));
+            menus::preset_menu(&cc.egui_ctx, &mut shell.app, spec, screen);
+        }
         shell
+    }
+
+    /// A run with `DESIGNOS_PROJECT_TAB_SHOT` set starts on a Project tab (see `project_tab::shot`): screenshots and idle-CPU runs.
+    fn open_project_tab_from_env(&mut self, screenshot: bool) {
+        let Some(spec) = crate::tabs::project_tab::shot::ShotSpec::from_env(screenshot) else { return };
+        match spec {
+            Ok(spec) => {
+                if spec.home_trash {
+                    if let Some(h) = self.app.home.as_mut() {
+                        h.section = crate::home::Section::Trash;
+                        h.dirty = true;
+                    }
+                }
+                if !spec.project.is_empty() {
+                    let project = spec.project.clone();
+                    let mut tabs = std::mem::take(&mut self.app.tabs);
+                    tabs.open_project_tab(&mut self.app, &project, Some(spec));
+                    self.app.tabs = tabs;
+                }
+            }
+            Err(e) => self.app.show_toast(e, true),
+        }
     }
 
     pub fn apply_launch_defaults(&mut self, screenshot: bool) {
@@ -1076,7 +1106,21 @@ impl Shell {
                 }
                 _ => None,
             };
-            if let Some(a) = act {
+            // A Project tab has no design file: its placeholder document must never be saved or exported.
+            let blocked = |a: &Action| {
+                app.tabs.active_is_project()
+                    && matches!(
+                        a,
+                        Action::Save
+                            | Action::SaveAs
+                            | Action::SaveVersion
+                            | Action::Export
+                            | Action::ExportFig
+                            | Action::ExportSlidePdf
+                            | Action::ExportDeckPdf
+                    )
+            };
+            if let Some(a) = act.filter(|a| !blocked(a)) {
                 menus::run(app, ctx, a);
             }
             return;
@@ -1095,6 +1139,7 @@ impl Shell {
             return;
         }
         match key {
+            Key::Delete | Key::Backspace if app.props.picker.as_ref().is_some_and(|pk| crate::widgets::picker::mode_of(&pk.paint.kind).is_gradient()) => {}
             Key::Delete | Key::Backspace => menus::run(app, ctx, Action::Delete),
             // an open comment draft or thread, or a dropdown menu open in the pass that just ended, takes
             // the Escape itself (egui drops widget focus on Escape, so the shortcut handler cannot tell
@@ -1853,10 +1898,14 @@ impl Shell {
         let notes_rect = Rect::from_min_max(Pos2::new(canvas_left, canvas_rect.bottom()), Pos2::new(right_rect.left(), full.bottom()));
 
         let full_vars = self.app.vars.open && self.app.vars.full;
+        // A Project tab draws its own regions (rail, doc tree, reading column); the canvas workspace is not shown.
+        let project_active = !full_vars && self.app.tabs.active_is_project();
         regions.rail = Some(rail_rect);
         if full_vars {
             let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
             regions.variables_full = Some(content);
+        } else if project_active {
+            // No canvas, panels or inspector this frame.
         } else {
             if !left_hidden {
                 regions.left_panel = Some(left_rect);
@@ -1896,6 +1945,10 @@ impl Shell {
             rail::show(&mut self.app, ui, rail_rect);
             let content = Rect::from_min_max(Pos2::new(rail_rect.right(), full.top()), full.max);
             crate::variables::view::show(&mut self.app, ui, content);
+        } else if project_active {
+            crate::tabs::show_active_project(&mut self.app, ui, full);
+            // The rail's main menu.
+            menus::show(&mut self.app, &ctx);
         } else {
             let specs_reader_open = false;
             if specs_reader_open {
@@ -2951,6 +3004,7 @@ pub fn apply_micro_interaction_continuous_frame(app: &mut App, base_doc: &design
     };
 
     app.doc = base_doc.clone();
+    app.doc.renew_runtime_id();
     app.ui.rulers = true;
     app.ui.dev_mode = false;
     app.ui.right_tab = Some(crate::app::RightTab::Design);

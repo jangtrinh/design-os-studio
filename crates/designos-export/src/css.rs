@@ -9,6 +9,9 @@ use designos_doc::*;
 /// Figma's Dev Mode inspect panel prints them.
 pub fn css_for(doc: &Document, node: NodeId) -> String {
     let Some(n) = doc.get(node) else { return String::new() };
+    if matches!(n.kind, NodeKind::Connector(_)) {
+        return String::new();
+    }
     let mut out: Vec<String> = Vec::new();
     let mut push = |p: &str, v: String| out.push(format!("{p}: {v};"));
 

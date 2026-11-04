@@ -582,7 +582,7 @@ pub(crate) fn instance_attrs(doc: &Document, n: &Node) -> String {
 
 fn markup(doc: &Document, id: NodeId, parent: Parent, depth: usize, o: &mut Out, jsx: bool) {
     let Some(n) = doc.get(id) else { return };
-    if !n.visible {
+    if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
     let attr = if jsx { "className" } else { "class" };
