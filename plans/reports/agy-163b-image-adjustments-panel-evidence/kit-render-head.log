@@ -1,0 +1,32 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.50s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+solid_808080_exp1_head: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+solid_808080_exp1_head: 0.0000% with AA pixels forgiven (0 px)
+solid_808080_exp1_base: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+solid_808080_exp1_base: 0.0000% with AA pixels forgiven (0 px)
+Found 3 kit nodes with non-zero image adjustments:
+  [0] id=NodeId(41802) name="Section" size=Vec2 { x: 880.0, y: 960.0 } scale_mode=Fill image_ref=cdc5333ab659a91172f4559b55b41dfdc544f660 has_img=true adjust=ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: 0.0, vignette: 0.0, temperature: 0.0, vibrance: -1.0, contrast: 0.0, brightness: 0.0 }
+kit_0_head: mismatch 4.2979% (4126 px of 96000) at tolerance 4, ssim 0.9945
+kit_0_head: 4.1490% with AA pixels forgiven (3983 px)
+kit_0_unadj: mismatch 5.6323% (5407 px of 96000) at tolerance 4, ssim 0.9948
+kit_0_unadj: 5.5615% with AA pixels forgiven (5339 px)
+  [1] id=NodeId(106660) name="Metrics" size=Vec2 { x: 1216.0, y: 340.0 } scale_mode=Fill image_ref=da95bf019bfa9a4309c2f5cc50e41426c13c9f61 has_img=true adjust=ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: -0.46769068, vignette: 0.0, temperature: 0.0, vibrance: 0.0, contrast: 0.0, brightness: 0.0 }
+kit_1_head: mismatch 4.1979% (4030 px of 96000) at tolerance 4, ssim 0.9943
+kit_1_head: 3.9396% with AA pixels forgiven (3782 px)
+kit_1_unadj: mismatch 4.2146% (4046 px of 96000) at tolerance 4, ssim 0.9946
+kit_1_unadj: 4.0844% with AA pixels forgiven (3921 px)
+  [2] id=NodeId(106786) name="Metrics" size=Vec2 { x: 343.0, y: 788.0 } scale_mode=Fill image_ref=da95bf019bfa9a4309c2f5cc50e41426c13c9f61 has_img=true adjust=ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: -0.46769068, vignette: 0.0, temperature: 0.0, vibrance: 0.0, contrast: 0.0, brightness: 0.0 }
+kit_2_head: mismatch 7.9519% (6546 px of 82320) at tolerance 4, ssim 0.9808
+kit_2_head: 7.5158% with AA pixels forgiven (6187 px)
+kit_2_unadj: mismatch 8.0928% (6662 px of 82320) at tolerance 4, ssim 0.9818
+kit_2_unadj: 7.7284% with AA pixels forgiven (6362 px)
+test kit_nodes_with_adjustments_render_on_cpu_and_gpu ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 30.86s
+
