@@ -1,0 +1,24 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-doc v0.7.8 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-a1-connector-perf/crates/designos-doc)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.70s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-df882cb0f5dda20e)
+
+running 1 test
+[elbow_route_p95_under_100us_on_seeded_corpus] n=500 p50=97.62us p95=181.88us budget=100us
+
+thread 'board::tests::elbow_route_p95_under_100us_on_seeded_corpus' (745475) panicked at crates/designos-doc/src/board.rs:1823:9:
+elbow p95 181.88us exceeded 100us budget
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test board::tests::elbow_route_p95_under_100us_on_seeded_corpus ... FAILED
+
+failures:
+
+failures:
+    board::tests::elbow_route_p95_under_100us_on_seeded_corpus
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 781 filtered out; finished in 0.19s
+
+error: test failed, to rerun pass `-p designos-doc --lib`
+mutant_2_rc=101

@@ -172,6 +172,7 @@ PINS: Pins = {
         ('panels/check_designs.rs', 'progress_row', 'FontFamily::Monospace', 1, ''),
         ('panels/inspect.rs', 'kv', 'font_mono', 1, ''),
         ('panels/left.rs', 'show', 'font_mono', 1, 'dev section count digits'),
+        ('project_tab/inline.rs', 'mono', 'FontFamily::Monospace', 1, 'Markdown inline code and code blocks in the Project tab reader'),
         ('shell.rs', 'show_web_capture_report', 'font_mono', 1, ''),
         ('specs.rs', 'render_dev_view_tab', 'font_mono', 6, ''),
         ('specs.rs', 'render_gates_and_canvas_tab', 'font_mono', 3, ''),

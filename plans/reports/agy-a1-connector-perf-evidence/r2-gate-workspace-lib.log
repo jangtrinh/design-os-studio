@@ -1,0 +1,33 @@
+# cargo test --workspace --locked --lib on HEAD b09d487c8 (TMPDIR base /private/tmp)
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_diff-955f492ec6554bbb)
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_doc-762907e16ebf2237)
+test live_patch::validate_tests::a_failed_replay_leaves_no_id_remaps_behind ... ok
+test result: ok. 782 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.20s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_eval-6b615b3a5524f69b)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_export-38790a24c094b427)
+test result: ok. 168 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.52s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fig-1d2329ac6541a6c6)
+test vecnet::tests::corrupt_blobs_are_rejected_not_panicked_on ... ok
+test result: ok. 148 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.44s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_fonts-15ea460df3f4a363)
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_gpu-a4a2e896dadf01ee)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_library-f25357b9a790bf90)
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.13s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_mcp-53b1c59051a9d1bc)
+test engine::tests::a_failed_apply_spec_leaves_variables_and_undo_depth_untouched ... ok
+test server::tests::a_failed_patch_write_undoes_the_edit_and_reports_it ... ok
+test tools::batch::tests::failed_last_op_leaves_document_identical ... ok
+test session_file_io::atomic_tests::an_atomic_write_leaves_no_temporary_file_and_cleans_up_after_a_failed_rename ... ok
+test tools::errors::error_kind_tests::batch_op_failed_kind_is_the_failing_op ... ok
+test result: ok. 327 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.70s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_render-bc5aa2a81e8db35e)
+test result: ok. 78 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 32.94s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_svg-d1eece433c2dd40a)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/lib.rs (out/cargo/debug/deps/designos_webcapture-c7b48b7514e52614)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+rc=0
