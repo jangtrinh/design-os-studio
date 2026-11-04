@@ -585,9 +585,9 @@ pub fn tool_error_codes(tool_name: &str) -> &'static [&'static str] {
         "designos_new_document" => &["`INVALID_ARGUMENTS`", "`UNSAVED_CHANGES`", "`TEXT_TOO_LONG`", "`TOOL_DISABLED`"],
         "designos_get_metadata" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_get_libraries" => &["`INVALID_ARGUMENTS`", "`TOOL_DISABLED`"],
-        "designos_docs_list" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"],
+        "designos_docs_list" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`CURSOR_STALE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"],
         "designos_docs_read" => {
-            &["`INVALID_ARGUMENTS`", "`MISSING_FIELD`", "`VALUE_OUT_OF_RANGE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
+            &["`INVALID_ARGUMENTS`", "`MISSING_FIELD`", "`VALUE_OUT_OF_RANGE`", "`CURSOR_STALE`", "`FILE_TOO_LARGE`", "`DOCUMENT_INVALID`", "`TOOL_DISABLED`"]
         }
         "designos_get_screenshot" => &["`INVALID_ARGUMENTS`", "`NODE_NOT_FOUND`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
         "designos_search_design_system" => &["`INVALID_ARGUMENTS`", "`VALUE_OUT_OF_RANGE`", "`TOOL_DISABLED`"],
@@ -730,10 +730,10 @@ fn summarize_schema_type(prop: &Value) -> String {
 fn render_issues_and_errors_section(out: &mut String, has_write_tools: bool) {
     out.push_str("## Per-Call `issues` Block & Error Recovery\n\n");
     if has_write_tools {
-        out.push_str("- **Per-call `issues`:** Mutating replies attach `issues`. Resolve `new_in_this_call > 0` first.\n");
+        out.push_str("- **Per-call `issues`:** Writes attach `issues`. Fix `new_in_this_call > 0` first.\n");
     }
     out.push_str(
-        "- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
+        "- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error too. `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).\n\n",
     );
 }
 

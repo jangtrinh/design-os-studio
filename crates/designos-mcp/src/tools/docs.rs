@@ -119,7 +119,13 @@ fn check_page_hash(given: Option<&str>, current: &str) -> Result<(), ToolError> 
         return Err(bad("page_hash is not a page_hash from designos_docs_read; fix: pass page_hash exactly as returned, or omit it"));
     }
     if given != current {
-        return Err(bad("the page changed since that page_hash; read it again from the start (omit range and page_hash)"));
+        return Err(ToolError::new(
+            ErrorCode::CursorStale,
+            "/page_hash",
+            "the page changed since that page_hash; read it again from the start (omit range and page_hash)",
+        )
+        .with_received(fence_capped(given, 200))
+        .with_next_step("Call designos_docs_read again without range and page_hash."));
     }
     Ok(())
 }

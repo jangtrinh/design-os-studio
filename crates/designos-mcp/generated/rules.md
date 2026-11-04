@@ -209,14 +209,14 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 - **Example:** `{}`
 
 ### `designos_docs_list`
-- **Purpose:** List a project's doc pages and pins.
+- **Purpose:** List doc pages and pins.
 - **Args:** required: none (optional: `cursor`, `project`)
-- **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`, `DOCUMENT_INVALID`
+- **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`, `CURSOR_STALE`, `DOCUMENT_INVALID`
 
 ### `designos_docs_read`
-- **Purpose:** Read one doc page as blocks.
+- **Purpose:** Read a doc page as blocks.
 - **Args:** required: `page` (optional: `page_hash`, `project`, `range`)
-- **Errors:** `INVALID_ARGUMENTS`, `MISSING_FIELD`, `VALUE_OUT_OF_RANGE`, `FILE_TOO_LARGE`, `DOCUMENT_INVALID`
+- **Errors:** `INVALID_ARGUMENTS`, `MISSING_FIELD`, `VALUE_OUT_OF_RANGE`, `CURSOR_STALE`, `FILE_TOO_LARGE`, `DOCUMENT_INVALID`
 - **Example:** `{"page":"spec/checkout.md"}`
 
 ### `designos_open_file`
@@ -357,8 +357,8 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 
 ## Per-Call `issues` Block & Error Recovery
 
-- **Per-call `issues`:** Mutating replies attach `issues`. Resolve `new_in_this_call > 0` first.
-- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
+- **Per-call `issues`:** Writes attach `issues`. Fix `new_in_this_call > 0` first.
+- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error too. `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
 
 ## Design Quality & Anti-Generic Rules
 

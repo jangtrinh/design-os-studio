@@ -277,3 +277,24 @@ The 1 char of rules-pack room, and the 2.6% `ChangedDuringRead` rate under a sav
 Status: DONE_WITH_CONCERNS
 Summary: M1 and M2 fixed test-first. An atomic save during a read is no longer reported as an escape (656 to 0 `OutsideDocs`; the rest retry or ask for a retry). List cursors are bound to the manifest hash and read continuations to `page_hash`. All gates green after the last edit; probes and transcript regenerated.
 Concerns/Blockers: 2.6% of reads under a never-sleeping saver end in a retryable `ChangedDuringRead`; F13 whole-page reads in `list`; rules pack at 22,999/23,000; Windows inode check not run; 3 pre-existing `designos-app` clippy errors.
+
+---
+
+# Fix round 4 (from 9b5d3c37; two follow-ups from the approving re-review)
+
+## What changed (test first; red run: 4 tests FAILED before the change)
+- **P1.** `OutsideDocs` and `HardLinked` read errors are `error_kind: needs_human`, `safe_to_retry: false`, with the next step "Stop and tell the user: the page points outside the docs folder (a symlink). Only they can remove it." / "... is hard-linked. Only they can replace it with a copy." (the manifest case says "docs-manifest.json"; no doc-derived text in the fixed text). `ChangedDuringRead` is unchanged (retryable, safe to retry). One test covers both variants for the page and the manifest path and the retryable case.
+- **P2.** A stale `list` cursor and a stale `page_hash` return `CURSOR_STALE` (retryable) at `/cursor` and `/page_hash`, with a next step to call again without the cursor / without `range` and `page_hash`. Malformed values and a cursor past the end stay `VALUE_OUT_OF_RANGE` with the value fenced in `received` (the coordinator's note says "INVALID_ARGUMENTS" for malformed; the code has been `VALUE_OUT_OF_RANGE` since round 3 and I left it as it was). The per-tool error lists in the rules pack name `CURSOR_STALE` for both tools; tool docs and snapshot regenerated.
+
+## Rules pack
+`generated/rules.md` is **22,986 chars** (limit 23,000). The two `CURSOR_STALE` entries took it to 23,031; I paid with shorter Purposes ("List doc pages and pins.", "Read a doc page as blocks."), "Writes attach `issues`. Fix `new_in_this_call > 0` first." and "failing or write loops error too" in the loop-hint line (the `LOOP_GUARD_K`/`_N` text and defaults stay).
+
+## Gates (after the last edit)
+- `cargo test -p designos-docs --locked`: exit 0, 105 passed, 0 failed.
+- `cargo test -p designos-mcp --locked`: exit 0, 596 passed, 0 failed (lib 364).
+- `cargo clippy -p designos-mcp -p designos-docs --all-targets --locked -- -D warnings`: exit 0.
+- `cargo fmt --all --check`: exit 0.
+
+Status: DONE
+Summary: P1 and P2 done test-first in one commit.
+Concerns/Blockers: rules pack 22,986/23,000; 3 pre-existing `designos-app` clippy errors in the workspace.
