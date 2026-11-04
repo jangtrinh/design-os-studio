@@ -2,11 +2,11 @@
 has no registry variants, so it is a plain COMPONENT (rule (j)); EmptyState/Default is a set of one variant (State=Default).
 
 Card/StarterTemplate
-* Painter: the template-card loop of `templates_view` (home/mod.rs:1590-1771; the card rect is `tcw` 240 by `tch` = 188 + SPACE_GROUP + SPACE_FACT = 204, :1644). Callers: 1
-  (`templates_view`, the cards of its `cards` list, :1598-); there is no capture of the Templates view (`home-templates` is the sidebar row), so every variant is UNVERIFIED-VISUAL.
+* Painter: the template-card loop of `templates_view` (home/mod.rs:1634-1815; the card rect is `tcw` 240 by `tch` = 188 + SPACE_GROUP + SPACE_FACT = 204, :1688). Callers: 1
+  (`templates_view`, the cards of its `cards` list, :1642-); there is no capture of the Templates view (`home-templates` is the sidebar row), so every variant is UNVERIFIED-VISUAL.
 * The card drawn is the first one, `Blank design`: `TileKind::Design`, `Icon::Pen`, badge `Design File`, text `Blank vector & auto-layout canvas`, button `New file`. The other four
   cards differ in data only (tile kind and glyph, strings, action): gaps, because the registry gives the record no variants.
-* Nested sets: Button/Secondary `Size=Sm, State=Default`: `paint_secondary` (home/mod.rs:1547-1559) is `kit::button_look(Secondary, Default)` + `paint_frame` at `RADIUS_CONTROL` and a centred `Text sm` Semibold
+* Nested sets: Button/Secondary `Size=Sm, State=Default`: `paint_secondary` (home/mod.rs:1591-1603) is `kit::button_look(Secondary, Default)` + `paint_frame` at `RADIUS_CONTROL` and a centred `Text sm` Semibold
   label, the Button/Secondary Sm painter at `CONTROL_SM` (36) high but `card.width - 2 * SPACE_GROUP` wide (:1722-1725). The copy fills the card's content width (`X(.., sx="fill")`: `layout_child` Fill and its
   own sizing Fixed, as the editor writes a Fill child; the main hugs, and a Fill copy that kept the main's own Hug was re-hugged by the engine to 60.75 px, so the button was drawn locally until the
   copy wrote its own sizing). The button is the card's one in-flow child: the card bottom-aligns it with `SPACE_GROUP` padding on three sides. Deviations: the main carries an off-by-default
@@ -21,13 +21,13 @@ Card/StarterTemplate
 * Gaps: hover (`BORDER_STRONG` at 1.5 px), the Board, Deck, Starter and Spec cards, a description that wraps, the elided title, the optional fifth card (`SPEC_BUNDLE_ENTRY_ENABLED`).
 
 EmptyState/Default
-* Painter: the Home `empty_state` (home/mod.rs:2390-2414). Callers: 2, `files_view` (:2421) and :2856. Kit `empty_state` (widgets/kit/feedback.rs:77) has 0 callers and is a gap.
+* Painter: the Home `empty_state` (home/mod.rs:2450-2474). Callers: 2, `files_view` (:2481) and :2916. Kit `empty_state` (widgets/kit/feedback.rs:77) has 0 callers and is a gap.
 * Nested sets (live): Icon/Tile `Kind=Neutral, Size=Md` (`tile_look(Neutral)` + `paint_frame` at `RADIUS_CONTROL`, a 32 px = `CONTROL_XS` square with the 16 px `Icon::File`, the tile Icon/Tile Md Neutral
-  is drawn from, home/mod.rs:2406-2408). The registry's `composes=Button/Secondary` is spec intent: the painter draws no button.
+  is drawn from, home/mod.rs:2466-2468). The registry's `composes=Button/Secondary` is spec intent: the painter draws no button.
 * Local parts: the column. The tile centre is 44 above the area's centre, the title line (`LINE_TEXT_MD`, 24) is centred on it and the body starts `LINE_TEXT_MD / 2 + SPACE_FACT` below it, so
   the tile ends 44 - 16 - 12 = 16 above the title's line (a difference of a literal and two constants: `lit`) and the body sits `SPACE_FACT` under it. A heading of tile and title carries the 16.
 * Texts: title `Text md` Semibold `TEXT`, body `Text sm` Regular `TEXT_TERTIARY`, both centred on the area. The strings are the caller's by section; the default is the Recents one (:2394-2396).
-  The body is wrapped at 380 (`min(380, width - 48)`, :2410-2411):
+  The body is wrapped at 380 (`min(380, width - 48)`, :2470-2471):
   the painter places the galley at `c.x - galley.size().x / 2`, so the BLOCK is centred and its LINES are left-aligned (egui's `layout`,
   no `halign`); the capture of the empty Home shows it (line 1 starts at x 667, line 2 at 668 in a 1440 px window), so the body is a left-aligned 380 px text box that the column centres, and
   `align_h="center"` is not used. The box is the cap, not the galley's own width (the longest line, 367 px here), so the block sits 6 px left of production's.
@@ -37,15 +37,15 @@ EmptyState/Default
 """
 from rest_ir import F, I, T, X, lit
 
-BODY = "Create a design file, FigJam board, or import a .fig, .svg or .designos file to get started."  # the Recents / Drafts / All projects / Templates / Resources default (home/mod.rs:2394-2396)
-BODY_W = 380  # `380.0_f32.min(area.width() - 48.0)` (home/mod.rs:2410-2411): the wrap width on any area of 428 px or more
-CARD_W, CARD_H = 240, 204  # `tcw`, and `188.0 + SPACE_GROUP + SPACE_FACT` (home/mod.rs:1644)
+BODY = "Create a design file, FigJam board, or import a .fig, .svg or .designos file to get started."  # the Recents / Drafts / All projects / Templates / Resources default (home/mod.rs:2454-2456)
+BODY_W = 380  # `380.0_f32.min(area.width() - 48.0)` (home/mod.rs:2470-2471): the wrap width on any area of 428 px or more
+CARD_W, CARD_H = 240, 204  # `tcw`, and `188.0 + SPACE_GROUP + SPACE_FACT` (home/mod.rs:1688)
 BADGE_LABEL_W = 64  # the default label `Design File` at 12 px Semibold as designos-mcp 0.7.5 measures it: the pill's x is `card.right - (text + 14) - 12` (:1696-1697)
-CARD_STROKE = "home/mod.rs:1686 `Stroke::new(if hot { 1.5 } else { 1.0 }, ..)` (origin/main numbering): literals of the Rust, 1.0 at rest (BORDER_WIDTH is also 1, but the card does not name it)"
-BANNER_TOP = "home/mod.rs:1689-1690 (origin/main numbering) `theme::concentric(theme::RADIUS_XL as f32, 1.0) as u8`: the card radius less the 1 px stroke inset = 11, computed from two values, no radius role holds it; only the top corners are rounded"
-PILL = "home/mod.rs:1697-1698 theme::cr_pill(20) = radius_full(20).round() = 10: computed from the pill's height, no radius role holds it"
-PILL_PAD = "home/mod.rs:1696-1697: the pill is text_width + 14 wide, so 7 px of padding each side: a literal in the Rust"
-TILE_TO_TITLE = "home/mod.rs:2406,2409: the tile centre is 44 above the area's centre and the title line is centred on it: 44 - CONTROL_XS / 2 - LINE_TEXT_MD / 2 = 16, a difference with no variable"
+CARD_STROKE = "home/mod.rs:1730 `Stroke::new(if hot { 1.5 } else { 1.0 }, ..)` (origin/main numbering): literals of the Rust, 1.0 at rest (BORDER_WIDTH is also 1, but the card does not name it)"
+BANNER_TOP = "home/mod.rs:1733-1734 (origin/main numbering) `theme::concentric(theme::RADIUS_XL as f32, 1.0) as u8`: the card radius less the 1 px stroke inset = 11, computed from two values, no radius role holds it; only the top corners are rounded"
+PILL = "home/mod.rs:1741-1742 theme::cr_pill(20) = radius_full(20).round() = 10: computed from the pill's height, no radius role holds it"
+PILL_PAD = "home/mod.rs:1740-1741: the pill is text_width + 14 wide, so 7 px of padding each side: a literal in the Rust"
+TILE_TO_TITLE = "home/mod.rs:2466,2469: the tile centre is 44 above the area's centre and the title line is centred on it: 44 - CONTROL_XS / 2 - LINE_TEXT_MD / 2 = 16, a difference with no variable"
 
 
 def starter_template(values, env):

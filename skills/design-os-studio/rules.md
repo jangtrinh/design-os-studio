@@ -3,12 +3,12 @@
 ## Build-Verify-Fix Workflow
 
 1. **Orient** — Call `designos_get_document` and `designos_list_nodes` for pages, frames, variables, styles, and components; do not dump the full document.
-2. **Plan & Ground** — Choose components/tokens via `designos_get_variables` and `designos_get_guidelines` (`topic: "design-system"` or a surface). Place new frames beside existing ones — never stack at `(0, 0)`.
+2. **Plan & Ground** — Choose components/tokens via `designos_get_variables` and `designos_get_guidelines`. Place new frames beside existing ones — never stack at `(0, 0)`.
 
 3. **Build in sections** — Build one section per call (`designos_apply_batch` / `designos_apply_spec`). Put `in_progress: true` in the root node's spec. Use components as instances, `var:` / `style:` tokens, and auto layout (`layout`).
-4. **Verify (`issues` + screenshot)** — Check `issues` first; then render the finished frame with `designos_render_png` (<= 1024px) or `diff_image`, and inspect for hierarchy, alignment, clipping, and contrast.
+4. **Verify (`issues` + screenshot)** — Render the frame with `designos_render_png` (<= 1024px) or `diff_image` and inspect for hierarchy, alignment, clipping, and contrast.
 5. **Fix in place** — Update with (`designos_update_node` or `designos_apply_batch` `update`); never delete and rebuild.
-6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `node_ids: [root]`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
+6. **Clear `in_progress` & audit** — Clear `in_progress` (`designos_set_in_progress`, `value: false`), and call `designos_lint` (`preset: "agent"`, `"strict"`, or `"marketing"`).
 
 7. **Errors & retries** — `error_kind`: `retryable` = fix and retry once; `fatal` = stop; `needs_human` = stop and ask the user. Follow `next_step`; resend `corrected_example` (or `valid_options`) when `safe_to_retry`; else re-read state; pass `idempotency_key` on writes.
 
@@ -208,6 +208,17 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 - **Errors:** `INVALID_ARGUMENTS`
 - **Example:** `{}`
 
+### `designos_docs_list`
+- **Purpose:** List doc pages and pins.
+- **Args:** required: none (optional: `cursor`, `project`)
+- **Errors:** `INVALID_ARGUMENTS`, `VALUE_OUT_OF_RANGE`, `CURSOR_STALE`, `DOCUMENT_INVALID`
+
+### `designos_docs_read`
+- **Purpose:** Read a doc page as blocks.
+- **Args:** required: `page` (optional: `page_hash`, `project`, `range`)
+- **Errors:** `INVALID_ARGUMENTS`, `MISSING_FIELD`, `VALUE_OUT_OF_RANGE`, `CURSOR_STALE`, `FILE_TOO_LARGE`, `DOCUMENT_INVALID`
+- **Example:** `{"page":"spec/checkout.md"}`
+
 ### `designos_open_file`
 - **Purpose:** Import a .designos, .designos, .fig, SVG or Figma REST JSON file inside the workspace...
 - **Args:** required: `path` (optional: `discard_changes`)
@@ -239,8 +250,6 @@ Ask covers Studio Agents-panel tabs; a CLI or host-started `designos-mcp` is not
 - **Example:** `{"name":"Fintech Workspace"}`
 
 ## `NodeSpec` Reference
-
-Used by `designos_apply_spec` / `designos_export_spec`.
 
 ### `NodeSpec` Fields
 
@@ -348,16 +357,14 @@ A numeric spec field that accepts either a literal `f32` or a `"var:..."` string
 
 ## Per-Call `issues` Block & Error Recovery
 
-- **Per-call `issues`:** Mutating replies attach `issues: {total, new_in_this_call, truncated, items}`. Resolve `new_in_this_call > 0` first.
-- **Session lint:** `designos_configure_session` (`issues: {mode, preset, max_items}`) or per-call `lint: false`.
-- **Structured errors:** `code`, `message`, optional `path`, `valid_options`, `corrected_example`, `safe_to_retry`, `next_step`.
-- **Loop hint:** Repeat successful reads attach `warning` `{code:LOOP_SUSPECTED,safe_to_retry:false}`; failing or write loops error `LOOP_SUSPECTED`. Env `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
+- **Per-call `issues`:** Writes attach `issues`. Fix `new_in_this_call > 0` first.
+- **Loop hint:** Repeat reads attach a `LOOP_SUSPECTED` `warning`; failing or write loops error too. `DESIGNOS_LOOP_GUARD_K`/`_N` (3/20).
 
 ## Design Quality & Anti-Generic Rules
 
 - **Visual hierarchy**: One primary action per view, >= 3:1 headline-to-body.
 - **Layout rhythm & cards**: Do not wrap every group in a card or nest cards. Avoid a uniform grid of identical cards. Use the type scale and spacing scale (`var:` / `style:` tokens), <= 3 gaps, padding `page >= section >= card >= control`.
-- **Buttons & centred controls**: Buttons, pills, badges: `"preset": "easeui-button-primary"` / `"easeui-button-secondary"` / `"easeui-badge"` or `"layout": {"direction": "row", "justify": "center", "align": "center"}` (a plain `"frame"` puts labels at top-left).
+- **Buttons & centred controls**: Buttons, pills, badges: preset `easeui-button-primary` / `easeui-button-secondary` / `easeui-badge`, or `layout` row with `justify` and `align` center (a plain `"frame"` puts labels at top-left).
 - **Surface & colour**: Restrain gradients, shadows, and corner radii. One primary accent per screen; red/amber/green for status.
 - **Icons & illustrations**: Never hand-draw logos, illustrations, or icons as vector paths. Use library instances or labelled placeholders.
 - **Typography**: <= 2 font families, <= 4 sizes, 45–75 char lines. Real copy, no lorem ipsum.

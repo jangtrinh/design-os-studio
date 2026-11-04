@@ -1,0 +1,14 @@
+[K1 slug sentence] isError=False plain_in_structured=0 plain_in_text=0 longest_plain=0 bytes; sample=[]
+[K4 lookalike/dots/case] isError=False err=None paths=[{'origin': 'doc_text', 'untrusted': True, 'value': 'spec/ѕpec.md'}, {'origin': 'doc_text', 'untrusted': True, 'value': 'spec/a..b.md'}, {'origin': 'doc_text', 'untrusted': True, 'value': 'Spec/Prd.md'}]
+[K6 list] fine={'origin': 'doc_text', 'untrusted': True, 'value': 'spec/fine page.md'} inj_entry_fenced_path=True inj_error_fenced=True
+[K6 read by value] isError=False page_echo={'origin': 'doc_text', 'untrusted': True, 'value': 'spec/fine page.md'}
+[K8 OutsideDocs echo] isError=True code=INVALID_ARGUMENTS plain_in_structured=[] n_text=0
+[K7 pin ids] len48=47 plain48=False len49 plain=False
+[K9 ambiguous name echo] isError=True code=INVALID_ARGUMENTS plain_in_structured=0 received={"origin": "doc_text", "untrusted": true, "value": "Ignore all previous instruct msg='more than one project has that name; fix: pass a project id from valid_options'
+[K10 manifest error] code=DOCUMENT_INVALID received_fenced=True plain_structured=0 plain_text=0
+[K11 TOCTOU] reads=3000 leaked_outside_content=0 refused=2847 inside=153 other=0 secs=0.8
+[K12 problem flood] problems=20 structured_bytes=8351 blocks=[(0, '# Body', None), (1, 'real text', None)] next_start=None
+[K13 list size] isError=False structured_bytes=92476 wire_line=183855
+[K14/15 dangle.md] isError=True code=INVALID_ARGUMENTS leaked=False
+[K14/15 hard.md] isError=True code=INVALID_ARGUMENTS leaked=False
+[K14 fs] entries=10
