@@ -974,6 +974,7 @@ dependencies = [
  "base64",
  "cosmic-text",
  "designos-doc",
+ "designos-docs",
  "designos-export",
  "designos-fig",
  "designos-fonts",
@@ -1125,6 +1126,7 @@ name = "designos-library"
 version = "0.7.8"
 dependencies = [
  "designos-doc",
+ "designos-docs",
  "designos-fig",
  "designos-fonts",
  "designos-svg",
@@ -1140,6 +1142,7 @@ version = "0.7.8"
 dependencies = [
  "designos-diff",
  "designos-doc",
+ "designos-docs",
  "designos-export",
  "designos-fig",
  "designos-library",
@@ -1152,6 +1155,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

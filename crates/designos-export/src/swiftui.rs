@@ -394,7 +394,7 @@ fn call(name: &str, args: &[String]) -> String {
 
 fn view(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Out) {
     let Some(n) = doc.get(id) else { return };
-    if !n.visible {
+    if !n.visible || matches!(n.kind, NodeKind::Connector(_)) {
         return;
     }
     let sz = sizes(n, parent);

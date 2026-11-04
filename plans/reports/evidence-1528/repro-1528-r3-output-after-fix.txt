@@ -1,0 +1,10 @@
+[R1 atomic-save during read] reads=3000 outcomes={'ok': 2921, 'INVALID_ARGUMENTS': 77, 'LOOP_SUSPECTED': 2} messages=['The same call has returned the same result 3 times', 'the page changed while it was read; fix: read it again']
+[R2 insert before cursor] cursor=8b05843453fd:130 code=VALUE_OUT_OF_RANGE path=/cursor message='cursor is from an earlier manifest: the manifest changed; list again from the start (omit cursor)' pages_returned=0
+[R2 delete before cursor] cursor=8b05843453fd:130 code=VALUE_OUT_OF_RANGE path=/cursor message='cursor is from an earlier manifest: the manifest changed; list again from the start (omit cursor)' pages_returned=0
+[R2 list again from the start] next_cursor=9623caec67f8:130 pages=130
+[R3 id gates] [('deadbeefdecafbadc0ffeefacade0001', 'FENCED'), ('acceded', 'FENCED'), ('FENCED', '0042')]
+[R4 value back] isError=False page_echo_fenced=True
+[R4 envelope back] isError=True code=INVALID_ARGUMENTS msg='Invalid arguments: invalid type: map, expected a string' received=null
+[R4 hostile arg 'spec/a b.md\x00'...] code=INVALID_ARGUMENTS msg_has_arg=False received_fenced=True
+[R4 hostile arg 'spec/aaaaaaaaaaaaaaa'...] code=INVALID_ARGUMENTS msg_has_arg=False received_fenced=True
+[R4 hostile arg 'spec/a b.md/../../x.'...] code=INVALID_ARGUMENTS msg_has_arg=False received_fenced=True
