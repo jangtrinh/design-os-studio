@@ -13,7 +13,7 @@ Open a library project as its own tab and read its docs exactly as design-studio
 3. Tree: five groups, pages from phase 01 manifest, pinned frames listed under Screens/States (labels only in this phase; render comes in 03). Search filter, collapse all, drag reorder within a group, F2 rename, Move up/down, Delete page (moves to Studio's trash) — each writes the manifest / file through `designos-docs`.
 4. Reader renders all v1 blocks read-only (embeds show the "Rendering…" placeholder card until 03; Mermaid shows its source in a code card until 05).
 5. "On this page" lists H2/H3 with scroll-spy; clicking scrolls smoothly.
-6. New project with no docs: Overview page "About this project" created from a template on first open (title + one-line description), written as a real file.
+6. New project with no docs: Overview page titled with the project name (owner ruling 2026-11-04, matches part 2 §2 and mockup m02) created from a template on first open (title + one-line description), written as a real file.
 7. External file edits refresh the open page without losing scroll.
 
 ## Files
