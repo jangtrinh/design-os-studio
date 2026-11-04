@@ -1,10 +1,11 @@
-//! The settings popovers of glass, noise and texture list the rows Figma shows, in Figma's order, and
-//! show a second size row only when the two sizes differ.
+//! The settings popovers of glass, noise and texture list the rows Figma shows, in Figma's order. The noise
+//! popover shows the opacity its grain is drawn with in every mode, and a second size row only while a second
+//! size is stored.
 
 use super::*;
 use crate::panels::effects::{effect_rows, PopKind, PopState};
 use crate::widgets::field::Prefix;
-use designos_doc::Effect;
+use designos_doc::{Effect, Style, StyleProperty};
 use serde_json::json;
 
 fn effect(json: serde_json::Value) -> Effect {
@@ -53,6 +54,30 @@ fn open(fx: &Effect) -> Sim {
     s
 }
 
+/// "Welcome" linked to an effect style that holds `fx`, with the style's "Edit style" popover open.
+fn open_style(fx: &Effect) -> Sim {
+    let mut s = Sim::with(Options { select: Some("Welcome".into()), ..Default::default() });
+    let welcome = s.by_name("Welcome");
+    s.shell.app.edit_nodes(&[welcome], |n| n.effects = vec![fx.clone()]);
+    assert!(s.shell.app.create_style_from(welcome, StyleProperty::Effect).is_some());
+    s.scroll_inspector_down();
+    let button = s.rect_of("effect-style-edit");
+    s.click(button.center());
+    s.frame(vec![]);
+    assert!(s.app().props.style_edit.is_some(), "the style popover is open");
+    s
+}
+
+/// `(size, size_y)` of the noise or texture the style holds.
+fn style_sizes(s: &Sim) -> (f32, Option<f32>) {
+    let Some(Style::Effect(fx)) = s.app().doc.styles.get("Effect style 1") else { panic!("no effect style") };
+    match &fx[0] {
+        Effect::Noise(n) => (n.size, n.size_y),
+        Effect::Texture(t) => (t.size, t.size_y),
+        other => panic!("not a noise or a texture: {other:?}"),
+    }
+}
+
 /// The labels painted down the popover's label column under its `title`, top to bottom. The popover
 /// sits left of the inspector, so its title is the leftmost text with that string.
 fn row_labels(s: &Sim, title: &str) -> Vec<String> {
@@ -83,6 +108,94 @@ fn assert_distinct_prefixes(s: &Sim, keys: &[&str]) {
     }
 }
 
+/// Rect of a numeric field of the open popover, by the debug text of its key.
+fn field_at(s: &Sim, key: &str) -> egui::Rect {
+    s.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("field-rect", key.to_string())))).unwrap_or_else(|| panic!("no field {key}"))
+}
+
+/// The effect "Welcome" holds.
+fn held_effect(s: &Sim) -> Effect {
+    let welcome = s.by_name("Welcome");
+    s.app().doc.get(welcome).unwrap().effects[0].clone()
+}
+
+/// `(size, size_y)` of the noise or texture "Welcome" holds.
+fn sizes(s: &Sim) -> (f32, Option<f32>) {
+    match held_effect(s) {
+        Effect::Noise(n) => (n.size, n.size_y),
+        Effect::Texture(t) => (t.size, t.size_y),
+        other => panic!("not a noise or a texture: {other:?}"),
+    }
+}
+
+fn opacity(s: &Sim) -> f32 {
+    match held_effect(s) {
+        Effect::Noise(n) => n.opacity,
+        other => panic!("not a noise: {other:?}"),
+    }
+}
+
+/// Clicks into field `key`, types `text` and commits it.
+fn type_into(s: &mut Sim, key: &str, text: &str) {
+    let r = field_at(s, key);
+    s.click(Pos2::new(r.left() + 40.0, r.center().y));
+    s.type_text(text);
+    s.key(Key::Enter);
+}
+
+/// Presses the label of field `key`, moves the pointer `dx` px a frame for `frames` frames and releases it.
+/// `watch` runs after each move with the number of moves made so far.
+fn scrub(s: &mut Sim, key: &str, dx: f32, frames: usize, mut watch: impl FnMut(&Sim, usize)) {
+    let r = field_at(s, key);
+    let start = Pos2::new(r.left() + 8.0, r.center().y);
+    s.mv(start);
+    s.button(true);
+    for k in 1..=frames {
+        s.mv(start + Vec2::new(dx * k as f32, 0.0));
+        watch(s, k);
+    }
+    s.button(false);
+    s.frame(vec![]);
+}
+
+/// A size field to scrub: which effect, which side, and the key and title that find it.
+struct SizeCase {
+    name: &'static str,
+    fx: Effect,
+    title: &'static str,
+    /// Key of the field that is pressed.
+    key: &'static str,
+    /// True when the pressed row is the X row.
+    x: bool,
+}
+
+fn noise_x() -> SizeCase {
+    SizeCase { name: "noise X", fx: noise(mono(), Some(7.0)), title: "Noise", key: "(\"fxp-nsize\", 0)", x: true }
+}
+
+fn noise_y() -> SizeCase {
+    SizeCase { name: "noise Y", fx: noise(mono(), Some(7.0)), title: "Noise", key: "(\"fxp-nsize-y\", 0)", x: false }
+}
+
+fn texture_x() -> SizeCase {
+    SizeCase { name: "texture X", fx: texture(Some(7.0)), title: "Texture", key: "(\"fxp-tsize\", 0)", x: true }
+}
+
+fn texture_y() -> SizeCase {
+    SizeCase { name: "texture Y", fx: texture(Some(7.0)), title: "Texture", key: "(\"fxp-tsize-y\", 0)", x: false }
+}
+
+/// Noise and texture of size 3 with a second size 7, pressed on their X and on their Y row.
+fn size_cases() -> Vec<SizeCase> {
+    vec![noise_x(), noise_y(), texture_x(), texture_y()]
+}
+
+/// The two size rows, as the popover paints them.
+fn two_size_rows(s: &Sim, title: &str) -> bool {
+    let labels = row_labels(s, title);
+    labels.iter().any(|l| l == "Size X") && labels.iter().any(|l| l == "Size Y")
+}
+
 #[test]
 fn glass_rows_use_the_figma_labels_in_order() {
     let fx = glass();
@@ -105,34 +218,48 @@ fn glass_rows_use_the_figma_labels_in_order() {
 }
 
 #[test]
-fn noise_opacity_row_only_for_multitone() {
+fn noise_opacity_row_is_shown_for_every_mode_and_edits_the_opacity_the_grain_is_drawn_with() {
     let cases = [
-        (mono(), vec!["Mode", "Color", "Size", "Density"]),
-        (duo(), vec!["Mode", "Color 1", "Color 2", "Size", "Density"]),
+        (mono(), vec!["Mode", "Color", "Size", "Density", "Opacity"]),
+        (duo(), vec!["Mode", "Color 1", "Color 2", "Size", "Density", "Opacity"]),
         (json!("Multi"), vec!["Mode", "Size", "Density", "Opacity"]),
     ];
     for (mode, labels) in cases {
         let fx = noise(mode.clone(), None);
-        let s = open(&fx);
+        let mut s = open(&fx);
         assert_eq!(row_labels(&s, "Noise"), labels, "mode {mode}");
         assert_eq!(effect_rows(&fx), labels.len(), "mode {mode}");
-        // a row that is not shown never rewrites the value it hides
-        let welcome = s.by_name("Welcome");
-        let Effect::Noise(n) = &s.app().doc.get(welcome).unwrap().effects[0] else { panic!("not a noise") };
-        assert_eq!(n.opacity, 0.5, "mode {mode}");
+        // opening the popover leaves the stored value alone, and the row writes it
+        assert_eq!(opacity(&s), 0.5, "mode {mode}");
+        type_into(&mut s, "(\"fxp-nop\", 0)", "80");
+        assert_eq!(opacity(&s), 0.8, "mode {mode}: the row edits the opacity");
     }
+}
+
+#[test]
+fn the_opacity_of_a_mono_noise_changes_what_is_drawn() {
+    let mut s = open(&noise(mono(), None));
+    let welcome = s.by_name("Welcome");
+    // a light card, so black grain shows at any opacity
+    s.shell.app.edit_nodes(&[welcome], |n| n.fills = vec![Paint::solid(Color::WHITE)]);
+    let render = |s: &Sim| designos_render::render_node(&s.app().doc, welcome, 0.5).expect("the card renders");
+    let faint = render(&s);
+    type_into(&mut s, "(\"fxp-nop\", 0)", "90");
+    assert_eq!(opacity(&s), 0.9);
+    let strong = render(&s);
+    assert_ne!(faint.data(), strong.data(), "the grain is drawn with the opacity the row shows");
 }
 
 #[test]
 fn unequal_noise_size_shows_x_and_y_rows() {
     let unequal = noise(mono(), Some(7.0));
     let s = open(&unequal);
-    assert_eq!(row_labels(&s, "Noise"), ["Mode", "Color", "Size X", "Size Y", "Density"]);
-    assert_eq!(effect_rows(&unequal), 5);
-    assert_distinct_prefixes(&s, &["(\"fxp-nsize\", 0)", "(\"fxp-nsize-y\", 0)", "(\"fxp-dens\", 0)"]);
+    assert_eq!(row_labels(&s, "Noise"), ["Mode", "Color", "Size X", "Size Y", "Density", "Opacity"]);
+    assert_eq!(effect_rows(&unequal), 6);
+    assert_distinct_prefixes(&s, &["(\"fxp-nsize\", 0)", "(\"fxp-nsize-y\", 0)", "(\"fxp-dens\", 0)", "(\"fxp-nop\", 0)"]);
 
     let equal = noise(mono(), None);
-    assert_eq!(row_labels(&open(&equal), "Noise"), ["Mode", "Color", "Size", "Density"]);
+    assert_eq!(row_labels(&open(&equal), "Noise"), ["Mode", "Color", "Size", "Density", "Opacity"]);
 }
 
 #[test]
@@ -146,4 +273,113 @@ fn unequal_texture_size_shows_x_and_y_rows() {
     let equal = texture(None);
     assert_eq!(row_labels(&open(&equal), "Texture"), ["Size", "Radius", "Clip to shape"]);
     assert_eq!(effect_rows(&equal), 3);
+}
+
+/// Scrubs the pressed side of `case` past the value of the other side (X goes 3 -> 10 past Y = 7, Y goes 7 -> 1
+/// past X = 3; the two sides meet after the fourth move) and checks that both sides and both rows survive, and that
+/// the whole scrub is one undo step.
+fn scrub_past_the_other_side(case: SizeCase) {
+    let mut s = open(&case.fx);
+    let depth = s.app().hist.undo_depth();
+    let (dx, frames, expected) = if case.x { (1.0, 7, (10.0, Some(7.0))) } else { (-1.0, 6, (3.0, Some(1.0))) };
+    scrub(&mut s, case.key, dx, frames, |s, k| {
+        if k >= 4 {
+            let (x, y) = sizes(s);
+            if k == 4 {
+                assert_eq!(y.unwrap_or(x), x, "{}: the sides meet at move {k}", case.name);
+            }
+            assert!(two_size_rows(s, case.title), "{}: move {k} still shows the X and Y rows, got {:?}", case.name, row_labels(s, case.title));
+        }
+    });
+    assert_eq!(sizes(&s), expected, "{}", case.name);
+    assert!(two_size_rows(&s, case.title), "{}: the sides differ again, so both rows stay", case.name);
+    assert_eq!(s.app().hist.undo_depth(), depth + 1, "{}: one undo step for the whole scrub", case.name);
+    s.cmd_key(Key::Z);
+    assert_eq!(sizes(&s), (3.0, Some(7.0)), "{}: one undo takes the whole scrub back", case.name);
+}
+
+#[test]
+fn a_noise_size_x_scrub_past_the_y_value_keeps_y_and_is_one_undo_step() {
+    scrub_past_the_other_side(noise_x());
+}
+
+#[test]
+fn a_noise_size_y_scrub_past_the_x_value_keeps_x_and_is_one_undo_step() {
+    scrub_past_the_other_side(noise_y());
+}
+
+#[test]
+fn a_texture_size_x_scrub_past_the_y_value_keeps_y_and_is_one_undo_step() {
+    scrub_past_the_other_side(texture_x());
+}
+
+#[test]
+fn a_texture_size_y_scrub_past_the_x_value_keeps_x_and_is_one_undo_step() {
+    scrub_past_the_other_side(texture_y());
+}
+
+#[test]
+fn a_size_scrub_that_ends_where_the_two_sides_meet_falls_back_to_one_size() {
+    for case in size_cases() {
+        let mut s = open(&case.fx);
+        let (dx, expected) = if case.x { (1.0, (7.0, None)) } else { (-1.0, (3.0, None)) };
+        scrub(&mut s, case.key, dx, 4, |_, _| {});
+        s.frame(vec![]);
+        assert_eq!(sizes(&s), expected, "{}", case.name);
+        let one_size = if case.title == "Noise" { vec!["Mode", "Color", "Size", "Density", "Opacity"] } else { vec!["Size", "Radius", "Clip to shape"] };
+        assert_eq!(row_labels(&s, case.title), one_size, "{}: the two sides agree, so one row", case.name);
+    }
+}
+
+#[test]
+fn a_typed_size_that_meets_the_other_side_falls_back_to_one_size_at_once() {
+    for case in size_cases() {
+        let mut s = open(&case.fx);
+        let (typed, expected) = if case.x { ("7", (7.0, None)) } else { ("3", (3.0, None)) };
+        type_into(&mut s, case.key, typed);
+        assert_eq!(sizes(&s), expected, "{}", case.name);
+        assert!(!two_size_rows(&s, case.title), "{}: {:?}", case.name, row_labels(&s, case.title));
+    }
+}
+
+#[test]
+fn a_size_scrub_in_an_effect_style_popover_keeps_both_sides_and_is_one_undo_step() {
+    for case in [noise_x(), texture_y()] {
+        let mut s = open_style(&case.fx);
+        let depth = s.app().hist.undo_depth();
+        let (dx, frames, expected) = if case.x { (1.0, 7, (10.0, Some(7.0))) } else { (-1.0, 6, (3.0, Some(1.0))) };
+        scrub(&mut s, case.key, dx, frames, |s, k| {
+            if k >= 4 {
+                assert!(two_size_rows(s, "Edit style"), "{}: move {k} still shows the X and Y rows, got {:?}", case.name, row_labels(s, "Edit style"));
+            }
+        });
+        assert_eq!(style_sizes(&s), expected, "{}", case.name);
+        assert_eq!(s.app().hist.undo_depth(), depth + 1, "{}: one undo step for the whole scrub", case.name);
+        s.cmd_key(Key::Z);
+        assert_eq!(style_sizes(&s), (3.0, Some(7.0)), "{}: one undo takes the whole scrub back", case.name);
+    }
+}
+
+#[test]
+fn an_effect_style_scrub_that_ends_where_the_two_sides_meet_falls_back_to_one_size_in_the_same_step() {
+    for case in [noise_x(), texture_y()] {
+        let mut s = open_style(&case.fx);
+        let depth = s.app().hist.undo_depth();
+        let (dx, expected): (f32, (f32, Option<f32>)) = if case.x { (1.0, (7.0, None)) } else { (-1.0, (3.0, None)) };
+        scrub(&mut s, case.key, dx, 4, |_, _| {});
+        s.frame(vec![]);
+        assert_eq!(style_sizes(&s), expected, "{}", case.name);
+        assert!(!two_size_rows(&s, "Edit style"), "{}: {:?}", case.name, row_labels(&s, "Edit style"));
+        assert_eq!(s.app().hist.undo_depth(), depth + 1, "{}: the fold is part of the scrub's step", case.name);
+    }
+}
+
+#[test]
+fn opening_a_popover_that_stores_two_equal_sides_changes_nothing() {
+    for fx in [noise(mono(), Some(3.0)), texture(Some(3.0))] {
+        let s = open(&fx);
+        let depth = s.app().hist.undo_depth();
+        assert_eq!(sizes(&s), (3.0, Some(3.0)), "the stored sides are left as they are");
+        assert_eq!(s.app().hist.undo_depth(), depth, "no undo step for opening it");
+    }
 }

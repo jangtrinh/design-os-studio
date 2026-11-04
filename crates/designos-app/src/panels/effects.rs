@@ -368,18 +368,18 @@ pub(crate) fn effect_rows(e: &Effect) -> usize {
         Effect::DropShadow { .. } => 7,
         Effect::InnerShadow { .. } => 6,
         Effect::LayerBlur { .. } | Effect::BackgroundBlur { .. } => 1,
-        // Mode, the colour rows, size, density, and opacity for the multitone mode only.
+        // Mode, the colour rows, size, density and opacity: every mode draws its grain with the opacity.
         Effect::Noise(n) => {
             let colours = match n.mode {
                 NoiseMode::Mono { .. } => 1,
                 NoiseMode::Duo { .. } => 2,
                 NoiseMode::Multi => 0,
             };
-            let opacity = usize::from(matches!(n.mode, NoiseMode::Multi));
-            1 + colours + size_rows(n.size, n.size_y).len() + 1 + opacity
+            let (mode, density_and_opacity) = (1, 2);
+            mode + colours + size_rows(n.size_y).len() + density_and_opacity
         }
         // Size, radius and clip to shape.
-        Effect::Texture(t) => size_rows(t.size, t.size_y).len() + 2,
+        Effect::Texture(t) => size_rows(t.size_y).len() + 2,
         // Light angle, then the rows of [`GLASS_ROWS`].
         Effect::Glass(_) => 1 + GLASS_ROWS.len(),
     }
@@ -397,24 +397,104 @@ enum SizeAxis {
 /// Smallest size a field sets, in px.
 const MIN_SIZE: f32 = 0.1;
 
-/// The size rows of a noise or texture: one "Size" row while the two sides agree, "Size X" and "Size Y"
-/// once they differ, so a stored value is never hidden.
-fn size_rows(size: f32, size_y: Option<f32>) -> &'static [(&'static str, SizeAxis)] {
-    if size_y.is_some_and(|y| y != size) {
+/// The size rows of a noise or texture: one "Size" row while no second size is stored, "Size X" and "Size Y"
+/// while one is, so a stored value is never hidden. Rows follow what is stored, so a scrub that carries the two
+/// sides through the same value keeps both rows (see [`scrubbed_size`]).
+fn size_rows(size_y: Option<f32>) -> &'static [(&'static str, SizeAxis)] {
+    if size_y.is_some() {
         &[("Size X", SizeAxis::X), ("Size Y", SizeAxis::Y)]
     } else {
         &[("Size", SizeAxis::Both)]
     }
 }
 
-/// `(size, size_y)` after `axis` was set to `v`. The second size is kept only while it differs from the
-/// first, so two sides that agree again fall back to one size.
+/// `(size, size_y)` after `axis` was set to `v` by a typed value or a wheel step. The second size is kept only
+/// while it differs from the first, so two sides that agree fall back to one size at once.
 fn edited_size(size: f32, size_y: Option<f32>, axis: SizeAxis, v: f32) -> (f32, Option<f32>) {
     let v = v.max(MIN_SIZE);
     match axis {
         SizeAxis::Both => (v, None),
         SizeAxis::X => (v, size_y.filter(|y| *y != v)),
         SizeAxis::Y => (size, Some(v).filter(|y| *y != size)),
+    }
+}
+
+/// `(size, size_y)` after one sample of a scrub on `axis`. The sides are written as they are, even when they
+/// agree: the rows stay where they are for the pressed field to keep its drag, and the other side is not lost
+/// when the dragged one passes through its value. A scrub that ends with the sides equal falls back to one size
+/// afterwards (see [`size_rows_ui`]).
+fn scrubbed_size(size: f32, size_y: Option<f32>, axis: SizeAxis, v: f32) -> (f32, Option<f32>) {
+    let v = v.max(MIN_SIZE);
+    match axis {
+        SizeAxis::Both => (v, None),
+        SizeAxis::X => (v, size_y),
+        SizeAxis::Y => (size, Some(v)),
+    }
+}
+
+/// True while a numeric field of the window is being scrubbed (see [`field::SCRUB_FLAG`]).
+fn scrubbing(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(Id::new(field::SCRUB_FLAG))).unwrap_or(false)
+}
+
+/// The size and the second size of a noise or texture.
+fn size_pair(e: &mut Effect) -> Option<(&mut f32, &mut Option<f32>)> {
+    match e {
+        Effect::Noise(n) => Some((&mut n.size, &mut n.size_y)),
+        Effect::Texture(t) => Some((&mut t.size, &mut t.size_y)),
+        _ => None,
+    }
+}
+
+/// Whose size rows these are: effect `index` of `tgt`, a texture's or a noise's.
+#[derive(Clone, Copy)]
+struct SizeTarget<'a> {
+    tgt: FxTarget<'a>,
+    index: usize,
+    texture: bool,
+}
+
+impl SizeTarget<'_> {
+    /// Field key of the row that edits `axis`.
+    fn key(self, axis: SizeAxis) -> (&'static str, usize) {
+        let name = match (self.texture, axis == SizeAxis::Y) {
+            (false, false) => "fxp-nsize",
+            (false, true) => "fxp-nsize-y",
+            (true, false) => "fxp-tsize",
+            (true, true) => "fxp-tsize-y",
+        };
+        (name, self.index)
+    }
+}
+
+/// The size rows of a noise or texture, one popover row each. A scrub on the X or Y field writes its samples with
+/// [`scrubbed_size`] and leaves a marker; when the scrub is over, a marked popover folds the two sides back into
+/// one size if they ended equal. A typed value or a wheel step goes through [`edited_size`] and folds at once.
+fn size_rows_ui(app: &mut App, ui: &mut Ui, body: Rect, t: SizeTarget, (size, size_y): (f32, Option<f32>), next: &mut impl FnMut() -> usize) {
+    let marker = Id::new(("fx-size-scrub", t.texture));
+    if !scrubbing(ui.ctx()) && ui.ctx().data_mut(|d| d.remove_temp::<bool>(marker)).unwrap_or(false) {
+        edit_effect(app, t.tgt, t.index, |e| {
+            if let Some((size, size_y)) = size_pair(e) {
+                if *size_y == Some(*size) {
+                    *size_y = None;
+                }
+            }
+        });
+    }
+    for (label, axis) in size_rows(size_y) {
+        let (axis, value) = (*axis, if *axis == SizeAxis::Y { size_y.unwrap_or(size) } else { size });
+        popover::row(ui, body, next(), label, |ui, rc| {
+            let Some(v) = num(ui, rc, t.key(axis), Prefix::Icon(size_row_icon(axis)), value, "") else { return };
+            let scrubbed = axis != SizeAxis::Both && scrubbing(ui.ctx());
+            if scrubbed {
+                ui.ctx().data_mut(|d| d.insert_temp(marker, true));
+            }
+            edit_effect(app, t.tgt, t.index, |e| {
+                if let Some((size, size_y)) = size_pair(e) {
+                    (*size, *size_y) = if scrubbed { scrubbed_size(*size, *size_y, axis, v) } else { edited_size(*size, *size_y, axis, v) };
+                }
+            });
+        });
     }
 }
 
@@ -663,19 +743,7 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                     }
                 });
             }
-            for (label, axis) in size_rows(n.size, n.size_y) {
-                let (axis, value) = (*axis, if *axis == SizeAxis::Y { n.size_y.unwrap_or(n.size) } else { n.size });
-                let key = if axis == SizeAxis::Y { ("fxp-nsize-y", i) } else { ("fxp-nsize", i) };
-                popover::row(ui, body, next(), label, |ui, rc| {
-                    if let Some(v) = num(ui, rc, key, Prefix::Icon(size_row_icon(axis)), value, "") {
-                        edit_effect(app, tgt, i, |e| {
-                            if let Effect::Noise(n) = e {
-                                (n.size, n.size_y) = edited_size(n.size, n.size_y, axis, v);
-                            }
-                        });
-                    }
-                });
-            }
+            size_rows_ui(app, ui, body, SizeTarget { tgt, index: i, texture: false }, (n.size, n.size_y), &mut next);
             popover::row(ui, body, next(), "Density", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-dens", i), Prefix::Icon(Icon::Noise), pct(n.density), "%") {
                     edit_effect(app, tgt, i, |e| {
@@ -685,33 +753,18 @@ pub(super) fn effect_body(app: &mut App, ui: &mut Ui, body: Rect, e: &Effect, i:
                     });
                 }
             });
-            // Only the multitone mode uses the opacity; the other modes keep the stored value without showing it.
-            if matches!(n.mode, NoiseMode::Multi) {
-                popover::row(ui, body, next(), "Opacity", |ui, rc| {
-                    if let Some(v) = num(ui, rc, ("fxp-nop", i), Prefix::Icon(Icon::Opacity), pct(n.opacity), "%") {
-                        edit_effect(app, tgt, i, |e| {
-                            if let Effect::Noise(n) = e {
-                                n.opacity = (v / 100.0).clamp(0.0, 1.0);
-                            }
-                        });
-                    }
-                });
-            }
+            popover::row(ui, body, next(), "Opacity", |ui, rc| {
+                if let Some(v) = num(ui, rc, ("fxp-nop", i), Prefix::Icon(Icon::Opacity), pct(n.opacity), "%") {
+                    edit_effect(app, tgt, i, |e| {
+                        if let Effect::Noise(n) = e {
+                            n.opacity = (v / 100.0).clamp(0.0, 1.0);
+                        }
+                    });
+                }
+            });
         }
         Effect::Texture(t) => {
-            for (label, axis) in size_rows(t.size, t.size_y) {
-                let (axis, value) = (*axis, if *axis == SizeAxis::Y { t.size_y.unwrap_or(t.size) } else { t.size });
-                let key = if axis == SizeAxis::Y { ("fxp-tsize-y", i) } else { ("fxp-tsize", i) };
-                popover::row(ui, body, next(), label, |ui, rc| {
-                    if let Some(v) = num(ui, rc, key, Prefix::Icon(size_row_icon(axis)), value, "") {
-                        edit_effect(app, tgt, i, |e| {
-                            if let Effect::Texture(t) = e {
-                                (t.size, t.size_y) = edited_size(t.size, t.size_y, axis, v);
-                            }
-                        });
-                    }
-                });
-            }
+            size_rows_ui(app, ui, body, SizeTarget { tgt, index: i, texture: true }, (t.size, t.size_y), &mut next);
             popover::row(ui, body, next(), "Radius", |ui, rc| {
                 if let Some(v) = num(ui, rc, ("fxp-trad", i), Prefix::Icon(Icon::Radius), t.radius, "") {
                     edit_effect(app, tgt, i, |e| {
@@ -923,10 +976,10 @@ mod tests {
         let mono = serde_json::json!({"Mono": {"color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0}}});
         let duo = serde_json::json!({"Duo": {"color": {"r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0}, "secondary": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}}});
         assert_eq!(effect_rows(&default_effect(6, 1)), 8, "glass");
-        assert_eq!(effect_rows(&noise_with(mono.clone(), None)), 4, "mono has no opacity row");
-        assert_eq!(effect_rows(&noise_with(duo, None)), 5, "duo has no opacity row");
+        assert_eq!(effect_rows(&noise_with(mono.clone(), None)), 5, "mono shows the opacity it is drawn with");
+        assert_eq!(effect_rows(&noise_with(duo, None)), 6, "duo shows the opacity too");
         assert_eq!(effect_rows(&noise_with(serde_json::json!("Multi"), None)), 4, "multitone has opacity and no colour rows");
-        assert_eq!(effect_rows(&noise_with(mono, Some(7.0))), 5, "a second size adds one row");
+        assert_eq!(effect_rows(&noise_with(mono, Some(7.0))), 6, "a second size adds one row");
         assert_eq!(effect_rows(&texture_with(None)), 3);
         assert_eq!(effect_rows(&texture_with(Some(1.5))), 4);
     }
@@ -943,6 +996,25 @@ mod tests {
         assert_eq!(edited_size(3.0, Some(7.0), SizeAxis::Y, 3.0), (3.0, None));
         // a size is never zero or negative
         assert_eq!(edited_size(3.0, None, SizeAxis::Both, 0.0), (0.1, None));
+    }
+
+    #[test]
+    fn a_scrubbed_size_keeps_the_other_side_even_where_the_two_meet() {
+        // X passes through Y's value and on
+        assert_eq!(scrubbed_size(3.0, Some(7.0), SizeAxis::X, 7.0), (7.0, Some(7.0)));
+        assert_eq!(scrubbed_size(7.0, Some(7.0), SizeAxis::X, 10.0), (10.0, Some(7.0)));
+        // Y passes through X's value and on
+        assert_eq!(scrubbed_size(3.0, Some(7.0), SizeAxis::Y, 3.0), (3.0, Some(3.0)));
+        assert_eq!(scrubbed_size(3.0, Some(3.0), SizeAxis::Y, 1.0), (3.0, Some(1.0)));
+        // the one row still writes one size, and no side goes below the minimum
+        assert_eq!(scrubbed_size(3.0, None, SizeAxis::Both, 5.0), (5.0, None));
+        assert_eq!(scrubbed_size(3.0, Some(7.0), SizeAxis::Y, -2.0), (3.0, Some(0.1)));
+    }
+
+    #[test]
+    fn size_rows_follow_whether_a_second_size_is_stored() {
+        assert_eq!(size_rows(None), [("Size", SizeAxis::Both)]);
+        assert_eq!(size_rows(Some(7.0)), [("Size X", SizeAxis::X), ("Size Y", SizeAxis::Y)]);
     }
 
     #[test]
