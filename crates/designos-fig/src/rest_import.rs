@@ -3,6 +3,7 @@
 //! The `.fig` importer converts its kiwi message into this same JSON shape and
 //! reuses this mapper, so every field name below is the REST name.
 
+use crate::effect_units;
 use crate::svgpath::parse_path;
 use crate::FigError;
 use designos_doc::*;
@@ -201,7 +202,19 @@ fn parse_effect(v: &Value) -> Option<Effect> {
     let col = v.get("color").and_then(color).unwrap_or(Color::BLACK.with_alpha(0.25));
     let offset = v.get("offset").and_then(vec2).unwrap_or(Vec2::ZERO);
     let spread = fnum(v, "spread").unwrap_or(0.0);
-    let noise_size = |v: &Value| -> Option<f32> { fnum(v, "noiseSize").or_else(|| v.get("noiseSize").and_then(|ns| fnum(ns, "x").or_else(|| fnum(ns, "y")))) };
+    // A number is one size for both sides; an `{x, y}` pair keeps each side, and a pair with one side uses it for both.
+    let noise_size = |v: &Value| -> Option<(f32, Option<f32>)> {
+        let ns = v.get("noiseSize")?;
+        let (x, y) = match fnum(v, "noiseSize") {
+            Some(one) => (one, one),
+            None => match (fnum(ns, "x"), fnum(ns, "y")) {
+                (Some(x), Some(y)) => (x, y),
+                (Some(one), None) | (None, Some(one)) => (one, one),
+                (None, None) => return None,
+            },
+        };
+        Some(effect_units::noise_size_from_kiwi(x, y))
+    };
     let parse_seed = |v: &Value| -> u32 { v.get("seed").and_then(|s| s.as_u64().map(|n| n as u32).or_else(|| num(s).map(|x| x.max(0.0) as u32))).unwrap_or(1) };
     Some(match fstr(v, "type")? {
         "DROP_SHADOW" => Effect::DropShadow {
@@ -225,9 +238,11 @@ fn parse_effect(v: &Value) -> Option<Effect> {
                 Some("MULTITONE" | "MULTI") => NoiseMode::Multi,
                 _ => NoiseMode::Mono { color: primary },
             };
+            let (size, size_y) = noise_size(v).unwrap_or((1.0, None));
             Effect::Noise(NoiseEffect {
                 mode,
-                size: noise_size(v).unwrap_or(1.0),
+                size,
+                size_y,
                 density: fnum(v, "density").unwrap_or(0.5).clamp(0.0, 1.0),
                 opacity: fnum(v, "opacity").unwrap_or(0.25).clamp(0.0, 1.0),
                 blend: fstr(v, "blendMode").map(blend).unwrap_or(BlendMode::Normal),
@@ -235,20 +250,26 @@ fn parse_effect(v: &Value) -> Option<Effect> {
                 visible,
             })
         }
-        "TEXTURE" | "GRAIN" => Effect::Texture(TextureEffect {
-            size: noise_size(v).unwrap_or(2.0),
-            radius: fnum(v, "radius").unwrap_or(2.0),
-            clip_to_shape: fbool(v, "clipToShape").unwrap_or(true),
-            seed: parse_seed(v),
-            visible,
-        }),
+        "TEXTURE" | "GRAIN" => {
+            let (size, size_y) = noise_size(v).unwrap_or((2.0, None));
+            Effect::Texture(TextureEffect {
+                size,
+                size_y,
+                radius: fnum(v, "radius").unwrap_or(2.0),
+                clip_to_shape: fbool(v, "clipToShape").unwrap_or(true),
+                seed: parse_seed(v),
+                visible,
+            })
+        }
         "GLASS" => Effect::Glass(GlassEffect {
-            light_angle: fnum(v, "lightAngle").or_else(|| fnum(v, "specularAngle")).unwrap_or(315.0),
+            light_angle: fnum(v, "lightAngle").or_else(|| fnum(v, "specularAngle")).map_or(315.0, effect_units::specular_angle_from_kiwi),
             light_intensity: fnum(v, "lightIntensity").or_else(|| fnum(v, "specularIntensity")).unwrap_or(0.5).clamp(0.0, 1.0),
             refraction: fnum(v, "refraction").or_else(|| fnum(v, "refractionIntensity")).unwrap_or(0.5).clamp(0.0, 1.0),
             depth: fnum(v, "depth").or_else(|| fnum(v, "refractionRadius")).unwrap_or(10.0),
             dispersion: fnum(v, "dispersion").or_else(|| fnum(v, "chromaticAberration")).unwrap_or(0.25).clamp(0.0, 1.0),
             frost: fnum(v, "radius").unwrap_or(4.0),
+            splay: fnum(v, "reflectionDistance").unwrap_or(0.0).clamp(0.0, 1.0),
+            bevel: fnum(v, "bevelSize").unwrap_or(0.0).max(0.0),
             visible,
         }),
         _ => return None,
@@ -537,6 +558,10 @@ pub const PER_INSTANCE_CLONE_BUDGET: usize = 50_000;
 pub struct ImportReport {
     /// How many component instances were left unexpanded because expanding them would exceed [`CLONE_BUDGET_TOTAL`].
     pub instances_left_unexpanded: usize,
+    /// How many variable bindings on effect fields the importer read and did not carry: each bound field of a glass
+    /// (other than its frost radius) and of a noise (other than its colour and opacity) on every layer and effect
+    /// style. The field keeps its stored value; only the binding is dropped.
+    pub dropped_variable_bindings: usize,
 }
 
 struct Ctx<'a> {
@@ -829,7 +854,7 @@ pub(crate) fn import_rest_value_owned_with_budget<'a>(
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
     drop(v);
-    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len() };
+    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len(), dropped_variable_bindings: 0 };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);
@@ -963,7 +988,7 @@ pub(crate) fn import_rest_value_with_blobs_and_budget<'a>(
     crate::variables::import_variables_value(&mut cx.doc, v);
     apply_style_node_values(&mut cx.doc, v.get("styles"));
     cx.doc.style_meta = style_meta(v.get("styles"), &cx.doc);
-    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len() };
+    let report = ImportReport { instances_left_unexpanded: cx.unexpanded_instances.len(), dropped_variable_bindings: 0 };
     cx.install_deferred_hydrator();
     let doc = cx.doc;
     drop(cx.override_keys);

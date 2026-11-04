@@ -52,13 +52,23 @@ fn fx_scene() -> (Document, NodeId) {
     }
     let glass = t.rect(None, Rect::new(30.0, 30.0, 90.0, 50.0), Color::rgba(255, 255, 255, 40));
     t.node(glass).corner_radii = [14.0; 4];
-    t.node(glass).effects =
-        vec![Effect::Glass(GlassEffect { light_angle: 45.0, light_intensity: 0.7, refraction: 0.5, depth: 10.0, dispersion: 0.3, frost: 4.0, visible: true })];
+    t.node(glass).effects = vec![Effect::Glass(GlassEffect {
+        light_angle: 45.0,
+        light_intensity: 0.7,
+        refraction: 0.5,
+        depth: 10.0,
+        dispersion: 0.3,
+        frost: 4.0,
+        splay: 0.0,
+        bevel: 0.0,
+        visible: true,
+    })];
     // noise (shape fast path) and noise on a group (general path)
     let n = t.rect(None, Rect::new(180.0, 10.0, 80.0, 60.0), Color::rgb(0x44, 0x88, 0xDD));
     t.node(n).effects = vec![Effect::Noise(NoiseEffect {
         mode: NoiseMode::Duo { color: Color::rgb(0, 0, 0), secondary: Color::WHITE },
         size: 1.5,
+        size_y: None,
         density: 0.5,
         opacity: 0.4,
         blend: BlendMode::Normal,
@@ -66,7 +76,7 @@ fn fx_scene() -> (Document, NodeId) {
         visible: true,
     })];
     let tx = t.rect(None, Rect::new(180.0, 90.0, 80.0, 50.0), Color::rgb(0xE0, 0x50, 0x30));
-    t.node(tx).effects = vec![Effect::Texture(TextureEffect { size: 6.0, radius: 4.0, clip_to_shape: false, seed: 3, visible: true })];
+    t.node(tx).effects = vec![Effect::Texture(TextureEffect { size: 6.0, size_y: None, radius: 4.0, clip_to_shape: false, seed: 3, visible: true })];
     // clipped rounded frame with rotated child, image + blend modes
     let fr = t.add(None, |id| Node::frame(id, Rect::new(10.0, 120.0, 100.0, 70.0)));
     if let NodeKind::Frame(p) = &mut t.node(fr).kind {

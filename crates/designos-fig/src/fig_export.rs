@@ -5,6 +5,7 @@
 //! against [`crate::testkit::figma_like_schema`].
 
 use crate::container::{self, Compression};
+use crate::effect_units;
 use crate::kiwi::KiwiValue as V;
 use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align};
 use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
@@ -2222,6 +2223,12 @@ fn encode_effect_with_bindings(cx: &ExportCtx, e: &Effect, idx: usize, bindings:
     encode_effect_full(e, var_data("color"), var_data("opacity"), var_data("radius"), var_data("spread"), var_data("offsetX"), var_data("offsetY"))
 }
 
+/// The stored `noiseSize` vector of a noise or texture size.
+fn noise_size_vec(size: f32, size_y: Option<f32>) -> V {
+    let (x, y) = effect_units::noise_size_to_kiwi(size, size_y);
+    vec2(x, y)
+}
+
 fn encode_effect_full(
     e: &Effect,
     color_var: Option<V>,
@@ -2256,7 +2263,7 @@ fn encode_effect_full(
         Effect::Noise(n) => {
             let mut f = vec![
                 ("type", en("NOISE")),
-                ("noiseSize", vec2(n.size, n.size)),
+                ("noiseSize", noise_size_vec(n.size, n.size_y)),
                 ("density", fl(n.density)),
                 ("opacity", fl_one(n.opacity)),
                 ("blendMode", en(blend_name(n.blend))),
@@ -2281,7 +2288,7 @@ fn encode_effect_full(
         }
         Effect::Texture(t) => vec![
             ("type", en("GRAIN")),
-            ("noiseSize", vec2(t.size, t.size)),
+            ("noiseSize", noise_size_vec(t.size, t.size_y)),
             ("radius", fl(t.radius)),
             ("clipToShape", V::Bool(t.clip_to_shape)),
             ("seed", V::Uint(t.seed)),
@@ -2289,11 +2296,13 @@ fn encode_effect_full(
         ],
         Effect::Glass(g) => vec![
             ("type", en("GLASS")),
-            ("specularAngle", fl(g.light_angle)),
+            ("specularAngle", fl(effect_units::specular_angle_to_kiwi(g.light_angle))),
             ("specularIntensity", fl(g.light_intensity)),
             ("refractionIntensity", fl(g.refraction)),
             ("refractionRadius", fl(g.depth)),
             ("chromaticAberration", fl(g.dispersion)),
+            ("reflectionDistance", fl(g.splay)),
+            ("bevelSize", fl(g.bevel)),
             ("radius", fl(g.frost)),
             ("visible", V::Bool(g.visible)),
         ],
