@@ -420,6 +420,11 @@ fn emit(doc: &Document, id: NodeId, parent: Parent<'_>, depth: usize, o: &mut Ou
             grid_h = n.size.y;
         }
         sz.h = Dim::Fixed(grid_h);
+        // `LazyVerticalGrid` measures at the parent's maximum width, so a hugging grid exports the
+        // width the solver gave it, as `web_sizes` does.
+        if sz.w == Dim::Hug {
+            sz.w = Dim::Fixed(n.size.x);
+        }
     }
     size_mods(doc, n, &sz, parent, &mut mods);
     style_mods(doc, n, &mut mods);
