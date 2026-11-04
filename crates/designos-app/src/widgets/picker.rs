@@ -4357,7 +4357,11 @@ mod tests {
         assert_same_pixels(&h.pixels(b), &tile_b, 1, "node B in Tile shows its quarter turn");
         if let Ok(dir) = std::env::var("DESIGNOS_PICKER_EVIDENCE_DIR") {
             let dir = std::path::Path::new(&dir);
-            for (name, pm) in [("a-crop", &in_crop[0]), ("b-crop", &in_crop[1]), ("a-tile", &h.pixels(a)), ("b-tile", &h.pixels(b))] {
+            // "b-tile-at-0" is what Tile drew for B when the first node's angle of 0 was written over its own.
+            let b_at_zero = h.reference_pixels(b, ImageScaleMode::Tile, designos_doc::ImageParams::default());
+            for (name, pm) in
+                [("a-crop", &in_crop[0]), ("b-crop", &in_crop[1]), ("a-tile", &h.pixels(a)), ("b-tile", &h.pixels(b)), ("b-tile-at-0", &b_at_zero)]
+            {
                 pm.save_png(dir.join(format!("r2-two-node-angles-{name}.png"))).expect("save node render");
             }
         }
