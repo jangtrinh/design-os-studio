@@ -1867,8 +1867,14 @@ fn paint_label(p: &Paint) -> String {
         PaintKind::AngularGradient { .. } => "Angular".into(),
         PaintKind::DiamondGradient { .. } => "Diamond".into(),
         PaintKind::Image { .. } => "Image".into(),
-        PaintKind::Shader(_) => "Shader (not rendered)".into(),
+        PaintKind::Shader(_) => "Shader".into(),
     }
+}
+
+/// Status text a paint row shows on hover: a shader is carried through save and export but never drawn. The row's own
+/// label stays short enough to read in full at the default inspector width, so the status lives here.
+fn paint_hint(p: &Paint) -> Option<&'static str> {
+    matches!(p.kind, PaintKind::Shader(_)).then_some("Shader (not rendered)")
 }
 
 fn paint_preview(p: &Paint) -> Color32 {
@@ -2014,6 +2020,9 @@ pub(super) fn paint_rows(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[Nod
             _ => {
                 let col = if matches!(p.kind, PaintKind::Shader(_)) { theme::TEXT_SECONDARY } else { theme::TEXT };
                 widgets::field_text(ui.painter(), hex_r, 0.0, 4.0, &paint_label(p), font.clone(), col);
+                if let Some(hint) = paint_hint(p) {
+                    ui.interact(hex_r, ui.id().with(("paint-hint", key)), Sense::hover()).on_hover_text(hint);
+                }
             }
         }
         if !bound && matches!(p.kind, PaintKind::Solid(_)) {
@@ -3911,7 +3920,8 @@ mod tests {
         });
         let shader_paint =
             Paint { kind: PaintKind::Shader(designos_doc::ShaderRef { raw: fill_raw.clone() }), opacity: 0.75, visible: true, blend: BlendMode::Screen };
-        assert_eq!(paint_label(&shader_paint), "Shader (not rendered)");
+        assert_eq!(paint_label(&shader_paint), "Shader");
+        assert_eq!(paint_hint(&shader_paint), Some("Shader (not rendered)"));
 
         let mut doc = designos_doc::Document::new("shader-inspector");
         let page = doc.add_page("Page 1");
@@ -3992,5 +4002,101 @@ mod tests {
         let n = app.doc.get(card).unwrap();
         assert!(n.fills.is_empty());
         assert!(n.effects.is_empty());
+    }
+    /// Every text painted in `out`, with the rect it covers.
+    fn painted_texts(out: &egui::FullOutput) -> Vec<(String, Rect)> {
+        fn walk(shape: &egui::Shape, all: &mut Vec<(String, Rect)>) {
+            match shape {
+                egui::Shape::Text(t) => all.push((t.galley.job.text.clone(), Rect::from_min_size(t.pos, t.galley.size()))),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, all)),
+                _ => {}
+            }
+        }
+        let mut all = Vec::new();
+        for clipped in &out.shapes {
+            walk(&clipped.shape, &mut all);
+        }
+        all
+    }
+
+    /// A layer with a solid fill, a shader fill and a shader effect, selected in an app.
+    fn shader_card_app() -> App {
+        let mut doc = designos_doc::Document::new("shader-fill-row");
+        let page = doc.add_page("Page 1");
+        let mut app = App::new(doc);
+        app.page = page;
+        let id = app.doc.alloc_id();
+        let mut card = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 160.0, 90.0));
+        card.name = "ShaderCard".into();
+        let shader = designos_doc::ShaderRef { raw: serde_json::json!({"customEffectId": {"guid": {"sessionID": 10, "localID": 25}}}) };
+        card.fills = vec![Paint { kind: PaintKind::Shader(shader.clone()), opacity: 1.0, visible: true, blend: BlendMode::Normal }];
+        card.effects = vec![Effect::Shader { shader, visible: true }];
+        let card = app.doc.insert(page, card).unwrap();
+        app.selection = vec![card];
+        app
+    }
+
+    /// Runs the inspector at its default width until the layout settles and returns the last frame's output
+    /// together with the rect the first fill's swatch was drawn at.
+    fn shader_card_frame(app: &mut App, ctx: &egui::Context, events: Vec<egui::Event>, time: f64) -> (egui::FullOutput, Rect) {
+        let region = Rect::from_min_size(Pos2::ZERO, Vec2::new(theme::RIGHT_PANEL_WIDTH, 900.0));
+        let raw = egui::RawInput { screen_rect: Some(region), time: Some(time), events, ..Default::default() };
+        let out = ctx.run_ui(raw, |ui| show(app, ui, region));
+        let swatch = ctx.data(|d| d.get_temp::<Rect>(egui::Id::new(("test-rect", "sw:false:0".to_string())))).expect("the first fill swatch is drawn");
+        (out, swatch)
+    }
+
+    fn shader_card_context() -> egui::Context {
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx);
+        crate::theme::install_fonts(&ctx);
+        ctx
+    }
+
+    #[test]
+    fn the_shader_fill_row_label_is_readable_in_full_at_the_default_inspector_width() {
+        let mut app = shader_card_app();
+        let ctx = shader_card_context();
+        shader_card_frame(&mut app, &ctx, vec![], 1.0);
+        let (out, swatch) = shader_card_frame(&mut app, &ctx, vec![], 1.1);
+        let texts = painted_texts(&out);
+
+        // the label sits to the right of the swatch, on the same row
+        let on_row = |r: &Rect| r.left() > swatch.right() && (r.center().y - swatch.center().y).abs() < 8.0;
+        let label = texts.iter().find(|(t, r)| t.starts_with("Shader") && on_row(r)).unwrap_or_else(|| panic!("the fill row paints a shader label: {texts:?}"));
+        assert_eq!(label.0, "Shader", "the fill row label is shown in full, not cut with an ellipsis");
+        // the label may use the room between the swatch and the hairline in front of the opacity, less its own padding
+        let room = PAINT_DIVIDER_X - theme::FIELD_PREFIX_X - theme::FIELD_PREFIX_ICON - 4.0;
+        assert!(label.1.width() <= room, "the label is {} px wide, the row has {room} px", label.1.width());
+    }
+
+    #[test]
+    fn the_effects_row_of_a_shader_says_it_is_not_rendered() {
+        let mut app = shader_card_app();
+        let ctx = shader_card_context();
+        shader_card_frame(&mut app, &ctx, vec![], 1.0);
+        let (out, swatch) = shader_card_frame(&mut app, &ctx, vec![], 1.1);
+        let rows: Vec<_> = painted_texts(&out).into_iter().filter(|(t, _)| t == "Shader (not rendered)").collect();
+        assert_eq!(rows.len(), 1, "one row of the Effects section says the shader is not rendered: {rows:?}");
+        assert!(rows[0].1.top() > swatch.bottom(), "the Effects row sits under the Fill row");
+        // the Effects row is 159 px wide and the label starts 24 px in, after the icon
+        assert!(rows[0].1.width() <= 159.0 - 24.0, "the status text fits its row: {} px", rows[0].1.width());
+    }
+
+    #[test]
+    fn hovering_the_shader_fill_label_shows_that_it_is_not_rendered() {
+        let mut app = shader_card_app();
+        let ctx = shader_card_context();
+        shader_card_frame(&mut app, &ctx, vec![], 1.0);
+        let (_, swatch) = shader_card_frame(&mut app, &ctx, vec![], 1.1);
+        let over_label = Pos2::new(swatch.right() + 30.0, swatch.center().y);
+        let before = painted_texts(&shader_card_frame(&mut app, &ctx, vec![], 1.2).0).iter().filter(|(t, _)| t == "Shader (not rendered)").count();
+        shader_card_frame(&mut app, &ctx, vec![egui::Event::PointerMoved(over_label)], 1.3);
+        let mut tip = 0;
+        for step in 0..8 {
+            let out = shader_card_frame(&mut app, &ctx, vec![], 1.5 + step as f64 * 0.3).0;
+            tip = painted_texts(&out).iter().filter(|(t, _)| t == "Shader (not rendered)").count();
+        }
+        assert_eq!(tip, before + 1, "the hover tooltip adds the status text next to the Effects row's own");
     }
 }
