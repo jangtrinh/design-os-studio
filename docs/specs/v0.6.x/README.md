@@ -31,9 +31,9 @@ Sizes: S is under about a day, M is one to three days, and L is more than three 
 
 ## Owner rulings for this pack (2026-10-22)
 
-- **Library audit (#899):** "Cái gì hữu ích thì plan đi spec driven rồi tạo task" (whatever is useful: plan it spec-driven, then create tasks). Ruling: lint rules through `designos_lint` and a new Library group in Check designs.
+- **Library audit (#899):** "Whatever is useful: plan it spec-driven, then create tasks". Ruling: lint rules through `designos_lint` and a new Library group in Check designs.
 - **Designer-change feed (#900):** on by default.
-- **Scripting (#901):** "nên đưa vào phần mcp cho AI agent connect vào design os studio. Figma không còn trong bức tranh này nữa rồi" (it belongs in the MCP that AI agents use to connect to Studio; Figma is out of the picture). The script API is Studio's own, not the Figma Plugin API. The Figma-compatible plugin host stays a separate track (#254, milestone v0.12).
+- **Scripting (#901):** "It belongs in the MCP that AI agents use to connect to DesignOS Studio. Figma is no longer in the picture". The script API is Studio's own, not the Figma Plugin API. The Figma-compatible plugin host stays a separate track (#254, milestone v0.12).
 - **Approval for scripts:** follow the session mode. Ask mode shows the script for approval, Skip mode runs it, and a read-only script never asks.
 
 ## Dependencies

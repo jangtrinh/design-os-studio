@@ -138,7 +138,7 @@ Targets, ASSUMPTION until measured on the 112,474-node VSF file's scoped copy an
 
 ## 13. Owner rulings that apply
 
-- 2026-10-22: "nên đưa vào phần mcp cho AI agent connect vào design os studio. Figma không còn trong bức tranh này nữa rồi" (it belongs in the MCP that agents use to connect; Figma is out of the picture): rules 1, 5.
+- 2026-10-22: "It belongs in the MCP that AI agents use to connect to DesignOS Studio. Figma is no longer in the picture": rules 1, 5.
 - 2026-10-22 (issue): "Approval follows the session's permission mode: Ask mode shows the script for approval, Skip mode runs it, and a read-only script never asks": rules 3, 7, 11.
 - 2026-10-22: specced now, scheduled later (`docs/specs/v0.6.x/README.md`).
 - 2026-10-19 (#656): skip stays the default; one switch for all tabs; Studio never forges Codex hook trust. The same day's ruling that only Claude gets Approve/Deny is extended here to script requests only (Open question 1).
