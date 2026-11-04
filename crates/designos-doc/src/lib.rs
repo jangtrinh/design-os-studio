@@ -1532,8 +1532,9 @@ impl Document {
             .unwrap_or_default();
         let (mut doc, non_finite_numbers): (Self, usize) = finite_json::from_str_repairing(s)?;
         for (key, bits) in paragraph_fields {
-            let meta = doc.style_meta.entry(key).or_default();
-            meta.text_paragraph_fields = Some(meta.text_paragraph_fields.unwrap_or(0) | bits);
+            if let Some(meta) = text_style_meta_mut(&doc.styles, &mut doc.style_meta, &key) {
+                meta.text_paragraph_fields = Some(meta.text_paragraph_fields.unwrap_or(0) | bits);
+            }
         }
         let mut report = doc.validate_and_repair();
         let now = now_ms();
@@ -1646,6 +1647,22 @@ pub enum Style {
     Text(TextStyle),
     Effect(Vec<Effect>),
     Grid(Vec<LayoutGrid>),
+}
+
+/// The metadata of text style `key`. A table text style stored without any gets its own key as name
+/// and the text property; an orphan reference or a style of another kind gets none.
+pub(crate) fn text_style_meta_mut<'a>(
+    styles: &BTreeMap<String, Style>,
+    style_meta: &'a mut BTreeMap<String, StyleMeta>,
+    key: &str,
+) -> Option<&'a mut StyleMeta> {
+    if !style_meta.contains_key(key) {
+        if !matches!(styles.get(key), Some(Style::Text(_))) || is_orphan_style_in(styles, style_meta, key) {
+            return None;
+        }
+        style_meta.insert(key.to_string(), StyleMeta { name: key.to_string(), property: StyleProperty::Text, ..Default::default() });
+    }
+    style_meta.get_mut(key)
 }
 
 /// Decides whether `key` is an orphan style reference from the style tables alone,

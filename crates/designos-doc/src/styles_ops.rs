@@ -185,9 +185,17 @@ pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, 
     let mut styles = doc.styles.clone();
     styles.insert(key.to_string(), style.clone());
     let mut style_meta = doc.style_meta.clone();
-    let paragraph_fields = text_style_paragraph_fields_after_update(doc.styles.get(key), &style, doc.style_meta.get(key).and_then(|m| m.text_paragraph_fields));
+    // A text style stored without metadata predates field ownership: the layers keep every paragraph value
+    // the style never held, and only a field this edit changes becomes the style's.
+    let recorded = doc.style_meta.get(key).map_or(Some(0), |m| m.text_paragraph_fields);
+    let paragraph_fields = match &style {
+        Style::Text(_) => text_style_paragraph_fields_after_update(doc.styles.get(key), &style, recorded),
+        _ => None,
+    };
     if let Some(fields) = paragraph_fields {
-        style_meta.entry(key.to_string()).or_default().text_paragraph_fields = Some(fields);
+        if let Some(meta) = text_style_meta_mut(&styles, &mut style_meta, key) {
+            meta.text_paragraph_fields = Some(fields);
+        }
     }
     let mut cmds = vec![Command::SetStyles { styles, style_meta }];
     for id in linked_style_nodes(doc, key) {
