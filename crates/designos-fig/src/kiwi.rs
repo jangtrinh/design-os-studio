@@ -770,7 +770,7 @@ impl Schema {
                         }
                     }
                     let v: serde_json::Value = serde_json::from_str(trimmed).ok()?;
-                    return self.def_from_json(d, &v, depth + 1);
+                    return self.def_from_json(d, &v, depth + 1, false);
                 }
             }
         }
@@ -785,13 +785,24 @@ impl Schema {
         self.field_from_json(f, &v, depth + 1)
     }
 
-    /// Reconstructs a `KiwiValue` for field `f` from a `serde_json::Value`.
+    /// Reconstructs a `KiwiValue` for field `f` from a `serde_json::Value`. Lenient: an array element or a message field
+    /// that does not convert is left out and the rest is kept (a passthrough value stays usable with one bad part).
     pub fn field_from_json(&self, f: &Field, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+        self.field_from_json_mode(f, v, depth, false)
+    }
+
+    /// Like [`Self::field_from_json`], but every non-null part of `v` must convert: a value that does not fails the whole
+    /// conversion, so the caller never writes a shortened value. For data that is written back whole.
+    pub fn field_from_json_strict(&self, f: &Field, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+        self.field_from_json_mode(f, v, depth, true)
+    }
+
+    fn field_from_json_mode(&self, f: &Field, v: &serde_json::Value, depth: usize, strict: bool) -> Option<KiwiValue> {
         if depth > MAX_DEPTH {
             return None;
         }
         if !f.is_array {
-            return self.type_from_json(f.ty, v, depth + 1);
+            return self.type_from_json(f.ty, v, depth + 1, strict);
         }
         if f.ty == FieldType::Native(Native::Byte) {
             if let Some(s) = v.as_str() {
@@ -806,15 +817,22 @@ impl Schema {
         let arr = v.as_array()?;
         let mut out = Vec::with_capacity(arr.len());
         for item in arr {
-            out.push(self.type_from_json(f.ty, item, depth + 1)?);
+            match self.type_from_json(f.ty, item, depth + 1, strict) {
+                Some(elem) => out.push(elem),
+                None if strict => return None,
+                None => {}
+            }
+        }
+        if !strict && out.is_empty() && !arr.is_empty() {
+            return None;
         }
         Some(KiwiValue::Array(out))
     }
 
     /// The first key of `v` that is not a field of the definition `f` reads it against, as a path from the field's own
     /// name (`customEffectId.futureFlag`, `componentPropAssignments[1].value.future`), or `None` when every key is named.
-    /// Messages, structs and arrays of them are walked at every depth. [`Self::field_from_json`] builds only the fields
-    /// a definition names, so a key reported here would not survive an encode.
+    /// Messages, structs and arrays of them are walked at every depth. [`Self::field_from_json_strict`] builds only the
+    /// fields a definition names, so a key reported here would not survive an encode.
     pub fn first_unknown_json_key(&self, f: &Field, v: &serde_json::Value) -> Option<String> {
         if v.is_null() {
             return None;
@@ -857,7 +875,7 @@ impl Schema {
         None
     }
 
-    fn type_from_json(&self, ty: FieldType, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+    fn type_from_json(&self, ty: FieldType, v: &serde_json::Value, depth: usize, strict: bool) -> Option<KiwiValue> {
         if depth > MAX_DEPTH {
             return None;
         }
@@ -875,11 +893,11 @@ impl Schema {
             FieldType::Native(Native::String) => v.as_str().map(|s| KiwiValue::String(s.to_string())),
             FieldType::Native(Native::Int64) => v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok())).map(KiwiValue::Int64),
             FieldType::Native(Native::Uint64) => v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok())).map(KiwiValue::Uint64),
-            FieldType::Def(idx) => self.def_from_json(idx, v, depth + 1),
+            FieldType::Def(idx) => self.def_from_json(idx, v, depth + 1, strict),
         }
     }
 
-    fn def_from_json(&self, idx: usize, v: &serde_json::Value, depth: usize) -> Option<KiwiValue> {
+    fn def_from_json(&self, idx: usize, v: &serde_json::Value, depth: usize, strict: bool) -> Option<KiwiValue> {
         if depth > MAX_DEPTH {
             return None;
         }
@@ -909,7 +927,7 @@ impl Schema {
                 let mut fs = Vec::with_capacity(def.fields.len());
                 for sf in &def.fields {
                     let kv = match obj.get(&*sf.name) {
-                        Some(fv) if !fv.is_null() => self.field_from_json(sf, fv, depth + 1)?,
+                        Some(fv) if !fv.is_null() => self.field_from_json_mode(sf, fv, depth + 1, strict)?,
                         _ => self.struct_field_default(&def.name, sf, depth + 1)?,
                     };
                     fs.push((sf.name.clone(), kv));
@@ -929,8 +947,11 @@ impl Schema {
                 for sf in &def.fields {
                     if let Some(fv) = obj.get(&*sf.name) {
                         if !fv.is_null() {
-                            let kv = self.field_from_json(sf, fv, depth + 1)?;
-                            fs.push((sf.name.clone(), kv));
+                            match self.field_from_json_mode(sf, fv, depth + 1, strict) {
+                                Some(kv) => fs.push((sf.name.clone(), kv)),
+                                None if strict => return None,
+                                None => {}
+                            }
                         }
                     }
                 }
@@ -1675,7 +1696,10 @@ mod tests {
             "guid": {"sessionID": "not-a-uint", "localID": 25},
             "assetRef": {"key": "shader_key_abc", "version": "1"}
         });
-        assert!(s.field_from_json(custom_eff_field, &bad_custom_eff, 0).is_none());
+        assert!(s.field_from_json_strict(custom_eff_field, &bad_custom_eff, 0).is_none());
+        // the lenient conversion keeps what converts, as it does for a passthrough value
+        let kept = s.field_from_json(custom_eff_field, &bad_custom_eff, 0).expect("the asset reference converts");
+        assert_eq!(to_json(&kept), serde_json::json!({"assetRef": {"key": "shader_key_abc", "version": "1"}}));
     }
     #[test]
     fn first_unknown_json_key_names_the_path_of_a_key_the_schema_does_not_name() {

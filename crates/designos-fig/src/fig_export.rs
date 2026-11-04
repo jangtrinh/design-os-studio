@@ -146,7 +146,7 @@ fn decode_shader_ref(
         if let Some(path) = schema.first_unknown_json_key(sf, v) {
             return Err(shader_refusal(owner_name, format!("shader key {path:?} is not a field of {def_name} in the .fig schema")));
         }
-        let Some(kv) = schema.field_from_json(sf, v, 0) else {
+        let Some(kv) = schema.field_from_json_strict(sf, v, 0) else {
             return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
         };
         if let (Some(arr), V::Array(items)) = (v.as_array(), &kv) {

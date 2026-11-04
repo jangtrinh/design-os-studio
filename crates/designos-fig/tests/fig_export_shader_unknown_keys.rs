@@ -96,6 +96,26 @@ fn an_unknown_key_in_an_effect_style_names_the_style() {
 }
 
 #[test]
+fn a_nested_value_that_cannot_be_written_fails_the_export_instead_of_being_left_out() {
+    // `assetRef.key` is a string in the schema; the sibling `version` converts, so a lenient conversion would keep it and drop the key
+    let mut id = reference();
+    id["assetRef"]["key"] = json!(5);
+    let m = refusal(&effect_doc("Cut", json!({"customEffectId": id})));
+    assert!(m.contains("\"Cut\"") && m.contains("customEffectId") && m.contains(NEXT_ACTION), "{m}");
+
+    // one element of an array of messages cannot be written: the others are not written without it
+    let raw = json!({
+        "customEffectId": reference(),
+        "componentPropAssignments": [
+            {"defID": {"sessionID": 1, "localID": 2}, "value": {"floatValue": 0.5}},
+            {"defID": {"sessionID": 1, "localID": 3}, "value": {"floatValue": "high"}}
+        ]
+    });
+    let m = refusal(&effect_doc("Short", raw));
+    assert!(m.contains("\"Short\"") && m.contains("componentPropAssignments") && m.contains(NEXT_ACTION), "{m}");
+}
+
+#[test]
 fn a_shader_whose_every_key_the_schema_names_exports() {
     let raw = json!({
         "customEffectId": reference(),
