@@ -1,3 +1,4 @@
+# Note: the first attempt at mutant 2 (an `#[allow]` on an expression) did not compile; its summary lines were replaced by the rerun with the valid patch shown below.
 # Mutants, each applied alone on the final commit and reverted afterwards (patches below). Null control first.
 
 == null control

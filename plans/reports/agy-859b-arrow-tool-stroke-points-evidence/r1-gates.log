@@ -164,7 +164,11 @@ test vecops::tests::two_deferred_text_commands_both_convert_in_order ... FAILED
 test vecops::tests::two_deferred_text_commands_both_convert_in_order ... ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4338 filtered out; finished in 1.47s
 
-## clippy: warnings by file (all other than stroke.rs are the ones main has)
-   2     --> crates/designos-app/src/agent_permissions.rs
-   1     --> crates/designos-app/src/shell/tests/inspector_var_binds.rs
-   1    --> crates/designos-app/src/canvas/tools.rs
+## clippy: warnings by file
+   2  crates/designos-app/src/agent_permissions.rs                     (main has them)
+   1  crates/designos-app/src/shell/tests/inspector_var_binds.rs:1182  (main has it)
+   1  crates/designos-app/src/canvas/tools.rs:260                      assertions_on_constants on `assert!(ARROW_TOOL_ENABLED)`
+The last one is NOT main's: main has `ARROW_TOOL_ENABLED = false` and no such assert, so the Arrow tool change introduced it.
+canvas/tools.rs is outside the files of this round, so it is left as is. One-line fix for whoever owns it:
+`const { assert!(ARROW_TOOL_ENABLED) }` or drop the assert (the shape group test already shows the tool).
+A `type_complexity` warning at panels/stroke.rs (the arrow_options annotation) was removed in this round.
