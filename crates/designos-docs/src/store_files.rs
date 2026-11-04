@@ -4,7 +4,7 @@
 use crate::error::{DocsError, Result};
 use crate::hash::ContentHash;
 use crate::manifest::Manifest;
-use crate::store::{read_limited, DirLock, DocsStore, Expect};
+use crate::store::{DirLock, DocsStore, Expect};
 use std::path::Path;
 
 /// How often a manifest edit starts again from a fresh read before it gives up.
@@ -37,7 +37,7 @@ impl DocsStore {
     pub fn move_page_out(&self, rel: &str, dest: &Path, expect: ContentHash) -> Result<()> {
         let path = self.checked_page_path(rel)?;
         let _lock = self.lock()?;
-        check_hash(&path, rel, expect)?;
+        check_hash(self, &path, rel, expect)?;
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent).map_err(|e| DocsError::io(parent.display().to_string(), e))?;
         }
@@ -48,7 +48,7 @@ impl DocsStore {
     pub fn remove_page(&self, rel: &str, expect: ContentHash) -> Result<()> {
         let path = self.checked_page_path(rel)?;
         let _lock = self.lock()?;
-        check_hash(&path, rel, expect)?;
+        check_hash(self, &path, rel, expect)?;
         std::fs::remove_file(&path).map_err(|e| DocsError::io(rel, e))
     }
 
@@ -59,7 +59,7 @@ impl DocsStore {
         let src = self.checked_page_path(from)?;
         let dst = self.checked_page_path(to)?;
         let _lock = self.lock()?;
-        check_hash(&src, from, expect)?;
+        check_hash(self, &src, from, expect)?;
         if let Some(parent) = dst.parent() {
             std::fs::create_dir_all(parent).map_err(|e| DocsError::io(parent.display().to_string(), e))?;
         }
@@ -93,8 +93,8 @@ impl DocsStore {
     }
 }
 
-fn check_hash(path: &Path, rel: &str, expect: ContentHash) -> Result<()> {
-    let found = match read_limited(path, rel) {
+fn check_hash(store: &DocsStore, path: &Path, rel: &str, expect: ContentHash) -> Result<()> {
+    let found = match store.read_confined(path, rel) {
         Ok(bytes) => Some(ContentHash::of(&bytes)),
         Err(DocsError::NotFound { .. }) => None,
         Err(e) => return Err(e),

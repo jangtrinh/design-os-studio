@@ -148,7 +148,7 @@ impl DocsStore {
     /// A save by rename (Studio's own, or an editor's) changes the inode under the name while the path stays inside the
     /// folder. That is a change, not an escape: the read starts over, up to `READ_RERUNS` times, and then fails with
     /// `ChangedDuringRead`, which is worth retrying. `OutsideDocs` is only for a path that really leads out.
-    fn read_confined(&self, path: &Path, shown: &str) -> Result<Vec<u8>> {
+    pub(crate) fn read_confined(&self, path: &Path, shown: &str) -> Result<Vec<u8>> {
         for _ in 0..=READ_RERUNS {
             let real = self.confine(path, shown)?;
             #[cfg(test)]
