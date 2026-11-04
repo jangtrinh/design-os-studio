@@ -7,7 +7,9 @@ mod adjusted_region;
 pub use adjusted_region::unadjusted_fill_fallbacks;
 #[cfg(test)]
 pub(crate) use adjusted_region::TEST_MAX_PIXELS;
-pub(crate) use adjusted_region::{adjusted_fill_region, note_unadjusted_fallback, DeviceRegion, FillSource};
+pub(crate) use adjusted_region::{
+    adjusted_fill_region, note_unadjusted_fallback, sampled_fill_region, sampled_fill_region_unadjusted_fallback, DeviceRegion, FillSource,
+};
 
 mod crop_frame;
 pub use crop_frame::{crop_paint_for_node, rotate_crop_transform, set_image_scale_mode, IDENTITY_CROP_TRANSFORM};

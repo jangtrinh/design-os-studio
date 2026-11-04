@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{render_page, Viewport};
-use designos_doc::{BlendMode, Document, Node, Rect};
+use designos_doc::{BlendMode, Document, Node, Rect, StrokeAlign};
 
 fn flat_png(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
     let mut pm = sk::Pixmap::new(w, h).expect("pixmap");
@@ -21,14 +21,14 @@ struct Work {
     window: sk::Pixmap,
 }
 
-fn render_window(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset: Vec2) -> Work {
+fn render_window_with_adjust(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset: Vec2, adjust: ImageAdjust) -> Work {
     let mut doc = Document::new("t");
     let page = doc.add_page("p");
     doc.get_mut(page).unwrap().kind = designos_doc::NodeKind::Page { background: designos_doc::Color::TRANSPARENT };
     doc.images.insert("photo".into(), flat_png(4000, 3000, [120, 90, 60, 255]));
     let id = doc.alloc_id();
     let mut n = Node::rectangle(id, Rect::new(0.0, 0.0, node.x, node.y));
-    n.fills = vec![image_paint("photo", mode, ImageParams { adjust: ImageAdjust { exposure: 1.0, ..Default::default() }, ..params })];
+    n.fills = vec![image_paint("photo", mode, ImageParams { adjust, ..params })];
     doc.insert(page, n).expect("insert");
     // decode the picture first: only the work of the fill itself is counted
     let mut warm = sk::Pixmap::new(1, 1).expect("warm-up");
@@ -40,6 +40,10 @@ fn render_window(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset: 
     LARGEST_FILL_ALLOCATION.with(|n| n.set(0));
     render_page(&doc, page, &vp, &mut window);
     Work { adjusted_pixels: ADJUSTED_PIXELS.with(|n| n.get()), largest_allocation: LARGEST_FILL_ALLOCATION.with(|n| n.get()), window }
+}
+
+fn render_window(mode: ImageScaleMode, params: ImageParams, node: Vec2, offset: Vec2) -> Work {
+    render_window_with_adjust(mode, params, node, offset, ImageAdjust { exposure: 1.0, ..Default::default() })
 }
 
 fn assert_bounded(work: &Work, what: &str) {
@@ -73,6 +77,65 @@ fn adjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_tr
     assert_eq!(work.window.pixel(32, 10).expect("pixel").alpha(), 0, "the letterbox above the picture is transparent");
     let inside = work.window.pixel(32, 50).expect("pixel");
     assert!(brightened(inside), "the picture below the edge is brightened: {inside:?}");
+}
+
+#[test]
+fn unadjusted_fit_work_is_bounded_by_the_visible_region_and_the_letterbox_stays_transparent() {
+    // The picture is 4000x3000, but this tile sees only 64x64 pixels of a 4000x4000 Fit node.
+    let work =
+        render_window_with_adjust(ImageScaleMode::Fit, ImageParams::default(), Vec2::new(4000.0, 4000.0), Vec2::new(1800.0, 470.0), ImageAdjust::default());
+    let window = 64 * 64;
+    assert!(
+        work.largest_allocation <= window,
+        "unadjusted Fit allocated {} pixels for a tile containing only {window} visible pixels",
+        work.largest_allocation
+    );
+    assert_eq!(work.window.pixel(32, 10).expect("pixel").alpha(), 0, "the letterbox above the picture is transparent");
+    assert!(work.window.pixel(32, 50).expect("pixel").alpha() > 0, "the visible picture is drawn");
+}
+
+#[test]
+fn unadjusted_turned_crop_work_is_bounded_by_the_visible_region_and_outside_the_picture_stays_transparent() {
+    let size = Vec2::new(4000.0, 3000.0);
+    let turned = rotate_crop_transform(IDENTITY_CROP_TRANSFORM, size, true).expect("turns");
+    let work = render_window_with_adjust(
+        ImageScaleMode::Crop,
+        ImageParams { transform: Some(turned), ..Default::default() },
+        size,
+        Vec2::new(470.0, 1400.0),
+        ImageAdjust::default(),
+    );
+    let window = 64 * 64;
+    assert!(
+        work.largest_allocation <= window,
+        "unadjusted Crop allocated {} pixels for a tile containing only {window} visible pixels",
+        work.largest_allocation
+    );
+    assert_eq!(work.window.pixel(10, 32).expect("pixel").alpha(), 0, "outside the turned picture is transparent");
+    assert!(work.window.pixel(50, 32).expect("pixel").alpha() > 0, "the visible picture is drawn");
+}
+
+#[test]
+fn fit_image_strokes_keep_the_letterbox_transparent_through_the_stroke_margin() {
+    let mut doc = Document::new("t");
+    let page = doc.add_page("p");
+    doc.get_mut(page).unwrap().kind = designos_doc::NodeKind::Page { background: designos_doc::Color::TRANSPARENT };
+    doc.images.insert("flat".into(), flat_png(8, 8, [180, 70, 40, 255]));
+    let id = doc.alloc_id();
+    let mut node = Node::rectangle(id, Rect::new(4.0, 4.0, 24.0, 8.0));
+    node.fills.clear();
+    node.stroke.paints = vec![image_paint("flat", ImageScaleMode::Fit, ImageParams::default())];
+    node.stroke.weight = 4.0;
+    node.stroke.align = StrokeAlign::Center;
+    doc.insert(page, node).expect("insert");
+
+    let mut rendered = sk::Pixmap::new(32, 16).expect("target");
+    render_page(&doc, page, &Viewport::default(), &mut rendered);
+    // The Fit picture occupies only the centre 8x8 of the 24x8 node. The
+    // centered image stroke reaches above the node, but its samples remain in
+    // the Fit letterbox and must not repeat the image edge colour.
+    assert_eq!(rendered.pixel(16, 2).expect("pixel").alpha(), 0, "the stroke margin above the Fit letterbox stays transparent");
+    assert_eq!(rendered.pixel(2, 8).expect("pixel").alpha(), 0, "the stroke margin left of the node stays transparent");
 }
 
 #[test]
