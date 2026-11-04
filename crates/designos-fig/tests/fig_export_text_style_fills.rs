@@ -158,7 +158,7 @@ fn text_style_fills_by_name(doc: &Document) -> Vec<(String, Vec<Paint>)> {
 }
 
 /// Set `DESIGNOS_FIG_ROUND_TRIP_PATH` to a copy of a large `.fig` to check that an import, an export and an import keep the
-/// node count and the number of fills of every text style. Skipped without the variable.
+/// node count and the fills of every text style. Skipped without the variable.
 #[test]
 fn a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested() {
     let Ok(path) = std::env::var("DESIGNOS_FIG_ROUND_TRIP_PATH") else { return };
@@ -188,4 +188,5 @@ fn a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_w
     assert_eq!(second.nodes.len(), first.nodes.len(), "the node count is kept");
     let counts = |all: &[(String, Vec<Paint>)]| all.iter().map(|(n, f)| (n.clone(), f.len())).collect::<Vec<_>>();
     assert_eq!(counts(&after), counts(&before), "every text style keeps its number of fills");
+    assert_eq!(after, before, "every text style keeps its fills");
 }
