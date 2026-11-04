@@ -626,6 +626,7 @@ fn dont_save_while_the_library_file_is_still_unwritable_drops_the_edit_too() {
     wait(&mut f.s, 3.0);
     assert!(f.untouched(), "the refused edit is not written once the disk is back");
     assert!(!f.s.app().has_unsaved_edits());
+    assert!(!f.s.app().hist.can_redo(), "and it is not one redo away either");
 }
 
 #[cfg(unix)]

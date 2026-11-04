@@ -70,8 +70,8 @@ fn saved_library_document(lib: &Library, lf: &LibFile) -> Result<(Document, u64,
 }
 
 /// Walks `doc` back through `hist` to the point of its last save. True when it is there: the history is clean and
-/// the document hashes as the file did when it was last written or read (`saved_hash`). When it cannot get there,
-/// the steps that were undone are redone, so nothing is lost by trying.
+/// the document hashes as the file did when it was last written or read (`saved_hash`), and the steps that were
+/// undone cannot be redone. When it cannot get there, the steps that were undone are redone, so nothing is lost by trying.
 fn rewind_to_saved_state(doc: &mut Document, hist: &mut designos_doc::History, saved_hash: u64) -> bool {
     let mut undone = 0;
     while !hist.is_clean() {
@@ -81,6 +81,7 @@ fn rewind_to_saved_state(doc: &mut Document, hist: &mut designos_doc::History, s
         undone += 1;
     }
     if hist.is_clean() && doc_hash(doc) == saved_hash {
+        hist.restore_redo(Vec::new());
         return true;
     }
     for _ in 0..undone {
