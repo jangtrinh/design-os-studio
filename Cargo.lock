@@ -1126,6 +1126,7 @@ name = "designos-library"
 version = "0.7.7"
 dependencies = [
  "designos-doc",
+ "designos-docs",
  "designos-fig",
  "designos-fonts",
  "designos-svg",
