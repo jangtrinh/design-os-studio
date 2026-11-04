@@ -389,6 +389,7 @@ fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Op
 
 /// Shared-or-mixed values the inspector reads across the whole selection each frame.
 #[derive(Clone)]
+#[cfg_attr(test, derive(Debug))]
 struct MixedValueSummary {
     x: Option<f32>,
     y: Option<f32>,
@@ -458,22 +459,69 @@ fn mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
     })
 }
 
-/// The scan `selection_ui` runs for position, rotation, opacity, corners, and dimensions.
+/// Running answer to "do all layers seen so far share one value?" for one inspector field. A value is shared
+/// when it equals the first one seen; a field no layer was read for has no value.
+#[derive(Clone, Copy)]
+enum Shared<T> {
+    Empty,
+    Same(T),
+    Mixed,
+}
+
+impl<T: PartialEq + Copy> Shared<T> {
+    fn push(&mut self, value: T) {
+        *self = match *self {
+            Self::Empty => Self::Same(value),
+            Self::Same(first) if first == value => Self::Same(first),
+            _ => Self::Mixed,
+        };
+    }
+
+    fn value(self) -> Option<T> {
+        match self {
+            Self::Same(value) => Some(value),
+            Self::Empty | Self::Mixed => None,
+        }
+    }
+}
+
+/// The scan `selection_ui` runs for position, rotation, opacity, corners, and dimensions: one pass over the
+/// selection with one lookup per layer, because a miss runs on every frame the document changed.
 fn compute_mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+    let (mut x, mut y, mut rotation_deg, mut opacity_pct, mut width, mut height) =
+        (Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty, Shared::Empty);
+    let mut radius: Shared<Option<f32>> = Shared::Empty;
     let mut corner_nodes = Vec::new();
-    corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_corners)));
     let mut four_corner_nodes = Vec::new();
-    four_corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_four_corners)));
-    let corners_differ = four_corner_nodes.iter().any(|id| doc.get(*id).is_some_and(node_corners_differ));
+    let mut corners_differ = false;
+    let mut lockable = false;
+    for &id in sel {
+        let Some(n) = doc.get(id) else { continue };
+        x.push(n.transform.tx);
+        y.push(n.transform.ty);
+        rotation_deg.push((-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0);
+        opacity_pct.push((n.opacity * 100.0).round());
+        width.push(n.size.x);
+        height.push(inspector_height(n));
+        if node_has_corners(n) {
+            corner_nodes.push(id);
+            radius.push(uniform_corner_radius(n));
+        }
+        if node_has_four_corners(n) {
+            four_corner_nodes.push(id);
+            corners_differ |= node_corners_differ(n);
+        }
+        lockable |= !matches!(n.kind, NodeKind::Line);
+    }
     MixedValueSummary {
-        x: value_common(doc, sel, |n| n.transform.tx),
-        y: value_common(doc, sel, |n| n.transform.ty),
-        rotation_deg: value_common(doc, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0),
-        opacity_pct: value_common(doc, sel, |n| (n.opacity * 100.0).round()),
-        width: value_common(doc, sel, |n| n.size.x),
-        height: value_common(doc, sel, inspector_height),
-        uniform_radius: common_corners(doc, &corner_nodes, uniform_corner_radius).flatten(),
-        lockable: sel.iter().any(|id| doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Line))),
+        x: x.value(),
+        y: y.value(),
+        rotation_deg: rotation_deg.value(),
+        opacity_pct: opacity_pct.value(),
+        width: width.value(),
+        height: height.value(),
+        uniform_radius: radius.value().flatten(),
+        lockable,
         corner_nodes,
         four_corner_nodes,
         corners_differ,
@@ -4300,50 +4348,60 @@ mod tests {
         }
     }
 
-    /// Prints one inspector frame of the mixed-value summary. Ignored in the default suite:
-    /// 100_000 rectangles is a timing probe, run with `--release --ignored --nocapture`.
+    /// Prints what one inspector frame of the mixed-value summary costs when the document changed since the
+    /// last frame (a miss) and when it did not (a hit), for 10_000 and 100_000 rectangles. Ignored in the default
+    /// suite because it is a timing run. The app test binary only builds with debug assertions, so a release-like
+    /// run turns them on for the app and egui crates:
+    ///
+    /// ```text
+    /// cargo test -p designos-app --bin designos --locked --release \
+    ///   --config 'profile.release.package.designos-app.debug-assertions=true' \
+    ///   --config 'profile.release.package.egui.debug-assertions=true' \
+    ///   -- --ignored --nocapture --exact panels::properties::tests::mixed_value_summary_frame_time
+    /// ```
     #[test]
     #[ignore]
     fn mixed_value_summary_frame_time() {
-        fn build(n: usize) -> App {
+        fn build(n: usize, mixed: bool) -> (Document, Vec<NodeId>) {
             let mut doc = Document::new("mixed-time");
             let page = doc.add_page("Page 1");
-            let mut app = App::new(doc);
-            app.page = page;
             let mut ids = Vec::with_capacity(n);
             for i in 0..n {
-                let id = app.doc.alloc_id();
+                let id = doc.alloc_id();
                 let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
-                if i + 1 == n {
+                if mixed && i + 1 == n {
                     node.opacity = 0.75;
                     node.corner_radii = [8.0; 4];
                 } else {
                     node.opacity = 0.5;
                     node.corner_radii = [6.0; 4];
                 }
-                ids.push(app.doc.insert(page, node).unwrap());
+                ids.push(doc.insert(page, node).unwrap());
             }
-            app.selection = ids;
-            app
+            (doc, ids)
         }
-        fn frame(app: &App, sel: &[NodeId]) -> (Option<f32>, Option<f32>) {
-            let summary = std::hint::black_box(mixed_value_summary(&app.doc, sel));
-            (summary.opacity_pct, summary.uniform_radius)
-        }
-        for n in [10_000usize, 100_000] {
-            let app = build(n);
-            let sel = app.selection.clone();
-            let _ = frame(&app, &sel);
-            let reps = 5u32;
-            let start = std::time::Instant::now();
-            let mut last = (None, None);
-            for _ in 0..reps {
-                last = frame(&app, &sel);
+        let reps = 5u32;
+        for mixed in [true, false] {
+            for n in [10_000usize, 100_000] {
+                let (mut doc, ids) = build(n, mixed);
+                let _ = mixed_value_summary(&doc, &ids);
+                let start = std::time::Instant::now();
+                let mut last = None;
+                for _ in 0..reps {
+                    doc.bump_mutation_epoch();
+                    last = Some(std::hint::black_box(mixed_value_summary(&doc, &ids)));
+                }
+                let miss = start.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
+                let start = std::time::Instant::now();
+                for _ in 0..reps {
+                    last = Some(std::hint::black_box(mixed_value_summary(&doc, &ids)));
+                }
+                let hit = start.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
+                let last = last.expect("at least one frame ran");
+                assert_eq!(last.opacity_pct.is_none(), mixed, "opacity at {n} is mixed only when one layer differs");
+                assert_eq!(last.uniform_radius.is_none(), mixed, "radius at {n} is mixed only when one layer differs");
+                println!("mixed-summary mixed={mixed} n={n}: miss {miss:.3} ms, hit {hit:.3} ms");
             }
-            let ms = start.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
-            assert!(last.0.is_none(), "opacity at {n} must be mixed");
-            assert!(last.1.is_none(), "radius at {n} must be mixed");
-            println!("mixed-summary {n}: {ms:.3} ms/frame");
         }
     }
 
@@ -4390,5 +4448,82 @@ mod tests {
         assert_eq!(mixed_value_summary(&first, &[id]).opacity_pct, Some(30.0));
         assert_eq!(mixed_value_summary(&second, &[id]).opacity_pct, Some(90.0), "the second copy must not read the first copy's summary");
         assert_eq!(mixed_value_summary(&first, &[id]).opacity_pct, Some(30.0), "switching back reads the first copy again");
+    }
+
+    /// The scan the summary replaced: one pass per field, each reading every selected layer again.
+    fn per_field_mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+        let mut corner_nodes = Vec::new();
+        corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_corners)));
+        let mut four_corner_nodes = Vec::new();
+        four_corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_four_corners)));
+        let corners_differ = four_corner_nodes.iter().any(|id| doc.get(*id).is_some_and(node_corners_differ));
+        MixedValueSummary {
+            x: value_common(doc, sel, |n| n.transform.tx),
+            y: value_common(doc, sel, |n| n.transform.ty),
+            rotation_deg: value_common(doc, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0),
+            opacity_pct: value_common(doc, sel, |n| (n.opacity * 100.0).round()),
+            width: value_common(doc, sel, |n| n.size.x),
+            height: value_common(doc, sel, inspector_height),
+            uniform_radius: common_corners(doc, &corner_nodes, uniform_corner_radius).flatten(),
+            lockable: sel.iter().any(|id| doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Line))),
+            corner_nodes,
+            four_corner_nodes,
+            corners_differ,
+        }
+    }
+
+    /// One pass over the selection must show exactly what the per-field scans showed: shared or mixed values,
+    /// the layers that have corners, a missing id, a repeated id and the empty selection.
+    #[test]
+    fn mixed_value_summary_matches_the_per_field_scans() {
+        use designos_doc::{Affine, FrameProps};
+        let mut doc = Document::new("single-pass");
+        let page = doc.add_page("Page 1");
+        let mut add = |kind: NodeKind, edit: &dyn Fn(&mut Node)| {
+            let id = doc.alloc_id();
+            let mut node = Node::new(id, kind);
+            node.size = designos_doc::Vec2::new(40.0, 40.0);
+            node.corner_radii = [6.0; 4];
+            node.opacity = 0.5;
+            edit(&mut node);
+            doc.insert(page, node).unwrap()
+        };
+        let rect = add(NodeKind::Rectangle, &|_| {});
+        let same = add(NodeKind::Rectangle, &|_| {});
+        let moved = add(NodeKind::Rectangle, &|n| n.transform = Affine::translate(12.0, 7.0));
+        let wide = add(NodeKind::Rectangle, &|n| n.size = designos_doc::Vec2::new(90.0, 40.0));
+        let faint = add(NodeKind::Rectangle, &|n| n.opacity = 0.25);
+        let turned = add(NodeKind::Rectangle, &|n| n.transform = Affine { tx: 5.0, ty: 5.0, ..Affine::rotate(0.5) });
+        let corners = add(NodeKind::Rectangle, &|n| n.corner_radii = [1.0, 2.0, 3.0, 4.0]);
+        let frame = add(NodeKind::Frame(FrameProps::default()), &|_| {});
+        let polygon = add(NodeKind::Polygon { count: 5 }, &|_| {});
+        let star = add(NodeKind::Star { count: 5, inner_ratio: 0.5 }, &|n| n.corner_radii = [9.0; 4]);
+        let line = add(NodeKind::Line, &|n| n.size = designos_doc::Vec2::new(40.0, 0.0));
+        let nan_wide = add(NodeKind::Rectangle, &|n| n.size = designos_doc::Vec2::new(f32::NAN, 40.0));
+        let selections: Vec<Vec<NodeId>> = vec![
+            vec![],
+            vec![rect],
+            vec![line],
+            vec![nan_wide],
+            vec![nan_wide, nan_wide],
+            vec![rect, same],
+            vec![rect, same, moved],
+            vec![rect, wide],
+            vec![rect, faint],
+            vec![rect, turned],
+            vec![rect, corners],
+            vec![corners, rect],
+            vec![rect, frame, polygon],
+            vec![rect, polygon, star, line],
+            vec![line, rect, star],
+            vec![rect, NodeId(u64::MAX), same],
+            vec![NodeId(u64::MAX)],
+            vec![rect, rect, same, rect],
+        ];
+        for sel in &selections {
+            let single = compute_mixed_value_summary(&doc, sel);
+            let per_field = per_field_mixed_value_summary(&doc, sel);
+            assert_eq!(format!("{single:?}"), format!("{per_field:?}"), "selection {sel:?}");
+        }
     }
 }
