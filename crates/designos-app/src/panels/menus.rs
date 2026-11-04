@@ -503,8 +503,8 @@ fn main_nodes(app: &App) -> Vec<Node> {
         leaf("Save", "Ctrl+S", Action::Save).off(project),
         leaf("Save as…", "Ctrl+Shift+S", Action::SaveAs).off(project),
         leaf("Save .fig copy", "", Action::ExportFig).off(project),
-        leaf("Save to library…", "", Action::SaveToLibrary).off(app.lib.is_none() || app.lib_file.is_some()).sep(),
-        leaf("Show version history", "", Action::ToggleVersionHistory).on(app.history.open),
+        leaf("Save to library…", "", Action::SaveToLibrary).off(project || app.lib.is_none() || app.lib_file.is_some()).sep(),
+        leaf("Show version history", "", Action::ToggleVersionHistory).on(app.history.open).off(project),
         leaf("Save to version history…", "Ctrl+Alt+S", Action::SaveVersion).off(project || !app.has_history()).sep(),
         leaf("Export selection as PNG…", "", Action::Export).off(project || !has_sel),
     ];
@@ -708,8 +708,8 @@ fn file_items(app: &App) -> Vec<(MenuItem, Option<Action>)> {
         (MenuItem::new("Save").shortcut("Ctrl+S").disabled(project), Some(Action::Save)),
         (MenuItem::new("Save as…").shortcut("Ctrl+Shift+S").disabled(project), Some(Action::SaveAs)),
         (MenuItem::new("Save .fig copy").disabled(project), Some(Action::ExportFig)),
-        (MenuItem::new("Save to library…").disabled(app.lib.is_none() || app.lib_file.is_some()).sep(), Some(Action::SaveToLibrary)),
-        (MenuItem::new("Show version history").checked(app.history.open), Some(Action::ToggleVersionHistory)),
+        (MenuItem::new("Save to library…").disabled(project || app.lib.is_none() || app.lib_file.is_some()).sep(), Some(Action::SaveToLibrary)),
+        (MenuItem::new("Show version history").checked(app.history.open).disabled(project), Some(Action::ToggleVersionHistory)),
         (MenuItem::new("Save to version history…").shortcut("Ctrl+Alt+S").disabled(project || !app.has_history()).sep(), Some(Action::SaveVersion)),
         (MenuItem::new("Undo").shortcut("Ctrl+Z").disabled(!app.hist.can_undo()), Some(Action::Undo)),
         (MenuItem::new("Redo").shortcut("Ctrl+Shift+Z").disabled(!app.hist.can_redo()).sep(), Some(Action::Redo)),
@@ -1463,7 +1463,8 @@ mod tests {
         nodes.iter().find_map(|n| if n.item.label == label { Some(n.item.disabled) } else { node_disabled(&n.kids, label) })
     }
 
-    const DOCUMENT_FILE_COMMANDS: [&str; 5] = ["Save", "Save as…", "Save .fig copy", "Save to version history…", "Export selection as PNG…"];
+    const DOCUMENT_FILE_COMMANDS: [&str; 7] =
+        ["Save", "Save as…", "Save .fig copy", "Save to library…", "Show version history", "Save to version history…", "Export selection as PNG…"];
 
     #[test]
     fn save_and_export_are_greyed_on_a_project_tab_and_enabled_on_a_design_tab() {
@@ -1474,11 +1475,13 @@ mod tests {
         doc.insert(page, DocNode::rectangle(rect, Rect::new(0.0, 0.0, 50.0, 50.0))).unwrap();
         let mut app = App::new(doc);
         app.selection = vec![rect];
+        let root = std::env::temp_dir().join(format!("designos-menus-project-tab-{}", std::process::id()));
+        app.lib = Some(designos_library::Library::open(&root).unwrap());
         let mut tabs = std::mem::take(&mut app.tabs);
         tabs.sync_from_app(&app);
         app.tabs = tabs;
         // A design tab: the commands that can run are enabled (version history needs a saved file, so it is not asserted here).
-        for label in ["Save", "Save as…", "Save .fig copy", "Export selection as PNG…"] {
+        for label in ["Save", "Save as…", "Save .fig copy", "Save to library…", "Show version history", "Export selection as PNG…"] {
             assert_eq!(node_disabled(&main_nodes(&app), label), Some(false), "{label} on a design tab (logo menu)");
             let items = file_items(&app);
             assert_eq!(items.iter().find(|(m, _)| m.label == label).map(|(m, _)| m.disabled), Some(false), "{label} on a design tab (file items)");
@@ -1490,7 +1493,8 @@ mod tests {
             assert_eq!(node_disabled(&main_nodes(&app), label), Some(true), "{label} on a Project tab (logo menu)");
             let items = file_items(&app);
             let found = items.iter().find(|(m, _)| m.label == label).map(|(m, _)| m.disabled);
-            assert!(found != Some(false), "{label} on a Project tab (file items): {found:?}");
+            assert_eq!(found, Some(true), "{label} on a Project tab (file items)");
         }
+        std::fs::remove_dir_all(&root).ok();
     }
 }
