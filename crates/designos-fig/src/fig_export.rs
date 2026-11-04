@@ -5,6 +5,7 @@
 //! against [`crate::testkit::figma_like_schema`].
 
 use crate::container::{self, Compression};
+use crate::effect_units;
 use crate::kiwi::KiwiValue as V;
 use crate::rest_import::{grid_child_align_name, utf16_to_byte_offsets, writes_grid_child_align};
 use crate::testkit::{self, en, figma_like_schema, guid, msg, st};
@@ -110,12 +111,103 @@ pub fn path_to_commands_blob(path: &Path) -> Vec<u8> {
     out
 }
 
+fn export_schema() -> &'static crate::kiwi::Schema {
+    static SCHEMA: std::sync::OnceLock<crate::kiwi::Schema> = std::sync::OnceLock::new();
+    SCHEMA.get_or_init(figma_like_schema)
+}
+
+/// What a shader message that cannot be written whole tells the person saving: the layer, what is wrong, what to do.
+fn shader_refusal(owner_name: &str, problem: String) -> FigError {
+    FigError::Format(format!("layer {owner_name:?}: {problem}; save as .designos to keep it, or remove the shader"))
+}
+
+/// Rebuilds the fields of a shader message from its raw JSON, or refuses. The encoder writes only the fields a schema
+/// definition names, so a key it does not name, at any depth, would be dropped by a save that still reports success.
+fn decode_shader_ref(
+    schema: &crate::kiwi::Schema,
+    def_name: &str,
+    owner_name: &str,
+    shader: &ShaderRef,
+    skip: &[&str],
+) -> Result<Vec<(std::sync::Arc<str>, V)>, FigError> {
+    let Some(obj) = shader.raw.as_object() else {
+        return Err(shader_refusal(owner_name, format!("shader payload on {def_name} must be a JSON object")));
+    };
+    let def_idx = schema.find(def_name).ok_or_else(|| FigError::Format(format!("missing {def_name} in schema")))?;
+    let def = &schema.defs[def_idx];
+    let mut out = Vec::new();
+    for (k, v) in obj {
+        if skip.contains(&k.as_str()) || v.is_null() {
+            continue;
+        }
+        let Some(sf) = def.fields.iter().find(|f| &*f.name == k.as_str()) else {
+            return Err(shader_refusal(owner_name, format!("shader key {k:?} is not a field of {def_name} in the .fig schema")));
+        };
+        if let Some(path) = schema.first_unknown_json_key(sf, v) {
+            return Err(shader_refusal(owner_name, format!("shader key {path:?} is not a field of {def_name} in the .fig schema")));
+        }
+        let Some(kv) = schema.field_from_json_strict(sf, v, 0) else {
+            return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
+        };
+        if let (Some(arr), V::Array(items)) = (v.as_array(), &kv) {
+            if arr.len() != items.len() {
+                return Err(shader_refusal(owner_name, format!("invalid shader field {k:?} on {def_name}")));
+            }
+        }
+        out.push((sf.name.clone(), kv));
+    }
+    Ok(out)
+}
+
+fn validate_paint_list(schema: &crate::kiwi::Schema, owner_name: &str, paints: &[Paint]) -> Result<(), FigError> {
+    for p in paints {
+        if let PaintKind::Shader(shader) = &p.kind {
+            decode_shader_ref(schema, "Paint", owner_name, shader, &["type", "opacity", "visible", "blendMode"])?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_effect_list(schema: &crate::kiwi::Schema, owner_name: &str, effects: &[Effect]) -> Result<(), FigError> {
+    for e in effects {
+        if let Effect::Shader { shader, .. } = e {
+            decode_shader_ref(schema, "Effect", owner_name, shader, &["type", "visible"])?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_shader_refs(doc: &Document, schema: &crate::kiwi::Schema) -> Result<(), FigError> {
+    for node in doc.nodes.values() {
+        validate_paint_list(schema, &node.name, &node.fills)?;
+        validate_paint_list(schema, &node.name, &node.stroke.paints)?;
+        if let NodeKind::Text(tp) = &node.kind {
+            validate_paint_list(schema, &node.name, &tp.style.fills)?;
+            for r in &tp.runs {
+                validate_paint_list(schema, &node.name, &r.style.fills)?;
+            }
+        }
+        validate_effect_list(schema, &node.name, &node.effects)?;
+    }
+    for (sid, style) in &doc.styles {
+        let name = doc.style_name(sid);
+        match style {
+            Style::Fill(paints) => validate_paint_list(schema, name, paints)?,
+            Style::Text(ts) => validate_paint_list(schema, name, &ts.fills)?,
+            Style::Effect(effects) => validate_effect_list(schema, name, effects)?,
+            Style::Grid(_) => {}
+        }
+    }
+    Ok(())
+}
+
 /// Serializes `doc` into a `.fig` binary archive (ZIP containing `canvas.fig`,
 /// `meta.json`, and `images/<hash>`).
 pub fn export_fig(doc: &Document) -> Result<Vec<u8>, FigError> {
-    let schema = figma_like_schema();
+    let schema = export_schema();
+    validate_shader_refs(doc, schema)?;
     let root = schema.find("Message").ok_or_else(|| FigError::Format("missing Message in schema".into()))?;
-    let message = build_message(doc, &schema);
+    let message = build_message(doc, schema);
     let schema_bytes = schema.encode();
     let msg_bytes = schema.encode_message(root, &message).map_err(|e| FigError::Format(format!("kiwi encode: {e}")))?;
     let canvas = container::write_container(&schema_bytes, &msg_bytes, Compression::Zstd, 106);
@@ -734,6 +826,13 @@ fn export_styles_on_internal(cx: &mut ExportCtx, internal_guid: (u32, u32), idx:
             }
             Style::Text(ts) => {
                 append_shared_text_style_fields(&mut fields, ts);
+                // The paints of the style are the text colour a layer takes from it; a style without paints writes no field.
+                if !ts.fills.is_empty() {
+                    fields.push((
+                        "fillPaints",
+                        V::Array(ts.fills.iter().enumerate().map(|(i, p)| encode_paint_with_bindings(cx, p, "fills", i, bindings)).collect()),
+                    ));
+                }
                 let var_entries = encode_var_entries_from_bindings(cx, bindings);
                 if !var_entries.is_empty() {
                     fields.push(("variableConsumptionMap", msg(vec![("entries", V::Array(var_entries))])));
@@ -2193,6 +2292,9 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
                 fields.push(("originalImageHeight", V::Uint(h)));
             }
         }
+        PaintKind::Shader(_) => {
+            fields.push(("type", en("CUSTOM")));
+        }
     }
     fields.push(("opacity", fl_one(p.opacity)));
     fields.push(("visible", V::Bool(p.visible)));
@@ -2206,7 +2308,17 @@ fn encode_paint_full(p: &Paint, color_var: Option<V>, opacity_var: Option<V>, st
     if let Some(sv) = stops_var {
         fields.push(("stopsVar", sv));
     }
-    msg(fields)
+    let mut out = msg(fields);
+    if let (PaintKind::Shader(shader), V::Message(ref mut out_fields)) = (&p.kind, &mut out) {
+        if let Ok(extra) = decode_shader_ref(export_schema(), "Paint", "", shader, &["type", "opacity", "visible", "blendMode"]) {
+            for (k, v) in extra {
+                if !out_fields.iter().any(|(existing, _)| *existing == k) {
+                    out_fields.push((k, v));
+                }
+            }
+        }
+    }
+    out
 }
 
 fn encode_effect(e: &Effect, color_var: Option<V>, opacity_var: Option<V>) -> V {
@@ -2220,6 +2332,12 @@ fn encode_effect_with_bindings(cx: &ExportCtx, e: &Effect, idx: usize, bindings:
         Some(alias_var_data(vg))
     };
     encode_effect_full(e, var_data("color"), var_data("opacity"), var_data("radius"), var_data("spread"), var_data("offsetX"), var_data("offsetY"))
+}
+
+/// The stored `noiseSize` vector of a noise or texture size.
+fn noise_size_vec(size: f32, size_y: Option<f32>) -> V {
+    let (x, y) = effect_units::noise_size_to_kiwi(size, size_y);
+    vec2(x, y)
 }
 
 fn encode_effect_full(
@@ -2256,7 +2374,7 @@ fn encode_effect_full(
         Effect::Noise(n) => {
             let mut f = vec![
                 ("type", en("NOISE")),
-                ("noiseSize", vec2(n.size, n.size)),
+                ("noiseSize", noise_size_vec(n.size, n.size_y)),
                 ("density", fl(n.density)),
                 ("opacity", fl_one(n.opacity)),
                 ("blendMode", en(blend_name(n.blend))),
@@ -2281,7 +2399,7 @@ fn encode_effect_full(
         }
         Effect::Texture(t) => vec![
             ("type", en("GRAIN")),
-            ("noiseSize", vec2(t.size, t.size)),
+            ("noiseSize", noise_size_vec(t.size, t.size_y)),
             ("radius", fl(t.radius)),
             ("clipToShape", V::Bool(t.clip_to_shape)),
             ("seed", V::Uint(t.seed)),
@@ -2289,14 +2407,17 @@ fn encode_effect_full(
         ],
         Effect::Glass(g) => vec![
             ("type", en("GLASS")),
-            ("specularAngle", fl(g.light_angle)),
+            ("specularAngle", fl(effect_units::specular_angle_to_kiwi(g.light_angle))),
             ("specularIntensity", fl(g.light_intensity)),
             ("refractionIntensity", fl(g.refraction)),
             ("refractionRadius", fl(g.depth)),
             ("chromaticAberration", fl(g.dispersion)),
+            ("reflectionDistance", fl(g.splay)),
+            ("bevelSize", fl(g.bevel)),
             ("radius", fl(g.frost)),
             ("visible", V::Bool(g.visible)),
         ],
+        Effect::Shader { visible, .. } => vec![("type", en("CUSTOM")), ("visible", V::Bool(*visible))],
     };
     if let Some(cv) = color_var {
         fields.push(("colorVar", cv));
@@ -2316,7 +2437,17 @@ fn encode_effect_full(
     if let Some(yv) = y_var {
         fields.push(("yVar", yv));
     }
-    msg(fields)
+    let mut out = msg(fields);
+    if let (Effect::Shader { shader, .. }, V::Message(ref mut out_fields)) = (e, &mut out) {
+        if let Ok(extra) = decode_shader_ref(export_schema(), "Effect", "", shader, &["type", "visible"]) {
+            for (k, v) in extra {
+                if !out_fields.iter().any(|(existing, _)| *existing == k) {
+                    out_fields.push((k, v));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// A layout guide in Figma's own shape: a square grid is `pattern: GRID`, columns and rows are `pattern: STRIPES` on

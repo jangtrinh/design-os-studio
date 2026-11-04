@@ -1,0 +1,300 @@
+=== STEP 0: GREEN NULL CONTROL ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 2 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+semi_transparent_alpha: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+semi_transparent_alpha: 0.0000% with AA pixels forgiven (0 px)
+exposure_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+exposure_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+contrast_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+contrast_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+contrast_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+contrast_-0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_-0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: 0.0200% with AA pixels forgiven (4 px)
+saturation_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+saturation_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+saturation_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+saturation_-0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+saturation_+0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+crop_after_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+saturation_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+temperature_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+temperature_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+crop_after_fill: 0.0200% with AA pixels forgiven (4 px)
+temperature_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+temperature_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+temperature_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+tint_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+tint_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+back_to_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+tint_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+tint_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+highlights_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+back_to_fill: 0.0200% with AA pixels forgiven (4 px)
+highlights_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+highlights_+0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+highlights_-0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_-0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+highlights_+0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+shadows_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+shadows_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+shadows_+0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+shadows_-0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_-0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: 0.0200% with AA pixels forgiven (4 px)
+shadows_+0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+test adjustment_unit_tests_per_step ... ok
+crop_after_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+crop_after_fill: 0.0200% with AA pixels forgiven (4 px)
+back_to_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+back_to_fill: 0.0200% with AA pixels forgiven (4 px)
+test fill_to_crop_switch_reproduces_the_framing ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 0.17s
+
+
+=== STEP 1: MUTANT (i) — GPU SKIPS SATURATION STEP IN draw.wgsl ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-gpu)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.60s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+semi_transparent_alpha: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+semi_transparent_alpha: 0.0000% with AA pixels forgiven (0 px)
+exposure_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+exposure_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+contrast_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+contrast_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+contrast_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+contrast_-0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_-0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+saturation_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+saturation_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+saturation_+0.5_warm: mismatch 100.0000% (256 px of 256) at tolerance 2, ssim 0.9999
+saturation_+0.5_warm: 100.0000% with AA pixels forgiven (256 px)
+
+thread 'adjustment_unit_tests_per_step' (96319460) panicked at crates/designos-gpu/tests/fidelity.rs:1112:13:
+saturation_+0.5_warm: GPU pixel [200, 120, 60, 255] != expected [205, 118, 44, 255] on channel 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test adjustment_unit_tests_per_step ... FAILED
+
+failures:
+
+failures:
+    adjustment_unit_tests_per_step
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.29s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+
+=== STEP 2: MUTANT (ii) — ALPHA CHANNEL SCALED BY PIPELINE IN image_adjust.rs ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.53s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+
+thread 'adjustment_unit_tests_per_step' (96320872) panicked at crates/designos-gpu/tests/fidelity.rs:1091:5:
+assertion `left == right` failed: semi-transparent alpha must remain 128
+  left: 64
+ right: 128
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test adjustment_unit_tests_per_step ... FAILED
+
+failures:
+
+failures:
+    adjustment_unit_tests_per_step
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+
+=== STEP 3: MUTANT (iii) — FILL-TO-CROP WRITES IDENTITY TRANSFORM IN image_adjust.rs ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-render)
+warning: unused variable: `map`
+   --> crates/designos-render/src/image_adjust.rs:233:9
+    |
+233 |     let map = designos_doc::image_uv_map(size, iw, ih, mode, params)?;
+    |         ^^^ help: if this is intentional, prefix it with an underscore: `_map`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-gpu)
+warning: `designos-render` (lib) generated 1 warning (run `cargo fix --lib -p designos-render` to apply 1 suggestion)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.92s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 1 test
+GPU: Apple M4 Max (Metal)
+fill_before_crop: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+fill_before_crop: 0.0200% with AA pixels forgiven (4 px)
+
+thread 'fill_to_crop_switch_reproduces_the_framing' (96322327) panicked at crates/designos-gpu/tests/fidelity.rs:1151:21:
+expected transform [1.0, 0.0, 0.0, 0.0, 0.5, 0.25], got [1.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test fill_to_crop_switch_reproduces_the_framing ... FAILED
+
+failures:
+
+failures:
+    fill_to_crop_switch_reproduces_the_framing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.12s
+
+error: test failed, to rerun pass `-p designos-gpu --test fidelity`
+
+=== STEP 4: POST-REVERT GREEN VERIFICATION ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.89s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 2 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+semi_transparent_alpha: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+semi_transparent_alpha: 0.0000% with AA pixels forgiven (0 px)
+exposure_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+exposure_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+contrast_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+contrast_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+contrast_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+contrast_-0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_-0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: 0.0200% with AA pixels forgiven (4 px)
+saturation_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+saturation_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+saturation_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+saturation_-0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+crop_after_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+saturation_+0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+saturation_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+temperature_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+crop_after_fill: 0.0200% with AA pixels forgiven (4 px)
+temperature_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+temperature_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+temperature_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+tint_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+tint_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+back_to_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+tint_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+tint_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+highlights_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+back_to_fill: 0.0200% with AA pixels forgiven (4 px)
+highlights_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+highlights_+0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+highlights_-0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_-0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+highlights_+0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+shadows_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+shadows_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+shadows_+0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+shadows_-0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_-0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+shadows_+0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: 0.0200% with AA pixels forgiven (4 px)
+test adjustment_unit_tests_per_step ... ok
+crop_after_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+crop_after_fill: 0.0200% with AA pixels forgiven (4 px)
+back_to_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+back_to_fill: 0.0200% with AA pixels forgiven (4 px)
+test fill_to_crop_switch_reproduces_the_framing ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 34 filtered out; finished in 0.22s
+

@@ -1,0 +1,166 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 32.82s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 6 tests
+test panels::stroke::tests::miter_angle_roundtrips ... ok
+test panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu ... FAILED
+test panels::stroke::tests::stroke_panel_dash_cap_visibility_mixed_and_multi_selection_single_undo ... ok
+test panels::stroke::tests::stroke_panel_mixed_open_selection_shows_mixed_and_applies_to_all_in_one_undo_step ... FAILED
+test panels::stroke::tests::stroke_panel_hides_endpoint_controls_for_closed_paths ... ok
+test panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step ... FAILED
+
+failures:
+
+---- panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu stdout ----
+
+thread 'panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu' (92012146) panicked at crates/designos-app/src/panels/stroke.rs:403:61:
+stroke-start-point dropdown rendered for open line
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- panels::stroke::tests::stroke_panel_mixed_open_selection_shows_mixed_and_applies_to_all_in_one_undo_step stdout ----
+
+thread 'panels::stroke::tests::stroke_panel_mixed_open_selection_shows_mixed_and_applies_to_all_in_one_undo_step' (92012145) panicked at crates/designos-app/src/panels/stroke.rs:574:57:
+end point dropdown rendered for open selection
+
+---- panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step stdout ----
+
+thread 'panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step' (92012147) panicked at crates/designos-app/src/panels/stroke.rs:496:61:
+start point dropdown
+
+
+failures:
+    panels::stroke::tests::stroke_panel_mixed_open_selection_shows_mixed_and_applies_to_all_in_one_undo_step
+    panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu
+    panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step
+
+test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 4264 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.99s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 8 tests
+test canvas::tools::tests::shortcuts_map ... ok
+test canvas::tools::tests::pan_overrides_everything ... ok
+test canvas::tools::tests::move_tool_transitions ... ok
+test canvas::tools::tests::drawing_tools_draw_even_over_nodes ... ok
+test canvas::tools::tests::groups_cover_all_default_tools ... ok
+test canvas::tools::tests::arrow_tool_sits_in_shape_group_after_line ... FAILED
+test canvas::tools::tests::shift_l_selects_arrow_tool ... FAILED
+test canvas::tools::tests::asking_for_the_arrow_tool_selects_arrow ... FAILED
+
+failures:
+
+---- canvas::tools::tests::arrow_tool_sits_in_shape_group_after_line stdout ----
+
+thread 'canvas::tools::tests::arrow_tool_sits_in_shape_group_after_line' (92014220) panicked at crates/designos-app/src/canvas/tools.rs:263:9:
+assertion failed: ARROW_TOOL_ENABLED
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- canvas::tools::tests::shift_l_selects_arrow_tool stdout ----
+
+thread 'canvas::tools::tests::shift_l_selects_arrow_tool' (92014226) panicked at crates/designos-app/src/canvas/tools.rs:272:9:
+assertion `left == right` failed
+  left: Some(Line)
+ right: Some(Arrow)
+
+---- canvas::tools::tests::asking_for_the_arrow_tool_selects_arrow stdout ----
+
+thread 'canvas::tools::tests::asking_for_the_arrow_tool_selects_arrow' (92014221) panicked at crates/designos-app/src/canvas/tools.rs:280:9:
+assertion `left == right` failed
+  left: Line
+ right: Arrow
+
+
+failures:
+    canvas::tools::tests::arrow_tool_sits_in_shape_group_after_line
+    canvas::tools::tests::asking_for_the_arrow_tool_selects_arrow
+    canvas::tools::tests::shift_l_selects_arrow_tool
+
+test result: FAILED. 5 passed; 3 failed; 0 ignored; 0 measured; 4262 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.24s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render ... FAILED
+
+failures:
+
+---- canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render stdout ----
+
+thread 'canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render' (92016017) panicked at crates/designos-app/src/canvas/create.rs:376:9:
+assertion `left == right` failed
+  left: Round
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4269 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.19s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 13 tests
+test panels::menus::tests::query_matching_is_word_based ... ok
+test panels::menus::tests::offset_path_is_enabled_for_plain_shapes_only ... ok
+test panels::menus::tests::resize_to_fit_menu_and_paste_to_replace_shortcut_labels_and_disabled_state ... ok
+test panels::menus::tests::edit_paste_is_not_greyed_out_before_anything_was_copied_in_studio ... ok
+test panels::menus::tests::choosing_the_gpu_canvas_drops_the_software_explanation ... ok
+test panels::menus::tests::preferences_says_why_the_gpu_canvas_is_off_for_a_software_renderer ... ok
+test panels::menus::tests::zoom_menu_lists_only_rows_with_a_real_action ... ok
+test panels::menus::tests::palette_and_dropdowns_offer_the_arrow_tool ... FAILED
+test panels::menus::tests::picking_the_arrow_tool_remembers_arrow_for_the_group ... FAILED
+test panels::menus::tests::object_menu_use_as_mask_toggles_selection_and_undoes_in_one_step ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_unmask_128_masks_with_trailing_non_mask ... ok
+test panels::menus::tests::selection_shows_all_mask_and_toggle_mask_129_non_masks_then_nothing_selected ... ok
+test panels::menus::tests::palette_is_394_tall_with_the_40_px_input_row ... ok
+
+failures:
+
+---- panels::menus::tests::palette_and_dropdowns_offer_the_arrow_tool stdout ----
+
+thread 'panels::menus::tests::palette_and_dropdowns_offer_the_arrow_tool' (92018507) panicked at crates/designos-app/src/panels/menus.rs:1227:9:
+Cmd+K must offer the Arrow tool
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- panels::menus::tests::picking_the_arrow_tool_remembers_arrow_for_the_group stdout ----
+
+thread 'panels::menus::tests::picking_the_arrow_tool_remembers_arrow_for_the_group' (92018509) panicked at crates/designos-app/src/panels/menus.rs:1236:9:
+assertion `left == right` failed
+  left: Line
+ right: Arrow
+
+
+failures:
+    panels::menus::tests::palette_and_dropdowns_offer_the_arrow_tool
+    panels::menus::tests::picking_the_arrow_tool_remembers_arrow_for_the_group
+
+test result: FAILED. 11 passed; 2 failed; 0 ignored; 0 measured; 4257 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`

@@ -16,6 +16,7 @@ pub mod diff_image;
 mod effects;
 mod fx;
 mod geom;
+pub mod image_adjust;
 mod index;
 pub mod lint_env;
 mod mask;

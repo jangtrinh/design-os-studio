@@ -1191,6 +1191,7 @@ mod duplicate_order;
 mod edit_menu_parity;
 mod effect_caps;
 mod effect_grid_styles;
+mod effect_popover_rows;
 mod effect_stop_binds;
 mod empty_slot_flows;
 mod export_toast;

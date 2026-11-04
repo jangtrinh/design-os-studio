@@ -2,6 +2,45 @@
 
 All notable changes to `design-os-studio` (**DESIGN:OS Studio**) are documented in this file.
 
+## [0.7.8] - 2026-11-04
+
+A feature release from `main`: arrowheads and the Arrow tool, image crop and rotation, more glass and noise settings, corner and aspect controls in the inspector, and `.fig` round-trip fixes.
+
+### Added
+- **Strokes.**
+  - Arrowhead caps on lines and vectors, drawn live and kept through `.fig` and REST (#859, PR #1591).
+  - Start point and End point rows in the stroke panel, and the Arrow tool (Shift+L) (#859, PR #1592).
+  - A dash cap for dashed strokes (#1478, PR #1543).
+- **Images.** Crop, rotation and tile scale on image fills, kept through `.fig` and REST (#163, PR #1585).
+- **Effects.** Glass splay and bevel, and noise and texture X/Y size, kept through `.fig` and REST (#38, PR #1593).
+- **Inspector.**
+  - Individual corner radius fields and a corner smoothing slider (#1466, PR #1533).
+  - A lock aspect ratio toggle next to W and H (#1468, PR #1540).
+  - Truncate text and max lines in Type settings (#1467, PR #1541).
+  - Properties exposed from nested instances (#1471, PR #1559).
+- **Edit menu.** Select same text properties and font, Paste and match style, and Swap fill and stroke, as in Figma (#1477, PR #1556).
+- **Colour picker.** Arrow keys step the OKLCH and OKLAB values (#1459, PR #1554).
+
+### Fixed
+- **`.fig` round trip.**
+  - Instance stroke and corner overrides keep their baked geometry (#1508, PR #1548).
+  - An instance keeps its own aspect lock (#1542, PR #1547).
+  - A variable's stroke colour scope survives a save and reopen (#1550, PR #1567).
+- **Components.** Nested instance copies follow later changes to the main component's property values; carried from PR #1586 by @NamAIEngineer (#1564, PR #1589).
+- **Vector.**
+  - Resizing an imported vector keeps its stroke weight (#945, PR #1566), also when the stroke mixes alignments or joins (#1575, PR #1588).
+  - Shift keeps the aspect on edge scale handles, with resize cursors (#477, PR #1562).
+- **Variables.** STROKE-scoped colours are offered everywhere a stroke colour is bound (#1499, PR #1549).
+- **Layout.** Column-locked grid children are placed the way Figma does (#1441, PR #1560).
+- **Effects.** A fill-less frame's shadow knockout follows what its children paint (#1277, PR #1569). A shadow's blend mode survives `.pen` and SVG round trips (#1278, PR #1577).
+- **Styles.** Deleting a style keeps the look it had when deleted (#1136, PR #1576).
+- **Export.** CSS and Tailwind grid rows and gaps match the layout solver, variables included (#1431, PR #1553). SwiftUI Fill plus Fixed frames are valid, and absolute children stay out of stack flow (#1454, #1458, PR #1563).
+- **App.** Copy and paste properties shortcuts work in a real window (#1557, PR #1568).
+
+### Known issues
+- Text strokes ignore stroke alignment (#1504). Group bounds count hidden children (#1503).
+- The known issues listed for 0.7.5 still apply. The Windows test suite stays advisory; releases are verified on macOS (#1158).
+
 ## [0.7.7] - 2026-11-02
 
 A fix and feature release from `main`: zoomed-out frames no longer go blank, `.fig` instance overrides survive a save and reopen, and Figma basics from the styles, layout, components and vector work land.

@@ -1,0 +1,7 @@
+
+running 2 tests
+test panels::effects::tests::shader_inspector_rows_render_label_and_toggle_visibility ... ok
+test panels::properties::tests::shader_inspector_rows_render_label_and_toggle_visibility ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4346 filtered out; finished in 0.70s
+

@@ -1,0 +1,12 @@
+
+running 7 tests
+test fill_less_frame_uses_children_on_both ... ok
+test fill_less_clipping_frame_uses_children_on_both ... ok
+test hidden_fill_uses_children_on_both ... ok
+test own_fill_silhouette_matches ... ok
+test shader_paint_has_zero_silhouette_alpha ... ok
+test shader_effect_and_paint_skipped_by_cpu_and_gpu_parity ... ok
+test stroke_only_silhouette_matches ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+

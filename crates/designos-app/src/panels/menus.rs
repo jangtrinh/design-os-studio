@@ -1225,21 +1225,19 @@ mod tests {
     }
 
     #[test]
-    fn palette_and_dropdowns_do_not_offer_the_arrow_tool() {
+    fn palette_and_dropdowns_offer_the_arrow_tool() {
         let app = App::new(designos_doc::Document::new("t"));
-        assert!(commands(&app).iter().all(|c| !matches!(c.act, Action::Tool(Tool::Arrow))), "Cmd+K must not offer the Arrow tool");
-        assert!(palette_entries(&app, "").iter().all(|(_, shortcut)| shortcut != "Shift+L"), "no row advertises Shift+L");
-        for g in 0..GROUPS.len() {
-            assert!(tool_nodes(&app, g).iter().all(|n| n.item.label != "Arrow"), "toolbar group {g} lists Arrow");
-        }
+        assert!(commands(&app).iter().any(|c| matches!(c.act, Action::Tool(Tool::Arrow)) && c.shortcut == "Shift+L"), "Cmd+K must offer the Arrow tool");
+        assert!(palette_entries(&app, "").iter().any(|(label, shortcut)| label == "Arrow" && shortcut == "Shift+L"), "Arrow row advertises Shift+L");
+        assert!(tool_nodes(&app, 2).iter().any(|n| n.item.label == "Arrow" && n.item.shortcut == "Shift+L"), "shape toolbar group lists Arrow");
     }
 
     #[test]
-    fn picking_the_hidden_arrow_tool_remembers_line_for_the_group() {
+    fn picking_the_arrow_tool_remembers_arrow_for_the_group() {
         let mut app = App::new(designos_doc::Document::new("t"));
         pick_tool(&mut app, Tool::Arrow);
-        assert_eq!(app.tool, Tool::Line);
-        assert_eq!(GROUPS[2][app.group_pick[2]], Tool::Line, "the shape button shows Line, never a stale Arrow");
+        assert_eq!(app.tool, Tool::Arrow);
+        assert_eq!(GROUPS[2][app.group_pick[2]], Tool::Arrow, "the shape button shows Arrow when picked");
     }
 
     #[test]

@@ -285,6 +285,7 @@ fn paints_text(p: &[Paint]) -> String {
                 PaintKind::AngularGradient { .. } => "angular gradient".into(),
                 PaintKind::DiamondGradient { .. } => "diamond gradient".into(),
                 PaintKind::Image { .. } => "image".into(),
+                PaintKind::Shader(_) => "shader".into(),
             };
             let mut s = base;
             if !p.visible {
@@ -312,6 +313,7 @@ fn effects_text(e: &[Effect]) -> String {
             Effect::Noise(_) => "noise".into(),
             Effect::Texture(_) => "texture".into(),
             Effect::Glass(_) => "glass".into(),
+            Effect::Shader { .. } => "shader".into(),
         })
         .collect::<Vec<_>>()
         .join(", ")

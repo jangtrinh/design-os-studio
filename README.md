@@ -169,7 +169,17 @@ Open your project in your AI coding agent (or in the Studio's Agents panel) and 
 <a id="whats-new"></a>
 ## What's new
 
-Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.7. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+Notes for every release are in the [CHANGELOG](CHANGELOG.md). The newest is 0.7.8. [v0.6.0](https://github.com/jangtrinh/design-os-studio/releases/tag/v0.6.0) has captures from the release build, and older releases are short lists.
+
+<a id="new-in-v078"></a>
+### 0.7.8
+
+- **Arrowheads and the Arrow tool.** Lines and vectors can end in arrowheads, drawn live and kept through `.fig` and Figma REST JSON. The stroke panel gains `Start point` and `End point` rows, dashed strokes get a dash cap, and the Arrow tool is on Shift+L.
+- **Images.** Image fills gain crop, rotation and tile scale, kept through `.fig` and Figma REST JSON.
+- **Glass and noise.** Glass effects gain splay and bevel settings, and noise and texture effects gain X and Y size, kept through `.fig` and Figma REST JSON.
+- **Inspector.** Corners get individual radius fields and a corner smoothing slider, a lock aspect ratio toggle sits next to W and H, Type settings gain `Truncate text` and `Max lines`, and properties from nested instances are exposed.
+- **Edit menu.** Select same text properties and font, `Paste and match style` and `Swap fill and stroke` work as in Figma.
+- **`.fig` round trip.** An instance's stroke and corner overrides keep their baked geometry, an instance keeps its own aspect lock, and a variable's stroke colour scope survives a save and reopen.
 
 <a id="new-in-v077"></a>
 ### 0.7.7

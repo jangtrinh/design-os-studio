@@ -286,6 +286,7 @@ pub fn non_analytic_occluder(doc: &Document, id: NodeId) -> Option<(Option<NodeI
                                     has_opaque_fill = true;
                                 }
                             }
+                            PaintKind::Shader(_) => {}
                         }
                     }
                 }
