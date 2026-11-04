@@ -297,3 +297,70 @@ fn new_effects_tolerate_missing_fields() {
     assert!(matches!(r.effects[1], Effect::Texture(_)));
     assert!(matches!(r.effects[2], Effect::Glass(_)));
 }
+
+fn rest_with_effects(effects: serde_json::Value) -> String {
+    serde_json::json!({"name": "f", "document": {"id": "0:0", "type": "DOCUMENT", "children": [{"id": "0:1", "type": "CANVAS", "name": "p", "children": [
+        {"id": "1:1", "type": "RECTANGLE", "name": "r", "size": {"x": 10, "y": 10}, "effects": effects}]}]}})
+    .to_string()
+}
+
+fn saved_effects(doc: &Document) -> Vec<serde_json::Value> {
+    find(doc, "r").effects.iter().map(|e| serde_json::to_value(e).unwrap()).collect()
+}
+
+#[test]
+fn rest_round_trip_keeps_all_glass_noise_and_texture_fields() {
+    use serde_json::json;
+    let rest = json!([
+        {"type": "NOISE", "noiseType": "MONOTONE", "color": {"r": 0.25, "g": 0.5, "b": 0.75, "a": 1.0}, "noiseSize": {"x": 3.0, "y": 7.0},
+         "density": 0.5, "opacity": 0.5, "blendMode": "OVERLAY", "seed": 42, "visible": true},
+        {"type": "NOISE", "noiseType": "DUOTONE", "color": {"r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0}, "secondaryColor": {"r": 0.0, "g": 0.0, "b": 1.0, "a": 0.5},
+         "noiseSize": {"x": 2.0, "y": 0.5}, "density": 0.25, "opacity": 0.75, "blendMode": "MULTIPLY", "seed": 9, "visible": false},
+        {"type": "NOISE", "noiseType": "MULTITONE", "noiseSize": 1.5, "density": 1.0, "opacity": 0.25, "blendMode": "NORMAL", "seed": 77, "visible": true},
+        {"type": "TEXTURE", "noiseSize": {"x": 3.0, "y": 7.0}, "radius": 6.5, "clipToShape": false, "seed": 13, "visible": true},
+        {"type": "GLASS", "lightAngle": 135.0, "lightIntensity": 0.75, "refraction": 0.5, "depth": 20.0, "dispersion": 0.5, "radius": 4.0,
+         "reflectionDistance": 0.25, "bevelSize": 4.0, "visible": true}
+    ]);
+    let expected = vec![
+        json!({"Noise": {"mode": {"Mono": {"color": {"r": 0.25, "g": 0.5, "b": 0.75, "a": 1.0}}}, "size": 3.0, "size_y": 7.0, "density": 0.5, "opacity": 0.5,
+               "blend": "Overlay", "seed": 42, "visible": true}}),
+        json!({"Noise": {"mode": {"Duo": {"color": {"r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0}, "secondary": {"r": 0.0, "g": 0.0, "b": 1.0, "a": 0.5}}},
+               "size": 2.0, "size_y": 0.5, "density": 0.25, "opacity": 0.75, "blend": "Multiply", "seed": 9, "visible": false}}),
+        json!({"Noise": {"mode": "Multi", "size": 1.5, "density": 1.0, "opacity": 0.25, "blend": "Normal", "seed": 77, "visible": true}}),
+        json!({"Texture": {"size": 3.0, "size_y": 7.0, "radius": 6.5, "clip_to_shape": false, "seed": 13, "visible": true}}),
+        json!({"Glass": {"light_angle": 135.0, "light_intensity": 0.75, "refraction": 0.5, "depth": 20.0, "dispersion": 0.5, "frost": 4.0,
+               "splay": 0.25, "bevel": 4.0, "visible": true}}),
+    ];
+    let doc = import_rest_json(&rest_with_effects(rest)).unwrap();
+    assert_eq!(saved_effects(&doc), expected);
+    let exported = export_rest_json(&doc);
+    let back = import_rest_json(&serde_json::to_string(&exported).unwrap()).unwrap();
+    assert_eq!(saved_effects(&back), expected, "export then import");
+    let written = &exported["document"]["children"][0]["children"][0]["effects"];
+    assert_eq!(written[0]["noiseSize"], json!({"x": 3.0, "y": 7.0}));
+    assert_eq!(written[2]["noiseSize"], json!(1.5), "equal sizes stay one number");
+    assert_eq!(written[3]["noiseSize"], json!({"x": 3.0, "y": 7.0}));
+    assert_eq!((&written[4]["reflectionDistance"], &written[4]["bevelSize"]), (&json!(0.25), &json!(4.0)));
+}
+
+#[test]
+fn a_rest_noise_size_pair_with_equal_sides_is_one_size() {
+    let rest = serde_json::json!([{"type": "TEXTURE", "noiseSize": {"x": 4.0, "y": 4.0}, "radius": 2.0, "clipToShape": true, "seed": 1, "visible": true}]);
+    let doc = import_rest_json(&rest_with_effects(rest)).unwrap();
+    assert_eq!(saved_effects(&doc), vec![serde_json::json!({"Texture": {"size": 4.0, "radius": 2.0, "clip_to_shape": true, "seed": 1, "visible": true}})]);
+}
+
+#[test]
+fn both_noise_type_spellings_import_and_export_the_full_name() {
+    for (spelling, full) in
+        [("MONO", "MONOTONE"), ("MONOTONE", "MONOTONE"), ("DUO", "DUOTONE"), ("DUOTONE", "DUOTONE"), ("MULTI", "MULTITONE"), ("MULTITONE", "MULTITONE")]
+    {
+        let rest = serde_json::json!([{"type": "NOISE", "noiseType": spelling, "noiseSize": 1.0, "density": 0.5, "opacity": 0.5, "seed": 1}]);
+        let doc = import_rest_json(&rest_with_effects(rest)).unwrap();
+        let Effect::Noise(nz) = &find(&doc, "r").effects[0] else { panic!("not a noise") };
+        let want_mono = full == "MONOTONE";
+        assert_eq!(matches!(nz.mode, NoiseMode::Mono { .. }), want_mono, "{spelling}");
+        let exported = export_rest_json(&doc);
+        assert_eq!(exported["document"]["children"][0]["children"][0]["effects"][0]["noiseType"], full, "{spelling}");
+    }
+}

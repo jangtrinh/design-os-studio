@@ -320,11 +320,13 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         })
         .collect();
     let blob_refs: Vec<&[u8]> = owned_blobs.iter().map(Vec::as_slice).collect();
+    let dropped_variable_bindings = dropped_effect_variable_bindings(&entries);
     let rest = entries_to_rest(entries, &blob_refs, &name);
     if large {
         release_os_memory();
     }
-    let (mut doc, report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
+    let (mut doc, mut report) = rest_import::import_rest_value_owned_with_budget(rest, true, &blob_refs, fast_derived.as_mut(), clone_budget_total)?;
+    report.dropped_variable_bindings += dropped_variable_bindings;
     for (sid, sp) in style_sort_positions {
         if let Some(meta) = doc.style_meta.get_mut(&sid) {
             meta.sort_position = Some(sp);
@@ -338,6 +340,31 @@ pub fn import_fig_with_budget(bytes: &[u8], clone_budget_total: usize) -> Result
         release_os_memory();
     }
     Ok((doc, report))
+}
+
+/// Effect fields whose variable binding Studio does not carry: the glass fields other than the frost radius,
+/// and the noise size (both sides), density and second colour. The noise colour, its opacity and the radius,
+/// spread and offsets of the other effects are carried as bindings (`bound_variables`).
+const UNCARRIED_EFFECT_BINDINGS: [&str; 10] = [
+    "refractionRadiusVar",
+    "specularAngleVar",
+    "specularIntensityVar",
+    "chromaticAberrationVar",
+    "splayVar",
+    "refractionIntensityVar",
+    "noiseSizeXVar",
+    "noiseSizeYVar",
+    "densityVar",
+    "secondaryColorVar",
+];
+
+/// How many bindings of [`UNCARRIED_EFFECT_BINDINGS`] the effects of `entries` (layers and effect styles) hold.
+fn dropped_effect_variable_bindings(entries: &[Entry]) -> usize {
+    entries
+        .iter()
+        .flat_map(|e| rest_import::farr(&e.json, "effects"))
+        .map(|fx| UNCARRIED_EFFECT_BINDINGS.iter().filter(|k| fx.get(**k).is_some_and(|v| !v.is_null())).count())
+        .sum()
 }
 
 // ------------------------------------------------------------------ tree
@@ -2824,11 +2851,20 @@ fn convert_effect(e: &Value) -> Option<Value> {
         };
         m.insert("noiseType".into(), norm.into());
     }
+    // The stored size is a vector: both sides are kept, and a side that is missing takes the other one.
     if let Some(ns) = e.get("noiseSize") {
         if ns.is_number() {
             m.insert("noiseSize".into(), ns.clone());
-        } else if let Some(sz) = fnum(ns, "x").or_else(|| fnum(ns, "y")) {
-            m.insert("noiseSize".into(), json!(kiwi::clean_f32(sz)));
+        } else {
+            match (fnum(ns, "x"), fnum(ns, "y")) {
+                (Some(x), Some(y)) => {
+                    m.insert("noiseSize".into(), json!({"x": kiwi::clean_f32(x), "y": kiwi::clean_f32(y)}));
+                }
+                (Some(one), None) | (None, Some(one)) => {
+                    m.insert("noiseSize".into(), json!(kiwi::clean_f32(one)));
+                }
+                (None, None) => {}
+            }
         }
     }
     for (kiwi_key, rest_key) in [
@@ -2837,6 +2873,8 @@ fn convert_effect(e: &Value) -> Option<Value> {
         ("refractionIntensity", "refraction"),
         ("refractionRadius", "depth"),
         ("chromaticAberration", "dispersion"),
+        ("reflectionDistance", "reflectionDistance"),
+        ("bevelSize", "bevelSize"),
     ] {
         if e.get(kiwi_key).is_some() {
             copy(&mut m, e, kiwi_key, rest_key);
