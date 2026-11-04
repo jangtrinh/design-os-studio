@@ -104,7 +104,7 @@ pub fn show(ctx: &Context, d: &mut DeletePage) -> Answer {
         let delete_w = widgets::text_width(&p, "Delete page", &label_font).max(48.0) + 32.0;
         let delete_r = Rect::from_min_size(Pos2::new(rect.right() - PAD - delete_w, y), Vec2::new(delete_w, BTN_H));
         let cancel_w = widgets::text_width(&p, "Cancel", &label_font).max(48.0) + 32.0;
-        let cancel_r = Rect::from_min_size(Pos2::new(delete_r.left() - 8.0 - cancel_w, y), Vec2::new(cancel_w, BTN_H));
+        let cancel_r = Rect::from_min_size(Pos2::new(delete_r.left() - theme::SPACE_INLINE - cancel_w, y), Vec2::new(cancel_w, BTN_H));
         if kit::button(ui, cancel_r, "project-delete-cancel", "Cancel", kit::Hierarchy::Secondary, kit::Size::Md, true).clicked() {
             answer = Answer::Cancel;
         }

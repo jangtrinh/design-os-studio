@@ -228,7 +228,10 @@ impl ProjectTabState {
                 tree_model::RowKind::Page { rel: p, group } if p == rel => Some((i, *group)),
                 _ => None,
             }) {
-                let at = Pos2::new(regions.list.left() + 120.0, regions.list.top() + i as f32 * theme::LAYER_ROW_HEIGHT + theme::LAYER_ROW_HEIGHT / 2.0);
+                let at = Pos2::new(
+                    regions.list.left() + theme::PROJECT_TREE_SHOT_MENU_DX,
+                    regions.list.top() + i as f32 * theme::LAYER_ROW_HEIGHT + theme::LAYER_ROW_HEIGHT / 2.0,
+                );
                 self.tree.menu = Some((MenuTarget::Page(rel.clone(), group), at));
             }
         }
@@ -361,7 +364,7 @@ pub fn show(app: &mut App, ui: &mut Ui, full: Rect, st: &mut ProjectTabState) {
     if let Some(error) = st.start_error.clone() {
         let p = ui.painter().clone();
         p.text(
-            Pos2::new(lay.column.left(), lay.column.top() + 18.0),
+            Pos2::new(lay.column.left(), lay.column.top() + theme::PROJECT_TITLE_LINE / 2.0),
             egui::Align2::LEFT_CENTER,
             error,
             theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular),
@@ -428,8 +431,8 @@ fn message_card(ui: &mut Ui, lay: &layout::ProjectLayout, title: &str, message: 
     let mut y = lay.column.top();
     let title_font = theme::font_text(30.0, theme::TextWeight::Semibold);
     let shown = widgets::elide(&p, title, &title_font, lay.column.width());
-    p.text(Pos2::new(x, y + 18.0), egui::Align2::LEFT_CENTER, shown, title_font, theme::TEXT);
-    y += 36.0 + 12.0;
+    p.text(Pos2::new(x, y + theme::PROJECT_TITLE_LINE / 2.0), egui::Align2::LEFT_CENTER, shown, title_font, theme::TEXT);
+    y += theme::PROJECT_TITLE_LINE + 12.0;
     let galley =
         p.layout(message.to_string(), theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Regular), theme::TEXT_TERTIARY, lay.column.width());
     p.galley(Pos2::new(x, y), galley, theme::TEXT_TERTIARY);

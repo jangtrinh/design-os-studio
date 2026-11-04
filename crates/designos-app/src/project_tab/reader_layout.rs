@@ -252,7 +252,7 @@ fn layout_block(ctx: &mut Ctx, cur: &mut Cursor, block: &Block, headings: &mut V
             let text_x = 16.0 + 16.0 + 8.0;
             let (galley, links) = ctx.text(body, BODY, (width - text_x - 16.0).max(40.0));
             cur.push(spacing(16.0, 0.0), |y| {
-                let h = galley.size().y + 24.0;
+                let h = galley.size().y + theme::INSET_BUTTON * 2.0;
                 let prims = vec![
                     Prim::Rect {
                         rect: Rect::from_min_size(Pos2::new(0.0, y), Vec2::new(width, h)),
@@ -261,8 +261,8 @@ fn layout_block(ctx: &mut Ctx, cur: &mut Cursor, block: &Block, headings: &mut V
                         stroke: None,
                         scroll: None,
                     },
-                    Prim::Icon { icon, center: Pos2::new(16.0 + 8.0, y + 12.0 + 4.0 + 8.0), size: 16.0, color },
-                    Prim::Text { pos: Pos2::new(text_x, y + 12.0), galley, links, scroll: None },
+                    Prim::Icon { icon, center: Pos2::new(16.0 + 8.0, y + theme::INSET_BUTTON + 4.0 + 8.0), size: 16.0, color },
+                    Prim::Text { pos: Pos2::new(text_x, y + theme::INSET_BUTTON), galley, links, scroll: None },
                 ];
                 (prims, h)
             });
@@ -355,7 +355,11 @@ fn list_items(ctx: &Ctx, items: &[ListItem], numbered: Option<u64>, x: f32, widt
                 let w = g.size().x;
                 out.push(Prim::Text { pos: Pos2::new(x + LIST_INDENT - 6.0 - w, y0 + y), galley: g, links: Vec::new(), scroll: None });
             }
-            None => out.push(Prim::Disc { center: Pos2::new(x + 10.0, y0 + y + first_line / 2.0), radius: 2.5, color: theme::TEXT_SECONDARY }),
+            None => out.push(Prim::Disc {
+                center: Pos2::new(x + theme::READER_BULLET_CENTER_X, y0 + y + first_line / 2.0),
+                radius: 2.5,
+                color: theme::TEXT_SECONDARY,
+            }),
         }
         let text_h = galley.size().y;
         out.push(Prim::Text { pos: Pos2::new(x + LIST_INDENT, y0 + y), galley, links, scroll: None });
@@ -373,7 +377,7 @@ fn check_items(ctx: &Ctx, items: &[ChecklistItem], x: f32, width: f32, y0: f32, 
         }
         let text_w = (width - LIST_INDENT).max(40.0);
         let (galley, links) = ctx.text(&item.content, BODY, text_w);
-        let box_rect = Rect::from_center_size(Pos2::new(x + 12.0, y0 + y + BODY.line / 2.0), Vec2::splat(16.0));
+        let box_rect = Rect::from_center_size(Pos2::new(x + theme::READER_CHECKBOX_CENTER_X, y0 + y + BODY.line / 2.0), Vec2::splat(16.0));
         out.push(Prim::Check { rect: box_rect, checked: item.checked });
         let text_h = galley.size().y.max(BODY.line);
         out.push(Prim::Text { pos: Pos2::new(x + LIST_INDENT, y0 + y), galley, links, scroll: None });
@@ -564,7 +568,7 @@ fn table(ctx: &mut Ctx, scroll_id: usize, aligns: &[Align], header: &[Vec<Inline
     }
     for x in xs.iter().take(cols).skip(1) {
         prims.push(Prim::Rect {
-            rect: Rect::from_min_size(Pos2::new(x - 1.0, 0.0), Vec2::new(1.0, table_h)),
+            rect: Rect::from_min_size(Pos2::new(x - theme::BORDER_WIDTH, 0.0), Vec2::new(1.0, table_h)),
             fill: theme::BORDER,
             radius: 0,
             stroke: None,

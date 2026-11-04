@@ -128,7 +128,7 @@ pub fn regions(panel: Rect, search_open: bool) -> TreeRects {
     let plus = Rect::from_min_size(Pos2::new(inner.right() - theme::SPACE_INLINE - BUTTON, by), Vec2::splat(BUTTON));
     let collapse = plus.translate(Vec2::new(-(BUTTON + ACTION_GAP), 0.0));
     let search = collapse.translate(Vec2::new(-(BUTTON + ACTION_GAP), 0.0));
-    let more = Rect::from_min_size(Pos2::new(inner.right() - theme::SPACE_INLINE - BUTTON, header.top() + 12.0), Vec2::splat(BUTTON));
+    let more = Rect::from_min_size(Pos2::new(inner.right() - theme::SPACE_INLINE - BUTTON, header.top() + theme::LEFT_ACTION_Y), Vec2::splat(BUTTON));
     let list_top = title.bottom() + if search_open { SEARCH_ROW_H } else { 0.0 };
     let list = Rect::from_min_max(Pos2::new(inner.left(), list_top), inner.max);
     TreeRects { header, title, more, search, collapse, plus, list }
@@ -165,9 +165,9 @@ fn header(ui: &mut Ui, r: &TreeRects, input: &TreeInput, st: &mut TreeUi) {
     let x = r.header.left() + theme::INSET_PANEL;
     let name_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
     let shown = widgets::elide(&p, input.project_name, &name_font, r.more.left() - x - theme::SPACE_INLINE);
-    p.text(Pos2::new(x, r.header.top() + 16.0 + 10.0), Align2::LEFT_CENTER, shown, name_font, theme::TEXT);
+    p.text(Pos2::new(x, r.header.top() + theme::LEFT_FILE_NAME_Y + 10.0), Align2::LEFT_CENTER, shown, name_font, theme::TEXT);
     p.text(
-        Pos2::new(x, r.header.top() + 40.0 + 9.0),
+        Pos2::new(x, r.header.top() + theme::LEFT_SUBLABEL_Y + 9.0),
         Align2::LEFT_CENTER,
         files_line(input.snapshot.files.len()),
         theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Regular),
@@ -219,9 +219,12 @@ fn search_field(ui: &mut Ui, r: &TreeRects, st: &mut TreeUi) {
     if focused {
         p.rect_stroke(field, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(2.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
     }
-    icons::paint(&p, Icon::Search, Pos2::new(field.left() + 9.0 + 8.0, field.center().y), 16.0, theme::ICON_QUATERNARY);
-    let clear = Rect::from_center_size(Pos2::new(field.right() - 8.0 - 8.0, field.center().y), Vec2::splat(16.0));
-    let text_rect = Rect::from_min_max(Pos2::new(field.left() + 34.0, field.top()), Pos2::new(clear.left() - 4.0, field.bottom()));
+    icons::paint(&p, Icon::Search, Pos2::new(field.left() + theme::PROJECT_SEARCH_ICON_INSET + 8.0, field.center().y), 16.0, theme::ICON_QUATERNARY);
+    let clear = Rect::from_center_size(Pos2::new(field.right() - theme::INSET_CONTROL - 8.0, field.center().y), Vec2::splat(16.0));
+    let text_rect = Rect::from_min_max(
+        Pos2::new(field.left() + theme::PROJECT_SEARCH_TEXT_INSET, field.top()),
+        Pos2::new(clear.left() - theme::FIELD_SUFFIX_GAP, field.bottom()),
+    );
     let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Regular);
     if st.query.is_empty() {
         p.text(Pos2::new(text_rect.left(), field.center().y), Align2::LEFT_CENTER, "Search pages", font.clone(), theme::TEXT_PLACEHOLDER);
@@ -261,7 +264,7 @@ fn list(ui: &mut Ui, r: &TreeRects, rows: &[Row], input: &TreeInput, st: &mut Tr
     if rows.is_empty() && !st.query.trim().is_empty() {
         let cx = list.center().x;
         p.text(
-            Pos2::new(cx, list.top() + 16.0 + 9.0),
+            Pos2::new(cx, list.top() + theme::INSET_PANEL + 9.0),
             Align2::CENTER_CENTER,
             "No pages match",
             theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Regular),
@@ -269,7 +272,7 @@ fn list(ui: &mut Ui, r: &TreeRects, rows: &[Row], input: &TreeInput, st: &mut Tr
         );
         let font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
         let w = widgets::text_width(&p, "Clear search", &font) + 16.0;
-        let btn = Rect::from_center_size(Pos2::new(cx, list.top() + 16.0 + 18.0 + 8.0 + 12.0), Vec2::new(w, 24.0));
+        let btn = Rect::from_center_size(Pos2::new(cx, list.top() + theme::INSET_PANEL + 18.0 + 8.0 + 12.0), Vec2::new(w, 24.0));
         let resp = ui.interact(btn, Id::new("project-tree-clear-search"), Sense::click());
         let color = if resp.hovered() { theme::TEXT_SECONDARY_HOVER } else { theme::TEXT_TERTIARY };
         p.text(btn.center(), Align2::CENTER_CENTER, "Clear search", font, color);
@@ -313,7 +316,7 @@ fn list(ui: &mut Ui, r: &TreeRects, rows: &[Row], input: &TreeInput, st: &mut Tr
                         }
                     }
                     if st.focus.as_ref() == Some(&row.key) && st.keyboard {
-                        kit::focus_ring(&ui.painter().clone(), rect.shrink(2.0), theme::RADIUS_CONTROL as f32);
+                        kit::focus_ring(&ui.painter().clone(), rect.shrink(theme::INSET_SEGMENT), theme::RADIUS_CONTROL as f32);
                     }
                 }
                 RowKind::Page { rel, group } => {
@@ -342,7 +345,7 @@ fn list(ui: &mut Ui, r: &TreeRects, rows: &[Row], input: &TreeInput, st: &mut Tr
                         }
                     }
                     if st.focus.as_ref() == Some(&row.key) && st.keyboard {
-                        kit::focus_ring(&ui.painter().clone(), rect.shrink(2.0), theme::RADIUS_CONTROL as f32);
+                        kit::focus_ring(&ui.painter().clone(), rect.shrink(theme::INSET_SEGMENT), theme::RADIUS_CONTROL as f32);
                     }
                 }
                 RowKind::Pin => {
@@ -361,7 +364,13 @@ fn list(ui: &mut Ui, r: &TreeRects, rows: &[Row], input: &TreeInput, st: &mut Tr
                 RowKind::Placeholder(group) => {
                     let hot = pointer.is_some_and(|q| rect.contains(q)) && ui.rect_contains_pointer(rect);
                     let font = theme::font_text(theme::FONT_SIZE_TEXT_XS, theme::TextWeight::Regular);
-                    ui.painter().text(Pos2::new(rect.left() + 44.0, rect.center().y), Align2::LEFT_CENTER, &row.label, font, theme::TEXT_TERTIARY);
+                    ui.painter().text(
+                        Pos2::new(rect.left() + theme::PROJECT_TREE_LABEL_INSET, rect.center().y),
+                        Align2::LEFT_CENTER,
+                        &row.label,
+                        font,
+                        theme::TEXT_TERTIARY,
+                    );
                     if hot && group_takes_pages(*group) {
                         let plus = Rect::from_min_size(Pos2::new(rect.right() - COUNT_PAD - BUTTON, rect.center().y - BUTTON / 2.0), Vec2::splat(BUTTON));
                         widgets::record(ui, &format!("project-tree-add-{}", row.label), plus);
@@ -382,7 +391,10 @@ fn list(ui: &mut Ui, r: &TreeRects, rows: &[Row], input: &TreeInput, st: &mut Tr
             drag_ghost(ui.ctx(), rows, d, q);
         }
         if let Some(y) = drop_line {
-            let line = Rect::from_min_max(Pos2::new(list.left() + ROW_INSET, y - 1.0), Pos2::new(list.right() - ROW_INSET, y + 1.0));
+            let line = Rect::from_min_max(
+                Pos2::new(list.left() + ROW_INSET, y - theme::LAYER_DROP_THICKNESS / 2.0),
+                Pos2::new(list.right() - ROW_INSET, y + theme::LAYER_DROP_THICKNESS / 2.0),
+            );
             ui.painter().with_clip_rect(list).rect_filled(line, 0.0, theme::TEXT);
         }
         if released {
@@ -498,7 +510,10 @@ fn paint_label(p: &egui::Painter, left: Pos2, text: &str, font: &egui::FontId, c
 fn rename_field(ui: &mut Ui, rect: Rect, row: &Row, rn: &mut RenameState) -> Option<(String, Option<String>)> {
     let p = ui.painter().clone();
     let icon_left = rect.left() + theme::LAYER_CHEVRON_BOX + row.depth as f32 * theme::LAYER_INDENT;
-    let field = Rect::from_min_max(Pos2::new(icon_left + ICON_BOX + 1.0, rect.top() + 4.0), Pos2::new(rect.right() - theme::SPACE_INLINE, rect.bottom() - 4.0));
+    let field = Rect::from_min_max(
+        Pos2::new(icon_left + ICON_BOX + 1.0, rect.top() + theme::SPACE_ROW),
+        Pos2::new(rect.right() - theme::SPACE_INLINE, rect.bottom() - theme::SPACE_ROW),
+    );
     kit::paint_frame(&p, field, theme::RADIUS_CONTROL, &kit::field_look(kit::State::Focused, false));
     p.rect_stroke(field, theme::cr(theme::RADIUS_CONTROL), egui::Stroke::new(2.0, theme::BORDER_SELECTED), egui::StrokeKind::Inside);
     let id = Id::new(("project-tree-rename", &rn.rel));
@@ -508,7 +523,7 @@ fn rename_field(ui: &mut Ui, rect: Rect, row: &Row, rn: &mut RenameState) -> Opt
         .font(font)
         .text_color(theme::TEXT)
         .frame(egui::Frame::NONE)
-        .margin(egui::Margin::symmetric(3, 0))
+        .margin(egui::Margin::symmetric(theme::PROJECT_RENAME_TEXT_PAD as i8, 0))
         .vertical_align(egui::Align::Center)
         .desired_width(field.width())
         .min_size(field.size());

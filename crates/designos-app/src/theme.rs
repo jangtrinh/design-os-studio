@@ -964,6 +964,26 @@ pub const HOME_CARD_GAP: f32 = 24.0;
 pub const HOME_FOLDER_H: f32 = 48.0;
 pub const HOME_LIST_ROW_H: f32 = 44.0;
 pub const HOME_THUMB_BG: Color32 = rgb(0x262626);
+// ---------------------------------------------------------------- project tab (docs workspace)
+// Surface-scoped geometry of the Project tab's tree and reader; none of these is a rung of the spacing,
+// inset or radius ladders above.
+/// Line box of a page title: the reader's title, and the title of a page that cannot be shown.
+pub const PROJECT_TITLE_LINE: f32 = 36.0;
+/// A screenshot run's row menu opens this far right of the tree list's left edge.
+pub const PROJECT_TREE_SHOT_MENU_DX: f32 = 120.0;
+/// A page row's label starts this far right of the row's left edge: chevron slot, icon, then the icon gap.
+/// Placeholder rows start their label here too.
+pub const PROJECT_TREE_LABEL_INSET: f32 = LAYER_CHEVRON_BOX + LAYER_ICON_SIZE + SPACE_FACT;
+/// The tree search glyph's box starts this far inside the field: the prefix inset plus the 1px border.
+pub const PROJECT_SEARCH_ICON_INSET: f32 = FIELD_PREFIX_X + BORDER_WIDTH;
+/// The tree search text starts this far inside the field.
+pub const PROJECT_SEARCH_TEXT_INSET: f32 = 34.0;
+/// Left and right padding of the page-name field while a tree row is renamed.
+pub const PROJECT_RENAME_TEXT_PAD: f32 = 3.0;
+/// Reader bullet marker: centre x inside the list item's marker column (the left 24px of an item).
+pub const READER_BULLET_CENTER_X: f32 = 10.0;
+/// Reader checklist box: centre x inside the list item's marker column (the left 24px of an item).
+pub const READER_CHECKBOX_CENTER_X: f32 = 12.0;
 // ---------------------------------------------------------------- variables view
 // Measured on the Figma UI3 local-variables captures (800x600, dpr 1).
 /// Sidebar content width; the 1px border follows it in the full view.

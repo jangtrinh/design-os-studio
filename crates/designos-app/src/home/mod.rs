@@ -1879,8 +1879,11 @@ mod main_view {
                 // "Open project" sits at the right end of the name row, 8 px inside the card, and shows on hover.
                 let open_font = theme::font_text(theme::FONT_SIZE_TEXT_SM, theme::TextWeight::Semibold);
                 let open_w = widgets::text_width(&p, "Open project", &open_font) + theme::SPACE_GROUP * 2.0;
-                let name_cy = r.top() + 8.0 + 92.0 + 16.0;
-                let open_r = Rect::from_min_size(Pos2::new(r.right() - 8.0 - open_w, name_cy - theme::TARGET_MIN / 2.0), Vec2::new(open_w, theme::TARGET_MIN));
+                let name_cy = r.top() + theme::INSET_FRAME + 92.0 + 16.0;
+                let open_r = Rect::from_min_size(
+                    Pos2::new(r.right() - theme::INSET_FRAME - open_w, name_cy - theme::TARGET_MIN / 2.0),
+                    Vec2::new(open_w, theme::TARGET_MIN),
+                );
                 let open_resp = ui.interact(open_r, Id::new(("home-proj-open", &pr.id)), Sense::click());
                 let over = dragging && ptr.is_some_and(|q| r.contains(q));
                 let hot = card_resp.hovered() || plus_resp.hovered() || open_resp.hovered();
