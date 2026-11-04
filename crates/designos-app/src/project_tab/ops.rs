@@ -255,40 +255,29 @@ pub fn ensure_first_page(store: &DocsStore, project_name: &str) -> Result<Option
     }
 }
 
-/// The manifest as it is on disk now, with the hash to write it back against (`Expect::Absent` when there is none).
-fn manifest_for_write(store: &DocsStore) -> Result<(Manifest, Expect), String> {
-    match store.read_manifest() {
-        Ok(v) => Ok((v.value, Expect::Hash(v.hash))),
-        Err(DocsError::NotFound { .. }) => Ok((Manifest::new(), Expect::Absent)),
-        Err(e) => Err(format!("{e}; nothing was changed")),
-    }
+/// Runs `edit` on the manifest as it is on disk now and writes it back (again from a fresh read when another
+/// writer got in between), under the docs lock's hash check.
+fn update_manifest(store: &DocsStore, edit: impl FnMut(&mut Manifest)) -> Result<(), String> {
+    store.update_manifest(edit).map_err(|e| match e {
+        DocsError::Conflict { .. } => "docs-manifest.json keeps changing under Studio; fix: close the other program writing it, then retry".to_string(),
+        e => format!("{e}; nothing was changed"),
+    })
 }
 
-/// Runs `edit` on the manifest and writes it back, once more from a fresh read when another writer got in between.
-fn update_manifest(store: &DocsStore, edit: impl Fn(&mut Manifest) -> Result<(), String>) -> Result<(), String> {
-    for attempt in 0..2 {
-        let (mut manifest, expect) = manifest_for_write(store)?;
-        edit(&mut manifest)?;
-        match store.write_manifest(&manifest, expect) {
-            Ok(_) => return Ok(()),
-            Err(DocsError::Conflict { .. }) if attempt == 0 => continue,
-            Err(e) => return Err(e.to_string()),
-        }
-    }
-    Err("docs-manifest.json keeps changing under Studio; fix: close the other program writing it, then retry".into())
-}
-
-/// Writes `order` as the page order of `group` (the order the tree shows, so pages no manifest listed yet are
-/// adopted into it).
+/// Moves `order`'s pages to the front of `group` in that order (the order the tree shows, so pages no manifest
+/// listed yet are adopted into it). It is applied to the manifest as it is now, never written as a stale full list:
+/// a page another writer added meanwhile stays, after the ordered ones, and a page deleted meanwhile does not come back.
 pub fn reorder_pages(store: &DocsStore, group: Group, order: &[String]) -> Result<(), String> {
+    let existing = store.list_page_files().map_err(|e| e.to_string())?;
     update_manifest(store, |m| {
+        let ordered: Vec<String> = order.iter().filter(|p| existing.contains(p)).cloned().collect();
+        let kept: Vec<String> = m.group(group).pages.iter().filter(|p| !ordered.contains(p)).cloned().collect();
         for g in Group::ALL {
             if g != group {
-                m.group_mut(g).pages.retain(|p| !order.contains(p));
+                m.group_mut(g).pages.retain(|p| !ordered.contains(p));
             }
         }
-        m.group_mut(group).pages = order.to_vec();
-        Ok(())
+        m.group_mut(group).pages = ordered.into_iter().chain(kept).collect();
     })
 }
 
@@ -320,10 +309,7 @@ pub fn create_page(store: &DocsStore, group: Group, title: &str) -> Result<Strin
     page.set_title(Some(title));
     store.write_page(&rel, &page, Expect::Absent).map_err(|e| e.to_string())?;
     let added = rel.clone();
-    if let Err(e) = update_manifest(store, move |m| {
-        m.group_mut(group).pages.push(added.clone());
-        Ok(())
-    }) {
+    if let Err(e) = update_manifest(store, move |m| m.group_mut(group).pages.push(added.clone())) {
         // The page is on disk but not in the manifest; the tree still shows it (unlisted), so report and keep it.
         return Err(format!("The page was created but not listed: {e}"));
     }
@@ -335,10 +321,6 @@ pub struct Renamed {
     pub new_rel: String,
     pub links_updated: usize,
     pub warnings: Vec<String>,
-}
-
-fn page_bytes_hash(path: &Path) -> Option<ContentHash> {
-    std::fs::read(path).ok().map(|b| ContentHash::of(&b))
 }
 
 /// Renames a page: new title in its front matter, new file name from the title (same folder), the manifest entry
@@ -355,13 +337,21 @@ pub fn rename_page(store: &DocsStore, rel: &str, new_title: &str) -> Result<Rena
     let existing = store.list_page_files().map_err(|e| e.to_string())?;
     let others: Vec<String> = existing.iter().filter(|e| e.as_str() != rel).cloned().collect();
     let new_rel = unique_rel(&others, &dir, &slugify(title));
+    let mut warnings = Vec::new();
     if new_rel == rel {
         store.write_page(rel, &page, Expect::Hash(read.hash)).map_err(|e| e.to_string())?;
-        return Ok(Renamed { new_rel, links_updated: 0, warnings: Vec::new() });
+        return Ok(Renamed { new_rel, links_updated: 0, warnings });
     }
-    store.write_page(&new_rel, &page, Expect::Absent).map_err(|e| e.to_string())?;
     let (from, to) = (rel.to_string(), new_rel.clone());
-    let moved = update_manifest(store, move |m| {
+    if new_rel.eq_ignore_ascii_case(rel) {
+        // Only the case differs: on a case-insensitive file system the new name is this very file. Write the new
+        // title in place, then rename the file itself (through a temporary name) under the docs lock.
+        let written = store.write_page(rel, &page, Expect::Hash(read.hash)).map_err(|e| e.to_string())?;
+        store.rename_page(rel, &new_rel, written).map_err(|e| e.to_string())?;
+    } else {
+        store.write_page(&new_rel, &page, Expect::Absent).map_err(|e| e.to_string())?;
+    }
+    let moved = update_manifest(store, |m| {
         for g in Group::ALL {
             for p in m.group_mut(g).pages.iter_mut() {
                 if *p == from {
@@ -369,20 +359,24 @@ pub fn rename_page(store: &DocsStore, rel: &str, new_title: &str) -> Result<Rena
                 }
             }
         }
-        Ok(())
     });
     if let Err(e) = moved {
+        if new_rel.eq_ignore_ascii_case(rel) {
+            return Err(format!("{e}; the file is now {new_rel} but the manifest still lists {rel}"));
+        }
         // The manifest still names the old file, which is untouched: drop the copy so nothing is listed twice.
-        let _ = std::fs::remove_file(store.dir().join(&new_rel));
+        if let Ok(copy) = store.read_page(&new_rel) {
+            let _ = store.remove_page(&new_rel, copy.hash);
+        }
         return Err(e);
     }
-    let mut warnings = Vec::new();
-    if page_bytes_hash(&store.dir().join(rel)) == Some(read.hash) {
-        if let Err(e) = std::fs::remove_file(store.dir().join(rel)) {
-            warnings.push(format!("The old file {rel} could not be removed: {e}"));
+    if !new_rel.eq_ignore_ascii_case(rel) {
+        // The old file goes only if nobody changed it since it was read; the check and the delete are one step under the lock.
+        match store.remove_page(rel, read.hash) {
+            Ok(()) => {}
+            Err(DocsError::Conflict { .. }) => warnings.push(format!("{rel} changed while it was renamed, so the old file was kept next to {new_rel}")),
+            Err(e) => warnings.push(format!("The old file {rel} could not be removed: {e}")),
         }
-    } else {
-        warnings.push(format!("{rel} changed while it was renamed, so the old file was kept next to {new_rel}"));
     }
     let (links_updated, mut link_warnings) = super::links::retarget_all(store, rel, &new_rel);
     warnings.append(&mut link_warnings);

@@ -1070,7 +1070,17 @@ impl Shell {
             };
             // A Project tab has no design file: its placeholder document must never be saved or exported.
             let blocked = |a: &Action| {
-                app.tabs.active_is_project() && matches!(a, Action::Save | Action::SaveAs | Action::SaveVersion | Action::Export | Action::ExportFig | Action::ExportSlidePdf | Action::ExportDeckPdf)
+                app.tabs.active_is_project()
+                    && matches!(
+                        a,
+                        Action::Save
+                            | Action::SaveAs
+                            | Action::SaveVersion
+                            | Action::Export
+                            | Action::ExportFig
+                            | Action::ExportSlidePdf
+                            | Action::ExportDeckPdf
+                    )
             };
             if let Some(a) = act.filter(|a| !blocked(a)) {
                 menus::run(app, ctx, a);
