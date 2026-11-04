@@ -528,7 +528,7 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
         collect_command_node_ids(&cmd, &mut touched_ids);
         tx.cmd(doc, cmd)
     });
-    let report = match replayed {
+    let mut report = match replayed {
         Ok(r) => r,
         Err(e) => {
             tx.cancel(&mut app.doc);
@@ -582,7 +582,9 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
             // again. A connector that is a flow child of an auto-layout frame is measured and placed
             // by that solve, so routing gets the last word.
             let written = relayout_collecting_written(&mut app.doc, &report.needs_layout);
-            reroute_into_last_step(app, &written, &mut touched_ids)?;
+            if let Err(e) = reroute_into_last_step(app, &written, &mut touched_ids) {
+                report.skipped.push(format!("connectors could not be re-routed after layout: {e}"));
+            }
         } else {
             relayout_touched(&mut app.doc, &report.needs_layout);
         }
