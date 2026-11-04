@@ -377,10 +377,107 @@ pub(super) fn checkbox(ui: &mut Ui, pane: &mut Pane, key: &str, label: &str, val
 }
 
 /// Common value of `f` over all selected nodes, or None if they differ.
-fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
-    let mut it = sel.iter().filter_map(|id| app.doc.get(*id)).map(f);
+fn value_common<T: PartialEq>(doc: &Document, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+    let mut it = sel.iter().filter_map(|id| doc.get(*id)).map(f);
     let first = it.next()?;
     it.all(|v| v == first).then_some(first)
+}
+
+fn common<T: PartialEq>(app: &App, sel: &[NodeId], f: impl Fn(&Node) -> T) -> Option<T> {
+    value_common(&app.doc, sel, f)
+}
+
+/// Shared-or-mixed values the inspector reads across the whole selection each frame.
+#[derive(Clone)]
+struct MixedValueSummary {
+    x: Option<f32>,
+    y: Option<f32>,
+    rotation_deg: Option<f32>,
+    opacity_pct: Option<f32>,
+    width: Option<f32>,
+    height: Option<f32>,
+    corner_nodes: Vec<NodeId>,
+    four_corner_nodes: Vec<NodeId>,
+    corners_differ: bool,
+    uniform_radius: Option<f32>,
+    lockable: bool,
+}
+
+struct MixedValueCache {
+    runtime_id: u64,
+    epoch: u64,
+    selection: Vec<NodeId>,
+    summary: MixedValueSummary,
+    ready: bool,
+}
+
+impl Default for MixedValueCache {
+    fn default() -> Self {
+        Self {
+            runtime_id: 0,
+            epoch: 0,
+            selection: Vec::new(),
+            summary: MixedValueSummary {
+                x: None,
+                y: None,
+                rotation_deg: None,
+                opacity_pct: None,
+                width: None,
+                height: None,
+                corner_nodes: Vec::new(),
+                four_corner_nodes: Vec::new(),
+                corners_differ: false,
+                uniform_radius: None,
+                lockable: false,
+            },
+            ready: false,
+        }
+    }
+}
+
+std::thread_local! {
+    static MIXED_VALUE_CACHE: std::cell::RefCell<MixedValueCache> = std::cell::RefCell::new(MixedValueCache::default());
+}
+
+/// Cached scan for an unchanged frame. The key is the document (`runtime_id` + `mutation_epoch`)
+/// and the selection. A property edit goes through `Document::get_mut`, which bumps the epoch.
+fn mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+    MIXED_VALUE_CACHE.with(|cell| {
+        let mut cache = cell.borrow_mut();
+        if cache.ready && cache.runtime_id == doc.runtime_id() && cache.epoch == doc.mutation_epoch() && cache.selection.as_slice() == sel {
+            return cache.summary.clone();
+        }
+        let summary = compute_mixed_value_summary(doc, sel);
+        cache.runtime_id = doc.runtime_id();
+        cache.epoch = doc.mutation_epoch();
+        cache.selection.clear();
+        cache.selection.extend_from_slice(sel);
+        cache.summary = summary.clone();
+        cache.ready = true;
+        summary
+    })
+}
+
+/// The scan `selection_ui` runs for position, rotation, opacity, corners, and dimensions.
+fn compute_mixed_value_summary(doc: &Document, sel: &[NodeId]) -> MixedValueSummary {
+    let mut corner_nodes = Vec::new();
+    corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_corners)));
+    let mut four_corner_nodes = Vec::new();
+    four_corner_nodes.extend(sel.iter().copied().filter(|id| doc.get(*id).is_some_and(node_has_four_corners)));
+    let corners_differ = four_corner_nodes.iter().any(|id| doc.get(*id).is_some_and(node_corners_differ));
+    MixedValueSummary {
+        x: value_common(doc, sel, |n| n.transform.tx),
+        y: value_common(doc, sel, |n| n.transform.ty),
+        rotation_deg: value_common(doc, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0),
+        opacity_pct: value_common(doc, sel, |n| (n.opacity * 100.0).round()),
+        width: value_common(doc, sel, |n| n.size.x),
+        height: value_common(doc, sel, inspector_height),
+        uniform_radius: common_corners(doc, &corner_nodes, uniform_corner_radius).flatten(),
+        lockable: sel.iter().any(|id| doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Line))),
+        corner_nodes,
+        four_corner_nodes,
+        corners_differ,
+    }
 }
 
 fn node_has_four_corners(n: &Node) -> bool {
@@ -984,8 +1081,9 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
     row_end(pane);
     sublabel(ui, pane, "Position");
-    let xs = common(app, sel, |n| n.transform.tx);
-    let ys = common(app, sel, |n| n.transform.ty);
+    let geom = mixed_value_summary(&app.doc, sel);
+    let xs = geom.x;
+    let ys = geom.y;
     if let Some(x) = field::num_field(ui, pane.col(0, 0.0), "x", Prefix::Text("X"), xs, "") {
         app.edit_nodes(sel, |n| n.transform.tx = x);
     }
@@ -994,7 +1092,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     }
     row_end(pane);
     sublabel(ui, pane, "Rotation");
-    let rot = common(app, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0);
+    let rot = geom.rotation_deg;
     if let Some(deg) = field::num_field(ui, pane.col(0, 0.0), "rot", Prefix::Icon(Icon::Rotation), rot, "°") {
         if multi {
             // A group rotates as one body around its bounding-box centre.
@@ -1031,11 +1129,14 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
         }
     }
 
+    // Read after auto-layout, which can change size in this same frame. Position already
+    // took x/y/rotation from the earlier summary, before those fields could edit.
+    let fresh = mixed_value_summary(&app.doc, sel);
     // ---- Layout: dimensions, resizing and constraints of everything else
     if !al_frame {
         section_sep(ui, pane, false);
         title(ui, pane, "Layout", None, false);
-        dimensions_ui(app, ui, pane, sel, is_line);
+        dimensions_ui(app, ui, pane, sel, &fresh, is_line);
         if parent_al || is_text {
             resizing_ui(app, ui, pane, sel, &n0);
         }
@@ -1068,21 +1169,19 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
     // ---- Appearance
     section_sep(ui, pane, false);
     title(ui, pane, "Appearance", None, false);
-    let op = common(app, sel, |n| (n.opacity * 100.0).round());
+    let op = fresh.opacity_pct;
     let op_r = pane.col(0, 0.0);
     if let Some(v) = var_bind::numeric(app, ui, op_r, sel, &["opacity"], |ui, r| field::num_field(ui, r, "opacity", Prefix::Icon(Icon::Opacity), op, "%")) {
         let o = (v / 100.0).clamp(0.0, 1.0);
         app.edit_nodes(sel, |n| n.opacity = o);
     }
     let mut corner_nodes = std::mem::take(&mut app.props.corner_nodes);
-    corner_nodes.clear();
-    corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_corners)));
+    corner_nodes.clone_from(&fresh.corner_nodes);
     let mut four_corner_nodes = std::mem::take(&mut app.props.four_corner_nodes);
-    four_corner_nodes.clear();
-    four_corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_four_corners)));
+    four_corner_nodes.clone_from(&fresh.four_corner_nodes);
     let has_radius = !corner_nodes.is_empty();
     let has_four_corners = !four_corner_nodes.is_empty();
-    let corners_differ = four_corner_nodes.iter().any(|id| app.doc.get(*id).is_some_and(node_corners_differ));
+    let corners_differ = fresh.corners_differ;
     if !has_four_corners {
         app.props.individual_corners = false;
         app.props.individual_corners_sel = Some(sel.to_vec());
@@ -1101,7 +1200,7 @@ fn selection_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId]) {
             for key in ["radius-tl", "radius-tr", "radius-br", "radius-bl"] {
                 remove_field_rect(ui.ctx(), key);
             }
-            let rad = common_corners(&app.doc, &corner_nodes, uniform_corner_radius).flatten();
+            let rad = fresh.uniform_radius;
             let radius_keys = ["topLeftRadius", "topRightRadius", "bottomRightRadius", "bottomLeftRadius"];
             let bound_var = corner_nodes.iter().find_map(|&id| radius_keys.iter().find_map(|&k| var_bind::bound_var(app, id, k).cloned()));
             let num_id = ui.id().with(("num", "radius"));
@@ -1450,10 +1549,10 @@ pub(crate) fn inspector_height_field(n: &Node) -> String {
     crate::widgets::numeric_field_value(inspector_height(n))
 }
 
-fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is_line: bool) {
+fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], geom: &MixedValueSummary, is_line: bool) {
     sublabel(ui, pane, "Dimensions");
-    let ws = common(app, sel, |n| n.size.x);
-    let hs = common(app, sel, inspector_height);
+    let ws = geom.width;
+    let hs = geom.height;
     let (wr, hr) = (pane.col(0, 0.0), pane.col(1, 0.0));
     let w_new = var_bind::numeric(app, ui, wr, sel, &["width"], |ui, r| field::num_field(ui, r, "w", Prefix::Text("W"), ws, ""));
     let h_new = if is_line { None } else { var_bind::numeric(app, ui, hr, sel, &["height"], |ui, r| field::num_field(ui, r, "h", Prefix::Text("H"), hs, "")) };
@@ -1462,7 +1561,7 @@ fn dimensions_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], is
     }
     // The aspect lock covers the nodes that have both a width and a height. A line has only a width and never gets one.
     let lockable = |app: &App, id: NodeId| app.doc.get(id).is_some_and(|n| !matches!(n.kind, NodeKind::Line));
-    if sel.iter().any(|id| lockable(app, *id)) {
+    if geom.lockable {
         let all_locked = sel.iter().filter(|id| lockable(app, **id)).all(|id| app.doc.get(*id).is_some_and(|n| n.lock_aspect));
         let lock_r = pane.rect(theme::SECTION_TRAILING_X, theme::SPACE_FACT, theme::PANEL_ACTION_BUTTON, theme::PANEL_ACTION_BUTTON);
         widgets::record(ui, "lock-aspect", lock_r);
@@ -1595,7 +1694,8 @@ fn auto_layout_ui(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId], a
             grid_tracks_ui(app, ui, pane, grid_id);
         }
     }
-    dimensions_ui(app, ui, pane, sel, false);
+    let geom = mixed_value_summary(&app.doc, sel);
+    dimensions_ui(app, ui, pane, sel, &geom, false);
     let _ = parent_al;
     resizing_ui(app, ui, pane, sel, n0);
     sublabel(ui, pane, "Padding");
@@ -4227,21 +4327,8 @@ mod tests {
             app
         }
         fn frame(app: &App, sel: &[NodeId]) -> (Option<f32>, Option<f32>) {
-            let xs = common(app, sel, |n| n.transform.tx);
-            let ys = common(app, sel, |n| n.transform.ty);
-            let rot = common(app, sel, |n| (-n.transform.rotation_rad().to_degrees() * 100.0).round() / 100.0);
-            let op = common(app, sel, |n| (n.opacity * 100.0).round());
-            let mut corner_nodes = Vec::new();
-            corner_nodes.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_corners)));
-            let mut four = Vec::new();
-            four.extend(sel.iter().copied().filter(|id| app.doc.get(*id).is_some_and(node_has_four_corners)));
-            let differ = four.iter().any(|id| app.doc.get(*id).is_some_and(node_corners_differ));
-            let rad = common_corners(&app.doc, &four, uniform_corner_radius).flatten();
-            let ws = common(app, sel, |n| n.size.x);
-            let hs = common(app, sel, inspector_height);
-            let lockable = sel.iter().any(|id| app.doc.get(*id).is_some_and(|n| !matches!(n.kind, NodeKind::Line)));
-            std::hint::black_box((xs, ys, rot, ws, hs, differ, lockable, corner_nodes.len()));
-            (op, rad)
+            let summary = std::hint::black_box(mixed_value_summary(&app.doc, sel));
+            (summary.opacity_pct, summary.uniform_radius)
         }
         for n in [10_000usize, 100_000] {
             let app = build(n);
@@ -4258,5 +4345,28 @@ mod tests {
             assert!(last.1.is_none(), "radius at {n} must be mixed");
             println!("mixed-summary {n}: {ms:.3} ms/frame");
         }
+    }
+
+    #[test]
+    fn mixed_value_summary_cache_updates_after_one_layer_changes() {
+        let mut doc = Document::new("mixed-cache");
+        let page = doc.add_page("Page 1");
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            let id = doc.alloc_id();
+            let mut node = Node::rectangle(id, designos_doc::Rect::new(0.0, 0.0, 40.0, 40.0));
+            node.opacity = 0.5;
+            node.corner_radii = [6.0; 4];
+            ids.push(doc.insert(page, node).unwrap());
+        }
+        let first = mixed_value_summary(&doc, &ids);
+        assert_eq!(first.opacity_pct, Some(50.0));
+        assert_eq!(first.uniform_radius, Some(6.0));
+        let second = mixed_value_summary(&doc, &ids);
+        assert_eq!(second.opacity_pct, Some(50.0), "an unchanged selection reuses the summary");
+        doc.get_mut(ids[2]).unwrap().opacity = 0.75;
+        let third = mixed_value_summary(&doc, &ids);
+        assert!(third.opacity_pct.is_none(), "editing one layer must refresh the cached summary");
+        assert_eq!(third.uniform_radius, Some(6.0), "a field the edit did not change stays shared");
     }
 }
