@@ -208,6 +208,26 @@ pub fn shapes_to_paths(shapes: &Shapes, fit_tol: f32) -> Vec<d::Path> {
     paths
 }
 
+/// Polygon contours as line paths (even-odd), with no curve fit.
+fn shapes_to_line_paths(shapes: &Shapes) -> Vec<d::Path> {
+    let mut paths = Vec::new();
+    for sh in shapes {
+        let mut cmds = Vec::new();
+        for c in sh {
+            let Some(first) = c.first() else { continue };
+            cmds.push(d::PathCmd::MoveTo(Vec2::new(first[0] as f32, first[1] as f32)));
+            for p in &c[1..] {
+                cmds.push(d::PathCmd::LineTo(Vec2::new(p[0] as f32, p[1] as f32)));
+            }
+            cmds.push(d::PathCmd::Close);
+        }
+        if !cmds.is_empty() {
+            paths.push(d::Path { cmds, fill_rule: d::FillRule::EvenOdd });
+        }
+    }
+    paths
+}
+
 /// Area filled by document paths, by flattening and combining them (non-zero /
 /// even-odd as each path says).
 pub fn paths_area(paths: &[d::Path], tol: f32) -> f64 {
@@ -994,7 +1014,7 @@ pub(crate) fn mixed_subpath_stroke_outline(n: &Node, sh: &crate::geom::Shape) ->
         _ => None,
     };
     let doc_paths: Vec<d::Path> = sh.paths.iter().map(|(p, r)| sk_to_doc(p, rule_of(*r))).collect();
-    let outlined = outline_stroke_along(&doc_paths, &n.stroke, network, None);
+    let outlined = outline_stroke_along(&doc_paths, &n.stroke, network, None, OUTLINE_FIT);
     vector_paths(&outlined).paths
 }
 
@@ -1007,7 +1027,13 @@ pub(crate) fn mixed_subpath_stroke_outline(n: &Node, sh: &crate::geom::Shape) ->
 /// stroker's own offset curves); inside/outside alignment and mixed caps go
 /// through polygon clipping and are re-fitted to curves.
 pub fn outline_stroke(paths: &[d::Path], stroke: &d::Stroke, network: Option<&VectorNetwork>) -> Vec<d::Path> {
-    outline_stroke_along(paths, stroke, network, None)
+    outline_stroke_along(paths, stroke, network, None, OUTLINE_FIT)
+}
+
+/// Inside or Outside stroke of `paths` baked to fill geometry and clipped to the filled area.
+/// The polygon is kept as lines: a curve fit would shift the shared edge off the glyph outline.
+pub fn outline_aligned_stroke(paths: &[d::Path], stroke: &d::Stroke) -> Vec<d::Path> {
+    outline_stroke_along(paths, stroke, None, None, ALIGNED_STROKE_FIT)
 }
 
 /// [`outline_stroke`] of the geometry of node `n`, expanding a stroke the way the canvas strokes it.
@@ -1024,12 +1050,27 @@ pub fn outline_node_stroke(doc: &Document, n: &Node) -> Vec<d::Path> {
         _ => None,
     };
     let aligned_outline = node_shape(doc, n, 0.05).and_then(|sh| crate::outline::dashed_rect_stroke_path(n, &sh));
-    outline_stroke_along(&paths, &n.stroke, network, aligned_outline.as_ref())
+    outline_stroke_along(&paths, &n.stroke, network, aligned_outline.as_ref(), OUTLINE_FIT)
 }
+
+struct OutlineFit {
+    res_scale: f32,
+    flat_tol: f32,
+    fit_tol: f32,
+}
+
+const OUTLINE_FIT: OutlineFit = OutlineFit { res_scale: 1.0, flat_tol: 0.05, fit_tol: 0.08 };
+const ALIGNED_STROKE_FIT: OutlineFit = OutlineFit { res_scale: 4.0, flat_tol: 0.02, fit_tol: 0.0 };
 
 /// `aligned_outline` replaces the closed sub-paths as the line that an `Inside` or `Outside`
 /// stroke follows, at the stroke's own weight instead of twice that; the clip to the shape stays.
-fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&VectorNetwork>, aligned_outline: Option<&sk::Path>) -> Vec<d::Path> {
+fn outline_stroke_along(
+    paths: &[d::Path],
+    stroke: &d::Stroke,
+    network: Option<&VectorNetwork>,
+    aligned_outline: Option<&sk::Path>,
+    fit: OutlineFit,
+) -> Vec<d::Path> {
     let w = stroke.weight;
     if w <= 0.0 || paths.is_empty() {
         return vec![];
@@ -1092,7 +1133,7 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
             }
         }
         if !closed_subs.is_empty() {
-            let fill = paths_to_shapes(&[d::Path { cmds: closed_subs.iter().flat_map(|c| c.cmds.clone()).collect(), fill_rule: p.fill_rule }], 0.05);
+            let fill = paths_to_shapes(&[d::Path { cmds: closed_subs.iter().flat_map(|c| c.cmds.clone()).collect(), fill_rule: p.fill_rule }], fit.flat_tol);
             let mut ring: Shapes = vec![];
             if let Some(outline) = aligned_outline {
                 if let Some(o) = expand(outline, &st_center) {
@@ -1105,14 +1146,18 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
                 }
             } else {
                 for c in &closed_subs {
-                    let Some(o) = expand_subpath(c, stroke, w * 2.0, base_cap, network, 1.0) else { continue };
-                    let polys = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
+                    let Some(o) = expand_subpath(c, stroke, w * 2.0, base_cap, network, fit.res_scale) else { continue };
+                    let polys = flatten(&o, fit.flat_tol).simplify_shape(FillRule::NonZero);
                     ring = if ring.is_empty() { polys } else { ring.overlay(&polys, OverlayRule::Union, FillRule::NonZero) };
                 }
             }
             let rule = if stroke.align == d::StrokeAlign::Inside { OverlayRule::Intersect } else { OverlayRule::Difference };
             let clipped = ring.overlay(&fill, rule, FillRule::NonZero);
-            out.extend(shapes_to_paths(&clipped, 0.08));
+            if fit.fit_tol <= 0.0 {
+                out.extend(shapes_to_line_paths(&clipped));
+            } else {
+                out.extend(shapes_to_paths(&clipped, fit.fit_tol));
+            }
         }
     }
     out
