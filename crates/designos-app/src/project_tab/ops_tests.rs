@@ -26,11 +26,7 @@ fn store(tmp: &Tmp) -> DocsStore {
 fn add_page(store: &DocsStore, group: Group, rel: &str, text: &str) {
     store.write_page(rel, &Page::parse(text), Expect::Absent).unwrap();
     let rel = rel.to_string();
-    update_manifest(store, move |m| {
-        m.group_mut(group).pages.push(rel.clone());
-        Ok(())
-    })
-    .unwrap();
+    update_manifest(store, move |m| m.group_mut(group).pages.push(rel.clone())).unwrap();
 }
 
 fn manifest(store: &DocsStore) -> Manifest {
@@ -256,4 +252,59 @@ fn the_scanner_re_reads_a_page_that_changed_and_forgets_one_that_was_deleted() {
     assert_eq!(scanner.snapshot().unwrap().title_of("spec/a.md"), "Alpha");
     std::fs::remove_file(tmp.0.join("docs/spec/a.md")).unwrap();
     assert!(!scanner.snapshot().unwrap().pages.contains_key("spec/a.md"));
+}
+
+#[test]
+fn a_reorder_keeps_a_page_that_was_added_after_the_tree_was_drawn() {
+    let tmp = Tmp::new();
+    let store = store(&tmp);
+    add_page(&store, Group::Spec, "spec/a.md", "# A\n");
+    add_page(&store, Group::Spec, "spec/b.md", "# B\n");
+    // The tree shows [a, b]; an agent adds c; the user then drags b above a.
+    add_page(&store, Group::Spec, "spec/c.md", "# C\n");
+    reorder_pages(&store, Group::Spec, &["spec/b.md".into(), "spec/a.md".into()]).unwrap();
+    assert_eq!(manifest(&store).group(Group::Spec).pages, vec!["spec/b.md", "spec/a.md", "spec/c.md"], "c stays in Spec, after the pages the user ordered");
+}
+
+#[test]
+fn a_reorder_does_not_bring_back_a_page_that_was_deleted_after_the_tree_was_drawn() {
+    let tmp = Tmp::new();
+    let store = store(&tmp);
+    add_page(&store, Group::Spec, "spec/a.md", "# A\n");
+    add_page(&store, Group::Spec, "spec/b.md", "# B\n");
+    let hash = store.read_page("spec/b.md").unwrap().hash;
+    store.remove_page("spec/b.md", hash).unwrap();
+    update_manifest(&store, |m| m.group_mut(Group::Spec).pages.retain(|p| p != "spec/b.md")).unwrap();
+    reorder_pages(&store, Group::Spec, &["spec/b.md".into(), "spec/a.md".into()]).unwrap();
+    assert_eq!(manifest(&store).group(Group::Spec).pages, vec!["spec/a.md"]);
+}
+
+#[test]
+fn a_rename_that_only_changes_the_case_of_the_file_name_works() {
+    let tmp = Tmp::new();
+    let store = store(&tmp);
+    add_page(&store, Group::Spec, "spec/Payment.md", "---\ntitle: Payment\n---\n## Steps\n");
+    add_page(&store, Group::Overview, "overview.md", "See [pay](spec/Payment.md).\n");
+    // "Payment" slugs to payment.md: the same file on a case-insensitive file system.
+    let done = rename_page(&store, "spec/Payment.md", "Payment").unwrap();
+    assert_eq!(done.new_rel, "spec/payment.md", "{done:?}");
+    assert_eq!(store.list_page_files().unwrap(), vec!["overview.md", "spec/payment.md"], "one file, with the new case");
+    assert_eq!(manifest(&store).group(Group::Spec).pages, vec!["spec/payment.md"]);
+    assert_eq!(done.links_updated, 1);
+    assert!(done.warnings.is_empty(), "{:?}", done.warnings);
+}
+
+#[test]
+fn a_rename_while_another_program_holds_the_docs_lock_changes_nothing() {
+    let tmp = Tmp::new();
+    let store = store(&tmp).with_lock_timeout(std::time::Duration::from_millis(30));
+    add_page(&store, Group::Spec, "spec/a.md", "---\ntitle: A\n---\n");
+    let held = std::fs::File::options().create(true).truncate(false).write(true).open(tmp.0.join("docs/.docs.lock")).unwrap();
+    held.lock().unwrap();
+    let err = rename_page(&store, "spec/a.md", "Alpha").unwrap_err();
+    assert!(err.contains("locked"), "{err}");
+    assert_eq!(store.list_page_files().unwrap(), vec!["spec/a.md"], "no copy was left behind");
+    assert_eq!(manifest(&store).group(Group::Spec).pages, vec!["spec/a.md"]);
+    held.unlock().unwrap();
+    assert_eq!(rename_page(&store, "spec/a.md", "Alpha").unwrap().new_rel, "spec/alpha.md", "and it works once the lock is free");
 }
