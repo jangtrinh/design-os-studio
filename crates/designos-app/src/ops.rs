@@ -2964,12 +2964,12 @@ mod tests {
         let d = app.doc.alloc_id();
         let d = app.doc.insert(app.page, Node::rectangle(d, Rect::new(300.0, 60.0, 50.0, 50.0))).unwrap();
 
-        // Regression for a drop above the first unselected sibling.
+        // Drop above the first unselected sibling.
         app.move_to_parent(&[*c, *b], app.page, 0);
         assert_eq!(app.doc.get(app.page).unwrap().children, vec![*b, *c, *a, d]);
         app.undo();
 
-        // Regression for a drop after the last unselected sibling.
+        // Drop after the last unselected sibling.
         app.move_to_parent(&[*c, *b], app.page, 2);
         assert_eq!(app.doc.get(app.page).unwrap().children, vec![*a, d, *b, *c]);
         app.undo();
