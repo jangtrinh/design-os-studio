@@ -1,0 +1,90 @@
+=== MUTANT 1: set_node_endpoint_cap writes n.stroke.cap instead of vertex cap ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.56s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu ... FAILED
+
+failures:
+
+---- panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu stdout ----
+
+thread 'panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu' (92158605) panicked at crates/designos-app/src/panels/stroke.rs:577:13:
+assertion `left == right` failed: node cap stays None when setting endpoint cap ArrowLines
+  left: ArrowLines
+ right: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::stroke::tests::stroke_panel_start_and_end_points_set_each_arrow_cap_in_one_undo_step_and_render_cpu_and_gpu
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4269 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant1_rc=101
+
+=== MUTANT 2: swap_node_endpoints is a no-op ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.39s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step ... FAILED
+
+failures:
+
+---- panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step stdout ----
+
+thread 'panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step' (92163665) panicked at crates/designos-app/src/panels/stroke.rs:649:9:
+assertion `left == right` failed: swap exchanges start and end caps
+  left: Some((Some(Round), Some(ArrowLines)))
+ right: Some((Some(ArrowLines), Some(Round)))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    panels::stroke::tests::stroke_panel_swap_button_exchanges_start_and_end_caps_in_one_undo_step
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4269 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant2_rc=101
+
+=== MUTANT 3: Tool::Arrow draws a plain line without ArrowLines ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-mcp)
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859b-arrow-tool-stroke-points/crates/designos-app)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.24s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 1 test
+test canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render ... FAILED
+
+failures:
+
+---- canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render stdout ----
+
+thread 'canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render' (92172377) panicked at crates/designos-app/src/canvas/create.rs:397:13:
+Arrow tool must create a vector network carrying endpoint caps, got Line
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    canvas::create::tests::existing_arrow_layers_stay_plain_lines_through_save_and_render
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4269 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p designos-app --bin designos`
+mutant3_rc=101

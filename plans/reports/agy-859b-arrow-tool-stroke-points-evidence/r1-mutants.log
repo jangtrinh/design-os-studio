@@ -1,0 +1,103 @@
+# Note: the first attempt at mutant 2 (an `#[allow]` on an expression) did not compile; its summary lines were replaced by the rerun with the valid patch shown below.
+# Mutants, each applied alone on the final commit and reverted afterwards (patches below). Null control first.
+
+== null control
+render null exit 0
+gpu null exit 0
+app null exit 0
+== mutant 1: set and swap reset the stroke cap again
+mutant 1 app exit 101
+== mutant 2: dashed strokes ignore end point caps again
+mutant 2 render exit 101
+mutant 2 gpu exit 101
+mutant 2 app exit 101
+== mutant 3: Diamond arrow and Circle arrow swap places
+mutant 3 app exit 101
+worktree restored
+done
+mutant 2 render exit 101
+mutant 2 gpu exit 101
+mutant 2 app exit 101
+
+## mutant 1: failing tests
+# mut-1-app
+test panels::stroke::endpoint_tests::a_line_arrow_end_point_on_a_dashed_round_line_draws_the_head_and_keeps_round_dashes_on_cpu_and_gpu ... FAILED
+test panels::stroke::endpoint_tests::end_point_edits_on_a_dashed_round_line_keep_the_dash_cap_and_draw_each_terminal_on_cpu_and_gpu ... FAILED
+test panels::stroke::endpoint_tests::a_none_end_point_on_a_dashed_round_line_leaves_the_last_dash_butt_and_keeps_the_dash_cap ... FAILED
+test panels::stroke::endpoint_tests::swapping_the_end_points_of_a_dashed_round_line_keeps_the_dashes_round_on_cpu_and_gpu ... FAILED
+test result: FAILED. 11 passed; 4 failed; 0 ignored; 0 measured; 4324 filtered out; finished in 0.51s
+
+## mutant 1: patch
+diff --git a/crates/designos-app/src/panels/stroke.rs b/crates/designos-app/src/panels/stroke.rs
+index 3b5d8c672..1f827fbcc 100644
+--- a/crates/designos-app/src/panels/stroke.rs
++++ b/crates/designos-app/src/panels/stroke.rs
+@@ -111,6 +111,7 @@ fn set_node_endpoint_cap(n: &mut Node, is_end: bool, chosen: StrokeCap) {
+         }
+         *paths = net.to_paths();
+     }
++    n.stroke.cap = StrokeCap::None;
+     n.stroke_geometry = None;
+     n.fig_metadata.remove("strokeCap");
+     n.fig_metadata.remove("strokeCapSource");
+@@ -143,6 +144,7 @@ fn swap_node_endpoints(n: &mut Node) {
+         }
+         *paths = net.to_paths();
+     }
++    n.stroke.cap = StrokeCap::None;
+     n.stroke_geometry = None;
+     n.fig_metadata.remove("strokeCap");
+     n.fig_metadata.remove("strokeCapSource");
+
+## mutant 2: failing tests
+# mut-2-render
+test a_none_end_on_a_dashed_round_line_leaves_the_end_dash_butt ... FAILED
+test a_square_start_on_a_dashed_round_line_squares_only_the_first_dash ... FAILED
+test a_square_end_on_a_dashed_round_line_squares_only_the_end_dash ... FAILED
+test outlining_a_dashed_stroke_keeps_the_dash_caps_and_the_end_caps_of_the_vertices ... FAILED
+test result: FAILED. 4 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+# mut-2-gpu
+test a_square_end_on_a_dashed_round_line_squares_only_the_last_dash_on_cpu_and_gpu ... FAILED
+test a_none_end_on_a_dashed_round_line_leaves_the_last_dash_butt_on_cpu_and_gpu ... FAILED
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.34s
+# mut-2-app
+test panels::stroke::endpoint_tests::a_none_end_point_on_a_dashed_round_line_leaves_the_last_dash_butt_and_keeps_the_dash_cap ... FAILED
+test panels::stroke::endpoint_tests::end_point_edits_on_a_dashed_round_line_keep_the_dash_cap_and_draw_each_terminal_on_cpu_and_gpu ... FAILED
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 4330 filtered out; finished in 0.51s
+
+## mutant 2: patch
+diff --git a/crates/designos-render/src/vectorops.rs b/crates/designos-render/src/vectorops.rs
+index f2ab8a68f..0877298a0 100644
+--- a/crates/designos-render/src/vectorops.rs
++++ b/crates/designos-render/src/vectorops.rs
+@@ -866,6 +866,9 @@ fn cap_polygons(sub: &d::Path, w: f32, join: d::StrokeJoin, start_cap: d::Stroke
+ /// through) whose cap is not the cap of the dashes. A dashed stroke caps every dash with `Stroke::cap`; the cap of an
+ /// end point shows only where the first dash starts or the last dash ends.
+ fn dashed_end_caps(stroke: &d::Stroke, net: &VectorNetwork) -> bool {
++    if stroke.weight >= 0.0 {
++        return false;
++    }
+     stroke.weight > 0.0
+         && crate::outline::has_dashes(stroke)
+         && net.vertices.iter().any(|v| v.cap.is_some_and(|c| c != stroke.cap))
+
+## mutant 3: failing tests
+# mut-3-app
+test panels::stroke::endpoint_tests::the_endpoint_options_come_in_figmas_order ... FAILED
+test result: FAILED. 14 passed; 1 failed; 0 ignored; 0 measured; 4324 filtered out; finished in 0.45s
+
+## mutant 3: patch
+diff --git a/crates/designos-app/src/panels/stroke.rs b/crates/designos-app/src/panels/stroke.rs
+index 3b5d8c672..b18ca7f07 100644
+--- a/crates/designos-app/src/panels/stroke.rs
++++ b/crates/designos-app/src/panels/stroke.rs
+@@ -26,8 +26,8 @@ pub(crate) const ENDPOINT_CAPS: [(&str, StrokeCap); 8] = [
+     ("Line arrow", StrokeCap::ArrowLines),
+     ("Triangle arrow", StrokeCap::ArrowEquilateral),
+     ("Reversed triangle", StrokeCap::TriangleFilled),
+-    ("Circle arrow", StrokeCap::CircleFilled),
+     ("Diamond arrow", StrokeCap::DiamondFilled),
++    ("Circle arrow", StrokeCap::CircleFilled),
+     ("Round", StrokeCap::Round),
+     ("Square", StrokeCap::Square),
+ ];
