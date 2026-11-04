@@ -201,7 +201,9 @@ fn hit_in(
             && pn.children.iter().find(|&&c| doc.get(c).is_some_and(|n| n.visible)).is_some_and(|&c| i.bounds_of(c).is_some())
     }) {
         let m = tol * 3.0 + 4.0;
-        idx.query_top_level((p.x - m, p.y - m, p.x + m, p.y + m), &mut top_cands);
+        // A connector is drawn along its live route, which can leave its stored box, so every page-level
+        // connector is a candidate; `connector_hit` rejects the far ones from their cached route bounds.
+        idx.query_top_level_with_connectors((p.x - m, p.y - m, p.x + m, p.y + m), &mut top_cands);
         &top_cands
     } else {
         &pn.children
@@ -831,6 +833,16 @@ mod tests {
             "far hit test should reject all 1,000 connectors by route bounding box without computing or evaluating routes"
         );
 
+        // The scene index lists every page-level connector as a candidate; each must still reject by its cached box.
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        assert_eq!(hit_test_with_index(&d, page, far_pt, 2.0, false, &[], Some(&idx)), None);
+        assert_eq!(
+            designos_doc::route_cache_stats(),
+            stats_before,
+            "far indexed hit test should reject all 1,000 connectors by cached route bounds without computing or evaluating routes"
+        );
+
         // Hitting directly on the midpoint of the top-most connector between adjacent nodes still routes and hits.
         let top_cid = *cids.last().unwrap();
         let mid = designos_doc::connector_route(&d, top_cid).unwrap().midpoint();
@@ -967,5 +979,79 @@ mod tests {
             samples_us.len()
         );
         assert!(p95_us <= budget_us, "hover hit-test p95 {p95_us:.2}us exceeded {budget_us:.0}us budget");
+    }
+
+    /// A page of more than 64 far-away rectangles (so hit testing goes through the scene index), two stickies at
+    /// (0, 0) and (300, 0), and a synced connector between them. Returns `(doc, page, a, b, connector)`.
+    fn indexed_connector_page() -> (Document, NodeId, NodeId, NodeId, NodeId) {
+        let mut d = Document::new("t");
+        let page = d.add_page("p");
+        for i in 0..70usize {
+            let id = d.alloc_id();
+            d.insert(page, Node::rectangle(id, Rect::new(-5_000.0 + i as f32 * 30.0, 4_000.0, 20.0, 20.0))).unwrap();
+        }
+        let a_id = d.alloc_id();
+        let a = d.insert(page, Node::sticky(a_id, Rect::new(0.0, 0.0, 100.0, 100.0), "a")).unwrap();
+        let b_id = d.alloc_id();
+        let b = d.insert(page, Node::sticky(b_id, Rect::new(300.0, 0.0, 100.0, 100.0), "b")).unwrap();
+        let c_id = d.alloc_id();
+        let props = designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+            ..Default::default()
+        };
+        let c = d.insert(page, Node::connector(c_id, props)).unwrap();
+        designos_doc::sync_connector(&mut d, c);
+        (d, page, a, b, c)
+    }
+
+    /// Moves `b` straight down with `get_mut`, leaving the connector's stored box and route cache as they were
+    /// before the move. Returns the midpoint of the connector's live route.
+    fn move_end_without_sync(d: &mut Document, b: NodeId, c: NodeId) -> Vec2 {
+        let mut moved = d.clone();
+        moved.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+        let mid = designos_doc::connector_route(&moved, c).unwrap().midpoint();
+        assert!(mid.y > 250.0, "expected the moved route to leave the stored connector box, got {mid:?}");
+        d.get_mut(b).unwrap().transform = Affine::translate(300.0, 600.0);
+        designos_doc::clear_route_cache();
+        mid
+    }
+
+    #[test]
+    fn indexed_hit_test_finds_a_connector_whose_end_moved_without_sync() {
+        let (mut d, page, _a, b, c) = indexed_connector_page();
+        assert!(d.get(page).unwrap().children.len() > 64, "the page must be large enough to use the scene index");
+        let mut idx = designos_render::SceneIndex::new();
+        idx.ensure(&d, page, 1);
+        let mid = move_end_without_sync(&mut d, b, c);
+
+        assert_eq!(hit_test(&d, page, mid, 2.0, false, &[]), Some(c), "without an index the live route is hit");
+        assert_eq!(hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)), Some(c), "an index built before the move must not hide it");
+        idx.ensure(&d, page, 2);
+        assert_eq!(
+            hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)),
+            Some(c),
+            "re-indexing the moved nodes does not change the stored connector box"
+        );
+    }
+
+    #[test]
+    fn indexed_hit_test_orders_a_stale_connector_by_paint_order() {
+        for connector_on_top in [true, false] {
+            let (mut d, page, _a, b, c) = indexed_connector_page();
+            let mid = move_end_without_sync(&mut d, b, c);
+            let rid = d.alloc_id();
+            let rect = d.insert(page, Node::rectangle(rid, Rect::new(mid.x - 30.0, mid.y - 30.0, 60.0, 60.0))).unwrap();
+            let last = d.get(page).unwrap().children.len() - 1;
+            if connector_on_top {
+                d.reparent(c, page, last).unwrap();
+            }
+            let mut idx = designos_render::SceneIndex::new();
+            idx.ensure(&d, page, 1);
+
+            let expected = if connector_on_top { c } else { rect };
+            assert_eq!(hit_test(&d, page, mid, 2.0, false, &[]), Some(expected), "unindexed, connector_on_top={connector_on_top}");
+            assert_eq!(hit_test_with_index(&d, page, mid, 2.0, false, &[], Some(&idx)), Some(expected), "indexed, connector_on_top={connector_on_top}");
+        }
     }
 }

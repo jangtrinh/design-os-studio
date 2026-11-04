@@ -197,6 +197,10 @@ pub struct SceneIndex {
     /// Child ids of the page as of the last build; the page has no `Entry` to remember them in.
     page_children: Box<[NodeId]>,
     top_has_mask: bool,
+    /// Visible connectors that are direct children of the page, in paint order. A connector is drawn along
+    /// its live route, which leaves the node box once an end node moves, so the box-based `top_grid` cannot
+    /// say which connectors are near a point; hit testing reads this list instead.
+    top_connectors: Vec<NodeId>,
 }
 
 impl SceneIndex {
@@ -243,6 +247,7 @@ impl SceneIndex {
     fn rebuild_top_grid(&mut self, doc: &Document, page: NodeId) {
         self.top_grid.clear();
         self.top_large.clear();
+        self.top_connectors.clear();
         self.top_has_mask = false;
         let Some(p) = doc.get(page) else { return };
         self.page_children = p.children.as_slice().into();
@@ -257,6 +262,9 @@ impl SceneIndex {
             let Some(entry) = self.entries.get_mut(&cid) else { continue };
             entry.top_order = order as u32;
             let bounds = entry.bounds;
+            if matches!(n.kind, NodeKind::Connector(_)) {
+                self.top_connectors.push(cid);
+            }
             if is_empty(bounds) {
                 continue;
             }
@@ -378,6 +386,7 @@ impl SceneIndex {
         self.grid_order_stale = false;
         self.reverse_z_frames.clear();
         self.top_has_mask = false;
+        self.top_connectors.clear();
     }
 
     /// True when `id` is indexed, is not a mask (a mask acts on its later siblings wherever it is)
@@ -472,6 +481,12 @@ impl SceneIndex {
         self.top_has_mask
     }
 
+    /// Visible connectors that are direct children of the indexed page, in paint order (back to front).
+    #[inline]
+    pub fn top_level_connectors(&self) -> &[NodeId] {
+        &self.top_connectors
+    }
+
     /// Appends all indexed `NodeId`s whose `bounds` overlap `rect`.
     pub fn query_rect(&self, rect: (f32, f32, f32, f32), out: &mut Vec<NodeId>) {
         if is_empty(rect) {
@@ -526,6 +541,42 @@ impl SceneIndex {
         if out.len() - start_len > 1 {
             out[start_len..].sort_unstable_by_key(|id| self.entries.get(id).map_or(u32::MAX, |e| e.top_order));
         }
+    }
+
+    /// [`query_top_level`](Self::query_top_level) plus every visible top-level connector the grid did not
+    /// return, back to front in paint order without duplicates. A connector is drawn along its live route,
+    /// not inside its stored box, so the caller has to test each one itself.
+    pub fn query_top_level_with_connectors(&self, rect: (f32, f32, f32, f32), out: &mut Vec<NodeId>) {
+        let start_len = out.len();
+        self.query_top_level(rect, out);
+        if self.top_connectors.is_empty() || is_empty(rect) {
+            return;
+        }
+        let order = |id: &NodeId| self.entries.get(id).map_or(u32::MAX, |e| e.top_order);
+        // Both sequences are already in paint order, so one merge keeps it.
+        let found = out.split_off(start_len);
+        out.reserve(found.len() + self.top_connectors.len());
+        let (mut i, mut j) = (0, 0);
+        while i < found.len() && j < self.top_connectors.len() {
+            let (a, c) = (found[i], self.top_connectors[j]);
+            match order(&a).cmp(&order(&c)) {
+                std::cmp::Ordering::Less => {
+                    out.push(a);
+                    i += 1;
+                }
+                std::cmp::Ordering::Greater => {
+                    out.push(c);
+                    j += 1;
+                }
+                std::cmp::Ordering::Equal => {
+                    out.push(a);
+                    i += 1;
+                    j += usize::from(a == c);
+                }
+            }
+        }
+        out.extend_from_slice(&found[i..]);
+        out.extend_from_slice(&self.top_connectors[j..]);
     }
 
     fn translate_descendants(&mut self, root: NodeId, dx: f32, dy: f32, rev: u64) {
@@ -777,9 +828,13 @@ impl SceneIndex {
         }
         let top_cell = |b: Option<B>| b.filter(|b| !is_empty(*b)).map(grid_range);
         let new_top = self.entries.get(&top_id).map(|e| (e.bounds, e.mask, e.parent));
+        // A node can turn into a connector or stop being one without changing its box, mask flag or parent.
+        let connector_changed = dirty_id == top_id
+            && doc.get(top_id).is_some_and(|n| n.visible && matches!(n.kind, NodeKind::Connector(_))) != self.top_connectors.contains(&top_id);
         if top_cell(new_top.map(|t| t.0)) != top_cell(old_top.map(|t| t.0))
             || new_top.map(|t| t.1) != old_top.map(|t| t.1)
             || new_top.map(|t| t.2) != old_top.map(|t| t.3)
+            || connector_changed
         {
             self.rebuild_top_grid(doc, page);
         }
@@ -1530,5 +1585,199 @@ mod tests {
         idx.ensure(&doc, page, 3);
         assert_eq!(idx.grid_nodes(), &[second, first]);
         assert_eq!(idx.grid_nodes(), grid_nodes_of_full_build(&doc, page, 3));
+    }
+
+    fn insert_sticky(doc: &mut Document, parent: NodeId, x: f32, y: f32) -> NodeId {
+        let id = doc.alloc_id();
+        doc.insert(parent, Node::sticky(id, Rect::new(x, y, 100.0, 100.0), "s")).unwrap()
+    }
+
+    fn connector_props(a: NodeId, b: NodeId) -> designos_doc::ConnectorProps {
+        designos_doc::ConnectorProps {
+            start: designos_doc::ConnectorEnd::attached(a, designos_doc::Magnet::Auto),
+            end: designos_doc::ConnectorEnd::attached(b, designos_doc::Magnet::Auto),
+            ..Default::default()
+        }
+    }
+
+    fn insert_connector(doc: &mut Document, parent: NodeId, a: NodeId, b: NodeId) -> NodeId {
+        let id = doc.alloc_id();
+        let cid = doc.insert(parent, Node::connector(id, connector_props(a, b))).unwrap();
+        designos_doc::sync_connector(doc, cid);
+        cid
+    }
+
+    /// The top-level connector list a from-scratch build produces for the current document.
+    fn connectors_of_full_build(doc: &Document, page: NodeId, rev: u64) -> Vec<NodeId> {
+        let mut full = SceneIndex::new();
+        full.ensure(doc, page, rev);
+        full.top_level_connectors().to_vec()
+    }
+
+    /// A page with two stickies, two connectors with a rectangle between them in paint order, a hidden
+    /// connector, and a frame holding a nested connector. Returns the page and
+    /// `[first, rect, second, hidden, nested, frame]`.
+    fn page_with_connectors(doc: &mut Document) -> (NodeId, [NodeId; 6]) {
+        let page = doc.add_page("page-1");
+        let a = insert_sticky(doc, page, 0.0, 0.0);
+        let b = insert_sticky(doc, page, 300.0, 0.0);
+        let first = insert_connector(doc, page, a, b);
+        let rid = doc.alloc_id();
+        let rect = doc.insert(page, Node::rectangle(rid, Rect::new(100.0, 0.0, 40.0, 40.0))).unwrap();
+        let second = insert_connector(doc, page, b, a);
+        let hidden = insert_connector(doc, page, a, b);
+        doc.get_mut(hidden).unwrap().visible = false;
+        let fid = doc.alloc_id();
+        let frame = doc.insert(page, Node::frame(fid, Rect::new(0.0, 500.0, 400.0, 400.0))).unwrap();
+        let nested = insert_connector(doc, frame, a, b);
+        (page, [first, rect, second, hidden, nested, frame])
+    }
+
+    #[test]
+    fn top_level_connectors_lists_visible_page_connectors_in_paint_order() {
+        let mut doc = Document::new("top-connectors");
+        let (page, [first, _rect, second, hidden, nested, _frame]) = page_with_connectors(&mut doc);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.top_level_connectors(), &[first, second]);
+        assert!(!idx.top_level_connectors().contains(&hidden), "a hidden connector is not drawn, so it is not listed");
+        assert!(!idx.top_level_connectors().contains(&nested), "only page-level connectors are listed");
+
+        idx.clear();
+        assert!(idx.top_level_connectors().is_empty(), "a cleared index lists nothing");
+    }
+
+    #[test]
+    fn inserting_and_removing_a_top_level_connector_updates_the_connector_list() {
+        let mut doc = Document::new("top-connectors-insert-remove");
+        let (page, [first, rect, second, _hidden, _nested, _frame]) = page_with_connectors(&mut doc);
+        let a = doc.get(page).unwrap().children[0];
+        let b = doc.get(page).unwrap().children[1];
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.top_level_connectors(), &[first, second]);
+
+        let added = insert_connector(&mut doc, page, a, b);
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.top_level_connectors(), &[first, second, added]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 2));
+
+        doc.remove(first).unwrap();
+        idx.ensure(&doc, page, 3);
+        assert_eq!(idx.top_level_connectors(), &[second, added]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 3));
+
+        // Removing a node that is not a connector leaves the list alone.
+        doc.remove(rect).unwrap();
+        idx.ensure(&doc, page, 4);
+        assert_eq!(idx.top_level_connectors(), &[second, added]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 4));
+    }
+
+    #[test]
+    fn reordering_a_top_level_connector_re_sorts_the_connector_list() {
+        let mut doc = Document::new("top-connectors-reorder");
+        let (page, [first, _rect, second, _hidden, _nested, _frame]) = page_with_connectors(&mut doc);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.top_level_connectors(), &[first, second]);
+
+        let last = doc.get(page).unwrap().children.len() - 1;
+        doc.reparent(first, page, last).unwrap();
+        idx.ensure(&doc, page, 2);
+        assert_eq!(idx.top_level_connectors(), &[second, first], "the connector sent to the top now paints last");
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 2));
+
+        doc.reparent(first, page, 0).unwrap();
+        idx.ensure(&doc, page, 3);
+        assert_eq!(idx.top_level_connectors(), &[first, second]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 3));
+    }
+
+    #[test]
+    fn hiding_and_showing_a_top_level_connector_updates_the_connector_list() {
+        let mut doc = Document::new("top-connectors-visibility");
+        let (page, [first, _rect, second, hidden, _nested, _frame]) = page_with_connectors(&mut doc);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.top_level_connectors(), &[first, second]);
+
+        doc.get_mut(first).unwrap().visible = false;
+        assert!(idx.update_subtree(&doc, first, 2));
+        assert_eq!(idx.top_level_connectors(), &[second]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 2));
+
+        doc.get_mut(hidden).unwrap().visible = true;
+        assert!(idx.update_subtree(&doc, hidden, 3));
+        assert_eq!(idx.top_level_connectors(), &[second, hidden]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 3));
+
+        doc.get_mut(first).unwrap().visible = true;
+        doc.get_mut(second).unwrap().visible = false;
+        idx.ensure(&doc, page, 4);
+        assert_eq!(idx.top_level_connectors(), &[first, hidden]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 4));
+    }
+
+    #[test]
+    fn changing_the_kind_of_a_top_level_node_updates_the_connector_list() {
+        let mut doc = Document::new("top-connectors-kind");
+        let (page, [first, rect, second, _hidden, _nested, _frame]) = page_with_connectors(&mut doc);
+        let a = doc.get(page).unwrap().children[0];
+        let b = doc.get(page).unwrap().children[1];
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.top_level_connectors(), &[first, second]);
+
+        // The rectangle keeps its box, mask flag and parent, so only its kind tells the index.
+        doc.get_mut(rect).unwrap().kind = NodeKind::Connector(connector_props(a, b));
+        assert!(idx.update_subtree(&doc, rect, 2));
+        assert_eq!(idx.top_level_connectors(), &[first, rect, second]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 2));
+
+        doc.get_mut(first).unwrap().kind = NodeKind::Rectangle;
+        assert!(idx.update_subtree(&doc, first, 3));
+        assert_eq!(idx.top_level_connectors(), &[rect, second]);
+        assert_eq!(idx.top_level_connectors(), connectors_of_full_build(&doc, page, 3));
+    }
+
+    #[test]
+    fn query_top_level_with_connectors_adds_every_connector_to_the_grid_hits_in_paint_order() {
+        let mut doc = Document::new("top-connectors-query");
+        let (page, [first, rect, second, _hidden, _nested, _frame]) = page_with_connectors(&mut doc);
+        // Far from the first sticky, so the grid cannot reach it from the query window below.
+        let far = insert_sticky(&mut doc, page, 50_000.0, 50_000.0);
+
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        let window = (110.0, 10.0, 130.0, 30.0);
+
+        let mut grid_only = Vec::new();
+        idx.query_top_level(window, &mut grid_only);
+        assert!(grid_only.contains(&rect), "the rectangle under the window is a grid hit");
+        assert!(!grid_only.contains(&far));
+
+        let mut with_connectors = Vec::new();
+        idx.query_top_level_with_connectors(window, &mut with_connectors);
+        assert!(!with_connectors.contains(&far), "only connectors are added beyond the grid hits");
+        for id in &grid_only {
+            assert!(with_connectors.contains(id), "every grid hit is kept");
+        }
+        assert!(with_connectors.contains(&first) && with_connectors.contains(&second), "every top-level connector is a candidate");
+        let mut seen = std::collections::HashSet::new();
+        assert!(with_connectors.iter().all(|id| seen.insert(*id)), "no candidate is listed twice");
+        let position = |id: NodeId| doc.get(page).unwrap().children.iter().position(|&c| c == id).unwrap();
+        assert!(with_connectors.windows(2).all(|w| position(w[0]) < position(w[1])), "candidates come back in paint order");
+
+        // Results are appended to what the caller already holds.
+        let mut out = vec![far];
+        idx.query_top_level_with_connectors(window, &mut out);
+        assert_eq!(out[0], far);
+        assert_eq!(out[1..], with_connectors[..]);
     }
 }
