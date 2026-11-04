@@ -7,7 +7,7 @@
 use super::ops::{self, Scanner, TreeSnapshot, MAX_PAGE_BYTES};
 use designos_docs::{ContentHash, DocChange, DocsError, DocsStore, DocsWatcher, Group, Page};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -89,9 +89,29 @@ pub struct Inbox {
 
 const MAX_QUEUED_MESSAGES: usize = 8;
 
+/// A tab nobody looks at cannot pile messages up: past the cap the oldest go, because the newest says what the
+/// folder is like now.
+fn keep_newest(messages: &mut Vec<String>) {
+    if messages.len() > MAX_QUEUED_MESSAGES {
+        messages.drain(..messages.len() - MAX_QUEUED_MESSAGES);
+    }
+}
+
 pub struct DocsService {
     jobs: Sender<Job>,
     inbox: Arc<Mutex<Inbox>>,
+    /// The pass number the tab last drew in (0: never yet), so the worker can tell a parked tab from a visible one.
+    shown: Arc<AtomicU64>,
+}
+
+/// Passes after the last draw during which the tab still counts as on screen: the pass that switches tabs, and one
+/// more, still wake the window once.
+const SHOWN_GRACE_PASSES: u64 = 2;
+
+/// Whether a worker result should wake the window: the tab is on screen (or has not been drawn yet), not parked
+/// behind another tab. A parked tab keeps the latest result in its inbox and catches up when it is shown again.
+fn tab_is_on_screen(shown: u64, now: u64) -> bool {
+    shown == 0 || now <= shown + SHOWN_GRACE_PASSES
 }
 
 impl DocsService {
@@ -107,7 +127,9 @@ impl DocsService {
                 let _ = wake_tx.send(Job::Wake);
             }
         });
+        let shown = Arc::new(AtomicU64::new(0));
         let worker = Worker {
+            shown: shown.clone(),
             scanner: Scanner::new(store, Some((library.clone(), project_id.clone()))),
             library_root: library.root().to_path_buf(),
             project_id,
@@ -126,9 +148,14 @@ impl DocsService {
             .name("designos-project-docs".into())
             .spawn(move || worker.run())
             .map_err(|e| format!("Cannot start the docs worker: {e}"))?;
-        let service = Self { jobs, inbox };
+        let service = Self { jobs, inbox, shown };
         service.send(Job::Init);
         Ok(service)
+    }
+
+    /// The tab was drawn in egui pass `pass`.
+    pub fn mark_shown(&self, pass: u64) {
+        self.shown.store(pass.max(1), Ordering::Relaxed);
     }
 
     pub fn send(&self, job: Job) {
@@ -158,6 +185,7 @@ struct Worker {
     rx: Receiver<Job>,
     inbox: Arc<Mutex<Inbox>>,
     ctx: egui::Context,
+    shown: Arc<AtomicU64>,
     watcher: DocsWatcher,
     pending: Arc<AtomicBool>,
     open: Option<String>,
@@ -179,10 +207,12 @@ impl Worker {
     fn post(&self, f: impl FnOnce(&mut Inbox)) {
         if let Ok(mut inbox) = self.inbox.lock() {
             f(&mut inbox);
-            inbox.errors.truncate(MAX_QUEUED_MESSAGES);
-            inbox.notes.truncate(MAX_QUEUED_MESSAGES);
+            keep_newest(&mut inbox.errors);
+            keep_newest(&mut inbox.notes);
         }
-        self.ctx.request_repaint();
+        if tab_is_on_screen(self.shown.load(Ordering::Relaxed), self.ctx.cumulative_pass_nr()) {
+            self.ctx.request_repaint();
+        }
     }
 
     fn fail(&self, message: String) {
@@ -328,5 +358,28 @@ impl Worker {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn messages_over_the_cap_drop_the_oldest_not_the_newest() {
+        let mut v: Vec<String> = (1..=12).map(|n| format!("m{n}")).collect();
+        keep_newest(&mut v);
+        assert_eq!(v.len(), MAX_QUEUED_MESSAGES);
+        assert_eq!((v.first().map(String::as_str), v.last().map(String::as_str)), (Some("m5"), Some("m12")));
+        let mut few = vec!["a".to_string()];
+        keep_newest(&mut few);
+        assert_eq!(few, vec!["a"]);
+    }
+
+    #[test]
+    fn a_parked_tab_is_told_apart_from_a_visible_one_by_the_pass_it_was_last_drawn_in() {
+        assert!(tab_is_on_screen(0, 50), "never drawn yet: the first load wakes the window");
+        assert!(tab_is_on_screen(100, 100) && tab_is_on_screen(100, 102));
+        assert!(!tab_is_on_screen(100, 103), "three passes without a draw: parked");
     }
 }
