@@ -537,8 +537,18 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
         }
     };
     let post_replay_in_progress = app.doc.in_progress.clone();
+    let mut solved_before_commit = false;
     if !touched_ids.is_empty() && designos_doc::with_index(&app.doc, |idx| !idx.is_empty()) {
-        let reroute_nodes: Vec<NodeId> = touched_ids.iter().map(|&id| NodeId(id)).collect();
+        let mut reroute_nodes: Vec<NodeId> = touched_ids.iter().map(|&id| NodeId(id)).collect();
+        // Connectors follow nodes where layout leaves them, so layout is solved before they are planned.
+        if !report.needs_layout.is_empty() {
+            for id in relayout_collecting_written(&mut app.doc, &report.needs_layout) {
+                if !reroute_nodes.contains(&id) {
+                    reroute_nodes.push(id);
+                }
+            }
+            solved_before_commit = true;
+        }
         let plan = designos_doc::plan_reroute(&app.doc, &reroute_nodes, None);
         for (cid, g) in plan.updates {
             if let Some(n) = tx.ed.node(&mut app.doc, cid) {
@@ -553,6 +563,10 @@ fn apply_one(app: &mut App, patch: &LivePatch, patch_offset: u64) -> Result<(Liv
         // Nothing of this patch landed, so neither do the id remaps it made.
         app.terminal.live_patch.state = saved;
         app.doc.in_progress = saved_in_progress;
+        if solved_before_commit {
+            // The solve before the commit moved nodes the failed step cannot put back.
+            relayout_touched(&mut app.doc, &report.needs_layout);
+        }
         e.to_string()
     })?;
     for (id, ip) in post_replay_in_progress {
@@ -590,7 +604,9 @@ fn merge(total: &mut LivePatchReport, r: LivePatchReport) {
 /// Lays out again, with their real children, the auto-layout containers an edit can have
 /// changed: the node itself when it is one, and the unbroken chain of auto-layout ancestors
 /// above it (Hug sizes propagate up). The agent laid them out on a copy that lacked children.
-pub(crate) fn relayout_touched(doc: &mut Document, needs_layout: &[NodeId]) {
+///
+/// Returns the auto-layout containers it solved.
+pub(crate) fn relayout_touched(doc: &mut Document, needs_layout: &[NodeId]) -> Vec<NodeId> {
     let is_auto = |doc: &Document, id: NodeId| doc.get(id).and_then(|n| n.kind.frame_props()).is_some_and(|f| f.auto_layout.is_some());
     let mut roots: Vec<NodeId> = Vec::new();
     for &id in needs_layout {
@@ -604,9 +620,29 @@ pub(crate) fn relayout_touched(doc: &mut Document, needs_layout: &[NodeId]) {
             roots.push(t);
         }
     }
-    for r in roots {
+    for &r in &roots {
         doc.relayout_subtree(r);
     }
+    roots
+}
+
+/// [`relayout_touched`], returning the ids the solve wrote. When the document's change log cannot
+/// tell (it overflowed, or the tree changed shape), that is every node under the solved containers.
+fn relayout_collecting_written(doc: &mut Document, needs_layout: &[NodeId]) -> Vec<NodeId> {
+    let epoch = doc.mutation_epoch();
+    let roots = relayout_touched(doc, needs_layout);
+    if doc.mutation_epoch() == epoch {
+        return Vec::new();
+    }
+    let (mut written, mut removed) = (Vec::new(), Vec::new());
+    if doc.dirty_changes_since(epoch, &mut written, &mut removed) {
+        return written;
+    }
+    let mut scope = Vec::new();
+    for root in roots {
+        doc.walk(root, |n, _| scope.push(n.id));
+    }
+    scope
 }
 
 fn toast_text(r: &LivePatchReport, committed: bool) -> Option<String> {
@@ -745,5 +781,189 @@ mod close_save_classification_tests {
         assert_eq!(app.doc.mutation_epoch(), epoch_before);
         assert_eq!(app.hist.undo_depth(), depth_before);
         assert_eq!(app.canvas.tiles.rev(), rev_before);
+    }
+}
+
+#[cfg(test)]
+mod reroute_after_layout_tests {
+    use super::*;
+    use designos_doc::live_patch::live_ops_for_command;
+    use designos_doc::*;
+
+    /// A vertical auto-layout frame (gap 0) holding `a` (100x40 at y 0) and `b` (100x40 at y 40),
+    /// plus a page-level connector from a frame at the right to `b`.
+    fn vertical_stack_with_connector_on_second_child() -> (Document, NodeId, NodeId, NodeId) {
+        let mut doc = Document::new("reroute_after_layout");
+        let page = doc.add_page("Page 1");
+        let frame = doc.alloc_id();
+        let mut stack = Node::frame(frame, Rect::new(0.0, 0.0, 100.0, 300.0));
+        if let NodeKind::Frame(fp) = &mut stack.kind {
+            fp.auto_layout = Some(AutoLayout { direction: LayoutDirection::Vertical, item_spacing: 0.0, ..AutoLayout::v1() });
+        }
+        doc.insert(page, stack).unwrap();
+        let a = doc.alloc_id();
+        doc.insert(frame, Node::rectangle(a, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        let b = doc.alloc_id();
+        doc.insert(frame, Node::rectangle(b, Rect::new(0.0, 40.0, 100.0, 40.0))).unwrap();
+        let far = doc.alloc_id();
+        doc.insert(page, Node::frame(far, Rect::new(300.0, 0.0, 100.0, 40.0))).unwrap();
+        let c = doc.alloc_id();
+        let props = ConnectorProps { start: ConnectorEnd::attached(far, Magnet::Auto), end: ConnectorEnd::attached(b, Magnet::Auto), ..Default::default() };
+        doc.insert(page, Node::connector(c, props)).unwrap();
+        doc.relayout_subtree(frame);
+        sync_connector(&mut doc, c);
+        assert_eq!(doc.get(b).unwrap().transform.ty, 40.0, "precondition: b sits under a");
+        (doc, a, b, c)
+    }
+
+    fn assert_connector_follows_its_ends(doc: &Document, c: NodeId) {
+        let expected = connector_geometry(doc, c).unwrap();
+        let stored = doc.get(c).unwrap();
+        assert_eq!(stored.transform, expected.transform, "connector transform");
+        assert_eq!(stored.size, expected.size, "connector size");
+        let NodeKind::Connector(props) = &stored.kind else { unreachable!() };
+        assert_eq!(props.start.point, expected.start_point, "connector start");
+        assert_eq!(props.end.point, expected.end_point, "connector end");
+    }
+
+    fn grow_a_patch(doc: &Document, a: NodeId, extra: Vec<Command>) -> LivePatch {
+        let mut grown = doc.get(a).unwrap().clone();
+        grown.size.y = 80.0;
+        let mut cmds = vec![Command::Update { node: Box::new(grown) }];
+        cmds.extend(extra);
+        let cmd = if cmds.len() == 1 { cmds.pop().unwrap() } else { Command::Batch(cmds) };
+        let mut patch = LivePatch::new(live_ops_for_command(doc, &cmd).unwrap());
+        patch.label = Some("grow a".into());
+        patch
+    }
+
+    #[test]
+    fn live_patch_resizing_a_stack_child_reroutes_the_connector_on_the_sibling_the_solver_moves() {
+        let (doc, a, b, c) = vertical_stack_with_connector_on_second_child();
+        let before_c = doc.get(c).unwrap().clone();
+        let patch = grow_a_patch(&doc, a, Vec::new());
+
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, &[patch]);
+
+        assert_eq!(app.doc.get(b).unwrap().transform.ty, 80.0, "the solver moves b below the taller a");
+        assert_connector_follows_its_ends(&app.doc, c);
+        let NodeKind::Connector(props) = &app.doc.get(c).unwrap().kind else { unreachable!() };
+        assert!((80.0..=120.0).contains(&props.end.point.y), "the connector ends on b at its new place, not on its old edge: {:?}", props.end.point);
+        assert_eq!(app.hist.undo_depth(), 1, "patch, layout and connector share one step");
+
+        app.hist.undo(&mut app.doc).unwrap();
+        assert_eq!(app.doc.get(a).unwrap().size.y, 40.0);
+        assert_eq!(app.doc.get(b).unwrap().transform.ty, 40.0);
+        assert_eq!(app.doc.get(c).unwrap().transform, before_c.transform);
+        assert_eq!(app.doc.get(c).unwrap().kind, before_c.kind);
+        assert_connector_follows_its_ends(&app.doc, c);
+    }
+
+    #[test]
+    fn live_patch_with_post_layout_connector_geometry_writes_nothing_extra() {
+        let (doc, a, b, c) = vertical_stack_with_connector_on_second_child();
+
+        // What the agent's side saved: a taller, the solver's move of b, and the connector re-routed against it.
+        let mut after = doc.clone();
+        after.get_mut(a).unwrap().size.y = 80.0;
+        let frame = after.get(a).unwrap().parent.unwrap();
+        after.relayout_subtree(frame);
+        sync_connector(&mut after, c);
+        let routed = after.get(c).unwrap().clone();
+        assert_eq!(after.get(b).unwrap().transform.ty, 80.0);
+
+        let patch = grow_a_patch(&doc, a, vec![Command::Update { node: Box::new(routed.clone()) }]);
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, std::slice::from_ref(&patch));
+
+        assert_eq!(app.doc.get(b).unwrap().transform.ty, 80.0);
+        assert_eq!(app.doc.get(c).unwrap().transform, routed.transform, "the connector keeps the geometry the patch carried");
+        assert_eq!(app.doc.get(c).unwrap().size, routed.size);
+        assert_eq!(app.doc.get(c).unwrap().kind, routed.kind);
+        assert_connector_follows_its_ends(&app.doc, c);
+        assert_eq!(app.hist.undo_depth(), 1, "no extra undo step");
+
+        // Delivering the same patch again changes nothing: no write, no step, no repaint.
+        app.canvas.dirty = false;
+        let epoch = app.doc.mutation_epoch();
+        let rev = app.canvas.tiles.rev();
+        apply_live_patches(&mut app, std::slice::from_ref(&patch));
+        assert!(!app.canvas.dirty);
+        assert_eq!(app.doc.mutation_epoch(), epoch);
+        assert_eq!(app.canvas.tiles.rev(), rev);
+        assert_eq!(app.hist.undo_depth(), 1);
+    }
+
+    #[test]
+    fn live_patch_resizing_a_child_of_a_long_stack_reroutes_the_connector_on_the_last_child() {
+        // More children than the document's change log remembers, so the solve's writes cannot be listed.
+        let (mut doc, a, _b, c) = vertical_stack_with_connector_on_second_child();
+        let stack = doc.get(a).unwrap().parent.unwrap();
+        let mut last = a;
+        for _ in 0..600 {
+            last = doc.alloc_id();
+            doc.insert(stack, Node::rectangle(last, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        }
+        doc.get_mut(stack).unwrap().size.y = 40.0 * 603.0;
+        doc.relayout_subtree(stack);
+        doc.flush_pending_relayout();
+        if let NodeKind::Connector(props) = &mut doc.get_mut(c).unwrap().kind {
+            props.end.node = Some(last);
+        }
+        sync_connector(&mut doc, c);
+        let last_ty = doc.get(last).unwrap().transform.ty;
+        assert_eq!(last_ty, 40.0 * 601.0, "precondition: the stack is laid out");
+        let patch = grow_a_patch(&doc, a, Vec::new());
+
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, &[patch]);
+
+        assert_eq!(app.doc.get(last).unwrap().transform.ty, last_ty + 40.0);
+        assert_connector_follows_its_ends(&app.doc, c);
+        assert_eq!(app.hist.undo_depth(), 1);
+    }
+
+    #[test]
+    fn live_patch_removing_a_large_stack_child_reroutes_the_connector_on_the_sibling_that_shifts() {
+        // Removing more nodes than the change log tracks one by one: it cannot name what the solve wrote.
+        let (mut doc, a, b, c) = vertical_stack_with_connector_on_second_child();
+        let stack = doc.get(a).unwrap().parent.unwrap();
+        let page = doc.get(stack).unwrap().parent.unwrap();
+        let big = doc.alloc_id();
+        doc.insert(page, Node::frame(big, Rect::new(0.0, 0.0, 100.0, 40.0))).unwrap();
+        for _ in 0..70 {
+            let leaf = doc.alloc_id();
+            doc.insert(big, Node::rectangle(leaf, Rect::new(0.0, 0.0, 10.0, 10.0))).unwrap();
+        }
+        doc.reparent(big, stack, 0).unwrap();
+        doc.relayout_subtree(stack);
+        sync_connector(&mut doc, c);
+        assert_eq!(doc.get(b).unwrap().transform.ty, 80.0, "precondition: b sits under big and a");
+        let mut patch = LivePatch::new(live_ops_for_command(&doc, &Command::Remove { id: big }).unwrap());
+        patch.label = Some("remove big".into());
+
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, &[patch]);
+
+        assert!(app.doc.get(big).is_none());
+        assert_eq!(app.doc.get(b).unwrap().transform.ty, 40.0, "b moves up into the gap");
+        assert_connector_follows_its_ends(&app.doc, c);
+        assert_eq!(app.hist.undo_depth(), 1);
+    }
+
+    #[test]
+    fn live_patch_removing_a_stack_child_reroutes_the_connector_on_the_sibling_that_shifts() {
+        let (doc, a, b, c) = vertical_stack_with_connector_on_second_child();
+        let mut patch = LivePatch::new(live_ops_for_command(&doc, &Command::Remove { id: a }).unwrap());
+        patch.label = Some("remove a".into());
+
+        let mut app = App::new(doc);
+        apply_live_patches(&mut app, &[patch]);
+
+        assert!(app.doc.get(a).is_none());
+        assert_eq!(app.doc.get(b).unwrap().transform.ty, 0.0, "b moves up into the gap");
+        assert_connector_follows_its_ends(&app.doc, c);
+        assert_eq!(app.hist.undo_depth(), 1);
     }
 }
