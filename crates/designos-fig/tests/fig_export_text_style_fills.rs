@@ -142,3 +142,50 @@ fn a_solid_fill_on_a_text_style_of_a_file_comes_back_after_a_round_trip() {
     let again = import_fig(&export_fig(&doc).expect("export_fig")).expect("re-import the exported fig");
     assert_eq!(text_style_fills(&again, "Shader/Text"), before);
 }
+
+/// `(style name, fills)` of every text style, in name order.
+fn text_style_fills_by_name(doc: &Document) -> Vec<(String, Vec<Paint>)> {
+    let mut all: Vec<(String, Vec<Paint>)> = doc
+        .styles
+        .iter()
+        .filter_map(|(key, style)| match style {
+            Style::Text(ts) => Some((doc.style_name(key).to_string(), ts.fills.clone())),
+            _ => None,
+        })
+        .collect();
+    all.sort_by(|a, b| a.0.cmp(&b.0));
+    all
+}
+
+/// Set `DESIGNOS_FIG_ROUND_TRIP_PATH` to a copy of a large `.fig` to check that an import, an export and an import keep the
+/// node count and the number of fills of every text style. Skipped without the variable.
+#[test]
+fn a_file_keeps_its_node_count_and_text_style_fill_counts_through_a_round_trip_when_requested() {
+    let Ok(path) = std::env::var("DESIGNOS_FIG_ROUND_TRIP_PATH") else { return };
+    let bytes = std::fs::read(&path).expect("read DESIGNOS_FIG_ROUND_TRIP_PATH");
+    let first = import_fig(&bytes).expect("import the file");
+    let before = text_style_fills_by_name(&first);
+    let not_default = |all: &[(String, Vec<Paint>)]| all.iter().filter(|(_, f)| *f != vec![Paint::solid(Color::BLACK)]).count();
+    println!(
+        "round_trip before: nodes={} text_styles={} text_style_fills={} styles_with_other_than_the_default_black_fill={}",
+        first.nodes.len(),
+        before.len(),
+        before.iter().map(|(_, f)| f.len()).sum::<usize>(),
+        not_default(&before)
+    );
+
+    let out = export_fig(&first).expect("export the document");
+    let second = import_fig(&out).expect("import the exported file");
+    let after = text_style_fills_by_name(&second);
+    println!(
+        "round_trip after:  nodes={} text_styles={} text_style_fills={} styles_with_other_than_the_default_black_fill={}",
+        second.nodes.len(),
+        after.len(),
+        after.iter().map(|(_, f)| f.len()).sum::<usize>(),
+        not_default(&after)
+    );
+
+    assert_eq!(second.nodes.len(), first.nodes.len(), "the node count is kept");
+    let counts = |all: &[(String, Vec<Paint>)]| all.iter().map(|(n, f)| (n.clone(), f.len())).collect::<Vec<_>>();
+    assert_eq!(counts(&after), counts(&before), "every text style keeps its number of fills");
+}
