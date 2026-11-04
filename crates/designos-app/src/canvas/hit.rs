@@ -201,9 +201,16 @@ fn hit_in(
             && pn.children.iter().find(|&&c| doc.get(c).is_some_and(|n| n.visible)).is_some_and(|&c| i.bounds_of(c).is_some())
     }) {
         let m = tol * 3.0 + 4.0;
-        // A connector is drawn along its live route, which can leave its stored box, so every page-level
-        // connector is a candidate; `connector_hit` rejects the far ones from their cached route bounds.
-        idx.query_top_level_with_connectors((p.x - m, p.y - m, p.x + m, p.y + m), &mut top_cands);
+        let window = (p.x - m, p.y - m, p.x + m, p.y + m);
+        // A connector is drawn along its live route, which can leave its stored box, so the grid cannot pick
+        // the connectors near `p`. The index keeps each connector's live route box and returns the ones near the
+        // window (`connector_hit` still tests each); when the document changed since the index last synced with
+        // it those boxes are out of date, so every page-level connector is a candidate instead.
+        if idx.connector_routes_current(doc) {
+            idx.query_top_level_with_connectors(window, &mut top_cands);
+        } else {
+            idx.query_top_level_with_every_connector(window, &mut top_cands);
+        }
         &top_cands
     } else {
         &pn.children

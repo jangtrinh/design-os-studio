@@ -65,6 +65,14 @@ pub(crate) fn overlaps(a: B, b: B) -> bool {
     a.0 <= b.2 && b.0 <= a.2 && a.1 <= b.3 && b.1 <= a.3 && !is_empty(a) && !is_empty(b)
 }
 
+/// Box of connector `id`'s live route in its parent's space, grown by half its stroke weight. The route
+/// comes from the end nodes as they are now, which can differ from the connector's own stored box.
+fn connector_route_box(doc: &Document, id: NodeId) -> Option<B> {
+    let half = doc.get(id)?.stroke.weight / 2.0;
+    let r = designos_doc::connector_route_bounds(doc, id, half)?;
+    Some((r.x, r.y, r.x + r.w, r.y + r.h))
+}
+
 /// Extra extent (local units) around the node bounds touched by strokes and
 /// effects. Shared with the renderer's own culling so both agree exactly.
 pub(crate) fn node_margin(n: &Node) -> f32 {
@@ -201,6 +209,15 @@ pub struct SceneIndex {
     /// its live route, which leaves the node box once an end node moves, so the box-based `top_grid` cannot
     /// say which connectors are near a point; hit testing reads this list instead.
     top_connectors: Vec<NodeId>,
+    /// Page-space box of each connector in `top_connectors`, parallel to it: the box of its live route grown by
+    /// half its stroke weight, or `None` when no route can be worked out (then the connector is always a candidate).
+    /// Working a route out costs far more than comparing two boxes, so the boxes are worked out once per applied
+    /// change (`sync_connector_boxes`) and every point query only compares them.
+    connector_boxes: Vec<Option<B>>,
+    /// `(runtime id, mutation epoch)` of the document `connector_boxes` was worked out from.
+    connector_boxes_stamp: Option<(u64, u64)>,
+    /// `top_connectors` was rebuilt since `connector_boxes` was worked out.
+    connector_boxes_dirty: bool,
 }
 
 impl SceneIndex {
@@ -211,6 +228,12 @@ impl SceneIndex {
     /// Rebuilds if `rev` or `page` differ from the cached build. Returns the
     /// previous entries when a rebuild happened.
     pub(crate) fn ensure_prev(&mut self, doc: &Document, page: NodeId, rev: u64) -> Option<IdMap<Entry>> {
+        let prev = self.ensure_prev_entries(doc, page, rev);
+        self.sync_connector_boxes(doc);
+        prev
+    }
+
+    fn ensure_prev_entries(&mut self, doc: &Document, page: NodeId, rev: u64) -> Option<IdMap<Entry>> {
         if self.built && self.page == Some(page) && self.rev == rev {
             return None;
         }
@@ -248,6 +271,7 @@ impl SceneIndex {
         self.top_grid.clear();
         self.top_large.clear();
         self.top_connectors.clear();
+        self.connector_boxes_dirty = true;
         self.top_has_mask = false;
         let Some(p) = doc.get(page) else { return };
         self.page_children = p.children.as_slice().into();
@@ -283,6 +307,11 @@ impl SceneIndex {
     }
 
     pub fn ensure(&mut self, doc: &Document, page: NodeId, rev: u64) {
+        self.ensure_entries(doc, page, rev);
+        self.sync_connector_boxes(doc);
+    }
+
+    fn ensure_entries(&mut self, doc: &Document, page: NodeId, rev: u64) {
         if self.built && self.page == Some(page) {
             if self.rev == rev {
                 return;
@@ -387,6 +416,9 @@ impl SceneIndex {
         self.reverse_z_frames.clear();
         self.top_has_mask = false;
         self.top_connectors.clear();
+        self.connector_boxes.clear();
+        self.connector_boxes_stamp = None;
+        self.connector_boxes_dirty = false;
     }
 
     /// True when `id` is indexed, is not a mask (a mask acts on its later siblings wherever it is)
@@ -543,22 +575,75 @@ impl SceneIndex {
         }
     }
 
-    /// [`query_top_level`](Self::query_top_level) plus every visible top-level connector the grid did not
-    /// return, back to front in paint order without duplicates. A connector is drawn along its live route,
-    /// not inside its stored box, so the caller has to test each one itself.
+    /// [`query_top_level`](Self::query_top_level) plus every visible top-level connector whose live route
+    /// (grown by half its stroke weight) overlaps `rect`, back to front in paint order without duplicates.
+    /// A connector is drawn along its live route, not inside its stored box, so the grid cannot say which
+    /// connectors are near; the caller still tests each one returned. A caller that tolerates a miss of
+    /// `t` around a point passes `rect` grown by `t`.
+    ///
+    /// The routes are those worked out when the index last synced with the document, so call this only
+    /// while [`connector_routes_current`](Self::connector_routes_current) holds, and use
+    /// [`query_top_level_with_every_connector`](Self::query_top_level_with_every_connector) otherwise.
     pub fn query_top_level_with_connectors(&self, rect: (f32, f32, f32, f32), out: &mut Vec<NodeId>) {
         let start_len = out.len();
         self.query_top_level(rect, out);
         if self.top_connectors.is_empty() || is_empty(rect) {
             return;
         }
+        if self.connector_boxes.len() != self.top_connectors.len() {
+            self.merge_connectors(start_len, &self.top_connectors, out);
+            return;
+        }
+        let near: Vec<NodeId> =
+            self.top_connectors.iter().zip(&self.connector_boxes).filter(|(_, b)| b.is_none_or(|b| overlaps(b, rect))).map(|(&id, _)| id).collect();
+        self.merge_connectors(start_len, &near, out);
+    }
+
+    /// [`query_top_level`](Self::query_top_level) plus every visible top-level connector, near or not, back to
+    /// front in paint order without duplicates. Costs the caller one test per connector on the page; for a
+    /// document that changed since the last [`ensure`](Self::ensure), whose connector routes are out of date.
+    pub fn query_top_level_with_every_connector(&self, rect: (f32, f32, f32, f32), out: &mut Vec<NodeId>) {
+        let start_len = out.len();
+        self.query_top_level(rect, out);
+        if self.top_connectors.is_empty() || is_empty(rect) {
+            return;
+        }
+        self.merge_connectors(start_len, &self.top_connectors, out);
+    }
+
+    /// Whether the connector routes behind [`query_top_level_with_connectors`](Self::query_top_level_with_connectors)
+    /// were worked out from the current state of `doc`. They are refreshed by every `ensure` and `update_subtree`,
+    /// so an edit that the index has not been told about yet makes this false.
+    pub fn connector_routes_current(&self, doc: &Document) -> bool {
+        self.top_connectors.is_empty()
+            || (!self.connector_boxes_dirty
+                && self.connector_boxes.len() == self.top_connectors.len()
+                && self.connector_boxes_stamp == Some((doc.runtime_id(), doc.mutation_epoch())))
+    }
+
+    /// Works `connector_boxes` out again when `top_connectors` was rebuilt or `doc` changed since the last time.
+    /// Any change can move a connector's route (an end node moves while the connector node stays put), so the
+    /// document's mutation epoch, not the connector's own dirtiness, decides.
+    fn sync_connector_boxes(&mut self, doc: &Document) {
+        let stamp = (doc.runtime_id(), doc.mutation_epoch());
+        if !self.connector_boxes_dirty && self.connector_boxes.len() == self.top_connectors.len() && self.connector_boxes_stamp == Some(stamp) {
+            return;
+        }
+        self.connector_boxes.clear();
+        self.connector_boxes.extend(self.top_connectors.iter().map(|&id| connector_route_box(doc, id)));
+        self.connector_boxes_stamp = Some(stamp);
+        self.connector_boxes_dirty = false;
+    }
+
+    /// Appends the grid hits already in `out[start_len..]` merged with `connectors`, both in paint order,
+    /// keeping paint order and listing a connector the grid returned once.
+    fn merge_connectors(&self, start_len: usize, connectors: &[NodeId], out: &mut Vec<NodeId>) {
         let order = |id: &NodeId| self.entries.get(id).map_or(u32::MAX, |e| e.top_order);
-        // Both sequences are already in paint order, so one merge keeps it.
         let found = out.split_off(start_len);
-        out.reserve(found.len() + self.top_connectors.len());
+        out.reserve(found.len() + connectors.len());
         let (mut i, mut j) = (0, 0);
-        while i < found.len() && j < self.top_connectors.len() {
-            let (a, c) = (found[i], self.top_connectors[j]);
+        while i < found.len() && j < connectors.len() {
+            let (a, c) = (found[i], connectors[j]);
             match order(&a).cmp(&order(&c)) {
                 std::cmp::Ordering::Less => {
                     out.push(a);
@@ -576,7 +661,7 @@ impl SceneIndex {
             }
         }
         out.extend_from_slice(&found[i..]);
-        out.extend_from_slice(&self.top_connectors[j..]);
+        out.extend_from_slice(&connectors[j..]);
     }
 
     fn translate_descendants(&mut self, root: NodeId, dx: f32, dy: f32, rev: u64) {
@@ -611,6 +696,7 @@ impl SceneIndex {
         }
         let updated = self.apply_subtree_update(doc, dirty_id, rev);
         self.restore_grid_order(doc);
+        self.sync_connector_boxes(doc);
         updated
     }
 
@@ -1747,16 +1833,20 @@ mod tests {
     }
 
     #[test]
-    fn query_top_level_with_connectors_adds_every_connector_to_the_grid_hits_in_paint_order() {
+    fn query_top_level_with_connectors_adds_the_connectors_near_the_window_to_the_grid_hits_in_paint_order() {
         let mut doc = Document::new("top-connectors-query");
         let (page, [first, rect, second, _hidden, _nested, _frame]) = page_with_connectors(&mut doc);
-        // Far from the first sticky, so the grid cannot reach it from the query window below.
+        // Far from the first sticky, so the grid cannot reach it from the query windows below.
         let far = insert_sticky(&mut doc, page, 50_000.0, 50_000.0);
+        let route_box = designos_doc::connector_route_bounds(&doc, first, 1.0).unwrap();
+        assert!(route_box.y > 40.0 && route_box.y + route_box.h < 60.0, "the routes run level between the stickies, got {route_box:?}");
 
         let mut idx = SceneIndex::new();
         idx.ensure(&doc, page, 1);
-        let window = (110.0, 10.0, 130.0, 30.0);
+        assert!(idx.connector_routes_current(&doc));
 
+        // The rectangle and both routes sit under this window.
+        let window = (110.0, 30.0, 130.0, 60.0);
         let mut grid_only = Vec::new();
         idx.query_top_level(window, &mut grid_only);
         assert!(grid_only.contains(&rect), "the rectangle under the window is a grid hit");
@@ -1768,7 +1858,7 @@ mod tests {
         for id in &grid_only {
             assert!(with_connectors.contains(id), "every grid hit is kept");
         }
-        assert!(with_connectors.contains(&first) && with_connectors.contains(&second), "every top-level connector is a candidate");
+        assert!(with_connectors.contains(&first) && with_connectors.contains(&second), "a connector whose route is under the window is a candidate");
         let mut seen = std::collections::HashSet::new();
         assert!(with_connectors.iter().all(|id| seen.insert(*id)), "no candidate is listed twice");
         let position = |id: NodeId| doc.get(page).unwrap().children.iter().position(|&c| c == id).unwrap();
@@ -1779,5 +1869,115 @@ mod tests {
         idx.query_top_level_with_connectors(window, &mut out);
         assert_eq!(out[0], far);
         assert_eq!(out[1..], with_connectors[..]);
+
+        // Above the routes the rectangle is still a grid hit, but a connector that is not under the window is not listed.
+        let above = (110.0, 5.0, 130.0, 25.0);
+        let mut above_routes = Vec::new();
+        idx.query_top_level_with_connectors(above, &mut above_routes);
+        assert!(above_routes.contains(&rect));
+        assert!(!above_routes.contains(&first) && !above_routes.contains(&second), "connectors whose routes miss the window are left out");
+
+        // The unfiltered query lists every connector in paint order, whatever the window.
+        let mut every = Vec::new();
+        idx.query_top_level_with_every_connector(above, &mut every);
+        assert!(every.contains(&first) && every.contains(&second));
+        assert!(every.windows(2).all(|w| position(w[0]) < position(w[1])), "the unfiltered query keeps paint order");
+    }
+
+    /// Two stickies with a connector between them, and a second pair with a connector 50,000 units away.
+    fn two_connector_pairs(doc: &mut Document) -> (NodeId, NodeId, NodeId, NodeId, NodeId) {
+        let page = doc.add_page("page-1");
+        let a = insert_sticky(doc, page, 0.0, 0.0);
+        let b = insert_sticky(doc, page, 300.0, 0.0);
+        let near = insert_connector(doc, page, a, b);
+        let c = insert_sticky(doc, page, 50_000.0, 50_000.0);
+        let d = insert_sticky(doc, page, 50_300.0, 50_000.0);
+        let far = insert_connector(doc, page, c, d);
+        (page, b, near, far, a)
+    }
+
+    fn candidates_near(idx: &SceneIndex, at: Vec2) -> Vec<NodeId> {
+        let mut out = Vec::new();
+        idx.query_top_level_with_connectors((at.x - 10.0, at.y - 10.0, at.x + 10.0, at.y + 10.0), &mut out);
+        out
+    }
+
+    fn move_end_without_sync(doc: &mut Document, end: NodeId, connector: NodeId) -> Vec2 {
+        doc.get_mut(end).unwrap().transform = Affine::translate(300.0, 600.0);
+        designos_doc::connector_route(doc, connector).unwrap().midpoint()
+    }
+
+    #[test]
+    fn a_probe_lists_only_the_connectors_near_it_instead_of_every_connector_on_the_page() {
+        let mut doc = Document::new("top-connectors-near");
+        let (page, _b, near, far, _a) = two_connector_pairs(&mut doc);
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert_eq!(idx.top_level_connectors(), &[near, far]);
+
+        let on_near = designos_doc::connector_route(&doc, near).unwrap().midpoint();
+        let on_far = designos_doc::connector_route(&doc, far).unwrap().midpoint();
+        assert_eq!(candidates_near(&idx, on_near), vec![near]);
+        assert_eq!(candidates_near(&idx, on_far), vec![far]);
+        assert!(candidates_near(&idx, Vec2::new(-5_000.0, -5_000.0)).is_empty(), "a point that is near no route has no connector candidates");
+    }
+
+    #[test]
+    fn an_end_that_moves_without_the_connector_is_found_along_its_live_route_after_every_kind_of_sync() {
+        for how in ["ensure", "update_subtree", "ensure_prev"] {
+            let mut doc = Document::new("top-connectors-moved-end");
+            let (page, b, near, _far, _a) = two_connector_pairs(&mut doc);
+            let mut idx = SceneIndex::new();
+            idx.ensure(&doc, page, 1);
+            assert!(idx.connector_routes_current(&doc), "{how}: a freshly synced index is current");
+
+            // The connector node is not touched, so its stored box and the index's grid cell stay where they were.
+            let stored = doc.get(near).unwrap().size;
+            let live = move_end_without_sync(&mut doc, b, near);
+            assert_eq!(doc.get(near).unwrap().size, stored);
+            assert!(live.y > 250.0, "{how}: the moved route leaves the stored connector box, got {live:?}");
+            assert!(!idx.connector_routes_current(&doc), "{how}: an edit the index was not told about makes its routes out of date");
+            let mut every = Vec::new();
+            idx.query_top_level_with_every_connector((live.x - 10.0, live.y - 10.0, live.x + 10.0, live.y + 10.0), &mut every);
+            assert!(every.contains(&near), "{how}: the unfiltered query still lists it");
+
+            match how {
+                "ensure" => idx.ensure(&doc, page, 2),
+                "update_subtree" => {
+                    assert!(idx.update_subtree(&doc, b, 2));
+                }
+                _ => {
+                    idx.ensure_prev(&doc, page, 2);
+                }
+            }
+            assert!(idx.connector_routes_current(&doc), "{how}: syncing makes the routes current");
+            assert!(candidates_near(&idx, live).contains(&near), "{how}: the connector is a candidate where its live route is");
+        }
+    }
+
+    #[test]
+    fn connector_routes_go_out_of_date_with_any_document_edit_and_a_clear_forgets_them() {
+        let mut doc = Document::new("top-connectors-edit");
+        let (page, _b, near, _far, a) = two_connector_pairs(&mut doc);
+        let mut idx = SceneIndex::new();
+        idx.ensure(&doc, page, 1);
+        assert!(idx.connector_routes_current(&doc));
+
+        doc.get_mut(a).unwrap().name = "renamed".into();
+        assert!(!idx.connector_routes_current(&doc), "an edit that leaves every box alone still stamps the document");
+        idx.ensure(&doc, page, 2);
+        assert!(idx.connector_routes_current(&doc));
+
+        // Hiding the connector drops it from the list, and the boxes follow the list.
+        doc.get_mut(near).unwrap().visible = false;
+        idx.ensure(&doc, page, 3);
+        assert!(idx.connector_routes_current(&doc));
+        assert!(!idx.top_level_connectors().contains(&near));
+        let on_near = Vec2::new(200.0, 50.0);
+        assert!(!candidates_near(&idx, on_near).contains(&near));
+
+        idx.clear();
+        assert!(idx.top_level_connectors().is_empty());
+        assert!(candidates_near(&idx, on_near).is_empty());
     }
 }
