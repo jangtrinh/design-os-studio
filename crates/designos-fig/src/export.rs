@@ -573,8 +573,7 @@ fn export_node(doc: &Document, id: NodeId, parent_abs: Option<&Affine>, depth: u
                         Some((cap, None | Some(StrokeCapSite::Node))) => cap,
                         _ => "NONE",
                     },
-                    StrokeCap::Round => "ROUND",
-                    StrokeCap::Square => "SQUARE",
+                    c => crate::vecnet::cap_name(c),
                 }
                 .into(),
             );
@@ -842,11 +841,11 @@ pub fn export_rest_json(doc: &Document) -> Value {
     out
 }
 
-/// The arrow cap the stroke model has no name for that the node carries from import, and where it sat: on the node,
+/// The cap the stroke model still has no name for that the node carries from import, and where it sat: on the node,
 /// or on the vertex at that index. `None` as the site means the cap was recorded before its site was kept; the
 /// export then places it as it always did: on the node when the node has no cap of its own, else on the first
 /// vertex without a cap.
 fn unmodelled_stroke_cap(node: &Node) -> Option<(&str, Option<StrokeCapSite>)> {
-    let cap = node.fig_metadata.get("strokeCap").map(String::as_str).filter(|s| !matches!(*s, "" | "NONE" | "ROUND" | "SQUARE"))?;
+    let cap = node.fig_metadata.get("strokeCap").map(String::as_str).filter(|s| !s.is_empty() && crate::vecnet::cap_from(s).is_none())?;
     Some((cap, node.fig_metadata.get(STROKE_CAP_SITE_KEY).and_then(|s| StrokeCapSite::decode(s))))
 }

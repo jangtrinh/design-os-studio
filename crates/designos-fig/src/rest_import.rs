@@ -49,12 +49,12 @@ impl StrokeCapSite {
     }
 }
 
-/// A stroke cap Figma draws that [`StrokeCap`] has no name for (the arrow caps), on the node or on any
-/// vertex of its network, and where it sat. The baked stroke outline carries the arrowhead; the name is kept in
-/// `fig_metadata["strokeCap"]` so that a resize keeps scaling the outline instead of drawing a plain line, and
-/// the site in `fig_metadata[STROKE_CAP_SITE_KEY]` so that an export writes it back to the same place.
+/// A stroke cap Figma draws that [`StrokeCap`] still has no name for (e.g. `"HIGHLIGHT"`, `"WASHI_TAPE_*"`), on
+/// the node or on any vertex of its network, and where it sat. The baked stroke outline carries that decoration;
+/// the name is kept in `fig_metadata["strokeCap"]` so that a resize keeps scaling the outline instead of drawing a
+/// plain line, and the site in `fig_metadata[STROKE_CAP_SITE_KEY]` so that an export writes it back to the same place.
 fn unmodelled_stroke_cap(v: &Value) -> Option<(&str, StrokeCapSite)> {
-    let unmodelled = |c: &&str| !c.is_empty() && !matches!(*c, "NONE" | "ROUND" | "SQUARE");
+    let unmodelled = |c: &&str| !c.is_empty() && crate::vecnet::cap_from(c).is_none();
     fstr(v, "strokeCap").filter(unmodelled).map(|c| (c, StrokeCapSite::Node)).or_else(|| {
         let vertices = v.get("vectorNetwork")?.get("vertices")?.as_array()?;
         vertices.iter().enumerate().find_map(|(i, x)| fstr(x, "strokeCap").filter(unmodelled).map(|c| (c, StrokeCapSite::Vertex(i))))
@@ -1371,11 +1371,7 @@ impl<'a> Ctx<'a> {
             Some("OUTSIDE") => StrokeAlign::Outside,
             _ => StrokeAlign::Inside,
         };
-        n.stroke.cap = match fstr(v, "strokeCap") {
-            Some("ROUND") => StrokeCap::Round,
-            Some("SQUARE") => StrokeCap::Square,
-            _ => StrokeCap::None,
-        };
+        n.stroke.cap = fstr(v, "strokeCap").and_then(crate::vecnet::cap_from).unwrap_or(StrokeCap::None);
         if matches!(ty, "VECTOR" | "BRUSH") {
             if let Some((cap, site)) = unmodelled_stroke_cap(v) {
                 if let std::collections::btree_map::Entry::Vacant(recorded) = n.fig_metadata.entry("strokeCap".into()) {
@@ -3055,11 +3051,7 @@ impl<'a> Ctx<'a> {
             };
         }
         if let Some(c) = fstr(set, "strokeCap") {
-            n.stroke.cap = match c {
-                "ROUND" => StrokeCap::Round,
-                "SQUARE" => StrokeCap::Square,
-                _ => StrokeCap::None,
-            };
+            n.stroke.cap = crate::vecnet::cap_from(c).unwrap_or(StrokeCap::None);
             if !has("strokeGeometry") {
                 n.stroke_geometry = None;
             }

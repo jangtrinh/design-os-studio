@@ -1,0 +1,166 @@
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-svg)
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-gpu)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-859-arrowhead-caps/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.18s
+     Running tests/resized_shapes.rs (out/cargo/debug/deps/resized_shapes-f43e2264302b4cce)
+
+running 16 tests
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+kit_1143-83664_bake_1x: mismatch 1.3600% (94 px of 6912) at tolerance 8, ssim 0.9993
+miter_round_joins_right_then_down_on_the_axis: mismatch 0.0082% (3 px of 36400) at tolerance 8, ssim 1.0000
+resized_vector_network_stroke: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_star: mismatch 0.9505% (346 px of 36400) at tolerance 8, ssim 0.9990
+resized_imported_shapes: mismatch 1.1566% (421 px of 36400) at tolerance 8, ssim 0.9984
+open_mixed_join_round_caps: mismatch 0.0412% (15 px of 36400) at tolerance 8, ssim 0.9999
+equal_cap_open_stroke: mismatch 0.0549% (20 px of 36400) at tolerance 8, ssim 0.9999
+resized_inside_chain: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+per_vertex_square_cap: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+resized_arrow_lines: mismatch 0.2582% (94 px of 36400) at tolerance 8, ssim 0.9999
+resized_union: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+kit_1143-83664_bake_1x: 0.1302% with AA pixels forgiven (9 px)
+resized_imported_vector: mismatch 0.0220% (8 px of 36400) at tolerance 8, ssim 0.9997
+arrow_lines_vec: mismatch 0.2967% (108 px of 36400) at tolerance 8, ssim 0.9994
+file_type_resized_2x: mismatch 0.1346% (49 px of 36400) at tolerance 8, ssim 0.9999
+open_mixed_join_square_caps: mismatch 0.0082% (3 px of 36400) at tolerance 8, ssim 1.0000
+mixed_join_resized_2x: mismatch 0.0192% (7 px of 36400) at tolerance 8, ssim 1.0000
+miter_round_joins_right_then_down_on_the_axis: 0.0000% with AA pixels forgiven (0 px)
+resized_vector_network_stroke: 0.0000% with AA pixels forgiven (0 px)
+resized_inside_chain: 0.0000% with AA pixels forgiven (0 px)
+resized_imported_shapes: 0.0000% with AA pixels forgiven (0 px)
+resized_union: 0.0000% with AA pixels forgiven (0 px)
+resized_imported_vector: 0.0000% with AA pixels forgiven (0 px)
+per_vertex_square_cap: 0.test resized_vector_strokes_its_network_and_fills_its_outline_like_cpu ... ok
+0000% with AA pixels forgiven (0 px)
+test resized_imported_ellipse_and_star_match_cpu ... ok
+kit_1143-83664_live_1x: mismatch 1.3600% (94 px of 6912) at tolerance 8, ssim 0.9993
+test resized_union_matches_cpu ... ok
+arrow_lines_vec: 0.0000% with AA pixels forgiven (0 px)
+resized_star: 0.0000% with AA pixels forgiven (0 px)
+test resized_imported_vector_keeps_stroke_weight_and_matches_cpu ... ok
+test resized_flattened_star_matches_cpu ... ok
+kit_1143-83664_live_1x: 0.1302% with AA pixels forgiven (9 px)
+equal_cap_open_stroke: 0.0000% with AA pixels forgiven (0 px)
+mixed_join_resized_2x: 0.0000% with AA pixels forgiven (0 px)
+file_type_resized_2x: 0.0165% with AA pixels forgiven (6 px)
+GPU: Apple M4 Max (Metal)
+open_mixed_join_square_caps: 0.0000% with AA pixels forgiven (0 px)
+test equal_cap_open_stroke_draws_identically_on_cpu_and_gpu ... ok
+test mixed_miter_and_round_join_path_resized_2x_keeps_both_joins_like_cpu ... ok
+GPU: Apple M4 Max (Metal)
+test file_type_network_resized_2x_strokes_outline_inside_and_fold_centered_like_cpu ... ok
+open_mixed_join_round_caps: 0.0000% with AA pixels forgiven (0 px)
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_square_like_cpu ... ok
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+resized_arrow_lines: 0.0247% with AA pixels forgiven (9 px)
+kit_1143-83664_base_2x: mismatch 0.5919% (100 px of 16896) at tolerance 8, ssim 0.9996
+test an_open_stroke_with_per_vertex_joins_caps_both_ends_pointing_outward_round_like_cpu ... ok
+kit_1143-83664_base_2x: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+miter_round_joins_right_then_down_off_the_axis: mismatch 0.0082% (3 px of 36400) at tolerance 8, ssim 1.0000
+miter_round_joins_right_then_down_off_the_axis: 0.0000% with AA pixels forgiven (0 px)
+kit_1143-83664_head_2x: mismatch 0.5563% (94 px of 16896) at tolerance 8, ssim 0.9996
+resized_outside_chain: mismatch 0.0000% (0 px of 36400) at tolerance 8, ssim 1.0000
+per_vertex_round_cap: mismatch 0.0769% (28 px of 36400) at tolerance 8, ssim 0.9999
+arrow_lines_line: mismatch 0.2967% (108 px of 36400) at tolerance 8, ssim 0.9994
+resized_arrow_equilateral: mismatch 0.1044% (38 px of 36400) at tolerance 8, ssim 0.9998
+GPU: Apple M4 Max (Metal)
+kit_1143-83664_head_2x: 0.0533% with AA pixels forgiven (9 px)
+per_vertex_round_cap: 0.0000% with AA pixels forgiven (0 px)
+resized_outside_chain: 0.0000% with AA pixels forgiven (0 px)
+test per_vertex_round_and_square_caps_paint_full_span_on_cpu_and_gpu ... ok
+arrow_lines_line: 0.0000% with AA pixels forgiven (0test resized_inside_and_outside_strokes_with_an_open_chain_drop_their_bake_and_stroke_live_like_cpu ... ok
+ px)
+GPU: Apple M4 Max (Metal)
+resized_arrow_equilateral: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+miter_round_joins_curve_then_right_then_down: mismatch 0.2637% (96 px of 36400) at tolerance 8, ssim 0.9995
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+kit_8222-316128_bake_1x: mismatch 3.2639% (94 px of 2880) at tolerance 8, ssim 0.9984
+kit_8222-316128_bake_1x: 0.3125% with AA pixels forgiven (9 px)
+miter_round_joins_curve_then_right_then_down: 0.0000% with AA pixels forgiven (0 px)
+arrow_equilateral_vec: mismatch 0.2060% (75 px of 36400) at tolerance 8, ssim 0.9996
+kit_8222-316128_live_1x: mismatch 3.2639% (94 px of 2880) at tolerance 8, ssim 0.9984
+kit_8222-316128_live_1x: 0.3125% with AA pixels forgiven (9 px)
+resized_triangle_filled: mismatch 0.0879% (32 px of 36400) at tolerance 8, ssim 0.9999
+GPU: Apple M4 Max (Metal)
+kit_8222-316128_base_2x: mismatch 1.6276% (100 px of 6144) at tolerance 8, ssim 0.9989
+kit_8222-316128_base_2x: 0.0000% with AA pixels forgiven (0 px)
+arrow_equilateral_vec: 0.0000% with AA pixels forgiven (0 px)
+kit_8222-316128_head_2x: mismatch 1.5299% (94 px of 6144) at tolerance 8, ssim 0.9990
+resized_triangle_filled: 0.0000% with AA pixels forgiven (0 px)
+kit_8222-316128_head_2x: 0.1465% with AA pixels forgiven (9 px)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+miter_round_joins_down_then_right_on_the_axis: mismatch 0.0082% (3 px of 36400) at tolerance 8, ssim 1.0000
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+miter_round_joins_down_then_right_on_the_axis: 0.0000% with AA pixels forgiven (0 px)
+test a_miter_vertex_between_round_vertices_keeps_its_sharp_apex_like_cpu ... ok
+arrow_equilateral_line: mismatch 0.2060% (75 px of 36400) at tolerance 8, ssim 0.9996
+resized_diamond_filled: mismatch 0.1209% (44 px of 36400) at tolerance 8, ssim 0.9999
+GPU: Apple M4 Max (Metal)
+kit_7749-50847_bake_1x: mismatch 3.2639% (94 px of 2880) at tolerance 8, ssim 0.9984
+kit_7749-50847_bake_1x: 0.3125% with AA pixels forgiven (9 px)
+kit_7749-50847_live_1x: mismatch 3.2639% (94 px of 2880) at tolerance 8, ssim 0.9984
+arrow_equilateral_line: 0.0000% with AA pixels forgiven (0 px)
+kit_7749-50847_live_1x: 0.3125% with AA pixels forgiven (9 px)
+resized_diamond_filled: 0.0000% with AA pixels forgiven (0 px)
+kit_7749-50847_base_2x: mismatch 1.6276% (100 px of 6144) at tolerance 8, ssim 0.9989
+GPU: Apple M4 Max (Metal)
+kit_7749-50847_base_2x: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+kit_7749-50847_head_2x: mismatch 1.5299% (94 px of 6144) at tolerance 8, ssim 0.9990
+kit_7749-50847_head_2x: 0.1465% with AA pixels forgiven (9 px)
+triangle_filled_vec: mismatch 0.2060% (75 px of 36400) at tolerance 8, ssim 0.9998
+resized_circle_filled: mismatch 0.1538% (56 px of 36400) at tolerance 8, ssim 0.9998
+test kit_arrow_vectors_match_figma_bake_at_1x_and_keep_head_size_when_resized_2x_on_cpu_and_gpu ... ok
+triangle_filled_vec: 0.0000% with AA pixels forgiven (0 px)
+resized_circle_filled: 0.0000% with AA pixels forgiven (0 px)
+test resized_2x_arrow_vectors_drop_bake_keep_head_size_and_match_cpu ... ok
+GPU: Apple M4 Max (Metal)
+triangle_filled_line: mismatch 0.2060% (75 px of 36400) at tolerance 8, ssim 0.9998
+triangle_filled_line: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+diamond_filled_vec: mismatch 0.4615% (168 px of 36400) at tolerance 8, ssim 0.9999
+diamond_filled_vec: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+diamond_filled_line: mismatch 0.4615% (168 px of 36400) at tolerance 8, ssim 0.9999
+diamond_filled_line: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+circle_filled_vec: mismatch 0.2747% (100 px of 36400) at tolerance 8, ssim 0.9996
+circle_filled_vec: 0.0000% with AA pixels forgiven (0 px)
+GPU: Apple M4 Max (Metal)
+circle_filled_line: mismatch 0.2747% (100 px of 36400) at tolerance 8, ssim 0.9996
+circle_filled_line: 0.0000% with AA pixels forgiven (0 px)
+test all_five_arrow_caps_match_cpu_on_lines_and_open_vectors ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+

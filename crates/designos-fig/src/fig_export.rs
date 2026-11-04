@@ -934,9 +934,8 @@ fn export_node_rec(cx: &mut ExportCtx, id: NodeId, parent_guid: (u32, u32), sibl
     fields.push((
         "strokeCap",
         en(match node.stroke.cap {
-            StrokeCap::None => "NONE",
-            StrokeCap::Round => "ROUND",
-            StrokeCap::Square => "SQUARE",
+            StrokeCap::None => node.fig_metadata.get("strokeCap").map(String::as_str).filter(|s| cx.schema.has_enum_variant("StrokeCap", s)).unwrap_or("NONE"),
+            c => crate::vecnet::cap_name(c),
         }),
     ));
     if !node.stroke.dashes.is_empty() {
@@ -1735,14 +1734,7 @@ fn collect_instance_overrides(cx: &mut ExportCtx, inst_id: NodeId) -> Vec<V> {
                         StrokeJoin::Round => "ROUND",
                     }),
                 ));
-                ov.push((
-                    "strokeCap",
-                    en(match n.stroke.cap {
-                        StrokeCap::None => "NONE",
-                        StrokeCap::Round => "ROUND",
-                        StrokeCap::Square => "SQUARE",
-                    }),
-                ));
+                ov.push(("strokeCap", en(crate::vecnet::cap_name(n.stroke.cap))));
                 ov.push(("dashPattern", V::Array(n.stroke.dashes.iter().map(|&d| fl(d)).collect())));
                 if n.stroke.miter_limit >= 1.0 {
                     ov.push(("miterLimit", fl(n.stroke.miter_limit)));
@@ -1997,14 +1989,7 @@ fn encode_vector_network_blob(net: &VectorNetwork) -> (Vec<u8>, Vec<V>) {
             let id = (style_table.len() + 1) as u32;
             let mut so = vec![("styleID", V::Uint(id))];
             if let Some(c) = v.cap {
-                so.push((
-                    "strokeCap",
-                    en(match c {
-                        StrokeCap::None => "NONE",
-                        StrokeCap::Round => "ROUND",
-                        StrokeCap::Square => "SQUARE",
-                    }),
-                ));
+                so.push(("strokeCap", en(crate::vecnet::cap_name(c))));
             }
             if let Some(j) = v.join {
                 so.push((

@@ -224,7 +224,12 @@ fn sk_stroke_with_join(s: &d::Stroke, width: f32, cap: d::StrokeCap, join: d::St
         width,
         miter_limit: s.miter_limit.max(1.0),
         line_cap: match cap {
-            d::StrokeCap::None => sk::LineCap::Butt,
+            d::StrokeCap::None
+            | d::StrokeCap::ArrowLines
+            | d::StrokeCap::ArrowEquilateral
+            | d::StrokeCap::TriangleFilled
+            | d::StrokeCap::DiamondFilled
+            | d::StrokeCap::CircleFilled => sk::LineCap::Butt,
             d::StrokeCap::Round => sk::LineCap::Round,
             d::StrokeCap::Square => sk::LineCap::Square,
         },
@@ -255,32 +260,191 @@ fn is_straight(c: &[Vec2; 4]) -> bool {
     c[1] == c[0] && c[2] == c[3]
 }
 
+/// Splits cubic `[c[0], c[1], c[2], c[3]]` at `t` in `0.0..=1.0`, preserving straight segments. On a curve `t` is the
+/// Bézier parameter; on a straight segment it is the fraction of the segment's length (see [`cubic_arc_len_and_t`]).
+fn split_cubic_at(c: &[Vec2; 4], t: f32) -> ([Vec2; 4], [Vec2; 4]) {
+    let lerp = |a: Vec2, b: Vec2| Vec2::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+    if is_straight(c) {
+        let m = lerp(c[0], c[3]);
+        return ([c[0], c[0], m, m], [m, m, c[3], c[3]]);
+    }
+    let m01 = lerp(c[0], c[1]);
+    let m12 = lerp(c[1], c[2]);
+    let m23 = lerp(c[2], c[3]);
+    let m012 = lerp(m01, m12);
+    let m123 = lerp(m12, m23);
+    let m0123 = lerp(m012, m123);
+    ([c[0], m01, m012, m0123], [m0123, m123, m23, c[3]])
+}
+
 /// The two halves of `c`. The halves of a straight segment are the straight segments `[a, a, m, m]` and `[m, m, b, b]`.
 /// Split like a curve they would be `[a, a, a + (b - a) / 4, m]`, a collinear cubic that the stroker can take for a
 /// degenerate curve (when the corner lies on an axis) and join to the previous piece with a round join, whatever join
 /// was asked for.
 fn split_cubic_half(c: &[Vec2; 4]) -> ([Vec2; 4], [Vec2; 4]) {
-    let mid = |a: Vec2, b: Vec2| Vec2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-    if is_straight(c) {
-        let m = mid(c[0], c[3]);
-        return ([c[0], c[0], m, m], [m, m, c[3], c[3]]);
-    }
-    let m01 = mid(c[0], c[1]);
-    let m12 = mid(c[1], c[2]);
-    let m23 = mid(c[2], c[3]);
-    let m012 = mid(m01, m12);
-    let m123 = mid(m12, m23);
-    let m0123 = mid(m012, m123);
-    ([c[0], m01, m012, m0123], [m0123, m123, m23, c[3]])
+    split_cubic_at(c, 0.5)
 }
 
-fn push_outward_cap(pb: &mut sk::PathBuilder, p: Vec2, outward: Vec2, w: f32, cap: d::StrokeCap) {
-    let r = w * 0.5;
-    let n = Vec2::new(-outward.y, outward.x);
+fn cubic_eval(c: &[Vec2; 4], t: f32) -> Vec2 {
+    let u = 1.0 - t;
+    let b0 = u * u * u;
+    let b1 = 3.0 * u * u * t;
+    let b2 = 3.0 * u * t * t;
+    let b3 = t * t * t;
+    Vec2::new(b0 * c[0].x + b1 * c[1].x + b2 * c[2].x + b3 * c[3].x, b0 * c[0].y + b1 * c[1].y + b2 * c[2].y + b3 * c[3].y)
+}
+
+/// Length of `c` and, when `target_dist` is given, the `t` for [`split_cubic_at`] that cuts `c` that far from its start.
+/// A straight segment `[p, p, q, q]` is measured as the distance `|q - p|` and cut at the fraction of that length: its
+/// Bézier parameter is not proportional to distance (the point at parameter `t` lies at `3t² - 2t³` of the way). A curve
+/// is measured by sampling its points.
+fn cubic_arc_len_and_t(c: &[Vec2; 4], target_dist: Option<f32>) -> (f32, f32) {
+    if is_straight(c) {
+        let len = (c[3].x - c[0].x).hypot(c[3].y - c[0].y);
+        let t = match target_dist {
+            Some(d) if len > 1e-6 => (d / len).clamp(0.0, 1.0),
+            _ => 1.0,
+        };
+        return (len, t);
+    }
+    const N: usize = 16;
+    let mut prev = c[0];
+    let mut total = 0.0f32;
+    let mut found_t = 1.0f32;
+    let mut found = false;
+    for i in 1..=N {
+        let t = i as f32 / N as f32;
+        let cur = cubic_eval(c, t);
+        let seg = (cur.x - prev.x).hypot(cur.y - prev.y);
+        if !found {
+            if let Some(d) = target_dist {
+                if total + seg >= d && seg > 1e-6 {
+                    let frac = ((d - total) / seg).clamp(0.0, 1.0);
+                    found_t = ((i - 1) as f32 + frac) / N as f32;
+                    found = true;
+                }
+            }
+        }
+        total += seg;
+        prev = cur;
+    }
+    (total, found_t)
+}
+
+fn trim_open_cubics(cs: &[[Vec2; 4]], start_trim: f32, end_trim: f32) -> Vec<[Vec2; 4]> {
+    if start_trim <= 0.0 && end_trim <= 0.0 {
+        return cs.to_vec();
+    }
+    let total_len: f32 = cs.iter().map(|c| cubic_arc_len_and_t(c, None).0).sum();
+    if start_trim + end_trim >= total_len - 1e-4 {
+        return Vec::new();
+    }
+    let mut cur = cs.to_vec();
+    if start_trim > 0.0 {
+        let mut rem = start_trim;
+        let mut next = Vec::with_capacity(cur.len());
+        let mut trimmed = false;
+        for c in cur {
+            if trimmed {
+                next.push(c);
+                continue;
+            }
+            let (len, _) = cubic_arc_len_and_t(&c, None);
+            if rem >= len - 1e-5 {
+                rem -= len;
+            } else {
+                let (_, t) = cubic_arc_len_and_t(&c, Some(rem));
+                next.push(split_cubic_at(&c, t.clamp(0.0, 1.0)).1);
+                trimmed = true;
+            }
+        }
+        cur = next;
+    }
+    if end_trim > 0.0 {
+        let mut rem = end_trim;
+        let mut next = Vec::with_capacity(cur.len());
+        let mut trimmed = false;
+        for c in cur.into_iter().rev() {
+            if trimmed {
+                next.push(c);
+                continue;
+            }
+            let (len, _) = cubic_arc_len_and_t(&c, None);
+            if rem >= len - 1e-5 {
+                rem -= len;
+            } else {
+                let (_, t) = cubic_arc_len_and_t(&c, Some((len - rem).max(0.0)));
+                next.push(split_cubic_at(&c, t.clamp(0.0, 1.0)).0);
+                trimmed = true;
+            }
+        }
+        next.reverse();
+        cur = next;
+    }
+    cur
+}
+
+fn cap_setback(cap: d::StrokeCap, w: f32) -> f32 {
+    match cap {
+        d::StrokeCap::ArrowEquilateral | d::StrokeCap::TriangleFilled => 4.5 * w,
+        _ => 0.0,
+    }
+}
+
+type Pt2 = (f32, f32);
+
+/// The arc that rounds the corner `at` between `prev` and `next` with a circle of `radius` touching both edges, as
+/// `(where it leaves the incoming edge, its two control points, where it joins the outgoing edge)`. The arc takes at most
+/// half of each edge (the circle shrinks to fit). `None` for a radius of `0.0` or a corner that is not one.
+fn corner_arc(prev: Pt2, at: Pt2, next: Pt2, radius: f32) -> Option<(Pt2, Pt2, Pt2, Pt2)> {
+    let (dux, duy, dvx, dvy) = (prev.0 - at.0, prev.1 - at.1, next.0 - at.0, next.1 - at.1);
+    let (lu, lv) = (dux.hypot(duy), dvx.hypot(dvy));
+    if radius <= 0.0 || lu < 1e-6 || lv < 1e-6 {
+        return None;
+    }
+    let (ux, uy, vx, vy) = (dux / lu, duy / lu, dvx / lv, dvy / lv);
+    let angle = (ux * vx + uy * vy).clamp(-1.0, 1.0).acos();
+    if !(1e-3..=std::f32::consts::PI - 1e-3).contains(&angle) {
+        return None;
+    }
+    let half_tan = (angle / 2.0).tan();
+    let reach = (radius / half_tan).min(0.5 * lu).min(0.5 * lv);
+    // a cubic stands in for the arc of the turn `PI - angle`
+    let handle = 4.0 / 3.0 * ((std::f32::consts::PI - angle) / 4.0).tan() * reach * half_tan;
+    let (arrive, leave) = ((at.0 + ux * reach, at.1 + uy * reach), (at.0 + vx * reach, at.1 + vy * reach));
+    Some((arrive, (arrive.0 - ux * handle, arrive.1 - uy * handle), (leave.0 - vx * handle, leave.1 - vy * handle), leave))
+}
+
+/// Appends the closed polygon `pts` to `pb`, corner `i` rounded with a circle of radius `radii[i]` (`0.0` keeps it sharp).
+fn append_polygon_with_rounded_corners(pb: &mut sk::PathBuilder, pts: &[Pt2], radii: &[f32]) {
+    let n = pts.len();
+    let arcs: Vec<_> = (0..n).map(|i| corner_arc(pts[(i + n - 1) % n], pts[i], pts[(i + 1) % n], radii[i])).collect();
+    let start = arcs[0].map_or(pts[0], |(_, _, _, leave)| leave);
+    pb.move_to(start.0, start.1);
+    for k in (1..n).chain(std::iter::once(0)) {
+        match arcs[k] {
+            Some((arrive, c1, c2, leave)) => {
+                pb.line_to(arrive.0, arrive.1);
+                pb.cubic_to(c1.0, c1.1, c2.0, c2.1, leave.0, leave.1);
+            }
+            None if k != 0 => pb.line_to(pts[k].0, pts[k].1),
+            None => {}
+        }
+    }
+    pb.close();
+}
+
+/// Appends the head of `cap` at `p`, pointing along `outward`, for a stroke of weight `w`. A `Round` `join` rounds the
+/// corners of the filled polygon heads with a radius of a third of the weight.
+fn append_cap_outline(pb: &mut sk::PathBuilder, p: Vec2, outward: Vec2, w: f32, cap: d::StrokeCap, join: d::StrokeJoin) {
+    let corner = if join == d::StrokeJoin::Round { w / 3.0 } else { 0.0 };
+    let f = outward;
+    let n = Vec2::new(-f.y, f.x);
+    let pt = |a: f32, b: f32| -> (f32, f32) { (p.x + n.x * a + f.x * b, p.y + n.y * a + f.y * b) };
     match cap {
         d::StrokeCap::None => {}
         d::StrokeCap::Square => {
-            let pt = |a: f32, b: f32| (p.x + n.x * a + outward.x * b, p.y + n.y * a + outward.y * b);
+            let r = 0.5 * w;
             let (p0, p1, p2, p3) = (pt(-r, 0.0), pt(-r, r), pt(r, r), pt(r, 0.0));
             pb.move_to(p0.0, p0.1);
             pb.line_to(p1.0, p1.1);
@@ -289,21 +453,140 @@ fn push_outward_cap(pb: &mut sk::PathBuilder, p: Vec2, outward: Vec2, w: f32, ca
             pb.close();
         }
         d::StrokeCap::Round => {
+            let r = 0.5 * w;
             let k = 0.552_284_8 * r;
-            let pt = |a: f32, b: f32| (p.x + n.x * a + outward.x * b, p.y + n.y * a + outward.y * b);
-            let a = pt(-r, 0.0);
-            let c1 = pt(-r, k);
-            let c2 = pt(-k, r);
-            let m = pt(0.0, r);
-            let c3 = pt(k, r);
-            let c4 = pt(r, k);
-            let b = pt(r, 0.0);
+            let (a, c1, c2, m, c3, c4, b) = (pt(-r, 0.0), pt(-r, k), pt(-k, r), pt(0.0, r), pt(k, r), pt(r, k), pt(r, 0.0));
             pb.move_to(a.0, a.1);
             pb.cubic_to(c1.0, c1.1, c2.0, c2.1, m.0, m.1);
             pb.cubic_to(c3.0, c3.1, c4.0, c4.1, b.0, b.1);
             pb.close();
         }
+        d::StrokeCap::ArrowLines => {
+            let s = 0.5 * std::f32::consts::FRAC_1_SQRT_2 * w;
+            let l = 4.5 * std::f32::consts::FRAC_1_SQRT_2 * w;
+            let k = 0.552_284_8 * s;
+            let p0 = pt(-s, s);
+            let (c01, c02, p1) = (pt(-s + k, s + k), pt(s - k, s + k), pt(s, s));
+            let p2 = pt(l + s, -l + s);
+            let (c21, c22, p3) = (pt(l + s + k, -l + s - k), pt(l + s + k, -l - s + k), pt(l + s, -l - s));
+            let (c31, c32, p4) = (pt(l + s - k, -l - s - k), pt(l - s + k, -l - s - k), pt(l - s, -l - s));
+            let p5 = pt(0.0, -2.0 * s);
+            let p6 = pt(-l + s, -l - s);
+            let (c61, c62, p7) = (pt(-l + s - k, -l - s - k), pt(-l - s + k, -l - s - k), pt(-l - s, -l - s));
+            let (c71, c72, p8) = (pt(-l - s - k, -l - s + k), pt(-l - s - k, -l + s - k), pt(-l - s, -l + s));
+            pb.move_to(p0.0, p0.1);
+            pb.cubic_to(c01.0, c01.1, c02.0, c02.1, p1.0, p1.1);
+            pb.line_to(p2.0, p2.1);
+            pb.cubic_to(c21.0, c21.1, c22.0, c22.1, p3.0, p3.1);
+            pb.cubic_to(c31.0, c31.1, c32.0, c32.1, p4.0, p4.1);
+            pb.line_to(p5.0, p5.1);
+            pb.line_to(p6.0, p6.1);
+            pb.cubic_to(c61.0, c61.1, c62.0, c62.1, p7.0, p7.1);
+            pb.cubic_to(c71.0, c71.1, c72.0, c72.1, p8.0, p8.1);
+            pb.line_to(p0.0, p0.1);
+            pb.close();
+        }
+        d::StrokeCap::ArrowEquilateral => {
+            let len = 5.0 * w;
+            let hw = (5.0 / 3.0_f32.sqrt()) * w;
+            append_polygon_with_rounded_corners(pb, &[pt(-hw, -len), pt(0.0, 0.0), pt(hw, -len)], &[corner; 3]);
+        }
+        d::StrokeCap::TriangleFilled => {
+            let len = 5.0 * w;
+            let hw = (5.0 / 3.0_f32.sqrt()) * w;
+            // only the two outer corners are rounded; the others meet the shaft
+            append_polygon_with_rounded_corners(pb, &[pt(-0.5 * w, -len), pt(-hw, 0.0), pt(hw, 0.0), pt(0.5 * w, -len)], &[0.0, corner, corner, 0.0]);
+        }
+        d::StrokeCap::DiamondFilled => {
+            let d = (5.0 / 3.0_f32.sqrt()) * w;
+            append_polygon_with_rounded_corners(pb, &[pt(-d, 0.0), pt(0.0, d), pt(d, 0.0), pt(0.0, -d)], &[corner; 4]);
+        }
+        d::StrokeCap::CircleFilled => {
+            let r = (8.0 / 3.0) * w;
+            let k = 0.552_284_8 * r;
+            let (p0, c01, c02, p1, c11, c12, p2, c21, c22, p3, c31, c32) =
+                (pt(-r, 0.0), pt(-r, k), pt(-k, r), pt(0.0, r), pt(k, r), pt(r, k), pt(r, 0.0), pt(r, -k), pt(k, -r), pt(0.0, -r), pt(-k, -r), pt(-r, -k));
+            pb.move_to(p0.0, p0.1);
+            pb.cubic_to(c01.0, c01.1, c02.0, c02.1, p1.0, p1.1);
+            pb.cubic_to(c11.0, c11.1, c12.0, c12.1, p2.0, p2.1);
+            pb.cubic_to(c21.0, c21.1, c22.0, c22.1, p3.0, p3.1);
+            pb.cubic_to(c31.0, c31.1, c32.0, c32.1, p0.0, p0.1);
+            pb.close();
+        }
     }
+}
+
+fn expand_open_subpath_with_caps(
+    sub: &d::Path,
+    stroke: &d::Stroke,
+    width: f32,
+    (start_cap, end_cap): (d::StrokeCap, d::StrokeCap),
+    network: Option<&VectorNetwork>,
+    res_scale: f32,
+) -> Option<sk::Path> {
+    let Some((cs, is_closed)) = path_curves(sub).into_iter().next() else {
+        return expand_subpath(sub, stroke, width, d::StrokeCap::None, network, res_scale);
+    };
+    if is_closed || cs.is_empty() {
+        return expand_subpath(sub, stroke, width, d::StrokeCap::None, network, res_scale);
+    }
+    let dir = |from: Vec2, cands: [Vec2; 3]| -> Vec2 {
+        for c in cands {
+            let v = Vec2::new(c.x - from.x, c.y - from.y);
+            let l = (v.x * v.x + v.y * v.y).sqrt();
+            if l > 1e-4 {
+                return Vec2::new(v.x / l, v.y / l);
+            }
+        }
+        Vec2::new(1.0, 0.0)
+    };
+    let (first, last) = (&cs[0], &cs[cs.len() - 1]);
+    let s_in = dir(first[0], [first[1], first[2], first[3]]);
+    let e_in = dir(last[3], [last[2], last[1], last[0]]);
+    let start_out = Vec2::new(-s_in.x, -s_in.y);
+    let end_out = Vec2::new(-e_in.x, -e_in.y);
+
+    let start_trim = cap_setback(start_cap, width);
+    let end_trim = cap_setback(end_cap, width);
+    let mut pb = sk::PathBuilder::new();
+    let trimmed = trim_open_cubics(&cs, start_trim, end_trim);
+    if !trimmed.is_empty() {
+        let mut cmds = Vec::with_capacity(trimmed.len() + 1);
+        cmds.push(d::PathCmd::MoveTo(trimmed[0][0]));
+        for c in &trimmed {
+            if is_straight(c) {
+                cmds.push(d::PathCmd::LineTo(c[3]));
+            } else {
+                cmds.push(d::PathCmd::CubicTo(c[1], c[2], c[3]));
+            }
+        }
+        let trimmed_sub = d::Path { cmds, fill_rule: sub.fill_rule };
+        if let Some(shaft) = expand_subpath(&trimmed_sub, stroke, width, d::StrokeCap::None, network, res_scale) {
+            pb.push_path(&shaft);
+        }
+    }
+    append_cap_outline(&mut pb, first[0], start_out, width, start_cap, stroke.join);
+    append_cap_outline(&mut pb, last[3], end_out, width, end_cap, stroke.join);
+    pb.finish()
+}
+
+fn open_subpath_caps(sub: &d::Path, net: Option<&VectorNetwork>, chain_end: Option<(usize, usize)>, default_cap: d::StrokeCap) -> (d::StrokeCap, d::StrokeCap) {
+    let Some(net) = net else { return (default_cap, default_cap) };
+    let Some((cs, false)) = path_curves(sub).into_iter().next() else { return (default_cap, default_cap) };
+    if cs.is_empty() {
+        return (default_cap, default_cap);
+    }
+    let (start_pt, end_pt) = (cs[0][0], cs[cs.len() - 1][3]);
+    let resolve = |hint: Option<usize>, pt: Vec2| -> d::StrokeCap {
+        if let Some(vi) = hint.filter(|&i| i < net.vertices.len() && (net.vertices[i].pos.x - pt.x).hypot(net.vertices[i].pos.y - pt.y) <= 1e-2) {
+            return if net.is_endpoint(vi) { net.vertices[vi].cap.unwrap_or(default_cap) } else { d::StrokeCap::None };
+        }
+        if let Some((vi, v)) = net.vertices.iter().enumerate().find(|(_, v)| (v.pos.x - pt.x).hypot(v.pos.y - pt.y) <= 1e-2) {
+            return if net.is_endpoint(vi) { v.cap.unwrap_or(default_cap) } else { d::StrokeCap::None };
+        }
+        default_cap
+    };
+    (resolve(chain_end.map(|x| x.0), start_pt), resolve(chain_end.map(|x| x.1), end_pt))
 }
 
 /// Expands one sub-path `sub` by `stroke` at `width` and `res_scale`, honouring per-vertex
@@ -366,12 +649,11 @@ fn expand_subpath(sub: &d::Path, stroke: &d::Stroke, width: f32, base_cap: d::St
             }
             Vec2::new(1.0, 0.0)
         };
-        // both directions run from an end point into the path; a cap points the opposite way
         let (first, last) = (&cs[0], &cs[n - 1]);
         let s_in = dir(first[0], [first[1], first[2], first[3]]);
         let e_in = dir(last[3], [last[2], last[1], last[0]]);
-        push_outward_cap(&mut all_pb, first[0], Vec2::new(-s_in.x, -s_in.y), width, base_cap);
-        push_outward_cap(&mut all_pb, last[3], Vec2::new(-e_in.x, -e_in.y), width, base_cap);
+        append_cap_outline(&mut all_pb, first[0], Vec2::new(-s_in.x, -s_in.y), width, base_cap, stroke.join);
+        append_cap_outline(&mut all_pb, last[3], Vec2::new(-e_in.x, -e_in.y), width, base_cap, stroke.join);
     }
     all_pb.finish()
 }
@@ -416,9 +698,8 @@ fn circle_polygon(c: Vec2, r: f32) -> Vec<Pt> {
         .collect()
 }
 
-/// Cap shapes (circle or square) at the ends of open sub-paths for caps that
-/// differ from what the stroker would draw.
-fn cap_polygons(sub: &d::Path, w: f32, start_cap: d::StrokeCap, end_cap: d::StrokeCap) -> Vec<Vec<Pt>> {
+/// Cap shapes at the ends of open sub-paths for caps that differ from what the butt stroker draws.
+fn cap_polygons(sub: &d::Path, w: f32, join: d::StrokeJoin, start_cap: d::StrokeCap, end_cap: d::StrokeCap) -> Vec<Vec<Pt>> {
     let curves = path_curves(sub);
     let Some((cs, _)) = curves.first() else { return vec![] };
     let (first, last) = (cs.first().unwrap(), cs.last().unwrap());
@@ -441,6 +722,13 @@ fn cap_polygons(sub: &d::Path, w: f32, start_cap: d::StrokeCap, end_cap: d::Stro
             let h = w / 2.0;
             let pt = |a: f32, b: f32| [(p.x + n.x * a + outward.x * b) as f64, (p.y + n.y * a + outward.y * b) as f64];
             out.push(vec![pt(-h, 0.0), pt(h, 0.0), pt(h, h), pt(-h, h)]);
+        }
+        _ => {
+            let mut pb = sk::PathBuilder::new();
+            append_cap_outline(&mut pb, p, outward, w, cap, join);
+            if let Some(path) = pb.finish() {
+                out.extend(flatten(&path, 0.05));
+            }
         }
     };
     // both directions run from an end point into the path; a cap points the opposite way
@@ -473,7 +761,7 @@ pub fn vertex_caps(n: &Node) -> Option<Vec<d::Path>> {
             }
             if let Some((a, b)) = ends.get(idx) {
                 let (sc, ec) = (net.vertices[*a].cap.unwrap_or(n.stroke.cap), net.vertices[*b].cap.unwrap_or(n.stroke.cap));
-                for poly in cap_polygons(&sub, n.stroke.weight, sc, ec) {
+                for poly in cap_polygons(&sub, n.stroke.weight, n.stroke.join, sc, ec) {
                     let pts: Vec<Vec2> = poly.iter().map(|q| Vec2::new(q[0] as f32, q[1] as f32)).collect();
                     let mut cmds = vec![d::PathCmd::MoveTo(pts[0])];
                     cmds.extend(pts[1..].iter().map(|q| d::PathCmd::LineTo(*q)));
@@ -493,6 +781,23 @@ pub fn has_per_vertex_joins(n: &Node) -> bool {
     !crate::outline::has_dashes(&n.stroke) && net.is_valid() && net.vertices.iter().any(|v| v.join.is_some_and(|j| j != n.stroke.join))
 }
 
+/// True when `n` draws one or more arrow caps on its open endpoints (either via `stroke.cap`
+/// or via an endpoint vertex override on a valid `VectorNetwork`).
+pub fn has_arrow_caps(n: &Node) -> bool {
+    if n.stroke.weight <= 0.0 {
+        return false;
+    }
+    if n.stroke.cap.is_arrow() {
+        return true;
+    }
+    match &n.kind {
+        NodeKind::Vector { network: Some(net), .. } => {
+            net.is_valid() && net.vertices.iter().enumerate().any(|(i, v)| net.is_endpoint(i) && v.cap.is_some_and(d::StrokeCap::is_arrow))
+        }
+        _ => false,
+    }
+}
+
 /// True when `n` has an `Inside` or `Outside` stroke on a shape that mixes closed and open sub-paths.
 pub fn has_mixed_subpath_align(n: &Node, sh: &crate::geom::Shape) -> bool {
     if n.stroke.align == d::StrokeAlign::Center || sh.closed {
@@ -501,12 +806,35 @@ pub fn has_mixed_subpath_align(n: &Node, sh: &crate::geom::Shape) -> bool {
     sh.paths.iter().any(|(p, _)| p.segments().any(|s| matches!(s, PathSegment::Close)))
 }
 
-/// Expands every sub-path of `sh` at `width` and `res_scale`, honouring per-vertex joins and caps.
+/// Expands every sub-path of `sh` at `width` and `res_scale`, honouring per-vertex joins and caps
+/// (including arrowhead caps on the node or on open-chain endpoint vertices).
 pub(crate) fn expand_node_subpaths(n: &Node, sh: &crate::geom::Shape, width: f32, res_scale: f32) -> Vec<(sk::Path, sk::FillRule)> {
     let network = match &n.kind {
         NodeKind::Vector { network: Some(net), .. } if net.is_valid() => Some(net),
         _ => None,
     };
+    if has_arrow_caps(n) {
+        let chain_ends = network.map(VectorNetwork::open_chain_ends).unwrap_or_default();
+        let mut open_idx = 0usize;
+        let mut out = Vec::new();
+        for (p, r) in &sh.paths {
+            let doc_p = sk_to_doc(p, rule_of(*r));
+            for (sub, closed) in subpaths(&doc_p) {
+                let expanded = if closed {
+                    expand_subpath(&sub, &n.stroke, width, d::StrokeCap::None, network, res_scale)
+                } else {
+                    let hint = chain_ends.get(open_idx).copied();
+                    open_idx += 1;
+                    let caps = open_subpath_caps(&sub, network, hint, n.stroke.cap);
+                    expand_open_subpath_with_caps(&sub, &n.stroke, width, caps, network, res_scale)
+                };
+                if let Some(o) = expanded {
+                    out.push((o, sk::FillRule::Winding));
+                }
+            }
+        }
+        return out;
+    }
     let base_cap = if vertex_caps(n).is_some() { d::StrokeCap::None } else { n.stroke.cap };
     let mut out = Vec::new();
     for (p, r) in &sh.paths {
@@ -596,11 +924,18 @@ fn outline_stroke_along(paths: &[d::Path], stroke: &d::Stroke, network: Option<&
             }
             let caps = if per_vertex_caps { chain_caps.get(open_index).copied() } else { None };
             open_index += 1;
+            let resolved_caps = caps.unwrap_or((stroke.cap, stroke.cap));
+            if resolved_caps.0.is_arrow() || resolved_caps.1.is_arrow() {
+                if let Some(o) = expand_open_subpath_with_caps(&sub, stroke, w, resolved_caps, network, 1.0) {
+                    out.push(sk_to_doc(&o, d::FillRule::NonZero));
+                }
+                continue;
+            }
             let Some(o) = expand_subpath(&sub, stroke, w, base_cap, network, 1.0) else { continue };
             match caps {
                 Some((sc, ec)) => {
                     let mut shapes: Shapes = flatten(&o, 0.05).simplify_shape(FillRule::NonZero);
-                    let extra: Vec<Vec<Pt>> = cap_polygons(&sub, w, sc, ec);
+                    let extra: Vec<Vec<Pt>> = cap_polygons(&sub, w, stroke.join, sc, ec);
                     if !extra.is_empty() {
                         shapes = shapes.overlay(&extra.simplify_shape(FillRule::NonZero), OverlayRule::Union, FillRule::NonZero);
                     }
