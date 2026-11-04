@@ -75,6 +75,43 @@ Layout parity is judged by eye plus pixel positions on one fixture, not by an au
 3. Is the allowlist wording for the two project_tab files acceptable, or should the file calls move into `designos-docs`?
 4. Why do the 3 clippy findings in `agent_permissions.rs` and `inspector_var_binds.rs` not fail CI?
 
+## Fix round (review REQUEST_CHANGES at 9dd0b725)
+
+One commit per finding group on the same branch, nothing pushed. Order: docs crate, library, app.
+
+| finding | fix | test that fails without it |
+|---|---|---|
+| F1 trashed pages invisible, unrestorable, uncounted | `TrashKind::Page` plus `PageTrash{path, group}` on the `trash.json` item. `Library::trash_page` (hash-checked move under the docs lock, manifest update, rollback) and `Library::restore_page` (next free name on collision, back in its group, Discovery when it had none). `Library::restore` routes pages. Home lists them with a page icon and "Page . deleted ... . from <project>" and "Empty trash" counts them. | `designos-library/tests/trash_pages.rs` (8 tests); `ops_tests` delete makes a restorable item (red before: 0 items); sim `a_deleted_page_shows_in_homes_trash_is_counted_and_restore_puts_it_back` |
+| F2 Cmd+S on a Project tab | save, save as, save version and the export shortcuts do nothing while a Project tab is active (`shell.rs`) | `document_save_and_export_shortcuts_do_nothing_on_a_project_tab` (red before: "No file dialog" toast) |
+| F3 stale reorder drops a concurrent page | `reorder_pages` edits the manifest read now, inside `DocsStore::update_manifest` retry. Pages not in the user's order stay after the ordered ones; pages deleted meanwhile do not return. | `a_reorder_keeps_a_page_that_was_added_after_the_tree_was_drawn`, `a_reorder_does_not_bring_back_a_page_that_was_deleted_after_the_tree_was_drawn` |
+| F4 case-only rename | `DocsStore::rename_page` goes through a temp name when both names are one file; the app writes the title in place, then renames | `a_rename_that_only_changes_the_case_of_the_file_name_works` (app), docs `a_rename_that_only_changes_the_case_works_on_any_file_system` |
+| F5 rename/trash without the docs lock | new `DocsStore::{move_page_out, remove_page, rename_page, adopt_file}` check the hash under `.docs.lock`; rename's old-file removal and trash use them | docs `moving_a_page_out_waits_for_the_docs_lock_and_gives_up_with_busy`, `remove_page_checks_the_hash_under_the_lock`; app `a_rename_while_another_program_holds_the_docs_lock_changes_nothing`, `a_delete_while_another_program_holds_the_docs_lock_deletes_nothing` |
+| F6 layout cache key | key = page bytes hash + width + pixels per point + design file names + notes; not the snapshot pointer | `a_new_snapshot_that_changed_other_pages_does_not_lay_the_open_page_out_again` (red before), `a_changed_page_a_changed_width_or_a_renamed_design_file_lays_out_again` |
+| Fidelity | State rows use `Icon::Frame`, Edit source uses `Icon::Dev`, Move up/down keep chevrons | icon assert in `states_show_under_the_screen_they_belong_to` (red before), `the_page_menu_has_the_mockup_rows_and_icons` (red before) |
+| F7 parked tab wakes the window | the worker repaints only when the tab was drawn in the last 2 passes (or never yet); the inbox keeps the latest state and `show` applies it on activation | `a_project_tab_behind_another_tab_does_not_wake_the_window_for_disk_changes_and_catches_up_when_shown` (1 repaint request before), `a_parked_tab_is_told_apart_from_a_visible_one_by_the_pass_it_was_last_drawn_in` |
+| F8 toast cap | over the cap the oldest messages go | `messages_over_the_cap_drop_the_oldest_not_the_newest` |
+| F9 env var in release | read only by a `--screenshot` run, a debug build, or `DESIGNOS_DEV` set; a `home=trash` key was added for the Home evidence | `only_a_screenshot_run_a_debug_build_or_the_dev_switch_may_use_it`, `home_trash_needs_no_project` |
+| F10 tests | idle repaint with a page open (`assert_idle_window_asks_for_no_repaint`), Move up and Move down sim test | added |
+
+Scope notes (FACT):
+- Outside the Project tab, as the controller ruled: `designos-docs` (new `store_files.rs`, additive API; `DirLock` and a lock-timeout accessor made crate-visible), `designos-library` (kind and struct in `store.rs`, new `trash_pages.rs`, new dependency on `designos-docs`; docs keeps `designos-library` as a dev-dependency only, and `cargo test -p designos-docs` builds), `home/mod.rs` (trash row icon and line), `shell.rs` (shortcut guard, env gating, `home=trash`), `Cargo.lock` (one line).
+- Red-first honesty: F6, F7, F2, the F1 app test and the icon asserts were run red before the fix. The library and docs tests were written first and failed to compile (API absent). F3 and F4 were written together with the fix; their red run is the reviewer's probes (ZZREORDER, ZZCASE), not mine.
+- F2 covers shortcuts only, as ruled: the menu-bar File items and Spec tabs are not changed or checked.
+- Overview title stays the project name (ruled). The search heading-match cue is a follow-up (ruled).
+- Home's empty-trash text still says "Files and projects you delete wait here"; pages now wait there too. Not changed (copy, ux-writing baseline).
+- The "after Restore" capture restores through `Library::restore`, the call Home's Restore button makes, not by a GUI click; the click path is the sim test.
+
+Evidence (real release app, 1440x900, `plans/reports/evidence-1524/`): `real-01b-tree-overview` and `real-03-tree-context-menu` (state rows with the frame icon, Edit source with the code icon, first menu row hot), `real-06-home-trash-with-deleted-page` (Home Trash lists "Error handling", "Page . deleted just now . from Checkout", Restore, count 1 in the sidebar), `real-07-tree-after-restore` (the page is back last in Spec and opens). The four sheets were regenerated.
+
+Gates after this round (exit codes):
+- `cargo test -p designos-app --bin designos --locked project_tab`: EXIT=0, 72 passed, 0 failed, 1 ignored.
+- Full `designos-app` bin run: 4320 passed, 1 failed, the known `vecops` flake (#1579); rerun alone it passes.
+- `cargo test -p designos-library --locked`: EXIT=0, 70 passed.
+- `cargo test -p designos-docs --locked`: EXIT=0, 99 passed.
+- `cargo fmt --all --check`: EXIT=0.
+- `python3 scripts/zero_fake_ui_gate.py`: EXIT=0, 17/17.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: EXIT=101 with only the 3 known errors (`agent_permissions.rs:1176`, `:1194`, `inspector_var_binds.rs:1182`); EXIT=0 with those two lints allowed.
+
 Status: DONE_WITH_CONCERNS
 Summary: Project tab (tree, reading page, On this page, rename, delete to trash, reorder, first-open Overview, live refresh) is implemented and tested; gates are green except pre-existing clippy findings, the base-identical 5/9 self-evolve gate and the two known vecops flakes.
 Concerns/Blockers: two out-of-list one-line edits (fs allowlist, test module registration); idle CPU proven to one ps tick only; trashed pages are not restorable from Home.
