@@ -1240,9 +1240,21 @@ impl Ctx<'_> {
                 self.fill_with(&t.mesh, ts, n.size, p, alpha, clip);
             }
             if has_strokes {
-                if let Some(sm) = g.text_stroke(i, n) {
+                if let Some((sm, how)) = g.text_stroke(i, n) {
+                    let sclip = match how {
+                        StrokeClip::None => clip,
+                        StrokeClip::Inside | StrokeClip::Outside if (self.zoom_lod() && n.stroke.weight * ts_scale(&ts) <= 1.25) || self.prog_cap_hit(48) => {
+                            clip
+                        }
+                        StrokeClip::Inside | StrokeClip::Outside => {
+                            let b = sm.bounds;
+                            let roi = IRect::outward(xform_bounds(&ts, b.0, b.1, b.2 - b.0, b.3 - b.1)).grow(1);
+                            let Some(c) = self.mask_clip(&t.mesh, ts, clip, how == StrokeClip::Outside, roi, Degrade::Keep) else { continue };
+                            c
+                        }
+                    };
                     for p in visible_strokes(n) {
-                        self.fill_with(&sm, ts, n.size, p, alpha, clip);
+                        self.fill_with(&sm, ts, n.size, p, alpha, sclip);
                     }
                 }
             }

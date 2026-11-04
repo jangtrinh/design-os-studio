@@ -31,6 +31,44 @@ pub fn vector_node(id: NodeId, paths: &[Path], template: &Node) -> Node {
     n
 }
 
+/// Builds a vector from paths while retaining their curve geometry for rendering.
+/// The editable network is kept alongside the paths, but converting a text outline
+/// through the network can otherwise perturb tiny-skia's antialiasing at glyph edges.
+fn vector_node_preserving_paths(id: NodeId, paths: &[Path], template: &Node) -> Node {
+    let mut net = VectorNetwork::from_paths(paths);
+    let bb = net.bounds();
+    net.translate(v2(-bb.x, -bb.y));
+    let local_paths = paths
+        .iter()
+        .map(|path| Path {
+            cmds: path
+                .cmds
+                .iter()
+                .map(|cmd| match *cmd {
+                    PathCmd::MoveTo(p) => PathCmd::MoveTo(v2(p.x - bb.x, p.y - bb.y)),
+                    PathCmd::LineTo(p) => PathCmd::LineTo(v2(p.x - bb.x, p.y - bb.y)),
+                    PathCmd::QuadTo(c, p) => PathCmd::QuadTo(v2(c.x - bb.x, c.y - bb.y), v2(p.x - bb.x, p.y - bb.y)),
+                    PathCmd::CubicTo(c1, c2, p) => PathCmd::CubicTo(v2(c1.x - bb.x, c1.y - bb.y), v2(c2.x - bb.x, c2.y - bb.y), v2(p.x - bb.x, p.y - bb.y)),
+                    PathCmd::Close => PathCmd::Close,
+                })
+                .collect(),
+            fill_rule: path.fill_rule,
+        })
+        .collect();
+    let mut n = Node::new(id, NodeKind::Vector { paths: local_paths, network: Some(net) });
+    n.transform = template.transform * Affine::translate(bb.x, bb.y);
+    n.size = v2(bb.w.max(1.0), bb.h.max(1.0));
+    n.fills = template.fills.clone();
+    n.stroke = template.stroke.clone();
+    n.effects = template.effects.clone();
+    n.opacity = template.opacity;
+    n.blend = if template.blend == BlendMode::PassThrough { BlendMode::Normal } else { template.blend };
+    n.constraints = template.constraints;
+    n.layout_child = template.layout_child;
+    n.name = template.name.clone();
+    n
+}
+
 /// Tolerance (in node units) of Simplify path.
 pub const SIMPLIFY_TOLERANCE: f32 = 1.0;
 
@@ -222,11 +260,9 @@ impl App {
         template.name = raw.name.clone();
         template.fills = run.fills.clone();
         template.stroke = resolved.stroke.clone();
-        // the renderer strokes text centred, whatever the stored alignment
-        template.stroke.align = StrokeAlign::Center;
         let paths = std::slice::from_ref(&run.path);
         let bb = VectorNetwork::from_paths(paths).bounds();
-        let mut node = vector_node(vid, paths, &template);
+        let mut node = vector_node_preserving_paths(vid, paths, &template);
         remap_paint_gradients(&mut node.fills, resolved.size, v2(bb.x, bb.y), node.size);
         remap_paint_gradients(&mut node.stroke.paints, resolved.size, v2(bb.x, bb.y), node.size);
         node.component = ComponentLink::default();
@@ -262,13 +298,12 @@ impl App {
             child_template.transform = Affine::IDENTITY;
             child_template.fills = run.fills.clone();
             child_template.stroke = resolved.stroke.clone();
-            child_template.stroke.align = StrokeAlign::Center;
             child_template.effects.clear();
             child_template.opacity = 1.0;
             child_template.blend = BlendMode::Normal;
             let paths = std::slice::from_ref(&run.path);
             let bb = VectorNetwork::from_paths(paths).bounds();
-            let mut child = vector_node(cid, paths, &child_template);
+            let mut child = vector_node_preserving_paths(cid, paths, &child_template);
             remap_paint_gradients(&mut child.fills, resolved.size, v2(bb.x, bb.y), child.size);
             remap_paint_gradients(&mut child.stroke.paints, resolved.size, v2(bb.x, bb.y), child.size);
             child.parent = Some(gid);
@@ -361,7 +396,6 @@ impl App {
         let base_fills = match &resolved_template.kind {
             NodeKind::Text(tp) => {
                 base.fills = tp.runs.iter().find(|r| r.start == 0 && r.end > 0).map(|r| r.style.fills.clone()).unwrap_or_else(|| tp.style.fills.clone());
-                base.stroke.align = StrokeAlign::Center;
                 tp.style.fills.as_slice()
             }
             _ => resolved_template.fills.as_slice(),
@@ -1712,6 +1746,42 @@ mod tests {
     }
 
     #[test]
+    fn text_vector_conversions_preserve_stroke_alignment() {
+        for outline in [false, true] {
+            let mut doc = Document::new("StrokeAlignmentConversion");
+            let page = doc.add_page("Page 1");
+            let tid = doc.alloc_id();
+            let mut text = Node::text(
+                tid,
+                Rect::new(20.0, 20.0, 180.0, 48.0),
+                "Aligned",
+                TextStyle { font_family: "Inter".into(), font_size: 32.0, fills: vec![Paint::solid(Color::BLACK)], ..Default::default() },
+            );
+            text.stroke.paints = vec![Paint::solid(Color::rgb(220, 30, 30))];
+            text.stroke.weight = 6.0;
+            text.stroke.align = StrokeAlign::Outside;
+            doc.insert(page, text).unwrap();
+
+            let mut app = app_on_new_page(doc, page);
+            app.selection = vec![tid];
+            if outline {
+                app.outline_stroke_selection();
+                let group = app.doc.get(app.selection[0]).expect("outlined text group");
+                assert!(matches!(group.kind, NodeKind::Group));
+                assert!(!group.children.is_empty());
+                for child in &group.children {
+                    assert_eq!(app.doc.get(*child).unwrap().stroke.align, StrokeAlign::Outside);
+                }
+            } else {
+                app.flatten_selection();
+                let vector = app.doc.get(app.selection[0]).expect("flattened text vector");
+                assert!(matches!(vector.kind, NodeKind::Vector { .. }));
+                assert_eq!(vector.stroke.align, StrokeAlign::Outside);
+            }
+        }
+    }
+
+    #[test]
     fn pixel_test_converted_text_vectors_match_original_text_render() {
         // 1. Decorated (underline) and two-run text preserve underline geometry, group transform, and glyph alignment.
         assert_text_scenario_pixels("decor_and_runs", |doc, fid| {
@@ -1736,7 +1806,7 @@ mod tests {
             vec![t1, t2]
         });
 
-        // 2. Stroked text with default StrokeAlign::Inside converts to centered vector strokes matching text rendering.
+        // 2. Stroked text with default StrokeAlign::Inside keeps its alignment when converted.
         assert_text_scenario_pixels("stroked_default_inside", |doc, fid| {
             let t = doc.alloc_id();
             let s = TextStyle {
