@@ -6,7 +6,7 @@
 
 use designos_docs::{BlockKind, ContentHash, DocsError, DocsStore, Expect, Group, Manifest, Page};
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::SystemTime;
 
 /// The description of the Overview page a new project starts with.
