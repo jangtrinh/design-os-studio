@@ -3080,7 +3080,9 @@ pub fn preset_popup(app: &mut App, spec: &str, screen: Vec2) {
                 if sub == "desc" && crate::styles::style_description(&app.doc, &entry.key).is_empty() {
                     app.set_style_description_to(&entry.key, "Soft elevation shadow for cards and popovers");
                 }
-                app.apply_style(&[id], &entry.key);
+                if app.doc.get(id).is_none_or(|n| !n.style_refs.values().any(|v| v == &entry.key)) {
+                    app.apply_style(&[id], &entry.key);
+                }
                 let anchor = Rect::from_min_size(Pos2::new(screen.x - 56.0, 420.0), Vec2::splat(24.0));
                 super::style_edit::toggle(app, &entry.key, anchor);
             }
