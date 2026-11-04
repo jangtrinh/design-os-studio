@@ -225,9 +225,10 @@ pub(super) fn section(app: &mut App, ui: &mut Ui, pane: &mut Pane, sel: &[NodeId
         if matches!(e, Effect::Shader { .. }) {
             let row = pane.rect(theme::SECTION_CONTENT_X, 0.0, 159.0, theme::FIELD_HEIGHT);
             ui.painter().rect_filled(row, theme::cr(theme::RADIUS_CONTROL), theme::BG_SECONDARY);
-            let icon_r = Rect::from_min_size(Pos2::new(row.left() + 4.0, row.center().y - 8.0), Vec2::splat(16.0));
-            crate::icons::paint(ui.painter(), Icon::Shader, icon_r.center(), 16.0, theme::TEXT_SECONDARY);
-            let text_r = Rect::from_min_max(Pos2::new(row.left() + 24.0, row.top()), row.max);
+            // A field with a prefix icon: the icon is centred in the theme's prefix slot, the text starts after it.
+            let icon_slot = Rect::from_min_size(row.min, Vec2::new(theme::FIELD_PREFIX_W, row.height()));
+            crate::icons::paint(ui.painter(), Icon::Shader, icon_slot.center(), theme::FIELD_PREFIX_ICON, theme::TEXT_SECONDARY);
+            let text_r = Rect::from_min_max(Pos2::new(row.left() + theme::FIELD_PREFIX_W, row.top()), row.max);
             widgets::field_text(ui.painter(), text_r, 0.0, 0.0, "Shader (not rendered)", theme::font_body(), theme::TEXT_SECONDARY);
         } else {
             let kind = kind_of(e);
