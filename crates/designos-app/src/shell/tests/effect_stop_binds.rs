@@ -1316,6 +1316,33 @@ fn undoing_the_step_that_added_a_fill_closes_the_picker_of_that_fill() {
 }
 
 #[test]
+fn undo_that_closes_an_eyedropping_picker_leaves_the_next_canvas_click_without_an_edit() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.edit_nodes(&[hero], |n| n.fills = vec![Paint::solid(Color::rgb(10, 200, 30))]);
+    s.frame(vec![]);
+    s.shell.app.edit_nodes(&[hero], |n| n.fills.push(Paint::solid(Color::rgb(200, 30, 10))));
+    s.frame(vec![]);
+    s.click(s.rect_of("sw:false:1").center());
+    s.frame(vec![]);
+    s.shell.app.props.eyedropper = Some(crate::panels::properties::PickTarget::Fill(1));
+    s.frame(vec![]);
+    assert!(s.app().props.picker.as_ref().is_some_and(|pk| pk.eyedrop), "the picker of the second fill is eyedropping");
+
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    assert!(s.app().props.picker.is_none(), "undo removes the fill and closes its picker");
+    assert_eq!(s.app().doc.get(hero).unwrap().fills.len(), 1, "undo removes the added fill");
+    let depth = s.app().hist.undo_depth();
+
+    s.click(s.screen(300.0, 900.0));
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().fills.len(), 1, "a canvas click after the undo must not add a fill");
+    assert_eq!(s.app().hist.undo_depth(), depth, "a canvas click after the undo must not add an undo step");
+    assert!(s.app().props.eyedropper.is_none(), "no eyedropper stays armed for a picker that closed");
+}
+
+#[test]
 fn canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step() {
     let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
     let hero = s.by_name("Hero");

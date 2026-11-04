@@ -59,6 +59,7 @@ pub(crate) fn adopt_picker_paint_after_history(app: &mut App) {
     });
     let Some(p) = doc_paint else {
         app.props.picker = None;
+        app.props.eyedropper = None;
         return;
     };
     pk.paint = p;
