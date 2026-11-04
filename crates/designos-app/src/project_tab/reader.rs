@@ -282,7 +282,7 @@ impl Reader {
         let t = if max > 0.0 { offset / max } else { 0.0 };
         let thumb =
             Rect::from_min_size(Pos2::new(track.left() + (viewport - thumb_w) * t, track.top() + theme::INSET_SEGMENT), Vec2::new(thumb_w, HBAR_THUMB_H));
-        painter.rect_filled(thumb, theme::cr_pill(HBAR_THUMB_H), theme::VAR_SCROLL_THUMB);
+        painter.rect_filled(thumb, theme::cr(theme::READER_HBAR_THUMB_RADIUS), theme::VAR_SCROLL_THUMB);
     }
 }
 

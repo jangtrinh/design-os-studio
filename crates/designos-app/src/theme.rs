@@ -984,6 +984,8 @@ pub const PROJECT_RENAME_TEXT_PAD: f32 = 3.0;
 pub const READER_BULLET_CENTER_X: f32 = 10.0;
 /// Reader checklist box: centre x inside the list item's marker column (the left 24px of an item).
 pub const READER_CHECKBOX_CENTER_X: f32 = 12.0;
+/// Corner radius of the thumb of a reader table's horizontal scrollbar.
+pub const READER_HBAR_THUMB_RADIUS: u8 = 4;
 // ---------------------------------------------------------------- variables view
 // Measured on the Figma UI3 local-variables captures (800x600, dpr 1).
 /// Sidebar content width; the 1px border follows it in the full view.
