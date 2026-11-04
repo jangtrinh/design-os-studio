@@ -2128,35 +2128,74 @@ mod tests {
         assert_eq!(outline("I I", 1.0), vec![('f', 2), ('s', 2)], "strokes apart stay separate");
     }
 
+    /// What `outline_chain_line` returns: the pixel difference between the live text and the outlined group
+    /// (`pixmap_diff_stats`), and every baked stroke vector as (name, left edge in the frame, right edge in the
+    /// frame, path commands).
+    struct ChainLine {
+        diff: (u8, f64, f64, usize, u8, usize),
+        strokes: Vec<(String, f32, f32, usize)>,
+    }
+
+    const CHAIN_LINE_FRAME_W: f32 = 1100.0;
+    /// One line of 140 glyphs ("mn" x 70, Inter 10, stroke weight 2) in a 1100 x 60 frame. The text spans about
+    /// 1030 px and never wraps, and the stroke of every glyph touches the next, so the whole line is one chain.
+    const CHAIN_LINE_GLYPHS: usize = 140;
+
+    /// Outline stroke of the chain line with a `paint` stroke aligned `align`, rendered at 2x as live text and as
+    /// the outlined group.
+    fn outline_chain_line(align: StrokeAlign, paint: Paint) -> ChainLine {
+        let mut doc = Document::new("Chain");
+        let page = doc.add_page("Page 1");
+        let fid = doc.alloc_id();
+        let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, CHAIN_LINE_FRAME_W, 60.0));
+        frame.fills = vec![Paint::solid(Color::WHITE)];
+        doc.insert(page, frame).unwrap();
+        let content: String = "mn".chars().cycle().take(CHAIN_LINE_GLYPHS).collect();
+        let style = TextStyle { font_size: 10.0, ..inter_32() };
+        let t = doc.alloc_id();
+        let mut text = Node::text(t, Rect::new(10.0, 10.0, 100.0, 40.0), &content, style);
+        text.stroke.paints = vec![paint];
+        text.stroke.weight = 2.0;
+        text.stroke.align = align;
+        doc.insert(fid, text).unwrap();
+        let before = designos_render::render_node(&doc, fid, 2.0).expect("render before");
+        let (app, children) = outline_group_children(doc, page, t);
+        let group_x = app.doc.get(app.selection[0]).expect("the outline is selected").transform.tx;
+        let strokes = children
+            .iter()
+            .filter(|n| n.name.ends_with(" stroke"))
+            .map(|n| {
+                let NodeKind::Vector { paths, .. } = &n.kind else { panic!("{align:?}: {} is not a vector", n.name) };
+                let left = group_x + n.transform.tx;
+                (n.name.clone(), left, left + n.size.x, paths.iter().map(|p| p.cmds.len()).sum())
+            })
+            .collect();
+        let after = designos_render::render_node(&app.doc, fid, 2.0).expect("render after outline stroke");
+        ChainLine { diff: pixmap_diff_stats(&before, &after), strokes }
+    }
+
+    /// The chain of the line is cut after 128 glyphs, and the cut lies inside the rendered frame (the second
+    /// vector starts at about x = 948 of 1100), so the picture compares the seam of the two vectors with the canvas.
+    fn assert_chain_line_cut_matches_live_text(align: StrokeAlign, paint: Paint) {
+        let line = outline_chain_line(align, paint);
+        let names: Vec<&str> = line.strokes.iter().map(|s| s.0.as_str()).collect();
+        assert_eq!(line.strokes.len(), 2, "{align:?}: the chain is cut into two stroke vectors, got {names:?}");
+        assert_eq!(line.strokes[1].0, "mnmnmnmnmnmn stroke", "{align:?}: the second vector holds the 12 glyphs after the cut");
+        for (name, left, right, cmds) in &line.strokes {
+            assert!(*left >= 0.0 && *right <= CHAIN_LINE_FRAME_W, "{align:?}: {name} spans {left}..{right} of a {CHAIN_LINE_FRAME_W} px frame");
+            assert!(*cmds < 10_000, "{align:?}: {name} holds {cmds} path commands");
+        }
+        let cut_x = line.strokes[1].1;
+        assert!(cut_x > 0.0 && cut_x < CHAIN_LINE_FRAME_W, "{align:?}: the cut at x = {cut_x} lies inside the frame");
+        let (_max, _all, _ink, hard_px, non_edge, ink_px) = line.diff;
+        assert!(ink_px > 0, "{align:?}: nothing rendered");
+        assert_eq!((hard_px, non_edge), (0, 0), "{align:?}: the cut vectors still render as the canvas does");
+    }
+
     #[test]
     fn aligned_text_outline_cuts_a_chain_of_touching_strokes_into_bounded_vectors() {
         for align in [StrokeAlign::Inside, StrokeAlign::Outside] {
-            // 16 px text with a 4 px stroke: the strokes of the whole paragraph touch
-            let mut doc = Document::new("Chain");
-            let page = doc.add_page("Page 1");
-            let fid = doc.alloc_id();
-            let mut frame = Node::frame(fid, Rect::new(0.0, 0.0, 740.0, 560.0));
-            frame.fills = vec![Paint::solid(Color::WHITE)];
-            doc.insert(page, frame).unwrap();
-            let mut text = PARAGRAPH.repeat(2);
-            text.truncate(520);
-            let base = TextStyle { font_size: 16.0, ..inter_32() };
-            let t = styled_text(&mut doc, fid, &text, align, base, vec![]);
-            doc.get_mut(t).unwrap().stroke.weight = 4.0;
-            doc.get_mut(t).unwrap().size = v2(680.0, 480.0);
-            let before = designos_render::render_node(&doc, fid, 2.0).expect("render before");
-            let (app, children) = outline_group_children(doc, page, t);
-            let strokes: Vec<&Node> = children.iter().filter(|n| n.name.ends_with(" stroke")).collect();
-            assert!(strokes.len() >= 3, "{align:?}: the chain is cut into several stroke vectors, got {}", strokes.len());
-            for s in &strokes {
-                let NodeKind::Vector { paths, .. } = &s.kind else { panic!("{align:?}: {} is not a vector", s.name) };
-                let cmds: usize = paths.iter().map(|p| p.cmds.len()).sum();
-                assert!(cmds < 6000, "{align:?}: {} holds {cmds} path commands", s.name);
-            }
-            let after = designos_render::render_node(&app.doc, fid, 2.0).expect("render after outline stroke");
-            let (_max, _all, _ink, hard_px, non_edge, ink_px) = pixmap_diff_stats(&before, &after);
-            assert!(ink_px > 0);
-            assert_eq!((hard_px, non_edge), (0, 0), "{align:?}: the cut vectors still render as the canvas does");
+            assert_chain_line_cut_matches_live_text(align, Paint::solid(Color::rgb(220, 30, 30)));
         }
     }
 
