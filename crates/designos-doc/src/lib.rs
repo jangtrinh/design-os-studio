@@ -1649,6 +1649,12 @@ pub enum Style {
     Grid(Vec<LayoutGrid>),
 }
 
+/// Paragraph fields a text style owns before an edit: those recorded in its metadata (`None` = all), or
+/// none when it has no metadata, because such a style predates field ownership.
+pub fn recorded_text_paragraph_fields(meta: Option<&StyleMeta>) -> Option<u8> {
+    meta.map_or(Some(0), |m| m.text_paragraph_fields)
+}
+
 /// The metadata of text style `key`. A table text style stored without any gets its own key as name
 /// and the text property; an orphan reference or a style of another kind gets none.
 pub(crate) fn text_style_meta_mut<'a>(

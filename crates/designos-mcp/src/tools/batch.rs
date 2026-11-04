@@ -13,9 +13,9 @@ use crate::tools::text_remeasure::{resize_hug_text, BoundTextIndex, VariablesBef
 use crate::tools::{build_created_node, build_updated_node, validate_create_fields, validate_update_fields, UpdateFields};
 use designos_doc::live_patch::{live_ops_for_command, LiveOp, SiblingHint};
 use designos_doc::{
-    apply_style_values_with_fields, resolve_easeui_color, style_property, text_style_paragraph_fields_after_update, Color, Command, Document, Effect,
-    LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect, SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable, VariableCollection,
-    VariableKind, VariableMode, VariableValue,
+    apply_style_values_with_fields, recorded_text_paragraph_fields, resolve_easeui_color, style_property, text_style_paragraph_fields_after_update, Color,
+    Command, Document, Effect, LayoutGrid, NodeId, NodeKind, NodeSpec, Paint, Rect, SpecDataSnapshot, Style, StyleMeta, StyleProperty, TextStyle, Variable,
+    VariableCollection, VariableKind, VariableMode, VariableValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -1387,7 +1387,13 @@ fn apply_set_style_op(
             Some(m) => (m.key.clone(), m.sort_position.clone(), m.text_paragraph_fields),
             None => (None, None, None),
         };
-        let ownership = if existing_style.is_none() && matches!(&style_val, Style::Text(_)) { Some(0b111) } else { existing_fields };
+        let ownership = match (&existing_style, &style_val) {
+            // a text style this op creates owns every paragraph field
+            (None, Style::Text(_)) => Some(0b111),
+            // a stored one without metadata owns none until the op changes one
+            (Some(Style::Text(_)), Style::Text(_)) => recorded_text_paragraph_fields(existing_meta.as_ref()),
+            _ => existing_fields,
+        };
         let paragraph_fields = text_style_paragraph_fields_after_update(styles.get(&key), &style_val, ownership);
         styles.insert(key.clone(), style_val);
         style_meta.insert(

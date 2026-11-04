@@ -187,9 +187,8 @@ pub fn update_style(doc: &Document, key: &str, style: Style) -> Result<Command, 
     let mut style_meta = doc.style_meta.clone();
     // A text style stored without metadata predates field ownership: the layers keep every paragraph value
     // the style never held, and only a field this edit changes becomes the style's.
-    let recorded = doc.style_meta.get(key).map_or(Some(0), |m| m.text_paragraph_fields);
     let paragraph_fields = match &style {
-        Style::Text(_) => text_style_paragraph_fields_after_update(doc.styles.get(key), &style, recorded),
+        Style::Text(_) => text_style_paragraph_fields_after_update(doc.styles.get(key), &style, recorded_text_paragraph_fields(doc.style_meta.get(key))),
         _ => None,
     };
     if let Some(fields) = paragraph_fields {
