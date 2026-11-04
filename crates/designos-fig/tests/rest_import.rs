@@ -452,3 +452,115 @@ fn rest_import_keeps_bindings_to_variables_present_in_file() {
     let gradient = find(&doc, "Gradient");
     assert_eq!(gradient.variables.bindings.get("fills/0/stops/0").map(String::as_str), Some("VariableID:9:9"));
 }
+
+fn rest_file_with_nodes(nodes: &str) -> String {
+    format!(r#"{{"name": "Missing", "document": {{"type": "DOCUMENT", "children": [{{"type": "CANVAS", "name": "P", "children": [{nodes}]}}]}}}}"#)
+}
+
+#[test]
+fn a_solid_fill_bound_to_a_missing_variable_counts_as_one_missing_variable() {
+    let json = rest_file_with_nodes(
+        r#"{"id": "1:1", "type": "RECTANGLE", "name": "Solid",
+            "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 40},
+            "fills": [{"type": "SOLID", "color": {"r": 1, "g": 0, "b": 0, "a": 1},
+              "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:9"}}}]}"#,
+    );
+    let (doc, report) = import_rest_json_with_report(&json).unwrap();
+    assert!(doc.variables.is_empty());
+    assert_eq!(report.missing_variable_bindings, 1);
+    assert_eq!(find(&doc, "Solid").variables.bindings.get("fills/0").map(String::as_str), Some("VariableID:9:9"));
+}
+
+#[test]
+fn a_style_and_the_layer_using_it_bound_to_the_same_missing_variable_count_once() {
+    let json = r#"{
+      "name": "StyledGradient",
+      "styles": {"S:grad": {"key": "k1", "name": "Brand/Gradient", "styleType": "FILL", "description": "",
+        "fills": [{"type": "GRADIENT_LINEAR", "gradientHandlePositions": [{"x": 0, "y": 0.5}, {"x": 1, "y": 0.5}, {"x": 0, "y": 1}],
+          "gradientStops": [{"position": 0, "color": {"r": 1, "g": 0, "b": 0, "a": 1},
+            "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:9"}}}]}]}},
+      "document": {"type": "DOCUMENT", "children": [{"type": "CANVAS", "name": "P", "children": [
+        {"id": "1:1", "type": "RECTANGLE", "name": "Gradient",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 40},
+         "styles": {"fill": "S:grad"},
+         "fills": [{"type": "GRADIENT_LINEAR", "gradientHandlePositions": [{"x": 0, "y": 0.5}, {"x": 1, "y": 0.5}, {"x": 0, "y": 1}],
+           "gradientStops": [{"position": 0, "color": {"r": 1, "g": 0, "b": 0, "a": 1},
+             "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:9"}}}]}]}
+      ]}]}
+    }"#;
+    let (doc, report) = import_rest_json_with_report(json).unwrap();
+    let on_layer = find(&doc, "Gradient").variables.bindings.get("fills/0/stops/0").map(String::as_str);
+    let on_style = doc.style_meta.get("S:grad").and_then(|m| m.bindings.get("fills/0/stops/0")).map(String::as_str);
+    assert_eq!((on_layer, on_style), (Some("VariableID:9:9"), Some("VariableID:9:9")), "the binding sits on both the layer and the style");
+    assert_eq!(report.missing_variable_bindings, 1);
+}
+
+#[test]
+fn two_layers_bound_to_the_same_missing_variable_count_once() {
+    let rect = |id: &str, name: &str| {
+        format!(
+            r#"{{"id": "{id}", "type": "RECTANGLE", "name": "{name}",
+                "absoluteBoundingBox": {{"x": 0, "y": 0, "width": 40, "height": 40}},
+                "fills": [{{"type": "SOLID", "color": {{"r": 1, "g": 0, "b": 0, "a": 1}},
+                  "boundVariables": {{"color": {{"type": "VARIABLE_ALIAS", "id": "VariableID:9:9"}}}}}}]}}"#
+        )
+    };
+    let json = rest_file_with_nodes(&format!("{},{}", rect("1:1", "First"), rect("1:2", "Second")));
+    let (doc, report) = import_rest_json_with_report(&json).unwrap();
+    assert_eq!(find(&doc, "First").variables.bindings.get("fills/0"), find(&doc, "Second").variables.bindings.get("fills/0"));
+    assert_eq!(report.missing_variable_bindings, 1);
+}
+
+#[test]
+fn every_kind_of_binding_to_a_missing_variable_counts_once_per_variable() {
+    let json = rest_file_with_nodes(
+        r#"{"id": "1:1", "type": "FRAME", "name": "Card",
+            "absoluteBoundingBox": {"x": 0, "y": 0, "width": 100, "height": 100},
+            "layoutMode": "VERTICAL", "itemSpacing": 8,
+            "boundVariables": {"itemSpacing": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:11"}},
+            "fills": [{"type": "SOLID", "color": {"r": 1, "g": 1, "b": 1, "a": 1},
+              "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:10"}}}],
+            "strokes": [{"type": "SOLID", "color": {"r": 0, "g": 0, "b": 0, "a": 1},
+              "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:12"}}}],
+            "effects": [{"type": "DROP_SHADOW", "visible": true, "color": {"r": 0, "g": 0, "b": 0, "a": 0.25},
+              "offset": {"x": 0, "y": 2}, "radius": 4, "spread": 0,
+              "boundVariables": {"radius": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:13"}}}],
+            "children": [{"id": "1:2", "type": "TEXT", "name": "Label", "characters": "Hi",
+              "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 20},
+              "style": {"fontFamily": "Inter", "fontSize": 16},
+              "boundVariables": {"fontSize": [{"type": "VARIABLE_ALIAS", "id": "VariableID:9:14"}]}}]}"#,
+    );
+    let (doc, report) = import_rest_json_with_report(&json).unwrap();
+    let card = find(&doc, "Card");
+    let kept: std::collections::BTreeSet<&str> = card.variables.bindings.values().map(String::as_str).collect();
+    assert_eq!(kept, ["VariableID:9:10", "VariableID:9:11", "VariableID:9:12", "VariableID:9:13"].into_iter().collect(), "{:?}", card.variables.bindings);
+    assert_eq!(find(&doc, "Label").variables.bindings.get("fontSize").map(String::as_str), Some("VariableID:9:14"));
+    assert_eq!(report.missing_variable_bindings, 5);
+}
+
+#[test]
+fn a_binding_to_a_variable_in_the_file_counts_no_missing_variable() {
+    let json = r#"{
+      "name": "PresentSolid",
+      "meta": {
+        "variableCollections": {"VariableCollectionId:9:1": {
+          "id": "VariableCollectionId:9:1", "name": "Theme",
+          "modes": [{"modeId": "9:0", "name": "Default"}],
+          "defaultModeId": "9:0", "variableIds": ["VariableID:9:9"]
+        }},
+        "variables": {"VariableID:9:9": {
+          "id": "VariableID:9:9", "name": "Accent", "variableCollectionId": "VariableCollectionId:9:1",
+          "resolvedType": "COLOR", "valuesByMode": {"9:0": {"r": 1, "g": 0, "b": 0, "a": 1}}
+        }}
+      },
+      "document": {"type": "DOCUMENT", "children": [{"type": "CANVAS", "name": "P", "children": [
+        {"id": "1:1", "type": "RECTANGLE", "name": "Solid",
+         "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 40},
+         "fills": [{"type": "SOLID", "color": {"r": 1, "g": 0, "b": 0, "a": 1},
+           "boundVariables": {"color": {"type": "VARIABLE_ALIAS", "id": "VariableID:9:9"}}}]}
+      ]}]}
+    }"#;
+    let (doc, report) = import_rest_json_with_report(json).unwrap();
+    assert_eq!(find(&doc, "Solid").variables.bindings.get("fills/0").map(String::as_str), Some("VariableID:9:9"));
+    assert_eq!(report.missing_variable_bindings, 0);
+}

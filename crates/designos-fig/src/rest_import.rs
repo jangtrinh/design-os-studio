@@ -602,11 +602,12 @@ pub struct ImportReport {
     /// (other than its frost radius) and of a noise (other than its colour and opacity) on every layer and effect
     /// style. The field keeps its stored value; only the binding is dropped.
     pub dropped_variable_bindings: usize,
-    /// How many variable bindings refer to variables absent from this REST payload.
+    /// How many distinct variables the document's bindings refer to that are absent from the document's variables.
     ///
-    /// Bindings remain attached to the document because Figma can provide the
-    /// variables through a separate `variables/local` response. Callers can
-    /// use this count to surface that the document is waiting for that payload.
+    /// Every binding counts, whatever it binds (fills, strokes, effects, gradient stops, text metrics or any other
+    /// property), on layers and on shared styles alike. A variable counts once however many bindings name it.
+    /// The bindings remain attached to the document, so importing the variables later (for example a Figma
+    /// `variables/local` response) resolves them. Callers use this count to tell the user the variables are missing.
     pub missing_variable_bindings: usize,
 }
 
@@ -3781,22 +3782,14 @@ fn apply_style_node_values(doc: &mut Document, styles: Option<&Value>) {
     }
 }
 
-fn is_gradient_stop_binding(key: &str) -> bool {
-    key.strip_prefix("fills/").is_some_and(|rest| rest.contains("/stops/")) || key.strip_prefix("strokes/").is_some_and(|rest| rest.contains("/stops/"))
-}
-
-/// Counts unresolved gradient-stop bindings without deleting them. A REST file
-/// response can omit `meta.variables`; the caller may import that payload later
-/// through `import_variables_json`, at which point these bindings become live.
+/// Counts the variables that layer and style bindings name but the document does not hold, each variable once
+/// however many bindings refer to it. The bindings are not deleted: a variables payload imported later
+/// (`import_variables_json`) makes them live.
 fn count_missing_variable_bindings(doc: &Document) -> usize {
-    let mut count = 0;
-    for node in doc.nodes.values() {
-        count += node.variables.bindings.iter().filter(|(key, id)| is_gradient_stop_binding(key) && !doc.variables.contains_key(*id)).count();
-    }
-    for meta in doc.style_meta.values() {
-        count += meta.bindings.iter().filter(|(key, id)| is_gradient_stop_binding(key) && !doc.variables.contains_key(*id)).count();
-    }
-    count
+    let layer_bindings = doc.nodes.values().flat_map(|node| node.variables.bindings.values());
+    let style_bindings = doc.style_meta.values().flat_map(|meta| meta.bindings.values());
+    let missing: BTreeSet<&str> = layer_bindings.chain(style_bindings).filter(|id| !doc.variables.contains_key(*id)).map(String::as_str).collect();
+    missing.len()
 }
 
 /// Library style metadata from the top-level REST `styles` map. A FILL style
