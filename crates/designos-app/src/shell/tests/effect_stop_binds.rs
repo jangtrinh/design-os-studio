@@ -1173,6 +1173,148 @@ fn undo_redo_and_close_of_a_pending_picker_edit_stay_on_that_step() {
     assert_eq!(stops[0].color, Color::BLACK, "closing after undo must not re-apply the undone stop");
 }
 
+fn black_to_white_gradient() -> Paint {
+    Paint {
+        kind: PaintKind::LinearGradient {
+            handles: [designos_doc::Vec2::new(0.0, 0.5), designos_doc::Vec2::new(1.0, 0.5), designos_doc::Vec2::new(0.0, 1.0)],
+            stops: vec![GradientStop { pos: 0.0, color: Color::BLACK }, GradientStop { pos: 1.0, color: Color::WHITE }],
+        },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }
+}
+
+/// The colour of the first fill of `id`; panics when that fill is not solid.
+fn document_solid_fill(s: &Sim, id: NodeId) -> Color {
+    match &s.app().doc.get(id).unwrap().fills[0].kind {
+        PaintKind::Solid(c) => *c,
+        other => panic!("the document fill must be solid, found {other:?}"),
+    }
+}
+
+/// The colour the open picker holds, or `None` when the picker is closed or holds another paint type.
+fn picker_solid_colour(s: &Sim) -> Option<Color> {
+    match &s.app().props.picker.as_ref()?.paint.kind {
+        PaintKind::Solid(c) => Some(*c),
+        _ => None,
+    }
+}
+
+/// Replaces the text of the hex field of the open solid picker with `hex` and commits it.
+fn type_picker_hex(s: &mut Sim, hex: &str) {
+    let id = egui::Id::new("color-picker").with(("txt", "picker-hex"));
+    s.ctx.memory_mut(|m| m.request_focus(id));
+    for _ in 0..3 {
+        s.frame(vec![]);
+    }
+    let shown = picker_solid_colour(s).expect("a solid picker is open").to_hex();
+    crate::widgets::field::select_value(&s.ctx, id, shown.chars().count());
+    s.type_text(hex);
+    s.key(Key::Enter);
+    s.frame(vec![]);
+}
+
+/// After the document gives back a solid fill, the open picker holds that fill and the next picker edit builds on it.
+fn assert_picker_adopted_solid_fill(s: &mut Sim, hero: NodeId, solid: Color) {
+    assert_eq!(document_solid_fill(s, hero), solid, "the document holds the solid fill again");
+    assert_eq!(picker_solid_colour(s), Some(solid), "the picker must adopt the solid fill of the document, not keep the undone paint type");
+    type_picker_hex(s, "336699");
+    let typed = Color::rgb(0x33, 0x66, 0x99);
+    assert_eq!(document_solid_fill(s, hero), typed, "a picker edit after the undo sets a solid fill and does not bring the gradient back");
+    assert_eq!(picker_solid_colour(s), Some(typed), "the picker keeps following the document fill");
+}
+
+#[test]
+fn undoing_a_pending_paint_type_change_makes_the_picker_adopt_the_document_fill() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    let green = Color::rgb(10, 200, 30);
+    s.shell.app.edit_nodes(&[hero], |n| n.fills = vec![Paint::solid(green)]);
+    s.frame(vec![]);
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    // The paint type row: Linear is its second button.
+    s.click(Pos2::new(picker.left() + 8.0 + 28.0 + 12.0, picker.top() + 40.0 + 8.0 + 12.0));
+    s.frame(vec![]);
+    assert!(matches!(s.app().doc.get(hero).unwrap().fills[0].kind, PaintKind::LinearGradient { .. }), "the click converts the fill to a gradient");
+
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    assert_picker_adopted_solid_fill(&mut s, hero, green);
+}
+
+#[test]
+fn undoing_past_the_step_that_made_a_gradient_makes_the_picker_adopt_the_solid_fill() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    let green = Color::rgb(10, 200, 30);
+    s.shell.app.edit_nodes(&[hero], |n| n.fills = vec![Paint::solid(green)]);
+    s.frame(vec![]);
+    s.shell.app.edit_nodes(&[hero], |n| n.fills = vec![black_to_white_gradient()]);
+    s.frame(vec![]);
+    s.shell.app.edit_nodes(&[hero], |n| n.opacity = 0.7);
+    s.frame(vec![]);
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    let picker = s.rect_of("picker");
+    s.click(Pos2::new(picker.left() + 24.0, picker.top() + 504.0));
+    s.frame(vec![]);
+    assert!(s.app().props.picker.is_some(), "the picker is open");
+    assert_eq!(picker_solid_colour(&s), None, "the open picker is a gradient picker with a pending stop edit");
+
+    // Pending stop edit, opacity step, gradient step.
+    for _ in 0..3 {
+        s.cmd_key(Key::Z);
+        s.frame(vec![]);
+    }
+    assert_eq!(s.app().doc.get(hero).unwrap().opacity, 1.0, "the opacity step is undone too");
+    assert_picker_adopted_solid_fill(&mut s, hero, green);
+}
+
+#[test]
+fn redoing_a_paint_type_change_makes_the_open_picker_adopt_the_document_fill() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.edit_nodes(&[hero], |n| n.fills = vec![Paint::solid(Color::rgb(10, 200, 30))]);
+    s.frame(vec![]);
+    s.shell.app.edit_nodes(&[hero], |n| n.fills = vec![black_to_white_gradient()]);
+    s.frame(vec![]);
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    s.click(s.rect_of("sw:false:0").center());
+    s.frame(vec![]);
+    assert!(picker_solid_colour(&s).is_some(), "the picker opens on the solid fill the undo gave back");
+
+    let is_mac = s.shell.app.terminal.platform_is_mac_override.unwrap_or(cfg!(target_os = "macos"));
+    s.mods = Modifiers { alt: false, ctrl: !is_mac, shift: true, mac_cmd: is_mac, command: true };
+    s.key(Key::Z);
+    s.mods = Modifiers::NONE;
+    s.frame(vec![]);
+    let document_fill = s.app().doc.get(hero).unwrap().fills[0].clone();
+    assert!(matches!(document_fill.kind, PaintKind::LinearGradient { .. }), "redo brings the gradient back");
+    assert_eq!(s.app().props.picker.as_ref().map(|pk| &pk.paint), Some(&document_fill), "the open picker must adopt the gradient that redo restored");
+}
+
+#[test]
+fn undoing_the_step_that_added_a_fill_closes_the_picker_of_that_fill() {
+    let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });
+    let hero = s.by_name("Hero");
+    s.shell.app.edit_nodes(&[hero], |n| n.fills = vec![Paint::solid(Color::rgb(10, 200, 30))]);
+    s.frame(vec![]);
+    s.shell.app.edit_nodes(&[hero], |n| n.fills.push(Paint::solid(Color::rgb(200, 30, 10))));
+    s.frame(vec![]);
+    s.click(s.rect_of("sw:false:1").center());
+    s.frame(vec![]);
+    assert!(s.app().props.picker.is_some(), "the picker of the second fill is open");
+
+    s.cmd_key(Key::Z);
+    s.frame(vec![]);
+    assert_eq!(s.app().doc.get(hero).unwrap().fills.len(), 1, "undo removes the added fill");
+    assert!(s.app().props.picker.is_none(), "the picker of a fill that no longer exists must close");
+}
+
 #[test]
 fn canvas_gradient_line_insert_remaps_stop_binding_and_undoes_in_one_step() {
     let mut s = Sim::with(Options { select: Some("Hero".into()), ..Default::default() });

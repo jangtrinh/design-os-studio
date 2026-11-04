@@ -525,7 +525,7 @@ impl App {
     pub fn undo(&mut self) {
         self.commit_pending_picker_tx();
         if self.try_undo_restore() {
-            crate::panels::var_bind::sync_picker_paint_from_doc(self);
+            crate::panels::var_bind::adopt_picker_paint_after_history(self);
             return;
         }
         let copy_undo_match =
@@ -542,9 +542,9 @@ impl App {
                 }
                 self.relayout_moved_geometry();
                 self.sanitize();
-                crate::panels::var_bind::sync_picker_paint_from_doc(self);
+                crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
-            Ok(false) => crate::panels::var_bind::sync_picker_paint_from_doc(self),
+            Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
             Err(e) => self.show_toast(format!("Undo failed: {e}"), true),
         }
     }
@@ -552,16 +552,16 @@ impl App {
     pub fn redo(&mut self) {
         self.commit_pending_picker_tx();
         if self.try_redo_restore() {
-            crate::panels::var_bind::sync_picker_paint_from_doc(self);
+            crate::panels::var_bind::adopt_picker_paint_after_history(self);
             return;
         }
         match self.hist.redo(&mut self.doc) {
             Ok(true) => {
                 self.relayout_moved_geometry();
                 self.sanitize();
-                crate::panels::var_bind::sync_picker_paint_from_doc(self);
+                crate::panels::var_bind::adopt_picker_paint_after_history(self);
             }
-            Ok(false) => crate::panels::var_bind::sync_picker_paint_from_doc(self),
+            Ok(false) => crate::panels::var_bind::adopt_picker_paint_after_history(self),
             Err(e) => self.show_toast(format!("Redo failed: {e}"), true),
         }
     }
