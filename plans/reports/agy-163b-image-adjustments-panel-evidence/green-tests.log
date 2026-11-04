@@ -1,0 +1,370 @@
+=== designos-render new tests ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling unicode-ident v1.0.27
+   Compiling smallvec v1.16.3
+   Compiling bitflags v2.13.2
+   Compiling num-traits v0.2.19
+   Compiling arrayvec v0.7.8
+   Compiling proc-macro2 v1.0.107
+   Compiling png v0.18.1
+   Compiling nix v0.31.3
+   Compiling kurbo v0.11.3
+   Compiling quote v1.0.47
+   Compiling syn v3.0.9
+   Compiling zip v9.0.4
+   Compiling svgtypes v0.15.3
+   Compiling moxcms v0.8.1
+   Compiling synstructure v0.14.0
+   Compiling zerofrom-derive v0.1.8
+   Compiling yoke-derive v0.8.4
+   Compiling bytemuck_derive v1.12.1
+   Compiling zerovec-derive v0.11.6
+   Compiling displaydoc v0.2.7
+   Compiling thiserror-impl v2.0.21
+   Compiling serde_derive v1.0.229
+   Compiling zerofrom v0.1.8
+   Compiling bytemuck v1.25.2
+   Compiling yoke v0.8.3
+   Compiling thiserror v2.0.21
+   Compiling font-types v0.11.3
+   Compiling font-types v0.12.7
+   Compiling tiny-skia-path v0.11.4
+   Compiling image v0.25.10
+   Compiling read-fonts v0.37.0
+   Compiling rustybuzz v0.20.1
+   Compiling read-fonts v0.41.0
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling serde v1.0.229
+   Compiling tiny-skia v0.11.4
+   Compiling usvg v0.45.1
+   Compiling tinystr v0.8.4
+   Compiling potential_utf v0.1.6
+   Compiling icu_collections v2.3.0
+   Compiling icu_locale_core v2.3.0
+   Compiling icu_provider v2.3.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_normalizer v2.3.0
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-doc)
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling skrifa v0.40.0
+   Compiling url v2.5.8
+   Compiling harfrust v0.5.2
+   Compiling ureq v2.12.1
+   Compiling skrifa v0.44.0
+   Compiling swash v0.2.10
+   Compiling cosmic-text v0.19.0
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-fonts)
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-render)
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-svg)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-fig)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.02s
+     Running tests/render.rs (out/cargo/debug/deps/render-5ddf387f7aa22575)
+
+running 2 tests
+test blend_mode_and_opacity_apply_after_image_adjustments ... ok
+test fit_letterbox_and_out_of_bounds_crop_remain_transparent_under_positive_adjustments ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 41 filtered out; finished in 0.01s
+
+=== designos-gpu new tests ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running tests/fidelity.rs (out/cargo/debug/deps/fidelity-e9d67385509b7a81)
+
+running 6 tests
+IMAGE_ADJUST_PERF: base_pan(20f) p50=0.101ms p95=0.116ms max=0.118ms draws=42 progs=1 | live_adjust_drag(20f) p50=0.328ms p95=0.368ms max=0.421ms draws=48 progs=1 | idle_stale_hits=0
+test image_adjustments_interactive_frame_budget_holds ... ok
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+GPU: Apple M4 Max (Metal)
+exposure_plus_one: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_plus_one: 0.0000% with AA pixels forgiven (0 px)
+semi_transparent_alpha: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+semi_transparent_alpha: 0.0000% with AA pixels forgiven (0 px)
+test exposure_plus_one_brightens_a_literal_pixel_equally_on_cpu_and_gpu ... ok
+exposure_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+zero_adjust_a: mismatch 0.0000% (0 px of 10000) at tolerance 2, ssim 1.0000
+exposure_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+exposure_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+zero_adjust_a: 0.0000% with AA pixels forgiven (0 px)
+contrast_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+contrast_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+contrast_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+zero_adjust_b: mismatch 0.0000% (0 px of 10000) at tolerance 2, ssim 1.0000
+contrast_-0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+contrast_-0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: 0.0200% with AA pixels forgiven (4 px)
+saturation_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+zero_adjust_b: 0.0000% with AA pixels forgiven (0 px)
+saturation_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+test all_zero_adjustments_are_byte_identical_to_the_previous_render ... ok
+saturation_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+saturation_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+saturation_-0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_-0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+saturation_+0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+saturation_+0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+saturation_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+crop_after_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+saturation_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+temperature_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+temperature_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+temperature_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+crop_after_fill: 0.0200% with AA pixels forgiven (4 px)
+temperature_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+temperature_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+tint_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+tint_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+tint_+0.5_warm: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_+0.5_warm: 0.0000% with AA pixels forgiven (0 px)
+tint_-0.5_cool: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+tint_-0.5_cool: 0.0000% with AA pixels forgiven (0 px)
+back_to_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+highlights_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+highlights_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+highlights_+0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+back_to_fill: 0.0200% with AA pixels forgiven (4 px)
+highlights_-0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_-0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+highlights_+0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+highlights_+0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+shadows_+0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+shadows_-0.5_grey: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_-0.5_grey: 0.0000% with AA pixels forgiven (0 px)
+shadows_+0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+fill_before_crop: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+shadows_-0.5_0.25: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_-0.5_0.25: 0.0000% with AA pixels forgiven (0 px)
+shadows_+0.5_0.75: mismatch 0.0000% (0 px of 256) at tolerance 2, ssim 1.0000
+shadows_+0.5_0.75: 0.0000% with AA pixels forgiven (0 px)
+test adjustment_unit_tests_per_step ... ok
+fill_before_crop: 0.0200% with AA pixels forgiven (4 px)
+crop_after_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+crop_after_fill: 0.0200% with AA pixels forgiven (4 px)
+back_to_fill: mismatch 0.0200% (4 px of 20000) at tolerance 8, ssim 0.9999
+back_to_fill: 0.0200% with AA pixels forgiven (4 px)
+test fill_to_crop_switch_reproduces_the_framing ... ok
+Found 3 kit nodes with non-zero image adjustments:
+  [0] id=NodeId(41802) name="Section" size=Vec2 { x: 880.0, y: 960.0 } scale_mode=Fill image_ref=cdc5333ab659a91172f4559b55b41dfdc544f660 has_img=true adjust=ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: 0.0, vignette: 0.0, temperature: 0.0, vibrance: -1.0, contrast: 0.0, brightness: 0.0 }
+kit_0_test: mismatch 4.2979% (4126 px of 96000) at tolerance 4, ssim 0.9945
+kit_0_test: 4.1490% with AA pixels forgiven (3983 px)
+kit_0_unadj: mismatch 5.6323% (5407 px of 96000) at tolerance 4, ssim 0.9948
+kit_0_unadj: 5.5615% with AA pixels forgiven (5339 px)
+  [1] id=NodeId(106660) name="Metrics" size=Vec2 { x: 1216.0, y: 340.0 } scale_mode=Fill image_ref=da95bf019bfa9a4309c2f5cc50e41426c13c9f61 has_img=true adjust=ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: -0.46769068, vignette: 0.0, temperature: 0.0, vibrance: 0.0, contrast: 0.0, brightness: 0.0 }
+kit_1_test: mismatch 4.1979% (4030 px of 96000) at tolerance 4, ssim 0.9943
+kit_1_test: 3.9396% with AA pixels forgiven (3782 px)
+kit_1_unadj: mismatch 4.2146% (4046 px of 96000) at tolerance 4, ssim 0.9946
+kit_1_unadj: 4.0844% with AA pixels forgiven (3921 px)
+  [2] id=NodeId(106786) name="Metrics" size=Vec2 { x: 343.0, y: 788.0 } scale_mode=Fill image_ref=da95bf019bfa9a4309c2f5cc50e41426c13c9f61 has_img=true adjust=ImageAdjust { tint: 0.0, shadows: 0.0, highlights: 0.0, detail: 0.0, exposure: -0.46769068, vignette: 0.0, temperature: 0.0, vibrance: 0.0, contrast: 0.0, brightness: 0.0 }
+kit_2_test: mismatch 7.9519% (6546 px of 82320) at tolerance 4, ssim 0.9808
+kit_2_test: 7.5158% with AA pixels forgiven (6187 px)
+kit_2_unadj: mismatch 8.0928% (6662 px of 82320) at tolerance 4, ssim 0.9818
+kit_2_unadj: 7.7284% with AA pixels forgiven (6362 px)
+test kit_nodes_with_adjustments_render_on_cpu_and_gpu ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 30 filtered out; finished in 29.64s
+
+=== designos-app picker new tests ===
+warning: /Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/Cargo.toml: file `/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app/src/main.rs` found to be present in multiple build targets:
+  * `bin` target `designos`
+  * `bin` target `designos-studio`
+   Compiling smallvec v1.16.3
+   Compiling serde_core v1.0.229
+   Compiling hashbrown v0.17.1
+   Compiling syn v2.0.119
+   Compiling objc2-core-foundation v0.3.2
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.154
+   Compiling fax v0.2.7
+   Compiling either v1.19.0
+   Compiling ref-cast v1.0.27
+   Compiling ref-cast-impl v1.0.27
+   Compiling serde_derive_internals v0.30.0
+   Compiling pin-project-lite v0.2.17
+   Compiling getrandom v0.4.3
+   Compiling objc-sys v0.3.5
+   Compiling dyn-clone v1.0.20
+   Compiling rustc-hash v2.1.3
+   Compiling icu_normalizer v2.3.0
+   Compiling parking_lot_core v0.9.12
+   Compiling harfrust v0.5.2
+   Compiling polycool v0.4.0
+   Compiling parking_lot v0.12.5
+   Compiling idna_adapter v1.2.2
+   Compiling idna v1.1.0
+   Compiling kurbo v0.13.1
+   Compiling url v2.5.8
+   Compiling objc2-foundation v0.3.2
+   Compiling ureq v2.12.1
+   Compiling rayon v1.12.0
+   Compiling uuid v1.28.0
+   Compiling kurbo v0.11.3
+   Compiling wgpu-types v29.0.4
+   Compiling objc2 v0.5.3
+   Compiling block2 v0.5.1
+   Compiling cosmic-text v0.19.0
+   Compiling color v0.3.3
+   Compiling objc2-metal v0.3.2
+   Compiling tracing-core v0.1.36
+   Compiling wgpu-hal v29.0.4
+   Compiling indexmap v2.14.2
+   Compiling dispatch v0.2.0
+   Compiling chrono v0.4.45
+   Compiling core-foundation-sys v0.8.7
+   Compiling rustybuzz v0.20.1
+   Compiling svgtypes v0.15.3
+   Compiling objc2-foundation v0.2.2
+   Compiling core-foundation v0.9.4
+   Compiling peniko v0.6.1
+   Compiling accesskit v0.24.1
+   Compiling objc2-quartz-core v0.3.2
+   Compiling guillotiere v0.7.0
+   Compiling raw-window-metal v1.1.0
+   Compiling read-fonts v0.39.2
+   Compiling foreign-types-macros v0.2.4
+   Compiling ahash v0.8.12
+   Compiling fearless_simd v0.4.1
+   Compiling unicode-general-category v1.1.0
+   Compiling futures-sink v0.3.34
+   Compiling futures-core v0.3.34
+   Compiling foreign-types-shared v0.3.1
+   Compiling usvg v0.45.1
+   Compiling objc2-app-kit v0.2.2
+   Compiling core-graphics-types v0.1.3
+   Compiling objc2-core-graphics v0.3.2
+   Compiling emath v0.35.0
+   Compiling winit v0.30.13
+   Compiling vello_common v0.0.9
+   Compiling wgpu-core v29.0.4
+   Compiling winnow v1.0.4
+   Compiling ecolor v0.35.0
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling schemars_derive v1.2.3
+   Compiling vello_cpu v0.0.9
+   Compiling foreign-types v0.5.0
+   Compiling objc2-app-kit v0.3.2
+   Compiling futures-channel v0.3.34
+   Compiling futures-macro v0.3.34
+   Compiling wgpu v29.0.4
+   Compiling harfrust v0.7.0
+   Compiling core-graphics v0.23.2
+   Compiling skrifa v0.42.1
+   Compiling smol_str v0.2.2
+   Compiling futures-task v0.3.34
+   Compiling nohash-hasher v0.2.0
+   Compiling slab v0.4.12
+   Compiling dpi v0.1.2
+   Compiling futures-io v0.3.34
+   Compiling epaint_default_fonts v0.35.0
+   Compiling cursor-icon v1.2.0
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling serde_spanned v1.1.2
+   Compiling accesskit_consumer v0.38.0
+   Compiling itertools v0.14.0
+   Compiling tokio-macros v2.7.2
+   Compiling memoffset v0.6.5
+   Compiling thiserror v1.0.69
+   Compiling bytes v1.12.1
+   Compiling zip v9.0.4
+   Compiling accesskit_macos v0.26.3
+   Compiling toml v1.1.8+spec-1.1.0
+   Compiling serial-core v0.4.0
+   Compiling termios v0.2.2
+   Compiling ioctl-rs v0.1.6
+   Compiling web-time v1.1.0
+   Compiling anyhow v1.0.104
+   Compiling rmcp v3.5.1
+   Compiling serial-unix v0.4.0
+   Compiling futures-util v0.3.34
+   Compiling winresource v0.1.34
+   Compiling webbrowser v1.2.4
+   Compiling type-map v0.5.1
+   Compiling vte_generate_state_changes v0.1.2
+   Compiling designos-mcp v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-mcp)
+   Compiling rfd v0.17.2
+   Compiling pastey v0.2.3
+   Compiling pin-utils v0.1.1
+   Compiling nix v0.25.1
+   Compiling vte v0.11.1
+   Compiling designos-app v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-app)
+   Compiling serial v0.4.0
+   Compiling rgb v0.8.53
+   Compiling tokio v1.53.2
+   Compiling dispatch2 v0.3.1
+   Compiling toml_writer v1.1.3+spec-1.1.0
+   Compiling downcast-rs v1.2.1
+   Compiling shell-words v1.1.1
+   Compiling unicode-width v0.1.14
+   Compiling zerocopy-derive v0.8.62
+   Compiling tracing-attributes v0.1.31
+   Compiling thiserror-impl v1.0.69
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling resvg v0.45.1
+   Compiling open v5.4.4
+   Compiling schemars v1.2.3
+   Compiling vt100 v0.15.2
+   Compiling designos-doc v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-doc)
+   Compiling tokio-util v0.7.20
+   Compiling tracing v0.1.44
+   Compiling filedescriptor v0.8.3
+   Compiling portable-pty v0.8.1
+   Compiling zerocopy v0.8.62
+   Compiling accesskit_winit v0.32.2
+   Compiling half v2.7.1
+   Compiling epaint v0.35.0
+   Compiling tiff v0.11.3
+   Compiling naga v29.0.4
+   Compiling egui v0.35.0
+   Compiling image v0.25.10
+   Compiling arboard v3.6.1
+   Compiling designos-diff v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-diff)
+   Compiling designos-fonts v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-fonts)
+   Compiling wgpu-naga-bridge v29.0.4
+   Compiling designos-render v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-render)
+   Compiling wgpu-core-deps-apple v29.0.4
+   Compiling egui-winit v0.35.0
+   Compiling designos-svg v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-svg)
+   Compiling designos-export v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-export)
+   Compiling designos-webcapture v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-webcapture)
+   Compiling designos-fig v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-fig)
+   Compiling egui-wgpu v0.35.0
+   Compiling designos-gpu v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-gpu)
+   Compiling eframe v0.35.0
+   Compiling designos-library v0.7.7 (/Users/jangtrinh/orca/workspaces/design-os-studio/agy-163b-image-adjustments-panel/crates/designos-library)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 12s
+     Running unittests src/main.rs (out/cargo/debug/deps/designos-22365f4a34dba6ca)
+
+running 3 tests
+test widgets::picker::tests::picker_tile_scale_row_shown_only_in_tile_mode_and_edits_scale ... ok
+test widgets::picker::tests::picker_rotate_buttons_step_by_90_degrees ... ok
+test widgets::picker::tests::picker_adjustment_row_edits_through_the_paint_path ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4325 filtered out; finished in 0.20s
+

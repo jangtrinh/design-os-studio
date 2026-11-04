@@ -173,6 +173,14 @@ impl PaintCache {
                 // local -> uv (0..1 over the image)
                 inst.c1 = [u.0, v.0, u.1, v.1];
                 inst.c2 = [u.2, v.2, 0.0, 0.0];
+                if designos_render::image_adjust::has_rendered_adjustments(&params.adjust) {
+                    let adj = &params.adjust;
+                    inst.q[1] = 1;
+                    inst.c0 = [adj.exposure.clamp(-1.0, 1.0), adj.contrast.clamp(-1.0, 1.0), adj.vibrance.clamp(-1.0, 1.0), adj.temperature.clamp(-1.0, 1.0)];
+                    inst.c2[2] = adj.tint.clamp(-1.0, 1.0);
+                    inst.c2[3] = adj.highlights.clamp(-1.0, 1.0);
+                    inst.t[3] = adj.shadows.clamp(-1.0, 1.0);
+                }
                 Some(PaintInst { inst, ramp: None, image: Some(img) })
             }
         }

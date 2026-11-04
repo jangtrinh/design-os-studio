@@ -1,0 +1,58 @@
+# red on e01b93f3a: tests added in this round, run against the base renderer (paint.rs from e01b93f3a) or the base picker
+# render unit and sampling tests
+test image_adjust::tests::adjusted_fill_work_is_bounded_by_the_visible_region ... FAILED
+adjustment ran on 12000000 pixels, more than the 64x64 window that is on screen
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 58 filtered out; finished in 2.20s
+test exposure_is_applied_to_the_blended_colour_at_a_black_and_white_edge ... FAILED
+test contrast_and_temperature_are_applied_to_the_blended_colour_at_an_edge ... FAILED
+test saturation_is_applied_to_the_blended_colour_at_a_coloured_edge ... FAILED
+test a_translucent_edge_is_adjusted_as_straight_colour_and_keeps_its_alpha ... FAILED
+exposure +1: adjusted pixel differs from the adjusted sample by 173 levels
+contrast and temperature: adjusted pixel differs from the adjusted sample by 23 levels
+saturation +1: adjusted pixel differs from the adjusted sample by 26 levels
+test result: FAILED. 0 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test each_backend_adjusts_the_colour_it_sampled_from_a_stretched_hard_edge ... FAILED
+
+# gpu hard edge tests (final colour pairs)
+test each_backend_adjusts_the_colour_it_sampled_from_a_stretched_hard_edge ... FAILED
+test adjustments_act_on_the_blended_colour_at_hard_edges_equally_on_cpu_and_gpu ... FAILED
+thread 'each_backend_adjusts_the_colour_it_sampled_from_a_stretched_hard_edge' (98002630) panicked at crates/designos-gpu/tests/fidelity.rs:1514:17:
+CPU pixel 12: adjusted [3, 3, 3, 255] is not the adjustment of the sampled [3, 3, 3, 255] (want [24, 24, 24, 255])
+thread 'adjustments_act_on_the_blended_colour_at_hard_edges_equally_on_cpu_and_gpu' (98002629) panicked at crates/designos-gpu/tests/fidelity.rs:1476:9:
+exposure_plus_1: CPU and GPU differ by 14 levels at (14, 0) (cpu [231, 242, 254, 255], gpu [245, 248, 249, 255])
+
+# picker and properties tests (base picker and properties code)
+test panels::properties::tests::switching_several_filled_nodes_to_crop_frames_each_by_its_own_size ... FAILED
+test widgets::picker::tests::editing_an_adjustment_keeps_every_nodes_own_crop_frame ... FAILED
+test widgets::picker::tests::rotating_a_cropped_picture_turns_the_pixels_a_quarter_turn_each_click ... FAILED
+test widgets::picker::tests::a_picture_that_cannot_be_decoded_gets_no_invented_crop_frame ... FAILED
+test widgets::picker::tests::cropping_several_nodes_gives_each_its_own_framing_in_one_undo_step ... FAILED
+test widgets::picker::tests::a_fit_picture_turned_a_quarter_then_cropped_then_rotated_shows_the_half_turn_framing ... FAILED
+thread 'panels::properties::tests::switching_several_filled_nodes_to_crop_frames_each_by_its_own_size' (97541137) panicked at crates/designos-app/src/panels/properties.rs:3955:13:
+assertion `left == right` failed: node 1 still shows its own Fill framing
+  left: [255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+ right: [255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+thread 'widgets::picker::tests::editing_an_adjustment_keeps_every_nodes_own_crop_frame' (97541141) panicked at crates/designos-app/src/widgets/picker.rs:4177:9:
+assertion `left != right` failed: the two nodes have different frames
+  left: Some([2.0, 0.0, -0.5, 0.0, 1.0, -0.0])
+ right: Some([2.0, 0.0, -0.5, 0.0, 1.0, -0.0])
+thread 'widgets::picker::tests::rotating_a_cropped_picture_turns_the_pixels_a_quarter_turn_each_click' (97541142) panicked at crates/designos-app/src/widgets/picker.rs:4115:9:
+assertion `left == right` failed: rotate right turns the pixels clockwise
+  left: [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255], [255, 255, 0, 255]]
+ right: [[0, 0, 255, 255], [255, 0, 0, 255], [255, 255, 0, 255], [0, 255, 0, 255]]
+thread 'widgets::picker::tests::a_picture_that_cannot_be_decoded_gets_no_invented_crop_frame' (97541139) panicked at crates/designos-app/src/widgets/picker.rs:4194:9:
+assertion `left == right` failed: an unknown picture size leaves the crop at the identity
+  left: Some([1.0, 0.0, -0.0, 0.0, 1.0, -0.0])
+ right: None
+thread 'widgets::picker::tests::cropping_several_nodes_gives_each_its_own_framing_in_one_undo_step' (97541140) panicked at crates/designos-app/src/widgets/picker.rs:4095:9:
+node 1 keeps its own framing: pixels differ by up to 255 levels
+thread 'widgets::picker::tests::a_fit_picture_turned_a_quarter_then_cropped_then_rotated_shows_the_half_turn_framing' (97541138) panicked at crates/designos-app/src/widgets/picker.rs:4095:9:
+one more quarter turn in Crop is the half-turn framing: pixels differ by up to 255 levels
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 4363 filtered out; finished in 0.05s
+
+# leaving Crop and coming back (crop_frame.rs from the previous commit)
+test widgets::picker::tests::leaving_crop_and_coming_back_gives_each_node_its_own_frame_again ... FAILED
+thread 'widgets::picker::tests::leaving_crop_and_coming_back_gives_each_node_its_own_frame_again' (97930968) panicked at crates/designos-app/src/widgets/picker.rs:4310:17:
+assertion `left == right` failed: node 1 still stores its own frame in Tile
+  left: Some([2.0, 0.0, -0.5, 0.0, 1.0, -0.0])
+ right: Some([1.0, 0.0, -0.0, 0.0, 2.0, -0.5])
