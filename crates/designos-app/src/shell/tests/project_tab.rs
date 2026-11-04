@@ -190,10 +190,9 @@ fn delete_page_asks_first_and_moves_the_page_to_the_library_trash() {
         settle(&mut s, |s| !docs.dir().join(ERROR_HANDLING).exists() && manifest(s, &pid).group(Group::Spec).pages.len() == 3),
         "the page file leaves the docs folder and the manifest"
     );
-    let trash = s.app().lib.as_ref().unwrap().root().join("trash");
-    let moved: Vec<_> = std::fs::read_dir(&trash).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("page-")).collect();
-    assert_eq!(moved.len(), 1, "one trash entry");
-    assert!(moved[0].path().join("page.md").exists() && moved[0].path().join("page.json").exists());
+    let items = s.app().lib.as_ref().unwrap().list_trash();
+    assert_eq!(items.len(), 1, "one trash item");
+    assert_eq!((items[0].kind.clone(), items[0].name.as_str()), (designos_library::TrashKind::Page, "Error handling"));
     let spec = manifest(&s, &pid).group(Group::Spec).pages.clone();
     assert_eq!(spec, vec![PAYMENT_METHODS, PAYMENT_FLOW, CART_RULES]);
     assert!(settle(&mut s, |s| !state(s).snapshot.pages.contains_key(ERROR_HANDLING)), "the tree drops the page");
@@ -349,4 +348,41 @@ fn write_the_checkout_fixture_library() {
         fixture::write_checkout_docs(&store, "Checkout", &web.id);
     }
     println!("PROJECT_ID={}\nWEB_FILE_ID={}", project.id, web.id);
+}
+
+/// Opens Home on its Trash section (the Project tab stays open behind it).
+fn open_home_trash(s: &mut Sim) {
+    let mut tabs = std::mem::take(&mut s.shell.app.tabs);
+    tabs.enter_home(&mut s.shell.app);
+    s.shell.app.tabs = tabs;
+    crate::home::apply(&mut s.shell.app, Act::Go(crate::home::Section::Trash));
+    s.shell.app.home.as_mut().unwrap().dirty = true;
+    s.frame(vec![]);
+    s.frame(vec![]);
+}
+
+#[test]
+fn a_deleted_page_shows_in_homes_trash_is_counted_and_restore_puts_it_back() {
+    let (mut s, _dir, pid, _file) = checkout_sim();
+    open_project(&mut s, &pid);
+    let docs = docs_of(&s, &pid);
+    let at = s.rect_of(&format!("project-tree-page-{ERROR_HANDLING}")).center();
+    s.right_click(at);
+    s.click(s.rect_of("project-menu-Delete").center());
+    s.click(s.rect_of("project-delete-confirm").center());
+    assert!(settle(&mut s, |s| !docs.dir().join(ERROR_HANDLING).exists() && manifest(s, &pid).group(Group::Spec).pages.len() == 3));
+    open_home_trash(&mut s);
+    let items = s.app().home.as_ref().unwrap().snap.trash.clone();
+    assert_eq!(items.len(), 1, "Home lists the page: {items:?}");
+    assert_eq!((items[0].kind.clone(), items[0].name.as_str()), (designos_library::TrashKind::Page, "Error handling"));
+    // "Empty trash" counts it: the confirmation is asked about one item.
+    crate::home::apply(&mut s.shell.app, Act::EmptyTrash);
+    assert!(
+        s.app().dialog.as_ref().is_some_and(|d| d.lines.iter().any(|(l, _)| l.contains("1 item will be permanently deleted"))),
+        "the confirmation counts the page"
+    );
+    s.shell.app.dialog = None;
+    crate::home::apply(&mut s.shell.app, Act::Restore(items[0].id.clone()));
+    assert!(docs.dir().join(ERROR_HANDLING).exists(), "the file is back");
+    assert_eq!(manifest(&s, &pid).group(Group::Spec).pages.last().map(String::as_str), Some(ERROR_HANDLING), "listed in Spec again");
 }
