@@ -1254,6 +1254,7 @@ fn kit_nodes_with_adjustments_render_on_cpu_and_gpu() {
     let Some(mut g) = gpu() else { return };
     let tag_opt = std::env::var("DESIGNOS_KIT_EVIDENCE_TAG").ok();
     let tag = tag_opt.as_deref().unwrap_or("test");
+    let prefix = std::env::var("DESIGNOS_KIT_EVIDENCE_PREFIX").unwrap_or_default();
     let ev_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plans/reports/agy-163b-image-adjustments-panel-evidence");
     if tag_opt.is_some() {
         std::fs::create_dir_all(&ev_dir).unwrap();
@@ -1261,12 +1262,12 @@ fn kit_nodes_with_adjustments_render_on_cpu_and_gpu() {
         let exp_t = solid_image_scene([0x80, 0x80, 0x80, 0xFF], ImageAdjust { exposure: 1.0, ..Default::default() }, Color::BLACK);
         let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
         let exp_cmp = compare(&mut g, &format!("solid_808080_exp1_{tag}"), &exp_t.doc, exp_t.page, vp, (16, 16), 2);
-        exp_cmp.cpu.save_png(ev_dir.join(format!("solid-808080-exp1-{tag}-cpu.png"))).unwrap();
-        exp_cmp.gpu.save_png(ev_dir.join(format!("solid-808080-exp1-{tag}-gpu.png"))).unwrap();
+        exp_cmp.cpu.save_png(ev_dir.join(format!("{prefix}solid-808080-exp1-{tag}-cpu.png"))).unwrap();
+        exp_cmp.gpu.save_png(ev_dir.join(format!("{prefix}solid-808080-exp1-{tag}-gpu.png"))).unwrap();
         let base_t = solid_image_scene([0x80, 0x80, 0x80, 0xFF], ImageAdjust::default(), Color::BLACK);
         let base_cmp = compare(&mut g, "solid_808080_exp1_base", &base_t.doc, base_t.page, vp, (16, 16), 2);
-        base_cmp.cpu.save_png(ev_dir.join("solid-808080-exp1-base-cpu.png")).unwrap();
-        base_cmp.gpu.save_png(ev_dir.join("solid-808080-exp1-base-gpu.png")).unwrap();
+        base_cmp.cpu.save_png(ev_dir.join(format!("{prefix}solid-808080-exp1-base-cpu.png"))).unwrap();
+        base_cmp.gpu.save_png(ev_dir.join(format!("{prefix}solid-808080-exp1-base-gpu.png"))).unwrap();
     }
     let fig_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/kit-clone.fig");
     if !fig_path.exists() {
@@ -1317,8 +1318,8 @@ fn kit_nodes_with_adjustments_render_on_cpu_and_gpu() {
         let cmp = compare(&mut g, &format!("kit_{idx}_{tag}"), &t.doc, t.page, vp, (w, h), 4);
         assert!(cmp.report_aa.ratio < 0.10, "kit node {idx} ({name}) CPU vs GPU mismatch too high: {:?}", cmp.report_aa);
         if tag_opt.is_some() {
-            cmp.cpu.save_png(ev_dir.join(format!("kit-node-{idx}-{tag}-cpu.png"))).unwrap();
-            cmp.gpu.save_png(ev_dir.join(format!("kit-node-{idx}-{tag}-gpu.png"))).unwrap();
+            cmp.cpu.save_png(ev_dir.join(format!("{prefix}kit-node-{idx}-{tag}-cpu.png"))).unwrap();
+            cmp.gpu.save_png(ev_dir.join(format!("{prefix}kit-node-{idx}-{tag}-gpu.png"))).unwrap();
         }
         if tag != "base" {
             let mut unadj_fill = fill.clone();
@@ -1425,4 +1426,96 @@ fn image_adjustments_interactive_frame_budget_holds() {
     assert!(base_p95 < budget_ms, "base p95 {:.3}ms exceeded {:.1}ms budget", base_p95, budget_ms);
     assert!(adj_p95 < budget_ms, "live adjust p95 {:.3}ms exceeded {:.1}ms budget", adj_p95, budget_ms);
     assert!(adj_progs < 64, "offscreen programs {} must remain < 64", adj_progs);
+}
+
+/// A 64x64 picture of one-pixel-wide vertical stripes in `a` and `b`, drawn on a 63x63 node: a little under one device
+/// pixel per texel, so both renderers filter bilinearly and every pixel of a row blends the two stripes at another weight.
+fn stripes_scene(a: [u8; 4], b: [u8; 4], adjust: ImageAdjust) -> T {
+    let mut t = T::new();
+    t.node(t.page).kind = NodeKind::Page { background: Color::BLACK };
+    // the GPU keeps decoded pictures by name, so every colour pair gets its own
+    let key = format!("stripes_{a:02x?}_{b:02x?}");
+    t.doc.images.insert(key.clone(), png_bytes(64, 64, |x, _| if x % 2 == 0 { a } else { b }));
+    let r = t.rect(None, Rect::new(0.0, 0.0, 63.0, 63.0), Color::BLACK);
+    t.node(r).fills = vec![Paint {
+        kind: PaintKind::Image { image_ref: key, scale_mode: ImageScaleMode::Fill, params: ImageParams { adjust, ..Default::default() } },
+        opacity: 1.0,
+        visible: true,
+        blend: BlendMode::Normal,
+    }];
+    t
+}
+
+#[test]
+fn adjustments_act_on_the_blended_colour_at_hard_edges_equally_on_cpu_and_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let cases: [(&str, [u8; 4], [u8; 4], ImageAdjust); 5] = [
+        ("exposure_plus_1", [48, 48, 48, 255], [208, 208, 208, 255], ImageAdjust { exposure: 1.0, ..Default::default() }),
+        ("saturation_plus_1", [128, 64, 64, 255], [64, 64, 128, 255], ImageAdjust { vibrance: 1.0, ..Default::default() }),
+        ("contrast_temperature", [30, 60, 120, 255], [240, 220, 90, 255], ImageAdjust { contrast: 0.3, temperature: 0.6, ..Default::default() }),
+        ("tint", [30, 60, 120, 255], [240, 220, 90, 255], ImageAdjust { tint: 0.8, ..Default::default() }),
+        ("highlights_shadows", [48, 48, 48, 255], [208, 208, 208, 255], ImageAdjust { highlights: -0.8, shadows: 0.6, ..Default::default() }),
+    ];
+    for (label, a, b, adjust) in cases {
+        let t = stripes_scene(a, b, adjust);
+        g.compiler.geom.clear();
+        let c = compare(&mut g, &format!("stripes_{label}"), &t.doc, t.page, vp, (63, 63), 2);
+        let mut worst = 0u8;
+        let mut at = (0, 0);
+        for y in 0..63 {
+            for x in 0..63 {
+                let (p, q) = (px(&c.cpu, x, y), px(&c.gpu, x, y));
+                let d = (0..3).map(|k| p[k].abs_diff(q[k])).max().unwrap();
+                if d > worst {
+                    worst = d;
+                    at = (x, y);
+                }
+            }
+        }
+        assert!(worst <= 2, "{label}: CPU and GPU differ by {worst} levels at {at:?} (cpu {:?}, gpu {:?})", px(&c.cpu, at.0, at.1), px(&c.gpu, at.0, at.1));
+        let plain = stripes_scene(a, b, ImageAdjust::default());
+        g.compiler.geom.clear();
+        let base = compare(&mut g, &format!("stripes_{label}_plain"), &plain.doc, plain.page, vp, (63, 63), 2);
+        assert_ne!(c.cpu.data(), base.cpu.data(), "{label}: the CPU render must differ from the unadjusted one");
+    }
+}
+
+/// The literal black|white 2x1 picture stretched over a wide node: the CPU magnifies with a bicubic filter and the GPU
+/// with a bilinear one, so the two only agree on what is adjusted: each backend adjusts its own sampled colour.
+#[test]
+fn each_backend_adjusts_the_colour_it_sampled_from_a_stretched_hard_edge() {
+    let Some(mut g) = gpu() else { return };
+    let vp = Viewport { offset: Vec2::ZERO, zoom: 1.0, dpr: 1.0 };
+    let adjust = ImageAdjust { exposure: 1.0, ..Default::default() };
+    let build = |adjust: ImageAdjust| {
+        let mut t = T::new();
+        t.node(t.page).kind = NodeKind::Page { background: Color::BLACK };
+        t.doc.images.insert("edge".into(), png_bytes(2, 1, |x, _| if x == 0 { [0, 0, 0, 255] } else { [255, 255, 255, 255] }));
+        let r = t.rect(None, Rect::new(0.0, 0.0, 64.0, 4.0), Color::BLACK);
+        t.node(r).fills = vec![Paint {
+            kind: PaintKind::Image { image_ref: "edge".into(), scale_mode: ImageScaleMode::Fill, params: ImageParams { adjust, ..Default::default() } },
+            opacity: 1.0,
+            visible: true,
+            blend: BlendMode::Normal,
+        }];
+        t
+    };
+    let plain = build(ImageAdjust::default());
+    let adj = build(adjust);
+    g.compiler.geom.clear();
+    let p = compare(&mut g, "edge_stretched_plain", &plain.doc, plain.page, vp, (64, 4), 2);
+    g.compiler.geom.clear();
+    let a = compare(&mut g, "edge_stretched_exposure", &adj.doc, adj.page, vp, (64, 4), 2);
+    for x in 0..64 {
+        for (name, plain_px, adj_px, tol) in [("CPU", px(&p.cpu, x, 2), px(&a.cpu, x, 2), 1u8), ("GPU", px(&p.gpu, x, 2), px(&a.gpu, x, 2), 2u8)] {
+            let want = designos_render::image_adjust::adjust_rgba(plain_px, &adjust);
+            for k in 0..3 {
+                assert!(
+                    want[k].abs_diff(adj_px[k]) <= tol,
+                    "{name} pixel {x}: adjusted {adj_px:?} is not the adjustment of the sampled {plain_px:?} (want {want:?})"
+                );
+            }
+        }
+    }
 }

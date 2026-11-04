@@ -346,22 +346,40 @@ pub fn with_paint<R>(
                     let unit = -1e-5..=1.0 + 1e-5;
                     !unit.contains(&uu) || !unit.contains(&vv)
                 });
-            let adjusted_img: Option<sk::Pixmap> = crate::image_adjust::has_rendered_adjustments(&params.adjust).then(|| {
-                let mut pm = (*img).clone();
-                crate::image_adjust::apply_pixmap_adjustments(&mut pm.as_mut(), &params.adjust);
-                pm
-            });
-            let src_pm: &sk::Pixmap = adjusted_img.as_ref().unwrap_or(img.as_ref());
-            if matches!(scale_mode, d::ImageScaleMode::Fit) || crop_leaves_unit_uv {
-                // 1px transparent border so Pad leaves the letterbox or out-of-bounds crop transparent
-                let (w, h) = (src_pm.width(), src_pm.height());
-                let mut padded = sk::Pixmap::new(w + 2, h + 2)?;
-                padded.draw_pixmap(1, 1, src_pm.as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
-                let ts2 = sk::Transform::from_translate(-1.0, -1.0).post_concat(shader_ts);
-                paint.shader = sk::Pattern::new(padded.as_ref(), spread, quality, a, ts2);
-                return Some(f(&paint));
+            // A 1px transparent border lets Pad leave a Fit letterbox or an out-of-bounds crop transparent.
+            let padded: Option<sk::Pixmap> = if matches!(scale_mode, d::ImageScaleMode::Fit) || crop_leaves_unit_uv {
+                let mut padded = sk::Pixmap::new(img.width() + 2, img.height() + 2)?;
+                padded.draw_pixmap(1, 1, (*img).as_ref(), &sk::PixmapPaint::default(), sk::Transform::identity(), None);
+                Some(padded)
+            } else {
+                None
+            };
+            let (src, pattern_ts) = match &padded {
+                Some(p) => (p.as_ref(), sk::Transform::from_translate(-1.0, -1.0).post_concat(shader_ts)),
+                None => ((*img).as_ref(), shader_ts),
+            };
+            if crate::image_adjust::has_rendered_adjustments(&params.adjust) {
+                let (x0, y0, x1, y1) = transformed_bounds(ts, -margin, -margin, size.x + 2.0 * margin, size.y + 2.0 * margin);
+                let region: crate::image_adjust::DeviceRegion = (
+                    (x0.floor() as i32).max(0),
+                    (y0.floor() as i32).max(0),
+                    (x1.ceil() as i32).min(target_dims.0 as i32),
+                    (y1.ceil() as i32).min(target_dims.1 as i32),
+                );
+                if region.2 <= region.0 || region.3 <= region.1 {
+                    return None;
+                }
+                let inv = ts.invert()?;
+                let scratch = crate::image_adjust::adjusted_fill_region(src, spread, quality, pattern_ts, ts, region, &params.adjust);
+                if let Some(scratch) = scratch {
+                    let from_scratch = sk::Transform::from_translate(region.0 as f32, region.1 as f32).post_concat(inv);
+                    paint.shader = sk::Pattern::new(scratch.as_ref(), sk::SpreadMode::Pad, sk::FilterQuality::Nearest, a, from_scratch);
+                    return Some(f(&paint));
+                }
+                // The scratch is over budget: the fill is drawn without its adjustments and counted.
+                crate::image_adjust::note_unadjusted_fallback();
             }
-            paint.shader = sk::Pattern::new(src_pm.as_ref(), spread, quality, a, shader_ts);
+            paint.shader = sk::Pattern::new(src, spread, quality, a, pattern_ts);
             Some(f(&paint))
         }
     }

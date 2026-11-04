@@ -3,6 +3,15 @@
 use crate::tiny_skia as sk;
 use designos_doc::{ImageAdjust, ImageParams, ImageScaleMode, Paint, PaintKind, Vec2};
 
+mod adjusted_region;
+pub use adjusted_region::unadjusted_fill_fallbacks;
+#[cfg(test)]
+pub(crate) use adjusted_region::TEST_MAX_PIXELS;
+pub(crate) use adjusted_region::{adjusted_fill_region, note_unadjusted_fallback, DeviceRegion};
+
+mod crop_frame;
+pub use crop_frame::{crop_paint_for_node, rotate_crop_transform, set_image_scale_mode, IDENTITY_CROP_TRANSFORM};
+
 /// Gamma exponent used by Figma's fragment shader for exposure, contrast, and
 /// saturation (`vec3(2.2)`).
 pub const ADJUST_GAMMA: f32 = 2.2;
@@ -24,6 +33,12 @@ pub const NEG_EXPOSURE_RESAT_PIVOT: f32 = 0.2;
 
 /// Upper bound of the positive-saturation multiplier (`mix(1.0, 2.0, vibrance)`).
 pub const POS_SAT_MAX_SCALE: f32 = 2.0;
+
+#[cfg(test)]
+thread_local! {
+    /// Pixels run through [`adjust_rgb`] on this thread; tests read it to bound the work an adjusted fill does.
+    pub(crate) static ADJUSTED_PIXELS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 #[inline]
 fn non_zero(v: f32) -> bool {
@@ -74,7 +89,7 @@ fn shadows_highlights_offset(lin: [f32; 3], shadows: f32, highlights: f32) -> f3
 fn apply_lab_tint_temp_contrast(lin: [f32; 3], temperature: f32, tint: f32, contrast: f32) -> [f32; 3] {
     let x_xyz = (0.412_456_4 * lin[0] + 0.357_576_1 * lin[1] + 0.180_437_5 * lin[2]) / 0.95047;
     let y_xyz = 0.212_672_9 * lin[0] + 0.715_152_2 * lin[1] + 0.072_175_0 * lin[2];
-    let z_xyz = (0.019_333_9 * lin[0] + 0.119_192_0 * lin[1] + 0.950_304_1 * lin[2]) / 1.08883;
+    let z_xyz = (0.019_333_9 * lin[0] + 0.119_192 * lin[1] + 0.950_304_1 * lin[2]) / 1.08883;
 
     let fx = x_xyz.max(0.0).powf(1.0 / 3.0);
     let fy = y_xyz.max(0.0).powf(1.0 / 3.0);
@@ -104,7 +119,7 @@ fn apply_lab_tint_temp_contrast(lin: [f32; 3], temperature: f32, tint: f32, cont
 
     clamp01([
         3.240_454_2 * x2 - 1.537_138_5 * y2 - 0.498_531_4 * z2,
-        -0.969_266_0 * x2 + 1.876_010_8 * y2 + 0.041_556_0 * z2,
+        -0.969_266 * x2 + 1.876_010_8 * y2 + 0.041_556_0 * z2,
         0.055_643_4 * x2 - 0.204_025_9 * y2 + 1.057_225_2 * z2,
     ])
 }
@@ -146,6 +161,8 @@ fn apply_saturation_linear(c: [f32; 3], p: f32) -> [f32; 3] {
 /// Applies the 6-step adjustment pipeline (spec section 3 rule 3) to a straight-alpha sRGB pixel `rgb` in `0.0..=1.0`.
 #[inline]
 pub fn adjust_rgb(c: [f32; 3], adj: &ImageAdjust) -> [f32; 3] {
+    #[cfg(test)]
+    ADJUSTED_PIXELS.with(|n| n.set(n.get() + 1));
     let exposure = if non_zero(adj.exposure) { adj.exposure.clamp(-1.0, 1.0) } else { 0.0 };
     let contrast = if non_zero(adj.contrast) { adj.contrast.clamp(-CONTRAST_LIMIT, CONTRAST_LIMIT) } else { 0.0 };
     let vibrance = if non_zero(adj.vibrance) { adj.vibrance.clamp(-1.0, 1.0) } else { 0.0 };
@@ -251,3 +268,6 @@ pub fn switch_image_scale_mode(paint: &mut Paint, next: ImageScaleMode, size: Ve
     }
     *scale_mode = next;
 }
+
+#[cfg(test)]
+mod tests;
