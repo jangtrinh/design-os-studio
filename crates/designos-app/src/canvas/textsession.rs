@@ -523,9 +523,11 @@ fn enter(app: &mut App) {
 
 /// Tab / Shift+Tab: nest or un-nest the list items touched by the selection.
 fn change_list_level(app: &mut App, delta: i8) {
-    let Some(range) = app.canvas.text.as_ref().map(|s| s.range()) else { return };
-    edit_props(app, Some((EditKind::Other, true)), |t, _, _| {
-        richtext::change_level(t, range.clone(), delta);
+    if app.canvas.text.is_none() {
+        return;
+    }
+    edit_props(app, Some((EditKind::Other, true)), |t, caret, anchor| {
+        richtext::change_level(t, (*caret).min(*anchor)..(*caret).max(*anchor), delta);
     });
 }
 
@@ -642,8 +644,9 @@ pub fn text_command(app: &mut App, cmd: TextCmd) {
         let sum = session_summary(app);
         match cmd {
             TextCmd::List(kind) => {
-                let Some(range) = app.canvas.text.as_ref().map(|s| s.range()) else { return };
-                edit_props(app, Some((EditKind::Other, true)), |t, _, _| richtext::toggle_list(t, range.clone(), kind));
+                edit_props(app, Some((EditKind::Other, true)), |t, caret, anchor| {
+                    richtext::toggle_list(t, (*caret).min(*anchor)..(*caret).max(*anchor), kind);
+                });
             }
             c => {
                 let f = style_fn(c, sum.as_ref());
